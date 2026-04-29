@@ -30,6 +30,11 @@ type GiftCardLookup = {
   current_balance: string;
 };
 
+type CustomerTimelineEvent = {
+  kind: string;
+  summary: string;
+};
+
 function rewardAmountString(value: string | number): string {
   return typeof value === "number" ? value.toFixed(2) : value;
 }
@@ -119,6 +124,30 @@ async function linkCouple(
     failOnStatusCode: false,
   });
   expect(res.status()).toBe(200);
+}
+
+async function unlinkCouple(
+  request: Parameters<typeof test>[0]["request"],
+  customerId: string,
+) {
+  const res = await request.delete(`${apiBase()}/api/customers/${customerId}/couple-link`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
+}
+
+async function fetchCustomerTimeline(
+  request: Parameters<typeof test>[0]["request"],
+  customerId: string,
+): Promise<CustomerTimelineEvent[]> {
+  const res = await request.get(`${apiBase()}/api/customers/${customerId}/timeline`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
+  const body = (await res.json()) as { events: CustomerTimelineEvent[] };
+  return body.events;
 }
 
 test.describe("Loyalty redemption contract", () => {
@@ -313,5 +342,42 @@ test.describe("Loyalty redemption contract", () => {
     const primaryLedger = await fetchLoyaltyLedger(request, primary.customer.id);
     expect(partnerLedger[0]?.activity_label).toBe("Reward issued");
     expect(primaryLedger[0]?.id).toBe(partnerLedger[0]?.id);
+  });
+
+  test("couple link and unlink are recorded in each customer timeline", async ({
+    request,
+  }) => {
+    const primary = await seedRmsFixture(request, "single_valid", "Timeline Couple Primary");
+    const partner = await seedRmsFixture(request, "single_valid", "Timeline Couple Partner");
+
+    await linkCouple(request, primary.customer.id, partner.customer.id);
+
+    const primaryAfterLink = await fetchCustomerTimeline(request, primary.customer.id);
+    const partnerAfterLink = await fetchCustomerTimeline(request, partner.customer.id);
+    expect(primaryAfterLink.some((event) =>
+      event.kind === "note" &&
+      event.summary.includes("Linked profile with") &&
+      event.summary.includes(partner.customer.customer_code),
+    )).toBe(true);
+    expect(partnerAfterLink.some((event) =>
+      event.kind === "note" &&
+      event.summary.includes("Linked profile with") &&
+      event.summary.includes(primary.customer.customer_code),
+    )).toBe(true);
+
+    await unlinkCouple(request, primary.customer.id);
+
+    const primaryAfterUnlink = await fetchCustomerTimeline(request, primary.customer.id);
+    const partnerAfterUnlink = await fetchCustomerTimeline(request, partner.customer.id);
+    expect(primaryAfterUnlink.some((event) =>
+      event.kind === "note" &&
+      event.summary.includes("Unlinked profile from") &&
+      event.summary.includes(partner.customer.customer_code),
+    )).toBe(true);
+    expect(partnerAfterUnlink.some((event) =>
+      event.kind === "note" &&
+      event.summary.includes("Unlinked profile from") &&
+      event.summary.includes(primary.customer.customer_code),
+    )).toBe(true);
   });
 });

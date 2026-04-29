@@ -54,10 +54,13 @@ export interface CustomerHubStats {
 
 export interface CoupleMemberPreview {
   id: string;
+  customer_code: string;
   first_name: string;
   last_name: string;
   email: string | null;
   phone: string | null;
+  couple_id: string | null;
+  couple_primary_id: string | null;
 }
 
 export interface CustomerHubData extends CustomerProfile {
@@ -206,7 +209,7 @@ function customerTimelineKindLabel(kind: string): string {
     case "wedding":
       return "Wedding activity";
     case "note":
-      return "Timeline note";
+      return "Note";
     case "measurement":
       return "Measurements";
     case "appointment":
@@ -214,7 +217,7 @@ function customerTimelineKindLabel(kind: string): string {
     case "shipping":
       return "Shipment update";
     default:
-      return kind.replace(/_/g, " ");
+      return humanizeToken(kind);
   }
 }
 
@@ -1562,6 +1565,16 @@ export function CustomerRelationshipHubDrawer({
       }) as Record<string, string>,
     [],
   );
+  const linkedPartnerName = hub?.partner
+    ? `${hub.partner.first_name} ${hub.partner.last_name}`.trim() ||
+      hub.partner.customer_code
+    : "";
+  const currentProfileRole =
+    hub && hub.couple_id
+      ? hub.id === hub.couple_primary_id
+        ? "Parent profile"
+        : "Linked profile"
+      : null;
 
   if (!open) return null;
 
@@ -1654,48 +1667,54 @@ export function CustomerRelationshipHubDrawer({
                   No customer interactions recorded yet.
                 </p>
               ) : (
-                <ul className="relative space-y-0 border-l-2 border-app-border pl-6">
+                <ul className="space-y-0">
                   {timeline.map((ev, i) => (
-                    <li key={`${ev.at}-${i}`} className="relative pb-5 last:pb-0">
+                    <li
+                      key={`${ev.at}-${i}`}
+                      className="grid grid-cols-[14px_1fr] gap-3 pb-5 last:pb-0"
+                    >
                       <span
-                        className={`absolute -left-[9px] top-1.5 h-3 w-3 rounded-full border-2 border-app-surface shadow-sm ${
+                        className={`mt-1.5 h-3 w-3 rounded-full border-2 border-app-surface shadow-sm ${
                           kindDot[ev.kind] ?? "bg-app-text-muted"
                         }`}
                       />
-                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        {readableDateTime(ev.at)} · {customerTimelineKindLabel(ev.kind)}
-                      </p>
-                      {ev.kind === "shipping" &&
-                      ev.reference_type === "shipment" &&
-                      ev.reference_id &&
-                      canShipmentsView ? (
-                        <button
-                          type="button"
-                          className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
-                          onClick={() => {
-                            setHubShipmentFocusId(ev.reference_id!);
-                            setTab("shipments");
-                          }}
-                        >
-                          {ev.summary}
-                        </button>
-                      ) : (
-                        <p className="mt-1 text-sm font-semibold text-app-text">
-                          {ev.summary}
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          {readableDateTime(ev.at)} ·{" "}
+                          {customerTimelineKindLabel(ev.kind)}
                         </p>
-                      )}
-                      {ev.wedding_party_id ? (
-                        <button
-                          type="button"
-                          className="mt-2 text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
-                          onClick={() => {
-                            onOpenWeddingParty(ev.wedding_party_id!);
-                            onClose();
-                          }}
-                        >
-                          Open wedding
-                        </button>
-                      ) : null}
+                        {ev.kind === "shipping" &&
+                        ev.reference_type === "shipment" &&
+                        ev.reference_id &&
+                        canShipmentsView ? (
+                          <button
+                            type="button"
+                            className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
+                            onClick={() => {
+                              setHubShipmentFocusId(ev.reference_id!);
+                              setTab("shipments");
+                            }}
+                          >
+                            {ev.summary}
+                          </button>
+                        ) : (
+                          <p className="mt-1 text-sm font-semibold text-app-text">
+                            {ev.summary}
+                          </p>
+                        )}
+                        {ev.wedding_party_id ? (
+                          <button
+                            type="button"
+                            className="mt-2 text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
+                            onClick={() => {
+                              onOpenWeddingParty(ev.wedding_party_id!);
+                              onClose();
+                            }}
+                          >
+                            Open wedding
+                          </button>
+                        ) : null}
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -2370,7 +2389,7 @@ export function CustomerRelationshipHubDrawer({
                   <Heart className="absolute -right-4 -bottom-4 h-24 w-24 text-app-accent/10 -rotate-12" />
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-accent">
-                      Joint Couple Account
+                      Linked profiles
                     </h3>
                     <button
                       type="button"
@@ -2388,10 +2407,11 @@ export function CustomerRelationshipHubDrawer({
                     <div className="h-10 w-10 flex items-center justify-center rounded-full bg-app-accent/20 text-app-accent font-black">
                       <Heart size={20} fill="currentColor" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <button
                         type="button"
                         onClick={() => {
+                          if (!hub.partner) return;
                           const p = hub.partner!;
                           const mockPartner: Customer = {
                             id: p.id,
@@ -2399,43 +2419,50 @@ export function CustomerRelationshipHubDrawer({
                             last_name: p.last_name,
                             email: p.email,
                             phone: p.phone,
-                            customer_code: "",
+                            customer_code: p.customer_code,
+                            couple_id: p.couple_id,
                             wedding_active: false,
                           };
                           if (onSwitchCustomer) {
                             onSwitchCustomer(mockPartner);
                           } else {
                             toast(
-                              "Switching not available in this context",
+                              "Open this linked profile from the Customers list.",
                               "info",
                             );
                           }
                         }}
                         className="font-bold text-app-text hover:underline text-left block"
                       >
-                        Linked with {hub.partner?.first_name}{" "}
-                        {hub.partner?.last_name}
+                        Open {linkedPartnerName}
                       </button>
                       <p className="text-xs text-app-text-muted">
-                        Shared sales history, loyalty, and orders are connected.
+                        {currentProfileRole}. Parent profile keeps loyalty
+                        points and store credit.
                       </p>
+                      {hub.partner?.customer_code ? (
+                        <p className="mt-1 font-mono text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Linked with {hub.partner.customer_code}
+                        </p>
+                      ) : null}
                     </div>
-                    {hub.id !== hub.couple_primary_id && (
+                    {currentProfileRole ? (
                       <div className="ml-auto flex flex-col items-end gap-1">
                         <span className="px-2 py-0.5 rounded-full bg-app-surface-active text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          Linked Profile
+                          {currentProfileRole}
                         </span>
                         <div className="group relative">
                           <span className="cursor-help underline decoration-dotted text-app-text-muted text-[10px]">
                             What is this?
                           </span>
                           <div className="absolute right-0 bottom-full mb-2 w-48 scale-0 group-hover:scale-100 origin-bottom-right transition-transform bg-app-surface border border-app-border p-3 text-xs text-app-text shadow-xl rounded-xl z-50">
-                            This profile is linked to the joint account. Sales
-                            history is kept on the primary profile.
+                            The parent profile keeps loyalty points and store
+                            credit. Linked profiles remain openable from either
+                            side.
                           </div>
                         </div>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </section>
               ) : (

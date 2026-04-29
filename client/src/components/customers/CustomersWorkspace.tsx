@@ -121,6 +121,8 @@ interface CustomerBrowseRow {
   wedding_active: boolean;
   wedding_party_name: string | null;
   wedding_party_id: string | null;
+  couple_id: string | null;
+  couple_primary_id: string | null;
   lifecycle_state: CustomerLifecycleState;
 }
 
@@ -148,6 +150,7 @@ function rowToCustomer(r: CustomerBrowseRow): Customer {
     company_name: r.company_name,
     email: r.email,
     phone: r.phone,
+    couple_id: r.couple_id,
   };
 }
 
@@ -1226,6 +1229,12 @@ export default function CustomersWorkspace({
                           VIP
                         </span>
                       ) : null}
+                      {r.couple_id ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent">
+                          <Heart size={10} fill="currentColor" />
+                          Linked
+                        </span>
+                      ) : null}
                       {!customerProfileComplete(r) ? (
                         <span className="inline-flex items-center rounded-full border border-app-warning/16 bg-app-warning/8 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
                           Profile incomplete
@@ -1424,6 +1433,12 @@ export default function CustomersWorkspace({
                               {!customerProfileComplete(r) ? (
                                 <span className="inline-flex items-center rounded-full border border-app-warning/16 bg-app-warning/8 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
                                   Profile incomplete
+                                </span>
+                              ) : null}
+                              {r.couple_id ? (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent">
+                                  <Heart size={10} fill="currentColor" />
+                                  Linked
                                 </span>
                               ) : null}
                             </div>
@@ -1791,6 +1806,10 @@ export default function CustomersWorkspace({
           onAddToWedding={onAddToWedding}
           onBookAppointment={onBookAppointment}
           onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+          onSwitchCustomer={(nextCustomer) => {
+            setHubInitialTab("profile");
+            setPicked(nextCustomer);
+          }}
           baseUrl={baseUrl}
         />
       ) : null}

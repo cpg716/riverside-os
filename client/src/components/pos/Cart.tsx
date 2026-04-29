@@ -2478,6 +2478,9 @@ export default function Cart({
             setSelectedCustomer(c);
             setCustomerProfileHubOpen(false);
           }}
+          onSwitchCustomer={(c: Customer) => {
+            setSelectedCustomer(c);
+          }}
           navigateAfterStartSale={false}
           baseUrl={baseUrl}
         />

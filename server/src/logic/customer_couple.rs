@@ -8,13 +8,11 @@
 //! The user's request: "Only 1 account keeps that history as counted, the other just gets a 'archived' view of what was purchased,
 //! but does not duplicate sales revenue/inventory/finance/loyalty, etc type stuff like the main account keeps on record."
 //!
-//! To achieve this without destructive reparenting (which makes unlinking hard), we focus on the "Combined View" logic.
-//! If "only 1 account keeps that history as counted", we may need to reparent existing orders to the primary,
-//! but store the `original_customer_id` if we want to support true unlinking with history restoration.
-//!
-//! However, standard practice for "Archive" mode is often just a pointer.
+//! To avoid destructive transaction reparenting, linked profiles use combined views for purchase history.
+//! Loyalty points and store credit move to the primary profile when the link is created.
 
-use sqlx::{PgPool, Postgres, Transaction};
+use rust_decimal::Decimal;
+use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -24,6 +22,116 @@ pub enum CoupleError {
     Db(#[from] sqlx::Error),
     #[error("{0}")]
     BadRequest(String),
+}
+
+#[derive(Debug, FromRow)]
+struct CoupleCustomerSnapshot {
+    id: Uuid,
+    customer_code: String,
+    first_name: String,
+    last_name: String,
+}
+
+impl CoupleCustomerSnapshot {
+    fn label(&self) -> String {
+        let name = format!("{} {}", self.first_name.trim(), self.last_name.trim())
+            .trim()
+            .to_string();
+        if name.is_empty() {
+            self.customer_code.clone()
+        } else {
+            format!("{name} ({})", self.customer_code)
+        }
+    }
+}
+
+async fn load_customer_snapshot(
+    tx: &mut Transaction<'_, Postgres>,
+    customer_id: Uuid,
+) -> Result<CoupleCustomerSnapshot, CoupleError> {
+    sqlx::query_as::<_, CoupleCustomerSnapshot>(
+        r#"
+        SELECT id, customer_code, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name
+        FROM customers
+        WHERE id = $1
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| CoupleError::BadRequest("Customer not found".to_string()))
+}
+
+async fn insert_couple_timeline_note(
+    tx: &mut Transaction<'_, Postgres>,
+    customer_id: Uuid,
+    body: String,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO customer_timeline_notes (customer_id, body, created_by)
+        VALUES ($1, $2, NULL)
+        "#,
+    )
+    .bind(customer_id)
+    .bind(body)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn move_store_credit_to_primary(
+    tx: &mut Transaction<'_, Postgres>,
+    primary_id: Uuid,
+    secondary_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let secondary_account: Option<(Uuid, Decimal)> = sqlx::query_as(
+        "SELECT id, balance FROM store_credit_accounts WHERE customer_id = $1 FOR UPDATE",
+    )
+    .bind(secondary_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let Some((secondary_account_id, secondary_balance)) = secondary_account else {
+        return Ok(());
+    };
+
+    let primary_account: Option<(Uuid, Decimal)> = sqlx::query_as(
+        "SELECT id, balance FROM store_credit_accounts WHERE customer_id = $1 FOR UPDATE",
+    )
+    .bind(primary_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some((primary_account_id, primary_balance)) = primary_account {
+        let combined = primary_balance + secondary_balance;
+        sqlx::query(
+            "UPDATE store_credit_accounts SET balance = $1, updated_at = now() WHERE id = $2",
+        )
+        .bind(combined)
+        .bind(primary_account_id)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query("UPDATE store_credit_ledger SET account_id = $1 WHERE account_id = $2")
+            .bind(primary_account_id)
+            .bind(secondary_account_id)
+            .execute(&mut **tx)
+            .await?;
+
+        sqlx::query("DELETE FROM store_credit_accounts WHERE id = $1")
+            .bind(secondary_account_id)
+            .execute(&mut **tx)
+            .await?;
+    } else {
+        sqlx::query("UPDATE store_credit_accounts SET customer_id = $1 WHERE id = $2")
+            .bind(primary_id)
+            .bind(secondary_account_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    Ok(())
 }
 
 /// Links two customers as a couple.
@@ -39,6 +147,8 @@ pub async fn link_couple(
     }
 
     let mut tx = pool.begin().await?;
+    let primary = load_customer_snapshot(&mut tx, primary_id).await?;
+    let secondary = load_customer_snapshot(&mut tx, secondary_id).await?;
 
     // Verify both exist and aren't already coupled
     let (p_c_id, s_c_id): (Option<Uuid>, Option<Uuid>) =
@@ -107,6 +217,20 @@ pub async fn link_couple(
             .await?;
     }
 
+    move_store_credit_to_primary(&mut tx, primary_id, secondary_id).await?;
+    insert_couple_timeline_note(
+        &mut tx,
+        primary_id,
+        format!("Linked profile with {}", secondary.label()),
+    )
+    .await?;
+    insert_couple_timeline_note(
+        &mut tx,
+        secondary_id,
+        format!("Linked profile with {}", primary.label()),
+    )
+    .await?;
+
     tx.commit().await?;
     Ok(())
 }
@@ -123,12 +247,39 @@ pub async fn unlink_couple(pool: &PgPool, customer_id: Uuid) -> Result<(), Coupl
             .flatten();
 
     if let Some(cid) = couple_id {
+        let members = sqlx::query_as::<_, CoupleCustomerSnapshot>(
+            r#"
+            SELECT id, customer_code, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name
+            FROM customers
+            WHERE couple_id = $1
+            "#,
+        )
+        .bind(cid)
+        .fetch_all(&mut *tx)
+        .await?;
+
         sqlx::query(
             "UPDATE customers SET couple_id = NULL, couple_primary_id = NULL, couple_linked_at = NULL WHERE couple_id = $1"
         )
         .bind(cid)
         .execute(&mut *tx)
         .await?;
+
+        for member in &members {
+            let other_labels: Vec<String> = members
+                .iter()
+                .filter(|other| other.id != member.id)
+                .map(CoupleCustomerSnapshot::label)
+                .collect();
+            if !other_labels.is_empty() {
+                insert_couple_timeline_note(
+                    &mut tx,
+                    member.id,
+                    format!("Unlinked profile from {}", other_labels.join(", ")),
+                )
+                .await?;
+            }
+        }
     }
 
     tx.commit().await?;

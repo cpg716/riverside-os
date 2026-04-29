@@ -203,6 +203,7 @@ function WeddingPartyCustomersDrawer({
         onAddToWedding={onAddToWedding}
         onBookAppointment={onBookAppointment}
         onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+        onSwitchCustomer={setPicked}
         baseUrl={baseUrl}
       />
     );
@@ -291,9 +292,15 @@ function CustomerSearchDrawer({
   onBookAppointment?: () => void;
   onOpenTransactionInBackoffice?: (orderId: string) => void;
 }) {
+  const [activeCustomer, setActiveCustomer] = useState(customer);
+
+  useEffect(() => {
+    setActiveCustomer(customer);
+  }, [customer]);
+
   return (
     <CustomerRelationshipHubDrawer
-      customer={customer}
+      customer={activeCustomer}
       open
       onClose={onClose}
       onOpenWeddingParty={onOpenWeddingParty}
@@ -303,6 +310,7 @@ function CustomerSearchDrawer({
       onAddToWedding={onAddToWedding}
       onBookAppointment={onBookAppointment}
       onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+      onSwitchCustomer={setActiveCustomer}
       baseUrl={baseUrl}
     />
   );
@@ -322,16 +330,25 @@ export function PosCustomerDetailDrawer({
   onOpenWeddingParty: (partyId: string) => void;
   onAttachToSale: (c: Customer) => void;
 }) {
-  if (!open || !customer) return null;
+  const [activeCustomer, setActiveCustomer] = useState<Customer | null>(
+    customer,
+  );
+
+  useEffect(() => {
+    setActiveCustomer(customer);
+  }, [customer]);
+
+  if (!open || !activeCustomer) return null;
   return (
     <CustomerRelationshipHubDrawer
-      customer={customer}
+      customer={activeCustomer}
       open={open}
       onClose={onClose}
       onOpenWeddingParty={onOpenWeddingParty}
       onStartSale={onAttachToSale}
       onNavigateRegister={() => {}}
       navigateAfterStartSale={false}
+      onSwitchCustomer={setActiveCustomer}
       baseUrl={baseUrl}
     />
   );

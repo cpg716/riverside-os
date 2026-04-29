@@ -902,9 +902,13 @@ pub struct CustomerHubStats {
 #[derive(Debug, Serialize, FromRow)]
 pub struct CoupleMemberPreview {
     pub id: Uuid,
+    pub customer_code: String,
     pub first_name: String,
     pub last_name: String,
     pub email: Option<String>,
+    pub phone: Option<String>,
+    pub couple_id: Option<Uuid>,
+    pub couple_primary_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3974,7 +3978,11 @@ async fn get_customer_hub(
 
     let partner = if let Some(cid) = row.couple_id {
         sqlx::query_as::<_, CoupleMemberPreview>(
-            "SELECT id, first_name, last_name, email FROM customers WHERE couple_id = $1 AND id != $2"
+            r#"
+            SELECT id, customer_code, first_name, last_name, email, phone, couple_id, couple_primary_id
+            FROM customers
+            WHERE couple_id = $1 AND id != $2
+            "#
         )
         .bind(cid)
         .bind(customer_id)
@@ -4105,6 +4113,7 @@ async fn delete_couple_link(
 #[derive(Debug, FromRow)]
 struct OrderTimelineRow {
     id: Uuid,
+    display_id: Option<String>,
     booked_at: DateTime<Utc>,
     items_summary: Option<String>,
 }
@@ -4115,7 +4124,6 @@ struct PaymentTimelineRow {
     created_at: DateTime<Utc>,
     payment_method: String,
     amount: Decimal,
-    category: String,
 }
 
 #[derive(Debug, FromRow)]
@@ -4171,6 +4179,7 @@ async fn build_customer_timeline(
             r#"
             SELECT
                 o.id,
+                COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
                 o.booked_at,
                 STRING_AGG(
                     (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
@@ -4181,7 +4190,7 @@ async fn build_customer_timeline(
             LEFT JOIN products p ON p.id = oi.product_id
             WHERE o.customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
               AND o.status != 'cancelled'::order_status
-            GROUP BY o.id, o.booked_at
+            GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.booked_at
             ORDER BY o.booked_at DESC
             LIMIT 25
             "#,
@@ -4194,6 +4203,7 @@ async fn build_customer_timeline(
             r#"
             SELECT
                 o.id,
+                COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
                 o.booked_at,
                 STRING_AGG(
                     (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
@@ -4204,7 +4214,7 @@ async fn build_customer_timeline(
             LEFT JOIN products p ON p.id = oi.product_id
             WHERE o.customer_id = $1
               AND o.status != 'cancelled'::order_status
-            GROUP BY o.id, o.booked_at
+            GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.booked_at
             ORDER BY o.booked_at DESC
             LIMIT 25
             "#,
@@ -4217,7 +4227,7 @@ async fn build_customer_timeline(
     let payments = if let Some(cid) = couple_id {
         sqlx::query_as::<_, PaymentTimelineRow>(
             r#"
-            SELECT id, created_at, payment_method, amount, category::text AS category
+            SELECT id, created_at, payment_method, amount
             FROM payment_transactions
             WHERE payer_id IN (SELECT id FROM customers WHERE couple_id = $1)
             ORDER BY created_at DESC
@@ -4230,7 +4240,7 @@ async fn build_customer_timeline(
     } else {
         sqlx::query_as::<_, PaymentTimelineRow>(
             r#"
-            SELECT id, created_at, payment_method, amount, category::text AS category
+            SELECT id, created_at, payment_method, amount
             FROM payment_transactions
             WHERE payer_id = $1
             ORDER BY created_at DESC
@@ -4332,12 +4342,13 @@ async fn build_customer_timeline(
 
     for o in orders {
         let items = o.items_summary.unwrap_or_else(|| "Purchase".to_string());
+        let display_id = o.display_id.unwrap_or_else(|| short_order_ref(o.id));
         events.push(CustomerTimelineEvent {
             at: o.booked_at,
             kind: "sale".to_string(),
-            summary: format!("Purchased {} (Order {})", items, short_order_ref(o.id)),
+            summary: format!("Purchased {} ({display_id})", items),
             reference_id: Some(o.id),
-            reference_type: Some("order".to_string()),
+            reference_type: Some("transaction".to_string()),
             wedding_party_id: None,
         });
     }
@@ -4346,10 +4357,7 @@ async fn build_customer_timeline(
         events.push(CustomerTimelineEvent {
             at: p.created_at,
             kind: "payment".to_string(),
-            summary: format!(
-                "Payment recorded: {} via {} ({})",
-                p.amount, p.payment_method, p.category
-            ),
+            summary: format!("Payment recorded: {} via {}", p.amount, p.payment_method),
             reference_id: Some(p.id),
             reference_type: Some("payment".to_string()),
             wedding_party_id: None,

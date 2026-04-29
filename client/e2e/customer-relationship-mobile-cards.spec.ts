@@ -40,6 +40,18 @@ const CUSTOMER_ROW = {
   lifecycle_state: "active",
 };
 
+const LINKED_COUPLE_ID = "99999999-9999-4999-8999-999999999999";
+
+const PARTNER_ROW = {
+  ...CUSTOMER_ROW,
+  id: "f2f2f2f2-2222-4222-8222-222222222222",
+  customer_code: "CUST-LINKED-E2E",
+  first_name: "Jordan",
+  last_name: "Harper",
+  email: "jordan@example.com",
+  phone: "555-333-4444",
+};
+
 const CUSTOMER_HUB_RESPONSE = {
   id: CUSTOMER_ROW.id,
   customer_code: CUSTOMER_ROW.customer_code,
@@ -89,6 +101,29 @@ const CUSTOMER_HUB_RESPONSE = {
   },
   partner: null,
 };
+
+function linkedHubResponse(
+  customer: typeof CUSTOMER_ROW,
+  partner: typeof CUSTOMER_ROW,
+) {
+  return {
+    ...CUSTOMER_HUB_RESPONSE,
+    ...customer,
+    couple_id: LINKED_COUPLE_ID,
+    couple_primary_id: CUSTOMER_ROW.id,
+    couple_linked_at: "2026-04-12T12:00:00.000Z",
+    partner: {
+      id: partner.id,
+      customer_code: partner.customer_code,
+      first_name: partner.first_name,
+      last_name: partner.last_name,
+      email: partner.email,
+      phone: partner.phone,
+      couple_id: LINKED_COUPLE_ID,
+      couple_primary_id: CUSTOMER_ROW.id,
+    },
+  };
+}
 
 const TXN_HISTORY_RESPONSE = {
   items: [
@@ -409,4 +444,130 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
   await expect(dialog.getByText(/historical earned/i)).toBeVisible({ timeout: 20_000 });
   await expect(dialog.getByText(/LOYALTY-E2E/i)).toBeVisible();
   await expect(dialog.getByText(/Card used/i)).toBeVisible();
+});
+
+test("Customer relationship drawer opens linked profiles and keeps timeline language staff-facing", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockCustomersDrawerApis(page);
+
+  await page.route("**/api/customers/browse*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          ...CUSTOMER_ROW,
+          couple_id: LINKED_COUPLE_ID,
+          couple_primary_id: CUSTOMER_ROW.id,
+        },
+      ]),
+    });
+  });
+
+  const parentHub = linkedHubResponse(CUSTOMER_ROW, PARTNER_ROW);
+  const partnerHub = linkedHubResponse(PARTNER_ROW, CUSTOMER_ROW);
+
+  await page.route(`**/api/customers/${CUSTOMER_ROW.id}/hub`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(parentHub),
+    });
+  });
+
+  await page.route(`**/api/customers/${PARTNER_ROW.id}/hub`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(partnerHub),
+    });
+  });
+
+  for (const customer of [CUSTOMER_ROW, PARTNER_ROW]) {
+    await page.route(`**/api/customers/${customer.id}/timeline`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          events: [
+            {
+              at: "2026-04-12T12:00:00.000Z",
+              kind: "note",
+              summary:
+                customer.id === CUSTOMER_ROW.id
+                  ? "Linked profile with Jordan Harper (CUST-LINKED-E2E)"
+                  : "Linked profile with Riley Harper (CUST-HUB-E2E)",
+              reference_id: null,
+              reference_type: "note",
+              wedding_party_id: null,
+            },
+            {
+              at: "2026-04-10T15:30:00.000Z",
+              kind: "sale",
+              summary: "Purchased 2 items (TXN-9012)",
+              reference_id: "22222222-2222-4222-8222-222222222222",
+              reference_type: "transaction",
+              wedding_party_id: null,
+            },
+          ],
+        }),
+      });
+    });
+    await page.route(`**/api/customers/${customer.id}/store-credit`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ balance: "0.00", ledger: [] }),
+      });
+    });
+    await page.route(`**/api/customers/${customer.id}/open-deposit`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ balance: "0.00" }),
+      });
+    });
+    await page.route(`**/api/customers/${customer.id}/transaction-history*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(TXN_HISTORY_RESPONSE),
+      });
+    });
+    await page.route(`**/api/customers/${customer.id}/measurements*`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ latest: null, history: [] }),
+      });
+    });
+  }
+
+  await signInToBackOffice(page);
+  await openBackofficeSidebarTab(page, "customers");
+
+  await expect(page.locator("tbody").getByText(/^Linked$/i).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.getByRole("button", { name: /riley harper/i }).first().click();
+
+  let dialog = page.getByRole("dialog", { name: /riley harper/i });
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  await expect(
+    dialog.getByText(/Parent profile\. Parent profile keeps loyalty points/i),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: /open jordan harper/i }).click();
+
+  dialog = page.getByRole("dialog", { name: /jordan harper/i });
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  await expect(dialog.getByText(/linked with CUST-HUB-E2E/i)).toBeVisible();
+
+  await dialog.getByRole("button", { name: /^History$/i }).click();
+  await expect(dialog.getByText(/Linked profile with Riley Harper/i)).toBeVisible();
+  await expect(dialog.getByText(/Purchased 2 items \(TXN-9012\)/i)).toBeVisible();
+  await expect(dialog.getByText(/Order 22222222/i)).toHaveCount(0);
 });
