@@ -217,7 +217,9 @@ test.describe("Inventory receiving operator verification", () => {
         response.status() === 200,
     );
     await postInventoryButton.evaluate((button) => (button as HTMLButtonElement).click());
-    await drawerRoot.getByRole("button", { name: /confirm & post/i }).click({ force: true });
+    await drawerRoot
+      .getByRole("button", { name: /confirm & post|post without invoice number/i })
+      .click({ force: true });
     await receiveResponse;
 
     await expect(page.getByRole("heading", { name: /receive stock/i })).toBeHidden({

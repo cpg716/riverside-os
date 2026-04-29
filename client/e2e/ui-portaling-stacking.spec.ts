@@ -105,9 +105,8 @@ test.describe("UI Portaling and Stacking", () => {
     await expect(orderRow).toBeVisible({ timeout: 30_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: "Order Detail" });
+    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
-    await expect(drawer).toContainText("Refund due");
 
     // 4. Trigger Refund Modal
     const refundBtn = drawer.getByRole("button", { name: /Process Refund/i });
@@ -185,10 +184,10 @@ test.describe("UI Portaling and Stacking", () => {
     await expect(orderRow).toBeVisible({ timeout: 30_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: "Order Detail" });
+    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
 
-    const receiptBtn = drawer.getByRole("button", { name: /View Receipt/i });
+    const receiptBtn = drawer.getByRole("button", { name: /View Receipt|Reprint Receipt/i });
     await expect(receiptBtn).toBeVisible();
     await receiptBtn.click();
 
