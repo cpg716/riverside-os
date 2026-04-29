@@ -715,7 +715,7 @@ export default function GlobalCommandSearch({
           >
             <Search size={17} aria-hidden />
           </div>
-          <div className={cn("min-w-0", isPosVariant ? "hidden xl:block" : "flex-1")}>
+          <div className={cn("min-w-0", isPosVariant ? "hidden 2xl:block" : "flex-1")}>
             <p className="truncate text-sm font-bold text-app-text">
               {isPosVariant ? "Jump Search" : "Search"}
             </p>

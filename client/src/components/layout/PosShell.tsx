@@ -29,7 +29,7 @@ import type { Customer } from "../pos/CustomerSelector";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import type { SidebarTabId } from "./sidebarSections";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { LogOut, ShieldCheck, ShieldAlert } from "lucide-react";
+import { ArrowLeft, LogOut, ShieldCheck, ShieldAlert } from "lucide-react";
 import { getAppIcon, APP_ICON_SIZES } from "../../lib/icons";
 
 const REGISTER_ICON = getAppIcon("register");
@@ -196,6 +196,19 @@ export default function PosShell({
   const { setSlotContent } = useTopBar();
 
   useEffect(() => {
+    if (activePosTab === "weddings") {
+      setSlotContent(
+        <button
+          type="button"
+          onClick={() => setActivePosTab(isRegisterOpen && sessionId ? "register" : "pos-dashboard")}
+          className="h-10 rounded-xl border-2 border-app-border bg-app-surface-2 px-4 text-[9px] font-black uppercase tracking-widest italic text-app-text-muted transition-all hover:border-app-accent hover:text-app-text active:scale-95 flex items-center gap-2"
+        >
+          <ArrowLeft size={16} strokeWidth={3} /> Return to POS
+        </button>,
+      );
+      return () => setSlotContent(null);
+    }
+
     setSlotContent(
       <div className="flex items-center gap-4">
         <button
@@ -258,6 +271,7 @@ export default function PosShell({
     );
     return () => setSlotContent(null);
   }, [
+    activePosTab,
     managerMode,
     isRegisterOpen,
     sessionId,

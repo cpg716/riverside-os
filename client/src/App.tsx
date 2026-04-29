@@ -120,6 +120,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<SidebarTabId>("home");
   const [posMode, setPosMode] = useState(false);
   const [weddingMode, setWeddingMode] = useState(false);
+  const [weddingReturnTarget, setWeddingReturnTarget] = useState<"backoffice" | "pos">("backoffice");
   const [insightsMode, setInsightsMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeSubSection, setActiveSubSection] = useState<string>(
@@ -210,6 +211,7 @@ function App() {
     (tab: SidebarTabId, section?: string) => {
       setPosMode(false);
       setWeddingMode(false);
+      setWeddingReturnTarget("backoffice");
       setInsightsMode(false);
       setActiveTab(tab);
       if (section) {
@@ -264,6 +266,7 @@ function App() {
     const wp = params.get("wedding_party");
     if (wp) {
       setActiveTab("weddings");
+      setWeddingReturnTarget("backoffice");
       setWeddingMode(true);
       setPosMode(false);
       setInsightsMode(false);
@@ -407,6 +410,7 @@ function App() {
 
   const navigateWedding = useCallback((partyId?: string | null) => {
     setPendingWmPartyId(partyId ?? null);
+    setWeddingReturnTarget(posMode ? "pos" : "backoffice");
     if (posMode) {
       setActiveTab("weddings");
     } else {
@@ -786,7 +790,12 @@ function App() {
         ...(subLabel ? [{ label: subLabel }] : []),
       ];
     if (activeTab === "reports") return [{ label: "Reports", onClick: tabClick }];
-    if (activeTab === "dashboard" || activeTab === "pos-dashboard")
+    if (activeTab === "pos-dashboard")
+      return [
+        { label: "POS", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "dashboard")
       return [
         { label: "Insights", onClick: tabClick },
         ...(subLabel ? [{ label: subLabel }] : []),
@@ -897,6 +906,8 @@ function App() {
             setPosMode={setPosMode}
             weddingMode={weddingMode}
             setWeddingMode={setWeddingMode}
+            weddingReturnTarget={weddingReturnTarget}
+            setWeddingReturnTarget={setWeddingReturnTarget}
             insightsMode={insightsMode}
             setInsightsMode={setInsightsMode}
             sidebarCollapsed={sidebarCollapsed}
@@ -1004,6 +1015,8 @@ interface AppShellProps {
   setPosMode: (v: boolean) => void;
   weddingMode: boolean;
   setWeddingMode: (v: boolean) => void;
+  weddingReturnTarget: "backoffice" | "pos";
+  setWeddingReturnTarget: (v: "backoffice" | "pos") => void;
   insightsMode: boolean;
   setInsightsMode: (v: boolean) => void;
   sidebarCollapsed: boolean;
@@ -1183,6 +1196,8 @@ function AppShell({
   setThemeMode,
   weddingMode,
   setWeddingMode,
+  weddingReturnTarget,
+  setWeddingReturnTarget,
   insightsMode,
   setInsightsMode,
 }: AppShellProps) {
@@ -1205,7 +1220,7 @@ function AppShell({
       setPosMode(true);
       return;
     }
-    if (!weddingMode && activeTab === "weddings") {
+    if (!posMode && !weddingMode && activeTab === "weddings") {
       setPosMode(false);
       setInsightsMode(false);
       setWeddingMode(true);
@@ -1298,11 +1313,18 @@ function AppShell({
             actorLabel={cashierName}
             initialPartyId={pendingWmPartyId}
             onInitialPartyConsumed={onClearPendingWmPartyId}
+            returnLabel={weddingReturnTarget === "pos" ? "Return to POS" : "Back to Back Office"}
             onExitWeddingMode={() => {
               setWeddingMode(false);
               setSidebarCollapsed(false);
-              setActiveTab("home");
-              triggerDashboardRefresh();
+              if (weddingReturnTarget === "pos") {
+                setPosMode(true);
+                setActiveTab(isRegisterOpen ? "register" : "pos-dashboard");
+              } else {
+                setActiveTab("home");
+                triggerDashboardRefresh();
+              }
+              setWeddingReturnTarget("backoffice");
             }}
           />
         ) : (
@@ -1317,6 +1339,7 @@ function AppShell({
                   setInsightsMode(false);
                 } else if (tab === "weddings") {
                   setPosMode(false);
+                  setWeddingReturnTarget("backoffice");
                   setWeddingMode(true);
                   setInsightsMode(false);
                 } else if (tab === "dashboard") {

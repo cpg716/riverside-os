@@ -112,6 +112,7 @@ export default function GlobalTopBar({
     [backofficeHeaders],
   );
   const { isOnline, queueCount, pendingCount, blockedCount } = useOfflineSync(baseUrl, apiAuth);
+  const isPosVariant = searchVariant === "pos";
   
   const isTailscaleRemote = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -121,7 +122,12 @@ export default function GlobalTopBar({
 
   return (
     <header className="sticky top-0 z-50 flex min-h-[84px] shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-app-border bg-[color-mix(in_srgb,var(--app-rail)_94%,transparent)] px-3 py-3 backdrop-blur-md sm:px-4 lg:h-[84px] lg:flex-nowrap lg:gap-6 lg:px-8 lg:py-0">
-      <div className="flex min-w-0 flex-1 items-center gap-3 lg:h-full lg:min-w-[240px] lg:flex-none lg:gap-4">
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-3 lg:h-full lg:flex-none lg:gap-4",
+          isPosVariant ? "lg:min-w-0" : "lg:min-w-[240px]",
+        )}
+      >
         {onToggleSidebar && (
           <button
             type="button"
@@ -185,7 +191,12 @@ export default function GlobalTopBar({
 
       <div className="ml-auto flex flex-none items-center justify-end gap-2 sm:gap-3">
         {/* Dynamic Slot Region */}
-        <div className="hidden items-center gap-4 border-r border-app-border px-4 empty:hidden xl:flex">
+        <div
+          className={cn(
+            "hidden items-center border-r border-app-border empty:hidden xl:flex",
+            isPosVariant ? "gap-2 px-3" : "gap-4 px-4",
+          )}
+        >
           {slotContent}
         </div>
 

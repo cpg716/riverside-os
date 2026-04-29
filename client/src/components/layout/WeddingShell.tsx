@@ -10,6 +10,7 @@ interface WeddingShellProps {
   initialPartyId: string | null;
   onInitialPartyConsumed: () => void;
   onExitWeddingMode: () => void;
+  returnLabel?: string;
 }
 
 export default function WeddingShell({
@@ -17,6 +18,7 @@ export default function WeddingShell({
   initialPartyId,
   onInitialPartyConsumed,
   onExitWeddingMode,
+  returnLabel = "Back to Back Office",
 }: WeddingShellProps) {
   const { setSlotContent } = useTopBar();
 
@@ -28,11 +30,11 @@ export default function WeddingShell({
         className="inline-flex touch-manipulation items-center gap-1.5 rounded-lg border border-app-border bg-app-surface-2 px-3 py-1.5 text-[11px] font-semibold text-app-text shadow-sm transition-colors hover:bg-app-border/20"
       >
         <LayoutDashboard size={12} aria-hidden />
-        Back to Back Office
+        {returnLabel}
       </button>
     );
     return () => setSlotContent(null);
-  }, [onExitWeddingMode, setSlotContent]);
+  }, [onExitWeddingMode, returnLabel, setSlotContent]);
 
   return (
     <div className="flex flex-1 flex-col bg-app-bg font-sans antialiased">

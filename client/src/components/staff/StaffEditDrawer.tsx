@@ -298,9 +298,9 @@ export default function StaffEditDrawer({
       // PIN Update
       if (staff.id !== "NEW" && nextPin.length === 4) {
         const pr = await fetch(
-          `${baseUrl}/api/staff/admin/${encodeURIComponent(staff.id)}/pin`,
+          `${baseUrl}/api/staff/admin/${encodeURIComponent(staff.id)}/set-pin`,
           {
-            method: "PATCH",
+            method: "POST",
             headers: {
               "Content-Type": "application/json",
               ...backofficeHeaders(),
