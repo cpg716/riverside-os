@@ -30,6 +30,7 @@ Pull request guidance:
 - Mention affected areas/files when helpful.
 - Do not claim tests passed unless they were actually run.
 - If validation was skipped or failed, state that clearly.
+- When UI changed, mention UX clarity, layout/viewport behavior, and duplicate-navigation/leftover-UI checks when performed.
 
 Required PR format:
 

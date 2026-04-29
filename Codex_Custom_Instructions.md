@@ -24,6 +24,14 @@ When coding:
 - do not weaken tests
 - do not add dependencies without explicit approval
 
+When changing UI:
+- prefer staff-facing language
+- avoid technical or internal UI wording
+- avoid over-explained copy
+- check for duplicate navigation or competing entry points
+- avoid overly tall layouts when width is available
+- keep overlays, drawers, and popovers viewport-safe
+
 Commit guidance:
 - Do not commit unless explicitly asked.
 - When asked to commit, use a clear conventional-style message.
