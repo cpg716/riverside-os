@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { 
   type CartLineItem, 
   type FulfillmentKind, 
@@ -22,8 +22,79 @@ function newCartRowId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
+const CUSTOMER_PROFILE_DISCOUNT_REASON = "Customer profile discount";
+
 export function cartLineKey(l: Pick<CartLineItem, "cart_row_id">): string {
   return l.cart_row_id;
+}
+
+function profileDiscountPercent(customer: Customer | null): number {
+  const raw = customer?.profile_discount_percent;
+  const pct = typeof raw === "number" ? raw : Number.parseFloat(String(raw ?? "0"));
+  return Number.isFinite(pct) && pct > 0 && pct <= 100 ? pct : 0;
+}
+
+function isCustomerProfileDiscountLine(line: CartLineItem): boolean {
+  return line.price_override_reason === CUSTOMER_PROFILE_DISCOUNT_REASON;
+}
+
+function isProfileDiscountEligibleLine(
+  line: CartLineItem,
+  rmsPaymentSku?: string | null,
+  giftCardLoadSku?: string | null,
+): boolean {
+  if (line.line_type === "alteration_service") return false;
+  if (line.gift_card_load_code) return false;
+  if (rmsPaymentSku && line.sku === rmsPaymentSku) return false;
+  if (giftCardLoadSku && line.sku === giftCardLoadSku) return false;
+  if (line.discount_event_id) return false;
+  if (line.price_override_reason && !isCustomerProfileDiscountLine(line)) return false;
+  if (line.original_unit_price && !isCustomerProfileDiscountLine(line)) return false;
+  return true;
+}
+
+function applyCustomerProfileDiscountToLine(
+  line: CartLineItem,
+  percent: number,
+  rmsPaymentSku?: string | null,
+  giftCardLoadSku?: string | null,
+): CartLineItem {
+  if (!isProfileDiscountEligibleLine(line, rmsPaymentSku, giftCardLoadSku)) {
+    return line;
+  }
+
+  const wasProfileDiscounted = isCustomerProfileDiscountLine(line);
+  const baseCents = parseMoneyToCents(line.original_unit_price ?? line.standard_retail_price);
+  if (percent <= 0) {
+    if (!wasProfileDiscounted) return line;
+    const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", baseCents);
+    return {
+      ...line,
+      standard_retail_price: centsToFixed2(baseCents),
+      state_tax: stateTax,
+      local_tax: localTax,
+      original_unit_price: undefined,
+      price_override_reason: undefined,
+    };
+  }
+
+  const nextCents = Math.round(baseCents * (1 - percent / 100));
+  if (
+    wasProfileDiscounted &&
+    parseMoneyToCents(line.standard_retail_price) === nextCents &&
+    parseMoneyToCents(line.original_unit_price ?? line.standard_retail_price) === baseCents
+  ) {
+    return line;
+  }
+  const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", nextCents);
+  return {
+    ...line,
+    standard_retail_price: centsToFixed2(nextCents),
+    state_tax: stateTax,
+    local_tax: localTax,
+    original_unit_price: centsToFixed2(baseCents),
+    price_override_reason: CUSTOMER_PROFILE_DISCOUNT_REASON,
+  };
 }
 
 interface UseCartActionsProps {
@@ -81,6 +152,33 @@ export function useCartActions({
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
   const [keypadMode, setKeypadMode] = useState<"qty" | "price">("qty");
   const [keypadBuffer, setKeypadBuffer] = useState("");
+  const customerDiscountPercent =
+    employeeCustomerId && selectedCustomer?.id === employeeCustomerId
+      ? 0
+      : profileDiscountPercent(selectedCustomer);
+
+  useEffect(() => {
+    setLines((prev) => {
+      let changed = false;
+      const next = prev.map((line) => {
+        const updated = applyCustomerProfileDiscountToLine(
+          line,
+          customerDiscountPercent,
+          rmsPaymentMeta?.sku,
+          giftCardLoadMeta?.sku,
+        );
+        if (updated !== line) changed = true;
+        return updated;
+      });
+      return changed ? next : prev;
+    });
+  }, [
+    customerDiscountPercent,
+    selectedCustomer?.id,
+    lines,
+    rmsPaymentMeta?.sku,
+    giftCardLoadMeta?.sku,
+  ]);
 
   const ensureSaleCashier = useCallback((): boolean => {
     if (!checkoutOperator) {

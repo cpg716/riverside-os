@@ -644,6 +644,9 @@ pub struct Customer {
     pub company_name: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
+    pub profile_discount_percent: Decimal,
+    pub tax_exempt: bool,
+    pub tax_exempt_id: Option<String>,
     pub wedding_active: bool,
     pub wedding_party_name: Option<String>,
     pub wedding_party_id: Option<Uuid>,
@@ -702,6 +705,9 @@ pub struct UpdateCustomerRequest {
     #[serde(default)]
     pub podium_conversation_url: Option<String>,
     pub is_vip: Option<bool>,
+    pub profile_discount_percent: Option<Decimal>,
+    pub tax_exempt: Option<bool>,
+    pub tax_exempt_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -730,6 +736,9 @@ pub struct CustomerProfileRow {
     pub transactional_email_opt_in: bool,
     pub podium_conversation_url: Option<String>,
     pub is_vip: bool,
+    pub profile_discount_percent: Decimal,
+    pub tax_exempt: bool,
+    pub tax_exempt_id: Option<String>,
     pub loyalty_points: i32,
     pub customer_created_source: String,
     pub couple_id: Option<Uuid>,
@@ -755,7 +764,8 @@ async fn load_customer_profile_row(
             c.custom_field_1, c.custom_field_2, c.custom_field_3, c.custom_field_4,
             c.marketing_email_opt_in, c.marketing_sms_opt_in, c.transactional_sms_opt_in,
             c.transactional_email_opt_in, c.podium_conversation_url,
-            c.is_vip, c.loyalty_points, c.customer_created_source,
+            c.is_vip, c.profile_discount_percent, c.tax_exempt, c.tax_exempt_id,
+            c.loyalty_points, c.customer_created_source,
             c.couple_id, c.couple_primary_id, c.couple_linked_at,
             COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
             COALESCE(ob.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales
@@ -1023,6 +1033,9 @@ pub struct CustomerBrowseRow {
     pub email: Option<String>,
     pub phone: Option<String>,
     pub is_vip: bool,
+    pub profile_discount_percent: Decimal,
+    pub tax_exempt: bool,
+    pub tax_exempt_id: Option<String>,
     pub open_balance_due: Decimal,
     pub lifetime_sales: Decimal,
     pub open_orders_count: i64,
@@ -2504,6 +2517,9 @@ async fn browse_customers(
                     c.email,
                     c.phone,
                     c.is_vip,
+                    c.profile_discount_percent,
+                    c.tax_exempt,
+                    c.tax_exempt_id,
                     c.couple_id,
                     c.couple_primary_id,
                     COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
@@ -2646,6 +2662,9 @@ async fn browse_customers(
                     email,
                     phone,
                     is_vip,
+                    profile_discount_percent,
+                    tax_exempt,
+                    tax_exempt_id,
                     open_balance_due,
                     lifetime_sales,
                     open_orders_count,
@@ -2679,6 +2698,9 @@ async fn browse_customers(
                 email,
                 phone,
                 is_vip,
+                profile_discount_percent,
+                tax_exempt,
+                tax_exempt_id,
                 open_balance_due,
                 lifetime_sales,
                 open_orders_count,
@@ -2724,6 +2746,9 @@ async fn browse_customers(
                     c.email,
                     c.phone,
                     c.is_vip,
+                    c.profile_discount_percent,
+                    c.tax_exempt,
+                    c.tax_exempt_id,
                     c.couple_id,
                     c.couple_primary_id,
                     COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
@@ -2871,6 +2896,9 @@ async fn browse_customers(
                     email,
                     phone,
                     is_vip,
+                    profile_discount_percent,
+                    tax_exempt,
+                    tax_exempt_id,
                     open_balance_due,
                     lifetime_sales,
                     open_orders_count,
@@ -2904,6 +2932,9 @@ async fn browse_customers(
                 email,
                 phone,
                 is_vip,
+                profile_discount_percent,
+                tax_exempt,
+                tax_exempt_id,
                 open_balance_due,
                 lifetime_sales,
                 open_orders_count,
@@ -3070,6 +3101,9 @@ async fn search_customers(
                 c.company_name,
                 c.email,
                 c.phone,
+                c.profile_discount_percent,
+                c.tax_exempt,
+                c.tax_exempt_id,
                 EXISTS (
                     SELECT 1
                     FROM wedding_members wm
@@ -3133,6 +3167,9 @@ async fn search_customers(
                 c.company_name,
                 c.email,
                 c.phone,
+                c.profile_discount_percent,
+                c.tax_exempt,
+                c.tax_exempt_id,
                 EXISTS (
                     SELECT 1
                     FROM wedding_members wm
@@ -3388,6 +3425,27 @@ async fn update_customer(
         return Err(CustomerError::NotFound);
     }
 
+    if let Some(pct) = body.profile_discount_percent {
+        if pct < Decimal::ZERO || pct > Decimal::from(100) {
+            return Err(CustomerError::BadRequest(
+                "Profile discount must be between 0 and 100 percent".to_string(),
+            ));
+        }
+    }
+    if body.tax_exempt == Some(true) {
+        let has_tax_id = body
+            .tax_exempt_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some();
+        if !has_tax_id {
+            return Err(CustomerError::BadRequest(
+                "Tax exempt customers require a tax ID".to_string(),
+            ));
+        }
+    }
+
     let mut qb: sqlx::QueryBuilder<'_, sqlx::Postgres> =
         sqlx::QueryBuilder::new("UPDATE customers SET ");
     let mut sep = qb.separated(", ");
@@ -3396,25 +3454,28 @@ async fn update_customer(
     if let Some(ref v) = body.first_name {
         let t = v.trim();
         if !t.is_empty() {
-            sep.push("first_name = ").push_bind(t.to_string());
+            sep.push("first_name = ")
+                .push_bind_unseparated(t.to_string());
             n += 1;
         }
     }
     if let Some(ref v) = body.last_name {
         let t = v.trim();
         if !t.is_empty() {
-            sep.push("last_name = ").push_bind(t.to_string());
+            sep.push("last_name = ")
+                .push_bind_unseparated(t.to_string());
             n += 1;
         }
     }
 
     if let Some(ref v) = body.company_name {
         let t = v.trim();
-        sep.push("company_name = ").push_bind(if t.is_empty() {
-            None::<String>
-        } else {
-            Some(t.to_string())
-        });
+        sep.push("company_name = ")
+            .push_bind_unseparated(if t.is_empty() {
+                None::<String>
+            } else {
+                Some(t.to_string())
+            });
         n += 1;
     }
 
@@ -3425,7 +3486,7 @@ async fn update_customer(
         } else {
             Some(t.to_string())
         };
-        sep.push("email = ").push_bind(bind);
+        sep.push("email = ").push_bind_unseparated(bind);
         n += 1;
     }
     if let Some(phone_raw) = body.phone {
@@ -3435,31 +3496,33 @@ async fn update_customer(
         } else {
             Some(t.to_string())
         };
-        sep.push("phone = ").push_bind(bind);
+        sep.push("phone = ").push_bind_unseparated(bind);
         n += 1;
     }
 
     if let Some(v) = body.address_line1 {
         let t = v.trim();
-        sep.push("address_line1 = ").push_bind(if t.is_empty() {
-            None
-        } else {
-            Some(t.to_string())
-        });
+        sep.push("address_line1 = ")
+            .push_bind_unseparated(if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            });
         n += 1;
     }
     if let Some(v) = body.address_line2 {
         let t = v.trim();
-        sep.push("address_line2 = ").push_bind(if t.is_empty() {
-            None
-        } else {
-            Some(t.to_string())
-        });
+        sep.push("address_line2 = ")
+            .push_bind_unseparated(if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            });
         n += 1;
     }
     if let Some(v) = body.city {
         let t = v.trim();
-        sep.push("city = ").push_bind(if t.is_empty() {
+        sep.push("city = ").push_bind_unseparated(if t.is_empty() {
             None
         } else {
             Some(t.to_string())
@@ -3468,7 +3531,7 @@ async fn update_customer(
     }
     if let Some(v) = body.state {
         let t = v.trim();
-        sep.push("state = ").push_bind(if t.is_empty() {
+        sep.push("state = ").push_bind_unseparated(if t.is_empty() {
             None
         } else {
             Some(t.to_string())
@@ -3477,80 +3540,88 @@ async fn update_customer(
     }
     if let Some(v) = body.postal_code {
         let t = v.trim();
-        sep.push("postal_code = ").push_bind(if t.is_empty() {
-            None
-        } else {
-            Some(t.to_string())
-        });
+        sep.push("postal_code = ")
+            .push_bind_unseparated(if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            });
         n += 1;
     }
 
     if let Some(v) = body.date_of_birth {
-        sep.push("date_of_birth = ").push_bind(v);
+        sep.push("date_of_birth = ").push_bind_unseparated(v);
         n += 1;
     }
     if let Some(v) = body.anniversary_date {
-        sep.push("anniversary_date = ").push_bind(v);
+        sep.push("anniversary_date = ").push_bind_unseparated(v);
         n += 1;
     }
 
     if let Some(ref v) = body.custom_field_1 {
         let t = v.trim();
-        sep.push("custom_field_1 = ").push_bind(if t.is_empty() {
-            None::<String>
-        } else {
-            Some(t.to_string())
-        });
+        sep.push("custom_field_1 = ")
+            .push_bind_unseparated(if t.is_empty() {
+                None::<String>
+            } else {
+                Some(t.to_string())
+            });
         n += 1;
     }
     if let Some(ref v) = body.custom_field_2 {
         let t = v.trim();
-        sep.push("custom_field_2 = ").push_bind(if t.is_empty() {
-            None::<String>
-        } else {
-            Some(t.to_string())
-        });
+        sep.push("custom_field_2 = ")
+            .push_bind_unseparated(if t.is_empty() {
+                None::<String>
+            } else {
+                Some(t.to_string())
+            });
         n += 1;
     }
     if let Some(ref v) = body.custom_field_3 {
         let t = v.trim();
-        sep.push("custom_field_3 = ").push_bind(if t.is_empty() {
-            None::<String>
-        } else {
-            Some(t.to_string())
-        });
+        sep.push("custom_field_3 = ")
+            .push_bind_unseparated(if t.is_empty() {
+                None::<String>
+            } else {
+                Some(t.to_string())
+            });
         n += 1;
     }
     if let Some(ref v) = body.custom_field_4 {
         let t = v.trim();
-        sep.push("custom_field_4 = ").push_bind(if t.is_empty() {
-            None::<String>
-        } else {
-            Some(t.to_string())
-        });
+        sep.push("custom_field_4 = ")
+            .push_bind_unseparated(if t.is_empty() {
+                None::<String>
+            } else {
+                Some(t.to_string())
+            });
         n += 1;
     }
 
     if let Some(v) = body.marketing_email_opt_in {
-        sep.push("marketing_email_opt_in = ").push_bind(v);
+        sep.push("marketing_email_opt_in = ")
+            .push_bind_unseparated(v);
         n += 1;
     }
     if let Some(v) = body.marketing_sms_opt_in {
-        sep.push("marketing_sms_opt_in = ").push_bind(v);
+        sep.push("marketing_sms_opt_in = ").push_bind_unseparated(v);
         n += 1;
     }
     if let Some(v) = body.transactional_sms_opt_in {
-        sep.push("transactional_sms_opt_in = ").push_bind(v);
+        sep.push("transactional_sms_opt_in = ")
+            .push_bind_unseparated(v);
         n += 1;
     }
     if let Some(v) = body.transactional_email_opt_in {
-        sep.push("transactional_email_opt_in = ").push_bind(v);
+        sep.push("transactional_email_opt_in = ")
+            .push_bind_unseparated(v);
         n += 1;
     }
     if let Some(ref v) = body.podium_conversation_url {
         let t = v.trim();
         sep.push("podium_conversation_url = ")
-            .push_bind(if t.is_empty() {
+            .push_bind_unseparated(if t.is_empty() {
                 None::<String>
             } else {
                 Some(t.to_string())
@@ -3558,7 +3629,31 @@ async fn update_customer(
         n += 1;
     }
     if let Some(v) = body.is_vip {
-        sep.push("is_vip = ").push_bind(v);
+        sep.push("is_vip = ").push_bind_unseparated(v);
+        n += 1;
+    }
+    if let Some(v) = body.profile_discount_percent {
+        sep.push("profile_discount_percent = ")
+            .push_bind_unseparated(v.round_dp(2));
+        n += 1;
+    }
+    if let Some(v) = body.tax_exempt {
+        sep.push("tax_exempt = ").push_bind_unseparated(v);
+        n += 1;
+        if !v && body.tax_exempt_id.is_none() {
+            sep.push("tax_exempt_id = ")
+                .push_bind_unseparated(None::<String>);
+            n += 1;
+        }
+    }
+    if let Some(ref v) = body.tax_exempt_id {
+        let t = v.trim();
+        sep.push("tax_exempt_id = ")
+            .push_bind_unseparated(if t.is_empty() {
+                None::<String>
+            } else {
+                Some(t.to_string())
+            });
         n += 1;
     }
 

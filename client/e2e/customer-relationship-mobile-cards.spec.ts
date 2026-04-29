@@ -25,6 +25,9 @@ const CUSTOMER_ROW = {
   company_name: null,
   email: "riley@example.com",
   phone: "555-111-2222",
+  profile_discount_percent: "12.50",
+  tax_exempt: true,
+  tax_exempt_id: "NY-EXEMPT-123",
   is_vip: false,
   open_balance_due: "0.00",
   lifetime_sales: "1245.50",
@@ -45,6 +48,9 @@ const CUSTOMER_HUB_RESPONSE = {
   company_name: CUSTOMER_ROW.company_name,
   email: CUSTOMER_ROW.email,
   phone: CUSTOMER_ROW.phone,
+  profile_discount_percent: CUSTOMER_ROW.profile_discount_percent,
+  tax_exempt: CUSTOMER_ROW.tax_exempt,
+  tax_exempt_id: CUSTOMER_ROW.tax_exempt_id,
   address_line1: null,
   address_line2: null,
   city: null,
@@ -179,7 +185,18 @@ async function mockCustomersDrawerApis(page: Page): Promise<void> {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify([]),
+      body: JSON.stringify({
+        events: [
+          {
+            at: "2026-04-10T15:30:00.000Z",
+            kind: "sale",
+            summary: "Purchased 2 items",
+            reference_id: "22222222-2222-4222-8222-222222222222",
+            reference_type: "transaction",
+            wedding_party_id: null,
+          },
+        ],
+      }),
     });
   });
 
@@ -214,6 +231,67 @@ async function mockCustomersDrawerApis(page: Page): Promise<void> {
       body: JSON.stringify(MEASUREMENTS_RESPONSE),
     });
   });
+
+  await page.route("**/api/loyalty/ledger?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        entries: [
+          {
+            id: "44444444-4444-4444-8444-444444444444",
+            reason: "sale",
+            delta_points: 40,
+            balance_after: 40,
+            transaction_id: "22222222-2222-4222-8222-222222222222",
+            transaction_display_id: "TXN-9012",
+            created_at: "2026-04-10T15:30:00.000Z",
+            activity_label: "Purchase",
+            activity_detail: "Earned points from purchase",
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route("**/api/loyalty/recent-issuances*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "55555555-5555-4555-8555-555555555555",
+          customer_id: CUSTOMER_ROW.id,
+          card_id: "66666666-6666-4666-8666-666666666666",
+          card_code: "LOYALTY-E2E",
+          first_name: CUSTOMER_ROW.first_name,
+          last_name: CUSTOMER_ROW.last_name,
+          reward_amount: "20.00",
+          points_deducted: 200,
+          applied_to_sale: "0.00",
+          created_at: "2026-04-11T10:00:00.000Z",
+        },
+      ]),
+    });
+  });
+
+  await page.route("**/api/gift-cards/code/LOYALTY-E2E/events", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "77777777-7777-4777-8777-777777777777",
+          event_kind: "redeemed",
+          amount: "5.00",
+          balance_after: "15.00",
+          transaction_id: "22222222-2222-4222-8222-222222222222",
+          notes: "Used at register",
+          created_at: "2026-04-12T12:00:00.000Z",
+        },
+      ]),
+    });
+  });
 }
 
 for (const viewport of DRAWER_VIEWPORTS) {
@@ -236,7 +314,7 @@ for (const viewport of DRAWER_VIEWPORTS) {
     const dialog = page.getByRole("dialog", { name: /riley harper/i });
     await expect(dialog).toBeVisible({ timeout: 20_000 });
 
-    await dialog.getByRole("button", { name: /^Transaction Records$/i }).click();
+    await dialog.getByRole("button", { name: /^History$/i }).click();
     await expect(dialog.getByRole("button", { name: /open transaction/i })).toBeVisible({
       timeout: 20_000,
     });
@@ -260,3 +338,75 @@ for (const viewport of DRAWER_VIEWPORTS) {
     }
   });
 }
+
+test("Customer relationship drawer exposes profile defaults, history, and loyalty controls", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  let profilePatch: Record<string, unknown> | null = null;
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockCustomersDrawerApis(page);
+  await page.route(`**/api/customers/${CUSTOMER_ROW.id}`, async (route) => {
+    if (route.request().method() !== "PATCH") {
+      await route.continue();
+      return;
+    }
+    profilePatch = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...CUSTOMER_HUB_RESPONSE,
+        ...profilePatch,
+      }),
+    });
+  });
+
+  await signInToBackOffice(page);
+  await openBackofficeSidebarTab(page, "customers");
+  await page.getByRole("button", { name: /riley harper/i }).first().click();
+
+  const dialog = page.getByRole("dialog", { name: /riley harper/i });
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+
+  for (const label of [
+    "Profile",
+    "History",
+    "Orders",
+    "Layaways",
+    "Alterations",
+    "Loyalty",
+    "Measurements",
+    "Weddings",
+  ]) {
+    await expect(dialog.getByRole("button", { name: new RegExp(`^${label}$`, "i") })).toBeVisible();
+  }
+  await expect(dialog.getByRole("button", { name: /transaction records/i })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /wedding links/i })).toHaveCount(0);
+  await expect(dialog.getByText(/lifecycle/i)).toHaveCount(0);
+
+  await expect(dialog.getByText(/register defaults/i)).toBeVisible();
+  await expect(dialog.getByLabel(/automatic discount/i)).toHaveValue("12.50");
+  await expect(dialog.getByLabel(/^tax id$/i)).toHaveValue("NY-EXEMPT-123");
+
+  await dialog.getByLabel(/automatic discount/i).fill("15");
+  await dialog.getByLabel(/^tax id$/i).fill("NY-EXEMPT-999");
+  await dialog.getByRole("button", { name: /save profile/i }).click();
+
+  await expect.poll(() => profilePatch?.profile_discount_percent).toBe("15.00");
+  expect(profilePatch).toMatchObject({
+    tax_exempt: true,
+    tax_exempt_id: "NY-EXEMPT-999",
+  });
+
+  await dialog.getByRole("button", { name: /^History$/i }).click();
+  await expect(dialog.getByText(/interactions and purchases/i)).toBeVisible();
+  await expect(dialog.getByText(/Purchased 2 items/i)).toBeVisible();
+  await expect(dialog.getByText(/TXN-9012/i)).toBeVisible();
+
+  await dialog.getByRole("button", { name: /^Loyalty$/i }).click();
+  await expect(dialog.getByText(/historical earned/i)).toBeVisible({ timeout: 20_000 });
+  await expect(dialog.getByText(/LOYALTY-E2E/i)).toBeVisible();
+  await expect(dialog.getByText(/Card used/i)).toBeVisible();
+});

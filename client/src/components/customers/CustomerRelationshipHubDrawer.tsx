@@ -2,6 +2,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
+  Gift,
   Heart,
   Mail,
   MessageSquarePlus,
@@ -35,9 +36,6 @@ import CustomerSearchInput from "../ui/CustomerSearchInput";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import {
-  customerLifecycleBadgeClassName,
-  customerLifecycleDescription,
-  customerLifecycleLabel,
   type CustomerLifecycleState,
 } from "./customerLifecycle";
 
@@ -120,6 +118,75 @@ function lastVisitLabel(days: number | null): string {
   return `${days} days ago`;
 }
 
+function readableDateTime(value: string | null | undefined): string {
+  if (!value) return "No date";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function humanizeToken(value: string | null | undefined): string {
+  const text = value?.trim();
+  if (!text) return "Unknown";
+  return text
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function transactionStatusLabel(status: string): string {
+  switch (status) {
+    case "open":
+      return "Open";
+    case "completed":
+    case "complete":
+      return "Completed";
+    case "cancelled":
+    case "canceled":
+      return "Canceled";
+    case "refunded":
+      return "Refunded";
+    case "pending_measurement":
+      return "Waiting on measurements";
+    default:
+      return humanizeToken(status);
+  }
+}
+
+function saleChannelLabel(channel: string | null | undefined): string {
+  switch (channel) {
+    case "web":
+      return "Online";
+    case "register":
+      return "Store";
+    case undefined:
+    case null:
+    case "":
+      return "Unknown";
+    default:
+      return humanizeToken(channel);
+  }
+}
+
+function isOpenAlterationStatus(status: string | null | undefined): boolean {
+  const normalized = status?.trim().toLowerCase();
+  return !!normalized && !["completed", "complete", "cancelled", "canceled", "picked_up"].includes(normalized);
+}
+
+function giftCardEventLabel(kind: string): string {
+  switch (kind) {
+    case "issued":
+      return "Card issued";
+    case "loaded":
+      return "Card loaded";
+    case "redeemed":
+      return "Card used";
+    case "voided":
+      return "Card voided";
+    default:
+      return humanizeToken(kind);
+  }
+}
+
 function formatMessagePreview(body: string, channel: string): string {
   if (channel === "email" && body.includes("<")) {
     return body
@@ -175,6 +242,7 @@ export type HubTab =
   | "messages"
   | "measurements"
   | "alterations"
+  | "loyalty"
   | "profile"
   | "transactions"
   | "orders"
@@ -198,6 +266,53 @@ interface CustomerOrderHistoryItem {
   is_fulfillment_order?: boolean;
   is_counterpoint_import?: boolean;
   counterpoint_customer_code?: string | null;
+}
+
+interface CustomerOpenSummary {
+  orders: number | null;
+  layaways: number | null;
+  alterations: number | null;
+}
+
+interface LoyaltyLedgerEntry {
+  id: string;
+  reason: string;
+  delta_points: number;
+  balance_after: number;
+  transaction_id?: string | null;
+  transaction_display_id?: string | null;
+  created_at: string;
+  activity_label: string;
+  activity_detail: string;
+}
+
+interface LoyaltyIssuanceRow {
+  id: string;
+  customer_id: string;
+  card_id: string | null;
+  card_code: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  reward_amount: string | number;
+  points_deducted: number;
+  applied_to_sale: string | number;
+  created_at: string;
+}
+
+interface LoyaltyGiftCardEvent {
+  id: string;
+  event_kind: string;
+  amount: string | number;
+  balance_after: string | number;
+  transaction_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+interface LoyaltyCardActivity {
+  cardCode: string;
+  issuanceId: string;
+  events: LoyaltyGiftCardEvent[];
 }
 
 interface CustomerAlterationSummary {
@@ -309,6 +424,17 @@ export function CustomerRelationshipHubDrawer({
   const [vaultLoading, setVaultLoading] = useState(false);
   const [storeCreditBal, setStoreCreditBal] = useState<string | null>(null);
   const [openDepositBal, setOpenDepositBal] = useState<string | null>(null);
+  const [openSummary, setOpenSummary] = useState<CustomerOpenSummary>({
+    orders: null,
+    layaways: null,
+    alterations: null,
+  });
+  const [loyaltyLedger, setLoyaltyLedger] = useState<LoyaltyLedgerEntry[]>([]);
+  const [loyaltyIssuances, setLoyaltyIssuances] = useState<LoyaltyIssuanceRow[]>([]);
+  const [loyaltyCardActivity, setLoyaltyCardActivity] = useState<LoyaltyCardActivity[]>([]);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [highlightMissingProfileFields, setHighlightMissingProfileFields] =
+    useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
@@ -335,6 +461,9 @@ export function CustomerRelationshipHubDrawer({
     marketing_sms_opt_in: false,
     transactional_sms_opt_in: false,
     transactional_email_opt_in: false,
+    profile_discount_percent: "0",
+    tax_exempt: false,
+    tax_exempt_id: "",
   });
   const [profileSaving, setProfileSaving] = useState(false);
   const [measDraft, setMeasDraft] = useState<Record<string, string>>({});
@@ -412,6 +541,12 @@ export function CustomerRelationshipHubDrawer({
   }, [tab]);
 
   useEffect(() => {
+    if (profileDraft.phone.trim() && profileDraft.email.trim()) {
+      setHighlightMissingProfileFields(false);
+    }
+  }, [profileDraft.phone, profileDraft.email]);
+
+  useEffect(() => {
     if (!hub || tab !== "profile" || profileDraftInit.current) return;
     setProfileDraft({
       first_name: hub.first_name ?? "",
@@ -438,6 +573,9 @@ export function CustomerRelationshipHubDrawer({
       marketing_sms_opt_in: hub.marketing_sms_opt_in,
       transactional_sms_opt_in: hub.transactional_sms_opt_in ?? false,
       transactional_email_opt_in: hub.transactional_email_opt_in ?? false,
+      profile_discount_percent: String(hub.profile_discount_percent ?? "0"),
+      tax_exempt: hub.tax_exempt ?? false,
+      tax_exempt_id: hub.tax_exempt_id ?? "",
     });
     profileDraftInit.current = true;
   }, [hub, tab]);
@@ -620,6 +758,110 @@ export function CustomerRelationshipHubDrawer({
     }
   }, [apiAuth, baseUrl, customer.id, customerAlterationsSearch, toast]);
 
+  const loadOpenSummary = useCallback(async () => {
+    try {
+      const ordersParams = new URLSearchParams({
+        customer_id: customer.id,
+        status_scope: "open",
+        limit: "1",
+      });
+      const layawayParams = new URLSearchParams({
+        customer_id: customer.id,
+        kind_filter: "layaway",
+        show_closed: "false",
+        limit: "1",
+      });
+      const alterationsParams = new URLSearchParams({
+        customer_id: customer.id,
+      });
+      const [ordersRes, layawaysRes, alterationsRes] = await Promise.all([
+        fetch(`${baseUrl}/api/transactions?${ordersParams}`, {
+          headers: apiAuth(),
+        }),
+        fetch(`${baseUrl}/api/transactions?${layawayParams}`, {
+          headers: apiAuth(),
+        }),
+        fetch(`${baseUrl}/api/alterations?${alterationsParams}`, {
+          headers: apiAuth(),
+        }),
+      ]);
+      const orders = ordersRes.ok
+        ? ((await ordersRes.json()) as { total_count?: number }).total_count ?? null
+        : null;
+      const layaways = layawaysRes.ok
+        ? ((await layawaysRes.json()) as { total_count?: number }).total_count ?? null
+        : null;
+      const alterations = alterationsRes.ok
+        ? ((await alterationsRes.json()) as CustomerAlterationSummary[]).filter((row) =>
+            isOpenAlterationStatus(row.status),
+          ).length
+        : null;
+      setOpenSummary({ orders, layaways, alterations });
+    } catch {
+      setOpenSummary({ orders: null, layaways: null, alterations: null });
+    }
+  }, [apiAuth, baseUrl, customer.id]);
+
+  const loadLoyaltyActivity = useCallback(async () => {
+    setLoyaltyLoading(true);
+    try {
+      const ledgerRes = await fetch(
+        `${baseUrl}/api/loyalty/ledger?customer_id=${encodeURIComponent(customer.id)}`,
+        { headers: apiAuth() },
+      );
+      const ledger = ledgerRes.ok
+        ? ((await ledgerRes.json()) as LoyaltyLedgerEntry[])
+        : [];
+      setLoyaltyLedger(Array.isArray(ledger) ? ledger : []);
+
+      const issuancesRes = await fetch(`${baseUrl}/api/loyalty/recent-issuances`, {
+        headers: apiAuth(),
+      });
+      const allIssuances = issuancesRes.ok
+        ? ((await issuancesRes.json()) as LoyaltyIssuanceRow[])
+        : [];
+      const customerIds = new Set(
+        [customer.id, hub?.id, hub?.couple_primary_id].filter(
+          (id): id is string => typeof id === "string" && id.trim().length > 0,
+        ),
+      );
+      const issuances = Array.isArray(allIssuances)
+        ? allIssuances.filter((row) => customerIds.has(row.customer_id))
+        : [];
+      setLoyaltyIssuances(issuances);
+
+      const cardsWithCodes = issuances
+        .map((row) => ({
+          issuanceId: row.id,
+          cardCode: row.card_code?.trim() ?? "",
+        }))
+        .filter((row) => row.cardCode.length > 0);
+      const cardActivity = await Promise.all(
+        cardsWithCodes.map(async (card) => {
+          try {
+            const res = await fetch(
+              `${baseUrl}/api/gift-cards/code/${encodeURIComponent(card.cardCode)}/events`,
+              { headers: apiAuth() },
+            );
+            const events = res.ok
+              ? ((await res.json()) as LoyaltyGiftCardEvent[])
+              : [];
+            return { ...card, events: Array.isArray(events) ? events : [] };
+          } catch {
+            return { ...card, events: [] };
+          }
+        }),
+      );
+      setLoyaltyCardActivity(cardActivity);
+    } catch {
+      setLoyaltyLedger([]);
+      setLoyaltyIssuances([]);
+      setLoyaltyCardActivity([]);
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  }, [apiAuth, baseUrl, customer.id, hub?.couple_primary_id, hub?.id]);
+
   useEffect(() => {
     if (
       !open ||
@@ -658,6 +900,10 @@ export function CustomerRelationshipHubDrawer({
     if (!open) {
       setErr(null);
       setHubShipmentFocusId(null);
+      setOpenSummary({ orders: null, layaways: null, alterations: null });
+      setLoyaltyLedger([]);
+      setLoyaltyIssuances([]);
+      setLoyaltyCardActivity([]);
       return;
     }
     if (!permissionsLoaded) {
@@ -684,6 +930,7 @@ export function CustomerRelationshipHubDrawer({
       setTimeline([]);
       setTimelineLoading(false);
     }
+    void loadOpenSummary();
     setNoteDraft("");
     setHubShipmentFocusId(null);
   }, [
@@ -694,6 +941,7 @@ export function CustomerRelationshipHubDrawer({
     canTimeline,
     loadHub,
     loadTimeline,
+    loadOpenSummary,
   ]);
 
   useEffect(() => {
@@ -779,7 +1027,13 @@ export function CustomerRelationshipHubDrawer({
     }
     const marker = `${customer.id}:${initialHubTab ?? ""}`;
     if (initialHubTab && appliedInitialHubTab.current !== marker) {
-      setTab(initialHubTab === "relationship" ? "profile" : initialHubTab);
+      setTab(
+        initialHubTab === "relationship"
+          ? "profile"
+          : initialHubTab === "messages"
+            ? "transactions"
+            : initialHubTab,
+      );
       appliedInitialHubTab.current = marker;
     }
   }, [open, customer.id, initialHubTab]);
@@ -809,6 +1063,20 @@ export function CustomerRelationshipHubDrawer({
     void loadPodiumThread();
   }, [open, tab, loadPodiumThread]);
 
+  useEffect(() => {
+    if (!open || tab !== "loyalty" || !permissionsLoaded || !canHubView || !hub) {
+      return;
+    }
+    void loadLoyaltyActivity();
+  }, [
+    open,
+    tab,
+    permissionsLoaded,
+    canHubView,
+    hub,
+    loadLoyaltyActivity,
+  ]);
+
   const title = hub
     ? `${hub.first_name} ${hub.last_name}`.trim()
     : `${customer.first_name} ${customer.last_name}`.trim();
@@ -822,6 +1090,28 @@ export function CustomerRelationshipHubDrawer({
     ? parseMoneyToCents(hub.stats.balance_due_usd) > 0
     : false;
   const showHubSummary = tab === "profile";
+  const missingProfileFields = {
+    phone: !profileDraft.phone.trim(),
+    email: !profileDraft.email.trim(),
+  };
+  const profileMissingHint =
+    missingProfileFields.phone && missingProfileFields.email
+      ? "Add phone and email to complete this profile."
+      : missingProfileFields.phone
+        ? "Add phone to complete this profile."
+        : missingProfileFields.email
+          ? "Add email to complete this profile."
+          : "";
+
+  const openHubStatTarget = (target: HubTab | "profile_missing") => {
+    if (target === "profile_missing") {
+      setTab("profile");
+      setHighlightMissingProfileFields(true);
+      return;
+    }
+    setHighlightMissingProfileFields(false);
+    setTab(target);
+  };
 
   const savePodiumConversationUrl = async () => {
     if (!canHubEdit) return;
@@ -919,6 +1209,15 @@ export function CustomerRelationshipHubDrawer({
 
   const saveProfileDetails = async () => {
     if (!canHubEdit) return;
+    const profileDiscount = Number.parseFloat(profileDraft.profile_discount_percent || "0");
+    if (!Number.isFinite(profileDiscount) || profileDiscount < 0 || profileDiscount > 100) {
+      toast("Profile discount must be between 0 and 100 percent", "error");
+      return;
+    }
+    if (profileDraft.tax_exempt && !profileDraft.tax_exempt_id.trim()) {
+      toast("Enter the tax ID before marking this customer tax exempt", "error");
+      return;
+    }
     setProfileSaving(true);
     try {
       const body: Record<string, unknown> = {
@@ -940,6 +1239,9 @@ export function CustomerRelationshipHubDrawer({
         marketing_sms_opt_in: profileDraft.marketing_sms_opt_in,
         transactional_sms_opt_in: profileDraft.transactional_sms_opt_in,
         transactional_email_opt_in: profileDraft.transactional_email_opt_in,
+        profile_discount_percent: profileDiscount.toFixed(2),
+        tax_exempt: profileDraft.tax_exempt,
+        tax_exempt_id: profileDraft.tax_exempt ? profileDraft.tax_exempt_id.trim() : null,
       };
       const dob = profileDraft.date_of_birth.trim();
       const ann = profileDraft.anniversary_date.trim();
@@ -976,6 +1278,9 @@ export function CustomerRelationshipHubDrawer({
         marketing_sms_opt_in: boolean;
         transactional_sms_opt_in: boolean | null;
         transactional_email_opt_in: boolean | null;
+        profile_discount_percent?: string | number | null;
+        tax_exempt?: boolean | null;
+        tax_exempt_id?: string | null;
       };
       setProfileDraft({
         first_name: row.first_name ?? "",
@@ -1002,6 +1307,9 @@ export function CustomerRelationshipHubDrawer({
         marketing_sms_opt_in: row.marketing_sms_opt_in,
         transactional_sms_opt_in: row.transactional_sms_opt_in ?? false,
         transactional_email_opt_in: row.transactional_email_opt_in ?? false,
+        profile_discount_percent: String(row.profile_discount_percent ?? "0"),
+        tax_exempt: row.tax_exempt ?? false,
+        tax_exempt_id: row.tax_exempt_id ?? "",
       });
       toast("Profile details saved", "success");
       await loadHub();
@@ -1229,6 +1537,17 @@ export function CustomerRelationshipHubDrawer({
   const weddings: WeddingMembership[] = hub?.weddings ?? [];
   const activeWedding = weddings.find((w) => w.active);
   const pastWeddings = weddings.filter((w) => !w.active);
+  const loyaltyEarnedPoints = loyaltyLedger
+    .filter((row) => row.delta_points > 0)
+    .reduce((sum, row) => sum + row.delta_points, 0);
+  const loyaltyUsedPoints = loyaltyLedger
+    .filter((row) => row.delta_points < 0)
+    .reduce((sum, row) => sum + Math.abs(row.delta_points), 0);
+  const loyaltyRewardCardsUsed = loyaltyCardActivity.reduce(
+    (sum, card) =>
+      sum + card.events.filter((event) => event.event_kind === "redeemed").length,
+    0,
+  );
 
   const kindDot = useMemo(
     () =>
@@ -1257,14 +1576,13 @@ export function CustomerRelationshipHubDrawer({
       actions={
         <div className="flex flex-wrap gap-2">
           {tabBtn("profile", "Profile")}
-          {canHubView ? tabBtn("messages", "Messages") : null}
-          {canOrdersView ? tabBtn("transactions", "Transaction Records") : null}
-          {canOrdersView ? tabBtn("orders", "Fulfillment Work") : null}
+          {canOrdersView ? tabBtn("transactions", "History") : null}
+          {canOrdersView ? tabBtn("orders", "Orders") : null}
           {canOrdersView ? tabBtn("layaways", "Layaways") : null}
           {canAlterationsView ? tabBtn("alterations", "Alterations") : null}
-          {tabBtn("weddings", "Wedding Links")}
+          {tabBtn("loyalty", "Loyalty")}
           {canMeasurements ? tabBtn("measurements", "Measurements") : null}
-          {canShipmentsView ? tabBtn("shipments", "Shipments") : null}
+          {tabBtn("weddings", "Weddings")}
         </div>
       }
     >
@@ -1273,12 +1591,12 @@ export function CustomerRelationshipHubDrawer({
           <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
             <h3 className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
               <Receipt size={14} aria-hidden />
-              {tab === "transactions" ? "This customer’s transaction records" : "This customer’s fulfillment work"}
+              {tab === "transactions" ? "History" : "Orders"}
             </h3>
             <p className="mb-3 text-xs text-app-text-muted">
               {tab === "transactions"
-                ? "Financial sale records for this customer. Open a transaction for receipt or salesperson corrections."
-                : "Special, Custom, or Wedding fulfillment work for this customer. Open the fulfillment record, then continue in Orders when needed."}{" "}
+                ? "Interactions and purchases for this customer, including imported Counterpoint history when available."
+                : "Open and recent special orders, custom work, and wedding fulfillment for this customer."}{" "}
               Showing {customer.first_name} {customer.last_name} ·{" "}
               {customer.customer_code}
             </p>
@@ -1311,15 +1629,89 @@ export function CustomerRelationshipHubDrawer({
             </div>
           </div>
 
+          {tab === "transactions" ? (
+            <section className="rounded-2xl border border-app-border bg-app-surface p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                  Interaction timeline
+                </h3>
+                {canTimeline && timeline.length > 0 ? (
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                    Newest first
+                  </p>
+                ) : null}
+              </div>
+              {!canTimeline ? (
+                <p className="text-sm text-app-text-muted">
+                  You need permission to view this customer&apos;s notes and interactions.
+                </p>
+              ) : timelineLoading ? (
+                <p className="text-sm text-app-text-muted">
+                  Loading customer interactions…
+                </p>
+              ) : timeline.length === 0 ? (
+                <p className="text-sm text-app-text-muted">
+                  No customer interactions recorded yet.
+                </p>
+              ) : (
+                <ul className="relative space-y-0 border-l-2 border-app-border pl-6">
+                  {timeline.map((ev, i) => (
+                    <li key={`${ev.at}-${i}`} className="relative pb-5 last:pb-0">
+                      <span
+                        className={`absolute -left-[9px] top-1.5 h-3 w-3 rounded-full border-2 border-app-surface shadow-sm ${
+                          kindDot[ev.kind] ?? "bg-app-text-muted"
+                        }`}
+                      />
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        {readableDateTime(ev.at)} · {customerTimelineKindLabel(ev.kind)}
+                      </p>
+                      {ev.kind === "shipping" &&
+                      ev.reference_type === "shipment" &&
+                      ev.reference_id &&
+                      canShipmentsView ? (
+                        <button
+                          type="button"
+                          className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
+                          onClick={() => {
+                            setHubShipmentFocusId(ev.reference_id!);
+                            setTab("shipments");
+                          }}
+                        >
+                          {ev.summary}
+                        </button>
+                      ) : (
+                        <p className="mt-1 text-sm font-semibold text-app-text">
+                          {ev.summary}
+                        </p>
+                      )}
+                      {ev.wedding_party_id ? (
+                        <button
+                          type="button"
+                          className="mt-2 text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
+                          onClick={() => {
+                            onOpenWeddingParty(ev.wedding_party_id!);
+                            onClose();
+                          }}
+                        >
+                          Open wedding
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
+
           {orderHistoryLoading && orderHistoryRows.length === 0 ? (
             <p className="text-sm text-app-text-muted">
-              Loading {tab === "transactions" ? "transactions" : "orders"}…
+              Loading {tab === "transactions" ? "history" : "orders"}…
             </p>
           ) : null}
 
           {orderHistoryRows.length === 0 && !orderHistoryLoading ? (
             <p className="text-sm text-app-text-muted">
-              No {tab === "transactions" ? "transactions" : "orders"} in this
+              No {tab === "transactions" ? "history" : "orders"} in this
               range.
             </p>
           ) : null}
@@ -1338,21 +1730,17 @@ export function CustomerRelationshipHubDrawer({
                           {row.transaction_display_id}
                         </p>
                         <p className="mt-1 text-[11px] text-app-text-muted">
-                          {new Date(row.booked_at).toLocaleString()}
+                          {readableDateTime(row.booked_at)}
                         </p>
                       </div>
                       <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        {row.status}
+                        {transactionStatusLabel(row.status)}
                       </span>
                     </div>
                     <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                       <p>
                         <span className="font-black text-app-text-muted">Channel:</span>{" "}
-                        {row.sale_channel === "web"
-                          ? "Web"
-                          : row.sale_channel === "register"
-                            ? "Store"
-                            : (row.sale_channel ?? "—")}
+                        {saleChannelLabel(row.sale_channel)}
                       </p>
                       <p className="text-right tabular-nums">
                         <span className="font-black text-app-text-muted">Lines:</span>{" "}
@@ -1383,7 +1771,7 @@ export function CustomerRelationshipHubDrawer({
                         }}
                         className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
                       >
-                        {tab === "transactions" ? "Open Transaction" : "Open Fulfillment"}
+                        {tab === "transactions" ? "Open Transaction" : "Open Order"}
                       </button>
                     </div>
                   </article>
@@ -1396,7 +1784,7 @@ export function CustomerRelationshipHubDrawer({
                     <tr>
                       <th className="px-3 py-2">Booked</th>
                       <th className="px-3 py-2">
-                        {tab === "transactions" ? "Transaction" : "Fulfillment"}
+                          {tab === "transactions" ? "Transaction" : "Order"}
                       </th>
                       <th className="px-3 py-2">Channel</th>
                       <th className="px-3 py-2">Status</th>
@@ -1415,32 +1803,28 @@ export function CustomerRelationshipHubDrawer({
                         className="hover:bg-app-surface-2/50"
                       >
                         <td className="px-3 py-2 text-xs text-app-text-muted">
-                          {new Date(row.booked_at).toLocaleString()}
+                          {readableDateTime(row.booked_at)}
                         </td>
                         <td className="px-3 py-2 font-mono text-xs">
                           <div className="flex items-center gap-2">
                             <span>{row.transaction_display_id}</span>
                             {row.is_counterpoint_import ? (
                               <span className="rounded bg-zinc-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-zinc-600">
-                                Imported
+                                Imported from Counterpoint
                               </span>
                             ) : null}
                           </div>
                           {row.counterpoint_customer_code ? (
                             <div className="mt-1 text-[9px] font-bold text-app-text-muted">
-                              Imported customer code {row.counterpoint_customer_code}
+                              Counterpoint customer {row.counterpoint_customer_code}
                             </div>
                           ) : null}
                         </td>
                         <td className="px-3 py-2 text-xs text-app-text-muted">
-                          {row.sale_channel === "web"
-                            ? "Web"
-                            : row.sale_channel === "register"
-                              ? "Store"
-                              : (row.sale_channel ?? "—")}
+                          {saleChannelLabel(row.sale_channel)}
                         </td>
                         <td className="px-3 py-2 text-xs font-semibold">
-                          {row.status}
+                          {transactionStatusLabel(row.status)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
                           {fmtMoney(row.total_price)}
@@ -1467,7 +1851,7 @@ export function CustomerRelationshipHubDrawer({
                           >
                             {tab === "transactions"
                               ? "Open Transaction"
-                              : "Open Fulfillment"}
+                              : "Open Order"}
                           </button>
                         </td>
                       </tr>
@@ -1493,7 +1877,7 @@ export function CustomerRelationshipHubDrawer({
           {orderHistoryRows.length > 0 ? (
             <p className="text-center text-[11px] text-app-text-muted">
               Showing {orderHistoryRows.length} of {orderHistoryTotal}{" "}
-              {tab === "transactions" ? "transactions" : "orders"}
+              {tab === "transactions" ? "history records" : "orders"}
             </p>
           ) : null}
         </div>
@@ -1623,6 +2007,173 @@ export function CustomerRelationshipHubDrawer({
             </div>
           ) : null}
         </div>
+      ) : tab === "loyalty" ? (
+        <div className="space-y-4">
+          <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                  <Gift size={14} aria-hidden />
+                  Loyalty
+                </h3>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  Points earned, reward cards issued, and reward cards used.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadLoyaltyActivity()}
+                className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+              >
+                Refresh
+              </button>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                ["Current points", `${(hub?.stats.loyalty_points ?? 0).toLocaleString()} pts`],
+                ["Historical earned", `${loyaltyEarnedPoints.toLocaleString()} pts`],
+                ["Points used", `${loyaltyUsedPoints.toLocaleString()} pts`],
+                ["Rewards issued", String(loyaltyIssuances.length)],
+                ["Reward card uses", String(loyaltyRewardCardsUsed)],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-xl border border-app-border bg-app-surface px-3 py-2"
+                >
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    {label}
+                  </p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {loyaltyLoading ? (
+            <p className="text-sm text-app-text-muted">
+              Loading loyalty history…
+            </p>
+          ) : null}
+
+          <section className="rounded-2xl border border-app-border bg-app-surface p-4">
+            <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+              Points history
+            </h3>
+            {loyaltyLedger.length === 0 && !loyaltyLoading ? (
+              <p className="text-sm text-app-text-muted">
+                No loyalty point activity recorded yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {loyaltyLedger.map((row) => (
+                  <article
+                    key={row.id}
+                    className="rounded-xl border border-app-border bg-app-surface-2/70 p-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-app-text">
+                          {row.activity_label}
+                        </p>
+                        <p className="mt-1 text-xs text-app-text-muted">
+                          {row.activity_detail}
+                        </p>
+                        {row.transaction_display_id ? (
+                          <p className="mt-1 font-mono text-[10px] font-bold text-app-text-muted">
+                            {row.transaction_display_id}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="text-right">
+                        <p
+                          className={`text-sm font-black tabular-nums ${
+                            row.delta_points >= 0 ? "text-app-success" : "text-app-danger"
+                          }`}
+                        >
+                          {row.delta_points > 0 ? "+" : ""}
+                          {row.delta_points.toLocaleString()} pts
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold text-app-text-muted">
+                          {readableDateTime(row.created_at)}
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold text-app-text-muted">
+                          Balance {row.balance_after.toLocaleString()} pts
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-app-border bg-app-surface p-4">
+            <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+              Loyalty gift cards
+            </h3>
+            {loyaltyIssuances.length === 0 && !loyaltyLoading ? (
+              <p className="text-sm text-app-text-muted">
+                No loyalty reward cards issued for this customer yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {loyaltyIssuances.map((issuance) => {
+                  const cardEvents =
+                    loyaltyCardActivity.find(
+                      (card) => card.issuanceId === issuance.id,
+                    )?.events ?? [];
+                  return (
+                    <article
+                      key={issuance.id}
+                      className="rounded-xl border border-app-border bg-app-surface-2/70 p-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-black text-app-text">
+                            {fmtMoney(issuance.reward_amount)} reward issued
+                          </p>
+                          <p className="mt-1 text-xs text-app-text-muted">
+                            {issuance.points_deducted.toLocaleString()} points deducted on{" "}
+                            {readableDateTime(issuance.created_at)}
+                          </p>
+                          {issuance.card_code ? (
+                            <p className="mt-2 font-mono text-xs font-black text-app-accent">
+                              {issuance.card_code}
+                            </p>
+                          ) : null}
+                        </div>
+                        <p className="rounded-full border border-app-border bg-app-surface px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Issued to gift card
+                        </p>
+                      </div>
+                      {cardEvents.length > 0 ? (
+                        <div className="mt-3 space-y-1 border-t border-app-border pt-3">
+                          {cardEvents.map((event) => (
+                            <div
+                              key={event.id}
+                              className="flex flex-wrap items-center justify-between gap-2 text-xs"
+                            >
+                              <span className="font-semibold text-app-text">
+                                {giftCardEventLabel(event.event_kind)}
+                              </span>
+                              <span className="text-app-text-muted">
+                                {fmtMoney(event.amount)} · balance{" "}
+                                {fmtMoney(event.balance_after)} ·{" "}
+                                {readableDateTime(event.created_at)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
       ) : !permissionsLoaded || loading || !hub ? (
         <p className="text-sm text-app-text-muted">
           {!permissionsLoaded
@@ -1632,16 +2183,9 @@ export function CustomerRelationshipHubDrawer({
               : (err ?? "No data.")}
         </p>
       ) : (
-        <div className="space-y-6">
+        <div className="flex flex-col gap-6">
           {showHubSummary ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${customerLifecycleBadgeClassName(
-                  hub.stats.lifecycle_state,
-                )}`}
-              >
-                Lifecycle: {customerLifecycleLabel(hub.stats.lifecycle_state)}
-              </span>
               {hub.is_vip ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-app-warning/20 bg-app-warning/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
                   <Sparkles size={12} aria-hidden />
@@ -1692,56 +2236,81 @@ export function CustomerRelationshipHubDrawer({
           ) : null}
 
           {showHubSummary ? (
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
               {[
-                [
-                  `Lifetime${hub.couple_id ? " (Joint)" : ""}`,
-                  fmtLifetimeCompact(hub.stats.lifetime_spend_usd),
-                ],
-                [
-                  "Lifecycle",
-                  customerLifecycleLabel(hub.stats.lifecycle_state),
-                ],
-                ["Profile", hub.profile_complete ? "OK" : "Incomplete"],
-                ["Last visit", lastVisitLabel(hub.stats.days_since_last_visit)],
-                ["Weddings", String(hub.stats.wedding_party_count)],
-              ].map(([k, v]) => (
-                <div
-                  key={k}
+                {
+                  label: `Lifetime${hub.couple_id ? " (Joint)" : ""}`,
+                  value: fmtLifetimeCompact(hub.stats.lifetime_spend_usd),
+                  target: "transactions" as HubTab,
+                  disabled: !canOrdersView,
+                },
+                {
+                  label: "Open orders",
+                  value: openSummary.orders == null ? "View" : String(openSummary.orders),
+                  target: "orders" as HubTab,
+                  disabled: !canOrdersView,
+                },
+                {
+                  label: "Open layaways",
+                  value: openSummary.layaways == null ? "View" : String(openSummary.layaways),
+                  target: "layaways" as HubTab,
+                  disabled: !canOrdersView,
+                },
+                {
+                  label: "Open alterations",
+                  value: openSummary.alterations == null ? "View" : String(openSummary.alterations),
+                  target: "alterations" as HubTab,
+                  disabled: !canAlterationsView,
+                },
+                {
+                  label: "Last visit",
+                  value: lastVisitLabel(hub.stats.days_since_last_visit),
+                  target: "transactions" as HubTab,
+                  disabled: !canOrdersView,
+                },
+                {
+                  label: "Loyalty",
+                  value: `${(hub.stats.loyalty_points ?? 0).toLocaleString()} pts`,
+                  target: "loyalty" as HubTab,
+                  disabled: false,
+                },
+                {
+                  label: "Profile",
+                  value: hub.profile_complete ? "Complete" : "Incomplete",
+                  target: hub.profile_complete ? "profile" as HubTab : "profile_missing" as const,
+                  disabled: false,
+                },
+              ].map(({ label, value, target, disabled }) => (
+                <button
+                  key={label}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => openHubStatTarget(target)}
                   className={`rounded-2xl border px-4 py-3 ${
-                    k === "Profile" && hub.profile_complete
+                    label === "Profile" && hub.profile_complete
                       ? "border-app-success/20 bg-app-success/10"
-                      : k === "Lifecycle"
-                        ? customerLifecycleBadgeClassName(
-                            hub.stats.lifecycle_state,
-                          )
                       : "border-app-border bg-app-surface-2/90"
-                  }`}
+                  } text-left transition hover:border-app-accent/40 hover:bg-app-accent/5 disabled:cursor-not-allowed disabled:opacity-60`}
                 >
                   <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    {k}
+                    {label}
                   </p>
                   <p
                     className={`mt-1 text-lg font-black tabular-nums ${
-                      k === "Profile" && hub.profile_complete
+                      label === "Profile" && hub.profile_complete
                         ? "text-app-success"
                         : "text-app-text"
                     }`}
                   >
-                    {v}
+                    {value}
                   </p>
-                  {k === "Lifecycle" ? (
-                    <p className="mt-1 text-[10px] font-medium normal-case tracking-normal opacity-80">
-                      {customerLifecycleDescription(hub.stats.lifecycle_state)}
-                    </p>
-                  ) : null}
-                </div>
+                </button>
               ))}
             </div>
           ) : null}
 
           {showHubSummary ? (
-            <div className="flex flex-wrap gap-2 border-b border-app-border pb-4">
+            <div className="order-4 flex flex-wrap gap-2 border-t border-app-border pt-4">
               <button
                 type="button"
                 onClick={() => {
@@ -1753,6 +2322,9 @@ export function CustomerRelationshipHubDrawer({
                     company_name: hub.company_name,
                     email: hub.email,
                     phone: hub.phone,
+                    profile_discount_percent: hub.profile_discount_percent,
+                    tax_exempt: hub.tax_exempt,
+                    tax_exempt_id: hub.tax_exempt_id,
                   });
                   if (navigateAfterStartSale) onNavigateRegister?.();
                   onClose();
@@ -1792,28 +2364,7 @@ export function CustomerRelationshipHubDrawer({
           ) : null}
 
           {tab === "profile" && (
-            <div className="space-y-6">
-              <section className="rounded-2xl border border-app-info/20 bg-app-info/10 p-4">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-app-info">
-                  Customer review and support follow-up
-                </h3>
-                <p className="mt-1 text-xs text-app-text">
-                  Use this hub to review the customer profile, notes, orders,
-                  measurements, weddings, and message history. Use the RMS
-                  Charge workspace when you need to verify linked financing
-                  accounts, review RMS posting history, or work RMS issues and
-                  reconciliation.
-                </p>
-              </section>
-              <section className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Joint account and customer notes
-                </h3>
-                <p className="mt-1 text-xs text-app-text-muted">
-                  Keep linked partner details, interaction history, and staff
-                  notes directly inside the main customer profile.
-                </p>
-              </section>
+            <div className="order-3 space-y-6">
               {hub.couple_id ? (
                 <section className="rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 p-4 relative overflow-hidden">
                   <Heart className="absolute -right-4 -bottom-4 h-24 w-24 text-app-accent/10 -rotate-12" />
@@ -1866,7 +2417,7 @@ export function CustomerRelationshipHubDrawer({
                         {hub.partner?.last_name}
                       </button>
                       <p className="text-xs text-app-text-muted">
-                        Joint sales history, loyalty, and orders active.
+                        Shared sales history, loyalty, and orders are connected.
                       </p>
                     </div>
                     {hub.id !== hub.couple_primary_id && (
@@ -2027,90 +2578,18 @@ export function CustomerRelationshipHubDrawer({
                   </section>
                 )
               )}
-              <section>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                    Interaction timeline
-                  </h3>
-                  {canTimeline && timeline.length > 0 ? (
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                      Newest first
-                    </p>
-                  ) : null}
-                </div>
-                {!canTimeline ? (
-                  <p className="text-sm text-app-text-muted">
-                    You need permission to view this customer’s notes and history.
-                  </p>
-                ) : timelineLoading ? (
-                  <p className="text-sm text-app-text-muted">
-                    Loading timeline…
-                  </p>
-                ) : timeline.length === 0 ? (
-                  <p className="text-sm text-app-text-muted">
-                    No customer history recorded yet.
-                  </p>
-                ) : (
-                  <ul className="relative space-y-0 border-l-2 border-app-border pl-6">
-                    {timeline.map((ev, i) => (
-                      <li key={`${ev.at}-${i}`} className="relative pb-6">
-                        <span
-                          className={`absolute -left-[9px] top-1.5 h-3 w-3 rounded-full border-2 border-app-surface shadow-sm ${
-                            kindDot[ev.kind] ?? "bg-app-text-muted"
-                          }`}
-                        />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          {new Date(ev.at).toLocaleString()} ·{" "}
-                          {customerTimelineKindLabel(ev.kind)}
-                        </p>
-                        {ev.kind === "shipping" &&
-                        ev.reference_type === "shipment" &&
-                        ev.reference_id &&
-                        canShipmentsView ? (
-                          <button
-                            type="button"
-                            className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
-                            onClick={() => {
-                              setHubShipmentFocusId(ev.reference_id!);
-                              setTab("shipments");
-                            }}
-                          >
-                            {ev.summary}
-                          </button>
-                        ) : (
-                          <p className="mt-1 text-sm font-semibold text-app-text">
-                            {ev.summary}
-                          </p>
-                        )}
-                        {ev.wedding_party_id ? (
-                          <button
-                            type="button"
-                            className="mt-2 text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
-                            onClick={() => {
-                              onOpenWeddingParty(ev.wedding_party_id!);
-                              onClose();
-                            }}
-                          >
-                            Open wedding workspace
-                          </button>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
 
               {canTimeline ? (
                 <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
                   <h3 className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                     <MessageSquarePlus size={14} aria-hidden />
-                    Add note
+                    Notes
                   </h3>
                   <textarea
                     value={noteDraft}
                     onChange={(e) => setNoteDraft(e.target.value)}
                     rows={3}
-                    placeholder="Prefers slim fit, likes blue tones…"
+                    placeholder="Add a staff note..."
                     className="ui-input w-full resize-y p-3 text-sm"
                   />
                   <button
@@ -2119,7 +2598,7 @@ export function CustomerRelationshipHubDrawer({
                     onClick={() => void postNote()}
                     className="mt-2 rounded-xl bg-app-accent px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
                   >
-                    {noteSaving ? "Saving…" : "Post to timeline"}
+                    {noteSaving ? "Saving…" : "Save note"}
                   </button>
                 </section>
               ) : null}
@@ -2555,18 +3034,19 @@ export function CustomerRelationshipHubDrawer({
           )}
 
           {tab === "profile" && (
-            <div className="space-y-6">
+            <div className="order-1 space-y-6">
               <div className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
                 <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Profile
+                        Customer profile
                       </h3>
-                      <p className="mt-1 text-xs text-app-text-muted">
-                        Standard customer account details for sales, messaging,
-                        appointments, and historical matching.
-                      </p>
+                      {highlightMissingProfileFields && profileMissingHint ? (
+                        <p className="mt-1 text-xs font-semibold text-app-warning">
+                          {profileMissingHint}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-right">
                       <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
@@ -2621,7 +3101,13 @@ export function CustomerRelationshipHubDrawer({
                         className="ui-input mt-1 w-full p-2.5 text-sm font-semibold text-app-text read-only:opacity-80"
                       />
                     </label>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    <label
+                      className={`block rounded-xl text-[10px] font-black uppercase tracking-widest text-app-text-muted ${
+                        highlightMissingProfileFields && missingProfileFields.phone
+                          ? "bg-app-warning/10 p-2 ring-2 ring-app-warning/40"
+                          : ""
+                      }`}
+                    >
                       Phone
                       <input
                         readOnly={!canHubEdit}
@@ -2635,7 +3121,13 @@ export function CustomerRelationshipHubDrawer({
                         className="ui-input mt-1 w-full p-2.5 text-sm font-semibold text-app-text read-only:opacity-80"
                       />
                     </label>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    <label
+                      className={`block rounded-xl text-[10px] font-black uppercase tracking-widest text-app-text-muted ${
+                        highlightMissingProfileFields && missingProfileFields.email
+                          ? "bg-app-warning/10 p-2 ring-2 ring-app-warning/40"
+                          : ""
+                      }`}
+                    >
                       Email
                       <input
                         readOnly={!canHubEdit}
@@ -2774,6 +3266,66 @@ export function CustomerRelationshipHubDrawer({
                     <Heart size={16} className="text-amber-500" aria-hidden />
                     VIP customer
                   </label>
+
+                  <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+                    <h3 className="mb-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Register defaults
+                    </h3>
+                    <div className="space-y-3">
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Automatic discount %
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          readOnly={!canHubEdit}
+                          value={profileDraft.profile_discount_percent}
+                          onChange={(e) =>
+                            setProfileDraft((d) => ({
+                              ...d,
+                              profile_discount_percent: e.target.value,
+                            }))
+                          }
+                          className="ui-input mt-1 w-full p-2.5 text-sm font-semibold text-app-text read-only:opacity-80"
+                        />
+                        <span className="mt-1 block text-[10px] normal-case tracking-normal text-app-text-muted">
+                          Applies to regular-priced merchandise only.
+                        </span>
+                      </label>
+                      <label
+                        className={`flex items-center gap-2 text-sm font-semibold text-app-text ${canHubEdit ? "cursor-pointer" : "cursor-not-allowed opacity-70"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={!canHubEdit}
+                          checked={profileDraft.tax_exempt}
+                          onChange={(e) =>
+                            setProfileDraft((d) => ({
+                              ...d,
+                              tax_exempt: e.target.checked,
+                              tax_exempt_id: e.target.checked ? d.tax_exempt_id : "",
+                            }))
+                          }
+                        />
+                        Tax exempt
+                      </label>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Tax ID
+                        <input
+                          readOnly={!canHubEdit || !profileDraft.tax_exempt}
+                          value={profileDraft.tax_exempt_id}
+                          onChange={(e) =>
+                            setProfileDraft((d) => ({
+                              ...d,
+                              tax_exempt_id: e.target.value,
+                            }))
+                          }
+                          className="ui-input mt-1 w-full p-2.5 text-sm font-semibold text-app-text read-only:opacity-60"
+                        />
+                      </label>
+                    </div>
+                  </section>
 
                   <section
                     className={`rounded-2xl border p-4 ${

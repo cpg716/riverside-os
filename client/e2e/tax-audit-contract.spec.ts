@@ -194,6 +194,44 @@ async function createTaxProduct(
   };
 }
 
+async function createCustomerWithProfileDiscount(
+  request: APIRequestContext,
+  percent: string,
+): Promise<string> {
+  const suffix = uniqueSuffix("profile-discount");
+  const createRes = await request.post(`${apiBase()}/api/customers`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      first_name: "Profile",
+      last_name: `Discount ${suffix}`,
+      phone: "7165550101",
+      email: `${suffix}@example.com`,
+    },
+    failOnStatusCode: false,
+  });
+  const createText = await createRes.text();
+  expect(createRes.status(), createText.slice(0, 1000)).toBe(200);
+  const customer = JSON.parse(createText) as { id: string };
+  expect(customer.id).toBeTruthy();
+
+  const patchRes = await request.patch(`${apiBase()}/api/customers/${customer.id}`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      profile_discount_percent: percent,
+    },
+    failOnStatusCode: false,
+  });
+  const patchText = await patchRes.text();
+  expect(patchRes.status(), patchText.slice(0, 1000)).toBe(200);
+  return customer.id;
+}
+
 async function checkoutTaxProduct(
   request: APIRequestContext,
   options: {
@@ -206,6 +244,8 @@ async function checkoutTaxProduct(
     localTax: string;
     quantity?: number;
     priceOverrideReason?: string;
+    originalUnitPrice?: string;
+    customerId?: string | null;
     isTaxExempt?: boolean;
     taxExemptReason?: string;
   },
@@ -223,7 +263,7 @@ async function checkoutTaxProduct(
       session_id: options.sessionId,
       operator_staff_id: options.operatorStaffId,
       primary_salesperson_id: options.operatorStaffId,
-      customer_id: null,
+      customer_id: options.customerId ?? null,
       payment_method: "cash",
       total_price: total,
       amount_paid: total,
@@ -241,6 +281,7 @@ async function checkoutTaxProduct(
           state_tax: options.stateTax,
           local_tax: options.localTax,
           salesperson_id: options.operatorStaffId,
+          original_unit_price: options.originalUnitPrice,
           price_override_reason: options.priceOverrideReason,
         },
       ],
@@ -427,6 +468,65 @@ test.describe("tax audit contract", () => {
     });
     expect(staleRes.status()).toBe(400);
     await expect(staleRes.text()).resolves.toMatch(/Tax per unit/i);
+  });
+
+  test("customer profile discounts are accepted only for the linked customer rate", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const customerId = await createCustomerWithProfileDiscount(request, "15.00");
+    const product = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "100.00",
+      label: "customer-profile-discount",
+    });
+    const discountedTax = taxFor("clothing", "85.00");
+
+    const validRes = await checkoutTaxProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId,
+      unitPrice: "85.00",
+      originalUnitPrice: "100.00",
+      stateTax: discountedTax.stateTax,
+      localTax: discountedTax.localTax,
+      priceOverrideReason: "Customer profile discount",
+    });
+    const validText = await validRes.text();
+    expect(validRes.status(), validText.slice(0, 1000)).toBe(200);
+
+    const missingCustomerRes = await checkoutTaxProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "85.00",
+      originalUnitPrice: "100.00",
+      stateTax: discountedTax.stateTax,
+      localTax: discountedTax.localTax,
+      priceOverrideReason: "Customer profile discount",
+    });
+    expect(missingCustomerRes.status()).toBe(400);
+    await expect(missingCustomerRes.text()).resolves.toMatch(/requires a linked customer/i);
+
+    const wrongPriceTax = taxFor("clothing", "80.00");
+    const wrongPriceRes = await checkoutTaxProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId,
+      unitPrice: "80.00",
+      originalUnitPrice: "100.00",
+      stateTax: wrongPriceTax.stateTax,
+      localTax: wrongPriceTax.localTax,
+      priceOverrideReason: "Customer profile discount",
+    });
+    expect(wrongPriceRes.status()).toBe(400);
+    await expect(wrongPriceRes.text()).resolves.toMatch(/customer profile discount/i);
   });
 
   test("tax-exempt checkout requires a reason and preserves zero tax at server boundary", async ({

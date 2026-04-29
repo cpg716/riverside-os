@@ -829,7 +829,10 @@ export default function Cart({
               customer_code: c.customer_code ?? "",
               company_name: c.company_name ?? null,
               email: c.email ?? null,
-              phone: c.phone ?? null
+              phone: c.phone ?? null,
+              profile_discount_percent: c.profile_discount_percent,
+              tax_exempt: c.tax_exempt,
+              tax_exempt_id: c.tax_exempt_id,
             });
             setOrderLoadOpen(true);
           } else {
@@ -1121,6 +1124,9 @@ export default function Cart({
             company_name: c.company_name ?? null,
             email: c.email ?? null,
             phone: c.phone ?? null,
+            profile_discount_percent: c.profile_discount_percent,
+            tax_exempt: c.tax_exempt,
+            tax_exempt_id: c.tax_exempt_id,
           });
         }
       } catch {
@@ -2126,6 +2132,8 @@ export default function Cart({
         weddingLinked={!!activeWeddingMember}
         customerId={selectedCustomer?.id}
         customerName={selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}` : undefined}
+        customerTaxExempt={selectedCustomer?.tax_exempt ?? false}
+        customerTaxExemptId={selectedCustomer?.tax_exempt_id ?? null}
         authoritativeDepositCents={0}
         profileBlocksCheckout={false}
         onOpenProfileGate={() => {}}

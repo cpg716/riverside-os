@@ -35,6 +35,8 @@ use sqlx::types::Json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+const CUSTOMER_PROFILE_DISCOUNT_REASON: &str = "Customer profile discount";
+
 #[derive(Debug, Error)]
 pub enum CheckoutError {
     #[error("Invalid payload: {0}")]
@@ -1838,15 +1840,46 @@ pub async fn execute_checkout(
         }
     }
 
+    let has_customer_profile_discount = payload.items.iter().any(|item| {
+        item.price_override_reason
+            .as_deref()
+            .map(str::trim)
+            .map(|reason| reason.eq_ignore_ascii_case(CUSTOMER_PROFILE_DISCOUNT_REASON))
+            .unwrap_or(false)
+    });
+    let customer_profile_discount_percent = if has_customer_profile_discount {
+        let customer_id = payload.customer_id.ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "Customer profile discount requires a linked customer".to_string(),
+            )
+        })?;
+        let pct = sqlx::query_scalar::<_, Decimal>(
+            "SELECT profile_discount_percent FROM customers WHERE id = $1",
+        )
+        .bind(customer_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| CheckoutError::InvalidPayload("Customer not found".to_string()))?;
+        if pct <= Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "Customer profile discount is not enabled for this customer".to_string(),
+            ));
+        }
+        Some(pct)
+    } else {
+        None
+    };
+
     let max_disc_pct =
         pricing_limits::max_discount_percent_for_staff(pool, payload.operator_staff_id).await?;
 
     for item in &payload.items {
-        let has_ov = item
+        let reason = item
             .price_override_reason
             .as_ref()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
+        let has_ov = reason.is_some();
         if !has_ov {
             continue;
         }
@@ -1867,6 +1900,43 @@ pub async fn execute_checkout(
         })?;
         let retail = resolved.standard_retail_price;
         if retail <= Decimal::ZERO {
+            continue;
+        }
+        if reason
+            .map(|r| r.eq_ignore_ascii_case(CUSTOMER_PROFILE_DISCOUNT_REASON))
+            .unwrap_or(false)
+        {
+            if item.discount_event_id.is_some() {
+                return Err(CheckoutError::InvalidPayload(
+                    "Customer profile discount cannot be combined with a sale event discount"
+                        .to_string(),
+                ));
+            }
+            let kind = resolved.pos_line_kind.as_deref();
+            if matches!(
+                kind,
+                Some("rms_charge_payment")
+                    | Some("pos_gift_card_load")
+                    | Some("alteration_service")
+            ) || item.line_type.as_deref() == Some("alteration_service")
+            {
+                return Err(CheckoutError::InvalidPayload(
+                    "Customer profile discount only applies to merchandise lines".to_string(),
+                ));
+            }
+            let pct = customer_profile_discount_percent.ok_or_else(|| {
+                CheckoutError::InvalidPayload(
+                    "Customer profile discount is not enabled for this customer".to_string(),
+                )
+            })?;
+            let expected_unit =
+                (retail * (Decimal::from(100) - pct) / Decimal::from(100)).round_dp(2);
+            if !checkout_validate::money_close_decimal(item.unit_price, expected_unit) {
+                return Err(CheckoutError::InvalidPayload(format!(
+                    "unit price for variant {} does not match customer profile discount {:.2}% off retail",
+                    item.variant_id, pct
+                )));
+            }
             continue;
         }
         if item.unit_price >= retail {

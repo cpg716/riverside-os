@@ -15,6 +15,9 @@ export interface Customer {
   company_name?: string | null;
   email: string | null;
   phone: string | null;
+  profile_discount_percent?: string | number;
+  tax_exempt?: boolean;
+  tax_exempt_id?: string | null;
   wedding_active?: boolean;
   wedding_party_name?: string | null;
   wedding_party_id?: string | null;
@@ -148,6 +151,9 @@ export default function CustomerSelector({
                 company_name: r.company_name ?? null,
                 email: r.email,
                 phone: r.phone,
+                profile_discount_percent: r.profile_discount_percent,
+                tax_exempt: r.tax_exempt,
+                tax_exempt_id: r.tax_exempt_id,
                 wedding_active: true,
                 wedding_party_name: r.wedding_party_name ?? null,
                 wedding_party_id: r.wedding_party_id ?? null,
@@ -207,6 +213,9 @@ export default function CustomerSelector({
             company_name: r.company_name ?? null,
             email: r.email,
             phone: r.phone,
+            profile_discount_percent: r.profile_discount_percent,
+            tax_exempt: r.tax_exempt,
+            tax_exempt_id: r.tax_exempt_id,
             wedding_active: true,
             wedding_party_name: r.wedding_party_name ?? null,
             wedding_party_id: r.wedding_party_id ?? null,

@@ -182,6 +182,11 @@ function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function customerTaxExemptReason(taxId?: string | null): string {
+  const id = taxId?.trim();
+  return id ? `Customer tax exempt (${id})` : "Customer tax exempt";
+}
+
 export interface NexoCheckoutDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -192,6 +197,8 @@ export interface NexoCheckoutDrawerProps {
   weddingLinked: boolean;
   customerId?: string | null;
   customerName?: string | null;
+  customerTaxExempt?: boolean;
+  customerTaxExemptId?: string | null;
   authoritativeDepositCents?: number;
   profileBlocksCheckout: boolean;
   onOpenProfileGate: () => void;
@@ -243,6 +250,8 @@ export default function NexoCheckoutDrawer({
   stateTaxCents,
   localTaxCents,
   customerId,
+  customerTaxExempt = false,
+  customerTaxExemptId = null,
   authoritativeDepositCents = 0,
   profileBlocksCheckout,
   onOpenProfileGate,
@@ -375,8 +384,8 @@ export default function NexoCheckoutDrawer({
       setShowStripeSimulation(false);
       setStripeIntent(null);
       pendingStripeCentsRef.current = 0;
-      setIsTaxExempt(false);
-      setTaxExemptReason("Out of State");
+      setIsTaxExempt(customerTaxExempt);
+      setTaxExemptReason(customerTaxExempt ? customerTaxExemptReason(customerTaxExemptId) : "Out of State");
       setRmsResolve(null);
       setRmsSelectedAccount(null);
       setRmsPrograms([]);
@@ -384,7 +393,7 @@ export default function NexoCheckoutDrawer({
       setRmsSummary(null);
       setRmsProgramPickerOpen(false);
     }
-  }, [isOpen, rmsPaymentCollectionMode, customerId, vaultedMethods.length]);
+  }, [isOpen, rmsPaymentCollectionMode, customerId, customerTaxExempt, customerTaxExemptId, vaultedMethods.length]);
 
   useEffect(() => {
     if (isOpen && customerId) {
@@ -875,6 +884,9 @@ export default function NexoCheckoutDrawer({
                     onChange={(e) => setTaxExemptReason(e.target.value)}
                     className="h-7 w-32 rounded-lg border border-rose-200 bg-rose-50/50 px-2 text-[9px] font-black uppercase tracking-tight text-rose-700 outline-none"
                   >
+                    {taxExemptReason.startsWith("Customer tax exempt") ? (
+                      <option value={taxExemptReason}>{taxExemptReason}</option>
+                    ) : null}
                     <option value="Out of State">Out of State</option>
                     <option value="Exempt Organization">Exempt Org</option>
                     <option value="Resale">Resale</option>

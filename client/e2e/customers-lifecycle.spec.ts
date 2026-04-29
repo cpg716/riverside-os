@@ -30,6 +30,9 @@ const issueCustomer = {
   company_name: null,
   email: "iris@example.com",
   phone: "555-0102",
+  profile_discount_percent: "0.00",
+  tax_exempt: false,
+  tax_exempt_id: null,
   is_vip: true,
   open_balance_due: "25.00",
   lifetime_sales: "840.00",
@@ -48,8 +51,11 @@ const issueHubResponse = {
   first_name: issueCustomer.first_name,
   last_name: issueCustomer.last_name,
   company_name: issueCustomer.company_name,
-  email: issueCustomer.email,
-  phone: issueCustomer.phone,
+  email: null,
+  phone: null,
+  profile_discount_percent: "0.00",
+  tax_exempt: false,
+  tax_exempt_id: null,
   address_line1: null,
   address_line2: null,
   city: null,
@@ -74,7 +80,7 @@ const issueHubResponse = {
   couple_linked_at: null,
   open_balance_due: "25.00",
   lifetime_sales: "840.00",
-  profile_complete: true,
+  profile_complete: false,
   weddings: [],
   stats: {
     lifetime_spend_usd: "840.00",
@@ -426,6 +432,12 @@ test("customer lifecycle filter and hub badge use the same explicit state", asyn
 
   await page.getByRole("button", { name: new RegExp(issueCustomer.first_name, "i") }).click();
 
-  await expect(page.getByText(/lifecycle: issue/i)).toBeVisible();
-  await expect(page.getByText(/customer work needs attention/i)).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: /iris issue/i });
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  await expect(dialog.getByRole("button", { name: /^History$/i })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /transaction records/i })).toHaveCount(0);
+  await expect(dialog.getByText(/lifecycle/i)).toHaveCount(0);
+
+  await dialog.getByRole("button", { name: /profile\s+incomplete/i }).click();
+  await expect(dialog.getByText(/add phone and email to complete this profile/i)).toBeVisible();
 });
