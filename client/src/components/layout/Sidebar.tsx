@@ -14,7 +14,7 @@ import {
 } from "../../context/BackofficeAuthPermissions";
 import { useNotificationCenterOptional } from "../../context/NotificationCenterContextLogic";
 
-import type { SidebarTabId } from "./sidebarSections";
+import type { SidebarTabId, SubItem } from "./sidebarSections";
 import { SIDEBAR_SUB_SECTIONS } from "./sidebarSections";
 import { APP_NAV_ICON_NAMES, getAppIcon, getNavIconProps } from "../../lib/icons";
 
@@ -28,6 +28,19 @@ interface SidebarProps {
 }
 
 type WorkspaceSurface = "POS-Core" | "BackOffice";
+
+function shouldShowSubGroup(
+  subItems: SubItem[],
+  groupIndex: number,
+  visibleSubIds: Set<string>,
+) {
+  for (let i = groupIndex + 1; i < subItems.length; i += 1) {
+    const sub = subItems[i];
+    if (sub.kind === "group") return false;
+    if (visibleSubIds.has(sub.id)) return true;
+  }
+  return false;
+}
 
 export default function Sidebar({
   activeTab,
@@ -135,6 +148,14 @@ export default function Sidebar({
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           const subItems = SIDEBAR_SUB_SECTIONS[item.id];
+          const visibleSubIds = new Set(
+            subItems
+              .filter((sub) =>
+                sub.kind !== "group" &&
+                subSectionVisible(item.id, sub.id, hasPermission, permissionsLoaded),
+              )
+              .map((sub) => sub.id),
+          );
 
           const tipLabel =
             item.id === "register"
@@ -205,30 +226,44 @@ export default function Sidebar({
               {/* Sub-items — active tab, expanded only */}
               {isActive && !collapsed && subItems.length > 0 && (
                 <div className="ml-3 mt-1 mb-2 flex flex-col gap-0.5 border-l-2 border-app-border/40 pl-3">
-                  {subItems.filter((sub) =>
-                    subSectionVisible(item.id, sub.id, hasPermission, permissionsLoaded),
-                  ).map((sub) => (
-                    <button
-                      key={sub.id}
-                      type="button"
-                      onClick={() => onSubSectionChange(sub.id)}
-                      className={`flex w-full cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 ${
-                        activeSubSection === sub.id
-                          ? "bg-app-surface-2 font-black text-app-accent"
-                          : "font-semibold text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-                      }`}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{sub.label}</span>
-                      {sub.id === "inbox" && showPodiumInboxDot ? (
-                        <span
-                          className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-black tabular-nums text-white"
-                          aria-hidden
+                  {subItems.map((sub, index) => {
+                    if (sub.kind === "group") {
+                      if (!shouldShowSubGroup(subItems, index, visibleSubIds)) {
+                        return null;
+                      }
+                      return (
+                        <div
+                          key={sub.id}
+                          className="mt-2 px-2.5 pb-1 pt-1 text-[9px] font-black uppercase tracking-[0.18em] text-app-text-muted/70 first:mt-0"
                         >
-                          {podiumInboxUnread > 99 ? "99+" : podiumInboxUnread}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
+                          {sub.label}
+                        </div>
+                      );
+                    }
+                    if (!visibleSubIds.has(sub.id)) return null;
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => onSubSectionChange(sub.id)}
+                        className={`flex w-full cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 ${
+                          activeSubSection === sub.id
+                            ? "bg-app-surface-2 font-black text-app-accent"
+                            : "font-semibold text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{sub.label}</span>
+                        {sub.id === "inbox" && showPodiumInboxDot ? (
+                          <span
+                            className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-black tabular-nums text-white"
+                            aria-hidden
+                          >
+                            {podiumInboxUnread > 99 ? "99+" : podiumInboxUnread}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

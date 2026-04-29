@@ -895,19 +895,17 @@ export default function ShipmentsHubSection({
 
       {newOpen
         ? createPortal(
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/50"
-            aria-label="Close"
-            onClick={() => setNewOpen(false)}
-          />
+        <div
+          className="ui-overlay-backdrop !z-[200]"
+          onClick={() => setNewOpen(false)}
+        >
           <div
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl"
+            className="ui-modal relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center gap-2">
               <Package className="text-app-accent" size={20} />

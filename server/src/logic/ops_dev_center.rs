@@ -139,6 +139,21 @@ pub struct RuntimeDiagnosticsSnapshot {
     pub items: Vec<RuntimeDiagnosticItem>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct OpsRetentionConfig {
+    pub station_retention_days: i64,
+    pub resolved_alert_retention_days: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OpsRetentionCleanupResult {
+    pub stale_station_alerts_resolved: u64,
+    pub stale_stations_deleted: u64,
+    pub resolved_alerts_deleted: u64,
+    pub station_retention_days: i64,
+    pub resolved_alert_retention_days: i64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct GuardedActionResult {
     pub ok: bool,
@@ -203,6 +218,26 @@ fn nonempty_env(key: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn env_i64_range(key: &str, default: i64, min: i64, max: i64) -> i64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .map(|value| value.clamp(min, max))
+        .unwrap_or(default)
+}
+
+pub fn ops_retention_config_from_env() -> OpsRetentionConfig {
+    OpsRetentionConfig {
+        station_retention_days: env_i64_range("RIVERSIDE_OPS_STATION_RETENTION_DAYS", 30, 1, 365),
+        resolved_alert_retention_days: env_i64_range(
+            "RIVERSIDE_OPS_RESOLVED_ALERT_RETENTION_DAYS",
+            180,
+            7,
+            3650,
+        ),
+    }
 }
 
 fn looks_placeholder(value: &str) -> bool {
@@ -883,6 +918,8 @@ pub async fn upsert_station_heartbeat(
 }
 
 pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error> {
+    let retention = ops_retention_config_from_env();
+    let retention_cutoff = Utc::now() - Duration::days(retention.station_retention_days);
     let rows = sqlx::query_as::<_, StationRow>(
         r#"
         SELECT
@@ -899,10 +936,12 @@ pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error
             updated_at,
             (last_seen_at >= $1) AS online
         FROM ops_station_heartbeat
+        WHERE last_seen_at >= $2
         ORDER BY last_seen_at DESC
         "#,
     )
     .bind(now_online_cutoff())
+    .bind(retention_cutoff)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -926,6 +965,7 @@ pub async fn list_alerts(pool: &PgPool) -> Result<Vec<AlertEventRow>, sqlx::Erro
             resolved_at,
             resolved_by_staff_id
         FROM ops_alert_event
+        WHERE status IN ('open', 'acked')
         ORDER BY
             CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
             last_seen_at DESC
@@ -953,6 +993,76 @@ pub async fn ack_alert(pool: &PgPool, id: Uuid, actor_staff_id: Uuid) -> Result<
     .execute(pool)
     .await?;
     Ok(r.rows_affected() > 0)
+}
+
+pub async fn perform_retention_cleanup(
+    pool: &PgPool,
+    config: &OpsRetentionConfig,
+) -> Result<OpsRetentionCleanupResult, sqlx::Error> {
+    let station_cutoff = Utc::now() - Duration::days(config.station_retention_days);
+    let resolved_alert_cutoff = Utc::now() - Duration::days(config.resolved_alert_retention_days);
+
+    let stale_station_alerts_resolved = sqlx::query(
+        r#"
+        WITH stale AS (
+            SELECT station_key
+            FROM ops_station_heartbeat
+            WHERE last_seen_at < $1
+        )
+        UPDATE ops_alert_event
+        SET
+            status = 'resolved',
+            resolved_at = COALESCE(resolved_at, NOW()),
+            resolved_by_staff_id = NULL,
+            updated_at = NOW()
+        WHERE rule_key = 'station_offline'
+          AND status IN ('open', 'acked')
+          AND dedupe_key IN (
+              SELECT 'station_offline:' || station_key
+              FROM stale
+          )
+        "#,
+    )
+    .bind(station_cutoff)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    let stale_stations_deleted = sqlx::query(
+        r#"
+        DELETE FROM ops_station_heartbeat
+        WHERE last_seen_at < $1
+        "#,
+    )
+    .bind(station_cutoff)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    let resolved_alerts_deleted = sqlx::query(
+        r#"
+        DELETE FROM ops_alert_event a
+        WHERE a.status = 'resolved'
+          AND COALESCE(a.resolved_at, a.updated_at, a.last_seen_at) < $1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM ops_bug_incident_link l
+              WHERE l.alert_event_id = a.id
+          )
+        "#,
+    )
+    .bind(resolved_alert_cutoff)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    Ok(OpsRetentionCleanupResult {
+        stale_station_alerts_resolved,
+        stale_stations_deleted,
+        resolved_alerts_deleted,
+        station_retention_days: config.station_retention_days,
+        resolved_alert_retention_days: config.resolved_alert_retention_days,
+    })
 }
 
 pub async fn list_action_audit(pool: &PgPool) -> Result<Vec<ActionAuditRow>, sqlx::Error> {
@@ -1545,6 +1655,22 @@ async fn action_help_generate_manifest(payload: &Value) -> GuardedActionResult {
     }
 }
 
+async fn action_ops_retention_cleanup(pool: &PgPool) -> GuardedActionResult {
+    let config = ops_retention_config_from_env();
+    match perform_retention_cleanup(pool, &config).await {
+        Ok(result) => GuardedActionResult {
+            ok: true,
+            message: "Ops retention cleanup completed".to_string(),
+            data: json!(result),
+        },
+        Err(e) => GuardedActionResult {
+            ok: false,
+            message: "Ops retention cleanup failed".to_string(),
+            data: json!({ "error": e.to_string() }),
+        },
+    }
+}
+
 pub async fn run_guarded_action(
     pool: &PgPool,
     meilisearch: Option<&meilisearch_sdk::client::Client>,
@@ -1555,10 +1681,11 @@ pub async fn run_guarded_action(
         "backup.trigger_local" => action_backup_trigger_local(pool).await,
         "help.reindex_search" => action_help_reindex_search(meilisearch).await,
         "help.generate_manifest" => action_help_generate_manifest(payload).await,
+        "ops.retention_cleanup" => action_ops_retention_cleanup(pool).await,
         _ => GuardedActionResult {
             ok: false,
             message: format!("unknown action key: {action_key}"),
-            data: json!({ "allowed": ["backup.trigger_local", "help.reindex_search", "help.generate_manifest"] }),
+            data: json!({ "allowed": allowed_action_keys() }),
         },
     }
 }
@@ -1568,6 +1695,7 @@ pub fn allowed_action_keys() -> &'static [&'static str] {
         "backup.trigger_local",
         "help.reindex_search",
         "help.generate_manifest",
+        "ops.retention_cleanup",
     ]
 }
 

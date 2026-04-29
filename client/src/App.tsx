@@ -249,9 +249,14 @@ function App() {
     const hasValidSubSection =
       activeTab === "inventory"
         ? INVENTORY_SECTION_KEYS.has(activeSubSection)
-        : subs.some((sub) => sub.id === activeSubSection);
+        : subs.some(
+            (sub) => sub.kind !== "group" && sub.id === activeSubSection,
+          );
     if (!hasValidSubSection) {
-      setActiveSubSection(activeTab === "inventory" ? "hub" : subs[0].id);
+      const firstSection = subs.find((sub) => sub.kind !== "group");
+      setActiveSubSection(
+        activeTab === "inventory" ? "hub" : (firstSection?.id ?? "hub"),
+      );
     }
   }, [activeTab, activeSubSection]);
 
@@ -502,6 +507,7 @@ function App() {
         enterBackofficeShell("settings");
         const sec = linkStr(link, "section") || "profile";
         const allowed = new Set([
+          "hub",
           "profile",
           "general",
           "printing",
@@ -1357,6 +1363,8 @@ function AppShell({
                 }
                 setActiveTab(tab);
                 if (tab === "inventory") {
+                  setActiveSubSection("hub");
+                } else if (tab === "settings") {
                   setActiveSubSection("hub");
                 }
                 if (window.innerWidth < 1024) setSidebarCollapsed(true);

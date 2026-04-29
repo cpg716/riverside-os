@@ -111,7 +111,8 @@ type BugOverviewRow = {
 type GuardedActionKey =
   | "backup.trigger_local"
   | "help.reindex_search"
-  | "help.generate_manifest";
+  | "help.generate_manifest"
+  | "ops.retention_cleanup";
 
 const baseUrl = getBaseUrl();
 
@@ -148,6 +149,60 @@ function infoBadgeClass(severity: string): string {
   return "bg-app-info/12 text-app-info border border-app-info/30";
 }
 
+const STATION_PAGE_SIZE = 10;
+const ALERT_PAGE_SIZE = 6;
+
+function pageCount(total: number, pageSize: number): number {
+  return Math.max(1, Math.ceil(total / pageSize));
+}
+
+function PageControls({
+  label,
+  page,
+  total,
+  pageSize,
+  onPageChange,
+}: {
+  label: string;
+  page: number;
+  total: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = pageCount(total, pageSize);
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(total, page * pageSize);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-app-border/60 pb-3">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-app-text-muted">
+        {label}: {start}-{end} of {total}
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page <= 1}
+          className="rounded-lg border border-app-border bg-app-bg px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-text disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Prev
+        </button>
+        <span className="rounded-lg border border-app-border bg-app-surface px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text">
+          Page {page} / {totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          disabled={page >= totalPages}
+          className="rounded-lg border border-app-border bg-app-bg px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-text disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function RosDevCenterPanel({
   bugReportsDeepLinkId = null,
   onBugReportsDeepLinkConsumed,
@@ -181,6 +236,8 @@ export default function RosDevCenterPanel({
   const [selectedAlertId, setSelectedAlertId] = useState("");
   const [linkNote, setLinkNote] = useState("");
   const [linkBusy, setLinkBusy] = useState(false);
+  const [stationPage, setStationPage] = useState(1);
+  const [alertPage, setAlertPage] = useState(1);
 
   const canView = hasPermission("ops.dev_center.view");
   const canRunActions = hasPermission("ops.dev_center.actions");
@@ -226,6 +283,32 @@ export default function RosDevCenterPanel({
     [alerts],
   );
   const apiBaseDiagnostics = useMemo(() => getBaseUrlDiagnostics(), []);
+  const stationTotalPages = pageCount(stations.length, STATION_PAGE_SIZE);
+  const alertTotalPages = pageCount(openAlerts.length, ALERT_PAGE_SIZE);
+  const visibleStations = useMemo(
+    () =>
+      stations.slice(
+        (stationPage - 1) * STATION_PAGE_SIZE,
+        stationPage * STATION_PAGE_SIZE,
+      ),
+    [stationPage, stations],
+  );
+  const visibleAlerts = useMemo(
+    () =>
+      openAlerts.slice(
+        (alertPage - 1) * ALERT_PAGE_SIZE,
+        alertPage * ALERT_PAGE_SIZE,
+      ),
+    [alertPage, openAlerts],
+  );
+
+  useEffect(() => {
+    setStationPage((page) => Math.min(page, stationTotalPages));
+  }, [stationTotalPages]);
+
+  useEffect(() => {
+    setAlertPage((page) => Math.min(page, alertTotalPages));
+  }, [alertTotalPages]);
 
   const runGuardedAction = useCallback(
     async (actionKey: GuardedActionKey, payload: Record<string, unknown>) => {
@@ -535,39 +618,51 @@ export default function RosDevCenterPanel({
       </section>
 
       <section className="ui-card p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <Server className="h-5 w-5 text-app-accent" />
-          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            Station Fleet
-          </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Server className="h-5 w-5 text-app-accent" />
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+              Station Fleet
+            </h3>
+          </div>
+          <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            {stations.length} stations
+          </span>
         </div>
-        <div className="overflow-x-auto">
+        <PageControls
+          label="Stations"
+          page={stationPage}
+          total={stations.length}
+          pageSize={STATION_PAGE_SIZE}
+          onPageChange={setStationPage}
+        />
+        <div className="mt-3 max-h-[520px] overflow-auto rounded-xl border border-app-border/60">
           <table className="w-full text-left text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-app-surface">
               <tr className="text-[10px] uppercase tracking-widest text-app-text-muted">
-                <th className="py-2">Station</th>
-                <th className="py-2">Version</th>
-                <th className="py-2">Network</th>
-                <th className="py-2">Last Seen</th>
-                <th className="py-2">Status</th>
+                <th className="px-3 py-2">Station</th>
+                <th className="px-3 py-2">Version</th>
+                <th className="px-3 py-2">Network</th>
+                <th className="px-3 py-2">Last Seen</th>
+                <th className="px-3 py-2">Status</th>
               </tr>
             </thead>
             <tbody>
-              {stations.map((s) => (
+              {visibleStations.map((s) => (
                 <tr key={s.station_key} className="border-t border-app-border/60">
-                  <td className="py-2">
+                  <td className="px-3 py-2">
                     <div className="font-bold text-app-text">{s.station_label}</div>
                     <div className="text-xs text-app-text-muted">{s.station_key}</div>
                   </td>
-                  <td className="py-2 font-mono text-xs">
+                  <td className="px-3 py-2 font-mono text-xs">
                     {s.app_version}
                     {s.git_sha ? ` (${s.git_sha.slice(0, 10)})` : ""}
                   </td>
-                  <td className="py-2 text-xs text-app-text-muted">
+                  <td className="px-3 py-2 text-xs text-app-text-muted">
                     {s.tailscale_node || s.lan_ip || "-"}
                   </td>
-                  <td className="py-2 text-xs text-app-text-muted">{fmtTs(s.last_seen_at)}</td>
-                  <td className="py-2">
+                  <td className="px-3 py-2 text-xs text-app-text-muted">{fmtTs(s.last_seen_at)}</td>
+                  <td className="px-3 py-2">
                     <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${s.online ? "bg-app-success/12 text-app-success" : "bg-app-danger/12 text-app-danger"}`}>
                       {s.online ? "Online" : "Offline"}
                     </span>
@@ -587,14 +682,26 @@ export default function RosDevCenterPanel({
       </section>
 
       <section className="ui-card p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <ShieldAlert className="h-5 w-5 text-amber-400" />
-          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            Alert Center
-          </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-5 w-5 text-amber-400" />
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+              Alert Center
+            </h3>
+          </div>
+          <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            {openAlerts.length} active alerts
+          </span>
         </div>
-        <div className="space-y-3">
-          {openAlerts.map((a) => (
+        <PageControls
+          label="Alerts"
+          page={alertPage}
+          total={openAlerts.length}
+          pageSize={ALERT_PAGE_SIZE}
+          onPageChange={setAlertPage}
+        />
+        <div className="mt-3 max-h-[560px] space-y-3 overflow-y-auto pr-1">
+          {visibleAlerts.map((a) => (
             <div key={a.id} className="ui-metric-cell ui-tint-neutral p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -678,7 +785,7 @@ export default function RosDevCenterPanel({
               </label>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
               <button
                 type="button"
                 disabled={actionBusy === "backup.trigger_local"}
@@ -715,6 +822,17 @@ export default function RosDevCenterPanel({
                 className="ui-btn-ghost py-3 text-xs font-black uppercase tracking-widest"
               >
                 {actionBusy === "help.generate_manifest" ? "Running..." : "Generate Help Manifest"}
+              </button>
+
+              <button
+                type="button"
+                disabled={actionBusy === "ops.retention_cleanup"}
+                onClick={() =>
+                  void runGuardedAction("ops.retention_cleanup", {})
+                }
+                className="ui-btn-ghost py-3 text-xs font-black uppercase tracking-widest"
+              >
+                {actionBusy === "ops.retention_cleanup" ? "Running..." : "Run Ops Retention"}
               </button>
             </div>
 

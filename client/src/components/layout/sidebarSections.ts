@@ -26,6 +26,7 @@ export type SidebarTabId =
 export interface SubItem {
   id: string;
   label: string;
+  kind?: "item" | "group";
 }
 
 export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
@@ -87,17 +88,22 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
   dashboard: [],
   "pos-dashboard": [],
   settings: [
+    { id: "settings-group-store-setup", label: "Store Setup", kind: "group" },
+    { id: "hub", label: "Settings Hub" },
     { id: "profile", label: "Profile" },
     { id: "general", label: "General" },
     { id: "staff-access-defaults", label: "Staff Access Defaults" },
     { id: "online-store", label: "Online Store" },
+    { id: "settings-group-register-setup", label: "Register Setup", kind: "group" },
     { id: "printing", label: "Printers & Scanners" },
     { id: "receipt-builder", label: "Receipt Settings" },
     { id: "tag-designer", label: "Tag Designer" },
     { id: "register", label: "Terminal Overrides" },
+    { id: "settings-group-maintenance", label: "Maintenance", kind: "group" },
     { id: "backups", label: "Data & Backups" },
     { id: "remote-access", label: "Remote Access" },
-    { id: "integrations", label: "Integrations" },
+    { id: "settings-group-integrations", label: "Integrations", kind: "group" },
+    { id: "integrations", label: "Integrations Overview" },
     { id: "podium", label: "Podium" },
     { id: "shippo", label: "Shippo" },
     { id: "stripe", label: "Stripe" },
@@ -107,6 +113,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "weather", label: "Weather" },
     { id: "insights", label: "Insights" },
     { id: "meilisearch", label: "Meilisearch" },
+    { id: "settings-group-system-support", label: "System & Support", kind: "group" },
     { id: "help-center", label: "Help Center" },
     { id: "rosie", label: "ROSIE" },
     { id: "bug-reports", label: "Bug Reports" },

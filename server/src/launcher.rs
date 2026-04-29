@@ -2,6 +2,7 @@ use crate::api::{build_router, AppState};
 use crate::logic::backups::{
     record_cloud_backup_success, record_local_backup_success, BackupManager, BackupSettings,
 };
+use crate::logic::ops_dev_center::{ops_retention_config_from_env, perform_retention_cleanup};
 use crate::logic::wedding_push::WeddingEventBus;
 use crate::observability::ServerLogRing;
 use axum::extract::DefaultBodyLimit;
@@ -654,6 +655,28 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
         })
     })?;
     sched.add(cleanup_job).await?;
+
+    let ops_retention_state = state.clone();
+    let ops_retention_job = Job::new_async("0 30 3 * * *", move |_uuid, _l| {
+        let st = ops_retention_state.clone();
+        Box::pin(async move {
+            let config = ops_retention_config_from_env();
+            match perform_retention_cleanup(&st.db, &config).await {
+                Ok(result) => tracing::info!(
+                    stale_station_alerts_resolved = result.stale_station_alerts_resolved,
+                    stale_stations_deleted = result.stale_stations_deleted,
+                    resolved_alerts_deleted = result.resolved_alerts_deleted,
+                    station_retention_days = result.station_retention_days,
+                    resolved_alert_retention_days = result.resolved_alert_retention_days,
+                    "Background Worker: Ops retention cleanup completed"
+                ),
+                Err(e) => {
+                    tracing::error!(error = %e, "Background Worker: Ops retention cleanup failed");
+                }
+            }
+        })
+    })?;
+    sched.add(ops_retention_job).await?;
 
     let backup_state = state.clone();
     let backup_checker = Job::new_async("0 * * * * *", move |_uuid, _l| {

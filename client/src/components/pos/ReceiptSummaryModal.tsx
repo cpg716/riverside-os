@@ -777,17 +777,18 @@ export default function ReceiptSummaryModal({
   if (!root) return null;
 
   return createPortal(
-    <div
-      className="ui-overlay-backdrop !z-[200]"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-      }}
-    >
-      <div 
-        className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:max-w-2xl sm:rounded-[2rem] lg:max-w-4xl"
-        onClick={(e) => e.stopPropagation()}
+    <>
+      <div
+        className="ui-overlay-backdrop !z-[200]"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
       >
+        <div
+          className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:max-w-2xl sm:rounded-[2rem] lg:max-w-4xl"
+          onClick={(e) => e.stopPropagation()}
+        >
         <div className="relative flex max-h-[96dvh] flex-col gap-4 overflow-y-auto p-4 text-app-text sm:max-h-[min(90dvh,35rem)] sm:p-6 lg:p-7">
           <button
             type="button"
@@ -1090,11 +1091,20 @@ export default function ReceiptSummaryModal({
             </p>
           ) : null}
         </div>
+        </div>
       </div>
 
       {giftDialogOpen ? (
-        <div className="fixed inset-0 z-[140] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4">
-          <div className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-w-2xl sm:rounded-3xl">
+        <div
+          className="ui-overlay-backdrop !z-[220] items-end justify-center p-0 sm:items-center sm:p-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-w-2xl sm:rounded-3xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gift-receipt-dialog-title"
+          >
             <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-600/15 text-violet-700 dark:text-violet-300">
@@ -1104,7 +1114,7 @@ export default function ReceiptSummaryModal({
                   <p className="text-[10px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-300">
                     Gift receipt
                   </p>
-                  <h3 className="text-lg font-black tracking-tight">
+                  <h3 id="gift-receipt-dialog-title" className="text-lg font-black tracking-tight">
                     Choose lines and delivery
                   </h3>
                 </div>
@@ -1196,14 +1206,22 @@ export default function ReceiptSummaryModal({
       ) : null}
 
       {receiptPreviewOpen ? (
-        <div className="fixed inset-0 z-[140] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4">
-          <div className="flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-h-[88dvh] sm:max-w-4xl sm:rounded-3xl">
+        <div
+          className="ui-overlay-backdrop !z-[220] items-end justify-center p-0 sm:items-center sm:p-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-h-[88dvh] sm:max-w-4xl sm:rounded-3xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-preview-dialog-title"
+          >
             <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Receipt preview
                 </p>
-                <h3 className="text-lg font-black tracking-tight">
+                <h3 id="receipt-preview-dialog-title" className="text-lg font-black tracking-tight">
                   Transaction #{transactionDetail?.transaction_display_id ?? transactionId?.split("-")[0]}
                 </h3>
               </div>
@@ -1268,7 +1286,7 @@ export default function ReceiptSummaryModal({
           </div>
         </div>
       ) : null}
-    </div>,
+    </>,
     root,
   );
 }

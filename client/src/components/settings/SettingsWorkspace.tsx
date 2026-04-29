@@ -8,8 +8,10 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
 } from "react";
 import {
+  ChevronRight,
   Database,
   Trash2,
   Download,
@@ -28,6 +30,7 @@ import {
 } from "lucide-react";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
 import {
   checkForAppUpdate,
   installAppUpdate,
@@ -56,6 +59,7 @@ import RegisterSettings from "../pos/RegisterSettings";
 import StaffProfilePanel from "./StaffProfilePanel";
 import RosDevCenterPanel from "./RosDevCenterPanel";
 import RosieSettingsPanel from "./RosieSettingsPanel";
+import { SIDEBAR_SUB_SECTIONS } from "../layout/sidebarSections";
 
 
 
@@ -128,6 +132,33 @@ type IntegrationCardItem = {
   brandKind?: "icon" | "wordmark";
 };
 
+const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
+  profile: "Your staff profile, contact details, PIN, and notification preferences.",
+  general: "Core store settings, staff playbook, review invites, and build details.",
+  "staff-access-defaults": "Role templates, default access, and discount caps.",
+  "online-store": "Storefront publishing, product exposure, and customer checkout setup.",
+  printing: "Printers, scanners, labels, test tools, and workstation hardware.",
+  "receipt-builder": "Receipt layout, branding, barcode, and delivery settings.",
+  "tag-designer": "Merchandise tag layout and printing templates.",
+  register: "Terminal overrides, register feedback, and lane device preferences.",
+  backups: "Local snapshots, backup retention, restore tools, and maintenance tasks.",
+  "remote-access": "Remote support access and workstation connectivity.",
+  integrations: "Overview cards for connected services and integration setup.",
+  podium: "Podium messaging, review invites, and communication readiness.",
+  shippo: "Shipping account setup, carrier rates, and label configuration.",
+  stripe: "Stripe payments, terminal readiness, and card processing setup.",
+  quickbooks: "QuickBooks connection settings and accounting bridge controls.",
+  counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
+  nuorder: "NuORDER catalog and vendor sync configuration.",
+  weather: "Weather provider settings for store planning signals.",
+  insights: "Reporting and Metabase launch configuration.",
+  meilisearch: "Search index health, reindex controls, and diagnostics.",
+  "help-center": "Help Center content, manuals, and staff guidance publishing.",
+  rosie: "ROSIE assistant settings and runtime behavior.",
+  "bug-reports": "Bug reports, captured incidents, and diagnostics triage.",
+  "ros-dev-center": "Developer operations, runtime health, and guarded actions.",
+};
+
 export default function SettingsWorkspace({
   activeSection,
   settingsActiveSection,
@@ -145,7 +176,10 @@ export default function SettingsWorkspace({
   const baseUrl = getBaseUrl();
 
   // Navigation - synced with sidebar activeSection; default to profile
-  const activeTab = activeSection || settingsActiveSection || "profile";
+  const requestedActiveTab = activeSection || settingsActiveSection || "hub";
+  const activeTab = requestedActiveTab.startsWith("settings-group-")
+    ? "hub"
+    : requestedActiveTab;
   const navigateToTab = onNavigateToTab ?? onSettingsSectionNavigate;
 
   // Settings State
@@ -166,7 +200,59 @@ export default function SettingsWorkspace({
   const {
     backofficeHeaders,
     hasPermission,
+    permissionsLoaded,
   } = useBackofficeAuth();
+
+  const settingsHubGroups = useMemo(() => {
+    const groups: {
+      id: string;
+      label: string;
+      links: { id: string; label: string; description: string }[];
+    }[] = [];
+    let currentGroup:
+      | {
+          id: string;
+          label: string;
+          links: { id: string; label: string; description: string }[];
+        }
+      | null = null;
+
+    for (const section of SIDEBAR_SUB_SECTIONS.settings) {
+      if (section.kind === "group") {
+        currentGroup = { id: section.id, label: section.label, links: [] };
+        groups.push(currentGroup);
+        continue;
+      }
+      if (section.id === "hub") continue;
+      if (
+        !subSectionVisible(
+          "settings",
+          section.id,
+          hasPermission,
+          permissionsLoaded,
+        )
+      ) {
+        continue;
+      }
+      if (!currentGroup) {
+        currentGroup = {
+          id: "settings-group-general",
+          label: "Settings",
+          links: [],
+        };
+        groups.push(currentGroup);
+      }
+      currentGroup.links.push({
+        id: section.id,
+        label: section.label,
+        description:
+          SETTINGS_HUB_DESCRIPTIONS[section.id] ??
+          "Open this settings workspace.",
+      });
+    }
+
+    return groups.filter((group) => group.links.length > 0);
+  }, [hasPermission, permissionsLoaded]);
 
 
 
@@ -583,6 +669,68 @@ export default function SettingsWorkspace({
             data-testid="settings-workspace-content"
             className="w-full animate-in fade-in slide-in-from-bottom-4 p-4 duration-500 sm:p-6 lg:p-10"
           >
+            {activeTab === "hub" && (
+              <div className="space-y-8">
+                <header className="max-w-5xl">
+                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
+                    Settings Hub
+                  </h2>
+                  <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
+                    Start here for store setup, register hardware, maintenance,
+                    integrations, and system support.
+                  </p>
+                </header>
+
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                  {settingsHubGroups.map((group) => (
+                    <section key={group.id} className="ui-card p-5 sm:p-6">
+                      <div className="mb-5 flex items-center justify-between gap-3 border-b border-app-border pb-4">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                            Settings
+                          </p>
+                          <h3 className="mt-1 text-lg font-black uppercase tracking-tight text-app-text">
+                            {group.label}
+                          </h3>
+                        </div>
+                        <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          {group.links.length}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3">
+                        {group.links.map((link) => (
+                          <button
+                            key={link.id}
+                            type="button"
+                            onClick={() => navigateToTab?.(link.id)}
+                            className="group flex min-h-24 w-full items-center gap-4 rounded-xl border border-app-border bg-app-surface/60 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:bg-app-surface hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
+                          >
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-bg text-xs font-black uppercase text-app-accent">
+                              {link.label.slice(0, 2)}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-black uppercase tracking-wide text-app-text">
+                                {link.label}
+                              </span>
+                              <span className="mt-1 block text-xs font-medium leading-relaxed text-app-text-muted">
+                                {link.description}
+                              </span>
+                            </span>
+                            <ChevronRight
+                              className="shrink-0 text-app-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-app-accent"
+                              size={18}
+                              aria-hidden
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {activeTab === "profile" && (
               <StaffProfilePanel />
             )}

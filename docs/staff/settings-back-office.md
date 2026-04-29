@@ -2,7 +2,7 @@
 
 **Audience:** Store admins.
 
-**Where in ROS:** Back Office → **Settings**. The settings workspace initializes to your **Staff Profile** by default. Settings are ordered into practical neighborhoods: profile and store setup, register hardware, maintenance, integrations, then help/system tools.
+**Where in ROS:** Back Office → **Settings**. The settings workspace opens to the **Settings Hub**, with links grouped into practical neighborhoods: **Store Setup**, **Register Setup**, **Maintenance**, **Integrations**, and **System & Support**.
 
 **Related permissions:** **settings.admin** for most store-wide configuration. **Staff access defaults** is visible with **settings.admin** **or** **staff.manage_access** (role permission templates + template discount caps). **Online store** uses **online_store.manage** (admins also have access via **settings.admin** on the same APIs). **Profile** / **avatar** may be self-service for any signed-in staff.
 
@@ -10,36 +10,46 @@
 
 ## How to use this area
 
-**Profile** changes **you**. **General** changes **the store** (theme, **store staff playbook**, build info). **Online store** covers **marketing pages** for the public **`/shop`** site and **web coupons** — see **§ Online store** below. **Printers & Scanners**, **Receipt Settings**, **Tag Designer**, and **Terminal Overrides** stay together for register setup. **Integrations** holds third-party bridges such as **Podium**, **Shippo**, **Stripe**, **QuickBooks**, **Counterpoint**, **NuORDER**, Weather, Insights, and Meilisearch. **Help Center**, **ROSIE**, **Bug Reports**, and **ROS Dev Center** are grouped at the end for support and system administration.
+Use **Settings Hub** when you are not sure where to start. **Profile** changes **you**. **General** changes **the store** (theme, **store staff playbook**, build info). **Online store** covers **marketing pages** for the public **`/shop`** site and **web coupons** — see **§ Online store** below. **Printers & Scanners**, **Receipt Settings**, **Tag Designer**, and **Terminal Overrides** stay together for register setup. **Integrations Overview** is an optional landing page; each third-party bridge also remains directly reachable in the same group. **Help Center**, **ROSIE**, **Bug Reports**, and **ROS Dev Center** are grouped at the end for support and system administration.
 
 ## Sidebar order
 
-Settings appears in this order:
+Settings appears in these sidebar groups:
 
-1. **Profile**
-2. **General**
-3. **Staff Access Defaults**
-4. **Online Store**
-5. **Printers & Scanners**
-6. **Receipt Settings**
-7. **Tag Designer**
-8. **Terminal Overrides**
-9. **Data & Backups**
-10. **Remote Access**
-11. **Integrations**
-12. **Podium**
-13. **Shippo**
-14. **Stripe**
-15. **QuickBooks**
-16. **Counterpoint**
-17. **NuORDER**
-18. **Weather**
-19. **Insights**
-20. **Meilisearch**
-21. **Help Center**
-22. **ROSIE**
-23. **Bug Reports**
-24. **ROS Dev Center**
+**Store Setup**
+1. **Settings Hub**
+2. **Profile**
+3. **General**
+4. **Staff Access Defaults**
+5. **Online Store**
+
+**Register Setup**
+1. **Printers & Scanners**
+2. **Receipt Settings**
+3. **Tag Designer**
+4. **Terminal Overrides**
+
+**Maintenance**
+1. **Data & Backups**
+2. **Remote Access**
+
+**Integrations**
+1. **Integrations Overview**
+2. **Podium**
+3. **Shippo**
+4. **Stripe**
+5. **QuickBooks**
+6. **Counterpoint**
+7. **NuORDER**
+8. **Weather**
+9. **Insights**
+10. **Meilisearch**
+
+**System & Support**
+1. **Help Center**
+2. **ROSIE**
+3. **Bug Reports**
+4. **ROS Dev Center**
 
 ## Staff access defaults
 

@@ -128,6 +128,13 @@ Payload fields:
 
 Fleet online/offline status is derived from a recency cutoff in server logic (`last_seen_at`).
 
+Fleet retention:
+- `GET /stations` shows station heartbeat rows inside the configured retention window.
+- Daily ops retention cleanup runs at 03:30 server time.
+- Cleanup resolves stale `station_offline` alerts tied to deleted station keys before deleting stale heartbeat rows.
+- Default station heartbeat retention is **30 days**.
+- Override with `RIVERSIDE_OPS_STATION_RETENTION_DAYS` (clamped 1-365).
+
 ---
 
 ## Guarded actions (current allow-list)
@@ -137,10 +144,13 @@ As of v0.2.1, allowed action keys are:
 1. `backup.trigger_local`
 2. `help.reindex_search`
 3. `help.generate_manifest`
+4. `ops.retention_cleanup`
 
 Unknown keys are rejected and API returns the current allow-list.
 
 `backup.trigger_local` writes to the effective `RIVERSIDE_BACKUP_DIR` location. Runtime Diagnostics exposes the backup directory path and flags whether the host is using an explicit production-safe path or the local development fallback.
+
+`ops.retention_cleanup` applies the configured station and resolved-alert retention windows. It is guarded and audited like other Dev Center mutations.
 
 ---
 
@@ -154,6 +164,12 @@ Lifecycle states:
 3. `resolved`
 
 Alert delivery attempts are logged in `ops_notification_delivery_log` with channel and status.
+
+Alert retention:
+- `open` and `acked` alerts are active operational state and are not purged by age.
+- `resolved` alerts are retained by default for **180 days**, then deleted by ops retention cleanup.
+- Resolved alerts linked to bug reports are preserved so Bug Manager incident history does not lose context.
+- Override with `RIVERSIDE_OPS_RESOLVED_ALERT_RETENTION_DAYS` (clamped 7-3650).
 
 Seeded rule keys (migration 149):
 - `integration_qbo_failure`

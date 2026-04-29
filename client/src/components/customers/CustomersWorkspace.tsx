@@ -1823,53 +1823,63 @@ export default function CustomersWorkspace({
         }}
       />
 
-      {showBulkWeddingPrompt && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowBulkWeddingPrompt(false)}
-          />
-          <div className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-app-border bg-app-surface p-6 shadow-2xl ring-1 ring-black/10 transition-all animate-in zoom-in-95 duration-200">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-app-accent/10 text-app-accent">
-                <Users size={20} />
+      {showBulkWeddingPrompt
+        ? createPortal(
+            <div
+              className="ui-overlay-backdrop !z-[200] flex items-center justify-center p-4"
+              onClick={() => setShowBulkWeddingPrompt(false)}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="bulk-wedding-assignment-title"
+                className="ui-modal w-full max-w-md overflow-hidden rounded-[28px] p-6 shadow-2xl ring-1 ring-black/10 transition-all animate-in zoom-in-95 duration-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-app-accent/10 text-app-accent">
+                    <Users size={20} />
+                  </div>
+                  <h2
+                    id="bulk-wedding-assignment-title"
+                    className="text-sm font-black uppercase tracking-widest text-app-text"
+                  >
+                    Add Customers to Wedding
+                  </h2>
+                </div>
+
+                <p className="mb-6 text-xs text-app-text-muted">
+                  Select the wedding party for these {selected.size} customers.
+                </p>
+
+                <div className="space-y-4">
+                  <label className="block px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Target Wedding Party
+                    <WeddingPartySearchInput
+                      className="mt-1"
+                      onSelect={(p) => {
+                        void executeBulkAddToWedding(p.id);
+                        setShowBulkWeddingPrompt(false);
+                      }}
+                      placeholder="Search by groom name..."
+                    />
+                  </label>
+
+                  <div className="mt-8 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkWeddingPrompt(false)}
+                      className="ui-btn-secondary px-6 py-2 text-[10px] font-black uppercase"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               </div>
-              <h2 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Add Customers to Wedding
-              </h2>
-            </div>
-
-            <p className="mb-6 text-xs text-app-text-muted">
-              Select the wedding party for these {selected.size} customers.
-            </p>
-
-            <div className="space-y-4">
-              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">
-                Target Wedding Party
-                <WeddingPartySearchInput
-                  className="mt-1"
-                  onSelect={(p) => {
-                    void executeBulkAddToWedding(p.id);
-                    setShowBulkWeddingPrompt(false);
-                  }}
-                  placeholder="Search by groom name..."
-                />
-              </label>
-
-              <div className="mt-8 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowBulkWeddingPrompt(false)}
-                  className="ui-btn-secondary px-6 py-2 text-[10px] font-black uppercase"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </div>,
+            document.getElementById("drawer-root")!,
+          )
+        : null}
 
       <ConfirmationModal
         isOpen={importConfirmOpen}

@@ -188,6 +188,7 @@ export default function BugReportsSettingsPanel({
     eventListFilter === "all"
       ? errorEvents
       : errorEvents.filter((event) => event.status === eventListFilter);
+  const overlayRoot = document.getElementById("drawer-root") || document.body;
 
   const loadList = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
@@ -864,7 +865,7 @@ export default function BugReportsSettingsPanel({
             </div>
           </div>
         </div>,
-        document.getElementById("drawer-root")!
+        overlayRoot
       ) : null}
 
       {eventDetail ? createPortal(
@@ -1064,7 +1065,7 @@ export default function BugReportsSettingsPanel({
             </div>
           </div>
         </div>,
-        document.getElementById("drawer-root")!
+        overlayRoot
       ) : null}
 
       {statusConfirm ? (
