@@ -4384,7 +4384,7 @@ async fn build_customer_timeline(
         events.push(CustomerTimelineEvent {
             at: o.booked_at,
             kind: "sale".to_string(),
-            summary: format!("Purchased {} ({display_id})", items),
+            summary: format!("Purchased {items} ({display_id})"),
             reference_id: Some(o.id),
             reference_type: Some("transaction".to_string()),
             wedding_party_id: None,
