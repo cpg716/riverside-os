@@ -168,7 +168,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
 
         // Open Scheduler
         await garmentCard.getByRole("button", { name: "Plan & Schedule", exact: true }).click();
-        await expect(page.getByText("Plan & Schedule", { exact: true })).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Plan & Schedule" })).toBeVisible();
 
         // Phase 1: Plan Work
         // Click a common task button (e.g. Waist in/out)
@@ -210,19 +210,35 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             fitting: false,
             pickup: false,
         };
+        const API_MEMBER = {
+            id: MEMBER.id,
+            wedding_party_id: PARTY_ID,
+            first_name: "Groom",
+            last_name: "Charlie",
+            role: MEMBER.role,
+            customer_id: MEMBER.customer_id,
+            alteration_status: MEMBER.alteration_status,
+            measured: MEMBER.measured,
+            suit_ordered: MEMBER.ordered,
+            received: MEMBER.received,
+            fitting: MEMBER.fitting,
+            pickup_status: MEMBER.pickup ? "complete" : "pending",
+        };
+        const API_PARTY = {
+            id: PARTY_ID,
+            party_name: "Charlie Wedding",
+            groom_name: "Charlie Wedding",
+            event_date: "2026-06-20",
+            salesperson: "Chris G",
+            members: [API_MEMBER],
+        };
 
         await page.route(/\/api\/weddings\/parties($|\?)/, async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
                 body: JSON.stringify({
-                    data: [{
-                        id: PARTY_ID,
-                        name: "Charlie Wedding",
-                        date: "2026-06-20",
-                        salesperson: "Chris G",
-                        members: [MEMBER],
-                    }],
+                    data: [API_PARTY],
                     pagination: {
                         page: 1,
                         limit: 20,
@@ -237,7 +253,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
-                body: JSON.stringify([MEMBER]),
+                body: JSON.stringify([API_MEMBER]),
             });
         });
 
@@ -245,7 +261,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
-                body: JSON.stringify({ id: PARTY_ID, name: "Charlie Wedding" }),
+                body: JSON.stringify(API_PARTY),
             });
         });
 

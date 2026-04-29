@@ -103,7 +103,7 @@ test.describe("Staff Scheduler E2E", () => {
         await page.getByRole("button", { name: /^Schedule$/i }).click();
         
         await expect(page.getByRole("heading", { name: "Weekly schedule" })).toBeVisible();
-        await expect(page.getByRole("heading", { name: "Alice Admin" })).toBeVisible();
+        await expect(page.getByText("Alice Admin").first()).toBeVisible();
         await expect(page.getByText("Bob Sales")).toBeVisible();
         
         // Verify shifts are visible in the table

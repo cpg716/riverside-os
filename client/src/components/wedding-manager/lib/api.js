@@ -284,6 +284,7 @@ function toWmMember(m) {
     pickupDate: m.pickup_date ?? null,
     measureDate: m.measure_date ?? null,
     orderedPO: m.ordered_po ?? null,
+    alteration_status: m.alteration_status ?? null,
     isFreeSuitPromo: yn(m.is_free_suit_promo),
   };
 }
