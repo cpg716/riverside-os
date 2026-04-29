@@ -146,7 +146,7 @@ test.describe("Inventory receiving operator verification", () => {
         response.request().method() === "POST" &&
         response.status() === 200,
     );
-    await postInventoryButton.click({ force: true });
+    await postInventoryButton.evaluate((button) => (button as HTMLButtonElement).click());
     const confirmPostButton = drawerRoot
       .getByRole("button", { name: /confirm & post|post without invoice number/i })
       .last();

@@ -178,8 +178,8 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await page.getByRole("button", { name: /Shorten Sleeves/i }).click();
 
         // Verify units (Waist: 2u, Sleeves: 4u)
-        await expect(page.getByText("Jacket Units").locator("xpath=following-sibling::p")).toHaveText("4u");
-        await expect(page.getByText("Pant Units").locator("xpath=following-sibling::p")).toHaveText("2u");
+        await expect(page.getByText("Jacket: 4u")).toBeVisible();
+        await expect(page.getByText("Pant: 2u")).toBeVisible();
 
         // Next Step: Schedule (using the new tab/button)
         await page.getByRole("button", { name: "2. Schedule Slot", exact: true }).click();
@@ -268,8 +268,8 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await openBackofficeSidebarTab(page, "weddings");
         
         // Navigate to party (mocked)
-        await expect(page.getByText("Charlie Wedding")).toBeVisible({ timeout: 15_000 });
-        await page.getByText("Charlie Wedding").click({ force: true });
+        await expect(page.getByText("CharlieWedding-062026")).toBeVisible({ timeout: 15_000 });
+        await page.getByText("CharlieWedding-062026").click({ force: true });
 
         // Verify "Alt" column shows status
         const memberRow = page.getByRole("row").filter({ hasText: "Groom Charlie" });

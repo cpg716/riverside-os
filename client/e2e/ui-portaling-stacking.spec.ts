@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 import {
   signInToBackOffice,
   openBackofficeSidebarTab,
@@ -11,6 +11,20 @@ import {
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
+
+async function getTransactionDisplayId(
+  request: APIRequestContext,
+  transactionId: string,
+): Promise<string> {
+  const detailRes = await request.get(`${apiBase()}/api/transactions/${transactionId}`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  const detailText = await detailRes.text();
+  expect(detailRes.status(), detailText).toBe(200);
+  const detail = JSON.parse(detailText) as { transaction_display_id?: string | null };
+  return detail.transaction_display_id ?? transactionId;
+}
 
 test.describe("UI Portaling and Stacking", () => {
   test("Refund modal appears on top of Transaction Detail drawer and is interactive", async ({
@@ -61,6 +75,7 @@ test.describe("UI Portaling and Stacking", () => {
     const checkoutBodyText = await checkoutRes.text();
     expect(checkoutRes.status(), checkoutBodyText).toBe(200);
     const { transaction_id } = JSON.parse(checkoutBodyText);
+    const transactionDisplayId = await getTransactionDisplayId(request, transaction_id);
 
     // Create a return to generate a refund due
     const returnRes = await request.post(`${apiBase()}/api/transactions/${transaction_id}/returns`, {
@@ -86,7 +101,7 @@ test.describe("UI Portaling and Stacking", () => {
     await openBackofficeSidebarTab(page, "orders");
 
     // 3. Open Transaction Detail Drawer
-    const orderRow = page.locator("tr", { hasText: transaction_id.slice(0, 8) }).first();
+    const orderRow = page.locator("tr", { hasText: transactionDisplayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 30_000 });
     await orderRow.click();
 
@@ -161,11 +176,12 @@ test.describe("UI Portaling and Stacking", () => {
     const checkoutBodyText = await checkoutRes.text();
     expect(checkoutRes.status(), checkoutBodyText).toBe(200);
     const { transaction_id } = JSON.parse(checkoutBodyText);
+    const transactionDisplayId = await getTransactionDisplayId(request, transaction_id);
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
 
-    const orderRow = page.locator("tr", { hasText: transaction_id.slice(0, 8) }).first();
+    const orderRow = page.locator("tr", { hasText: transactionDisplayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 30_000 });
     await orderRow.click();
 
@@ -178,7 +194,7 @@ test.describe("UI Portaling and Stacking", () => {
 
     const receiptModal = page.getByRole("dialog", { name: /Receipt Summary/i });
     await expect(receiptModal).toBeVisible({ timeout: 10_000 });
-    await expect(receiptModal.getByText(transaction_id.slice(0, 8))).toBeVisible();
+    await expect(receiptModal.getByText(transactionDisplayId)).toBeVisible();
 
     // Verify it's interactive (Close button works)
     await receiptModal.getByRole("button", { name: /Close/i }).click();
