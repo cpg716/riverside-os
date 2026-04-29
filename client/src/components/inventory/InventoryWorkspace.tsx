@@ -118,13 +118,13 @@ type InventoryJob = {
 const INVENTORY_JOBS: InventoryJob[] = [
   {
     label: "Find Item",
-    description: "Search items, inspect stock, print tags, and open product details.",
+    description: "Find, open, and manage existing items from Product Hub.",
     primarySection: "list",
     sections: ["list"],
   },
   {
     label: "Add/Edit Catalog",
-    description: "Maintain products, categories, vendors, imports, and promotions.",
+    description: "Create items and manage catalog structure, vendors, import, and promotions.",
     primarySection: "add",
     sections: ["add", "categories", "vendors", "import", "discount_events"],
   },

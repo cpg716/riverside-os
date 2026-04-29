@@ -14,8 +14,8 @@ Pick the area that matches the **job**, not the person:
 
 | Staff job | Use it for | Previous tools now under it |
 |-----------|------------|-----------------------------|
-| **Find Item** | Search SKUs, check stock, print tags, open Product hub | Inventory List |
-| **Add/Edit Catalog** | Add items, maintain item setup, clean catalog records | Add Inventory, Categories, Vendors, Import, Discount events |
+| **Find Item** | Find, open, and manage existing items from Product hub | Inventory List |
+| **Add/Edit Catalog** | Create items and manage catalog structure | Add Inventory, Categories, Vendors, Import, Discount events |
 | **Order Stock** | Build vendor orders and review buying guidance | Purchase Orders, Stock Guidance |
 | **Receive Stock** | Post arrived merchandise from vendor paperwork | Receiving, direct invoice receiving |
 | **Correct Stock** | Review damaged/lost stock and return-to-vendor movements | Damaged / Loss, Return to Vendor |
@@ -25,7 +25,9 @@ Old deep links and saved shortcuts still open the same tools. The labels above a
 
 ## Find Item
 
-**Purpose:** Find SKUs fast, tweak price/stock fields you are allowed to edit, open **product hub** for matrix and history.
+**Purpose:** Find SKUs fast, open **Product hub**, and manage existing item details, options, pricing fields, stock actions, and history from one item-centered starting point.
+
+To edit an existing item, always start in **Find Item**. Search for the SKU or style, then open **Product hub** from the row.
 
 1. Go to **Inventory** → **Find Item**.
 2. Search by **SKU**, **style name**, or **vendor** per header fields.
@@ -36,7 +38,7 @@ Old deep links and saved shortcuts still open the same tools. The labels above a
 
 ## Add/Edit Catalog
 
-Use **Add/Edit Catalog** for product setup and catalog cleanup. The tools inside this job include **Add Item**, **Categories**, **Vendors**, **Catalog Import**, and **Promotions**.
+Use **Add/Edit Catalog** for setup tooling: creating new items, managing category and vendor records, importing catalog files, and maintaining promotions. For existing item edits, start in **Find Item** instead.
 
 ### Add Item
 
