@@ -252,8 +252,7 @@ async fn launch_server_inner(
 
     if target_mode != db_mode {
         let msg = format!(
-            "ENVIRONMENT MISMATCH: Server is running in '{}' mode, but database is stamped as '{}'. ABORTING to prevent data pollution.",
-            target_mode, db_mode
+            "ENVIRONMENT MISMATCH: Server is running in '{target_mode}' mode, but database is stamped as '{db_mode}'. ABORTING to prevent data pollution."
         );
         tracing::error!("{}", msg);
         return Err(msg.into());

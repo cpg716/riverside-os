@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-04-27T12:56:10.122Z",
+  "generated_at": "2026-04-29T02:41:53.626Z",
   "standard_version": "help-manual-standard-v1",
-  "published_manual_count": 60,
-  "draft_manual_count": 111,
+  "published_manual_count": 62,
+  "draft_manual_count": 109,
   "manuals": [
     {
       "id": "pos",
@@ -6050,8 +6050,8 @@
     },
     {
       "id": "staff-schedule-panel",
-      "title": "Staff Schedule Panel (staff)",
-      "status": "draft",
+      "title": "Staff Schedule",
+      "status": "approved",
       "source_path": "client/src/assets/docs/staff-schedule-panel-manual.md",
       "required_buckets": [
         {
@@ -6079,7 +6079,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
@@ -6087,10 +6087,8 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 12,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
@@ -7426,8 +7424,8 @@
     },
     {
       "id": "staff-weekly-grid-view",
-      "title": "Staff Weekly Grid View (staff)",
-      "status": "draft",
+      "title": "Staff Weekly Grid View",
+      "status": "approved",
       "source_path": "client/src/assets/docs/staff-weekly-grid-view-manual.md",
       "required_buckets": [
         {
@@ -7450,12 +7448,12 @@
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": true
+          "present": false
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
@@ -7464,9 +7462,7 @@
         }
       ],
       "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },

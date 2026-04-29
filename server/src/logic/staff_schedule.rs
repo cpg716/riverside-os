@@ -1121,6 +1121,7 @@ pub async fn list_events_range(
         .collect())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upsert_event(
     pool: &PgPool,
     event_date: NaiveDate,

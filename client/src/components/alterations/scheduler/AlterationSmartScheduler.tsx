@@ -1,9 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { Calendar, Clock, CheckCircle2, AlertTriangle, ChevronRight, Info } from "lucide-react";
 import { getBaseUrl } from "../../../lib/apiConfig";
-import { format } from "date-fns";
 
 const baseUrl = getBaseUrl();
+const MONTH_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short" });
+const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("en-US", { weekday: "long" });
+
+function toDateKey(value: string): string {
+  return value.split("T")[0] ?? value;
+}
+
+function slotDate(value: string): Date {
+  return new Date(`${value}T12:00:00`);
+}
 
 type SuggestedSlot = {
   date: string;
@@ -119,8 +128,8 @@ export default function AlterationSmartScheduler({
       ) : (
         <div className="space-y-2">
           {slots.map((slot, idx) => {
-            const isSelected = currentFittingAt && format(new Date(currentFittingAt), 'yyyy-MM-dd') === slot.date;
-            const dateObj = new Date(slot.date + 'T12:00:00'); // Midday to avoid TZ shifts
+            const isSelected = currentFittingAt && toDateKey(currentFittingAt) === slot.date;
+            const dateObj = slotDate(slot.date); // Midday to avoid TZ shifts
             
             return (
               <button
@@ -136,12 +145,12 @@ export default function AlterationSmartScheduler({
                   <div className={`w-10 h-10 rounded-lg flex flex-col items-center justify-center ${
                     isSelected ? "bg-purple-500 text-white" : "bg-white/5 text-white/60 group-hover:text-white"
                   }`}>
-                    <span className="text-[10px] uppercase font-bold leading-none">{format(dateObj, 'MMM')}</span>
-                    <span className="text-lg font-bold leading-none mt-0.5">{format(dateObj, 'd')}</span>
+                    <span className="text-[10px] uppercase font-bold leading-none">{MONTH_FORMATTER.format(dateObj)}</span>
+                    <span className="text-lg font-bold leading-none mt-0.5">{dateObj.getDate()}</span>
                   </div>
                   <div className="text-left">
                     <p className={`text-sm font-semibold ${isSelected ? "text-white" : "text-white/80"}`}>
-                      {format(dateObj, 'EEEE')}
+                      {WEEKDAY_FORMATTER.format(dateObj)}
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       {idx === 0 && !isSelected && (

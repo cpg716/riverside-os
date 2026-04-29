@@ -1382,7 +1382,7 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             use sqlx::Row;
             let full_name = row.get::<String, _>("full_name");
             let cashier_code = row.get::<String, _>("cashier_code");
-            let search_text = format!("{} {}", full_name, cashier_code);
+            let search_text = format!("{full_name} {cashier_code}");
             staff_batch.push(StaffDoc {
                 id: row.get::<Uuid, _>("id").to_string(),
                 is_active: row.get::<Option<bool>, _>("is_active").unwrap_or(true),
