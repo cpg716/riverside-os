@@ -149,7 +149,7 @@ const EDITABLE_FULFILLMENT_OPTIONS: Array<{
   value: EditableFulfillmentKind;
   label: string;
 }> = [
-  { value: "special_order", label: "Order" },
+  { value: "special_order", label: "Special" },
   { value: "custom", label: "Custom" },
   { value: "wedding_order", label: "Wedding" },
   { value: "layaway", label: "Layaway" },
@@ -215,7 +215,7 @@ function describeLifecycle(detail: TransactionDrawerDetail) {
   if (detail.status === "fulfilled") {
     return isWedding
       ? "Picked up. This wedding order is complete."
-      : "Picked up. This order is complete.";
+      : "Picked up. This fulfillment work is complete.";
   }
   if (detail.status === "pending_measurement") {
     return isWedding
@@ -225,7 +225,7 @@ function describeLifecycle(detail: TransactionDrawerDetail) {
   if (dueCents <= 0) {
     return isWedding
       ? "Balance paid. Receiving and pickup release still stay with the linked wedding member workflow."
-      : "Balance paid. Receiving and pickup release still stay with the order team.";
+      : "Balance paid. Receiving and pickup release still stay with fulfillment.";
   }
   if (depositCents > 0) {
     return isWedding
@@ -245,10 +245,10 @@ function describeLifecycle(detail: TransactionDrawerDetail) {
 function describeOrderRules(detail: TransactionDrawerDetail): string[] {
   const isWedding = Boolean(detail.wedding_summary);
   const lines = [
-    "Booking records payment and balance on the transaction ledger.",
+    "The TRX record holds payment, receipt, refund, and balance details.",
     detail.status === "fulfilled"
-      ? "Pickup or fulfillment is already complete for this order."
-      : "Pickup or fulfillment is what completes the order in Riverside OS.",
+      ? "Pickup or fulfillment is already complete for this record."
+      : "Special, Custom, and Wedding lines are ORD fulfillment work; Layaways stay in Layaways.",
   ];
 
   if (detail.status === "pending_measurement") {
@@ -272,8 +272,8 @@ function orderKindLabel(detail: TransactionDrawerDetail): string {
   if (detail.wedding_summary || detail.wedding_member_id) return "Wedding";
   if (detail.items.some((item) => item.fulfillment === "layaway")) return "Layaway";
   if (detail.items.some((item) => item.fulfillment === "custom")) return "Custom";
-  if (detail.items.some((item) => item.fulfillment === "special_order")) return "Order";
-  return "Order";
+  if (detail.items.some((item) => item.fulfillment === "special_order")) return "Special";
+  return "Transaction";
 }
 
 function fulfillmentSummary(detail: TransactionDrawerDetail) {
@@ -301,14 +301,14 @@ function modeSummary(detail: TransactionDrawerDetail): {
 } {
   if (detail.fulfillment_method === "ship") {
     return {
-      modeLabel: "Shipping Order",
+      modeLabel: "Shipping Work",
       modeDetail: detail.tracking_number
         ? "Shipping flow is active and a tracking number is on file."
         : "Shipping flow is active. Confirm address, label, and carrier progress.",
     };
   }
   return {
-    modeLabel: "Pickup Order",
+    modeLabel: "Pickup Work",
     modeDetail: "Pickup release still depends on readiness, not just payment status.",
   };
 }
@@ -456,7 +456,7 @@ function mapOrderActionButtons(
           onClick={orderActions.onCancel}
           className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-danger"
         >
-          Cancel Order
+          Cancel Transaction
         </button>
       ) : null}
       {orderActions.canModify &&
@@ -541,7 +541,7 @@ export default function TransactionDetailDrawer({
       if (!detailRes.ok) {
         setInternalDetail(null);
         setInternalAudit([]);
-        setInternalErrorMessage("We couldn't load this order right now.");
+        setInternalErrorMessage("We couldn't load this transaction record right now.");
         return;
       }
 
@@ -555,7 +555,7 @@ export default function TransactionDetailDrawer({
     } catch {
       setInternalDetail(null);
       setInternalAudit([]);
-      setInternalErrorMessage("We couldn't load this order right now.");
+      setInternalErrorMessage("We couldn't load this transaction record right now.");
     } finally {
       setInternalLoading(false);
     }
@@ -710,7 +710,7 @@ export default function TransactionDetailDrawer({
       <DetailDrawer
         isOpen={isOpen}
         onClose={onClose}
-        title="Order Detail"
+        title="Transaction Record"
         subtitle={subtitle}
         panelMaxClassName="max-w-3xl"
         actions={mapOrderActionButtons(detail, orderActions)}
@@ -763,7 +763,7 @@ export default function TransactionDetailDrawer({
           </div>
         ) : !detail ? (
           <div className="ui-panel ui-tint-neutral p-6 text-sm text-app-text-muted">
-            Order detail is unavailable.
+            Transaction record is unavailable.
           </div>
         ) : (
           <div className="space-y-5">
@@ -802,7 +802,7 @@ export default function TransactionDetailDrawer({
                   </div>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Deposit on Ledger
+                      Deposit on TRX
                     </p>
                     <p className="mt-1 text-sm font-black text-app-text">
                       {fmtMoney(detail.financial_summary?.total_applied_deposit_amount ?? "0")}
@@ -812,7 +812,7 @@ export default function TransactionDetailDrawer({
                 <div className="mt-3 space-y-2 border-t border-app-border/50 pt-3">
                   <div className="flex items-start justify-between gap-3 text-[11px]">
                     <span className="font-black uppercase tracking-widest text-app-text-muted">
-                      Allocated Payments
+                      TRX Payments
                     </span>
                     <span className="text-right font-semibold text-app-text">
                       {fmtMoney(detail.financial_summary?.total_allocated_payments ?? "0")}
@@ -845,7 +845,7 @@ export default function TransactionDetailDrawer({
                   <span
                     className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName("info")}`}
                   >
-                    {mode?.modeLabel ?? "Order"}
+                    {mode?.modeLabel ?? "Fulfillment Work"}
                   </span>
                   <span
                     className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
@@ -1297,7 +1297,7 @@ export default function TransactionDetailDrawer({
                               </p>
                             ) : (
                               <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
-                                Save updates before leaving the drawer to keep order totals and
+                                Save updates before leaving the drawer to keep transaction totals and
                                 fulfillment in sync.
                               </p>
                             )}
@@ -1355,7 +1355,7 @@ export default function TransactionDetailDrawer({
               <div className="flex items-center gap-2">
                 <ShieldCheck size={16} className="text-app-text-muted" />
                 <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
-                  Order Rules and Metadata
+                  Transaction and Fulfillment Notes
                 </h3>
               </div>
               <div className="mt-4 space-y-2 text-[12px] font-semibold text-app-text-muted">

@@ -153,13 +153,13 @@ function orderKindLabel(kind: string) {
     case "wedding_order":
       return "Wedding";
     case "special_order":
-      return "Order";
+      return "Special";
     case "custom":
       return "Custom";
     case "layaway":
       return "Layaway";
     default:
-      return "Order";
+      return "Transaction";
   }
 }
 
@@ -497,7 +497,7 @@ export default function OrdersWorkspace({
         if (detailRequestSeqRef.current !== requestSeq) return;
         setDetail(null);
         setAudit([]);
-        setDetailError("We couldn't load this order right now.");
+        setDetailError("We couldn't load this transaction record right now.");
         return;
       }
 
@@ -538,7 +538,7 @@ export default function OrdersWorkspace({
       if (detailRequestSeqRef.current !== requestSeq) return;
       setDetail(null);
       setAudit([]);
-      setDetailError("We couldn't load this order right now.");
+      setDetailError("We couldn't load this transaction record right now.");
     } finally {
       if (detailRequestSeqRef.current === requestSeq) {
         setDetailLoading(false);
@@ -661,11 +661,11 @@ export default function OrdersWorkspace({
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "We couldn't cancel this order. Please try again.", "error");
+      toast(b.error ?? "We couldn't cancel this transaction. Please try again.", "error");
       return;
     }
     setCancelConfirmOpen(false);
-    toast("Order cancelled", "info");
+    toast("Transaction cancelled", "info");
     await loadDetail(detail.transaction_id);
     await loadTransactions();
     void loadRefundsDue();
@@ -859,7 +859,7 @@ export default function OrdersWorkspace({
 
   const orderStatCards = [
     {
-      label: "Visible Orders",
+      label: "Visible Records",
       value: orderIntegritySummary.visibleOrders,
       icon: ORDERS_ICON,
       tint: "ui-tint-info",
@@ -933,14 +933,14 @@ export default function OrdersWorkspace({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                  Order Follow-Up
+                  Fulfillment Follow-Up
                 </p>
                 <p className="mt-1 text-sm font-semibold text-app-text">
-                  Current order work that still needs booking details, payment follow-up, or aging review.
+                  Special, Custom, and Wedding order work with TRX payment context. Layaways stay separate.
                 </p>
               </div>
               <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {totalCount} orders found
+                {totalCount} records found
               </span>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -974,7 +974,7 @@ export default function OrdersWorkspace({
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search orders by name, phone, order number..."
+                  placeholder="Search by customer, phone, TRX, or ORD..."
                   className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
@@ -982,8 +982,8 @@ export default function OrdersWorkspace({
               <div className="flex flex-wrap items-center gap-2">
                 {(
                   [
-                    { id: "open", label: "Open Orders" },
-                    { id: "all", label: "Order History" },
+                    { id: "open", label: "Open Fulfillment" },
+                    { id: "all", label: "Transaction History" },
                   ] satisfies Array<{ id: OrderViewPreset; label: string }>
                 ).map((preset) => {
                   const active = viewPreset === preset.id;
@@ -1030,8 +1030,8 @@ export default function OrdersWorkspace({
                   onChange={(e) => setKindFilter(e.target.value)}
                   className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
                 >
-                  <option value="all">Kind: All</option>
-                  <option value="special_order">Order</option>
+                  <option value="all">Type: All</option>
+                  <option value="special_order">Special</option>
                   <option value="wedding_order">Wedding</option>
                   <option value="custom">Custom</option>
                 </select>
@@ -1105,7 +1105,7 @@ export default function OrdersWorkspace({
               {transactionRows.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-8 text-center text-app-text-muted">
                   <Search size={40} className="mx-auto mb-3 opacity-50" />
-                  <p className="text-sm font-black uppercase tracking-widest italic">No matching orders found</p>
+                  <p className="text-sm font-black uppercase tracking-widest italic">No matching records found</p>
                   <p className="mt-2 text-sm font-medium normal-case tracking-normal">
                     Try a broader search or clear one of the active filters.
                   </p>
@@ -1119,9 +1119,9 @@ export default function OrdersWorkspace({
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Customer</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Order Summary</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Fulfillment Summary</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Status</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Financials</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">TRX Amounts</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted text-right">Balance</th>
                 </tr>
               </thead>
@@ -1153,9 +1153,9 @@ export default function OrdersWorkspace({
               {transactionRows.length === 0 && (
                 <div className="flex flex-col items-center justify-center p-16 text-center text-app-text-muted">
                   <Search size={48} className="mb-4 opacity-70" />
-                  <p className="text-sm font-black uppercase tracking-widest italic">No matching orders found</p>
+                  <p className="text-sm font-black uppercase tracking-widest italic">No matching records found</p>
                   <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
-                    Try a broader search or clear one of the active filters to bring orders back into view.
+                    Try a broader search or clear one of the active filters to bring records back into view.
                   </p>
                 </div>
               )}
@@ -1168,13 +1168,13 @@ export default function OrdersWorkspace({
         isOpen={cancelConfirmOpen}
         onClose={() => setCancelConfirmOpen(false)}
         onConfirm={() => void runCancelOrder()}
-        title={orderUnpaid && !canCancel ? "Void this order?" : "Cancel this order?"}
+        title={orderUnpaid && !canCancel ? "Void this transaction?" : "Cancel this transaction?"}
         message={
           orderUnpaid
-            ? "No payments are allocated to this order. Loyalty accrual will be reversed when applicable."
+            ? "No payments are allocated to this transaction. Loyalty accrual will be reversed when applicable."
             : "This will queue any refundable payments. Loyalty accrual will be reversed when applicable."
         }
-        confirmLabel={orderUnpaid && !canCancel ? "Void order" : "Cancel order"}
+        confirmLabel={orderUnpaid && !canCancel ? "Void transaction" : "Cancel transaction"}
         variant="danger"
       />
 

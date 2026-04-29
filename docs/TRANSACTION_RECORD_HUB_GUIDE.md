@@ -1,11 +1,17 @@
 # Transaction Record Hub Guide — Riverside OS
 
-The **Transaction Record Hub** is the unified administrative view for historical sales, payments, and transaction fulfillment actions in Riverside OS. It serves as the bridge between general interaction logs (CRM) and specific operational workflows (Transactions/Fulfillment/Reviews).
+The **Transaction Record Hub** is the unified administrative view for TRX financial records: historical sales, payments, receipts, refunds, returns, balances, and audit history. It may show linked fulfillment context, but the financial TRX record is not the same thing as an ORD fulfillment record.
 
 ## Core Component
 
 - **Location**: `client/src/components/orders/TransactionDetailDrawer.tsx`
-- **Purpose**: Provides a full financial and items-level audit for any transaction ID (`transaction_id`).
+- **Purpose**: Provides a full financial and items-level audit for any TRX transaction ID (`transaction_id`).
+
+## Boundary
+
+- **TRX**: financial sale record for payments, receipts, refunds, returns, balances, and audit.
+- **ORD**: Special, Custom, or Wedding fulfillment work.
+- **Layaway**: separate workflow; do not describe it as an Order.
 
 ### Key Features
 
@@ -34,7 +40,7 @@ The **Transaction Record Hub** is the unified administrative view for historical
 ### 2. Reviews Operational Cockpit
 - Located in `ReviewsOperationsSection.tsx`.
 - The **"Record"** action allows staff to verify the details of a transaction before following up on a review invite or decision.
-- Ensures review invites (typically sent post-fulfillment) are anchored to recognized revenue.
+- Ensures review invites are anchored to the financial TRX record.
 
 ### 3. Notification Center
 - Notifications that reference a specific sale (e.g., "Review Invite Recorded") now use the `transaction_id` to deep-link directly into the `TransactionDetailDrawer` within the relevant app section.
