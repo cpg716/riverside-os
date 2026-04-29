@@ -105,7 +105,7 @@ const TAB_META: Record<
   }
 > = {
   card_terminal: {
-    label: "STRIPE CARD",
+    label: "CARD READER",
     method: "card_terminal",
     icon: CreditCard,
     idle: "bg-blue-500/5 border border-app-border text-app-text-muted hover:border-blue-500/40",
@@ -113,7 +113,7 @@ const TAB_META: Record<
     accent: "text-blue-500",
   },
   card_manual: {
-    label: "STRIPE MANUAL",
+    label: "MANUAL CARD",
     method: "card_manual",
     icon: CreditCard,
     idle: "bg-zinc-500/5 border border-app-border text-app-text-muted hover:border-zinc-500/40",
@@ -121,7 +121,7 @@ const TAB_META: Record<
     accent: "text-zinc-500",
   },
   card_saved: {
-    label: "STRIPE VAULT",
+    label: "SAVED CARD",
     method: "card_saved",
     icon: ShieldCheck,
     idle: "bg-indigo-500/5 border border-app-border text-app-text-muted hover:border-indigo-500/40",
@@ -129,7 +129,7 @@ const TAB_META: Record<
     accent: "text-indigo-500",
   },
   card_credit: {
-    label: "STRIPE CREDIT",
+    label: "CARD REFUND",
     method: "card_credit",
     icon: RotateCcw,
     idle: "bg-rose-500/5 border border-app-border text-app-text-muted hover:border-rose-500/40",
@@ -339,6 +339,9 @@ export default function NexoCheckoutDrawer({
     };
   }, [tab, remainingCents]);
 
+  const cashRoundedBalanceSettled =
+    tab === "cash" && remainingCents !== 0 && cashRounding.rounded === 0;
+
   const takeawaySatisfied = paidSoFarCents >= tw;
   
   // A sale is "Full Balance Paid" if we have reached or exceeded the target (for positive balances)
@@ -351,13 +354,15 @@ export default function NexoCheckoutDrawer({
     // e.g. paidSoFarCents = -5000, target = -5000 => true.
     return paidSoFarCents <= target;
   }, [effectiveTotalDue, paidSoFarCents, depositDisplayCents]);
+
+  const balanceSettled = fullBalancePaid || cashRoundedBalanceSettled;
   
   /** 
    * A sale is "Balanced" if:
    * 1. The full balance is paid with tenders.
    * 2. Any takeaway items are paid with tenders AND a deposit protocol is established for the remainder.
    */
-  const balanced = fullBalancePaid || (takeawaySatisfied && hasLaterItems && (depositDisplayCents > 0 || allowDepositOnlyComplete));
+  const balanced = balanceSettled || (takeawaySatisfied && hasLaterItems && (depositDisplayCents > 0 || allowDepositOnlyComplete));
 
   const canFinalize = balanced && operator != null && !busy;
 
@@ -419,7 +424,7 @@ export default function NexoCheckoutDrawer({
 
     if (!programsRes.ok) {
       const body = (await programsRes.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? "Could not load RMS Charge programs");
+      throw new Error(body.error ?? "Could not load RMS Charge plans");
     }
     if (!summaryRes.ok) {
       const body = (await summaryRes.json().catch(() => ({}))) as { error?: string };
@@ -470,7 +475,7 @@ export default function NexoCheckoutDrawer({
         | RmsChargeResolveResponse
         | { error?: string };
       if (!res.ok) {
-        throw new Error("error" in body ? body.error ?? "Could not resolve RMS Charge account" : "Could not resolve RMS Charge account");
+        throw new Error("error" in body ? body.error ?? "Could not check RMS Charge" : "Could not check RMS Charge");
       }
       const resolved = body as RmsChargeResolveResponse;
       setRmsResolve(resolved);
@@ -486,7 +491,7 @@ export default function NexoCheckoutDrawer({
       }
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Could not resolve RMS Charge account";
+        error instanceof Error ? error.message : "Could not check RMS Charge";
       setRmsResolve({
         resolution_status: "blocked",
         choices: [],
@@ -583,7 +588,9 @@ export default function NexoCheckoutDrawer({
     // preserving the sign of the remaining balance.
     const absRem = Math.abs(remainingCents);
     const absKey = Math.abs(keypadCents);
-    const appliedAbs = Math.min(absKey, absRem);
+    const cashRoundedAbsRem = Math.abs(cashRounding.rounded);
+    const maxApplicableAbs = tab === "cash" ? cashRoundedAbsRem : absRem;
+    const appliedAbs = Math.min(absKey, maxApplicableAbs);
     const amtCents = remainingCents < 0 ? -appliedAbs : appliedAbs;
 
     if (amtCents === 0) return;
@@ -660,7 +667,7 @@ export default function NexoCheckoutDrawer({
         (program) => program.program_code === rmsSelectedProgramCode,
       );
       if (!selectedProgram) {
-        toast("Select an eligible RMS Charge program before adding payment.", "error");
+        toast("Select an eligible RMS Charge plan before adding payment.", "error");
         return;
       }
     }
@@ -671,7 +678,7 @@ export default function NexoCheckoutDrawer({
         return;
       }
       if (!rmsSelectedAccount) {
-        toast("Resolve the customer's RMS Charge account before adding payment.", "error");
+        toast("Check the customer's RMS Charge account before adding payment.", "error");
         return;
       }
     }
@@ -749,7 +756,7 @@ export default function NexoCheckoutDrawer({
     setKeypad("");
     setGiftCardCode("");
     setCheckNumber("");
-  }, [giftCardSubType, giftCardCode, checkNumber, remainingCents, tab, baseUrl, backofficeHeaders, customerId, selectedVaultedPmId, vaultedMethods, handleStripeSuccess, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsSummary, rmsResolve, rmsPaymentCollectionMode]);
+  }, [giftCardSubType, giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, baseUrl, backofficeHeaders, customerId, selectedVaultedPmId, vaultedMethods, handleStripeSuccess, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsSummary, rmsResolve, rmsPaymentCollectionMode]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     const intentId = line.metadata?.stripe_intent_id?.trim();
@@ -816,7 +823,7 @@ export default function NexoCheckoutDrawer({
       isOpen={isOpen}
       onClose={onClose}
       title="Checkout"
-      subtitle="Finalize Payment & Complete Sale"
+      subtitle="Collect Payment & Complete Sale"
       panelMaxClassName="max-w-5xl"
       noPadding
       contentContained
@@ -825,7 +832,7 @@ export default function NexoCheckoutDrawer({
             <div className="flex items-center gap-8">
                <div className="flex flex-col">
                   <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 mb-1 leading-none">Balance Due</span>
-                  <span className={`text-5xl font-black tabular-nums tracking-tighter italic ${fullBalancePaid ? "text-emerald-500" : "text-app-text"}`}>
+                  <span className={`text-5xl font-black tabular-nums tracking-tighter italic ${balanceSettled ? "text-emerald-500" : "text-app-text"}`}>
                     ${centsToFixed2(Math.abs(tab === "cash" ? cashRounding.rounded : remainingCents))}
                   </span>
                   {tab === "cash" && cashRounding.adjustment !== 0 && (
@@ -835,6 +842,11 @@ export default function NexoCheckoutDrawer({
                   )}
                   {remainingCents < 0 && !fullBalancePaid && (
                     <span className="text-[10px] font-black uppercase text-rose-500 mt-1">Due to Customer</span>
+                  )}
+                  {depositDisplayCents > 0 && depositDisplayCents !== amountDueCents && (
+                    <span className="text-[10px] font-black uppercase text-indigo-500 mt-1">
+                      Collecting partial payment; remaining balance stays on transaction.
+                    </span>
                   )}
                </div>
             </div>
@@ -873,7 +885,7 @@ export default function NexoCheckoutDrawer({
               </div>
 
               <div className="hidden md:flex flex-col text-right min-w-[120px]">
-                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1 leading-none opacity-60">Verified Admin</span>
+                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1 leading-none opacity-60">Cashier</span>
                  <span className="text-sm font-bold uppercase text-app-text truncate">{operator?.fullName || "SYSTEM"}</span>
               </div>
 
@@ -891,7 +903,7 @@ export default function NexoCheckoutDrawer({
                   data-testid="pos-finalize-checkout"
                   title={completeDisabledReason}
                   onClick={handleFinalize}
-                  className={`flex h-14 w-full items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black uppercase tracking-[0.2em] transition-all sm:min-w-[170px] sm:w-auto sm:px-8 ${
+                  className={`flex h-14 w-full items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black uppercase tracking-[0.2em] transition-all sm:min-w-[210px] sm:w-auto ${
                     canFinalize 
                       ? "bg-app-accent text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-[0.98]" 
                       : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
@@ -902,7 +914,7 @@ export default function NexoCheckoutDrawer({
                   ) : (
                     <>
                       <CheckCircle2 className="h-5 w-5" />
-                      <span>Finalize</span>
+                      <span className="whitespace-nowrap">Complete Sale</span>
                     </>
                   )}
                 </button>
@@ -916,7 +928,7 @@ export default function NexoCheckoutDrawer({
         {busy && (
           <div className="absolute inset-0 z-50 bg-white/60 dark:bg-black/60 backdrop-blur-md flex flex-col items-center justify-center">
              <div className="h-20 w-20 rounded-full border-4 border-app-accent border-t-transparent animate-spin mb-6" />
-             <p className="text-xl font-black uppercase italic tracking-wider text-app-text">Completing Transaction...</p>
+             <p className="text-xl font-black uppercase italic tracking-wider text-app-text">Completing Sale...</p>
           </div>
         )}
 
@@ -1005,7 +1017,7 @@ export default function NexoCheckoutDrawer({
             
             {/* 1. Tender Tabs Matrix (Left) */}
             <div className="w-full shrink-0 pb-1 lg:w-48 lg:pb-4">
-              <span className="text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted mb-2 px-1 opacity-60">Revenue Methods</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted mb-2 px-1 opacity-60">Payment Method</span>
               <div className="no-scrollbar flex gap-2 overflow-x-auto lg:flex-col lg:overflow-y-auto lg:overflow-x-visible">
                 {tenderTabIds.map((id) => {
                   const meta = TAB_META[id];
@@ -1032,7 +1044,7 @@ export default function NexoCheckoutDrawer({
                 <div className="mb-5 flex flex-col gap-3 border-b border-app-border pb-4 sm:flex-row sm:items-end sm:justify-between">
                   <div className="flex flex-col gap-2">
                     <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted leading-none opacity-60">
-                      Quick Amount
+                      Amount to Collect
                     </span>
                     <div className="grid grid-cols-2 gap-2">
                       <button
@@ -1040,14 +1052,14 @@ export default function NexoCheckoutDrawer({
                         onClick={payBalance}
                         className="inline-flex items-center justify-center px-4 h-9 rounded-full bg-app-accent text-[10px] font-black text-white uppercase italic tracking-wider hover:brightness-110 active:scale-95 shadow-lg shadow-app-accent/20 transition-all border-b-2 border-app-accent-hover"
                       >
-                        Pay Balance
+                        Full Balance
                       </button>
                       <button
                         type="button"
                         onClick={splitBalance}
                         className="inline-flex items-center justify-center px-4 h-9 rounded-full border border-app-border bg-app-surface text-[10px] font-black uppercase italic tracking-wider text-app-text-muted hover:border-app-input-border hover:text-app-text active:scale-95 transition-all"
                       >
-                        Split Balance
+                        Split Payment
                       </button>
                     </div>
                   </div>
@@ -1123,12 +1135,12 @@ export default function NexoCheckoutDrawer({
                       <div className="space-y-3">
                         <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3">
                           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                            How RMS Charge works
+                            RMS Charge
                           </p>
                           <div className="mt-2 space-y-1.5 text-[11px] font-medium leading-relaxed text-app-text-muted">
-                            <p>RMS Charge always starts with an attached Riverside customer and a resolved linked RMS account.</p>
-                            <p>New RMS charges also require an eligible plan before the payment line can be added.</p>
-                            <p>RMS payments post against the selected RMS account. They are not the same thing as taking a standard retail cash or check tender.</p>
+                            <p>Use this when the customer is charging today's sale to approved private label credit.</p>
+                            <p>Choose an eligible plan before adding the payment line.</p>
+                            <p>RMS Charge payments are separate from normal cash or check tenders.</p>
                           </div>
                         </div>
                         {!customerId ? (
@@ -1137,7 +1149,7 @@ export default function NexoCheckoutDrawer({
                           </div>
                         ) : rmsLoading ? (
                           <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                            Resolving linked RMS Charge account…
+                            Checking RMS Charge…
                           </div>
                         ) : rmsResolve?.resolution_status === "blocked" ? (
                           <div className="rounded-xl border border-rose-300/40 bg-rose-500/10 p-4 text-sm font-semibold text-rose-700">
@@ -1254,10 +1266,10 @@ export default function NexoCheckoutDrawer({
                       <div className="space-y-3 mb-4">
                         <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3">
                           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                            RMS payment rule
+                            RMS Charge Payment
                           </p>
                           <p className="mt-2 text-[11px] font-medium leading-relaxed text-app-text-muted">
-                            In RMS payment mode, this cash or check entry posts to the selected RMS account balance. Keep it separate from a normal retail payment on the sale.
+                            This cash or check payment lowers the selected RMS Charge balance. Keep it separate from a normal sale payment.
                           </p>
                         </div>
                         {!customerId ? (
@@ -1266,16 +1278,16 @@ export default function NexoCheckoutDrawer({
                           </div>
                         ) : rmsLoading ? (
                           <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                            Resolving RMS Charge account…
+                            Checking RMS Charge…
                           </div>
                         ) : rmsResolve?.resolution_status === "blocked" ? (
                           <div className="rounded-xl border border-rose-300/40 bg-rose-500/10 p-4 text-sm font-semibold text-rose-700">
-                            {rmsResolve.blocking_error?.message ?? "RMS Charge payment collection is unavailable for this customer."}
+                            {rmsResolve.blocking_error?.message ?? "RMS Charge payment is unavailable for this customer."}
                           </div>
                         ) : rmsResolve?.resolution_status === "multiple" ? (
                           <div className="space-y-2">
                             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                              Select RMS Account
+                              Select Account
                             </p>
                             <div className="grid gap-2">
                               {rmsResolve.choices.map((choice) => (
@@ -1308,7 +1320,7 @@ export default function NexoCheckoutDrawer({
                             <div className="flex items-center justify-between gap-4">
                               <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                  RMS Payment Account
+                                  RMS Charge Payment
                                 </p>
                                 <p className="text-lg font-black italic text-app-text">
                                   {rmsSelectedAccount.masked_account}
@@ -1396,11 +1408,11 @@ export default function NexoCheckoutDrawer({
               </div>
             </div>
 
-            {/* 3. Ledger & Summary (Right) */}
+            {/* 3. Payment status and sale summary (Right) */}
             <div className="flex h-full min-h-0 w-full shrink-0 flex-col gap-4 lg:w-72">
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-white shadow-xl flex flex-col min-h-0 flex-1">
                 <div className="flex items-center justify-between mb-3">
-                   <h5 className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500 italic opacity-80">Ledger Flow</h5>
+                   <h5 className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500 italic opacity-80">Payment Status</h5>
                    <Sparkles size={14} className="text-emerald-500 opacity-40 shrink-0" />
                 </div>
 
@@ -1444,7 +1456,7 @@ export default function NexoCheckoutDrawer({
                    {depositDisplayCents > 0 && (
                      <div className="flex flex-col gap-2">
                        <div className="flex items-center justify-between p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-                          <span className="text-[10px] font-black uppercase italic text-indigo-200">Deposit Due Today</span>
+                          <span className="text-[10px] font-black uppercase italic text-indigo-200">Partial Payment Today</span>
                           <span className="text-[11px] font-black tabular-nums text-white opacity-90">${centsToFixed2(depositDisplayCents)}</span>
                        </div>
                        {onOpenSplitDeposit && (
@@ -1455,7 +1467,7 @@ export default function NexoCheckoutDrawer({
                            className="flex items-center justify-center gap-2 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/5 text-indigo-300 hover:bg-indigo-500/10 transition-all w-full"
                          >
                             <Layers size={12} />
-                            <span className="text-[9px] font-black uppercase tracking-wider">Configure Split Payer</span>
+                            <span className="text-[9px] font-black uppercase tracking-wider">Split Deposit Payer</span>
                          </button>
                        )}
                      </div>
@@ -1465,28 +1477,28 @@ export default function NexoCheckoutDrawer({
                 <div className="border-t border-white/5 pt-3 space-y-1.5 opacity-90">
                    {depositDisplayCents > 0 && depositDisplayCents !== amountDueCents && (
                      <div className="flex items-center justify-between text-zinc-500">
-                        <span className="text-[8px] font-black uppercase tracking-[0.15em]">Collect Now</span>
+                        <span className="text-[8px] font-black uppercase tracking-[0.15em]">Due Now</span>
                         <span className="text-xs font-bold tabular-nums">${centsToFixed2(depositDisplayCents)}</span>
                      </div>
                    )}
                    <div className="flex items-center justify-between pt-1">
-                      <span className={`text-2xl font-black tabular-nums italic tracking-tighter ${fullBalancePaid ? "text-emerald-500" : "text-white"}`}>
-                        {fullBalancePaid ? "BALANCED" : `$${centsToFixed2(Math.abs(tab === "cash" ? cashRounding.rounded : remainingCents))}`}
+                      <span className={`text-2xl font-black tabular-nums italic tracking-tighter ${balanceSettled ? "text-emerald-500" : "text-white"}`}>
+                        {balanceSettled ? "READY" : `$${centsToFixed2(Math.abs(tab === "cash" ? cashRounding.rounded : remainingCents))}`}
                       </span>
                    </div>
                 </div>
               </div>
 
               <div className="bg-app-surface border border-app-border rounded-xl p-3.5 space-y-2.5 shadow-sm overflow-hidden mt-auto">
-                <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Revenue Protocol</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Sale Summary</span>
                 <div className="space-y-1.5 pt-1">
                   <div className="flex justify-between text-[10px]">
-                    <span className="text-app-text-muted">Net Retail Subtotal</span>
+                    <span className="text-app-text-muted">Merchandise</span>
                     <span className="font-bold tabular-nums text-app-text opacity-70">${centsToFixed2(amountDueCents - (stateTaxCents + localTaxCents + shippingCents))}</span>
                   </div>
                   {shippingCents > 0 && (
                     <div className="flex justify-between text-[10px]">
-                      <span className="text-app-text-muted">Shipping & Logistics</span>
+                      <span className="text-app-text-muted">Shipping</span>
                       <span className="font-bold tabular-nums text-app-text opacity-70">${centsToFixed2(shippingCents)}</span>
                     </div>
                   )}

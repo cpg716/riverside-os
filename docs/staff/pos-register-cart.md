@@ -56,7 +56,7 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 11. **Manager PIN Override**: If a discount exceeds your role's limit (e.g., >10%) or you attempt to **Void All** lines, the **Manager PIN** modal will appear. Have a manager select their name and enter their PIN; this authorizes the action for the current sale without changing your login.
 12. Confirm the **line total** matches what you told the customer.
 
-**R2S payment on the customer’s outside charge (not a normal sale):** When the customer is paying down an **R2S-managed** balance (not store credit, not a new purchase), type **`PAYMENT`** in the product search. Select **RMS CHARGE PAYMENT**, attach the **customer**, enter the **amount** on the **Price** numpad (no tax on this line; no loyalty points on this transaction type). Complete the sale with **Cash** or **Check** only (other tenders are hidden for this flow). **Sales Support** gets a **task** to confirm the payment was posted in the **R2S** portal — complete it per SOP. Details: **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+**RMS Charge payment (not a normal sale):** When the customer is paying down an RMS Charge private label credit balance, type **`PAYMENT`** in the product search. Select the RMS Charge payment line, attach the **customer**, enter the **amount** on the **Price** numpad (no tax on this line; no loyalty points on this transaction type). Complete the sale with **Cash** or **Check** only (other tenders are hidden for this flow). **Sales Support** gets a **task** to confirm the payment was posted — complete it per SOP. Details: **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
 
 **Fulfillment Orders:** Special, Custom, and Wedding lines are **Fulfillment Orders (ORD)**. They typically do **not** reduce on-hand stock at checkout; **takeaway** items decrement stock at sale time. The system may allow **negative on-hand** when policy permits oversell. Do not promise same-day pickup unless the line type and notes say so. **Layaway** is separate from Orders and remains its own workflow.
 
@@ -92,35 +92,35 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 
 1. Review **subtotal**, **tax**, and **balance due** with the customer.
 2. Tap **Pay** / **Complete Sale** (or equivalent green action). If the transaction requires Rush/Due Date details or special fulfillment, the **Transaction Review** screen appears before payment. If the customer wants delivery, use **Ship current sale** from the cart before payment so checkout has a valid quote and address snapshot.
-3. **Tender:** choose the method, enter the amount on the keypad, then **Apply payment** for each tender before finalizing. Enter cash, swipe/tap card, gift card, or **split** tenders per training. Wait for **approved** state on card; do not hand back change until tender is confirmed on screen.
-    - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Apply Payment**.
+3. **Payment:** choose the method, enter the amount on the keypad, then **Add Payment** for each tender before completing the sale. Enter cash, card, gift card, or **Split Payment** tenders per training. Wait for **approved** state on card; do not hand back change until tender is confirmed on screen.
+    - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Add Payment**.
     - The **keypad** stays fixed in the payment panel — scroll only affects the tender and balance area above it if the screen is very short.
-4. **Stripe Unified Branding (Integrated Payments):**
-   - Integrated Card and Vault methods are labeled as **STRIPE CARD**, **STRIPE MANUAL**, or **STRIPE VAULT**.
-   - **Saved Card**: Select **STRIPE VAULT** to charge a card on file without the physical reader. 
-   - **Stripe Credit**: Select **STRIPE CREDIT** (on returns) to issue a credit back via the terminal.
+4. **Integrated card payments:**
+   - Card methods are labeled **CARD READER**, **MANUAL CARD**, **SAVED CARD**, or **CARD REFUND**.
+   - **Saved Card** charges a card on file without the physical reader.
+   - **Card Refund** appears on returns to issue a refund back via the terminal.
    - See **[`stripe-payments-manual.md`](../../client/src/assets/docs/stripe-payments-manual.md)** for full details.
 5. **Audited Tax Exemptions:**
    - For tax-free sales, tap the **Tax Exempt** toggle in the checkout drawer.
    - **Reason Required**: A valid reason (e.g. Resale, Exempt Org) MUST be selected.
    - Taxes will be struck through, and the **Balance Due** will update automatically.
-5. **Pennyless (Swedish Rounding):**
+6. **Pennyless (Swedish Rounding):**
    - Riverside OS uses **Pennyless** (Swedish Rounding) for all **CASH** transactions.
    - **How it works**: For cash payments and refunds, the total is rounded to the nearest **$0.05**.
      - $3.22 rounds to $3.20.
      - $3.23 rounds to $3.25.
    - **Important**: This rounding ONLY applies when the **CASH** tab is selected in the checkout drawer. If the customer switches to CARD or another method, the original unrounded total ($3.22) is required.
-   - **Suggested Amounts**: When you tap **Pay Balance** in the CASH tab, the system will automatically suggest the rounded amount (e.g., $3.20). Use **Split Balance** when you want the drawer to load roughly half of the current amount due for a deposit-style payment.
-   - **Ledger Integrity**: The printed receipt will show the original total and a "Rounding Adjustment" to ensure the financial books balance to zero.
-6. **Transactions / wedding transactions (when shown):** The balance ledger may include **Deposit (ledger)**. Use the same keypad, then tap **Apply deposit** (below **Apply payment**) to record the deposit amount the customer pledges to pay today. This instantly reduces the "Balance to Pay" calculation down to just the requested deposit (+ any immediate takeaway goods). Once the balance is updated, use **Apply payment** via cash/card to fulfill the deposit target. **Split deposit (wedding party)** opens wedding lookup in **group pay** mode so one payer can split amounts across members (same as **Wedding** → party → **Enter Group Pay**). If your sale is **fulfillment lines only** (no take-home items) and you are **not** using a split wedding payout list, you may be able to tap **Complete Sale** with **only** a deposit set — follow store policy.
-7. **Store date and time** next to **Salesperson** is a live clock in the store’s receipt timezone; the **printed receipt time** is the time the server records when the sale completes.
-8. **Receipt:** after tender completes, a **receipt** screen opens on top of the cart — **Print receipt** uses the Epson receipt printer configured in **Printers & Scanners**, and **Email receipt** / **Text receipt** use the standard receipt content. Register #1 opens the attached cash drawer only for **CASH** and **CHECK** sales. You can view or edit **phone** and **email** on that screen and **save** them to the customer record when allowed. Close that screen when done; only then does the register treat the sale as fully finished for “next customer” flow. Offer **bag tag** / label prints if your store uses them.
+   - **Suggested Amounts**: When you tap **Full Balance** in the CASH tab, the system will automatically suggest the rounded amount (e.g., $3.20). Use **Split Payment** when the customer is using more than one tender.
+   - **Receipt Integrity**: The printed receipt will show the original total and a "Rounding Adjustment" so the transaction balances to zero.
+7. **Partial payment / deposit (when shown):** Use the keypad, then tap **Set Deposit** to show the amount due now. Checkout will show **Collecting partial payment** and the remaining balance stays on the Transaction Record. Use **Add Payment** with cash/card to collect the deposit amount. **Split Deposit Payer** opens wedding lookup in **group pay** mode so one payer can split deposit amounts across members. If your sale is **fulfillment lines only** (no take-home items) and you are **not** using a split wedding payout list, you may be able to tap **Complete Sale** with **only** a deposit set — follow store policy.
+8. **Store date and time** next to **Salesperson** is a live clock in the store’s receipt timezone; the **printed receipt time** is the time the server records when the sale completes.
+9. **Receipt:** after tender completes, a **receipt** screen opens on top of the cart — **Print receipt** uses the Epson receipt printer configured in **Printers & Scanners**, and **Email receipt** / **Text receipt** use the standard receipt content. Register #1 opens the attached cash drawer only for **CASH** and **CHECK** sales. You can view or edit **phone** and **email** on that screen and **save** them to the customer record when allowed. Close that screen when done; only then does the register treat the sale as fully finished for “next customer” flow. Offer **bag tag** / label prints if your store uses them.
 
-**RMS Charge (house charge on a sale):** Use the single **RMS Charge** tender button, not separate RMS / RMS90 buttons. After selecting it, POS resolves the linked customer account, shows only **masked** account choices, and then opens a required plan-selection step for the eligible **program** (for example **Standard** or **RMS 90**). The system does **not** silently default the plan for the cashier. Riverside posts the financing transaction to CoreCard before checkout finishes, so the sale does **not** complete if the host post fails. The receipt prints **RMS Charge**, the saved program label, masked account, and host reference when available. For the quick cashier workflow, see **[POS RMS Charge](pos-rms-charge.md)**.
+**RMS Charge (private label credit on a sale):** Use the single **RMS CHARGE** payment button, not separate RMS / RMS90 buttons. After selecting it, POS checks the linked RMS Charge account, shows only **masked** account choices, and then opens a required plan-selection step. The system does **not** silently default the plan for the cashier. The sale does **not** complete if the RMS Charge post fails. The receipt prints RMS Charge, saved plan label, masked account, and host reference when available. For the quick cashier workflow, see **[POS RMS Charge](pos-rms-charge.md)**.
 
-**RMS Charge slim workspace in POS:** Permitted staff can open the RMS Charge workspace in POS to review the current customer’s account summary, available credit, recent RMS history, posting status, and host references. Standard floor staff do **not** see Back Office exception or reconciliation controls there. Payment collection visibility depends on **`pos.rms_charge.payment_collect`** or a richer RMS role.
+**RMS Charge workspace in POS:** Permitted staff can open the RMS Charge workspace in POS to review the current customer’s credit summary, available credit, recent RMS Charge history, posting status, and host references. Standard floor staff do **not** see Back Office exception or reconciliation controls there. Payment collection visibility depends on RMS Charge permissions.
 
-**RMS payment collection:** Search **PAYMENT** to add the internal **RMS CHARGE PAYMENT** line. The register still only accepts **cash** or **check** for this flow, but POS now resolves the linked RMS account before taking the tender and posts the payment to CoreCard before the collection succeeds.
+**RMS Charge payment collection:** Search **PAYMENT** to add the RMS Charge payment line. The register still only accepts **cash** or **check** for this flow, and POS checks the linked RMS Charge account before taking the tender.
 
 ## Void line vs void sale
 
@@ -139,7 +139,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 | Search returns **no results** | Type **SKU** only; scan again; one slow second between scans | Inventory checks **active** SKU in Back Office **Inventory List** |
 | Picker won’t close | **Cancel** or tap outside if allowed; clear search | Refresh **only if no tender in progress**; manager |
 | **Price override** blocked | Expected at cap | Manager with higher cap or admin |
-| **Complete Sale** disabled | Missing customer, zero-total line, open modal, or (fulfillment items) need to pay balance **or** set deposit per on-screen hint | Read the hint; apply tenders and/or deposit |
+| **Complete Sale** disabled | Missing customer, zero-total line, open modal, or (fulfillment items) need to pay balance **or** set deposit per on-screen hint | Read the hint; add payment and/or set deposit |
 | Card stuck on **connecting** | Wait full timeout once | Retry tender; if repeated, use fallback SOP (other lane / manual auth) |
 | **Balance due** wrong after discount | Remove and re-add discount | Manager reviews transaction lines |
 | Wrong item on ticket | **Before pay:** remove line, re-add | **After pay:** return/exchange flow — manager |
