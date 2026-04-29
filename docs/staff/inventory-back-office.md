@@ -114,12 +114,18 @@ Use **Receive Stock** when merchandise is already here and you have vendor paper
 
 ## Correct Stock
 
-Use **Correct Stock** to review inventory movement history for stock that left normal sale/receiving paths.
+Use **Correct Stock** to review correction history for stock that left normal sale/receiving paths. To change stock, start from **Find Item**, choose the item/SKU, and use the stock adjustment action there.
 
-1. **Damaged / Loss** shows damaged or missing stock movements.
-2. **Return to Vendor** shows stock removed for vendor credit or claims.
-3. To make a one-off correction, start from **Find Item**, open the item or SKU, and use the correction action available there.
-4. For storewide or category-wide corrections, use **Count/Reconcile** instead of many one-off edits.
+Choose the correction path by the real-world reason:
+
+| Staff job | Start here | Use when |
+|----------|------------|----------|
+| Fix a small count mistake | **Find Item** stock adjustment | The shelf count was off by one or needs a small count correction. |
+| Record damage or loss | **Find Item** → **Damage/Loss** | Merchandise is damaged, missing, or unsellable. |
+| Return merchandise to a vendor | **Find Item** → **Return to Vendor** | Merchandise is leaving for vendor credit or a vendor claim. |
+| Run a full or category count | **Count/Reconcile** | You are reconciling a shelf, category, cycle count, or full-store count. |
+
+The **Damage/Loss History** and **Vendor Return History** sections under **Correct Stock** are review/report sections. They show prior movements; they are not the starting point for a new correction.
 
 ## Count/Reconcile
 

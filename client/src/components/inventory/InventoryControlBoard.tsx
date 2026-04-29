@@ -1570,6 +1570,9 @@ export default function InventoryControlBoard({
               <p className="font-mono text-[10px] font-bold text-app-text-muted">
                 {adjustRow.sku}
               </p>
+              <p className="mt-3 max-w-xs text-[11px] font-semibold leading-relaxed text-app-text-muted">
+                Use +/- for a count mistake or small correction. Use Damage/Loss for damaged, missing, or unsellable merchandise. Use Return to Vendor when stock is leaving for vendor credit or a claim. Use Count/Reconcile for a full or category count.
+              </p>
             </div>
 
             {adjustSummary ? (
@@ -1618,13 +1621,13 @@ export default function InventoryControlBoard({
 
             <div className="mb-4 space-y-1.5">
               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Adjustment Reason
+                Count Correction Reason
               </label>
               <textarea
                 rows={2}
                 value={quickAdjustNote}
                 onChange={(e) => setQuickAdjustNote(e.target.value)}
-                placeholder="Short reason (e.g. Cycle count correction)"
+                placeholder="Short reason (e.g. count was off by one)"
                 className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm font-medium text-app-text outline-none ring-app-accent focus:ring-2"
               />
             </div>
@@ -1638,7 +1641,7 @@ export default function InventoryControlBoard({
               >
                 <span className="text-3xl font-black text-app-text">-1</span>
                 <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mt-1">
-                  Decrement
+                  Count -1
                 </span>
               </button>
               <button
@@ -1649,7 +1652,7 @@ export default function InventoryControlBoard({
               >
                 <span className="text-3xl font-black text-app-success">+1</span>
                 <span className="mt-1 text-[9px] font-black uppercase tracking-widest text-app-success/70">
-                  Increment
+                  Count +1
                 </span>
               </button>
             </div>
@@ -1671,7 +1674,7 @@ export default function InventoryControlBoard({
                 }
                 className="flex-1 rounded-xl border border-app-danger/20 bg-app-danger/10 py-3 text-[9px] font-black uppercase tracking-widest text-app-danger hover:bg-app-danger/15"
               >
-                Damage…
+                Damage/Loss…
               </button>
               <button
                 type="button"
@@ -1689,7 +1692,7 @@ export default function InventoryControlBoard({
                 }
                 className="flex-1 rounded-xl border border-app-accent/30 bg-app-accent/5 py-3 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent/10"
               >
-                RTV…
+                Return to Vendor…
               </button>
             </div>
 
@@ -1717,7 +1720,7 @@ export default function InventoryControlBoard({
                    <Printer className={maintenanceTarget.type === 'damaged' ? "text-app-danger" : "text-app-accent"} size={22} />
                 </div>
                 <h3 className="text-lg font-black italic uppercase tracking-tight text-app-text">
-                  {maintenanceTarget.type === 'damaged' ? "Mark as Damaged" : "Return to Vendor"}
+                  {maintenanceTarget.type === 'damaged' ? "Record Damage/Loss" : "Return to Vendor"}
                 </h3>
               </div>
               <button
@@ -1765,13 +1768,13 @@ export default function InventoryControlBoard({
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Maintenance Note
+                  {maintenanceTarget.type === 'damaged' ? "Damage/Loss Note" : "Vendor Return Note"}
                 </label>
                 <textarea
                   rows={3}
                   value={maintenanceNote}
                   onChange={(e) => setMaintenanceNote(e.target.value)}
-                  placeholder={maintenanceTarget.type === 'damaged' ? "Describe damage (e.g. Broken zipper, stained lapel)" : "Reason for return (e.g. Vendor defect, surplus RTV)"}
+                  placeholder={maintenanceTarget.type === 'damaged' ? "Describe damage, loss, or unsellable condition" : "Reason for vendor credit or claim"}
                   className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2.5 text-sm font-medium text-app-text outline-none ring-app-accent focus:ring-2"
                 />
               </div>

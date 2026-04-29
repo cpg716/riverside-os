@@ -93,13 +93,13 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string; 
   },
   damaged: {
     title: "Correct Stock",
-    subtitle: "Review damaged or missing stock movements and audit correction history.",
-    toolLabel: "Damaged / Loss",
+    subtitle: "Review damage/loss history. Start count corrections from Find Item.",
+    toolLabel: "Damage/Loss History",
   },
   rtv: {
     title: "Correct Stock",
     subtitle: "Review stock sent back for vendor credits and claims.",
-    toolLabel: "Return to Vendor",
+    toolLabel: "Vendor Return History",
   },
   intelligence: {
     title: "Order Stock",
@@ -142,7 +142,7 @@ const INVENTORY_JOBS: InventoryJob[] = [
   },
   {
     label: "Correct Stock",
-    description: "Review damage, loss, and return-to-vendor movements.",
+    description: "Review correction history; start one-off count fixes from Find Item.",
     primarySection: "damaged",
     sections: ["damaged", "rtv"],
   },
