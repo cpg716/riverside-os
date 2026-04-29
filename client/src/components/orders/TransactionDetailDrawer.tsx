@@ -245,10 +245,10 @@ function describeLifecycle(detail: TransactionDrawerDetail) {
 function describeOrderRules(detail: TransactionDrawerDetail): string[] {
   const isWedding = Boolean(detail.wedding_summary);
   const lines = [
-    "The TRX record holds payment, receipt, refund, and balance details.",
+    "The Transaction Record holds payment, receipt, refund, and balance details.",
     detail.status === "fulfilled"
       ? "Pickup or fulfillment is already complete for this record."
-      : "Special, Custom, and Wedding lines are ORD fulfillment work; Layaways stay in Layaways.",
+      : "Special, Custom, and Wedding lines are fulfillment work; Layaways stay in Layaways.",
   ];
 
   if (detail.status === "pending_measurement") {
@@ -802,7 +802,7 @@ export default function TransactionDetailDrawer({
                   </div>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Deposit on TRX
+                      Deposit on Transaction
                     </p>
                     <p className="mt-1 text-sm font-black text-app-text">
                       {fmtMoney(detail.financial_summary?.total_applied_deposit_amount ?? "0")}
@@ -812,7 +812,7 @@ export default function TransactionDetailDrawer({
                 <div className="mt-3 space-y-2 border-t border-app-border/50 pt-3">
                   <div className="flex items-start justify-between gap-3 text-[11px]">
                     <span className="font-black uppercase tracking-widest text-app-text-muted">
-                      TRX Payments
+                      Transaction Payments
                     </span>
                     <span className="text-right font-semibold text-app-text">
                       {fmtMoney(detail.financial_summary?.total_allocated_payments ?? "0")}

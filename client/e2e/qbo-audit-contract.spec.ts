@@ -504,7 +504,7 @@ async function proposeJournal(
 }
 
 test.describe("QBO audit contract", () => {
-  test("layaways stay TRX-scoped and post deposit, pickup, and forfeiture journals", async ({
+  test("layaways stay transaction-scoped and post deposit, pickup, and forfeiture journals", async ({
     request,
   }) => {
     test.setTimeout(120_000);
@@ -535,7 +535,7 @@ test.describe("QBO audit contract", () => {
     await assignQboDate(request, layaway.transaction_id, depositDate);
 
     const layawayDetail = await fetchTransactionDetail(request, layaway.transaction_id);
-    expect(layawayDetail.transaction_display_id).toMatch(/^(TRX|TXN)-/);
+    expect(layawayDetail.transaction_display_id).toMatch(/^TXN-/);
     expect(layawayDetail.balance_due).toBe("89.63");
 
     const layawayList = await fetchCustomerLayaways(request, customer.id);
@@ -544,8 +544,8 @@ test.describe("QBO audit contract", () => {
     );
     expect(layawayRow).toBeTruthy();
     expect(layawayRow?.order_kind).toBe("layaway");
-    expect(layawayRow?.display_id).toMatch(/^(TRX|TXN)-/);
-    expect(layawayRow?.order_payment_display_id).toMatch(/^(TRX|TXN)-/);
+    expect(layawayRow?.display_id).toMatch(/^TXN-/);
+    expect(layawayRow?.order_payment_display_id).toMatch(/^TXN-/);
     expect(layawayRow?.is_fulfillment_order).toBe(false);
 
     const depositProposal = await proposeJournal(request, depositDate);

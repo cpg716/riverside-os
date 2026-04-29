@@ -4,8 +4,8 @@ Riverside OS employs a decoupled **transaction-centric architecture** that separ
 
 ## Core Architecture
 
-- **Transactions (`transactions` / `TXN-XXXX`)**: Represent the financial ledger and customer commitment. Every checkout action creates a single Transaction. It records the total price, amounts paid, balance due, and acts as the anchor for receipts and refunds.
-- **Fulfillment Orders (`fulfillment_orders` / `ORD-XXXX`)**: Represent the logistical state of the items to be delivered. A single Transaction can have its line items mapped to one or more Fulfillment Orders. Fulfillment orders handle the physical workflow: procurement, special ordering, shipment, and physical pickup.
+- **Transactions (`transactions`, visible numbers like `TXN-10001`)**: Represent the financial ledger and customer commitment. Every checkout action creates a single Transaction. It records the total price, amounts paid, balance due, and acts as the anchor for receipts and refunds.
+- **Fulfillment Orders (`fulfillment_orders`, visible numbers like `ORD-10001`)**: Represent the logistical state of the items to be delivered. A single Transaction can have its line items mapped to one or more Fulfillment Orders. Fulfillment orders handle the physical workflow: procurement, special ordering, shipment, and physical pickup.
 
 ## User Interface (UI) Mapping
 
@@ -20,7 +20,7 @@ To ensure clarity for staff, the Riverside OS interface uses standard industry t
 In legacy systems, an "Order" represented both the financial receipt and the physical box of goods. Riverside OS decouples these concepts to handle complex retail realities:
 - A customer pays for several items on a single receipt (**1 Transaction**).
 - 1 item is taken home today (**Takeaway**).
-- Other items are tracked as **Fulfillment Orders** (ORD-XXXX) in one of three primary categories:
+- Other items are tracked as **Fulfillment Orders** in one of three primary categories:
 
 ### The Three Fulfillment Types
 
@@ -34,7 +34,7 @@ Special and Custom stay separate operational contracts. Custom is not just anoth
 ## Operational Workflow
 
 ### 1. Booking (Transactions)
-When the cashier completes checkout, a `transaction` (TXN) is generated. If items cannot be taken away immediately, those `transaction_lines` are mapped to new or existing `fulfillment_orders` (ORD).
+When the cashier completes checkout, a Transaction is generated. If items cannot be taken away immediately, those `transaction_lines` are mapped to new or existing Fulfillment Orders.
 - **Rounding Adjustments**: For cash transactions, the `rounding_adjustment` field records the delta between the calculated total and the physical cash collected (Pennyless/Swedish Rounding). This ensures the balance due is accurately reduced to zero without altering line-item prices.
 
 ### 2. Deposits & Accounting
@@ -65,7 +65,7 @@ Wedding transactions follow the exact same architecture but enforce group-level 
 
 To maintain the v0.2.0 boundaries, wedding members use two distinct links:
 1. **`transaction_id` (The Financial Anchor)**: Links the member to their financial receipt/checkout (`transactions` table). Use this for balances, deposits, and payments.
-2. **`fulfillment_order_id` (The Logistical Link)**: Individual items for a member (found in `transaction_lines`) link to a logistical `fulfillment_orders` table (ORD-XXXX). Use this to track if a suit has been ordered from a vendor or received in-store.
+2. **`fulfillment_order_id` (The Logistical Link)**: Individual items for a member (found in `transaction_lines`) link to the logistical `fulfillment_orders` table. Use this to track if a suit has been ordered from a vendor or received in-store.
 
 ### Integrated Wedding Hub (v0.2.1+)
 

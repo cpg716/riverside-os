@@ -10,13 +10,13 @@
 
 ## How to use this area
 
-**TRX** = financial sale record: payments, receipts, refunds, returns, balance, and audit.
+**Transaction Record** = financial sale record: payments, receipts, refunds, returns, balance, and audit. The visible transaction number starts with **TXN-**.
 
-**ORD** = fulfillment work for **Special**, **Custom**, or **Wedding** orders. Use the linked TRX only for payment context.
+**Fulfillment Order** = fulfillment work for **Special**, **Custom**, or **Wedding** orders. Use the linked Transaction Record only for payment context.
 
 **Layaways** are separate. Do not treat a Layaway as an Order.
 
-**Open Fulfillment** = active Special, Custom, and Wedding order work. **Transaction History** = TRX search for receipts, disputes, and CRM follow-up.
+**Open Fulfillment** = active Special, Custom, and Wedding order work. **Transaction History** = Transaction Record search for receipts, disputes, and CRM follow-up.
 
 ### The Three Order Types
 
@@ -31,7 +31,7 @@
 1. **Orders** → **Open Fulfillment**.
 2. Sort or filter by **date**, **customer**, **status** if available.
 3. Click record → verify **lines**, **balance due**, **customer** attachment.
-4. **Take payment** only when the linked TRX balance needs payment.
+4. **Take payment** only when the linked Transaction Record balance needs payment.
 5. **Pickup** / **fulfill**: complete **line checkoffs** if prompted (prevents partial mistakes).
 6. **Attach Wedding**: Link a standalone fulfillment record to a **Wedding Party** member when it belongs with a wedding group.
 
@@ -40,7 +40,7 @@
 1. **Orders** → **Transaction History**.
 2. Set **date range** first to avoid huge lists.
 3. Search **receipt**, **customer name**, **SKU** if fields exist.
-4. Open TRX record → **receipt** copy, **audit** timeline, or reprint per policy.
+4. Open Transaction Record → **receipt** copy, **audit** timeline, or reprint per policy.
 
 ## Returns, refunds, exchanges
 
@@ -49,20 +49,20 @@
 
 ## Till / POS coordination
 
-POS may read the same TRX record through the register. If **Back Office** and **POS** disagree, **refresh** both; if persistent, note **TRX id** and time for IT.
+POS may read the same Transaction Record through the register. If **Back Office** and **POS** disagree, **refresh** both; if persistent, note the transaction number and time for IT.
 
 ## Common issues and fixes
 
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
-| TRX/ORD not found | Widen dates | Wrong store DB |
+| Transaction or fulfillment order not found | Widen dates | Wrong store DB |
 | Cannot refund | **403** | **orders.refund_process** |
 | Pickup blocked | Unpaid line | Read banner |
-| Balance wrong after return | **Refresh** TRX record | Finance lead |
+| Balance wrong after return | **Refresh** Transaction Record | Finance lead |
 
 ## Helping a coworker at POS
 
-Give the **TRX id**, **ORD id**, or **receipt #**; read **status** and **balance** from BO aloud.
+Give the **transaction number**, **fulfillment order number**, or **receipt #**; read **status** and **balance** from BO aloud.
 
 ## When to get a manager
 

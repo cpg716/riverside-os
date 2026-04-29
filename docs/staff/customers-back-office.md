@@ -10,7 +10,7 @@
 
 ## How to use this area
 
-**All Customers** is the **searchable directory**. **Add Customer** opens the **drawer** form. The **Relationship hub** is scoped to the customer you opened: use it for this customer’s profile, messages, measurements, TRX records, ORD fulfillment work, shipments, weddings, and related history. The sidebar workspaces are broader queues or operational tools across customers.
+**All Customers** is the **searchable directory**. **Add Customer** opens the **drawer** form. The **Relationship hub** is scoped to the customer you opened: use it for this customer’s profile, messages, measurements, transaction records, fulfillment work, shipments, weddings, and related history. The sidebar workspaces are broader queues or operational tools across customers.
 
 ## All Customers
 
@@ -23,9 +23,9 @@
 
 - **Profile** — this customer’s contact details, notes, VIP flag, joint account linkage, store credit/deposit context, loyalty points, and active wedding linkage.
 - **Messages** — this customer’s Podium message thread and follow-up when available.
-- **TRX Records** — this customer’s financial sale records.
-- **ORD Work** — this customer’s Special, Custom, or Wedding fulfillment work and handoff into the Back Office Orders workflow.
-- **Layaways** — this customer’s layaway-bearing TRX records, reserved inventory, and remaining balances.
+- **Transaction Records** — this customer’s financial sale records.
+- **Fulfillment Work** — this customer’s Special, Custom, or Wedding fulfillment work and handoff into the Back Office Orders workflow.
+- **Layaways** — this customer’s layaway-bearing transaction records, reserved inventory, and remaining balances.
 - **Shipments** — this customer’s shipment history and shipment drill-in.
 - **Measurements** — this customer’s sizing records; **PII** — verify identity before reading aloud.
 - **Wedding Links** — this customer’s wedding party linkage and wedding shortcuts.

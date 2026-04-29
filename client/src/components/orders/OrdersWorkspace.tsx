@@ -936,7 +936,7 @@ export default function OrdersWorkspace({
                   Fulfillment Follow-Up
                 </p>
                 <p className="mt-1 text-sm font-semibold text-app-text">
-                  Special, Custom, and Wedding order work with TRX payment context. Layaways stay separate.
+                  Special, Custom, and Wedding order work with transaction payment context. Layaways stay separate.
                 </p>
               </div>
               <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -974,7 +974,7 @@ export default function OrdersWorkspace({
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by customer, phone, TRX, or ORD..."
+                  placeholder="Search by customer, phone, transaction number, or fulfillment order number..."
                   className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
@@ -1121,7 +1121,7 @@ export default function OrdersWorkspace({
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Customer</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Fulfillment Summary</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Status</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">TRX Amounts</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Transaction Amounts</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted text-right">Balance</th>
                 </tr>
               </thead>

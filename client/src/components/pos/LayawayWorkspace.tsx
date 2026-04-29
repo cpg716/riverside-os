@@ -112,7 +112,7 @@ export default function LayawayWorkspace({
             </h2>
             <p className="text-[11px] text-app-text-muted sm:text-xs">
               {customerId
-                ? "Reserved inventory and payment plans tied to this customer’s TRX records."
+                ? "Reserved inventory and payment plans tied to this customer’s transaction records."
                 : "Manage reserved inventory and payment plans. 25% minimum deposit required for new layaways."}
             </p>
           </div>
@@ -154,7 +154,7 @@ export default function LayawayWorkspace({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={customerId ? "Search this customer’s layaways by TRX…" : "Search by customer name or TRX…"}
+              placeholder={customerId ? "Search this customer’s layaways by transaction number…" : "Search by customer name or transaction number…"}
               className="ui-input h-12 w-full rounded-2xl bg-app-surface-2 pl-12 pr-4 text-sm font-bold shadow-inner focus:bg-app-surface sm:text-base"
             />
           </div>

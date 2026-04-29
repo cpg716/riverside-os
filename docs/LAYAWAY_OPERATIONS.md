@@ -55,7 +55,7 @@ If a customer fails to complete a layaway:
 ### Taking a Payment
 1. Go to **Customers**.
 2. Find Customer → **Layaways** tab.
-3. Select the open layaway TRX → **Make Payment**.
+3. Select the open layaway Transaction Record → **Make Payment**.
 
 ### Pickup
 1. Complete final payment (Balance must be $0).

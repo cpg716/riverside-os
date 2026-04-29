@@ -1258,8 +1258,8 @@ export function CustomerRelationshipHubDrawer({
         <div className="flex flex-wrap gap-2">
           {tabBtn("profile", "Profile")}
           {canHubView ? tabBtn("messages", "Messages") : null}
-          {canOrdersView ? tabBtn("transactions", "TRX Records") : null}
-          {canOrdersView ? tabBtn("orders", "ORD Work") : null}
+          {canOrdersView ? tabBtn("transactions", "Transaction Records") : null}
+          {canOrdersView ? tabBtn("orders", "Fulfillment Work") : null}
           {canOrdersView ? tabBtn("layaways", "Layaways") : null}
           {canAlterationsView ? tabBtn("alterations", "Alterations") : null}
           {tabBtn("weddings", "Wedding Links")}
@@ -1273,12 +1273,12 @@ export function CustomerRelationshipHubDrawer({
           <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
             <h3 className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
               <Receipt size={14} aria-hidden />
-              {tab === "transactions" ? "This customer’s TRX records" : "This customer’s ORD work"}
+              {tab === "transactions" ? "This customer’s transaction records" : "This customer’s fulfillment work"}
             </h3>
             <p className="mb-3 text-xs text-app-text-muted">
               {tab === "transactions"
-                ? "Financial sale records for this customer. Open a TRX for receipt or salesperson corrections."
-                : "Special, Custom, or Wedding fulfillment work for this customer. Open an ORD record, then continue in Orders when needed."}{" "}
+                ? "Financial sale records for this customer. Open a transaction for receipt or salesperson corrections."
+                : "Special, Custom, or Wedding fulfillment work for this customer. Open the fulfillment record, then continue in Orders when needed."}{" "}
               Showing {customer.first_name} {customer.last_name} ·{" "}
               {customer.customer_code}
             </p>
@@ -1383,7 +1383,7 @@ export function CustomerRelationshipHubDrawer({
                         }}
                         className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
                       >
-                        {tab === "transactions" ? "Open TRX" : "Open ORD record"}
+                        {tab === "transactions" ? "Open Transaction" : "Open Fulfillment"}
                       </button>
                     </div>
                   </article>
@@ -1396,7 +1396,7 @@ export function CustomerRelationshipHubDrawer({
                     <tr>
                       <th className="px-3 py-2">Booked</th>
                       <th className="px-3 py-2">
-                        {tab === "transactions" ? "TRX" : "ORD"}
+                        {tab === "transactions" ? "Transaction" : "Fulfillment"}
                       </th>
                       <th className="px-3 py-2">Channel</th>
                       <th className="px-3 py-2">Status</th>
@@ -1466,8 +1466,8 @@ export function CustomerRelationshipHubDrawer({
                             className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
                           >
                             {tab === "transactions"
-                              ? "Open TRX"
-                              : "Open ORD record"}
+                              ? "Open Transaction"
+                              : "Open Fulfillment"}
                           </button>
                         </td>
                       </tr>

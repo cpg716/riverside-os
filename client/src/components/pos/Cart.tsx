@@ -2239,7 +2239,7 @@ export default function Cart({
                                   {customerName}
                                 </p>
                                 <p className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-app-accent opacity-80">
-                                  TRX #{p.id.slice(-6).toUpperCase()}
+                                  Draft sale #{p.id.slice(-6).toUpperCase()}
                                 </p>
                               </div>
                               <div className="text-right">

@@ -1,16 +1,16 @@
 # Transaction Record Hub Guide — Riverside OS
 
-The **Transaction Record Hub** is the unified administrative view for TRX financial records: historical sales, payments, receipts, refunds, returns, balances, and audit history. It may show linked fulfillment context, but the financial TRX record is not the same thing as an ORD fulfillment record.
+The **Transaction Record Hub** is the unified administrative view for financial sale records: historical sales, payments, receipts, refunds, returns, balances, and audit history. It may show linked fulfillment context, but the financial Transaction Record is not the same thing as a Fulfillment Order.
 
 ## Core Component
 
 - **Location**: `client/src/components/orders/TransactionDetailDrawer.tsx`
-- **Purpose**: Provides a full financial and items-level audit for any TRX transaction ID (`transaction_id`).
+- **Purpose**: Provides a full financial and items-level audit for any transaction ID (`transaction_id`) or visible transaction number (`TXN-...`).
 
 ## Boundary
 
-- **TRX**: financial sale record for payments, receipts, refunds, returns, balances, and audit.
-- **ORD**: Special, Custom, or Wedding fulfillment work.
+- **Transaction Record**: financial sale record for payments, receipts, refunds, returns, balances, and audit.
+- **Fulfillment Order**: Special, Custom, or Wedding fulfillment work.
 - **Layaway**: separate workflow; do not describe it as an Order.
 
 ### Key Features
@@ -40,7 +40,7 @@ The **Transaction Record Hub** is the unified administrative view for TRX financ
 ### 2. Reviews Operational Cockpit
 - Located in `ReviewsOperationsSection.tsx`.
 - The **"Record"** action allows staff to verify the details of a transaction before following up on a review invite or decision.
-- Ensures review invites are anchored to the financial TRX record.
+- Ensures review invites are anchored to the financial Transaction Record.
 
 ### 3. Notification Center
 - Notifications that reference a specific sale (e.g., "Review Invite Recorded") now use the `transaction_id` to deep-link directly into the `TransactionDetailDrawer` within the relevant app section.
