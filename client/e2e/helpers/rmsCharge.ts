@@ -264,6 +264,9 @@ export async function seedRmsFixture(
   fixture: string,
   customerLabel?: string,
 ): Promise<SeedFixtureResponse> {
+  const safeCustomerLabel = customerLabel?.trim()
+    ? customerLabel.trim().slice(0, 32)
+    : null;
   const res = await request.post(`${apiBase()}/api/test-support/rms/seed-fixture`, {
     headers: {
       ...staffHeaders(),
@@ -271,7 +274,7 @@ export async function seedRmsFixture(
     },
     data: {
       fixture,
-      customer_label: customerLabel ?? null,
+      customer_label: safeCustomerLabel,
     },
     failOnStatusCode: false,
   });

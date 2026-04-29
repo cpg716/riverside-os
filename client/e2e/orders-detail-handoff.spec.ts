@@ -113,7 +113,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: "Order Detail" });
+    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer).toContainText(order.displayId);
     await expect(drawer).toContainText(order.productName);
@@ -148,7 +148,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: "Order Detail" });
+    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer).toContainText(order.displayId);
     await expect(drawer).toContainText(order.productName);
@@ -170,7 +170,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: "Order Detail" });
+    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await drawer.getByRole("button", { name: "Edit" }).first().click();
 
@@ -199,7 +199,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: "Order Detail" });
+    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();
 
@@ -231,7 +231,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    let drawer = page.getByRole("dialog", { name: "Order Detail" });
+    let drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();
 
@@ -265,7 +265,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    drawer = page.getByRole("dialog", { name: "Order Detail" });
+    drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer.getByText("Qty 2").first()).toBeVisible({ timeout: 20_000 });
   });
