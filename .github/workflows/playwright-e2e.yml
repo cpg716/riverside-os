@@ -82,6 +82,7 @@ jobs:
     env:
       CI: true
       DATABASE_URL: postgresql://postgres:password@localhost:5432/riverside_os
+      RIVERSIDE_MODE: e2e
       RIVERSIDE_HTTP_BIND: 127.0.0.1:3000
       E2E_BASE_URL: http://localhost:3000
       E2E_API_BASE: http://127.0.0.1:3000
@@ -160,6 +161,7 @@ jobs:
       - name: Start API server
         run: |
           nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
+            RIVERSIDE_MODE="$RIVERSIDE_MODE" \
             RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="$RIVERSIDE_ENABLE_E2E_TEST_SUPPORT" \
             RIVERSIDE_CORECARD_BASE_URL="$RIVERSIDE_CORECARD_BASE_URL" \
             RIVERSIDE_CORECARD_CLIENT_ID="$RIVERSIDE_CORECARD_CLIENT_ID" \
