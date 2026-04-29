@@ -71,7 +71,7 @@ for (const viewport of MODAL_VIEWPORTS) {
 
     const checkout = page.getByRole("dialog", { name: /checkout/i });
     await checkout.getByRole("button", { name: /^cash$/i }).click();
-    await checkout.getByRole("button", { name: /pay balance/i }).click();
+    await checkout.getByRole("button", { name: /full balance/i }).click();
     await checkout.getByRole("button", { name: /add payment/i }).click();
     await expect(checkout.getByTestId("pos-finalize-checkout")).toBeEnabled({
       timeout: 10_000,

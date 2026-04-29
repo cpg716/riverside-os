@@ -117,7 +117,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer).toContainText(order.displayId);
     await expect(drawer).toContainText(order.productName);
-    await expect(drawer).toContainText("Pickup Order");
+    await expect(drawer).toContainText("Pickup Work");
     await expect(drawer).toContainText("Balance Due Before Release");
     await expect(drawer).toContainText("Still Open");
 
@@ -152,7 +152,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer).toContainText(order.displayId);
     await expect(drawer).toContainText(order.productName);
-    await expect(drawer).toContainText("Pickup Order");
+    await expect(drawer).toContainText("Pickup Work");
     await expect(drawer).toContainText("Still Open");
     await expect(drawer.getByRole("button", { name: "Edit" }).first()).toBeVisible();
   });

@@ -84,9 +84,9 @@ test.describe("Tax Exempt and Stripe Branding", () => {
     const drawer = page.getByRole("dialog", { name: /checkout/i });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
 
-    // 1. Verify Stripe Branding
-    await expect(drawer.getByRole("button", { name: /STRIPE CARD/i })).toBeVisible();
-    await expect(drawer.getByRole("button", { name: /STRIPE MANUAL/i })).toBeVisible();
+    // 1. Verify card tender methods
+    await expect(drawer.getByRole("button", { name: /CARD READER/i })).toBeVisible();
+    await expect(drawer.getByRole("button", { name: /MANUAL CARD/i })).toBeVisible();
 
     // 2. Verify Tax Exempt Toggle
     const taxExemptBtn = drawer.getByRole("button", { name: /tax exempt/i });
@@ -105,7 +105,7 @@ test.describe("Tax Exempt and Stripe Branding", () => {
     // If it's zeroed out, we can check for $0.00
     // await expect(drawer.locator('text=$0.00')).toBeVisible();
 
-    // 4. Verify linking a customer enables STRIPE VAULT branding
+    // 4. Verify linking a customer enables saved card tender
     await drawer.getByLabel("Close drawer").last().click();
 
     await attachNewCustomerToSale(page, {
@@ -116,6 +116,6 @@ test.describe("Tax Exempt and Stripe Branding", () => {
     });
     
     await openPaymentLedger(page);
-    await expect(drawer.getByRole("button", { name: /STRIPE VAULT/i })).toBeVisible();
+    await expect(drawer.getByRole("button", { name: /SAVED CARD/i })).toBeVisible();
   });
 });

@@ -96,7 +96,7 @@ async function openCustomersWorkspace(page: Page) {
   await expect(customersButton).toBeVisible({ timeout: 15_000 });
   await customersButton.click();
   await expect(
-    page.getByText("Customer Completeness"),
+    page.getByText("Profile Completeness"),
   ).toBeVisible({ timeout: 25_000 });
 }
 

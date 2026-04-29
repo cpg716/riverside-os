@@ -33,7 +33,7 @@ test.describe("RMS reconciliation", () => {
     await expect(
       page.getByRole("heading", { name: /latest reconciliation mismatches/i }),
     ).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("rms-reconciliation-scope")).toContainText(/all rms activity/i);
+    await expect(page.getByTestId("rms-reconciliation-scope")).toContainText(/all rms charge activity/i);
     await expect(page.getByTestId("rms-reconciliation-scope")).toContainText(/does not filter mismatch results/i);
     await page.getByTestId("rms-run-reconciliation").click();
 

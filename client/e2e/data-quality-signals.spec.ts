@@ -163,9 +163,9 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
   await openWorkspace(
     page,
     "customers",
-    page.getByText("Customer Completeness"),
+    page.getByText("Profile Completeness"),
   );
-  await expect(page.getByText("Customer Completeness")).toBeVisible();
+  await expect(page.getByText("Profile Completeness")).toBeVisible();
   await expect(page.getByText("Profiles incomplete")).toBeVisible();
   await expect(page.getByRole("row", { name: /Casey Contactless.*Profile incomplete/ })).toBeVisible();
 

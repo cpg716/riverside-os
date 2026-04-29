@@ -153,7 +153,6 @@ async function addProductToCart(page: Page): Promise<void> {
   const search = page.getByTestId("pos-product-search");
   await search.fill(PRODUCT.sku);
   await search.press("Enter");
-  await page.getByRole("button", { name: "Phase 2 Suit Jacket", exact: true }).click();
   await expect(page.getByText(PRODUCT.sku)).toBeVisible({ timeout: 10_000 });
 }
 
@@ -347,7 +346,7 @@ test.describe("POS alteration intake", () => {
     const drawer = page.getByRole("dialog", { name: /checkout/i });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await drawer.getByRole("button", { name: /^Cash$/i }).click();
-    await drawer.getByRole("button", { name: /pay balance/i }).click();
+    await drawer.getByRole("button", { name: /full balance/i }).click();
     await drawer.getByRole("button", { name: /add payment/i }).click();
     await drawer.getByTestId("pos-finalize-checkout").click();
 
@@ -448,7 +447,7 @@ test.describe("POS alteration intake", () => {
     const drawer = page.getByRole("dialog", { name: /checkout/i });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await drawer.getByRole("button", { name: /^Cash$/i }).click();
-    await drawer.getByRole("button", { name: /pay balance/i }).click();
+    await drawer.getByRole("button", { name: /full balance/i }).click();
     await drawer.getByRole("button", { name: /add payment/i }).click();
     await drawer.getByTestId("pos-finalize-checkout").click();
 

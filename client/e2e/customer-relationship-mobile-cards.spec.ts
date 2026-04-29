@@ -236,7 +236,7 @@ for (const viewport of DRAWER_VIEWPORTS) {
     const dialog = page.getByRole("dialog", { name: /riley harper/i });
     await expect(dialog).toBeVisible({ timeout: 20_000 });
 
-    await dialog.getByRole("button", { name: /^transactions$/i }).click();
+    await dialog.getByRole("button", { name: /^TRX Records$/i }).click();
     await expect(dialog.getByRole("button", { name: /open transaction/i })).toBeVisible({
       timeout: 20_000,
     });
