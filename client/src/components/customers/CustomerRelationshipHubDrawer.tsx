@@ -29,6 +29,7 @@ import {
   serializeMeasurementPatch,
 } from "./CustomerMeasurementLogic";
 import ShipmentsHubSection from "./ShipmentsHubSection";
+import LayawayWorkspace from "../pos/LayawayWorkspace";
 import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
@@ -177,6 +178,7 @@ export type HubTab =
   | "profile"
   | "transactions"
   | "orders"
+  | "layaways"
   | "shipments";
 
 const ORDER_HISTORY_PAGE = 50;
@@ -740,6 +742,7 @@ export function CustomerRelationshipHubDrawer({
     if (!permissionsLoaded) return;
     if (tab === "transactions" && !canOrdersView) setTab("profile");
     if (tab === "orders" && !canOrdersView) setTab("profile");
+    if (tab === "layaways" && !canOrdersView) setTab("profile");
     if (tab === "shipments" && !canShipmentsView) setTab("profile");
     if (tab === "measurements" && !canMeasurements) setTab("profile");
     if (tab === "alterations" && !canAlterationsView) setTab("profile");
@@ -1257,6 +1260,7 @@ export function CustomerRelationshipHubDrawer({
           {canHubView ? tabBtn("messages", "Messages") : null}
           {canOrdersView ? tabBtn("transactions", "TRX Records") : null}
           {canOrdersView ? tabBtn("orders", "ORD Work") : null}
+          {canOrdersView ? tabBtn("layaways", "Layaways") : null}
           {canAlterationsView ? tabBtn("alterations", "Alterations") : null}
           {tabBtn("weddings", "Wedding Links")}
           {canMeasurements ? tabBtn("measurements", "Measurements") : null}
@@ -1501,6 +1505,14 @@ export function CustomerRelationshipHubDrawer({
             embedded
             openShipmentId={hubShipmentFocusId}
             onOpenShipmentIdConsumed={onHubShipmentFocusConsumed}
+          />
+        </div>
+      ) : tab === "layaways" ? (
+        <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-2xl border border-app-border">
+          <LayawayWorkspace
+            customerId={customer.id}
+            embedded
+            onOpenTransaction={(transactionId) => setSelectedTransactionId(transactionId)}
           />
         </div>
       ) : tab === "alterations" ? (

@@ -15,7 +15,9 @@ import {
 } from "lucide-react";
 
 interface LayawayRow {
-  order_id: string;
+  transaction_id: string;
+  display_id: string;
+  order_payment_display_id: string;
   booked_at: string;
   status: string;
   total_price: string;
@@ -33,11 +35,15 @@ interface LayawayListResponse {
 
 export interface LayawayWorkspaceProps {
   registerSessionId?: string | null;
-  onOpenTransaction?: (orderId: string) => void;
+  customerId?: string | null;
+  embedded?: boolean;
+  onOpenTransaction?: (transactionId: string) => void;
 }
 
 export default function LayawayWorkspace({
   registerSessionId,
+  customerId,
+  embedded = false,
   onOpenTransaction,
 }: LayawayWorkspaceProps) {
   const { backofficeHeaders } = useBackofficeAuth();
@@ -67,6 +73,7 @@ export default function LayawayWorkspace({
       params.set("show_closed", showClosed ? "true" : "false");
       if (q) params.set("search", q);
       if (registerSessionId) params.set("register_session_id", registerSessionId);
+      if (customerId) params.set("customer_id", customerId);
       params.set("limit", "50");
 
       const res = await fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
@@ -81,7 +88,7 @@ export default function LayawayWorkspace({
     } finally {
       setLoading(false);
     }
-  }, [apiAuth, baseUrl, tab, query, registerSessionId]);
+  }, [apiAuth, baseUrl, tab, query, registerSessionId, customerId]);
 
   useEffect(() => {
     void loadLayaways();
@@ -95,16 +102,18 @@ export default function LayawayWorkspace({
   };
 
   return (
-    <div className="flex flex-1 flex-col bg-app-surface">
+    <div className={`flex flex-1 flex-col bg-app-surface ${embedded ? "min-h-0" : ""}`}>
       {/* Header & Controls */}
       <div className="shrink-0 border-b border-app-border px-4 py-4 sm:px-6">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-black tracking-tight text-app-text sm:text-xl">
-              Layaway Manager (v2)
+              {customerId ? "This customer’s layaways" : "Layaway Manager"}
             </h2>
             <p className="text-[11px] text-app-text-muted sm:text-xs">
-              Manage reserved inventory and payment plans. 25% minimum deposit required for new layaways.
+              {customerId
+                ? "Reserved inventory and payment plans tied to this customer’s TRX records."
+                : "Manage reserved inventory and payment plans. 25% minimum deposit required for new layaways."}
             </p>
           </div>
           <div className="flex gap-1 rounded-xl bg-app-surface-2 p-1">
@@ -145,7 +154,7 @@ export default function LayawayWorkspace({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by customer name or layaway ID…"
+              placeholder={customerId ? "Search this customer’s layaways by TRX…" : "Search by customer name or TRX…"}
               className="ui-input h-12 w-full rounded-2xl bg-app-surface-2 pl-12 pr-4 text-sm font-bold shadow-inner focus:bg-app-surface sm:text-base"
             />
           </div>
@@ -190,7 +199,7 @@ export default function LayawayWorkspace({
               
               return (
                 <div 
-                  key={r.order_id}
+                  key={r.transaction_id}
                   className={`group relative flex flex-col gap-4 rounded-3xl border border-app-border bg-app-surface-2 p-5 transition-all hover:border-app-accent/40 hover:bg-app-surface hover:shadow-xl sm:flex-row sm:items-center ${isOverdue ? 'border-amber-200 bg-amber-50/30' : ''}`}
                 >
                   {/* Status Indicator Bar */}
@@ -201,7 +210,7 @@ export default function LayawayWorkspace({
                   <div className="flex flex-1 flex-col gap-1 pl-4">
                     <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                            Order {r.order_id.slice(0, 8)}
+                            Layaway · {r.display_id}
                         </span>
                         {isOverdue && (
                             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase text-amber-700">
@@ -245,10 +254,10 @@ export default function LayawayWorkspace({
                   <div className="flex shrink-0 items-center justify-end sm:pl-4">
                     <button
                         type="button"
-                        onClick={() => onOpenTransaction?.(r.order_id)}
+                        onClick={() => onOpenTransaction?.(r.transaction_id)}
                         className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-app-surface border border-app-border px-6 text-[10px] font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:text-app-accent active:scale-95 sm:w-auto"
                     >
-                        View Order
+                        View Transaction
                         <ChevronRight className="h-4 w-4" />
                     </button>
                   </div>

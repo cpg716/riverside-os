@@ -29,7 +29,7 @@ Layaways can be managed from two locations:
 - **Initial Deposit**: Captured as a Liability (`liability_deposit`). No revenue or tax recognized.
 - **Interim Payments**: Captured as Liability.
 - **Final Pickup (Fulfillment)**:
-    - Entire order value recognized as **Revenue**.
+    - Entire layaway transaction value recognized as **Revenue**.
     - **Sales Tax** recognized.
     - Deposit liability is relieved.
 - **Reporting**: Layaways only appear on Financial/Tax/Commission reports on the **Pickup Date**.
@@ -37,7 +37,7 @@ Layaways can be managed from two locations:
 ## Forfeiture Logic
 
 If a customer fails to complete a layaway:
-1. Manager cancels the order with reason **Forfeited**.
+1. Manager cancels the layaway transaction with reason **Forfeited**.
 2. `on_layaway` count is released (decremented), making the item available for sale.
 3. Funds in `liability_deposit` are moved to `income_forfeited_deposit` in the QBO Journal.
 4. **No Refund** is issued.
@@ -54,8 +54,8 @@ If a customer fails to complete a layaway:
 
 ### Taking a Payment
 1. Go to **Customers**.
-2. Find Customer → **Orders** tab.
-3. Select Open Layaway → **Make Payment**.
+2. Find Customer → **Layaways** tab.
+3. Select the open layaway TRX → **Make Payment**.
 
 ### Pickup
 1. Complete final payment (Balance must be $0).

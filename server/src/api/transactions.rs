@@ -1163,6 +1163,25 @@ async fn patch_transaction(
             .await?;
 
             if let Some(reason) = body.forfeiture_reason {
+                let has_layaway_lines: bool = sqlx::query_scalar(
+                    r#"
+                    SELECT EXISTS(
+                        SELECT 1
+                        FROM transaction_lines
+                        WHERE transaction_id = $1
+                          AND fulfillment = 'layaway'
+                    )
+                    "#,
+                )
+                .bind(transaction_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if !has_layaway_lines {
+                    return Err(TransactionError::InvalidPayload(
+                        "Forfeiture is only allowed for layaway transactions".to_string(),
+                    ));
+                }
+
                 sqlx::query(
                     r#"
                     UPDATE transactions 

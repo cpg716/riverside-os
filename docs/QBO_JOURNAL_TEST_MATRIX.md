@@ -32,7 +32,9 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 | Scenario | Expect |
 |----------|--------|
 | Deposit release on fulfill date | Category split uses **effective** net per category (post-return) |
+| Final payment collected on pickup date | Same-day pickup payment posts as current tender/revenue; only prior deposits release from `liability_deposit` |
 | **New Deposit Inflow** | Payments on unfulfilled orders today must correctly credit `liability_deposit` to balance the cash debit. |
+| Layaway forfeiture | Prior layaway deposits debit `liability_deposit` and credit `income_forfeited_deposit` on the forfeiture date |
 
 ## Regression checks
 

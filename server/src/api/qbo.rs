@@ -1450,7 +1450,9 @@ async fn staging_drilldown(
                         pa.target_transaction_id AS transaction_id,
                         COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric) AS deposit_total
                     FROM payment_allocations pa
+                    INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                     INNER JOIN fulfilled_orders fo ON fo.id = pa.target_transaction_id
+                    WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date < $1::date
                     GROUP BY pa.target_transaction_id
                 ),
                 category_net AS (

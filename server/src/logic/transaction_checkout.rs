@@ -671,6 +671,15 @@ fn checkout_line_type(item: &CheckoutItem) -> &str {
         .unwrap_or("merchandise")
 }
 
+fn creates_fulfillment_order(fulfillment: DbFulfillmentType) -> bool {
+    matches!(
+        fulfillment,
+        DbFulfillmentType::SpecialOrder
+            | DbFulfillmentType::Custom
+            | DbFulfillmentType::WeddingOrder
+    )
+}
+
 fn is_alteration_service_item(item: &CheckoutItem) -> bool {
     checkout_line_type(item) == "alteration_service"
 }
@@ -2515,10 +2524,11 @@ pub async fn execute_checkout(
     let mut fulfillment_order_id: Option<Uuid> = None;
     let mut fulfillment_order_display_id: Option<String> = None;
 
-    let needs_fulfillment = payload
-        .items
-        .iter()
-        .any(|i| i.fulfillment != DbFulfillmentType::Takeaway);
+    let needs_fulfillment = payload.items.iter().try_fold(false, |needs, item| {
+        let fulfillment = persist_fulfillment(payload.wedding_member_id, item.fulfillment)
+            .map_err(|m| CheckoutError::InvalidPayload(m.to_string()))?;
+        Ok::<bool, CheckoutError>(needs || creates_fulfillment_order(fulfillment))
+    })?;
     if needs_fulfillment {
         let row: (Uuid, String) = sqlx::query_as(
             r#"
@@ -2543,20 +2553,33 @@ pub async fn execute_checkout(
             .map_err(|m| CheckoutError::InvalidPayload(m.to_string()))?;
         let line_fulfilled = fulfillment == DbFulfillmentType::Takeaway;
 
-        let (target_fulfillment_id, line_display_id, fulfilled_at) = if !line_fulfilled {
-            fulfillment_line_counter += 1;
-            let parent_id = fulfillment_order_display_id
-                .as_ref()
-                .cloned()
-                .unwrap_or_else(|| "ORD-UNKNOWN".to_string());
-            (
-                fulfillment_order_id,
-                Some(format!("{parent_id}-{fulfillment_line_counter}")),
-                None,
-            )
-        } else {
-            (None, None, Some(Utc::now()))
-        };
+        let (target_fulfillment_id, line_display_id, fulfilled_at) =
+            if creates_fulfillment_order(fulfillment) {
+                fulfillment_line_counter += 1;
+                let parent_id =
+                    fulfillment_order_display_id
+                        .as_ref()
+                        .cloned()
+                        .ok_or_else(|| {
+                            CheckoutError::InvalidPayload(
+                                "fulfillment order display missing for order line".to_string(),
+                            )
+                        })?;
+                let target_id = fulfillment_order_id.ok_or_else(|| {
+                    CheckoutError::InvalidPayload(
+                        "fulfillment order missing for order line".to_string(),
+                    )
+                })?;
+                (
+                    Some(target_id),
+                    Some(format!("{parent_id}-{fulfillment_line_counter}")),
+                    None,
+                )
+            } else if !line_fulfilled {
+                (None, None, None)
+            } else {
+                (None, None, Some(Utc::now()))
+            };
 
         let override_reason = item
             .price_override_reason

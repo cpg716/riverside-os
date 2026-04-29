@@ -123,7 +123,7 @@ pub struct PagedTransactionsResponse {
 fn kind_filter_having_clause(kind_filter: &str) -> Option<&'static str> {
     match kind_filter {
         "regular_order" => Some(
-            " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom')) = false AND BOOL_OR(oi.fulfillment::text = 'wedding_order') = false ",
+            " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom')) = false AND BOOL_OR(oi.fulfillment::text = 'wedding_order') = false AND BOOL_OR(oi.fulfillment::text = 'layaway') = false ",
         ),
         "special_order" => Some(
             " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text = 'special_order') = true AND BOOL_OR(oi.fulfillment::text = 'custom') = false ",
@@ -208,7 +208,7 @@ pub async fn query_paged_transactions(
             wm.wedding_party_id,
             o.status,
             {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
-            COALESCE(BOOL_OR(oi.fulfillment != 'takeaway'), false) AS is_fulfillment_order,
+            COALESCE(BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')), false) AS is_fulfillment_order,
             ps.full_name AS primary_salesperson_name,
             NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code,
             COUNT(oi.id)::bigint AS item_count,
@@ -482,7 +482,16 @@ pub async fn query_pipeline_stats(
                     )
                   )
             ) AS needs_action,
-            COUNT(*) FILTER (WHERE status = 'open' AND created_at < NOW() - INTERVAL '30 days')::bigint AS overdue,
+            COUNT(*) FILTER (
+                WHERE status = 'open'
+                  AND created_at < NOW() - INTERVAL '30 days'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM transaction_lines tl
+                      WHERE tl.fulfillment_order_id = fulfillment_orders.id
+                        AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                  )
+            )::bigint AS overdue,
             COUNT(*) FILTER (WHERE wedding_id IS NOT NULL AND status IN ('open', 'ready'))::bigint AS wedding_orders
         FROM fulfillment_orders
         "#
@@ -498,6 +507,12 @@ pub async fn query_pipeline_stats(
         SELECT COUNT(*)::bigint AS ready_count
         FROM fulfillment_orders
         WHERE status = 'ready'
+          AND EXISTS (
+              SELECT 1
+              FROM transaction_lines tl
+              WHERE tl.fulfillment_order_id = fulfillment_orders.id
+                AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+          )
         "#,
     )
     .fetch_one(pool)
@@ -543,6 +558,12 @@ pub async fn query_fulfillment_queue(
         LEFT JOIN wedding_members wm ON wm.id = t.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
         WHERE o.status IN ('open', 'ready')
+          AND EXISTS (
+              SELECT 1
+              FROM transaction_lines tl_order
+              WHERE tl_order.fulfillment_order_id = o.id
+                AND tl_order.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+          )
         GROUP BY o.id, c.id, c.customer_code, wp.id, wm.id, t.balance_due
         ORDER BY
             CASE

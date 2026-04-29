@@ -258,6 +258,18 @@ struct AssignQboTransactionTimestampRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct AssignQboTransactionFulfillmentTimestampRequest {
+    transaction_id: Uuid,
+    timestamp_utc: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AssignQboTransactionForfeitureTimestampRequest {
+    transaction_id: Uuid,
+    timestamp_utc: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
 struct AssignQboShippingRecognitionRequest {
     transaction_id: Uuid,
     label_purchased_at_utc: DateTime<Utc>,
@@ -963,7 +975,9 @@ async fn post_seed_qbo_tax_mapping(
             ('E2E_CASH', 'E2E Cash Clearing', 'Bank', 'E2E-1000', true),
             ('E2E_REVENUE', 'E2E Sales Revenue', 'Income', 'E2E-4000', true),
             ('E2E_SALES_TAX', 'E2E Sales Tax Payable', 'Other Current Liability', 'E2E-2100', true),
-            ('E2E_CASH_ROUNDING', 'E2E Cash Rounding', 'Income', 'E2E-4090', true)
+            ('E2E_CASH_ROUNDING', 'E2E Cash Rounding', 'Income', 'E2E-4090', true),
+            ('E2E_DEPOSIT_LIABILITY', 'E2E Customer Deposit Liability', 'Other Current Liability', 'E2E-2200', true),
+            ('E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', 'Income', 'E2E-4050', true)
         ON CONFLICT (id) DO UPDATE
         SET name = EXCLUDED.name,
             account_type = EXCLUDED.account_type,
@@ -981,7 +995,9 @@ async fn post_seed_qbo_tax_mapping(
         VALUES
             ('tender', 'cash', 'E2E_CASH', 'E2E Cash Clearing', CURRENT_TIMESTAMP),
             ('category_revenue', $1, 'E2E_REVENUE', 'E2E Sales Revenue', CURRENT_TIMESTAMP),
-            ('tax', 'SALES_TAX', 'E2E_SALES_TAX', 'E2E Sales Tax Payable', CURRENT_TIMESTAMP)
+            ('tax', 'SALES_TAX', 'E2E_SALES_TAX', 'E2E Sales Tax Payable', CURRENT_TIMESTAMP),
+            ('liability_deposit', 'default', 'E2E_DEPOSIT_LIABILITY', 'E2E Customer Deposit Liability', CURRENT_TIMESTAMP),
+            ('income_forfeited_deposit', 'default', 'E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', CURRENT_TIMESTAMP)
         ON CONFLICT (source_type, source_id) DO UPDATE
         SET qbo_account_id = EXCLUDED.qbo_account_id,
             qbo_account_name = EXCLUDED.qbo_account_name,
@@ -1066,9 +1082,13 @@ async fn post_assign_qbo_transaction_date(
         r#"
         UPDATE payment_transactions pt
         SET created_at = $2
-        FROM payment_allocations pa
-        WHERE pa.transaction_id = pt.id
-          AND pa.target_transaction_id = $1
+        WHERE pt.metadata->>'checkout_transaction_id' = $1::text
+           OR EXISTS (
+              SELECT 1
+              FROM payment_allocations pa
+              WHERE pa.transaction_id = pt.id
+                AND pa.target_transaction_id = $1
+           )
         "#,
     )
     .bind(payload.transaction_id)
@@ -1130,9 +1150,13 @@ async fn post_assign_qbo_transaction_timestamp(
         r#"
         UPDATE payment_transactions pt
         SET created_at = $2
-        FROM payment_allocations pa
-        WHERE pa.transaction_id = pt.id
-          AND pa.target_transaction_id = $1
+        WHERE pt.metadata->>'checkout_transaction_id' = $1::text
+           OR EXISTS (
+              SELECT 1
+              FROM payment_allocations pa
+              WHERE pa.transaction_id = pt.id
+                AND pa.target_transaction_id = $1
+           )
         "#,
     )
     .bind(payload.transaction_id)
@@ -1141,6 +1165,90 @@ async fn post_assign_qbo_transaction_timestamp(
     .await?;
 
     tx.commit().await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "transaction_id": payload.transaction_id,
+        "timestamp_utc": timestamp
+    })))
+}
+
+async fn post_assign_qbo_transaction_fulfillment_timestamp(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<AssignQboTransactionFulfillmentTimestampRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+    let timestamp = payload.timestamp_utc;
+
+    let mut tx = state.db.begin().await?;
+
+    let updated = sqlx::query(
+        r#"
+        UPDATE transactions
+        SET fulfilled_at = $2
+        WHERE id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(TestSupportError::BadRequest(
+            "transaction_id not found".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE transaction_lines
+        SET fulfilled_at = $2
+        WHERE transaction_id = $1
+          AND is_fulfilled = TRUE
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "transaction_id": payload.transaction_id,
+        "timestamp_utc": timestamp
+    })))
+}
+
+async fn post_assign_qbo_transaction_forfeiture_timestamp(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<AssignQboTransactionForfeitureTimestampRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+    let timestamp = payload.timestamp_utc;
+
+    let updated = sqlx::query(
+        r#"
+        UPDATE transactions
+        SET forfeited_at = $2
+        WHERE id = $1
+          AND is_forfeited = TRUE
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&state.db)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(TestSupportError::BadRequest(
+            "forfeited transaction_id not found".to_string(),
+        ));
+    }
 
     Ok(Json(json!({
         "ok": true,
@@ -1368,6 +1476,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/qbo/assign-transaction-timestamp",
             post(post_assign_qbo_transaction_timestamp),
+        )
+        .route(
+            "/qbo/assign-transaction-fulfillment-timestamp",
+            post(post_assign_qbo_transaction_fulfillment_timestamp),
+        )
+        .route(
+            "/qbo/assign-transaction-forfeiture-timestamp",
+            post(post_assign_qbo_transaction_forfeiture_timestamp),
         )
         .route(
             "/qbo/assign-shipping-recognition",

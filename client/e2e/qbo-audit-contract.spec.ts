@@ -18,6 +18,27 @@ type CreatedQboProduct = {
 
 type CheckoutResponse = {
   transaction_id: string;
+  display_id?: string;
+};
+
+type CustomerResponse = {
+  id: string;
+};
+
+type TransactionDetail = {
+  transaction_display_id: string;
+  total_price: string;
+  balance_due: string;
+};
+
+type TransactionListResponse = {
+  items: Array<{
+    transaction_id: string;
+    display_id: string;
+    order_payment_display_id: string;
+    order_kind: string;
+    is_fulfillment_order: boolean;
+  }>;
 };
 
 type QboJournalLine = {
@@ -147,10 +168,22 @@ async function checkoutQboProduct(
     sessionId: string;
     sessionToken: string;
     operatorStaffId: string;
+    customerId?: string | null;
+    fulfillment?: "takeaway" | "layaway";
+    amountPaid?: string;
+    appliedDepositAmount?: string;
   },
 ): Promise<CheckoutResponse> {
   const tax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
   const total = totalFor("110.00", tax.stateTax, tax.localTax);
+  const amountPaid = options.amountPaid ?? total;
+  const paymentSplit: Record<string, string> = {
+    payment_method: "cash",
+    amount: amountPaid,
+  };
+  if (options.appliedDepositAmount) {
+    paymentSplit.applied_deposit_amount = options.appliedDepositAmount;
+  }
   const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
     headers: {
       ...staffHeaders(),
@@ -162,16 +195,16 @@ async function checkoutQboProduct(
       session_id: options.sessionId,
       operator_staff_id: options.operatorStaffId,
       primary_salesperson_id: options.operatorStaffId,
-      customer_id: null,
+      customer_id: options.customerId ?? null,
       payment_method: "cash",
       total_price: total,
-      amount_paid: total,
+      amount_paid: amountPaid,
       checkout_client_id: crypto.randomUUID(),
       items: [
         {
           product_id: options.product.productId,
           variant_id: options.product.variantId,
-          fulfillment: "takeaway",
+          fulfillment: options.fulfillment ?? "takeaway",
           quantity: 1,
           unit_price: "110.00",
           unit_cost: options.product.unitCost,
@@ -180,10 +213,109 @@ async function checkoutQboProduct(
           salesperson_id: options.operatorStaffId,
         },
       ],
+      payment_splits: [paymentSplit],
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as CheckoutResponse;
+}
+
+async function createQboCustomer(request: APIRequestContext): Promise<CustomerResponse> {
+  const suffix = uniqueSuffix("layaway-qbo");
+  const res = await request.post(`${apiBase()}/api/customers`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      first_name: "QBO",
+      last_name: suffix,
+      email: `${suffix}@example.test`,
+      phone: "555-0100",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as CustomerResponse;
+}
+
+async function fetchTransactionDetail(
+  request: APIRequestContext,
+  transactionId: string,
+): Promise<TransactionDetail> {
+  const res = await request.get(`${apiBase()}/api/transactions/${transactionId}`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as TransactionDetail;
+}
+
+async function fetchCustomerLayaways(
+  request: APIRequestContext,
+  customerId: string,
+): Promise<TransactionListResponse> {
+  const res = await request.get(
+    `${apiBase()}/api/transactions?customer_id=${encodeURIComponent(customerId)}&kind_filter=layaway&limit=25`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as TransactionListResponse;
+}
+
+async function payExistingTransaction(
+  request: APIRequestContext,
+  options: {
+    sessionId: string;
+    sessionToken: string;
+    operatorStaffId: string;
+    customerId: string;
+    targetTransactionId: string;
+    targetDisplayId: string;
+    amount: string;
+    balanceBefore: string;
+  },
+): Promise<CheckoutResponse> {
+  const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": options.sessionId,
+      "x-riverside-pos-session-token": options.sessionToken,
+    },
+    data: {
+      session_id: options.sessionId,
+      operator_staff_id: options.operatorStaffId,
+      primary_salesperson_id: options.operatorStaffId,
+      customer_id: options.customerId,
+      payment_method: "cash",
+      total_price: "0.00",
+      amount_paid: options.amount,
+      checkout_client_id: crypto.randomUUID(),
+      items: [],
+      order_payments: [
+        {
+          client_line_id: "layaway-final-payment",
+          target_transaction_id: options.targetTransactionId,
+          target_display_id: options.targetDisplayId,
+          customer_id: options.customerId,
+          amount: options.amount,
+          balance_before: options.balanceBefore,
+          projected_balance_after: "0.00",
+        },
+      ],
       payment_splits: [
         {
           payment_method: "cash",
-          amount: total,
+          amount: options.amount,
         },
       ],
     },
@@ -234,6 +366,104 @@ async function assignQboTimestamp(
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
+async function assignQboDate(
+  request: APIRequestContext,
+  transactionId: string,
+  activityDate: string,
+) {
+  const res = await request.post(`${apiBase()}/api/test-support/qbo/assign-transaction-date`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      transaction_id: transactionId,
+      activity_date: activityDate,
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function assignQboFulfillmentTimestamp(
+  request: APIRequestContext,
+  transactionId: string,
+  timestampUtc: string,
+) {
+  const res = await request.post(
+    `${apiBase()}/api/test-support/qbo/assign-transaction-fulfillment-timestamp`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        transaction_id: transactionId,
+        timestamp_utc: timestampUtc,
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function assignQboForfeitureTimestamp(
+  request: APIRequestContext,
+  transactionId: string,
+  timestampUtc: string,
+) {
+  const res = await request.post(
+    `${apiBase()}/api/test-support/qbo/assign-transaction-forfeiture-timestamp`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        transaction_id: transactionId,
+        timestamp_utc: timestampUtc,
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function markPickup(request: APIRequestContext, transactionId: string) {
+  const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      delivered_item_ids: [],
+      actor: "QBO layaway audit",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function forfeitLayaway(request: APIRequestContext, transactionId: string) {
+  const res = await request.patch(`${apiBase()}/api/transactions/${transactionId}`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      status: "Cancelled",
+      forfeiture_reason: "E2E layaway QBO forfeiture contract",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
 async function assignQboShippingRecognition(
   request: APIRequestContext,
   transactionId: string,
@@ -274,6 +504,169 @@ async function proposeJournal(
 }
 
 test.describe("QBO audit contract", () => {
+  test("layaways stay TRX-scoped and post deposit, pickup, and forfeiture journals", async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const uniqueDateOffset = Math.trunc(Date.now() % 5000);
+    const depositDate = futureUtcDate(35 + uniqueDateOffset);
+    const pickupDate = futureUtcDate(36 + uniqueDateOffset);
+    const forfeitDepositDate = futureUtcDate(37 + uniqueDateOffset);
+    const forfeitDate = futureUtcDate(38 + uniqueDateOffset);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    const customer = await createQboCustomer(request);
+
+    for (const date of [depositDate, pickupDate, forfeitDepositDate, forfeitDate]) {
+      await seedQboMappings(request, product.categoryId, date);
+    }
+
+    const layaway = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: customer.id,
+      fulfillment: "layaway",
+      amountPaid: "30.00",
+      appliedDepositAmount: "30.00",
+    });
+    await assignQboDate(request, layaway.transaction_id, depositDate);
+
+    const layawayDetail = await fetchTransactionDetail(request, layaway.transaction_id);
+    expect(layawayDetail.transaction_display_id).toMatch(/^(TRX|TXN)-/);
+    expect(layawayDetail.balance_due).toBe("89.63");
+
+    const layawayList = await fetchCustomerLayaways(request, customer.id);
+    const layawayRow = layawayList.items.find(
+      (row) => row.transaction_id === layaway.transaction_id,
+    );
+    expect(layawayRow).toBeTruthy();
+    expect(layawayRow?.order_kind).toBe("layaway");
+    expect(layawayRow?.display_id).toMatch(/^(TRX|TXN)-/);
+    expect(layawayRow?.order_payment_display_id).toMatch(/^(TRX|TXN)-/);
+    expect(layawayRow?.is_fulfillment_order).toBe(false);
+
+    const depositProposal = await proposeJournal(request, depositDate);
+    expect(depositProposal.payload.totals?.balanced).toBe(true);
+    expect(
+      depositProposal.payload.lines.some(
+        (line) =>
+          line.qbo_account_id === "E2E_DEPOSIT_LIABILITY" &&
+          moneyToCents(line.credit) === parseMoneyToCents("30.00"),
+      ),
+    ).toBe(true);
+    expect(
+      depositProposal.payload.lines.some(
+        (line) =>
+          line.qbo_account_id === "E2E_REVENUE" &&
+          line.detail?.some((detail) => detail.category_id === product.categoryId),
+      ),
+    ).toBe(false);
+
+    const payoff = await payExistingTransaction(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: customer.id,
+      targetTransactionId: layaway.transaction_id,
+      targetDisplayId: layawayDetail.transaction_display_id,
+      amount: layawayDetail.balance_due,
+      balanceBefore: layawayDetail.balance_due,
+    });
+    await assignQboDate(request, payoff.transaction_id, pickupDate);
+    await markPickup(request, layaway.transaction_id);
+    await assignQboFulfillmentTimestamp(
+      request,
+      layaway.transaction_id,
+      `${pickupDate}T15:00:00Z`,
+    );
+
+    const pickupProposal = await proposeJournal(request, pickupDate);
+    expect(pickupProposal.payload.totals?.balanced).toBe(true);
+    expect(
+      pickupProposal.payload.lines.some(
+        (line) =>
+          line.qbo_account_id === "E2E_DEPOSIT_LIABILITY" &&
+          moneyToCents(line.debit) === parseMoneyToCents("30.00"),
+      ),
+    ).toBe(true);
+    const revenueCredits = pickupProposal.payload.lines
+      .filter(
+        (line) =>
+          line.qbo_account_id === "E2E_REVENUE" &&
+          line.detail?.some((detail) => detail.category_id === product.categoryId),
+      )
+      .reduce((sum, line) => sum + moneyToCents(line.credit), 0);
+    expect(revenueCredits).toBe(parseMoneyToCents("110.00"));
+    expect(
+      pickupProposal.payload.lines.some(
+        (line) =>
+          line.qbo_account_id === "E2E_SALES_TAX" &&
+          moneyToCents(line.credit) === parseMoneyToCents("9.63"),
+      ),
+    ).toBe(true);
+
+    const forfeited = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: customer.id,
+      fulfillment: "layaway",
+      amountPaid: "30.00",
+      appliedDepositAmount: "30.00",
+    });
+    await assignQboDate(request, forfeited.transaction_id, forfeitDepositDate);
+    await forfeitLayaway(request, forfeited.transaction_id);
+    await assignQboForfeitureTimestamp(
+      request,
+      forfeited.transaction_id,
+      `${forfeitDate}T15:00:00Z`,
+    );
+
+    const forfeitProposal = await proposeJournal(request, forfeitDate);
+    expect(forfeitProposal.payload.totals?.balanced).toBe(true);
+    expect(
+      forfeitProposal.payload.lines.some(
+        (line) =>
+          line.qbo_account_id === "E2E_DEPOSIT_LIABILITY" &&
+          moneyToCents(line.debit) === parseMoneyToCents("30.00"),
+      ),
+    ).toBe(true);
+    expect(
+      forfeitProposal.payload.lines.some(
+        (line) =>
+          line.qbo_account_id === "E2E_FORFEITED_DEPOSIT" &&
+          moneyToCents(line.credit) === parseMoneyToCents("30.00"),
+      ),
+    ).toBe(true);
+
+    const nonLayaway = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+    });
+    const badForfeit = await request.patch(
+      `${apiBase()}/api/transactions/${nonLayaway.transaction_id}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          status: "Cancelled",
+          forfeiture_reason: "should not be allowed for non-layaway",
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(badForfeit.status()).toBe(400);
+    await expect(badForfeit.text()).resolves.toMatch(/only allowed for layaway/i);
+  });
+
   test("proposed journal is balanced, deduped while pending, drillable, and approval-gated", async ({
     request,
   }) => {

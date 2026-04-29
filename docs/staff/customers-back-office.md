@@ -25,6 +25,7 @@
 - **Messages** — this customer’s Podium message thread and follow-up when available.
 - **TRX Records** — this customer’s financial sale records.
 - **ORD Work** — this customer’s Special, Custom, or Wedding fulfillment work and handoff into the Back Office Orders workflow.
+- **Layaways** — this customer’s layaway-bearing TRX records, reserved inventory, and remaining balances.
 - **Shipments** — this customer’s shipment history and shipment drill-in.
 - **Measurements** — this customer’s sizing records; **PII** — verify identity before reading aloud.
 - **Wedding Links** — this customer’s wedding party linkage and wedding shortcuts.
