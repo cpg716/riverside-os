@@ -13,6 +13,10 @@ import {
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
+import {
+  ensurePosRegisterSessionOpen,
+  ensurePosSaleCashierSignedIn,
+} from "./helpers/openPosRegister";
 
 type CheckoutResponse = {
   transaction_id: string;
@@ -99,6 +103,16 @@ async function createSpecialOrder(
   };
 }
 
+async function openPosOrdersSection(page: Parameters<typeof signInToBackOffice>[0]) {
+  await openBackofficeSidebarTab(page, "register");
+  await ensurePosRegisterSessionOpen(page);
+  await ensurePosSaleCashierSignedIn(page);
+
+  const posNav = page.getByRole("navigation", { name: "POS Navigation" });
+  await expect(posNav).toBeVisible({ timeout: 20_000 });
+  await posNav.getByRole("button", { name: "Orders", exact: true }).click();
+}
+
 test.describe("Orders detail drawer and POS handoff", () => {
   test("Back Office orders open the detail drawer and load the selected order into Register", async ({
     page,
@@ -109,14 +123,25 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
 
+    await expect(page.getByText("Fulfillment Follow-Up")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Layaways stay separate\./i)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open Fulfillment" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Transaction History" })).toBeVisible();
+
     const orderRow = page.locator("tr", { hasText: order.displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
+    const drawer = page.getByRole("dialog", { name: "Transaction Record" });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer).toContainText(order.displayId);
     await expect(drawer).toContainText(order.productName);
+    await expect(drawer).toContainText(
+      "The Transaction Record holds payment, receipt, refund, and balance details.",
+    );
+    await expect(drawer).toContainText(
+      "Special, Custom, and Wedding lines are fulfillment work; Layaways stay in Layaways.",
+    );
     await expect(drawer).toContainText("Pickup Work");
     await expect(drawer).toContainText("Balance Due Before Release");
     await expect(drawer).toContainText("Still Open");
@@ -138,17 +163,13 @@ test.describe("Orders detail drawer and POS handoff", () => {
     const order = await createSpecialOrder(request, "POS");
 
     await signInToBackOffice(page, { persistSession: true });
-    await openBackofficeSidebarTab(page, "register");
-
-    const posNav = page.getByRole("navigation", { name: "POS Navigation" });
-    await expect(posNav).toBeVisible({ timeout: 20_000 });
-    await posNav.getByRole("button", { name: "Orders", exact: true }).click();
+    await openPosOrdersSection(page);
 
     const orderRow = page.locator("tr", { hasText: order.displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
+    const drawer = page.getByRole("dialog", { name: "Transaction Record" });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer).toContainText(order.displayId);
     await expect(drawer).toContainText(order.productName);
@@ -170,7 +191,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
+    const drawer = page.getByRole("dialog", { name: "Transaction Record" });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await drawer.getByRole("button", { name: "Edit" }).first().click();
 
@@ -189,28 +210,17 @@ test.describe("Orders detail drawer and POS handoff", () => {
     const order = await createSpecialOrder(request, "POS Handoff");
 
     await signInToBackOffice(page, { persistSession: true });
-    await openBackofficeSidebarTab(page, "register");
-
-    const posNav = page.getByRole("navigation", { name: "POS Navigation" });
-    await expect(posNav).toBeVisible({ timeout: 20_000 });
-    await posNav.getByRole("button", { name: "Orders", exact: true }).click();
+    await openPosOrdersSection(page);
 
     const orderRow = page.locator("tr", { hasText: order.displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    const drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
+    const drawer = page.getByRole("dialog", { name: "Transaction Record" });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();
 
-    const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
-    await expect(cashierDialog).toBeVisible({ timeout: 20_000 });
-    await selectBackofficeStaffMember(cashierDialog);
-    for (const digit of "1234") {
-      await cashierDialog.getByTestId(`pin-key-${digit}`).click();
-    }
-    await cashierDialog.getByRole("button", { name: /^continue$/i }).click();
-    await expect(cashierDialog).toBeHidden({ timeout: 20_000 });
+    await ensurePosSaleCashierSignedIn(page);
     await expect(page.getByText(order.productName).first()).toBeVisible({ timeout: 20_000 });
   });
 
@@ -221,28 +231,17 @@ test.describe("Orders detail drawer and POS handoff", () => {
     const order = await createSpecialOrder(request, "POS Roundtrip");
 
     await signInToBackOffice(page, { persistSession: true });
-    await openBackofficeSidebarTab(page, "register");
-
-    const posNav = page.getByRole("navigation", { name: "POS Navigation" });
-    await expect(posNav).toBeVisible({ timeout: 20_000 });
-    await posNav.getByRole("button", { name: "Orders", exact: true }).click();
+    await openPosOrdersSection(page);
 
     let orderRow = page.locator("tr", { hasText: order.displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    let drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
+    let drawer = page.getByRole("dialog", { name: "Transaction Record" });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();
 
-    const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
-    await expect(cashierDialog).toBeVisible({ timeout: 20_000 });
-    await selectBackofficeStaffMember(cashierDialog);
-    for (const digit of "1234") {
-      await cashierDialog.getByTestId(`pin-key-${digit}`).click();
-    }
-    await cashierDialog.getByRole("button", { name: /^continue$/i }).click();
-    await expect(cashierDialog).toBeHidden({ timeout: 20_000 });
+    await ensurePosSaleCashierSignedIn(page);
     await expect(page.getByText(order.productName).first()).toBeVisible({ timeout: 20_000 });
 
     const patchRes = await request.patch(
@@ -260,12 +259,15 @@ test.describe("Orders detail drawer and POS handoff", () => {
     );
     expect(patchRes.status()).toBe(200);
 
-    await posNav.getByRole("button", { name: "Orders", exact: true }).click();
+    await page
+      .getByRole("navigation", { name: "POS Navigation" })
+      .getByRole("button", { name: "Orders", exact: true })
+      .click();
     orderRow = page.locator("tr", { hasText: order.displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
 
-    drawer = page.getByRole("dialog", { name: /Order Detail|Transaction Record/ });
+    drawer = page.getByRole("dialog", { name: "Transaction Record" });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer.getByText("Qty 2").first()).toBeVisible({ timeout: 20_000 });
   });
