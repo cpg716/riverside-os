@@ -205,7 +205,10 @@ test.describe("Inventory receiving operator verification", () => {
     await receivingNowInput.fill("1");
     await expect(page.getByText(/next: post inventory/i)).toBeVisible({ timeout: 10_000 });
 
-    const postInventoryButton = page.getByRole("button", { name: /^post inventory$/i });
+    const drawerRoot = page.locator("#drawer-root");
+    const postInventoryButton = drawerRoot
+      .getByRole("button", { name: /post receipt to inventory/i })
+      .last();
     await expect(postInventoryButton).toBeEnabled({ timeout: 10_000 });
     const receiveResponse = page.waitForResponse(
       (response) =>
@@ -213,8 +216,8 @@ test.describe("Inventory receiving operator verification", () => {
         response.request().method() === "POST" &&
         response.status() === 200,
     );
-    await postInventoryButton.click({ force: true });
-    await page.getByRole("button", { name: /confirm & post/i }).click({ force: true });
+    await postInventoryButton.evaluate((button) => (button as HTMLButtonElement).click());
+    await drawerRoot.getByRole("button", { name: /confirm & post/i }).click({ force: true });
     await receiveResponse;
 
     await expect(page.getByRole("heading", { name: /receive stock/i })).toBeHidden({

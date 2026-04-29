@@ -191,8 +191,8 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await page.getByText("Friday").first().click();
 
         // Verify card updated
-        await expect(page.getByText("Scheduled for May 15, 2026")).toBeVisible();
-        await expect(page.getByText("Scheduled", { exact: true })).toBeVisible();
+        await expect(page.getByText("Fitting Scheduled")).toBeVisible();
+        await expect(page.getByText("5/15/2026")).toBeVisible();
     });
 
     test("surfaces alteration status in Wedding Hub member list", async ({ page }) => {

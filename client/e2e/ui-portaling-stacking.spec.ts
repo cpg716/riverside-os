@@ -61,7 +61,7 @@ test.describe("UI Portaling and Stacking", () => {
           {
             product_id: fixture.product.product_id,
             variant_id: fixture.product.variant_id,
-            fulfillment: "takeaway",
+            fulfillment: "special_order",
             quantity: 1,
             unit_price: fixture.product.unit_price,
             unit_cost: fixture.product.unit_cost,
@@ -162,7 +162,7 @@ test.describe("UI Portaling and Stacking", () => {
           {
             product_id: fixture.product.product_id,
             variant_id: fixture.product.variant_id,
-            fulfillment: "takeaway",
+            fulfillment: "special_order",
             quantity: 1,
             unit_price: fixture.product.unit_price,
             unit_cost: fixture.product.unit_cost,

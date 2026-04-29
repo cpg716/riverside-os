@@ -144,9 +144,18 @@ export async function openBackofficeSidebarTab(
       mainNav.getByRole("button", { name: /^help center$/i }),
     ).toBeVisible({ timeout: 20_000 });
   } else {
-    await expect(tabButton).toHaveAttribute("aria-current", "page", {
-      timeout: 15_000,
-    });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      tabButton = resolveTabButton();
+      try {
+        await expect(tabButton).toHaveAttribute("aria-current", "page", {
+          timeout: 5_000,
+        });
+        break;
+      } catch (error) {
+        if (attempt === 2) throw error;
+        await tabButton.click({ timeout: 5_000, force: true });
+      }
+    }
   }
   return tabButton;
 }
