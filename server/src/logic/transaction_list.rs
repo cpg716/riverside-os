@@ -458,7 +458,30 @@ pub async fn query_pipeline_stats(
     let row = sqlx::query(
         r#"
         SELECT
-            COUNT(*) FILTER (WHERE status IN ('open', 'ready'))::bigint AS needs_action,
+            (
+                SELECT COUNT(DISTINCT o.id)::bigint
+                FROM transactions o
+                LEFT JOIN customers c ON c.id = o.customer_id
+                WHERE c.id IS NOT NULL
+                  AND (
+                    o.counterpoint_doc_ref IS NOT NULL
+                    OR EXISTS (
+                        SELECT 1
+                        FROM transaction_lines tl
+                        WHERE tl.transaction_id = o.id
+                          AND tl.is_fulfilled = false
+                    )
+                  )
+                  AND (
+                    o.wedding_member_id IS NOT NULL
+                    OR EXISTS (
+                        SELECT 1
+                        FROM transaction_lines oi
+                        WHERE oi.transaction_id = o.id
+                          AND oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                    )
+                  )
+            ) AS needs_action,
             COUNT(*) FILTER (WHERE status = 'open' AND created_at < NOW() - INTERVAL '30 days')::bigint AS overdue,
             COUNT(*) FILTER (WHERE wedding_id IS NOT NULL AND status IN ('open', 'ready'))::bigint AS wedding_orders
         FROM fulfillment_orders
