@@ -3694,6 +3694,23 @@ pub struct ComboSpiffReward {
     pub label: String,
 }
 
+fn parse_combo_reward_amount(rule_json: &Value) -> Result<Decimal, CheckoutError> {
+    let raw = rule_json
+        .get("reward_amount")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "combo incentive reward_amount must be a decimal string".to_string(),
+            )
+        })?;
+
+    raw.parse::<Decimal>().map_err(|_| {
+        CheckoutError::InvalidPayload("combo incentive reward_amount is invalid".to_string())
+    })
+}
+
 /// Scans a salesperson's set of items for satisfied bundle rules (e.g. Suit + Tie + Shirt).
 /// Returns a list of rewards to be inserted as 0.00 lines.
 pub async fn evaluate_combo_incentives(
@@ -3711,7 +3728,7 @@ pub async fn evaluate_combo_incentives(
         SELECT json_build_object(
             'id', r.id,
             'label', r.label,
-            'reward_amount', r.reward_amount,
+            'reward_amount', r.reward_amount::text,
             'items', (
                 SELECT json_agg(json_build_object(
                     'match_type', ri.match_type,
@@ -3753,8 +3770,7 @@ pub async fn evaluate_combo_incentives(
 
     // 3) Evaluate rules (repeatedly to catch multiple combos if per-bundle is allowed)
     for rule_json in rules {
-        let reward_val = rule_json["reward_amount"].as_f64().unwrap_or(0.0);
-        let reward_amount = Decimal::from_f64_retain(reward_val).unwrap_or(Decimal::ZERO);
+        let reward_amount = parse_combo_reward_amount(&rule_json)?;
         let label = rule_json["label"].as_str().unwrap_or("SPIFF").to_string();
         let requirements = rule_json["items"].as_array();
 
@@ -3873,16 +3889,21 @@ where
 mod tests {
     use super::{
         apply_corecard_result_to_metadata, build_payment_allocation_plan,
-        corecard_error_to_checkout, fetch_variant_pos_line_kind,
+        corecard_error_to_checkout, evaluate_combo_incentives, execute_checkout,
+        fetch_variant_pos_line_kind, parse_combo_reward_amount,
         validate_checkout_alteration_intakes, validate_order_payment_against_target,
-        validate_order_payment_shape, CheckoutAlterationIntake, CheckoutItem, CheckoutOrderPayment,
-        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
+        validate_order_payment_shape, CheckoutAlterationIntake, CheckoutDone, CheckoutItem,
+        CheckoutOrderPayment, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
+        ResolvedPaymentSplit,
     };
+    use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
     use crate::logic::corecard::{CoreCardFailureCode, CoreCardHostMutationResult};
     use crate::models::{DbFulfillmentType, DbOrderStatus};
     use rust_decimal::Decimal;
     use serde_json::json;
-    use sqlx::Connection;
+    use sqlx::{Connection, PgPool};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
     use uuid::Uuid;
 
     fn checkout_item_with_client_line(client_line_id: Option<&str>) -> CheckoutItem {
@@ -3909,6 +3930,26 @@ mod tests {
             need_by_date: None,
             needs_gift_wrap: false,
         }
+    }
+
+    #[test]
+    fn transaction_checkout_combo_reward_parses_decimal_text() {
+        let rule = json!({ "reward_amount": "12.34" });
+
+        let reward = parse_combo_reward_amount(&rule).unwrap();
+
+        assert_eq!(reward, Decimal::new(1234, 2));
+    }
+
+    #[test]
+    fn transaction_checkout_combo_reward_rejects_numeric_json() {
+        let rule = json!({ "reward_amount": 12 });
+
+        let err = parse_combo_reward_amount(&rule).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("reward_amount must be a decimal string"));
     }
 
     fn alteration_service_item(
@@ -4346,6 +4387,403 @@ mod tests {
         assert_eq!(pos_kind, None);
 
         tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn evaluate_combo_incentives_preserves_decimal_reward_from_db() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let sku = format!("E2E-COMBO-SPIFF-{}", Uuid::new_v4().simple());
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost)
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(product_id)
+        .bind("Combo SPIFF Decimal Regression Product")
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .execute(&mut *tx)
+        .await
+        .expect("insert product");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values)
+            VALUES ($1, $2, $3, '{}'::jsonb)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .execute(&mut *tx)
+        .await
+        .expect("insert variant");
+
+        let rule_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO commission_combo_rules (label, reward_amount, is_active)
+            VALUES ($1, $2, TRUE)
+            RETURNING id
+            "#,
+        )
+        .bind("Decimal SPIFF")
+        .bind(Decimal::new(1234, 2))
+        .fetch_one(&mut *tx)
+        .await
+        .expect("insert combo rule");
+
+        sqlx::query(
+            r#"
+            INSERT INTO commission_combo_rule_items (rule_id, match_type, match_id, qty_required)
+            VALUES ($1, 'product', $2, 1)
+            "#,
+        )
+        .bind(rule_id)
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await
+        .expect("insert combo rule item");
+
+        let mut item = checkout_item_with_client_line(Some("combo-item-1"));
+        item.product_id = product_id;
+        item.variant_id = variant_id;
+        item.quantity = 1;
+
+        let rewards = evaluate_combo_incentives(&mut tx, &[&item])
+            .await
+            .expect("evaluate combo incentives");
+
+        assert_eq!(rewards.len(), 1);
+        assert_eq!(rewards[0].product_id, product_id);
+        assert_eq!(rewards[0].variant_id, variant_id);
+        assert_eq!(rewards[0].reward_amount, Decimal::new(1234, 2));
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    async fn cleanup_combo_checkout_persistence_test(
+        pool: &PgPool,
+        transaction_id: Option<Uuid>,
+        session_id: Uuid,
+        staff_id: Uuid,
+        rule_id: Uuid,
+        product_id: Uuid,
+        category_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        if let Some(transaction_id) = transaction_id {
+            sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = $1")
+                .bind(transaction_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM commission_events WHERE transaction_id = $1")
+                .bind(transaction_id)
+                .execute(pool)
+                .await?;
+            sqlx::query("DELETE FROM transactions WHERE id = $1")
+                .bind(transaction_id)
+                .execute(pool)
+                .await?;
+        }
+
+        sqlx::query("DELETE FROM payment_transactions WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM register_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM commission_combo_rules WHERE id = $1")
+            .bind(rule_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM categories WHERE id = $1")
+            .bind(category_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM staff WHERE id = $1")
+            .bind(staff_id)
+            .execute(pool)
+            .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn execute_checkout_persists_combo_spiff_reward_line_decimal() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let staff_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        let category_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let sku = format!("E2E-CHECKOUT-SPIFF-{}", Uuid::new_v4().simple());
+        let register_lane: i16 = sqlx::query_scalar(
+            r#"
+            SELECT gs.lane::smallint
+            FROM generate_series(1, 99) AS gs(lane)
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM register_sessions rs
+                WHERE rs.is_open = TRUE AND rs.register_lane = gs.lane
+            )
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("find open register lane for checkout test");
+
+        sqlx::query(
+            r#"
+            INSERT INTO staff (
+                id, full_name, cashier_code, base_commission_rate,
+                role, max_discount_percent
+            )
+            VALUES ($1, $2, $3, $4, 'admin'::staff_role, $5)
+            "#,
+        )
+        .bind(staff_id)
+        .bind("Combo SPIFF Checkout Regression Staff")
+        .bind(format!("T{}", &staff_id.simple().to_string()[0..8]))
+        .bind(Decimal::new(200, 4))
+        .bind(Decimal::new(10000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert staff");
+
+        sqlx::query(
+            r#"
+            INSERT INTO register_sessions (
+                id, opened_by, opening_float, is_open, register_lane, till_close_group_id
+            )
+            VALUES ($1, $2, 0, TRUE, $3, $4)
+            "#,
+        )
+        .bind(session_id)
+        .bind(staff_id)
+        .bind(register_lane)
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("insert register session");
+
+        sqlx::query(
+            r#"
+            INSERT INTO categories (id, name, is_clothing_footwear)
+            VALUES ($1, $2, FALSE)
+            "#,
+        )
+        .bind(category_id)
+        .bind(format!(
+            "Checkout SPIFF Regression {}",
+            category_id.simple()
+        ))
+        .execute(&pool)
+        .await
+        .expect("insert category");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, category_id, name, base_retail_price, base_cost)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(product_id)
+        .bind(category_id)
+        .bind("Checkout SPIFF Decimal Regression Product")
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert product");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand)
+            VALUES ($1, $2, $3, '{}'::jsonb, 5)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .execute(&pool)
+        .await
+        .expect("insert variant");
+
+        let rule_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO commission_combo_rules (label, reward_amount, is_active)
+            VALUES ($1, $2, TRUE)
+            RETURNING id
+            "#,
+        )
+        .bind("Checkout Decimal SPIFF")
+        .bind(Decimal::new(1234, 2))
+        .fetch_one(&pool)
+        .await
+        .expect("insert combo rule");
+
+        sqlx::query(
+            r#"
+            INSERT INTO commission_combo_rule_items (rule_id, match_type, match_id, qty_required)
+            VALUES ($1, 'product', $2, 1)
+            "#,
+        )
+        .bind(rule_id)
+        .bind(product_id)
+        .execute(&pool)
+        .await
+        .expect("insert combo rule item");
+
+        let payload = CheckoutRequest {
+            session_id,
+            operator_staff_id: staff_id,
+            primary_salesperson_id: Some(staff_id),
+            customer_id: None,
+            wedding_member_id: None,
+            payment_method: "cash".to_string(),
+            total_price: Decimal::new(10000, 2),
+            amount_paid: Decimal::new(10000, 2),
+            items: vec![CheckoutItem {
+                client_line_id: Some("checkout-spiff-line-1".to_string()),
+                line_type: None,
+                alteration_intake_id: None,
+                product_id,
+                variant_id,
+                fulfillment: DbFulfillmentType::Takeaway,
+                quantity: 1,
+                unit_price: Decimal::new(10000, 2),
+                original_unit_price: None,
+                price_override_reason: None,
+                unit_cost: Decimal::new(4000, 2),
+                state_tax: Decimal::ZERO,
+                local_tax: Decimal::ZERO,
+                salesperson_id: Some(staff_id),
+                discount_event_id: None,
+                gift_card_load_code: None,
+                custom_item_type: None,
+                custom_order_details: None,
+                is_rush: false,
+                need_by_date: None,
+                needs_gift_wrap: false,
+            }],
+            alteration_intakes: vec![],
+            actor_name: Some("Combo SPIFF Test".to_string()),
+            payment_splits: None,
+            wedding_disbursements: None,
+            order_payments: vec![],
+            checkout_client_id: Some(Uuid::new_v4()),
+            shipping_rate_quote_id: None,
+            fulfillment_mode: None,
+            ship_to: None,
+            stripe_payment_method_id: None,
+            target_transaction_id: None,
+            is_rush: false,
+            need_by_date: None,
+            is_tax_exempt: true,
+            tax_exempt_reason: Some("test tax-exempt checkout".to_string()),
+            rounding_adjustment: None,
+            final_cash_due: None,
+        };
+
+        let result = execute_checkout(
+            &pool,
+            &reqwest::Client::new(),
+            &CoreCardConfig::from_env(),
+            &Arc::new(Mutex::new(CoreCardTokenCache::default())),
+            Decimal::ZERO,
+            payload,
+        )
+        .await;
+
+        let transaction_id = match result {
+            Ok(CheckoutDone::Completed { transaction_id, .. }) => transaction_id,
+            Ok(CheckoutDone::Idempotent { .. }) => {
+                cleanup_combo_checkout_persistence_test(
+                    &pool,
+                    None,
+                    session_id,
+                    staff_id,
+                    rule_id,
+                    product_id,
+                    category_id,
+                )
+                .await
+                .expect("cleanup after unexpected idempotent checkout");
+                panic!("checkout should complete a new transaction");
+            }
+            Err(error) => {
+                cleanup_combo_checkout_persistence_test(
+                    &pool,
+                    None,
+                    session_id,
+                    staff_id,
+                    rule_id,
+                    product_id,
+                    category_id,
+                )
+                .await
+                .expect("cleanup after checkout failure");
+                panic!("checkout should complete: {error}");
+            }
+        };
+
+        let spiff_lines: Vec<(Decimal, Decimal, Decimal, Decimal, bool, Option<String>)> =
+            sqlx::query_as(
+                r#"
+                SELECT calculated_commission, unit_price, state_tax, local_tax, is_internal, custom_item_type
+                FROM transaction_lines
+                WHERE transaction_id = $1 AND custom_item_type = 'spiff_reward'
+                "#,
+            )
+            .bind(transaction_id)
+            .fetch_all(&pool)
+            .await
+            .expect("fetch spiff reward lines");
+
+        assert_eq!(spiff_lines.len(), 1);
+        let (commission, unit_price, state_tax, local_tax, is_internal, custom_item_type) =
+            &spiff_lines[0];
+        assert_eq!(*commission, Decimal::new(1234, 2));
+        assert_eq!(*unit_price, Decimal::ZERO);
+        assert_eq!(*state_tax, Decimal::ZERO);
+        assert_eq!(*local_tax, Decimal::ZERO);
+        assert!(*is_internal);
+        assert_eq!(custom_item_type.as_deref(), Some("spiff_reward"));
+
+        cleanup_combo_checkout_persistence_test(
+            &pool,
+            Some(transaction_id),
+            session_id,
+            staff_id,
+            rule_id,
+            product_id,
+            category_id,
+        )
+        .await
+        .expect("cleanup checkout persistence test");
     }
 
     #[test]
