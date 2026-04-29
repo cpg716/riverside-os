@@ -206,6 +206,13 @@ async function proposeJournal(
   return JSON.parse(bodyText) as QboStagingRow;
 }
 
+function expectBalancedJournal(proposed: QboStagingRow): void {
+  expect(proposed.payload.totals?.balanced).toBe(true);
+  expect(moneyToCents(proposed.payload.totals?.debits)).toBe(
+    moneyToCents(proposed.payload.totals?.credits),
+  );
+}
+
 test.describe("checkout tender financial contract", () => {
   test("check tender requires a check number before checkout can post", async ({ request }) => {
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
@@ -331,7 +338,7 @@ test.describe("checkout tender financial contract", () => {
     });
   });
 
-  test("cash rounding records balanced transaction artifacts and QBO rounding impact", async ({
+  test("rounded-up cash amount records balanced transaction artifacts and QBO rounding impact", async ({
     request,
   }) => {
     const activityDate = futureUtcDate(90 + Math.floor(Math.random() * 300));
@@ -374,10 +381,7 @@ test.describe("checkout tender financial contract", () => {
     );
 
     const proposed = await proposeJournal(request, activityDate);
-    expect(proposed.payload.totals?.balanced).toBe(true);
-    expect(moneyToCents(proposed.payload.totals?.debits)).toBe(
-      moneyToCents(proposed.payload.totals?.credits),
-    );
+    expectBalancedJournal(proposed);
 
     const roundingLine = proposed.payload.lines.find(
       (line) => line.qbo_account_id === "E2E_CASH_ROUNDING",
@@ -400,5 +404,144 @@ test.describe("checkout tender financial contract", () => {
     );
     expect(cashLine).toBeTruthy();
     expect(moneyToCents(cashLine?.debit)).toBe(24470);
+  });
+
+  test("rounded-down cash residual completes with negative rounding adjustment", async ({
+    request,
+  }) => {
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Tender Cash Round Down");
+
+    const checkoutRes = await checkoutFixtureProduct(request, {
+      fixture,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: fixture.customer.id,
+      amountPaid: "244.67",
+      paymentSplits: [
+        { payment_method: "check", amount: "100.02", check_number: "CHK-E2E-ROUNDDOWN" },
+        { payment_method: "cash", amount: "144.65" },
+      ],
+      roundingAdjustment: "-0.02",
+      finalCashDue: "144.65",
+    });
+    const checkout = await expectSuccessfulCheckout(checkoutRes);
+
+    const artifacts: TransactionArtifacts = await getTransactionArtifacts(
+      request,
+      checkout.transaction_id,
+    );
+    expect(artifacts.total_price).toBe("244.69");
+    expect(artifacts.amount_paid).toBe("244.67");
+    expect(moneyToCents(artifacts.balance_due)).toBe(0);
+    expect(artifacts.rounding_adjustment).toBe("-0.02");
+    expect(artifacts.allocation_rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target_transaction_id: checkout.transaction_id,
+          payment_method: "check",
+          amount_allocated: "100.02",
+          payment_amount: "100.02",
+          allocation_check_number: "CHK-E2E-ROUNDDOWN",
+        }),
+        expect.objectContaining({
+          target_transaction_id: checkout.transaction_id,
+          payment_method: "cash",
+          amount_allocated: "144.65",
+          payment_amount: "144.65",
+        }),
+      ]),
+    );
+  });
+
+  test("mixed tender rounds only the cash residual and keeps non-cash exact", async ({
+    request,
+  }) => {
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Tender Cash Residual");
+
+    const checkoutRes = await checkoutFixtureProduct(request, {
+      fixture,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: fixture.customer.id,
+      amountPaid: "244.70",
+      paymentSplits: [
+        { payment_method: "check", amount: "100.00", check_number: "CHK-E2E-RESIDUAL" },
+        { payment_method: "cash", amount: "144.70" },
+      ],
+      roundingAdjustment: "0.01",
+      finalCashDue: "144.70",
+    });
+    const checkout = await expectSuccessfulCheckout(checkoutRes);
+
+    const artifacts: TransactionArtifacts = await getTransactionArtifacts(
+      request,
+      checkout.transaction_id,
+    );
+    expect(artifacts.total_price).toBe("244.69");
+    expect(artifacts.amount_paid).toBe("244.70");
+    expect(moneyToCents(artifacts.balance_due)).toBe(0);
+    expect(artifacts.rounding_adjustment).toBe("0.01");
+    expect(artifacts.allocation_rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target_transaction_id: checkout.transaction_id,
+          payment_method: "check",
+          amount_allocated: "100.00",
+          payment_amount: "100.00",
+          allocation_check_number: "CHK-E2E-RESIDUAL",
+        }),
+        expect.objectContaining({
+          target_transaction_id: checkout.transaction_id,
+          payment_method: "cash",
+          amount_allocated: "144.70",
+          payment_amount: "144.70",
+        }),
+      ]),
+    );
+  });
+
+  test("non-cash tender uses exact cents without rounding adjustment", async ({ request }) => {
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Tender Exact Noncash");
+
+    const checkoutRes = await checkoutFixtureProduct(request, {
+      fixture,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: fixture.customer.id,
+      amountPaid: "244.69",
+      paymentSplits: [
+        { payment_method: "check", amount: "244.69", check_number: "CHK-E2E-EXACT" },
+      ],
+    });
+    const checkout = await expectSuccessfulCheckout(checkoutRes);
+
+    const artifacts: TransactionArtifacts = await getTransactionArtifacts(
+      request,
+      checkout.transaction_id,
+    );
+    expect(artifacts.total_price).toBe("244.69");
+    expect(artifacts.amount_paid).toBe("244.69");
+    expect(moneyToCents(artifacts.balance_due)).toBe(0);
+    expect(moneyToCents(artifacts.rounding_adjustment)).toBe(0);
+    expect(artifacts.allocation_rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target_transaction_id: checkout.transaction_id,
+          payment_method: "check",
+          amount_allocated: "244.69",
+          payment_amount: "244.69",
+          allocation_check_number: "CHK-E2E-EXACT",
+        }),
+      ]),
+    );
   });
 });
