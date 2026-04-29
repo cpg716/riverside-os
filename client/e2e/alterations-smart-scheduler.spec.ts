@@ -163,7 +163,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         
         const garmentCard = page.getByTestId("alteration-workbench-card").filter({
             hasText: "E2E Test Suit",
-        }).first();
+        }).last();
         await expect(garmentCard).toBeVisible();
 
         // Open Scheduler
@@ -216,10 +216,19 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                 status: 200,
                 contentType: "application/json",
                 body: JSON.stringify({
-                    data: [{ id: PARTY_ID, name: "Charlie Wedding" }],
-                    total: 1,
-                    page: 1,
-                    limit: 20,
+                    data: [{
+                        id: PARTY_ID,
+                        name: "Charlie Wedding",
+                        date: "2026-06-20",
+                        salesperson: "Chris G",
+                        members: [MEMBER],
+                    }],
+                    pagination: {
+                        page: 1,
+                        limit: 20,
+                        total: 1,
+                        totalPages: 1,
+                    },
                 }),
             });
         });
@@ -243,6 +252,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await openBackofficeSidebarTab(page, "weddings");
         
         // Navigate to party (mocked)
+        await expect(page.getByText("Charlie Wedding")).toBeVisible({ timeout: 15_000 });
         await page.getByText("Charlie Wedding").click({ force: true });
 
         // Verify "Alt" column shows status

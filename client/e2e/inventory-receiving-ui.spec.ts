@@ -137,12 +137,15 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(postInventoryButton).toBeEnabled({ timeout: 10_000 });
     const receiveResponse = page.waitForResponse(
       (response) =>
-        response.url().includes(`/api/purchase-orders/${draftPo.id}/receive`) &&
+        response.url().includes("/api/purchase-orders/") &&
+        response.url().includes("/receive") &&
         response.request().method() === "POST" &&
         response.status() === 200,
     );
     await postInventoryButton.click({ force: true });
-    await page.getByRole("button", { name: /confirm & post/i }).click({ force: true });
+    await page
+      .getByRole("button", { name: /confirm & post|post without invoice number/i })
+      .click({ force: true });
     await receiveResponse;
 
     await expect(page.getByRole("heading", { name: /receive stock/i })).toBeHidden({

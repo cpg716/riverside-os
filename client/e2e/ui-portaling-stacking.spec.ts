@@ -40,6 +40,9 @@ test.describe("UI Portaling and Stacking", () => {
         payment_method: "cash",
         total_price: "100.00",
         amount_paid: "100.00",
+        checkout_client_id: crypto.randomUUID(),
+        is_tax_exempt: true,
+        tax_exempt_reason: "Out of State",
         items: [
           {
             product_id: fixture.product.product_id,
@@ -55,8 +58,9 @@ test.describe("UI Portaling and Stacking", () => {
       },
       failOnStatusCode: false,
     });
-    expect(checkoutRes.status()).toBe(200);
-    const { transaction_id } = await checkoutRes.json();
+    const checkoutBodyText = await checkoutRes.text();
+    expect(checkoutRes.status(), checkoutBodyText).toBe(200);
+    const { transaction_id } = JSON.parse(checkoutBodyText);
 
     // Create a return to generate a refund due
     const returnRes = await request.post(`${apiBase()}/api/transactions/${transaction_id}/returns`, {
@@ -136,6 +140,9 @@ test.describe("UI Portaling and Stacking", () => {
         payment_method: "cash",
         total_price: "100.00",
         amount_paid: "100.00",
+        checkout_client_id: crypto.randomUUID(),
+        is_tax_exempt: true,
+        tax_exempt_reason: "Out of State",
         items: [
           {
             product_id: fixture.product.product_id,
@@ -151,7 +158,9 @@ test.describe("UI Portaling and Stacking", () => {
       },
       failOnStatusCode: false,
     });
-    const { transaction_id } = await checkoutRes.json();
+    const checkoutBodyText = await checkoutRes.text();
+    expect(checkoutRes.status(), checkoutBodyText).toBe(200);
+    const { transaction_id } = JSON.parse(checkoutBodyText);
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
@@ -188,6 +197,10 @@ test.describe("UI Portaling and Stacking", () => {
     // Enter POS
     const posNav = page.getByRole("navigation", { name: "POS Navigation" });
     await expect(posNav).toBeVisible({ timeout: 20_000 });
+    const registerTab = page.getByTestId("pos-sidebar-tab-register");
+    if (await registerTab.isVisible().catch(() => false)) {
+      await registerTab.click({ force: true });
+    }
     await ensurePosSaleCashierSignedIn(page);
 
     // Open Exchange Wizard
