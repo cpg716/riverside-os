@@ -1,5 +1,18 @@
 -- Riverside OS — wipe operational / transactional data; keep bootstrap admin staff (cashier_code = '1234').
 --
+-- Broad operational wipe, not the preferred Counterpoint rehearsal reset.
+--
+-- For repeat Counterpoint pre-go-live import rehearsals, prefer
+-- Settings → Counterpoint → Status → Fresh baseline reset. That app workflow is
+-- narrower and preserves reviewed Counterpoint mapping configuration
+-- (counterpoint_category_map, counterpoint_payment_method_map,
+-- counterpoint_gift_reason_map) while clearing imported Counterpoint business
+-- data and ROS-side Counterpoint migration state.
+--
+-- This SQL script may wipe broader operational setup and does not preserve the
+-- same Counterpoint rehearsal state. Use it only when you intentionally want a
+-- wider operational/business-data wipe.
+--
 -- Preserves: ros_schema_migrations, store_settings (singleton), staff_role_permission seeds, qbo_integration / ledger_mappings (connection wiring).
 -- Does NOT preserve: per-staff overrides, access logs, catalog, CRM, orders, register history, Counterpoint sync state.
 --

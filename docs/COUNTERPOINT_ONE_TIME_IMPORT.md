@@ -205,8 +205,11 @@ The smallest safe posture is:
   - if `gift_cards` or `receiving_history` are enabled, verify the historical rows directly instead of assuming perfect replay semantics
 - **Fresh-baseline reruns**
   - if ROS needs to go back to a clean pre-go-live migration baseline, use **Settings → Counterpoint → Status → Fresh baseline reset**
-  - this preserves bootstrap/runtime setup and Counterpoint mapping tables, but clears imported business data plus Counterpoint migration state
+  - this is the preferred reset for repeat Counterpoint import rehearsals
+  - it preserves bootstrap/runtime setup and reviewed Counterpoint mapping configuration while clearing imported business data plus Counterpoint migration state
+  - preserved Counterpoint mapping tables include `counterpoint_category_map`, `counterpoint_payment_method_map`, and `counterpoint_gift_reason_map`
   - after the reset, clear the bridge-local `.counterpoint-bridge-state.json` file as well if you need the bridge to replay from the beginning instead of continuing from saved cursors
+  - do not substitute `scripts/ros-wipe-business-data-keep-bootstrap-admin.sql` unless you intentionally want a broader operational wipe; that script may clear more setup and does not preserve the same Counterpoint rehearsal state
 - **Final accepted cutover run**
   - use the final approved scope and mappings
   - confirm staging is applied/empty if used

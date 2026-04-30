@@ -527,6 +527,19 @@ Use Landing Verification with the other proof surfaces:
 
 This is not a full financial reconciliation report.
 
+### Fresh Baseline Reset
+
+For repeat pre-go-live Counterpoint import rehearsals, use **Settings → Counterpoint → Status → Fresh baseline reset**. This is the preferred rehearsal reset path because it clears imported Counterpoint business data and ROS-side Counterpoint migration state while preserving bootstrap/runtime setup.
+
+The Fresh baseline reset preserves reviewed Counterpoint mapping configuration so repeated imports keep the operator-approved mappings:
+- `counterpoint_category_map`
+- `counterpoint_payment_method_map`
+- `counterpoint_gift_reason_map`
+
+Do not use `scripts/ros-wipe-business-data-keep-bootstrap-admin.sql` as the normal Counterpoint rehearsal reset. That script is a broad operational/business-data wipe; it may clear more operational setup and does not preserve the same Counterpoint rehearsal state.
+
+The server reset does not touch bridge-local cursor files. Delete or reset `.counterpoint-bridge-state.json` on the Counterpoint PC before the next run if you need a true full replay instead of continuing from saved bridge cursors.
+
 ### API endpoints (staff-gated, `settings.admin`)
 
 | Method | Path | Purpose |
@@ -727,4 +740,4 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 
 To switch a running bridge to Continuous sync, visit `http://localhost:3002` and flip the toggle in the "Operation Mode" card.
 
-If you use the ROS **Fresh baseline reset** workflow before go-live, remember that it clears ROS-side import data and Counterpoint state only. Delete or reset the bridge-local `.counterpoint-bridge-state.json` file as well if you want the next run to replay from the beginning instead of resuming from saved cursors.
+If you use the ROS **Fresh baseline reset** workflow before go-live, remember that it clears ROS-side import data and Counterpoint state only while preserving reviewed Counterpoint mapping configuration. Delete or reset the bridge-local `.counterpoint-bridge-state.json` file as well if you want the next run to replay from the beginning instead of resuming from saved cursors. The SQL wipe script is broader and is not the preferred Counterpoint rehearsal reset.
