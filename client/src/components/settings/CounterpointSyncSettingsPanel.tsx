@@ -207,6 +207,26 @@ interface CounterpointOpenDocsVerificationSnapshot {
   distinct_staff_attribution_count: number;
 }
 
+interface CounterpointInventoryCatalogVerificationSnapshot {
+  generated_at: string;
+  disclaimer: string;
+  counterpoint_products: number;
+  counterpoint_variants: number;
+  variants_with_sku: number;
+  variants_with_barcode: number;
+  variants_with_cost: number;
+  variants_with_price: number;
+  variants_with_quantity_on_hand: number;
+  variants_missing_sku: number;
+  variants_missing_barcode: number;
+  variants_missing_cost: number;
+  variants_missing_price: number;
+  variants_zero_or_negative_quantity: number;
+  products_missing_category_mapping: number;
+  variants_missing_vendor_supplier_item_link: number;
+  distinct_vendors_linked_to_imported_items: number;
+}
+
 /* ── Bridge live status from :3002 ── */
 const BRIDGE_LOCAL_URL = "http://localhost:3002";
 
@@ -433,6 +453,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [openDocsVerification, setOpenDocsVerification] =
     useState<CounterpointOpenDocsVerificationSnapshot | null>(null);
   const [openDocsVerificationLoading, setOpenDocsVerificationLoading] = useState(false);
+  const [inventoryCatalogVerification, setInventoryCatalogVerification] =
+    useState<CounterpointInventoryCatalogVerificationSnapshot | null>(null);
+  const [inventoryCatalogVerificationLoading, setInventoryCatalogVerificationLoading] =
+    useState(false);
 
   const [categoryRows, setCategoryRows] = useState<CategoryMapRow[]>([]);
   const [paymentRows, setPaymentRows] = useState<PaymentMapRow[]>([]);
@@ -636,6 +660,30 @@ export default function CounterpointSyncSettingsPanel(props?: {
     }
   }, [baseUrl, backofficeHeaders, hasPermission]);
 
+  const fetchInventoryCatalogVerification = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    setInventoryCatalogVerificationLoading(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/inventory-catalog-verification`,
+        {
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
+      if (res.ok) {
+        setInventoryCatalogVerification(
+          (await res.json()) as CounterpointInventoryCatalogVerificationSnapshot,
+        );
+      } else {
+        setInventoryCatalogVerification(null);
+      }
+    } catch {
+      setInventoryCatalogVerification(null);
+    } finally {
+      setInventoryCatalogVerificationLoading(false);
+    }
+  }, [baseUrl, backofficeHeaders, hasPermission]);
+
   const fetchBatches = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
     try {
@@ -699,12 +747,14 @@ export default function CounterpointSyncSettingsPanel(props?: {
     void fetchLandingVerification();
     void fetchTransactionReconciliation();
     void fetchOpenDocsVerification();
+    void fetchInventoryCatalogVerification();
   }, [
     fetchStatus,
     fetchResetPreview,
     fetchLandingVerification,
     fetchTransactionReconciliation,
     fetchOpenDocsVerification,
+    fetchInventoryCatalogVerification,
   ]);
 
   useEffect(() => {
@@ -794,6 +844,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
         await fetchLandingVerification();
         await fetchTransactionReconciliation();
         await fetchOpenDocsVerification();
+        await fetchInventoryCatalogVerification();
         if (selectedBatchId === id) {
           setSelectedBatchId(null);
         }
@@ -1111,6 +1162,54 @@ export default function CounterpointSyncSettingsPanel(props?: {
     (openDocsVerification?.open_docs_missing_customer ?? 0) +
     (openDocsVerification?.open_docs_with_zero_lines ?? 0) +
     (openDocsVerification?.open_docs_with_zero_payments ?? 0);
+  const inventoryCatalogWarningCount =
+    (inventoryCatalogVerification?.variants_missing_sku ?? 0) +
+    (inventoryCatalogVerification?.variants_missing_barcode ?? 0) +
+    (inventoryCatalogVerification?.variants_missing_cost ?? 0) +
+    (inventoryCatalogVerification?.variants_missing_price ?? 0) +
+    (inventoryCatalogVerification?.products_missing_category_mapping ?? 0) +
+    (inventoryCatalogVerification?.variants_missing_vendor_supplier_item_link ?? 0);
+  const inventoryCatalogCoverageRows = inventoryCatalogVerification
+    ? [
+        { label: "CP products", value: inventoryCatalogVerification.counterpoint_products },
+        { label: "CP variants", value: inventoryCatalogVerification.counterpoint_variants },
+        { label: "With SKU", value: inventoryCatalogVerification.variants_with_sku },
+        { label: "With barcode", value: inventoryCatalogVerification.variants_with_barcode },
+        { label: "With cost", value: inventoryCatalogVerification.variants_with_cost },
+        { label: "With price", value: inventoryCatalogVerification.variants_with_price },
+        {
+          label: "Qty on hand",
+          value: inventoryCatalogVerification.variants_with_quantity_on_hand,
+        },
+        {
+          label: "Linked vendors",
+          value: inventoryCatalogVerification.distinct_vendors_linked_to_imported_items,
+        },
+      ]
+    : [];
+  const inventoryCatalogWarningRows = inventoryCatalogVerification
+    ? [
+        { label: "Missing SKU", value: inventoryCatalogVerification.variants_missing_sku },
+        {
+          label: "Missing barcode",
+          value: inventoryCatalogVerification.variants_missing_barcode,
+        },
+        { label: "Missing cost", value: inventoryCatalogVerification.variants_missing_cost },
+        { label: "Missing price", value: inventoryCatalogVerification.variants_missing_price },
+        {
+          label: "Zero/negative qty",
+          value: inventoryCatalogVerification.variants_zero_or_negative_quantity,
+        },
+        {
+          label: "Missing category",
+          value: inventoryCatalogVerification.products_missing_category_mapping,
+        },
+        {
+          label: "Missing vendor link",
+          value: inventoryCatalogVerification.variants_missing_vendor_supplier_item_link,
+        },
+      ]
+    : [];
 
   const formatVerificationStatus = (statusValue: string) => {
     if (statusValue === "missing_in_ros") return "Missing in ROS";
@@ -1915,6 +2014,105 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 {!status.token_configured && (
                   <span className="ui-pill bg-amber-500/15 text-amber-800 text-[9px]">COUNTERPOINT_SYNC_TOKEN not set</span>
                 )}
+              </div>
+
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Inventory &amp; Catalog Verification
+                    </h4>
+                    <p className="text-xs text-app-text-muted mt-1 max-w-3xl">
+                      Catalog completeness check only. Does not verify physical inventory accuracy.
+                    </p>
+                    {inventoryCatalogVerification?.generated_at ? (
+                      <p className="text-[10px] text-app-text-muted mt-1">
+                        Generated {formatDate(inventoryCatalogVerification.generated_at)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={inventoryCatalogVerificationLoading}
+                    onClick={() => void fetchInventoryCatalogVerification()}
+                    className="ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${inventoryCatalogVerificationLoading ? "animate-spin" : ""}`}
+                      aria-hidden
+                    />
+                    Refresh catalog
+                  </button>
+                </div>
+
+                {inventoryCatalogVerificationLoading && !inventoryCatalogVerification ? (
+                  <p className="mt-4 text-xs text-app-text-muted">
+                    Loading catalog verification…
+                  </p>
+                ) : null}
+
+                {inventoryCatalogVerification ? (
+                  <>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-2 mt-4">
+                      {inventoryCatalogCoverageRows.map((row) => (
+                        <div
+                          key={row.label}
+                          className="rounded-lg border border-app-border bg-app-bg/60 p-3"
+                        >
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            {row.label}
+                          </p>
+                          <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                            {fmtNum(row.value)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2 mt-2">
+                      {inventoryCatalogWarningRows.map((row) => {
+                        const isWarning = row.value > 0;
+                        return (
+                          <div
+                            key={row.label}
+                            className={`rounded-lg border p-3 ${
+                              isWarning
+                                ? "border-amber-500/30 bg-amber-500/5"
+                                : "border-app-border bg-app-bg/60"
+                            }`}
+                          >
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              {row.label}
+                            </p>
+                            <p
+                              className={`mt-2 text-lg font-black tabular-nums ${
+                                isWarning
+                                  ? "text-amber-700 dark:text-amber-200"
+                                  : "text-app-text"
+                              }`}
+                            >
+                              {fmtNum(row.value)}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs text-app-text-muted">
+                      <p>{inventoryCatalogVerification.disclaimer}</p>
+                      {inventoryCatalogWarningCount > 0 ? (
+                        <p className="mt-1 text-amber-700 dark:text-amber-200">
+                          {fmtNum(inventoryCatalogWarningCount)} missing-data warning count(s) need
+                          review across SKU, barcode, cost, price, category, or vendor links.
+                        </p>
+                      ) : null}
+                    </div>
+                  </>
+                ) : !inventoryCatalogVerificationLoading ? (
+                  <p className="mt-4 text-xs text-app-text-muted">
+                    No inventory/catalog verification snapshot is available yet.
+                  </p>
+                ) : null}
               </div>
 
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">

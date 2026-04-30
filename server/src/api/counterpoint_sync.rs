@@ -12,7 +12,8 @@ use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
 use crate::logic::counterpoint_staging;
 use crate::logic::counterpoint_sync::{
-    self, build_counterpoint_inventory_verification_report,
+    self, build_counterpoint_inventory_catalog_verification_snapshot,
+    build_counterpoint_inventory_verification_report,
     build_counterpoint_landing_verification_summary,
     build_counterpoint_open_docs_verification_snapshot,
     build_counterpoint_transaction_reconciliation_snapshot, execute_counterpoint_catalog_batch,
@@ -1213,6 +1214,19 @@ async fn settings_open_docs_verification(
     Ok(Json(json!(snapshot)))
 }
 
+async fn settings_inventory_catalog_verification(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let snapshot = build_counterpoint_inventory_catalog_verification_snapshot(&state.db)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(json!(snapshot)))
+}
+
 #[derive(Deserialize)]
 struct CounterpointResetBody {
     confirmation_phrase: String,
@@ -1322,6 +1336,10 @@ pub fn settings_router() -> Router<AppState> {
         .route(
             "/open-docs-verification",
             get(settings_open_docs_verification),
+        )
+        .route(
+            "/inventory-catalog-verification",
+            get(settings_inventory_catalog_verification),
         )
         .route("/reset-preview", get(settings_reset_preview))
         .route("/reset-baseline", post(settings_reset_execute))

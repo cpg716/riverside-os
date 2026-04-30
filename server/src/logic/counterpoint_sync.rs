@@ -926,6 +926,27 @@ pub struct CounterpointOpenDocsVerificationSnapshot {
     pub distinct_staff_attribution_count: i64,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CounterpointInventoryCatalogVerificationSnapshot {
+    pub generated_at: DateTime<Utc>,
+    pub disclaimer: String,
+    pub counterpoint_products: i64,
+    pub counterpoint_variants: i64,
+    pub variants_with_sku: i64,
+    pub variants_with_barcode: i64,
+    pub variants_with_cost: i64,
+    pub variants_with_price: i64,
+    pub variants_with_quantity_on_hand: i64,
+    pub variants_missing_sku: i64,
+    pub variants_missing_barcode: i64,
+    pub variants_missing_cost: i64,
+    pub variants_missing_price: i64,
+    pub variants_zero_or_negative_quantity: i64,
+    pub products_missing_category_mapping: i64,
+    pub variants_missing_vendor_supplier_item_link: i64,
+    pub distinct_vendors_linked_to_imported_items: i64,
+}
+
 const HEARTBEAT_TTL_SECONDS: i64 = 120;
 
 pub async fn get_sync_status(
@@ -1398,6 +1419,125 @@ pub async fn build_counterpoint_open_docs_verification_snapshot(
         open_docs_with_zero_lines,
         open_docs_with_zero_payments,
         distinct_staff_attribution_count,
+    })
+}
+
+pub async fn build_counterpoint_inventory_catalog_verification_snapshot(
+    pool: &PgPool,
+) -> Result<CounterpointInventoryCatalogVerificationSnapshot, CounterpointSyncError> {
+    let (
+        counterpoint_products,
+        counterpoint_variants,
+        variants_with_sku,
+        variants_with_barcode,
+        variants_with_cost,
+        variants_with_price,
+        variants_with_quantity_on_hand,
+        variants_missing_sku,
+        variants_missing_barcode,
+        variants_missing_cost,
+        variants_missing_price,
+        variants_zero_or_negative_quantity,
+        products_missing_category_mapping,
+        variants_missing_vendor_supplier_item_link,
+        distinct_vendors_linked_to_imported_items,
+    ): (
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+    ) = sqlx::query_as(
+        r#"
+        WITH imported_products AS (
+            SELECT id, category_id, primary_vendor_id
+            FROM products
+            WHERE data_source = 'counterpoint'
+        ),
+        imported_variants AS (
+            SELECT
+                pv.id,
+                pv.sku,
+                pv.barcode,
+                pv.stock_on_hand,
+                COALESCE(pv.cost_override, p.base_cost) AS effective_cost,
+                COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price,
+                p.primary_vendor_id
+            FROM product_variants pv
+            INNER JOIN products p ON p.id = pv.product_id
+            WHERE p.data_source = 'counterpoint'
+               OR NULLIF(TRIM(pv.counterpoint_item_key), '') IS NOT NULL
+        ),
+        vendor_linked_variants AS (
+            SELECT DISTINCT variant_id
+            FROM vendor_supplier_item
+            WHERE variant_id IS NOT NULL
+        ),
+        linked_vendor_ids AS (
+            SELECT primary_vendor_id AS vendor_id
+            FROM imported_products
+            WHERE primary_vendor_id IS NOT NULL
+            UNION
+            SELECT vsi.vendor_id
+            FROM vendor_supplier_item vsi
+            INNER JOIN imported_variants iv ON iv.id = vsi.variant_id
+            WHERE vsi.vendor_id IS NOT NULL
+        )
+        SELECT
+            (SELECT COUNT(*)::bigint FROM imported_products) AS counterpoint_products,
+            (SELECT COUNT(*)::bigint FROM imported_variants) AS counterpoint_variants,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE NULLIF(TRIM(sku), '') IS NOT NULL) AS variants_with_sku,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE NULLIF(TRIM(barcode), '') IS NOT NULL) AS variants_with_barcode,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE COALESCE(effective_cost, 0) > 0) AS variants_with_cost,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE COALESCE(effective_price, 0) > 0) AS variants_with_price,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE COALESCE(stock_on_hand, 0) > 0) AS variants_with_quantity_on_hand,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE NULLIF(TRIM(sku), '') IS NULL) AS variants_missing_sku,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE NULLIF(TRIM(barcode), '') IS NULL) AS variants_missing_barcode,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE COALESCE(effective_cost, 0) <= 0) AS variants_missing_cost,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE COALESCE(effective_price, 0) <= 0) AS variants_missing_price,
+            (SELECT COUNT(*)::bigint FROM imported_variants WHERE COALESCE(stock_on_hand, 0) <= 0) AS variants_zero_or_negative_quantity,
+            (SELECT COUNT(*)::bigint FROM imported_products WHERE category_id IS NULL) AS products_missing_category_mapping,
+            (
+                SELECT COUNT(*)::bigint
+                FROM imported_variants iv
+                LEFT JOIN vendor_linked_variants vlv ON vlv.variant_id = iv.id
+                WHERE vlv.variant_id IS NULL
+            ) AS variants_missing_vendor_supplier_item_link,
+            (SELECT COUNT(*)::bigint FROM linked_vendor_ids) AS distinct_vendors_linked_to_imported_items
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(CounterpointInventoryCatalogVerificationSnapshot {
+        generated_at: Utc::now(),
+        disclaimer: "Catalog completeness check only. Does not verify physical inventory accuracy."
+            .into(),
+        counterpoint_products,
+        counterpoint_variants,
+        variants_with_sku,
+        variants_with_barcode,
+        variants_with_cost,
+        variants_with_price,
+        variants_with_quantity_on_hand,
+        variants_missing_sku,
+        variants_missing_barcode,
+        variants_missing_cost,
+        variants_missing_price,
+        variants_zero_or_negative_quantity,
+        products_missing_category_mapping,
+        variants_missing_vendor_supplier_item_link,
+        distinct_vendors_linked_to_imported_items,
     })
 }
 
