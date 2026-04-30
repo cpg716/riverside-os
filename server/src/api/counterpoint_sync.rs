@@ -12,7 +12,8 @@ use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
 use crate::logic::counterpoint_staging;
 use crate::logic::counterpoint_sync::{
-    self, build_counterpoint_inventory_verification_report, execute_counterpoint_catalog_batch,
+    self, build_counterpoint_inventory_verification_report,
+    build_counterpoint_landing_verification_summary, execute_counterpoint_catalog_batch,
     execute_counterpoint_category_masters_batch, execute_counterpoint_customer_batch,
     execute_counterpoint_customer_notes_batch, execute_counterpoint_gift_card_batch,
     execute_counterpoint_inventory_batch, execute_counterpoint_loyalty_hist_batch,
@@ -1171,6 +1172,19 @@ async fn settings_inventory_verification(
     Ok(Json(json!(report)))
 }
 
+async fn settings_landing_verification(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let summary = build_counterpoint_landing_verification_summary(&state.db)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(json!(summary)))
+}
+
 #[derive(Deserialize)]
 struct CounterpointResetBody {
     confirmation_phrase: String,
@@ -1272,6 +1286,7 @@ pub fn settings_router() -> Router<AppState> {
             "/inventory-verification",
             get(settings_inventory_verification),
         )
+        .route("/landing-verification", get(settings_landing_verification))
         .route("/reset-preview", get(settings_reset_preview))
         .route("/reset-baseline", post(settings_reset_execute))
         .route("/request-run", post(settings_request_run))

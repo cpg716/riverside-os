@@ -148,6 +148,20 @@ interface CounterpointInventoryVerificationReport {
   critical_issues: string[];
 }
 
+interface CounterpointLandingVerificationRow {
+  key: string;
+  label: string;
+  count: number;
+  confidence: "direct" | "approximate" | string;
+  note: string;
+}
+
+interface CounterpointLandingVerificationSummary {
+  generated_at: string;
+  disclaimer: string;
+  rows: CounterpointLandingVerificationRow[];
+}
+
 /* ── Bridge live status from :3002 ── */
 const BRIDGE_LOCAL_URL = "http://localhost:3002";
 
@@ -352,6 +366,9 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [inventoryVerification, setInventoryVerification] =
     useState<CounterpointInventoryVerificationReport | null>(null);
   const [inventoryVerificationLoading, setInventoryVerificationLoading] = useState(false);
+  const [landingVerification, setLandingVerification] =
+    useState<CounterpointLandingVerificationSummary | null>(null);
+  const [landingVerificationLoading, setLandingVerificationLoading] = useState(false);
 
   const [categoryRows, setCategoryRows] = useState<CategoryMapRow[]>([]);
   const [paymentRows, setPaymentRows] = useState<PaymentMapRow[]>([]);
@@ -483,6 +500,30 @@ export default function CounterpointSyncSettingsPanel(props?: {
     }
   }, [baseUrl, backofficeHeaders, hasPermission, toast]);
 
+  const fetchLandingVerification = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    setLandingVerificationLoading(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/landing-verification`,
+        {
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
+      if (res.ok) {
+        setLandingVerification(
+          (await res.json()) as CounterpointLandingVerificationSummary,
+        );
+      } else {
+        setLandingVerification(null);
+      }
+    } catch {
+      setLandingVerification(null);
+    } finally {
+      setLandingVerificationLoading(false);
+    }
+  }, [baseUrl, backofficeHeaders, hasPermission]);
+
   const fetchBatches = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
     try {
@@ -543,7 +584,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
   useEffect(() => {
     void fetchStatus();
     void fetchResetPreview();
-  }, [fetchStatus, fetchResetPreview]);
+    void fetchLandingVerification();
+  }, [fetchStatus, fetchResetPreview, fetchLandingVerification]);
 
   useEffect(() => {
     if (tab === "inbound") void fetchBatches();
@@ -927,6 +969,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
     inventoryVerification?.mismatch_rows ?? [];
   const inventoryVerificationExtraRows = inventoryVerification?.extra_rows ?? [];
   const inventoryVerificationIssues = inventoryVerification?.critical_issues ?? [];
+  const landingVerificationRows = landingVerification?.rows ?? [];
+  const landingApproximateCount = landingVerificationRows.filter(
+    (row) => row.confidence !== "direct",
+  ).length;
 
   const formatVerificationStatus = (statusValue: string) => {
     if (statusValue === "missing_in_ros") return "Missing in ROS";
@@ -950,6 +996,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
       onClick={() => {
         void fetchStatus();
         void fetchResetPreview();
+        void fetchLandingVerification();
       }}
       className="ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shrink-0"
     >
@@ -1730,6 +1777,93 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 {!status.token_configured && (
                   <span className="ui-pill bg-amber-500/15 text-amber-800 text-[9px]">COUNTERPOINT_SYNC_TOKEN not set</span>
                 )}
+              </div>
+
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Landing Verification
+                    </h4>
+                    <p className="text-xs text-app-text-muted mt-1 max-w-3xl">
+                      Read-only ROS table counts for repeatable pre-go-live import review. These counts
+                      are import proof, not full financial reconciliation.
+                    </p>
+                    {landingVerification?.generated_at ? (
+                      <p className="text-[10px] text-app-text-muted mt-1">
+                        Generated {formatDate(landingVerification.generated_at)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={landingVerificationLoading}
+                    onClick={() => void fetchLandingVerification()}
+                    className="ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${landingVerificationLoading ? "animate-spin" : ""}`}
+                      aria-hidden
+                    />
+                    Refresh counts
+                  </button>
+                </div>
+
+                {landingVerificationLoading && !landingVerification ? (
+                  <p className="mt-4 text-xs text-app-text-muted">Loading landed counts…</p>
+                ) : null}
+
+                {landingVerificationRows.length > 0 ? (
+                  <>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-2 mt-4">
+                      {landingVerificationRows.map((row) => {
+                        const isApproximate = row.confidence !== "direct";
+                        return (
+                          <div
+                            key={row.key}
+                            className={`rounded-lg border p-3 ${
+                              isApproximate
+                                ? "border-amber-500/25 bg-amber-500/5"
+                                : "border-app-border bg-app-bg/60"
+                            }`}
+                            title={row.note}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted leading-snug">
+                                {row.label}
+                              </p>
+                              {isApproximate ? (
+                                <span className="ui-pill bg-amber-500/15 text-[8px] text-amber-800 dark:text-amber-100">
+                                  Approx
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                              {fmtNum(row.count)}
+                            </p>
+                            <p className="mt-1 text-[10px] text-app-text-muted leading-snug">
+                              {row.note}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs text-app-text-muted">
+                      <p>{landingVerification?.disclaimer}</p>
+                      {landingApproximateCount > 0 ? (
+                        <p className="mt-1">
+                          {fmtNum(landingApproximateCount)} count(s) are marked approximate because
+                          the table lacks dedicated Counterpoint provenance or the count is not a tender
+                          reconciliation.
+                        </p>
+                      ) : null}
+                    </div>
+                  </>
+                ) : !landingVerificationLoading ? (
+                  <p className="mt-4 text-xs text-app-text-muted">
+                    No landed count summary is available yet.
+                  </p>
+                ) : null}
               </div>
 
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">

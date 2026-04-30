@@ -860,6 +860,22 @@ pub struct SyncIssueRow {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CounterpointLandingVerificationRow {
+    pub key: String,
+    pub label: String,
+    pub count: i64,
+    pub confidence: String,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointLandingVerificationSummary {
+    pub generated_at: DateTime<Utc>,
+    pub disclaimer: String,
+    pub rows: Vec<CounterpointLandingVerificationRow>,
+}
+
 const HEARTBEAT_TTL_SECONDS: i64 = 120;
 
 pub async fn get_sync_status(
@@ -969,6 +985,148 @@ pub async fn get_sync_status(
         token_configured,
         counterpoint_staging_enabled,
         staging_pending_count,
+    })
+}
+
+async fn counterpoint_landing_count(pool: &PgPool, query: &str) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(query).fetch_one(pool).await
+}
+
+fn landing_row(
+    key: &str,
+    label: &str,
+    count: i64,
+    confidence: &str,
+    note: &str,
+) -> CounterpointLandingVerificationRow {
+    CounterpointLandingVerificationRow {
+        key: key.into(),
+        label: label.into(),
+        count,
+        confidence: confidence.into(),
+        note: note.into(),
+    }
+}
+
+pub async fn build_counterpoint_landing_verification_summary(
+    pool: &PgPool,
+) -> Result<CounterpointLandingVerificationSummary, CounterpointSyncError> {
+    let customers = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM customers WHERE customer_created_source = 'counterpoint'",
+    )
+    .await?;
+    let staff_records = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM staff WHERE data_source = 'counterpoint'",
+    )
+    .await?;
+    let staff_map_rows =
+        counterpoint_landing_count(pool, "SELECT COUNT(*)::bigint FROM counterpoint_staff_map")
+            .await?;
+    let vendors = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM vendors WHERE NULLIF(TRIM(vendor_code), '') IS NOT NULL",
+    )
+    .await?;
+    let category_maps = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM counterpoint_category_map",
+    )
+    .await?;
+    let products = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM products WHERE data_source = 'counterpoint'",
+    )
+    .await?;
+    let variants = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM product_variants WHERE NULLIF(TRIM(counterpoint_item_key), '') IS NOT NULL",
+    )
+    .await?;
+    let vendor_supplier_items =
+        counterpoint_landing_count(pool, "SELECT COUNT(*)::bigint FROM vendor_supplier_item")
+            .await?;
+    let gift_cards =
+        counterpoint_landing_count(pool, "SELECT COUNT(*)::bigint FROM gift_cards").await?;
+    let store_credit_openings = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM store_credit_ledger WHERE reason = 'counterpoint_opening_balance'",
+    )
+    .await?;
+    let loyalty_history = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM loyalty_point_ledger WHERE reason = 'cp_loy_pts_hist' AND metadata ? 'cp_ref'",
+    )
+    .await?;
+    let closed_ticket_transactions = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM transactions WHERE counterpoint_ticket_ref IS NOT NULL",
+    )
+    .await?;
+    let closed_ticket_lines = counterpoint_landing_count(
+        pool,
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM transaction_lines tl
+        INNER JOIN transactions t ON t.id = tl.transaction_id
+        WHERE t.counterpoint_ticket_ref IS NOT NULL
+        "#,
+    )
+    .await?;
+    let closed_ticket_payments = counterpoint_landing_count(
+        pool,
+        r#"
+        SELECT COUNT(DISTINCT pa.transaction_id)::bigint
+        FROM payment_allocations pa
+        INNER JOIN transactions t ON t.id = pa.target_transaction_id
+        WHERE t.counterpoint_ticket_ref IS NOT NULL
+        "#,
+    )
+    .await?;
+    let open_doc_transactions = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM transactions WHERE counterpoint_doc_ref IS NOT NULL",
+    )
+    .await?;
+    let open_doc_lines = counterpoint_landing_count(
+        pool,
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM transaction_lines tl
+        INNER JOIN transactions t ON t.id = tl.transaction_id
+        WHERE t.counterpoint_doc_ref IS NOT NULL
+        "#,
+    )
+    .await?;
+    let receiving_history = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM counterpoint_receiving_history",
+    )
+    .await?;
+
+    Ok(CounterpointLandingVerificationSummary {
+        generated_at: Utc::now(),
+        disclaimer: "Read-only landed-row counts from ROS tables. This is import proof for repeatable pre-go-live review, not full financial reconciliation.".into(),
+        rows: vec![
+            landing_row("customers", "Counterpoint customers", customers, "direct", "customers.customer_created_source = 'counterpoint'"),
+            landing_row("staff_records", "Counterpoint staff records", staff_records, "direct", "staff.data_source = 'counterpoint'"),
+            landing_row("staff_map_rows", "Staff map rows", staff_map_rows, "direct", "counterpoint_staff_map rows"),
+            landing_row("vendors", "Vendors with CP codes", vendors, "direct", "vendors.vendor_code present"),
+            landing_row("category_maps", "Category map rows", category_maps, "direct", "counterpoint_category_map rows"),
+            landing_row("products", "Counterpoint products", products, "direct", "products.data_source = 'counterpoint'"),
+            landing_row("variants", "Variants with CP item keys", variants, "direct", "product_variants.counterpoint_item_key present"),
+            landing_row("vendor_supplier_items", "Vendor supplier items", vendor_supplier_items, "direct", "vendor_supplier_item rows"),
+            landing_row("gift_cards", "Gift cards", gift_cards, "approximate", "gift_cards has no Counterpoint provenance marker; count is the current pre-go-live gift-card dataset"),
+            landing_row("store_credit_openings", "Store credit openings", store_credit_openings, "direct", "store_credit_ledger.reason = 'counterpoint_opening_balance'"),
+            landing_row("loyalty_history", "Loyalty history rows", loyalty_history, "direct", "loyalty_point_ledger reason/metadata cp_ref"),
+            landing_row("closed_ticket_transactions", "Closed ticket transactions", closed_ticket_transactions, "direct", "transactions.counterpoint_ticket_ref present"),
+            landing_row("closed_ticket_lines", "Closed ticket lines", closed_ticket_lines, "direct", "transaction_lines attached to CP ticket transactions"),
+            landing_row("closed_ticket_payments", "Closed ticket payments", closed_ticket_payments, "approximate", "distinct payment transactions allocated to CP ticket transactions; not tender reconciliation"),
+            landing_row("open_doc_transactions", "Open-doc transactions", open_doc_transactions, "direct", "transactions.counterpoint_doc_ref present"),
+            landing_row("open_doc_lines", "Open-doc lines", open_doc_lines, "direct", "transaction_lines attached to CP open-doc transactions"),
+            landing_row("receiving_history", "Receiving history rows", receiving_history, "direct", "counterpoint_receiving_history rows"),
+        ],
     })
 }
 
