@@ -17,6 +17,69 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 
 ---
 
+## Current hardening + execution policy (2026-04-30)
+
+### Recently hardened
+
+- POS bootstrap helper (`openPosRegister.ts`) replaced fixed waits with deterministic readiness checks.
+- QBO staging UI removed `networkidle` waiting and now waits on explicit UI readiness.
+- Overlay stacking checks were hardened for deterministic top-layer/interactability assertions.
+- Added **`staff-audit-labels.spec.ts`** for staff-facing readable/non-technical label coverage.
+- Added **`settings-deeplink-contract.spec.ts`** for Settings direct-route/fallback/normalization coverage.
+
+### Blocking core suite (release gate)
+
+Keep these **blocking**. They protect financial/tax/register/audit correctness and core UI/workflow contracts:
+
+- `checkout-tender-financial-contract.spec.ts`
+- `tax-audit-contract.spec.ts`
+- `commission-audit-contract.spec.ts`
+- `inventory-audit-contract.spec.ts`
+- `register-audit-contract.spec.ts`
+- `register-close-reconciliation.spec.ts`
+- `offline-recovery-contract.spec.ts`
+- `qbo-audit-contract.spec.ts`
+- `tender-matrix-contract.spec.ts`
+- `orders-custom-contract.spec.ts`
+- `orders-detail-handoff.spec.ts`
+- `inventory-receiving-api.spec.ts`
+- `inventory-receiving-ui.spec.ts`
+- `inventory-physical-ui.spec.ts`
+- `exchange-wizard.spec.ts`
+- `pos-navigation-contract.spec.ts`
+- `ui-portaling-stacking.spec.ts`
+- `settings-deeplink-contract.spec.ts`
+- `staff-audit-labels.spec.ts`
+- `api-gates.spec.ts`
+- `phase2-finance-and-help-lifecycle.spec.ts`
+
+### Non-blocking / nightly candidates
+
+These remain useful but are lower-signal or environment-sensitive and should default to nightly/non-blocking lanes:
+
+- `visual-baselines.spec.ts` (already opt-in)
+- `qbo-staging.spec.ts`
+- `pwa-responsive.spec.ts`
+- `backoffice-mobile-workflow-smoke.spec.ts`
+- `pos-small-screen-smoke.spec.ts`
+- `pos-modal-smoke.spec.ts`
+- `reports-mobile-cards.spec.ts`
+- `gift-cards-mobile-cards.spec.ts`
+- `loyalty-eligible-mobile.spec.ts`
+- `scheduler-mobile-ergonomics.spec.ts`
+- `alterations-register-lookup-mobile.spec.ts`
+
+### Consolidation candidates (plan only, no removals yet)
+
+- `pos-golden.spec.ts` → removal candidate after confirming equivalent POS bootstrap coverage in other POS specs.
+- `backoffice-workspace-nav-smoke.spec.ts` → merge candidate into `backoffice-mobile-workflow-smoke.spec.ts`.
+- `settings-mobile-sections.spec.ts` → merge candidate into `settings-mobile.spec.ts`.
+- `high-risk-regressions.spec.ts` → merge candidate into `phase2-finance-and-help-lifecycle.spec.ts` and/or `api-gates.spec.ts`.
+
+**Guardrail:** financial, tax, register, and audit contract suites stay blocking.
+
+---
+
 ## Playwright UI specs (`client/e2e/`)
 
 | Spec | What it covers | Prerequisites / notes |
@@ -37,9 +100,11 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 | **`notification-deep-link-contract.spec.ts`** | Notification deep-link actionability, bundle preview behavior, severity/recency mapping, and bulk lifecycle helpers | Unit-style Playwright contract without browser navigation |
 | **`staff-tasks.spec.ts`** | **Staff → Tasks** → **My tasks** | Migration **56**, task permissions |
 | **`staff-scheduler.spec.ts`** | Staff public weekly roster, individual availability, master scheduler, store events, and master-template mode | Staff scheduling UI contract |
+| **`staff-audit-labels.spec.ts`** | Staff-facing audit surfaces keep labels readable and non-technical (no raw key/enum leakage) | Operator-language readability contract for audit UI |
 | **`podium-settings.spec.ts`** | **Settings → Integrations** Podium section | **`settings.admin`**-ish paths |
 | **`settings-mobile.spec.ts`** | **Settings** grouped sidebar contract and deep links for `register`, `tag-designer`, `shippo`, and `ros-dev-center` | UI + notifications mocked for Settings deep-link navigation; confirms targets do not fall back to General |
 | **`settings-mobile-sections.spec.ts`** | Settings section navigation for General, Help Center, and Bug Reports across phone/tablet/iPad/desktop | Responsive Settings routing smoke |
+| **`settings-deeplink-contract.spec.ts`** | Direct URL settings deep links, invalid-subroute fallback, partial-route normalization, and no dead-shell contract | Route contract for `/settings` and `/settings/*` path behavior |
 | **`qbo-staging.spec.ts`** | QBO workspace staging shell (map / propose / approve / sync flow) | Insights/QBO permissions; may flake if data dependent |
 | **`help-center.spec.ts`** | Help from BO header + POS; search results; **Settings → Help Center Manager** tab visibility; Automation and Search & Index admin-op request wiring | API; Meilisearch optional; manager flows require staff with **`help.manage`** |
 | **`reports-workspace.spec.ts`** | **Reports** curated library (`insights.view`); Admin **Margin pivot** tile + API wait | API + migration **53** admin; nav uses **`data-testid="sidebar-nav-reports"`** |
@@ -125,11 +190,11 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 | Orders / refunds / exchanges | **`orders-detail-handoff.spec.ts`**, **`orders-custom-contract.spec.ts`**, **`exchange-wizard.spec.ts`** | Refund queue breadth, every return/exchange branch |
 | Inventory / receiving / import | **`inventory-audit-contract.spec.ts`**, **`inventory-receiving-api.spec.ts`**, **`inventory-receiving-ui.spec.ts`**, **`inventory-physical-ui.spec.ts`**, **`inventory-physical-mobile-cards.spec.ts`**, visual baseline | CSV import |
 | Weddings (embedded WM) | **`alterations-smart-scheduler.spec.ts`**, **`morning-compass-coach.spec.ts`** | Full party pipeline |
-| Staff / schedule / commission / audit | **`staff-tasks.spec.ts`**, **`staff-scheduler.spec.ts`**, **`commission-audit-contract.spec.ts`** | PIN/admin profile edge cases, payout UI breadth |
+| Staff / schedule / commission / audit | **`staff-tasks.spec.ts`**, **`staff-scheduler.spec.ts`**, **`staff-audit-labels.spec.ts`**, **`commission-audit-contract.spec.ts`** | PIN/admin profile edge cases, payout UI breadth |
 | QBO | **`qbo-staging.spec.ts`**, **`qbo-audit-contract.spec.ts`**, visual baseline | Live sync, production mappings |
 | **Reports** (curated insights library) | **`reports-workspace.spec.ts`**, **`reports-mobile-cards.spec.ts`** | Extra report tiles, CSV export |
 | Insights / Metabase shell | **`pwa-responsive.spec.ts`**, **`intelligence-and-finance.spec.ts`** | iframe embed, Metabase auth |
-| Settings / backups / integrations | **`settings-mobile.spec.ts`**, **`settings-mobile-sections.spec.ts`**, **`podium-settings.spec.ts`**, visual paths | Full backup flow, every integration card |
+| Settings / backups / integrations | **`settings-mobile.spec.ts`**, **`settings-mobile-sections.spec.ts`**, **`settings-deeplink-contract.spec.ts`**, **`podium-settings.spec.ts`**, visual paths | Full backup flow, every integration card |
 | Scheduler | **`scheduler-mobile-ergonomics.spec.ts`**, **`alterations-smart-scheduler.spec.ts`** | Book/edit appointment breadth |
 | Alterations / gift cards / loyalty | **`alterations-register-lookup-mobile.spec.ts`**, **`alterations-safety.spec.ts`**, **`alterations-smart-scheduler.spec.ts`**, **`gift-card-redemption-contract.spec.ts`**, **`gift-cards-mobile-cards.spec.ts`**, **`loyalty-redemption-contract.spec.ts`**, **`loyalty-eligible-mobile.spec.ts`** | Additional edge cases for legacy data |
 | POS register / cart / checkout | **`pos-golden.spec.ts`**, **`phase2-tender-ui.spec.ts`**, **`tender-matrix-contract.spec.ts`**, **`checkout-tender-financial-contract.spec.ts`**, **`tax-exempt-and-stripe-branding.spec.ts`**, **`exchange-wizard.spec.ts`**, **`register-close-reconciliation.spec.ts`**, **`pos-rms-charge.spec.ts`**, **`corecard-webhooks.spec.ts`** | Hardware/live tender validation |
@@ -165,6 +230,7 @@ Local release gate remains the Vite path, but use **`E2E_BASE_URL=http://localho
 
 | Date | Change |
 |------|--------|
+| 2026-04-30 | Documented current suite hardening status (deterministic POS bootstrap waits, QBO readiness waits, hardened overlay stacking), added explicit staff-audit/settings-deeplink coverage notes, and recorded consolidation candidates (plan-only; no removals yet). |
 | 2026-04-30 | Reconciled the matrix against the full `client/e2e/*.spec.ts` inventory; added hardening contracts for Settings grouped navigation/deep links, Orders Transaction Record/Fulfillment/Layaway wording, and expanded checkout cash-rounding coverage. |
 | 2026-04-25 | Added production hardening audit contracts for checkout tender financials, tax, commission, inventory, offline recovery, QBO, and register close; latest local release gate reported **181 passed, 7 skipped, 0 failed**. |
 | 2026-04-08 | Initial matrix + **`playwright-e2e.yml`** CI; **`seed_e2e_non_admin_staff.sql`**; **`api-gates`**: best-sellers 401, margin **403** for non-Admin; visual baselines **skipped** on CI unless **`E2E_RUN_VISUAL=1`** |
