@@ -62,6 +62,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
 
     services:
       postgres:
@@ -222,7 +225,10 @@ jobs:
           exit 1
 
       - name: Run blocking core suite
-        run: cd client && npm run test:e2e:blocking
+        run: |
+          set -o pipefail
+          cd client
+          npm run test:e2e:blocking 2>&1 | tee ../blocking-e2e.log
 
       - name: Upload blocking lane report
         if: failure()
@@ -243,6 +249,122 @@ jobs:
           cat /tmp/ros-server.log || true
           echo "--- /tmp/fake-corecard.log ---"
           cat /tmp/fake-corecard.log || true
+
+      - name: Collect blocking failure metadata
+        if: failure()
+        id: blocking_failure_meta
+        run: |
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          if [[ -f blocking-e2e.log ]]; then
+            failed_specs="$(grep -oE 'e2e/[[:alnum:]_.\/-]+\.spec\.ts' blocking-e2e.log | sort -u || true)"
+            summary_lines="$(grep -E '([0-9]+ failed|Error:|Timed out|timed out|Failed)' blocking-e2e.log | tail -n 12 || true)"
+          else
+            failed_specs=""
+            summary_lines="blocking-e2e.log not found; failure occurred before or outside Playwright execution."
+          fi
+
+          if [[ -z "${failed_specs}" ]]; then
+            failed_specs="(failed spec names not detected from test output)"
+          fi
+          if [[ -z "${summary_lines}" ]]; then
+            summary_lines="Blocking lane failed. Review workflow logs for details."
+          fi
+
+          {
+            echo "run_url=${run_url}"
+            echo "timestamp=${timestamp}"
+            echo "failed_specs<<EOF"
+            echo "${failed_specs}"
+            echo "EOF"
+            echo "failure_summary<<EOF"
+            echo "${summary_lines}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create or update blocking lane failure issue
+        if: failure()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          RUN_URL: ${{ steps.blocking_failure_meta.outputs.run_url }}
+          FAILURE_TIMESTAMP: ${{ steps.blocking_failure_meta.outputs.timestamp }}
+          FAILED_SPECS: ${{ steps.blocking_failure_meta.outputs.failed_specs }}
+          FAILURE_SUMMARY: ${{ steps.blocking_failure_meta.outputs.failure_summary }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const title = "E2E Blocking Lane Failure Tracker";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const failedSpecsRaw = (process.env.FAILED_SPECS || "").trim();
+            const summaryRaw = (process.env.FAILURE_SUMMARY || "").trim();
+            const runUrl = process.env.RUN_URL || `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const timestamp = process.env.FAILURE_TIMESTAMP || new Date().toISOString();
+            const refName = context.ref.replace("refs/heads/", "");
+            const shaShort = context.sha.slice(0, 7);
+
+            const failedSpecsSection = failedSpecsRaw
+              ? failedSpecsRaw.split("\n").map((line) => `- ${line}`).join("\n")
+              : "- (failed spec names not detected from test output)";
+
+            const summarySection = summaryRaw || "Blocking lane failed. Review workflow logs for details.";
+
+            const body = [
+              "Automated rolling issue for blocking Playwright lane failures.",
+              "",
+              `Latest failure: ${timestamp}`,
+              `Workflow run: ${runUrl}`,
+              `Ref: \`${refName}\` @ \`${shaShort}\``,
+              "",
+              "Failure summary:",
+              "```",
+              summarySection,
+              "```",
+              "",
+              "Failed specs (best effort):",
+              failedSpecsSection,
+            ].join("\n");
+
+            const comment = [
+              `Blocking lane failed at ${timestamp}.`,
+              `Run: ${runUrl}`,
+              "",
+              "Failed specs (best effort):",
+              failedSpecsSection,
+            ].join("\n");
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: "open",
+              per_page: 100,
+            });
+            const existing = openIssues.find((issue) => !issue.pull_request && issue.title === title);
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: existing.number,
+                title,
+                body,
+              });
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body: comment,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body,
+              });
+            }
 
       - name: Stop server
         if: always()
