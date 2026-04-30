@@ -41,6 +41,45 @@ ui_host_port="${ui_host_port#https://}"
 ui_host_port="${ui_host_port%%/*}"
 ui_host="${ui_host_port%:*}"
 ui_port="${ui_host_port##*:}"
+api_port="${api_bind##*:}"
+
+cleanup_stale_listener() {
+  local port="$1"
+  local pids
+  local remaining
+
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "e2e-local-stack.sh: lsof not found; skipping stale-listener cleanup for port ${port}." >&2
+    return
+  fi
+
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | xargs 2>/dev/null || true)"
+  if [[ -z "${pids}" ]]; then
+    return
+  fi
+
+  echo "Cleaning stale listener(s) on tcp:${port}..."
+  lsof -nP -iTCP:"$port" -sTCP:LISTEN || true
+  kill ${pids} 2>/dev/null || true
+  sleep 1
+
+  remaining="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | xargs 2>/dev/null || true)"
+  if [[ -n "${remaining}" ]]; then
+    echo "Force-killing remaining listener(s) on tcp:${port}..."
+    kill -9 ${remaining} 2>/dev/null || true
+    sleep 1
+  fi
+
+  if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "e2e-local-stack.sh: failed to clear listener on tcp:${port}." >&2
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >&2 || true
+    exit 1
+  fi
+}
+
+cleanup_stale_listener "$ui_port"
+cleanup_stale_listener "$api_port"
+cleanup_stale_listener "$E2E_CORECARD_PORT"
 
 docker compose up -d db
 
