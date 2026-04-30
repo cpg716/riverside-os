@@ -18,6 +18,8 @@
     "test:e2e": "playwright test",
     "test:e2e:list": "playwright test --list",
     "test:e2e:release": "playwright test --workers=1",
+    "test:e2e:blocking": "playwright test e2e/checkout-tender-financial-contract.spec.ts e2e/tax-audit-contract.spec.ts e2e/commission-audit-contract.spec.ts e2e/inventory-audit-contract.spec.ts e2e/register-audit-contract.spec.ts e2e/register-close-reconciliation.spec.ts e2e/offline-recovery-contract.spec.ts e2e/qbo-audit-contract.spec.ts e2e/tender-matrix-contract.spec.ts e2e/orders-custom-contract.spec.ts e2e/orders-detail-handoff.spec.ts e2e/inventory-receiving-api.spec.ts e2e/inventory-receiving-ui.spec.ts e2e/inventory-physical-ui.spec.ts e2e/exchange-wizard.spec.ts e2e/pos-navigation-contract.spec.ts e2e/ui-portaling-stacking.spec.ts e2e/settings-deeplink-contract.spec.ts e2e/staff-audit-labels.spec.ts e2e/api-gates.spec.ts e2e/phase2-finance-and-help-lifecycle.spec.ts e2e/notification-deep-link-contract.spec.ts --workers=1",
+    "test:e2e:nightly": "cross-env E2E_RUN_VISUAL=1 playwright test --workers=1",
     "test:e2e:visual": "cross-env E2E_RUN_VISUAL=1 playwright test --workers=1",
     "test:e2e:high-risk": "playwright test e2e/high-risk-regressions.spec.ts --workers=1",
     "test:e2e:phase2": "playwright test e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1",

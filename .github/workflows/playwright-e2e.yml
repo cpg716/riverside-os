@@ -6,6 +6,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "0 6 * * *"
 
 defaults:
   run:
@@ -54,15 +56,12 @@ jobs:
           name: frontend-dist
           path: client/dist/
 
-  e2e:
-    name: Playwright Shard ${{ matrix.shard }}/4
+  e2e-blocking:
+    name: Playwright Blocking Lane
+    if: github.event_name != 'schedule'
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -222,14 +221,213 @@ jobs:
           echo "$body"
           exit 1
 
-      - name: Run Playwright Shard
-        run: cd client && npx playwright test --shard=${{ matrix.shard }}/4
+      - name: Run blocking core suite
+        run: cd client && npm run test:e2e:blocking
 
-      - name: Upload Playwright report
+      - name: Upload blocking lane report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-shard-${{ matrix.shard }}
+          name: playwright-report-blocking
+          path: |
+            client/test-results/
+            client/playwright-report/
+            /tmp/ros-server.log
+            /tmp/fake-corecard.log
+          if-no-files-found: ignore
+
+      - name: Print server and fake-host logs on failure
+        if: failure()
+        run: |
+          echo "--- /tmp/ros-server.log ---"
+          cat /tmp/ros-server.log || true
+          echo "--- /tmp/fake-corecard.log ---"
+          cat /tmp/fake-corecard.log || true
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [[ -f /tmp/ros-server.pid ]]; then
+            kill "$(cat /tmp/ros-server.pid)" 2>/dev/null || true
+          fi
+          if [[ -f /tmp/fake-corecard.pid ]]; then
+            kill "$(cat /tmp/fake-corecard.pid)" 2>/dev/null || true
+          fi
+
+  e2e-nightly:
+    name: Playwright Nightly Lane
+    if: github.event_name == 'schedule'
+    continue-on-error: true
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: riverside_os
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d riverside_os"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      CI: true
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/riverside_os
+      RIVERSIDE_MODE: e2e
+      RIVERSIDE_HTTP_BIND: 127.0.0.1:3000
+      E2E_BASE_URL: http://localhost:3000
+      E2E_API_BASE: http://127.0.0.1:3000
+      E2E_AUTO_BOOT: "0"
+      E2E_CORECARD_BASE: http://127.0.0.1:43400
+      E2E_BO_STAFF_NAME: Chris G
+      RIVERSIDE_ENABLE_E2E_TEST_SUPPORT: "1"
+      RIVERSIDE_CORECARD_BASE_URL: http://127.0.0.1:43400
+      RIVERSIDE_CORECARD_CLIENT_ID: e2e-corecard-client
+      RIVERSIDE_CORECARD_CLIENT_SECRET: e2e-corecard-secret
+      RIVERSIDE_CORECARD_REGION: us
+      RIVERSIDE_CORECARD_ENVIRONMENT: e2e
+      RIVERSIDE_CORECARD_WEBHOOK_SECRET: e2e-corecard-webhook
+      FRONTEND_DIST: ./dist
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client and curl
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client curl
+
+      - name: Apply SQL migrations
+        run: ./scripts/apply-migrations-psql.sh
+
+      - name: Seed E2E non-Admin staff (margin-pivot 403)
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_e2e_non_admin_staff.sql
+
+      - name: Seed RMS E2E staff permissions
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_e2e_rms_staff.sql
+
+      - name: Seed default admin staff for E2E
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_staff_register_test.sql
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        run: cd client && npm ci
+
+      - name: Install Playwright Chromium
+        run: cd client && npx playwright install chromium --with-deps
+
+      - name: Download Server Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: server-binary
+
+      - name: Download Frontend Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      - name: Fix Binary Permissions
+        run: chmod +x ./riverside-server
+
+      - name: Start fake CoreCard host
+        run: |
+          nohup env E2E_CORECARD_PORT=43400 \
+            node scripts/fake-corecard-server.mjs > /tmp/fake-corecard.log 2>&1 &
+          echo $! > /tmp/fake-corecard.pid
+          for i in $(seq 1 30); do
+            if curl -sf "http://127.0.0.1:43400/__admin/calls" >/dev/null; then
+              echo "Fake CoreCard host is up."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "--- fake corecard log ---"
+          cat /tmp/fake-corecard.log
+          exit 1
+
+      - name: Start API server
+        run: |
+          nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
+            RIVERSIDE_MODE="$RIVERSIDE_MODE" \
+            RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="$RIVERSIDE_ENABLE_E2E_TEST_SUPPORT" \
+            RIVERSIDE_CORECARD_BASE_URL="$RIVERSIDE_CORECARD_BASE_URL" \
+            RIVERSIDE_CORECARD_CLIENT_ID="$RIVERSIDE_CORECARD_CLIENT_ID" \
+            RIVERSIDE_CORECARD_CLIENT_SECRET="$RIVERSIDE_CORECARD_CLIENT_SECRET" \
+            RIVERSIDE_CORECARD_REGION="$RIVERSIDE_CORECARD_REGION" \
+            RIVERSIDE_CORECARD_ENVIRONMENT="$RIVERSIDE_CORECARD_ENVIRONMENT" \
+            RIVERSIDE_CORECARD_WEBHOOK_SECRET="$RIVERSIDE_CORECARD_WEBHOOK_SECRET" \
+            FRONTEND_DIST="$FRONTEND_DIST" \
+            ./riverside-server > /tmp/ros-server.log 2>&1 &
+          echo $! > /tmp/ros-server.pid
+          for i in $(seq 1 90); do
+            if curl -sf "http://127.0.0.1:3000/api/staff/list-for-pos" | grep -q '\['; then
+              echo "Server is up."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "--- server log ---"
+          cat /tmp/ros-server.log
+          exit 1
+
+      - name: Verify E2E test-support routes are mounted
+        run: |
+          status="$(curl -sS -o /tmp/e2e-test-support-body.txt -w "%{http_code}" \
+            -X POST "http://127.0.0.1:3000/api/test-support/rms/seed-fixture" \
+            -H "x-riverside-staff-code: 1234" \
+            -H "x-riverside-staff-pin: 1234" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+          case "$status" in
+            200|400|401|403|422)
+              echo "Test-support route is mounted (status $status)."
+              ;;
+            *)
+              echo "Unexpected test-support readiness status: $status"
+              echo "--- response body ---"
+              cat /tmp/e2e-test-support-body.txt || true
+              echo "--- server log ---"
+              cat /tmp/ros-server.log || true
+              exit 1
+              ;;
+          esac
+
+      - name: Open default register session for contract suites
+        run: |
+          payload='{"cashier_code":"1234","pin":"1234","opening_float":"200.00","register_lane":1}'
+          body="$(curl -sS -X POST "http://127.0.0.1:3000/api/sessions/open" \
+            -H "Content-Type: application/json" \
+            -d "$payload")"
+          if grep -q '"session_id"' <<<"$body"; then
+            echo "Default register session opened."
+            exit 0
+          fi
+          if grep -q '"error":"register_lane_in_use"' <<<"$body"; then
+            echo "Register lane 1 already open; continuing."
+            exit 0
+          fi
+          echo "$body"
+          exit 1
+
+      - name: Run nightly full suite
+        run: cd client && npm run test:e2e:nightly
+
+      - name: Upload nightly lane report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-nightly
           path: |
             client/test-results/
             client/playwright-report/

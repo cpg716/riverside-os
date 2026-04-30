@@ -49,6 +49,7 @@ Keep these **blocking**. They protect financial/tax/register/audit correctness a
 - `pos-navigation-contract.spec.ts`
 - `ui-portaling-stacking.spec.ts`
 - `settings-deeplink-contract.spec.ts`
+- `notification-deep-link-contract.spec.ts`
 - `staff-audit-labels.spec.ts`
 - `api-gates.spec.ts`
 - `phase2-finance-and-help-lifecycle.spec.ts`
