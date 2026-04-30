@@ -33,6 +33,14 @@ Review **Settings → Counterpoint → Status** while the bridge is running on t
 
 Treat those values as the real import scope for the migration record.
 
+## Batch failure and retry behavior
+
+The bridge now treats batch POST failures as entity failures. Failed chunks are no longer logged and swallowed, and the success count reflects rows actually posted to ROS, not just rows returned by the Counterpoint SQL query.
+
+If any chunk fails, the entity fails and the bridge does not advance the local cursor for that failed work. Retrying may re-post chunks that succeeded before the failure; this is safer than skipping failed data, but it depends on the ROS ingest endpoints remaining idempotent/upsert-safe. For manual sync requests, entity posting failure is recorded as request failure instead of successful completion.
+
+The historical ticket gift-application lookup has also been hardened so each ticket reference initializes its gift-row bucket before rows are appended.
+
 ## Historical date cutover
 
 - Set **`CP_IMPORT_SINCE=2018-01-01`** in the bridge `.env` (default if unset).

@@ -466,7 +466,14 @@ The bridge maintains a dedicated concurrency pool for each entity. You can tune 
 
 - **`BATCH_SIZE`** (Default: 200): The number of rows processed in a single SQL operation and sent in one HTTP POST. Larger batches reduce HTTP overhead but increase memory usage per request.
 - **Max Concurrency** (Internal: 5): The bridge allows up to 5 parallel batches to be "in flight" at once. This ensures that your SQL Server and ROS API are kept busy without being overwhelmed.
-+
+
+### Batch Failure Accounting
+Batch POST failures are not swallowed. The bridge tracks successfully posted rows separately from the SQL source-row count, and any failed chunk now causes the whole entity to fail instead of reporting the source count as a successful import.
+
+When an entity fails, its local bridge cursor does not advance for that failed work. A retry may therefore re-post chunks that had already succeeded before the failure; this is intentional and relies on the ROS ingest endpoints remaining idempotent/upsert-safe. Manual sync requests follow the same rule: if entity posting fails, the bridge completes the request with a failure instead of marking it successful.
+
+The ticket gift-application lookup path is also hardened so gift rows initialize their per-ticket bucket before appending rows.
+
 ### Matrix Mapping Duplicate Squelcher
 For stores with heavy matrix use (v8.2 Matrix Mapping Loops), the bridge includes a built-in filter to discard redundant variation rows:
 1. **Parent Tracking:** Ensures each Matrix Parent is only processed once per catalog pass.
