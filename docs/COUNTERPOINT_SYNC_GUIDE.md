@@ -502,14 +502,37 @@ Navigate to **Settings → Integrations → Counterpoint bridge** (requires `set
 The panel shows:
 - **Bridge status** (Online / Syncing / Offline) with version, hostname, and last-seen timestamp
 - **Request sync run** button — enqueues a request that the bridge picks up on its next heartbeat
+- **Landing Verification** — read-only ROS-landed table counts by Counterpoint domain
 - **Entity sync history** table — last successful sync, last error, and cursor position per entity
 - **Open sync issues** — per-row errors or warnings from the ingest (e.g. unmapped categories, missing variants); each can be dismissed
+
+### Landing Verification
+
+Find this in **Settings → Integrations → Counterpoint bridge → Status → Landing Verification**. It is a read-only summary of rows that have landed in existing ROS tables after Counterpoint import passes.
+
+Use it after each repeatable pre-go-live import pass to confirm that the expected domains are present in ROS before moving to spot checks or cutover sign-off. The counts prove that ROS tables now contain Counterpoint-linked rows for the listed domains, including customers, staff/map rows, vendors, categories, products, variants, vendor supplier items, gift cards, store credit openings, loyalty history, closed tickets, open docs, and receiving history.
+
+The counts do **not** prove full business reconciliation. They do not compare financial totals to Counterpoint, prove tender/tax correctness, prove every historical row was imported, or replace staff review of edge cases. Treat them as landed-row proof only.
+
+Weak or approximate domains are explicitly marked in the section:
+- **Gift cards** are approximate because the `gift_cards` table does not have a dedicated Counterpoint provenance marker.
+- **Closed ticket payments** are approximate because the count reflects payment transactions allocated to Counterpoint ticket transactions, not full tender reconciliation.
+
+Use Landing Verification with the other proof surfaces:
+- **Bridge counts** show what the bridge attempted and successfully posted for the latest run.
+- **Landing Verification** shows what is currently present in ROS tables after direct ingest or staging apply.
+- **Inbound queue / staging** must be empty after all intended staged batches are applied.
+- **Open sync issues** must be empty or explicitly triaged before sign-off.
+- **CSV inventory verification** remains the stronger proof for catalog, variant, quantity, cost, price, and vendor-link fidelity against the Counterpoint export.
+
+This is not a full financial reconciliation report.
 
 ### API endpoints (staff-gated, `settings.admin`)
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/api/settings/counterpoint-sync/status` | Full status: bridge state, entity runs, open issues |
+| `GET` | `/api/settings/counterpoint-sync/landing-verification` | Read-only ROS-landed Counterpoint domain counts |
 | `POST` | `/api/settings/counterpoint-sync/request-run` | Enqueue a sync request (bridge polls for it) |
 | `PATCH` | `/api/settings/counterpoint-sync/issues/{id}/resolve` | Mark an issue as resolved |
 

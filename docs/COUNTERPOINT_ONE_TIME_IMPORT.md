@@ -110,13 +110,41 @@ After the bridge finishes, review **Settings → Counterpoint → Status** and c
 
 1. **Last bridge run** shows the expected completion time, duration, and record count.
 2. **Sign-off reconciliation** shows the latest bridge-reported rows beside the latest ROS landed/apply count for each entity in scope.
-3. **CSV inventory verification** has been run when catalog / variant / quantity / supplier fidelity needs direct proof against the Counterpoint export.
-4. **Sign-off blockers** is empty, or every listed blocker has been intentionally resolved.
-5. **Server sync history** shows landed entity rows and no unexpected last-error values.
-6. **Open sync issues** is empty, or every remaining issue has been deliberately triaged.
-7. If staging was enabled, the **Inbound queue** is empty after all intended batches are applied.
+3. **Landing Verification** shows the expected ROS-landed counts for every domain included in the pass.
+4. **CSV inventory verification** has been run when catalog / variant / quantity / supplier fidelity needs direct proof against the Counterpoint export.
+5. **Sign-off blockers** is empty, or every listed blocker has been intentionally resolved.
+6. **Server sync history** shows landed entity rows and no unexpected last-error values.
+7. **Open sync issues** is empty, or every remaining issue has been deliberately triaged.
+8. If staging was enabled, the **Inbound queue** is empty after all intended batches are applied.
 
 This is the current proof surface for the one-time migration. There is still no full reconciliation/reporting subsystem, so sign-off should include human review of these import artifacts plus any business-side spot checks.
+
+### Landing Verification workflow
+
+Find **Landing Verification** in **Settings → Counterpoint → Status**. It is a compact, read-only count of Counterpoint data that has landed in ROS tables. Use it after every repeatable pre-go-live import pass.
+
+What it proves:
+- ROS contains Counterpoint-linked rows for the imported domains.
+- Direct-ingest and staging-applied batches have produced visible rows in the expected ROS tables.
+- Counts are available for customers, staff/map rows, vendors, categories, products, variants, vendor supplier items, gift cards, store credit openings, loyalty history, closed ticket transactions/lines/payments, open-doc transactions/lines, and receiving history.
+
+What it does **not** prove:
+- It is not full financial reconciliation.
+- It does not compare Counterpoint financial totals, tender totals, tax, discounts, or receivables to ROS.
+- It does not prove every source row was imported when provenance is missing or when the source SQL scope changed.
+- It does not replace CSV inventory verification, sync issue review, or operator spot checks.
+
+Weak or approximate domains:
+- **Gift cards** are approximate because current `gift_cards` rows do not carry a dedicated Counterpoint provenance marker.
+- **Closed ticket payments** are approximate because the count reflects payment transactions allocated to Counterpoint ticket transactions, not full tender reconciliation.
+
+After each import pass:
+1. Capture the bridge row counts for the entities that ran.
+2. Confirm staging is applied or the **Inbound queue** is empty if staging was enabled.
+3. Review **Landing Verification** and confirm every expected domain has a plausible landed count.
+4. Review **Open sync issues** and resolve or deliberately defer each remaining issue.
+5. Run **CSV inventory verification** for catalog, variant, quantity, cost, price, and vendor-link confidence.
+6. Record any approximate-domain caveats in the import sign-off notes.
 
 ### Limits of the CSV inventory verification table
 
