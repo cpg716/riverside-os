@@ -203,6 +203,7 @@ pub struct E2eHealthSnapshot {
     pub source: E2eHealthSource,
     pub blocking: E2eLaneStatus,
     pub nightly: E2eLaneStatus,
+    pub failure_issue_url: Option<String>,
     pub playbook: Vec<E2eFailurePlaybookItem>,
 }
 
@@ -542,6 +543,13 @@ fn github_token_from_env() -> Option<String> {
     nonempty_env("RIVERSIDE_OPS_E2E_GITHUB_TOKEN")
 }
 
+fn github_failure_issue_url(repo: &str) -> String {
+    // Rolling issue query: title + stable labels
+    const QUERY: &str =
+        "is%3Aissue+is%3Aopen+label%3Ae2e+label%3Ae2e-blocking+%22E2E+Blocking+Lane+Failure+Tracker%22";
+    format!("https://github.com/{repo}/issues?q={QUERY}")
+}
+
 fn github_telemetry_timeout() -> StdDuration {
     let timeout_ms = env_i64_range("RIVERSIDE_OPS_E2E_GITHUB_TIMEOUT_MS", 8000, 1000, 30000);
     StdDuration::from_millis(timeout_ms as u64)
@@ -685,6 +693,10 @@ pub async fn e2e_health_snapshot(http_client: &reqwest::Client) -> E2eHealthSnap
     let mut mode = "live".to_string();
     let repo = github_repo_from_env();
     let token = github_token_from_env();
+    let failure_issue_url = match (&repo, &token) {
+        (Some(repo_value), Some(_)) => Some(github_failure_issue_url(repo_value)),
+        _ => None,
+    };
 
     let mut blocking = empty_lane_status(E2eLaneKey::Blocking);
     let mut nightly = empty_lane_status(E2eLaneKey::Nightly);
@@ -723,6 +735,7 @@ pub async fn e2e_health_snapshot(http_client: &reqwest::Client) -> E2eHealthSnap
         },
         blocking,
         nightly,
+        failure_issue_url,
         playbook,
     }
 }

@@ -91,6 +91,7 @@ type E2eHealthSnapshot = {
   source: E2eHealthSource;
   blocking: E2eLaneStatus;
   nightly: E2eLaneStatus;
+  failure_issue_url: string | null;
   playbook: E2eFailurePlaybookItem[];
 };
 
@@ -746,6 +747,19 @@ export default function RosDevCenterPanel({
                 : "-"}
           </span>
         </div>
+
+        {e2eHealth?.failure_issue_url ? (
+          <div className="mt-3">
+            <a
+              href={e2eHealth.failure_issue_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-black uppercase tracking-wider text-app-accent underline-offset-2 hover:underline"
+            >
+              Open failure tracker
+            </a>
+          </div>
+        ) : null}
 
         {e2eHealth?.source.notes?.length ? (
           <div className="mt-3 space-y-2 rounded-xl border border-app-warning/30 bg-app-warning/10 p-3 text-xs text-app-warning">
