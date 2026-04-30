@@ -154,6 +154,72 @@ fn trim_opt(s: &Option<String>) -> Option<String> {
         .map(|t| t.to_string())
 }
 
+fn collapse_whitespace(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn compact_upper(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(char::to_uppercase)
+        .collect()
+}
+
+fn is_identifier_like_text(raw: &str) -> bool {
+    let compact = compact_upper(raw);
+    if compact.len() < 4 {
+        return false;
+    }
+
+    if compact.chars().all(|c| c.is_ascii_digit()) {
+        return true;
+    }
+
+    let bytes = compact.as_bytes();
+    if bytes.len() >= 5 && matches!(bytes.first(), Some(b'I' | b'B')) && bytes.get(1) == Some(&b'-')
+    {
+        return compact[2..]
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    }
+
+    if !compact.contains('-') && !compact.contains('_') && raw.split_whitespace().count() == 1 {
+        let digits = compact.chars().filter(|c| c.is_ascii_digit()).count();
+        let letters = compact.chars().filter(|c| c.is_ascii_alphabetic()).count();
+        return compact.len() >= 6 && digits * 2 >= compact.len() && letters <= 2;
+    }
+
+    false
+}
+
+fn matches_counterpoint_identifier(raw: &str, identifiers: &[String]) -> bool {
+    let candidate = compact_upper(raw);
+    !candidate.is_empty()
+        && identifiers
+            .iter()
+            .map(|identifier| compact_upper(identifier))
+            .any(|identifier| !identifier.is_empty() && identifier == candidate)
+}
+
+fn safe_counterpoint_product_name_candidate(
+    raw: Option<&str>,
+    identifiers: &[String],
+) -> Option<String> {
+    let value = collapse_whitespace(raw?.trim());
+    if value.is_empty()
+        || matches_counterpoint_identifier(&value, identifiers)
+        || is_identifier_like_text(&value)
+    {
+        None
+    } else {
+        Some(clamp_chars(&value, 255))
+    }
+}
+
+fn counterpoint_product_name_is_identifier_like(raw: &str, identifiers: &[String]) -> bool {
+    matches_counterpoint_identifier(raw, identifiers) || is_identifier_like_text(raw)
+}
+
 /// Keep within `customers` varchar limits so Counterpoint-wide fields do not fail the batch.
 fn clamp_chars(s: &str, max_chars: usize) -> String {
     let t = s.trim();
@@ -932,6 +998,8 @@ pub struct CounterpointInventoryCatalogVerificationSnapshot {
     pub disclaimer: String,
     pub counterpoint_products: i64,
     pub counterpoint_variants: i64,
+    pub products_with_identifier_like_name: i64,
+    pub products_name_equals_counterpoint_key: i64,
     pub variants_with_sku: i64,
     pub variants_with_barcode: i64,
     pub variants_with_cost: i64,
@@ -945,6 +1013,27 @@ pub struct CounterpointInventoryCatalogVerificationSnapshot {
     pub products_missing_category_mapping: i64,
     pub variants_missing_vendor_supplier_item_link: i64,
     pub distinct_vendors_linked_to_imported_items: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct CounterpointInventoryCatalogVerificationCounts {
+    counterpoint_products: i64,
+    counterpoint_variants: i64,
+    products_with_identifier_like_name: i64,
+    products_name_equals_counterpoint_key: i64,
+    variants_with_sku: i64,
+    variants_with_barcode: i64,
+    variants_with_cost: i64,
+    variants_with_price: i64,
+    variants_with_quantity_on_hand: i64,
+    variants_missing_sku: i64,
+    variants_missing_barcode: i64,
+    variants_missing_cost: i64,
+    variants_missing_price: i64,
+    variants_zero_or_negative_quantity: i64,
+    products_missing_category_mapping: i64,
+    variants_missing_vendor_supplier_item_link: i64,
+    distinct_vendors_linked_to_imported_items: i64,
 }
 
 const HEARTBEAT_TTL_SECONDS: i64 = 120;
@@ -1425,50 +1514,20 @@ pub async fn build_counterpoint_open_docs_verification_snapshot(
 pub async fn build_counterpoint_inventory_catalog_verification_snapshot(
     pool: &PgPool,
 ) -> Result<CounterpointInventoryCatalogVerificationSnapshot, CounterpointSyncError> {
-    let (
-        counterpoint_products,
-        counterpoint_variants,
-        variants_with_sku,
-        variants_with_barcode,
-        variants_with_cost,
-        variants_with_price,
-        variants_with_quantity_on_hand,
-        variants_missing_sku,
-        variants_missing_barcode,
-        variants_missing_cost,
-        variants_missing_price,
-        variants_zero_or_negative_quantity,
-        products_missing_category_mapping,
-        variants_missing_vendor_supplier_item_link,
-        distinct_vendors_linked_to_imported_items,
-    ): (
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-        i64,
-    ) = sqlx::query_as(
+    let counts: CounterpointInventoryCatalogVerificationCounts = sqlx::query_as(
         r#"
         WITH imported_products AS (
-            SELECT id, category_id, primary_vendor_id
+            SELECT id, name, catalog_handle, category_id, primary_vendor_id
             FROM products
             WHERE data_source = 'counterpoint'
         ),
         imported_variants AS (
             SELECT
                 pv.id,
+                pv.product_id,
                 pv.sku,
                 pv.barcode,
+                pv.counterpoint_item_key,
                 pv.stock_on_hand,
                 COALESCE(pv.cost_override, p.base_cost) AS effective_cost,
                 COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price,
@@ -1496,6 +1555,39 @@ pub async fn build_counterpoint_inventory_catalog_verification_snapshot(
         SELECT
             (SELECT COUNT(*)::bigint FROM imported_products) AS counterpoint_products,
             (SELECT COUNT(*)::bigint FROM imported_variants) AS counterpoint_variants,
+            (
+                SELECT COUNT(*)::bigint
+                FROM imported_products p
+                WHERE NULLIF(TRIM(p.name), '') IS NOT NULL
+                  AND (
+                    UPPER(TRIM(p.name)) = UPPER(TRIM(COALESCE(p.catalog_handle, '')))
+                    OR UPPER(TRIM(p.name)) ~ '^[IB]-[A-Z0-9_-]{3,}$'
+                    OR TRIM(p.name) ~ '^[0-9]{4,}$'
+                    OR EXISTS (
+                        SELECT 1
+                        FROM imported_variants iv
+                        WHERE iv.product_id = p.id
+                          AND (
+                            UPPER(TRIM(p.name)) = UPPER(TRIM(COALESCE(iv.sku, '')))
+                            OR UPPER(TRIM(p.name)) = UPPER(TRIM(COALESCE(iv.counterpoint_item_key, '')))
+                          )
+                    )
+                  )
+            ) AS products_with_identifier_like_name,
+            (
+                SELECT COUNT(*)::bigint
+                FROM imported_products p
+                WHERE NULLIF(TRIM(p.name), '') IS NOT NULL
+                  AND (
+                    UPPER(TRIM(p.name)) = UPPER(TRIM(COALESCE(p.catalog_handle, '')))
+                    OR EXISTS (
+                        SELECT 1
+                        FROM imported_variants iv
+                        WHERE iv.product_id = p.id
+                          AND UPPER(TRIM(p.name)) = UPPER(TRIM(COALESCE(iv.counterpoint_item_key, '')))
+                    )
+                  )
+            ) AS products_name_equals_counterpoint_key,
             (SELECT COUNT(*)::bigint FROM imported_variants WHERE NULLIF(TRIM(sku), '') IS NOT NULL) AS variants_with_sku,
             (SELECT COUNT(*)::bigint FROM imported_variants WHERE NULLIF(TRIM(barcode), '') IS NOT NULL) AS variants_with_barcode,
             (SELECT COUNT(*)::bigint FROM imported_variants WHERE COALESCE(effective_cost, 0) > 0) AS variants_with_cost,
@@ -1523,21 +1615,24 @@ pub async fn build_counterpoint_inventory_catalog_verification_snapshot(
         generated_at: Utc::now(),
         disclaimer: "Catalog completeness check only. Does not verify physical inventory accuracy."
             .into(),
-        counterpoint_products,
-        counterpoint_variants,
-        variants_with_sku,
-        variants_with_barcode,
-        variants_with_cost,
-        variants_with_price,
-        variants_with_quantity_on_hand,
-        variants_missing_sku,
-        variants_missing_barcode,
-        variants_missing_cost,
-        variants_missing_price,
-        variants_zero_or_negative_quantity,
-        products_missing_category_mapping,
-        variants_missing_vendor_supplier_item_link,
-        distinct_vendors_linked_to_imported_items,
+        counterpoint_products: counts.counterpoint_products,
+        counterpoint_variants: counts.counterpoint_variants,
+        products_with_identifier_like_name: counts.products_with_identifier_like_name,
+        products_name_equals_counterpoint_key: counts.products_name_equals_counterpoint_key,
+        variants_with_sku: counts.variants_with_sku,
+        variants_with_barcode: counts.variants_with_barcode,
+        variants_with_cost: counts.variants_with_cost,
+        variants_with_price: counts.variants_with_price,
+        variants_with_quantity_on_hand: counts.variants_with_quantity_on_hand,
+        variants_missing_sku: counts.variants_missing_sku,
+        variants_missing_barcode: counts.variants_missing_barcode,
+        variants_missing_cost: counts.variants_missing_cost,
+        variants_missing_price: counts.variants_missing_price,
+        variants_zero_or_negative_quantity: counts.variants_zero_or_negative_quantity,
+        products_missing_category_mapping: counts.products_missing_category_mapping,
+        variants_missing_vendor_supplier_item_link: counts
+            .variants_missing_vendor_supplier_item_link,
+        distinct_vendors_linked_to_imported_items: counts.distinct_vendors_linked_to_imported_items,
     })
 }
 
@@ -1763,6 +1858,7 @@ pub struct CounterpointInventoryVerificationSummary {
     pub extra_in_ros_count: i64,
     pub matched_count: i64,
     pub name_mismatch_count: i64,
+    pub identifier_like_product_name_count: i64,
     pub category_mismatch_count: i64,
     pub variant_mismatch_count: i64,
     pub ros_variant_label_missing_count: i64,
@@ -2182,6 +2278,7 @@ pub async fn build_counterpoint_inventory_verification_report(
     let mut csv_source_issue_count = 0_i64;
     let mut missing_in_ros_count = 0_i64;
     let mut name_mismatch_count = 0_i64;
+    let mut identifier_like_product_name_count = 0_i64;
     let mut category_mismatch_count = 0_i64;
     let mut variant_mismatch_count = 0_i64;
     let mut ros_variant_label_missing_count = 0_i64;
@@ -2381,6 +2478,22 @@ pub async fn build_counterpoint_inventory_verification_report(
         if normalize_verify_text(&csv_row.name) != normalize_verify_text(&ros_row.product_name) {
             mismatch_types.push("name_mismatch".into());
             name_mismatch_count += 1;
+        }
+        let product_name_identifiers = [
+            ros_row.sku.clone(),
+            ros_row.counterpoint_item_key.clone().unwrap_or_default(),
+            ros_row.catalog_handle.clone().unwrap_or_default(),
+            csv_row.item_key.clone(),
+        ]
+        .into_iter()
+        .filter(|value| !value.trim().is_empty())
+        .collect::<Vec<_>>();
+        if counterpoint_product_name_is_identifier_like(
+            &ros_row.product_name,
+            &product_name_identifiers,
+        ) {
+            mismatch_types.push("identifier_like_product_name".into());
+            identifier_like_product_name_count += 1;
         }
         let ros_category = ros_row.category_name.as_deref().unwrap_or("");
         if normalize_verify_text(&csv_row.product_category) != normalize_verify_text(ros_category) {
@@ -2614,6 +2727,11 @@ pub async fn build_counterpoint_inventory_verification_report(
             "{missing_vendor_item_link_count} matched SKU row(s) have no ROS vendor item linkage."
         ));
     }
+    if identifier_like_product_name_count > 0 {
+        critical_issues.push(format!(
+            "{identifier_like_product_name_count} matched SKU row(s) have a ROS product name that looks like a Counterpoint item number, SKU, or barcode."
+        ));
+    }
 
     Ok(CounterpointInventoryVerificationReport {
         summary: CounterpointInventoryVerificationSummary {
@@ -2627,6 +2745,7 @@ pub async fn build_counterpoint_inventory_verification_report(
             extra_in_ros_count,
             matched_count: exact_match_count + mismatched_count + csv_source_issue_count,
             name_mismatch_count,
+            identifier_like_product_name_count,
             category_mismatch_count,
             variant_mismatch_count,
             ros_variant_label_missing_count,
@@ -3358,6 +3477,7 @@ pub struct CatalogUpsertSummary {
     pub variants_created: i32,
     pub variants_updated: i32,
     pub skipped: i32,
+    pub name_quality_warnings: i32,
 }
 
 pub async fn execute_counterpoint_catalog_batch(
@@ -3386,13 +3506,23 @@ pub async fn execute_counterpoint_catalog_batch(
         variants_created: 0,
         variants_updated: 0,
         skipped: 0,
+        name_quality_warnings: 0,
     };
+    let mut name_quality_issues = Vec::new();
 
     for row in &payload.rows {
         // Use a savepoint for each item so a single row failure (e.g. duplicate SKU)
         // doesn't abort the entire batch transaction.
         let mut sp = tx.begin().await?;
-        if let Err(e) = upsert_catalog_item(&mut sp, row, &mut summary, &vendor_map).await {
+        if let Err(e) = upsert_catalog_item(
+            &mut sp,
+            row,
+            &mut summary,
+            &vendor_map,
+            &mut name_quality_issues,
+        )
+        .await
+        {
             let _ = sp.rollback().await;
             tracing::warn!(item_no = %row.item_no, error = %e, "catalog row upsert failed, recording issue");
             record_sync_issue(pool, "catalog", Some(&row.item_no), "error", &e.to_string()).await;
@@ -3403,6 +3533,10 @@ pub async fn execute_counterpoint_catalog_batch(
     }
 
     tx.commit().await?;
+
+    for (external_key, message) in name_quality_issues {
+        record_sync_issue(pool, "catalog", Some(&external_key), "warning", &message).await;
+    }
 
     if let Some(ref s) = payload.sync {
         if s.entity == "catalog" {
@@ -3452,11 +3586,49 @@ async fn resolve_category_id(
     Ok(existing)
 }
 
+fn resolve_counterpoint_product_name(
+    short_description: Option<&str>,
+    long_description: Option<&str>,
+    existing_name: Option<&str>,
+    item_no: &str,
+    identifiers: &[String],
+) -> (String, Option<String>) {
+    if let Some(name) = safe_counterpoint_product_name_candidate(short_description, identifiers) {
+        return (name, None);
+    }
+
+    if let Some(name) = safe_counterpoint_product_name_candidate(long_description, identifiers) {
+        return (
+            name,
+            Some(format!(
+                "Counterpoint catalog item {item_no} had a blank or identifier-like DESCR; used LONG_DESCR as the product name."
+            )),
+        );
+    }
+
+    if let Some(name) = safe_counterpoint_product_name_candidate(existing_name, identifiers) {
+        return (
+            name,
+            Some(format!(
+                "Counterpoint catalog item {item_no} had no safe incoming product name; preserved the existing ROS product name."
+            )),
+        );
+    }
+
+    (
+        clamp_chars(&format!("Unnamed Counterpoint Item {item_no}"), 255),
+        Some(format!(
+            "Counterpoint catalog item {item_no} had no safe product name. DESCR/LONG_DESCR were blank or identifier-like; assigned a placeholder for operator review."
+        )),
+    )
+}
+
 async fn upsert_catalog_item(
     tx: &mut Transaction<'_, Postgres>,
     row: &CounterpointCatalogRow,
     summary: &mut CatalogUpsertSummary,
     vendor_map: &HashMap<String, Uuid>,
+    name_quality_issues: &mut Vec<(String, String)>,
 ) -> Result<(), CounterpointSyncError> {
     let item_no = row.item_no.trim();
     if item_no.is_empty() {
@@ -3464,8 +3636,19 @@ async fn upsert_catalog_item(
         return Ok(());
     }
 
-    let name = trim_opt(&row.description).unwrap_or_else(|| item_no.to_string());
     let long_desc = trim_opt(&row.long_description);
+    let barcode = trim_opt(&row.barcode);
+    let mut name_identifiers = vec![item_no.to_string()];
+    if let Some(ref barcode) = barcode {
+        name_identifiers.push(barcode.clone());
+    }
+    for cell in &row.cells {
+        name_identifiers.push(cell.counterpoint_item_key.trim().to_string());
+        name_identifiers.push(cell.sku.trim().to_string());
+        if let Some(ref barcode) = cell.barcode {
+            name_identifiers.push(barcode.trim().to_string());
+        }
+    }
     let brand = trim_opt(&row.brand);
     let retail = row.retail_price.unwrap_or(Decimal::ZERO);
     let cost = row.unit_cost.unwrap_or(Decimal::ZERO);
@@ -3477,13 +3660,29 @@ async fn upsert_catalog_item(
         .and_then(|v| vendor_map.get(v.trim()))
         .copied();
 
-    let existing_product: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM products WHERE catalog_handle = $1 LIMIT 1")
+    let existing_product: Option<(Uuid, String)> =
+        sqlx::query_as("SELECT id, name FROM products WHERE catalog_handle = $1 LIMIT 1")
             .bind(item_no)
             .fetch_optional(&mut **tx)
             .await?;
+    let existing_name = existing_product
+        .as_ref()
+        .map(|(_, name)| name.as_str())
+        .filter(|name| !name.trim().is_empty());
 
-    let product_id = if let Some(pid) = existing_product {
+    let (name, name_issue) = resolve_counterpoint_product_name(
+        row.description.as_deref(),
+        long_desc.as_deref(),
+        existing_name,
+        item_no,
+        &name_identifiers,
+    );
+    if let Some(issue) = name_issue {
+        summary.name_quality_warnings += 1;
+        name_quality_issues.push((item_no.to_string(), issue));
+    }
+
+    let product_id = if let Some((pid, _)) = existing_product {
         sqlx::query(
             r#"
             UPDATE products SET
@@ -3534,7 +3733,7 @@ async fn upsert_catalog_item(
 
     if !is_grid || row.cells.is_empty() {
         // PER USER RULES: B-XXXXXX is the Barcode (SKU), I-XXXXXX is the Item # (Parent)
-        let sku = trim_opt(&row.barcode).unwrap_or_else(|| item_no.to_string());
+        let sku = barcode.clone().unwrap_or_else(|| item_no.to_string());
         let key = item_no.to_string(); // Internal Counterpoint key for upserts
         upsert_variant(
             tx,
@@ -6305,6 +6504,55 @@ mod tests {
         PgPool::connect(&database_url)
             .await
             .expect("connect test database")
+    }
+
+    #[test]
+    fn counterpoint_product_name_rejects_item_numbers_and_barcodes() {
+        let identifiers = vec!["I-103111".to_string(), "B-998877".to_string()];
+
+        assert!(
+            safe_counterpoint_product_name_candidate(Some("Classic Navy Suit"), &identifiers)
+                .is_some()
+        );
+        assert!(safe_counterpoint_product_name_candidate(Some("I-103111"), &identifiers).is_none());
+        assert!(safe_counterpoint_product_name_candidate(Some("B-998877"), &identifiers).is_none());
+        assert!(safe_counterpoint_product_name_candidate(Some("103111"), &identifiers).is_none());
+    }
+
+    #[test]
+    fn counterpoint_product_name_resolver_preserves_existing_good_name() {
+        let identifiers = vec!["I-103111".to_string(), "B-998877".to_string()];
+        let (name, issue) = resolve_counterpoint_product_name(
+            Some("I-103111"),
+            None,
+            Some("Classic Navy Suit"),
+            "I-103111",
+            &identifiers,
+        );
+
+        assert_eq!(name, "Classic Navy Suit");
+        assert!(issue
+            .as_deref()
+            .unwrap_or_default()
+            .contains("preserved the existing ROS product name"));
+    }
+
+    #[test]
+    fn counterpoint_product_name_resolver_uses_long_description_before_placeholder() {
+        let identifiers = vec!["I-103111".to_string()];
+        let (name, issue) = resolve_counterpoint_product_name(
+            Some("I-103111"),
+            Some("Classic Navy Suit"),
+            None,
+            "I-103111",
+            &identifiers,
+        );
+
+        assert_eq!(name, "Classic Navy Suit");
+        assert!(issue
+            .as_deref()
+            .unwrap_or_default()
+            .contains("used LONG_DESCR"));
     }
 
     #[tokio::test]

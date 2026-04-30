@@ -32,6 +32,7 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
 
 type HubTab = "status" | "inbound" | "categories" | "payments" | "gifts" | "staff";
+type CounterpointStatusSection = "connect" | "signoff" | "details" | "advanced";
 
 interface EntityRunRow {
   entity: string;
@@ -118,6 +119,7 @@ interface CounterpointInventoryVerificationSummary {
   extra_in_ros_count: number;
   matched_count: number;
   name_mismatch_count: number;
+  identifier_like_product_name_count: number;
   category_mismatch_count: number;
   variant_mismatch_count: number;
   ros_variant_label_missing_count: number;
@@ -212,6 +214,8 @@ interface CounterpointInventoryCatalogVerificationSnapshot {
   disclaimer: string;
   counterpoint_products: number;
   counterpoint_variants: number;
+  products_with_identifier_like_name: number;
+  products_name_equals_counterpoint_key: number;
   variants_with_sku: number;
   variants_with_barcode: number;
   variants_with_cost: number;
@@ -228,7 +232,21 @@ interface CounterpointInventoryCatalogVerificationSnapshot {
 }
 
 /* ── Bridge live status from :3002 ── */
-const BRIDGE_LOCAL_URL = "http://localhost:3002";
+const BRIDGE_LOCAL_URLS = ["http://127.0.0.1:3002", "http://localhost:3002"];
+
+async function fetchBridgeLocal(path: string, init?: RequestInit): Promise<Response> {
+  let lastError: unknown = null;
+  for (const bridgeUrl of BRIDGE_LOCAL_URLS) {
+    try {
+      const res = await fetch(`${bridgeUrl}${path}`, init);
+      if (res.ok) return res;
+      lastError = new Error(`Bridge returned ${res.status} from ${bridgeUrl}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Could not reach local Counterpoint bridge");
+}
 
 interface BridgeEntityStat {
   lastSync?: string;
@@ -407,6 +425,29 @@ const PAYMENT_METHOD_OPTIONS = [
 const GIFT_KIND_OPTIONS = ["purchased", "loyalty_reward", "donated_giveaway"];
 const EXPECTED_COUNTERPOINT_MIGRATION_FLOOR = "2018-01-01";
 
+const STATUS_SECTIONS: { key: CounterpointStatusSection; label: string; description: string }[] = [
+  {
+    key: "connect",
+    label: "Connect & Run",
+    description: "Bridge reachability, ROS heartbeat, and import controls.",
+  },
+  {
+    key: "signoff",
+    label: "Sign-off Checklist",
+    description: "Landing, transaction, order, and catalog verification.",
+  },
+  {
+    key: "details",
+    label: "Run Details",
+    description: "Entity counts, events, history, and issue drill-down.",
+  },
+  {
+    key: "advanced",
+    label: "Advanced",
+    description: "Staging, preflight scope, rerun warnings, and reset.",
+  },
+];
+
 const tabBtn = (active: boolean) =>
   `px-3 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-colors ${
     active
@@ -425,6 +466,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const { toast } = useToast();
 
   const [tab, setTab] = useState<HubTab>("status");
+  const [statusSection, setStatusSection] = useState<CounterpointStatusSection>("connect");
   const [status, setStatus] = useState<SyncStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [batches, setBatches] = useState<StagingBatchRow[]>([]);
@@ -473,18 +515,13 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
   const fetchBridgeLive = useCallback(async () => {
     try {
-      const res = await fetch(`${BRIDGE_LOCAL_URL}/api/status`, {
+      const res = await fetchBridgeLocal("/api/status", {
         signal: AbortSignal.timeout(3000),
       });
-      if (res.ok) {
-        const data = (await res.json()) as BridgeLiveStatus;
-        setBridgeLive(data);
-        setBridgeOnline(true);
-        setBridgeFailCount(0);
-      } else {
-        setBridgeOnline(false);
-        setBridgeFailCount((f) => f + 1);
-      }
+      const data = (await res.json()) as BridgeLiveStatus;
+      setBridgeLive(data);
+      setBridgeOnline(true);
+      setBridgeFailCount(0);
     } catch {
       setBridgeOnline(false);
       setBridgeFailCount((f) => f + 1);
@@ -505,7 +542,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
   const triggerBridgeSync = useCallback(async (entity?: string) => {
     try {
-      await fetch(`${BRIDGE_LOCAL_URL}/api/trigger-entity?name=${entity ?? "full"}`);
+      await fetchBridgeLocal(`/api/trigger-entity?name=${entity ?? "full"}`);
       toast(entity ? `Pulling ${entity}…` : "Full sync started.", "success");
       setTimeout(() => void fetchBridgeLive(), 1000);
     } catch {
@@ -515,7 +552,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
   const stopBridgeSync = useCallback(async () => {
     try {
-      await fetch(`${BRIDGE_LOCAL_URL}/api/stop`);
+      await fetchBridgeLocal("/api/stop");
       toast("Stop requested — will halt after current entity finishes.", "info");
       setTimeout(() => void fetchBridgeLive(), 1000);
     } catch {
@@ -1163,6 +1200,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
     (openDocsVerification?.open_docs_with_zero_lines ?? 0) +
     (openDocsVerification?.open_docs_with_zero_payments ?? 0);
   const inventoryCatalogWarningCount =
+    (inventoryCatalogVerification?.products_with_identifier_like_name ?? 0) +
     (inventoryCatalogVerification?.variants_missing_sku ?? 0) +
     (inventoryCatalogVerification?.variants_missing_barcode ?? 0) +
     (inventoryCatalogVerification?.variants_missing_cost ?? 0) +
@@ -1191,6 +1229,14 @@ export default function CounterpointSyncSettingsPanel(props?: {
     ? [
         { label: "Missing SKU", value: inventoryCatalogVerification.variants_missing_sku },
         {
+          label: "Name is item #",
+          value: inventoryCatalogVerification.products_with_identifier_like_name,
+        },
+        {
+          label: "Name equals key",
+          value: inventoryCatalogVerification.products_name_equals_counterpoint_key,
+        },
+        {
           label: "Missing barcode",
           value: inventoryCatalogVerification.variants_missing_barcode,
         },
@@ -1210,6 +1256,78 @@ export default function CounterpointSyncSettingsPanel(props?: {
         },
       ]
     : [];
+  const inventoryVerificationWarningCount = inventoryVerificationSummary
+    ? inventoryVerificationSummary.mismatched_count +
+      inventoryVerificationSummary.missing_in_ros_count +
+      inventoryVerificationSummary.extra_unexplained_count +
+      inventoryVerificationSummary.identifier_like_product_name_count +
+      inventoryVerificationIssues.length
+    : null;
+  const signoffChecklistRows = [
+    {
+      key: "landing",
+      label: "Landing Verification",
+      value: landingVerification ? `${fmtNum(landingVerificationRows.length)} domains` : "Not refreshed",
+      warningCount: landingVerification ? landingApproximateCount : null,
+      warningLabel: "weak/approximate domain(s)",
+      ready: !!landingVerification && landingApproximateCount === 0,
+      loading: landingVerificationLoading,
+      actionLabel: "Refresh landing",
+      onRefresh: fetchLandingVerification,
+    },
+    {
+      key: "transactions",
+      label: "Transaction Reconciliation",
+      value: transactionReconciliationTotals
+        ? fmtMoney(transactionReconciliationTotals.transaction_total_sum)
+        : "Not refreshed",
+      warningCount: transactionReconciliationTotals ? (hasTransactionTotalMismatch ? 1 : 0) : null,
+      warningLabel: "total/payment mismatch",
+      ready: !!transactionReconciliationTotals && !hasTransactionTotalMismatch,
+      loading: transactionReconciliationLoading,
+      actionLabel: "Refresh transactions",
+      onRefresh: fetchTransactionReconciliation,
+    },
+    {
+      key: "open-docs",
+      label: "Open Docs / Orders",
+      value: openDocsVerification
+        ? `${fmtNum(openDocsVerification.imported_open_doc_transactions)} docs`
+        : "Not refreshed",
+      warningCount: openDocsVerification ? openDocsWarningCount : null,
+      warningLabel: "structural warning(s)",
+      ready: !!openDocsVerification && openDocsWarningCount === 0,
+      loading: openDocsVerificationLoading,
+      actionLabel: "Refresh open docs",
+      onRefresh: fetchOpenDocsVerification,
+    },
+    {
+      key: "catalog",
+      label: "Inventory & Catalog",
+      value: inventoryCatalogVerification
+        ? `${fmtNum(inventoryCatalogVerification.counterpoint_products)} products`
+        : "Not refreshed",
+      warningCount: inventoryCatalogVerification ? inventoryCatalogWarningCount : null,
+      warningLabel: "catalog warning(s)",
+      ready: !!inventoryCatalogVerification && inventoryCatalogWarningCount === 0,
+      loading: inventoryCatalogVerificationLoading,
+      actionLabel: "Refresh catalog",
+      onRefresh: fetchInventoryCatalogVerification,
+    },
+    {
+      key: "csv-inventory",
+      label: "CSV Inventory Audit",
+      value: inventoryVerificationSummary
+        ? `${fmtNum(inventoryVerificationSummary.matched_count)} matched`
+        : "Not run",
+      warningCount: inventoryVerificationWarningCount,
+      warningLabel: "CSV/ROS issue(s)",
+      ready: !!inventoryVerificationSummary && inventoryVerificationWarningCount === 0,
+      loading: inventoryVerificationLoading,
+      actionLabel: "Run CSV audit",
+      onRefresh: fetchInventoryVerification,
+    },
+  ];
 
   const formatVerificationStatus = (statusValue: string) => {
     if (statusValue === "missing_in_ros") return "Missing in ROS";
@@ -1338,10 +1456,38 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
       {tab === "status" && (
         <>
+          <div className="mb-4 rounded-xl border border-app-border bg-app-surface-2/40 p-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+              {STATUS_SECTIONS.map((section) => {
+                const active = statusSection === section.key;
+                return (
+                  <button
+                    key={section.key}
+                    type="button"
+                    onClick={() => setStatusSection(section.key)}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      active
+                        ? "border-app-warning/40 bg-app-warning/15 text-app-text"
+                        : "border-app-border bg-app-bg/40 text-app-text-muted hover:bg-app-surface/40"
+                    }`}
+                  >
+                    <span className="block text-[10px] font-black uppercase tracking-widest">
+                      {section.label}
+                    </span>
+                    <span className="mt-1 block text-[10px] leading-snug">
+                      {section.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* ── Bridge Live Status ── */}
           {bridgeOnline && bridgeLive ? (
             <>
               {/* Run Control */}
+              {statusSection === "connect" && (
               <div className="ui-panel ui-tint-neutral p-4 mb-4">
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                   <div className="flex items-center gap-3">
@@ -1439,8 +1585,9 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   </div>
                 </div>
               </div>
+              )}
 
-              {migrationPreflight && (
+              {(statusSection === "details" || statusSection === "advanced") && migrationPreflight && (
                 <>
                   <div className="ui-panel ui-tint-warning p-4 mb-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
@@ -1796,6 +1943,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 </>
               )}
 
+              {statusSection === "details" && (
+                <>
               {/* Entity Breakdown */}
               <div className="mb-6">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
@@ -1927,8 +2076,11 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   </div>
                 </div>
               )}
+                </>
+              )}
             </>
           ) : (
+            statusSection === "connect" ? (
             <>
               {/* Bridge Offline UI (Manual Retry) */}
               {!bridgeOnline && bridgeFailCount >= 3 && (
@@ -1961,12 +2113,14 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 </div>
               </div>
             </>
+            ) : null
           )}
 
           {/* ── ROS Server Status (existing) ── */}
           {status ? (
             <>
               {/* Staging mode */}
+              {statusSection === "advanced" && (
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between">
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1995,8 +2149,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   {stagingOn ? "Turn staging off" : "Turn staging on"}
                 </button>
               </div>
+              )}
 
               {/* Server bridge meta */}
+              {statusSection === "connect" && (
               <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4 mb-4 flex flex-wrap items-center gap-4">
                 {stateIcon(status.windows_sync_state)}
                 <div className="min-w-0 flex-1">
@@ -2014,6 +2170,84 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 {!status.token_configured && (
                   <span className="ui-pill bg-amber-500/15 text-amber-800 text-[9px]">COUNTERPOINT_SYNC_TOKEN not set</span>
                 )}
+              </div>
+              )}
+
+              {statusSection === "signoff" && (
+                <>
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Sign-off Checklist
+                    </h4>
+                    <p className="text-xs text-app-text-muted mt-1 max-w-3xl">
+                      Refresh each proof surface after an import pass. Warnings mean review is needed;
+                      they are not automatic financial close approval.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void fetchLandingVerification();
+                      void fetchTransactionReconciliation();
+                      void fetchOpenDocsVerification();
+                      void fetchInventoryCatalogVerification();
+                    }}
+                    className="ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                    Refresh core checks
+                  </button>
+                </div>
+                <div className="mt-4 grid grid-cols-1 lg:grid-cols-5 gap-2">
+                  {signoffChecklistRows.map((row) => {
+                    const warningCount = row.warningCount;
+                    const hasWarnings = warningCount != null && warningCount > 0;
+                    const isReady = row.ready && !hasWarnings;
+                    return (
+                      <div
+                        key={row.key}
+                        className={`rounded-lg border p-3 ${
+                          warningCount == null
+                            ? "border-app-border bg-app-bg/60"
+                            : hasWarnings
+                              ? "border-amber-500/30 bg-amber-500/5"
+                              : "border-emerald-500/25 bg-emerald-500/5"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            {row.label}
+                          </p>
+                          {warningCount == null ? (
+                            <Clock className="h-3.5 w-3.5 text-app-text-muted" aria-hidden />
+                          ) : isReady ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" aria-hidden />
+                          ) : (
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" aria-hidden />
+                          )}
+                        </div>
+                        <p className="mt-2 text-sm font-black text-app-text tabular-nums">
+                          {row.value}
+                        </p>
+                        <p className="mt-1 text-[10px] text-app-text-muted">
+                          {warningCount == null
+                            ? "Needs refresh"
+                            : `${fmtNum(warningCount)} ${row.warningLabel}`}
+                        </p>
+                        <button
+                          type="button"
+                          disabled={row.loading}
+                          onClick={() => void row.onRefresh()}
+                          className="mt-3 text-[9px] font-black uppercase tracking-widest text-app-accent hover:underline disabled:opacity-50"
+                        >
+                          {row.actionLabel}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
@@ -2103,7 +2337,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       {inventoryCatalogWarningCount > 0 ? (
                         <p className="mt-1 text-amber-700 dark:text-amber-200">
                           {fmtNum(inventoryCatalogWarningCount)} missing-data warning count(s) need
-                          review across SKU, barcode, cost, price, category, or vendor links.
+                          review across product names, SKU, barcode, cost, price, category, or
+                          vendor links.
                         </p>
                       ) : null}
                     </div>
@@ -2688,6 +2923,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       </p>
                       <div className="mt-2 grid grid-cols-2 xl:grid-cols-3 gap-2 text-xs text-app-text-muted">
                         <p>Name mismatch: <span className="font-bold text-app-text tabular-nums">{fmtNum(inventoryVerificationSummary.name_mismatch_count)}</span></p>
+                        <p>Identifier-like product name: <span className="font-bold text-app-text tabular-nums">{fmtNum(inventoryVerificationSummary.identifier_like_product_name_count)}</span></p>
                         <p>Category mismatch: <span className="font-bold text-app-text tabular-nums">{fmtNum(inventoryVerificationSummary.category_mismatch_count)}</span></p>
                         <p>Variant mismatch: <span className="font-bold text-app-text tabular-nums">{fmtNum(inventoryVerificationSummary.variant_mismatch_count)}</span></p>
                         <p>ROS variant label missing: <span className="font-bold text-app-text tabular-nums">{fmtNum(inventoryVerificationSummary.ros_variant_label_missing_count)}</span></p>
@@ -2889,7 +3125,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   </p>
                 ) : null}
               </div>
+                </>
+              )}
 
+              {statusSection === "advanced" && (
               <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 mb-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -2999,8 +3238,11 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   </p>
                 )}
               </div>
+              )}
 
               {/* Server entity history */}
+              {statusSection === "details" && (
+                <>
               {status.entity_runs.length > 0 && (
                 <div className="mb-6">
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
@@ -3095,6 +3337,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     ))}
                   </div>
                 </div>
+              )}
+                </>
               )}
             </>
           ) : loading ? (

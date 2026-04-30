@@ -159,6 +159,7 @@ const startLocalServer = () => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', '*');
+        res.setHeader('Access-Control-Allow-Private-Network', 'true');
         if (req.method === 'OPTIONS') { res.end(); return; }
 
         if (req.url === '/api/status') {
@@ -1512,7 +1513,8 @@ function mapCatalogRow(r, cellRows) {
   return {
     item_no: itemNo,
     product_identity: itemNo,
-    description: r.description ?? r.descr ?? undefined,
+    description:
+      r.description ?? r.descr ?? r.name ?? r.nam ?? r.item_name ?? r.product_name ?? r.display_name ?? undefined,
     long_description: r.long_description ?? r.long_descr ?? undefined,
     brand: r.brand ?? undefined,
     category: r.category ?? r.categ_cod ?? r.category_name ?? undefined,
