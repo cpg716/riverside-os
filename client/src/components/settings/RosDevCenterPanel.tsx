@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bug,
   CheckCircle2,
+  ClipboardList,
   Database,
   RefreshCw,
   Server,
@@ -151,6 +152,36 @@ function infoBadgeClass(severity: string): string {
 
 const STATION_PAGE_SIZE = 10;
 const ALERT_PAGE_SIZE = 6;
+const E2E_FAILURE_PLAYBOOK: Array<{
+  category: string;
+  nextAction: string;
+}> = [
+  {
+    category: "app startup",
+    nextAction:
+      "Confirm API/UI stack is reachable on expected ports, then rerun one blocking spec before changing tests.",
+  },
+  {
+    category: "auth/seed data",
+    nextAction:
+      "Re-run seed/migration steps and verify expected staff/session fixtures before triaging selectors.",
+  },
+  {
+    category: "selector/UI contract",
+    nextAction:
+      "Reproduce with a single spec in headed mode, verify data-testid/role contract, and patch the smallest stable locator.",
+  },
+  {
+    category: "financial/audit contract",
+    nextAction:
+      "Treat as release-blocking and inspect API payload/status deltas first, then confirm money/audit invariants.",
+  },
+  {
+    category: "flaky/timing",
+    nextAction:
+      "Replace broad waits with deterministic readiness checks and rerun serially to isolate state timing.",
+  },
+];
 
 function pageCount(total: number, pageSize: number): number {
   return Math.max(1, Math.ceil(total / pageSize));
@@ -587,6 +618,78 @@ export default function RosDevCenterPanel({
           {runtimeDiagnostics?.generated_at
             ? ` Server snapshot: ${fmtTs(runtimeDiagnostics.generated_at)}`
             : ""}
+        </p>
+      </section>
+
+      <section className="ui-card p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <ClipboardList className="h-5 w-5 text-app-accent" />
+          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+            E2E Health
+          </h3>
+        </div>
+        <p className="text-sm text-app-text-muted">
+          Phase 1 policy/documentation view only. This section explains lane intent,
+          local run commands, and failure triage guidance.
+        </p>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="ui-metric-cell ui-tint-neutral p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Blocking lane purpose
+            </p>
+            <p className="mt-2 text-sm font-bold text-app-text">
+              High-signal financial, tax, register, audit, and core navigation contracts.
+              Must pass for merge.
+            </p>
+          </div>
+          <div className="ui-metric-cell ui-tint-neutral p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Nightly lane purpose
+            </p>
+            <p className="mt-2 text-sm font-bold text-app-text">
+              Broader responsiveness and full-suite coverage (including visuals) for
+              drift detection without PR blocking.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-app-border/60 bg-app-bg/30 p-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Local commands
+          </p>
+          <div className="mt-2 space-y-2 font-mono text-xs text-app-text">
+            <p>
+              blocking: <span className="font-black">npm --prefix client run test:e2e:blocking</span>
+            </p>
+            <p>
+              nightly: <span className="font-black">npm --prefix client run test:e2e:nightly</span>
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Common failure categories and next action
+          </p>
+          <div className="mt-2 space-y-2">
+            {E2E_FAILURE_PLAYBOOK.map((item) => (
+              <div key={item.category} className="ui-metric-cell ui-tint-neutral p-3">
+                <p className="text-xs font-black uppercase tracking-wider text-app-text">
+                  {item.category}
+                </p>
+                <p className="mt-1 text-xs text-app-text-muted">{item.nextAction}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="mt-4 text-xs text-app-text-muted">
+          Live last run status and failed specs are not connected yet. Planned for
+          Phase 2.
+        </p>
+        <p className="mt-1 text-xs text-app-text-muted">
+          Reference: <code>docs/E2E_REGRESSION_MATRIX.md</code>
         </p>
       </section>
 
