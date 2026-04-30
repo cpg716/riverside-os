@@ -256,10 +256,29 @@ jobs:
         run: |
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          category="unknown"
+          hint="Review blocking-e2e.log and workflow logs for the failing step."
 
           if [[ -f blocking-e2e.log ]]; then
             failed_specs="$(grep -oE 'e2e/[[:alnum:]_.\/-]+\.spec\.ts' blocking-e2e.log | sort -u || true)"
             summary_lines="$(grep -E '([0-9]+ failed|Error:|Timed out|timed out|Failed)' blocking-e2e.log | tail -n 12 || true)"
+
+            if grep -Eqi 'ECONNREFUSED|connection refused|ERR_CONNECTION_REFUSED|port[^[:alnum:]]+not[^[:alnum:]]+open|failed to connect' blocking-e2e.log; then
+              category="app-startup"
+              hint="API/UI startup failure likely. Check listener ports, server boot logs, and stack readiness."
+            elif grep -Eqi '(^|[^0-9])(401|403)([^0-9]|$)|unauthorized|forbidden|seed[^[:alnum:]]*(fail|error)|fixture[^[:alnum:]]*(missing|not found)|missing fixture' blocking-e2e.log; then
+              category="auth-seed"
+              hint="Auth or seeded data failure. Re-run migrations/seeds and confirm required fixtures are present."
+            elif grep -Eqi 'checkout-tender-financial-contract|tax-audit-contract|commission-audit-contract|inventory-audit-contract|register-audit-contract|register-close-reconciliation|offline-recovery-contract|qbo-audit-contract|tender-matrix-contract|tax|ledger|rounding|financial[^[:alnum:]]*contract' blocking-e2e.log; then
+              category="financial-contract"
+              hint="Financial contract regression. Validate tax/ledger/rounding invariants before UI triage."
+            elif grep -Eqi 'locator|toBeVisible|toBeHidden|toBeInViewport|strict mode violation|not visible|viewport|outside of the viewport' blocking-e2e.log; then
+              category="ui-contract"
+              hint="UI contract mismatch. Review locator/visibility/viewport assertions and recent UI changes."
+            elif grep -Eqi 'timeout|timed out|navigation timeout|retry|retries' blocking-e2e.log; then
+              category="flaky-timing"
+              hint="Timing instability likely. Inspect readiness waits, navigation timing, and retry-sensitive state."
+            fi
           else
             failed_specs=""
             summary_lines="blocking-e2e.log not found; failure occurred before or outside Playwright execution."
@@ -281,6 +300,10 @@ jobs:
             echo "failure_summary<<EOF"
             echo "${summary_lines}"
             echo "EOF"
+            echo "category=${category}"
+            echo "hint<<EOF"
+            echo "${hint}"
+            echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create or update blocking lane failure issue
@@ -292,18 +315,44 @@ jobs:
           FAILURE_TIMESTAMP: ${{ steps.blocking_failure_meta.outputs.timestamp }}
           FAILED_SPECS: ${{ steps.blocking_failure_meta.outputs.failed_specs }}
           FAILURE_SUMMARY: ${{ steps.blocking_failure_meta.outputs.failure_summary }}
+          FAILURE_CATEGORY: ${{ steps.blocking_failure_meta.outputs.category }}
+          TRIAGE_HINT: ${{ steps.blocking_failure_meta.outputs.hint }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const title = "E2E Blocking Lane Failure Tracker";
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            const allowedCategories = new Set([
+              "app-startup",
+              "auth-seed",
+              "ui-contract",
+              "financial-contract",
+              "flaky-timing",
+            ]);
             const failedSpecsRaw = (process.env.FAILED_SPECS || "").trim();
             const summaryRaw = (process.env.FAILURE_SUMMARY || "").trim();
+            const rawCategory = (process.env.FAILURE_CATEGORY || "").trim();
+            const category = allowedCategories.has(rawCategory) ? rawCategory : "unknown";
+            const triageHint =
+              (process.env.TRIAGE_HINT || "").trim() ||
+              "Review blocking lane logs and artifacts for root cause.";
             const runUrl = process.env.RUN_URL || `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const timestamp = process.env.FAILURE_TIMESTAMP || new Date().toISOString();
             const refName = context.ref.replace("refs/heads/", "");
             const shaShort = context.sha.slice(0, 7);
+            const labels = ["e2e", "e2e-blocking", `e2e:${category}`];
+
+            const labelDefinitions = {
+              "e2e": { color: "1D76DB", description: "Playwright E2E tracking" },
+              "e2e-blocking": { color: "B60205", description: "Blocking E2E lane failures" },
+              "e2e:app-startup": { color: "D93F0B", description: "Startup or connectivity failure" },
+              "e2e:auth-seed": { color: "FBCA04", description: "Auth or seed-data failure" },
+              "e2e:ui-contract": { color: "5319E7", description: "UI contract assertion failure" },
+              "e2e:financial-contract": { color: "0E8A16", description: "Financial contract assertion failure" },
+              "e2e:flaky-timing": { color: "C2E0C6", description: "Timeout/retry/timing instability" },
+              "e2e:unknown": { color: "BFD4F2", description: "Unclassified blocking lane failure" },
+            };
 
             const failedSpecsSection = failedSpecsRaw
               ? failedSpecsRaw.split("\n").map((line) => `- ${line}`).join("\n")
@@ -317,6 +366,8 @@ jobs:
               `Latest failure: ${timestamp}`,
               `Workflow run: ${runUrl}`,
               `Ref: \`${refName}\` @ \`${shaShort}\``,
+              `Category: \`${category}\``,
+              `Triage hint: ${triageHint}`,
               "",
               "Failure summary:",
               "```",
@@ -330,10 +381,40 @@ jobs:
             const comment = [
               `Blocking lane failed at ${timestamp}.`,
               `Run: ${runUrl}`,
+              `Category: \`${category}\``,
+              `Hint: ${triageHint}`,
               "",
               "Failed specs (best effort):",
               failedSpecsSection,
             ].join("\n");
+
+            async function ensureLabel(name) {
+              const def = labelDefinitions[name] || labelDefinitions["e2e:unknown"];
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+                try {
+                  await github.rest.issues.createLabel({
+                    owner,
+                    repo,
+                    name,
+                    color: def.color,
+                    description: def.description,
+                  });
+                } catch (createError) {
+                  if (createError.status !== 422) {
+                    throw createError;
+                  }
+                }
+              }
+            }
+
+            for (const label of labels) {
+              await ensureLabel(label);
+            }
 
             const { data: openIssues } = await github.rest.issues.listForRepo({
               owner,
@@ -351,6 +432,12 @@ jobs:
                 title,
                 body,
               });
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: existing.number,
+                labels,
+              });
               await github.rest.issues.createComment({
                 owner,
                 repo,
@@ -363,6 +450,7 @@ jobs:
                 repo,
                 title,
                 body,
+                labels,
               });
             }
 
