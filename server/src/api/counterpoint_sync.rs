@@ -13,7 +13,9 @@ use crate::auth::permissions::SETTINGS_ADMIN;
 use crate::logic::counterpoint_staging;
 use crate::logic::counterpoint_sync::{
     self, build_counterpoint_inventory_verification_report,
-    build_counterpoint_landing_verification_summary, execute_counterpoint_catalog_batch,
+    build_counterpoint_landing_verification_summary,
+    build_counterpoint_open_docs_verification_snapshot,
+    build_counterpoint_transaction_reconciliation_snapshot, execute_counterpoint_catalog_batch,
     execute_counterpoint_category_masters_batch, execute_counterpoint_customer_batch,
     execute_counterpoint_customer_notes_batch, execute_counterpoint_gift_card_batch,
     execute_counterpoint_inventory_batch, execute_counterpoint_loyalty_hist_batch,
@@ -1185,6 +1187,32 @@ async fn settings_landing_verification(
     Ok(Json(json!(summary)))
 }
 
+async fn settings_transaction_reconciliation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let snapshot = build_counterpoint_transaction_reconciliation_snapshot(&state.db)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(json!(snapshot)))
+}
+
+async fn settings_open_docs_verification(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let snapshot = build_counterpoint_open_docs_verification_snapshot(&state.db)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(json!(snapshot)))
+}
+
 #[derive(Deserialize)]
 struct CounterpointResetBody {
     confirmation_phrase: String,
@@ -1287,6 +1315,14 @@ pub fn settings_router() -> Router<AppState> {
             get(settings_inventory_verification),
         )
         .route("/landing-verification", get(settings_landing_verification))
+        .route(
+            "/transaction-reconciliation",
+            get(settings_transaction_reconciliation),
+        )
+        .route(
+            "/open-docs-verification",
+            get(settings_open_docs_verification),
+        )
         .route("/reset-preview", get(settings_reset_preview))
         .route("/reset-baseline", post(settings_reset_execute))
         .route("/request-run", post(settings_request_run))

@@ -162,6 +162,51 @@ interface CounterpointLandingVerificationSummary {
   rows: CounterpointLandingVerificationRow[];
 }
 
+interface CounterpointTransactionReconciliationTotals {
+  imported_ticket_transactions: number;
+  transaction_lines: number;
+  payments: number;
+  transaction_total_sum: string;
+  payment_amount_sum: string;
+  difference: string;
+}
+
+interface CounterpointTransactionReconciliationByDateRow {
+  business_day: string;
+  imported_ticket_transactions: number;
+  transaction_lines: number;
+  payments: number;
+  transaction_total_sum: string;
+  payment_amount_sum: string;
+}
+
+interface CounterpointTransactionReconciliationByPaymentTypeRow {
+  payment_type: string;
+  payments: number;
+  payment_amount_sum: string;
+}
+
+interface CounterpointTransactionReconciliationSnapshot {
+  generated_at: string;
+  disclaimer: string;
+  totals: CounterpointTransactionReconciliationTotals;
+  by_date: CounterpointTransactionReconciliationByDateRow[];
+  by_payment_type: CounterpointTransactionReconciliationByPaymentTypeRow[];
+}
+
+interface CounterpointOpenDocsVerificationSnapshot {
+  generated_at: string;
+  disclaimer: string;
+  imported_open_doc_transactions: number;
+  imported_open_doc_lines: number;
+  imported_open_doc_payments: number;
+  open_docs_with_customer_linked: number;
+  open_docs_missing_customer: number;
+  open_docs_with_zero_lines: number;
+  open_docs_with_zero_payments: number;
+  distinct_staff_attribution_count: number;
+}
+
 /* ── Bridge live status from :3002 ── */
 const BRIDGE_LOCAL_URL = "http://localhost:3002";
 
@@ -245,6 +290,18 @@ function fmtDuration(ms: number | null | undefined): string {
 function fmtNum(n: number | null | undefined): string {
   if (n == null) return "—";
   return n.toLocaleString();
+}
+
+function fmtMoney(value: string | number | null | undefined): string {
+  if (value == null) return "—";
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return n.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function fmtTimeAgo(iso: string | null | undefined): string {
@@ -369,6 +426,13 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [landingVerification, setLandingVerification] =
     useState<CounterpointLandingVerificationSummary | null>(null);
   const [landingVerificationLoading, setLandingVerificationLoading] = useState(false);
+  const [transactionReconciliation, setTransactionReconciliation] =
+    useState<CounterpointTransactionReconciliationSnapshot | null>(null);
+  const [transactionReconciliationLoading, setTransactionReconciliationLoading] =
+    useState(false);
+  const [openDocsVerification, setOpenDocsVerification] =
+    useState<CounterpointOpenDocsVerificationSnapshot | null>(null);
+  const [openDocsVerificationLoading, setOpenDocsVerificationLoading] = useState(false);
 
   const [categoryRows, setCategoryRows] = useState<CategoryMapRow[]>([]);
   const [paymentRows, setPaymentRows] = useState<PaymentMapRow[]>([]);
@@ -524,6 +588,54 @@ export default function CounterpointSyncSettingsPanel(props?: {
     }
   }, [baseUrl, backofficeHeaders, hasPermission]);
 
+  const fetchTransactionReconciliation = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    setTransactionReconciliationLoading(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/transaction-reconciliation`,
+        {
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
+      if (res.ok) {
+        setTransactionReconciliation(
+          (await res.json()) as CounterpointTransactionReconciliationSnapshot,
+        );
+      } else {
+        setTransactionReconciliation(null);
+      }
+    } catch {
+      setTransactionReconciliation(null);
+    } finally {
+      setTransactionReconciliationLoading(false);
+    }
+  }, [baseUrl, backofficeHeaders, hasPermission]);
+
+  const fetchOpenDocsVerification = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    setOpenDocsVerificationLoading(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/open-docs-verification`,
+        {
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
+      if (res.ok) {
+        setOpenDocsVerification(
+          (await res.json()) as CounterpointOpenDocsVerificationSnapshot,
+        );
+      } else {
+        setOpenDocsVerification(null);
+      }
+    } catch {
+      setOpenDocsVerification(null);
+    } finally {
+      setOpenDocsVerificationLoading(false);
+    }
+  }, [baseUrl, backofficeHeaders, hasPermission]);
+
   const fetchBatches = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
     try {
@@ -585,7 +697,15 @@ export default function CounterpointSyncSettingsPanel(props?: {
     void fetchStatus();
     void fetchResetPreview();
     void fetchLandingVerification();
-  }, [fetchStatus, fetchResetPreview, fetchLandingVerification]);
+    void fetchTransactionReconciliation();
+    void fetchOpenDocsVerification();
+  }, [
+    fetchStatus,
+    fetchResetPreview,
+    fetchLandingVerification,
+    fetchTransactionReconciliation,
+    fetchOpenDocsVerification,
+  ]);
 
   useEffect(() => {
     if (tab === "inbound") void fetchBatches();
@@ -671,6 +791,9 @@ export default function CounterpointSyncSettingsPanel(props?: {
         setConfirmApply(null);
         await fetchBatches();
         await fetchStatus();
+        await fetchLandingVerification();
+        await fetchTransactionReconciliation();
+        await fetchOpenDocsVerification();
         if (selectedBatchId === id) {
           setSelectedBatchId(null);
         }
@@ -973,6 +1096,21 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const landingApproximateCount = landingVerificationRows.filter(
     (row) => row.confidence !== "direct",
   ).length;
+  const transactionReconciliationTotals = transactionReconciliation?.totals ?? null;
+  const transactionReconciliationDiff = transactionReconciliationTotals
+    ? Number(transactionReconciliationTotals.difference)
+    : 0;
+  const hasTransactionTotalMismatch =
+    Number.isFinite(transactionReconciliationDiff) &&
+    Math.abs(transactionReconciliationDiff) > 0.005;
+  const transactionReconciliationByDate =
+    transactionReconciliation?.by_date.slice(0, 10) ?? [];
+  const transactionReconciliationByPaymentType =
+    transactionReconciliation?.by_payment_type ?? [];
+  const openDocsWarningCount =
+    (openDocsVerification?.open_docs_missing_customer ?? 0) +
+    (openDocsVerification?.open_docs_with_zero_lines ?? 0) +
+    (openDocsVerification?.open_docs_with_zero_payments ?? 0);
 
   const formatVerificationStatus = (statusValue: string) => {
     if (statusValue === "missing_in_ros") return "Missing in ROS";
@@ -1777,6 +1915,343 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 {!status.token_configured && (
                   <span className="ui-pill bg-amber-500/15 text-amber-800 text-[9px]">COUNTERPOINT_SYNC_TOKEN not set</span>
                 )}
+              </div>
+
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Open Docs / Orders Verification
+                    </h4>
+                    <p className="text-xs text-app-text-muted mt-1 max-w-3xl">
+                      Open docs represent in-progress orders. This is a structural validation, not
+                      financial reconciliation.
+                    </p>
+                    {openDocsVerification?.generated_at ? (
+                      <p className="text-[10px] text-app-text-muted mt-1">
+                        Generated {formatDate(openDocsVerification.generated_at)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={openDocsVerificationLoading}
+                    onClick={() => void fetchOpenDocsVerification()}
+                    className="ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${openDocsVerificationLoading ? "animate-spin" : ""}`}
+                      aria-hidden
+                    />
+                    Refresh open docs
+                  </button>
+                </div>
+
+                {openDocsVerificationLoading && !openDocsVerification ? (
+                  <p className="mt-4 text-xs text-app-text-muted">
+                    Loading open-doc verification…
+                  </p>
+                ) : null}
+
+                {openDocsVerification ? (
+                  <>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-2 mt-4">
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Open docs
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtNum(openDocsVerification.imported_open_doc_transactions)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Lines
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtNum(openDocsVerification.imported_open_doc_lines)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Payments
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtNum(openDocsVerification.imported_open_doc_payments)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Customer linked
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtNum(openDocsVerification.open_docs_with_customer_linked)}
+                        </p>
+                      </div>
+                      <div
+                        className={`rounded-lg border p-3 ${
+                          openDocsVerification.open_docs_missing_customer > 0
+                            ? "border-amber-500/30 bg-amber-500/5"
+                            : "border-app-border bg-app-bg/60"
+                        }`}
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Missing customer
+                        </p>
+                        <p
+                          className={`mt-2 text-lg font-black tabular-nums ${
+                            openDocsVerification.open_docs_missing_customer > 0
+                              ? "text-amber-700 dark:text-amber-200"
+                              : "text-app-text"
+                          }`}
+                        >
+                          {fmtNum(openDocsVerification.open_docs_missing_customer)}
+                        </p>
+                      </div>
+                      <div
+                        className={`rounded-lg border p-3 ${
+                          openDocsVerification.open_docs_with_zero_lines > 0
+                            ? "border-amber-500/30 bg-amber-500/5"
+                            : "border-app-border bg-app-bg/60"
+                        }`}
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Zero lines
+                        </p>
+                        <p
+                          className={`mt-2 text-lg font-black tabular-nums ${
+                            openDocsVerification.open_docs_with_zero_lines > 0
+                              ? "text-amber-700 dark:text-amber-200"
+                              : "text-app-text"
+                          }`}
+                        >
+                          {fmtNum(openDocsVerification.open_docs_with_zero_lines)}
+                        </p>
+                      </div>
+                      <div
+                        className={`rounded-lg border p-3 ${
+                          openDocsVerification.open_docs_with_zero_payments > 0
+                            ? "border-amber-500/30 bg-amber-500/5"
+                            : "border-app-border bg-app-bg/60"
+                        }`}
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Zero payments
+                        </p>
+                        <p
+                          className={`mt-2 text-lg font-black tabular-nums ${
+                            openDocsVerification.open_docs_with_zero_payments > 0
+                              ? "text-amber-700 dark:text-amber-200"
+                              : "text-app-text"
+                          }`}
+                        >
+                          {fmtNum(openDocsVerification.open_docs_with_zero_payments)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Staff attributed
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtNum(openDocsVerification.distinct_staff_attribution_count)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs text-app-text-muted">
+                      <p>{openDocsVerification.disclaimer}</p>
+                      {openDocsWarningCount > 0 ? (
+                        <p className="mt-1 text-amber-700 dark:text-amber-200">
+                          {fmtNum(openDocsWarningCount)} structural warning count(s) need review:
+                          missing customer links, zero-line docs, or zero-payment docs.
+                        </p>
+                      ) : null}
+                    </div>
+                  </>
+                ) : !openDocsVerificationLoading ? (
+                  <p className="mt-4 text-xs text-app-text-muted">
+                    No open-doc verification snapshot is available yet.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Transaction Reconciliation (Preview)
+                    </h4>
+                    <p className="text-xs text-app-text-muted mt-1 max-w-3xl">
+                      Sanity check only for imported Counterpoint ticket transactions. This is not a
+                      financial close, and imported tax is non-authoritative.
+                    </p>
+                    {transactionReconciliation?.generated_at ? (
+                      <p className="text-[10px] text-app-text-muted mt-1">
+                        Generated {formatDate(transactionReconciliation.generated_at)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={transactionReconciliationLoading}
+                    onClick={() => void fetchTransactionReconciliation()}
+                    className="ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${transactionReconciliationLoading ? "animate-spin" : ""}`}
+                      aria-hidden
+                    />
+                    Refresh preview
+                  </button>
+                </div>
+
+                {transactionReconciliationLoading && !transactionReconciliation ? (
+                  <p className="mt-4 text-xs text-app-text-muted">
+                    Loading transaction sanity check…
+                  </p>
+                ) : null}
+
+                {transactionReconciliationTotals ? (
+                  <>
+                    <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2 mt-4">
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Imported tickets
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtNum(transactionReconciliationTotals.imported_ticket_transactions)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Lines
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtNum(transactionReconciliationTotals.transaction_lines)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Payments
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtNum(transactionReconciliationTotals.payments)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Ticket totals
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtMoney(transactionReconciliationTotals.transaction_total_sum)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Payment totals
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                          {fmtMoney(transactionReconciliationTotals.payment_amount_sum)}
+                        </p>
+                      </div>
+                      <div
+                        className={`rounded-lg border p-3 ${
+                          hasTransactionTotalMismatch
+                            ? "border-amber-500/30 bg-amber-500/5"
+                            : "border-app-border bg-app-bg/60"
+                        }`}
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Difference
+                        </p>
+                        <p
+                          className={`mt-2 text-lg font-black tabular-nums ${
+                            hasTransactionTotalMismatch ? "text-amber-700 dark:text-amber-200" : "text-app-text"
+                          }`}
+                        >
+                          {fmtMoney(transactionReconciliationTotals.difference)}
+                        </p>
+                        {hasTransactionTotalMismatch ? (
+                          <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-200">
+                            Totals differ; review as a sanity-check warning.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs text-app-text-muted">
+                      <p>{transactionReconciliation?.disclaimer}</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
+                      <div className="rounded-xl border border-app-border overflow-x-auto">
+                        <table className="w-full min-w-[620px] text-left text-xs">
+                          <thead>
+                            <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
+                              <th className="px-4 py-2">Business day</th>
+                              <th className="px-4 py-2 text-right">Tickets</th>
+                              <th className="px-4 py-2 text-right">Lines</th>
+                              <th className="px-4 py-2 text-right">Payments</th>
+                              <th className="px-4 py-2 text-right">Ticket total</th>
+                              <th className="px-4 py-2 text-right">Payment total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-app-border">
+                            {transactionReconciliationByDate.map((row) => (
+                              <tr key={row.business_day} className="hover:bg-app-surface/20 transition-colors">
+                                <td className="px-4 py-2.5 font-bold text-app-text">{row.business_day}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{fmtNum(row.imported_ticket_transactions)}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{fmtNum(row.transaction_lines)}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{fmtNum(row.payments)}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{fmtMoney(row.transaction_total_sum)}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{fmtMoney(row.payment_amount_sum)}</td>
+                              </tr>
+                            ))}
+                            {transactionReconciliationByDate.length === 0 ? (
+                              <tr>
+                                <td className="px-4 py-3 text-app-text-muted" colSpan={6}>
+                                  No imported ticket days found.
+                                </td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="rounded-xl border border-app-border overflow-x-auto">
+                        <table className="w-full min-w-[420px] text-left text-xs">
+                          <thead>
+                            <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
+                              <th className="px-4 py-2">Payment type</th>
+                              <th className="px-4 py-2 text-right">Payments</th>
+                              <th className="px-4 py-2 text-right">Payment total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-app-border">
+                            {transactionReconciliationByPaymentType.map((row) => (
+                              <tr key={row.payment_type} className="hover:bg-app-surface/20 transition-colors">
+                                <td className="px-4 py-2.5 font-bold text-app-text">{row.payment_type}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{fmtNum(row.payments)}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums">{fmtMoney(row.payment_amount_sum)}</td>
+                              </tr>
+                            ))}
+                            {transactionReconciliationByPaymentType.length === 0 ? (
+                              <tr>
+                                <td className="px-4 py-3 text-app-text-muted" colSpan={3}>
+                                  No imported ticket payments found.
+                                </td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                ) : !transactionReconciliationLoading ? (
+                  <p className="mt-4 text-xs text-app-text-muted">
+                    No transaction sanity-check snapshot is available yet.
+                  </p>
+                ) : null}
               </div>
 
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">

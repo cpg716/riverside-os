@@ -876,6 +876,56 @@ pub struct CounterpointLandingVerificationSummary {
     pub rows: Vec<CounterpointLandingVerificationRow>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CounterpointTransactionReconciliationTotals {
+    pub imported_ticket_transactions: i64,
+    pub transaction_lines: i64,
+    pub payments: i64,
+    pub transaction_total_sum: String,
+    pub payment_amount_sum: String,
+    pub difference: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointTransactionReconciliationByDateRow {
+    pub business_day: NaiveDate,
+    pub imported_ticket_transactions: i64,
+    pub transaction_lines: i64,
+    pub payments: i64,
+    pub transaction_total_sum: String,
+    pub payment_amount_sum: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointTransactionReconciliationByPaymentTypeRow {
+    pub payment_type: String,
+    pub payments: i64,
+    pub payment_amount_sum: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointTransactionReconciliationSnapshot {
+    pub generated_at: DateTime<Utc>,
+    pub disclaimer: String,
+    pub totals: CounterpointTransactionReconciliationTotals,
+    pub by_date: Vec<CounterpointTransactionReconciliationByDateRow>,
+    pub by_payment_type: Vec<CounterpointTransactionReconciliationByPaymentTypeRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointOpenDocsVerificationSnapshot {
+    pub generated_at: DateTime<Utc>,
+    pub disclaimer: String,
+    pub imported_open_doc_transactions: i64,
+    pub imported_open_doc_lines: i64,
+    pub imported_open_doc_payments: i64,
+    pub open_docs_with_customer_linked: i64,
+    pub open_docs_missing_customer: i64,
+    pub open_docs_with_zero_lines: i64,
+    pub open_docs_with_zero_payments: i64,
+    pub distinct_staff_attribution_count: i64,
+}
+
 const HEARTBEAT_TTL_SECONDS: i64 = 120;
 
 pub async fn get_sync_status(
@@ -1127,6 +1177,227 @@ pub async fn build_counterpoint_landing_verification_summary(
             landing_row("open_doc_lines", "Open-doc lines", open_doc_lines, "direct", "transaction_lines attached to CP open-doc transactions"),
             landing_row("receiving_history", "Receiving history rows", receiving_history, "direct", "counterpoint_receiving_history rows"),
         ],
+    })
+}
+
+pub async fn build_counterpoint_transaction_reconciliation_snapshot(
+    pool: &PgPool,
+) -> Result<CounterpointTransactionReconciliationSnapshot, CounterpointSyncError> {
+    let (
+        imported_ticket_transactions,
+        transaction_lines,
+        payments,
+        transaction_total_sum,
+        payment_amount_sum,
+    ): (i64, i64, i64, Decimal, Decimal) = sqlx::query_as(
+        r#"
+        WITH ticket_tx AS (
+            SELECT id, total_price
+            FROM transactions
+            WHERE counterpoint_ticket_ref IS NOT NULL
+        )
+        SELECT
+            (SELECT COUNT(*)::bigint FROM ticket_tx) AS imported_ticket_transactions,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_lines tl
+                INNER JOIN ticket_tx t ON t.id = tl.transaction_id
+            ) AS transaction_lines,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_allocations pa
+                INNER JOIN ticket_tx t ON t.id = pa.target_transaction_id
+            ) AS payments,
+            COALESCE((SELECT SUM(total_price) FROM ticket_tx), 0)::numeric AS transaction_total_sum,
+            COALESCE((
+                SELECT SUM(pa.amount_allocated)
+                FROM payment_allocations pa
+                INNER JOIN ticket_tx t ON t.id = pa.target_transaction_id
+            ), 0)::numeric AS payment_amount_sum
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let by_date_raw: Vec<(NaiveDate, i64, i64, i64, Decimal, Decimal)> = sqlx::query_as(
+        r#"
+        WITH ticket_tx AS (
+            SELECT
+                id,
+                (booked_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_day,
+                total_price
+            FROM transactions
+            WHERE counterpoint_ticket_ref IS NOT NULL
+        ),
+        tx_totals AS (
+            SELECT
+                business_day,
+                COUNT(*)::bigint AS imported_ticket_transactions,
+                COALESCE(SUM(total_price), 0)::numeric AS transaction_total_sum
+            FROM ticket_tx
+            GROUP BY business_day
+        ),
+        line_totals AS (
+            SELECT t.business_day, COUNT(*)::bigint AS transaction_lines
+            FROM ticket_tx t
+            INNER JOIN transaction_lines tl ON tl.transaction_id = t.id
+            GROUP BY t.business_day
+        ),
+        payment_totals AS (
+            SELECT
+                t.business_day,
+                COUNT(*)::bigint AS payments,
+                COALESCE(SUM(pa.amount_allocated), 0)::numeric AS payment_amount_sum
+            FROM ticket_tx t
+            INNER JOIN payment_allocations pa ON pa.target_transaction_id = t.id
+            GROUP BY t.business_day
+        )
+        SELECT
+            tx.business_day,
+            tx.imported_ticket_transactions,
+            COALESCE(lt.transaction_lines, 0)::bigint AS transaction_lines,
+            COALESCE(pt.payments, 0)::bigint AS payments,
+            tx.transaction_total_sum,
+            COALESCE(pt.payment_amount_sum, 0)::numeric AS payment_amount_sum
+        FROM tx_totals tx
+        LEFT JOIN line_totals lt ON lt.business_day = tx.business_day
+        LEFT JOIN payment_totals pt ON pt.business_day = tx.business_day
+        ORDER BY tx.business_day DESC
+        LIMIT 45
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let by_payment_type_raw: Vec<(String, i64, Decimal)> = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(NULLIF(TRIM(pt.payment_method), ''), 'unknown') AS payment_type,
+            COUNT(*)::bigint AS payments,
+            COALESCE(SUM(pa.amount_allocated), 0)::numeric AS payment_amount_sum
+        FROM payment_allocations pa
+        INNER JOIN transactions t ON t.id = pa.target_transaction_id
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        WHERE t.counterpoint_ticket_ref IS NOT NULL
+        GROUP BY 1
+        ORDER BY payment_amount_sum DESC, payment_type ASC
+        LIMIT 25
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(CounterpointTransactionReconciliationSnapshot {
+        generated_at: Utc::now(),
+        disclaimer: "Read-only Counterpoint ticket transaction sanity check. Imported tax is non-authoritative; this is not full accounting reconciliation or financial close.".into(),
+        totals: CounterpointTransactionReconciliationTotals {
+            imported_ticket_transactions,
+            transaction_lines,
+            payments,
+            transaction_total_sum: transaction_total_sum.to_string(),
+            payment_amount_sum: payment_amount_sum.to_string(),
+            difference: (transaction_total_sum - payment_amount_sum).to_string(),
+        },
+        by_date: by_date_raw
+            .into_iter()
+            .map(
+                |(
+                    business_day,
+                    imported_ticket_transactions,
+                    transaction_lines,
+                    payments,
+                    transaction_total_sum,
+                    payment_amount_sum,
+                )| CounterpointTransactionReconciliationByDateRow {
+                    business_day,
+                    imported_ticket_transactions,
+                    transaction_lines,
+                    payments,
+                    transaction_total_sum: transaction_total_sum.to_string(),
+                    payment_amount_sum: payment_amount_sum.to_string(),
+                },
+            )
+            .collect(),
+        by_payment_type: by_payment_type_raw
+            .into_iter()
+            .map(
+                |(payment_type, payments, payment_amount_sum)| {
+                    CounterpointTransactionReconciliationByPaymentTypeRow {
+                        payment_type,
+                        payments,
+                        payment_amount_sum: payment_amount_sum.to_string(),
+                    }
+                },
+            )
+            .collect(),
+    })
+}
+
+pub async fn build_counterpoint_open_docs_verification_snapshot(
+    pool: &PgPool,
+) -> Result<CounterpointOpenDocsVerificationSnapshot, CounterpointSyncError> {
+    let (
+        imported_open_doc_transactions,
+        imported_open_doc_lines,
+        imported_open_doc_payments,
+        open_docs_with_customer_linked,
+        open_docs_missing_customer,
+        open_docs_with_zero_lines,
+        open_docs_with_zero_payments,
+        distinct_staff_attribution_count,
+    ): (i64, i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        r#"
+        WITH open_doc_tx AS (
+            SELECT id, customer_id, processed_by_staff_id, primary_salesperson_id
+            FROM transactions
+            WHERE counterpoint_doc_ref IS NOT NULL
+        ),
+        line_counts AS (
+            SELECT t.id, COUNT(tl.id)::bigint AS line_count
+            FROM open_doc_tx t
+            LEFT JOIN transaction_lines tl ON tl.transaction_id = t.id
+            GROUP BY t.id
+        ),
+        payment_counts AS (
+            SELECT t.id, COUNT(pa.transaction_id)::bigint AS payment_count
+            FROM open_doc_tx t
+            LEFT JOIN payment_allocations pa ON pa.target_transaction_id = t.id
+            GROUP BY t.id
+        ),
+        staff_refs AS (
+            SELECT processed_by_staff_id AS staff_id
+            FROM open_doc_tx
+            WHERE processed_by_staff_id IS NOT NULL
+            UNION
+            SELECT primary_salesperson_id AS staff_id
+            FROM open_doc_tx
+            WHERE primary_salesperson_id IS NOT NULL
+        )
+        SELECT
+            (SELECT COUNT(*)::bigint FROM open_doc_tx) AS imported_open_doc_transactions,
+            (SELECT COALESCE(SUM(line_count), 0)::bigint FROM line_counts) AS imported_open_doc_lines,
+            (SELECT COALESCE(SUM(payment_count), 0)::bigint FROM payment_counts) AS imported_open_doc_payments,
+            (SELECT COUNT(*)::bigint FROM open_doc_tx WHERE customer_id IS NOT NULL) AS open_docs_with_customer_linked,
+            (SELECT COUNT(*)::bigint FROM open_doc_tx WHERE customer_id IS NULL) AS open_docs_missing_customer,
+            (SELECT COUNT(*)::bigint FROM line_counts WHERE line_count = 0) AS open_docs_with_zero_lines,
+            (SELECT COUNT(*)::bigint FROM payment_counts WHERE payment_count = 0) AS open_docs_with_zero_payments,
+            (SELECT COUNT(*)::bigint FROM staff_refs) AS distinct_staff_attribution_count
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(CounterpointOpenDocsVerificationSnapshot {
+        generated_at: Utc::now(),
+        disclaimer: "Open docs represent in-progress orders. This is a structural validation, not financial reconciliation.".into(),
+        imported_open_doc_transactions,
+        imported_open_doc_lines,
+        imported_open_doc_payments,
+        open_docs_with_customer_linked,
+        open_docs_missing_customer,
+        open_docs_with_zero_lines,
+        open_docs_with_zero_payments,
+        distinct_staff_attribution_count,
     })
 }
 
