@@ -56,6 +56,44 @@ type RuntimeDiagnosticsSnapshot = {
   items: RuntimeDiagnosticItem[];
 };
 
+type E2eFailurePlaybookItem = {
+  category: string;
+  recommended_next_action: string;
+};
+
+type E2eLaneStatus = {
+  lane_key: string;
+  purpose: string;
+  workflow_name: string;
+  job_name: string;
+  run_id: number | null;
+  run_number: number | null;
+  html_url: string | null;
+  status: string | null;
+  conclusion: string | null;
+  last_run_outcome: string;
+  started_at: string | null;
+  completed_at: string | null;
+  failed_specs: string[];
+  failure_category: string | null;
+  recommended_next_action: string | null;
+};
+
+type E2eHealthSource = {
+  mode: string;
+  stale: boolean;
+  cache_age_seconds: number | null;
+  notes: string[];
+};
+
+type E2eHealthSnapshot = {
+  generated_at: string;
+  source: E2eHealthSource;
+  blocking: E2eLaneStatus;
+  nightly: E2eLaneStatus;
+  playbook: E2eFailurePlaybookItem[];
+};
+
 type StationRow = {
   station_key: string;
   station_label: string;
@@ -148,6 +186,19 @@ function infoBadgeClass(severity: string): string {
     return "bg-app-danger/12 text-app-danger border border-app-danger/30";
   }
   return "bg-app-info/12 text-app-info border border-app-info/30";
+}
+
+function laneOutcomeClass(outcome: string): string {
+  if (outcome === "success") {
+    return "bg-app-success/12 text-app-success border border-app-success/30";
+  }
+  if (outcome === "failure") {
+    return "bg-app-danger/12 text-app-danger border border-app-danger/30";
+  }
+  if (outcome === "in_progress") {
+    return "bg-app-warning/12 text-app-warning border border-app-warning/30";
+  }
+  return "bg-app-bg text-app-text-muted border border-app-border";
 }
 
 const STATION_PAGE_SIZE = 10;
@@ -252,6 +303,8 @@ export default function RosDevCenterPanel({
   const [bugsOverview, setBugsOverview] = useState<BugOverviewRow[]>([]);
   const [runtimeDiagnostics, setRuntimeDiagnostics] =
     useState<RuntimeDiagnosticsSnapshot | null>(null);
+  const [e2eHealth, setE2eHealth] = useState<E2eHealthSnapshot | null>(null);
+  const [e2eHealthLoading, setE2eHealthLoading] = useState(false);
 
   const [actionBusy, setActionBusy] = useState<GuardedActionKey | null>(null);
   const [actionReason, setActionReason] = useState("");
@@ -272,6 +325,28 @@ export default function RosDevCenterPanel({
 
   const canView = hasPermission("ops.dev_center.view");
   const canRunActions = hasPermission("ops.dev_center.actions");
+
+  const loadE2eHealth = useCallback(
+    async (providedHeaders?: Record<string, string>) => {
+      if (!canView) return;
+      setE2eHealthLoading(true);
+      try {
+        const headers =
+          providedHeaders ?? (backofficeHeaders() as Record<string, string>);
+        const res = await fetch(`${baseUrl}/api/ops/e2e-health`, { headers });
+        if (!res.ok) {
+          setE2eHealth(null);
+          return;
+        }
+        setE2eHealth((await res.json()) as E2eHealthSnapshot);
+      } catch {
+        setE2eHealth(null);
+      } finally {
+        setE2eHealthLoading(false);
+      }
+    },
+    [backofficeHeaders, canView],
+  );
 
   const loadAll = useCallback(async () => {
     if (!canView) return;
@@ -307,13 +382,28 @@ export default function RosDevCenterPanel({
 
   useEffect(() => {
     void loadAll();
-  }, [loadAll]);
+    void loadE2eHealth();
+  }, [loadAll, loadE2eHealth]);
+
+  const refreshBusy = loading || e2eHealthLoading;
 
   const openAlerts = useMemo(
     () => alerts.filter((a) => a.status === "open" || a.status === "acked"),
     [alerts],
   );
   const apiBaseDiagnostics = useMemo(() => getBaseUrlDiagnostics(), []);
+  const e2ePlaybook = useMemo(
+    () =>
+      e2eHealth?.playbook?.length
+        ? e2eHealth.playbook.map((item) => ({
+            category: item.category,
+            nextAction: item.recommended_next_action,
+          }))
+        : E2E_FAILURE_PLAYBOOK,
+    [e2eHealth],
+  );
+  const blockingLane = e2eHealth?.blocking ?? null;
+  const nightlyLane = e2eHealth?.nightly ?? null;
   const stationTotalPages = pageCount(stations.length, STATION_PAGE_SIZE);
   const alertTotalPages = pageCount(openAlerts.length, ALERT_PAGE_SIZE);
   const visibleStations = useMemo(
@@ -497,11 +587,14 @@ export default function RosDevCenterPanel({
         </div>
         <button
           type="button"
-          onClick={() => void loadAll()}
-          disabled={loading}
+          onClick={() => {
+            void loadAll();
+            void loadE2eHealth();
+          }}
+          disabled={refreshBusy}
           className="ui-btn-ghost px-4 py-2 text-xs font-black uppercase tracking-widest"
         >
-          {loading ? (
+          {refreshBusy ? (
             <RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />
           ) : (
             <RefreshCw className="mr-2 inline h-4 w-4" />
@@ -629,9 +722,38 @@ export default function RosDevCenterPanel({
           </h3>
         </div>
         <p className="text-sm text-app-text-muted">
-          Phase 1 policy/documentation view only. This section explains lane intent,
-          local run commands, and failure triage guidance.
+          Live lane telemetry with operational run commands and failure triage
+          guidance.
         </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span
+            className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${
+              e2eHealth?.source.mode === "live"
+                ? "border border-app-success/30 bg-app-success/12 text-app-success"
+                : "border border-app-warning/30 bg-app-warning/12 text-app-warning"
+            }`}
+          >
+            Source:{" "}
+            {e2eHealth?.source.mode ?? (e2eHealthLoading ? "loading" : "unavailable")}
+          </span>
+          <span className="rounded-full border border-app-border bg-app-bg px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Last sync:{" "}
+            {e2eHealth?.generated_at
+              ? fmtTs(e2eHealth.generated_at)
+              : e2eHealthLoading
+                ? "Loading"
+                : "-"}
+          </span>
+        </div>
+
+        {e2eHealth?.source.notes?.length ? (
+          <div className="mt-3 space-y-2 rounded-xl border border-app-warning/30 bg-app-warning/10 p-3 text-xs text-app-warning">
+            {e2eHealth.source.notes.map((note) => (
+              <p key={note}>{note}</p>
+            ))}
+          </div>
+        ) : null}
 
         <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
           <div className="ui-metric-cell ui-tint-neutral p-4">
@@ -639,8 +761,9 @@ export default function RosDevCenterPanel({
               Blocking lane purpose
             </p>
             <p className="mt-2 text-sm font-bold text-app-text">
-              High-signal financial, tax, register, audit, and core navigation contracts.
-              Must pass for merge.
+              {blockingLane?.purpose ??
+                "High-signal financial, tax, register, audit, and core navigation contracts."}
+              {" "}Must pass for merge.
             </p>
           </div>
           <div className="ui-metric-cell ui-tint-neutral p-4">
@@ -648,10 +771,76 @@ export default function RosDevCenterPanel({
               Nightly lane purpose
             </p>
             <p className="mt-2 text-sm font-bold text-app-text">
-              Broader responsiveness and full-suite coverage (including visuals) for
-              drift detection without PR blocking.
+              {nightlyLane?.purpose ??
+                "Broader responsiveness and full-suite coverage (including visuals) for drift detection without PR blocking."}
             </p>
           </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {[
+            { label: "Blocking lane", lane: blockingLane },
+            { label: "Nightly lane", lane: nightlyLane },
+          ].map(({ label, lane }) => (
+            <div key={label} className="ui-metric-cell ui-tint-neutral p-4">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-black text-app-text">{label}</p>
+                <span
+                  className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${laneOutcomeClass(
+                    lane?.last_run_outcome ?? "unknown",
+                  )}`}
+                >
+                  {(lane?.last_run_outcome ?? "unknown").replace("_", " ")}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-app-text-muted">
+                Run:{" "}
+                {lane?.run_number ? `#${lane.run_number}` : "-"}
+                {lane?.html_url ? (
+                  <>
+                    {" "}
+                    •{" "}
+                    <a
+                      href={lane.html_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-black text-app-accent underline-offset-2 hover:underline"
+                    >
+                      open
+                    </a>
+                  </>
+                ) : null}
+              </p>
+              <p className="mt-1 text-xs text-app-text-muted">
+                Started: {fmtTs(lane?.started_at ?? null)} • Completed:{" "}
+                {fmtTs(lane?.completed_at ?? null)}
+              </p>
+              {lane?.failure_category ? (
+                <p className="mt-2 text-xs text-app-warning">
+                  Category: <span className="font-black">{lane.failure_category}</span>
+                </p>
+              ) : null}
+              {lane?.recommended_next_action ? (
+                <p className="mt-1 text-xs text-app-text-muted">
+                  Next action: {lane.recommended_next_action}
+                </p>
+              ) : null}
+              {lane?.failed_specs.length ? (
+                <div className="mt-2 rounded-lg border border-app-border/60 bg-app-bg/40 p-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Failed specs
+                  </p>
+                  <div className="mt-1 space-y-1">
+                    {(lane?.failed_specs ?? []).map((spec) => (
+                      <p key={spec} className="font-mono text-[11px] text-app-text">
+                        {spec}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ))}
         </div>
 
         <div className="mt-4 rounded-xl border border-app-border/60 bg-app-bg/30 p-4">
@@ -673,7 +862,7 @@ export default function RosDevCenterPanel({
             Common failure categories and next action
           </p>
           <div className="mt-2 space-y-2">
-            {E2E_FAILURE_PLAYBOOK.map((item) => (
+            {e2ePlaybook.map((item) => (
               <div key={item.category} className="ui-metric-cell ui-tint-neutral p-3">
                 <p className="text-xs font-black uppercase tracking-wider text-app-text">
                   {item.category}
@@ -685,8 +874,9 @@ export default function RosDevCenterPanel({
         </div>
 
         <p className="mt-4 text-xs text-app-text-muted">
-          Live last run status and failed specs are not connected yet. Planned for
-          Phase 2.
+          Phase 2 contract: lane telemetry is fetched from{" "}
+          <code>/api/ops/e2e-health</code>. If unavailable, this card stays in
+          degraded mode and the rest of Dev Center remains usable.
         </p>
         <p className="mt-1 text-xs text-app-text-muted">
           Reference: <code>docs/E2E_REGRESSION_MATRIX.md</code>

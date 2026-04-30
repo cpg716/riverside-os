@@ -108,6 +108,16 @@ async fn get_runtime_diagnostics(
     Ok(Json(snapshot))
 }
 
+async fn get_e2e_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ops_dev_center::E2eHealthSnapshot>, Response> {
+    let _ = require_view(&state, &headers).await?;
+    Ok(Json(
+        ops_dev_center::e2e_health_snapshot(&state.http_client).await,
+    ))
+}
+
 async fn post_station_heartbeat(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -378,6 +388,7 @@ pub fn router() -> Router<AppState> {
         .route("/overview", get(get_ops_overview))
         .route("/integrations", get(get_ops_integrations))
         .route("/runtime-diagnostics", get(get_runtime_diagnostics))
+        .route("/e2e-health", get(get_e2e_health))
         .route("/stations", get(get_ops_stations))
         .route("/stations/heartbeat", post(post_station_heartbeat))
         .route("/alerts", get(get_ops_alerts))

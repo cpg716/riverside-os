@@ -1,8 +1,11 @@
 //! ROS Dev Center v1 domain logic (ops health, stations, alerts, actions, bug overlays).
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
+use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -161,6 +164,138 @@ pub struct GuardedActionResult {
     pub data: Value,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct E2eFailurePlaybookItem {
+    pub category: String,
+    pub recommended_next_action: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct E2eLaneStatus {
+    pub lane_key: String,
+    pub purpose: String,
+    pub workflow_name: String,
+    pub job_name: String,
+    pub run_id: Option<i64>,
+    pub run_number: Option<i64>,
+    pub html_url: Option<String>,
+    pub status: Option<String>,
+    pub conclusion: Option<String>,
+    pub last_run_outcome: String,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub failed_specs: Vec<String>,
+    pub failure_category: Option<String>,
+    pub recommended_next_action: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct E2eHealthSource {
+    pub mode: String,
+    pub stale: bool,
+    pub cache_age_seconds: Option<u64>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct E2eHealthSnapshot {
+    pub generated_at: DateTime<Utc>,
+    pub source: E2eHealthSource,
+    pub blocking: E2eLaneStatus,
+    pub nightly: E2eLaneStatus,
+    pub playbook: Vec<E2eFailurePlaybookItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubWorkflowRunsResponse {
+    #[serde(default)]
+    workflow_runs: Vec<GithubWorkflowRun>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct GithubWorkflowRun {
+    id: i64,
+    #[serde(default)]
+    run_number: i64,
+    #[serde(default)]
+    html_url: Option<String>,
+    #[serde(default)]
+    event: Option<String>,
+    #[serde(default)]
+    updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubJobsResponse {
+    #[serde(default)]
+    jobs: Vec<GithubJob>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct GithubJob {
+    id: i64,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    conclusion: Option<String>,
+    #[serde(default)]
+    started_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    completed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    steps: Vec<GithubJobStep>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct GithubJobStep {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    conclusion: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum E2eLaneKey {
+    Blocking,
+    Nightly,
+}
+
+impl E2eLaneKey {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Blocking => "blocking",
+            Self::Nightly => "nightly",
+        }
+    }
+
+    fn job_name(self) -> &'static str {
+        match self {
+            Self::Blocking => "Playwright Blocking Lane",
+            Self::Nightly => "Playwright Nightly Lane",
+        }
+    }
+
+    fn purpose(self) -> &'static str {
+        match self {
+            Self::Blocking => {
+                "High-signal financial, tax, register, audit, and core navigation contracts."
+            }
+            Self::Nightly => {
+                "Broader responsiveness and full-suite coverage (including visuals) for drift detection without PR blocking."
+            }
+        }
+    }
+
+    fn is_run_match(self, event: &str) -> bool {
+        match self {
+            Self::Blocking => event != "schedule",
+            Self::Nightly => event == "schedule",
+        }
+    }
+}
+
 fn backup_overdue_hours() -> i64 {
     std::env::var("RIVERSIDE_BACKUP_OVERDUE_HOURS")
         .ok()
@@ -237,6 +372,358 @@ pub fn ops_retention_config_from_env() -> OpsRetentionConfig {
             7,
             3650,
         ),
+    }
+}
+
+fn e2e_failure_playbook() -> Vec<E2eFailurePlaybookItem> {
+    vec![
+        E2eFailurePlaybookItem {
+            category: "app startup".to_string(),
+            recommended_next_action:
+                "Confirm API/UI stack is reachable on expected ports, then rerun one blocking spec before changing tests."
+                    .to_string(),
+        },
+        E2eFailurePlaybookItem {
+            category: "auth/seed data".to_string(),
+            recommended_next_action:
+                "Re-run seed/migration steps and verify expected staff/session fixtures before triaging selectors."
+                    .to_string(),
+        },
+        E2eFailurePlaybookItem {
+            category: "selector/UI contract".to_string(),
+            recommended_next_action:
+                "Reproduce with a single spec in headed mode, verify data-testid/role contract, and patch the smallest stable locator."
+                    .to_string(),
+        },
+        E2eFailurePlaybookItem {
+            category: "financial/audit contract".to_string(),
+            recommended_next_action:
+                "Treat as release-blocking and inspect API payload/status deltas first, then confirm money/audit invariants."
+                    .to_string(),
+        },
+        E2eFailurePlaybookItem {
+            category: "flaky/timing".to_string(),
+            recommended_next_action:
+                "Replace broad waits with deterministic readiness checks and rerun serially to isolate state timing."
+                    .to_string(),
+        },
+    ]
+}
+
+fn recommended_action_for_category(category: &str) -> Option<String> {
+    e2e_failure_playbook()
+        .into_iter()
+        .find(|item| item.category == category)
+        .map(|item| item.recommended_next_action)
+}
+
+fn empty_lane_status(lane: E2eLaneKey) -> E2eLaneStatus {
+    E2eLaneStatus {
+        lane_key: lane.as_str().to_string(),
+        purpose: lane.purpose().to_string(),
+        workflow_name: "Playwright E2E".to_string(),
+        job_name: lane.job_name().to_string(),
+        run_id: None,
+        run_number: None,
+        html_url: None,
+        status: None,
+        conclusion: None,
+        last_run_outcome: "unknown".to_string(),
+        started_at: None,
+        completed_at: None,
+        failed_specs: Vec::new(),
+        failure_category: None,
+        recommended_next_action: None,
+    }
+}
+
+fn lane_outcome(status: Option<&str>, conclusion: Option<&str>) -> String {
+    let status = status.unwrap_or("unknown");
+    if status != "completed" {
+        return "in_progress".to_string();
+    }
+    match conclusion.unwrap_or("unknown") {
+        "success" => "success".to_string(),
+        "failure" | "cancelled" | "timed_out" | "startup_failure" | "action_required" => {
+            "failure".to_string()
+        }
+        _ => "unknown".to_string(),
+    }
+}
+
+fn classify_failure_category(
+    lane: E2eLaneKey,
+    failed_step_name: Option<&str>,
+    failed_specs: &[String],
+) -> String {
+    let step = failed_step_name.unwrap_or("").to_ascii_lowercase();
+    if step.contains("start api server")
+        || step.contains("install psql")
+        || step.contains("apply sql migrations")
+        || step.contains("download frontend bundle")
+        || step.contains("verify e2e test-support routes")
+    {
+        return "app startup".to_string();
+    }
+    if step.contains("seed ")
+        || step.contains("open default register session")
+        || step.contains("backoffice")
+        || step.contains("auth")
+    {
+        return "auth/seed data".to_string();
+    }
+
+    if failed_specs.iter().any(|spec| {
+        matches!(
+            spec.as_str(),
+            "e2e/checkout-tender-financial-contract.spec.ts"
+                | "e2e/tax-audit-contract.spec.ts"
+                | "e2e/commission-audit-contract.spec.ts"
+                | "e2e/inventory-audit-contract.spec.ts"
+                | "e2e/register-audit-contract.spec.ts"
+                | "e2e/register-close-reconciliation.spec.ts"
+                | "e2e/offline-recovery-contract.spec.ts"
+                | "e2e/qbo-audit-contract.spec.ts"
+                | "e2e/tender-matrix-contract.spec.ts"
+        )
+    }) {
+        return "financial/audit contract".to_string();
+    }
+
+    if failed_specs
+        .iter()
+        .any(|spec| spec.contains("ui-") || spec.contains("settings-") || spec.contains("pos-"))
+    {
+        return "selector/UI contract".to_string();
+    }
+
+    match lane {
+        E2eLaneKey::Blocking => "flaky/timing".to_string(),
+        E2eLaneKey::Nightly => "flaky/timing".to_string(),
+    }
+}
+
+fn parse_failed_specs_from_job_logs(logs: &str) -> Vec<String> {
+    let mut found = BTreeSet::new();
+    for line in logs.lines() {
+        let trimmed = line.trim_start();
+        let is_failure_row = trimmed
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+            && trimmed.contains(") ");
+        if !is_failure_row {
+            continue;
+        }
+        let marker = "› e2e/";
+        let Some(marker_idx) = line.find(marker) else {
+            continue;
+        };
+        let spec_start = marker_idx + "› ".len();
+        let rest = &line[spec_start..];
+        let end = rest
+            .find(':')
+            .or_else(|| rest.find(' '))
+            .unwrap_or(rest.len());
+        let candidate = rest[..end].trim();
+        if candidate.ends_with(".spec.ts") {
+            found.insert(candidate.to_string());
+        }
+    }
+    found.into_iter().collect()
+}
+
+fn github_repo_from_env() -> Option<String> {
+    nonempty_env("RIVERSIDE_OPS_E2E_GITHUB_REPO")
+}
+
+fn github_token_from_env() -> Option<String> {
+    nonempty_env("RIVERSIDE_OPS_E2E_GITHUB_TOKEN")
+}
+
+fn github_telemetry_timeout() -> StdDuration {
+    let timeout_ms = env_i64_range("RIVERSIDE_OPS_E2E_GITHUB_TIMEOUT_MS", 8000, 1000, 30000);
+    StdDuration::from_millis(timeout_ms as u64)
+}
+
+async fn github_get_json<T: for<'de> Deserialize<'de>>(
+    http_client: &reqwest::Client,
+    url: &str,
+    token: &str,
+) -> Result<T, String> {
+    let res = http_client
+        .get(url)
+        .timeout(github_telemetry_timeout())
+        .header(USER_AGENT, "riverside-ops-dev-center")
+        .header(ACCEPT, "application/vnd.github+json")
+        .header(AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| format!("GitHub request failed: {e}"))?;
+
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(format!(
+            "GitHub HTTP {status}: {}",
+            body.chars().take(240).collect::<String>()
+        ));
+    }
+
+    res.json::<T>()
+        .await
+        .map_err(|e| format!("GitHub JSON parse failed: {e}"))
+}
+
+async fn github_get_text(
+    http_client: &reqwest::Client,
+    url: &str,
+    token: &str,
+) -> Result<String, String> {
+    let res = http_client
+        .get(url)
+        .timeout(github_telemetry_timeout())
+        .header(USER_AGENT, "riverside-ops-dev-center")
+        .header(ACCEPT, "application/vnd.github+json")
+        .header(AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| format!("GitHub logs request failed: {e}"))?;
+
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(format!(
+            "GitHub logs HTTP {status}: {}",
+            body.chars().take(240).collect::<String>()
+        ));
+    }
+
+    let bytes = res
+        .bytes()
+        .await
+        .map_err(|e| format!("GitHub logs bytes failed: {e}"))?;
+    Ok(String::from_utf8_lossy(&bytes).to_string())
+}
+
+async fn build_lane_from_github(
+    http_client: &reqwest::Client,
+    repo: &str,
+    token: &str,
+    lane: E2eLaneKey,
+) -> Result<E2eLaneStatus, String> {
+    let mut lane_status = empty_lane_status(lane);
+    let runs_url = format!(
+        "https://api.github.com/repos/{repo}/actions/workflows/playwright-e2e.yml/runs?per_page=40"
+    );
+    let runs_resp: GithubWorkflowRunsResponse =
+        github_get_json(http_client, &runs_url, token).await?;
+
+    let Some(run) = runs_resp
+        .workflow_runs
+        .iter()
+        .find(|run| lane.is_run_match(run.event.as_deref().unwrap_or_default()))
+        .cloned()
+    else {
+        return Ok(lane_status);
+    };
+
+    lane_status.run_id = Some(run.id);
+    lane_status.run_number = Some(run.run_number);
+    lane_status.html_url = run.html_url.clone();
+
+    let jobs_url = format!(
+        "https://api.github.com/repos/{repo}/actions/runs/{}/jobs?per_page=100",
+        run.id
+    );
+    let jobs_resp: GithubJobsResponse = github_get_json(http_client, &jobs_url, token).await?;
+
+    let Some(job) = jobs_resp
+        .jobs
+        .iter()
+        .find(|job| job.name == lane.job_name())
+        .cloned()
+    else {
+        return Ok(lane_status);
+    };
+
+    lane_status.status = job.status.clone();
+    lane_status.conclusion = job.conclusion.clone();
+    lane_status.started_at = job.started_at;
+    lane_status.completed_at = job.completed_at.or(run.updated_at);
+    lane_status.last_run_outcome = lane_outcome(job.status.as_deref(), job.conclusion.as_deref());
+
+    if lane_status.last_run_outcome == "failure" {
+        let logs_url = format!(
+            "https://api.github.com/repos/{repo}/actions/jobs/{}/logs",
+            job.id
+        );
+        let parsed_specs = match github_get_text(http_client, &logs_url, token).await {
+            Ok(logs) => parse_failed_specs_from_job_logs(&logs),
+            Err(_) => Vec::new(),
+        };
+        lane_status.failed_specs = parsed_specs;
+
+        let failed_step_name = job
+            .steps
+            .iter()
+            .find(|step| step.conclusion.as_deref() == Some("failure"))
+            .map(|step| step.name.as_str());
+        let category = classify_failure_category(lane, failed_step_name, &lane_status.failed_specs);
+        lane_status.recommended_next_action = recommended_action_for_category(&category);
+        lane_status.failure_category = Some(category);
+    }
+
+    Ok(lane_status)
+}
+
+pub async fn e2e_health_snapshot(http_client: &reqwest::Client) -> E2eHealthSnapshot {
+    let generated_at = Utc::now();
+    let playbook = e2e_failure_playbook();
+    let mut notes: Vec<String> = Vec::new();
+    let mut mode = "live".to_string();
+    let repo = github_repo_from_env();
+    let token = github_token_from_env();
+
+    let mut blocking = empty_lane_status(E2eLaneKey::Blocking);
+    let mut nightly = empty_lane_status(E2eLaneKey::Nightly);
+
+    if repo.is_none() || token.is_none() {
+        mode = "degraded".to_string();
+        notes.push(
+            "GitHub telemetry is not configured. Set RIVERSIDE_OPS_E2E_GITHUB_REPO and RIVERSIDE_OPS_E2E_GITHUB_TOKEN."
+                .to_string(),
+        );
+    } else if let (Some(repo), Some(token)) = (repo, token) {
+        match build_lane_from_github(http_client, &repo, &token, E2eLaneKey::Blocking).await {
+            Ok(lane) => blocking = lane,
+            Err(err) => {
+                mode = "degraded".to_string();
+                notes.push(format!("Blocking lane telemetry unavailable: {err}"));
+            }
+        }
+
+        match build_lane_from_github(http_client, &repo, &token, E2eLaneKey::Nightly).await {
+            Ok(lane) => nightly = lane,
+            Err(err) => {
+                mode = "degraded".to_string();
+                notes.push(format!("Nightly lane telemetry unavailable: {err}"));
+            }
+        }
+    }
+
+    E2eHealthSnapshot {
+        generated_at,
+        source: E2eHealthSource {
+            mode,
+            stale: false,
+            cache_age_seconds: Some(0),
+            notes,
+        },
+        blocking,
+        nightly,
+        playbook,
     }
 }
 
