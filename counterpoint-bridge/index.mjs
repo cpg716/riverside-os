@@ -1377,6 +1377,14 @@ function normalizeRowKeys(row) {
   return out;
 }
 
+function throwIfBatchFailures(entity, failures, postedRows, sourceRows) {
+  if (failures.length === 0) return;
+  const first = failures[0]?.message ?? String(failures[0] ?? "unknown error");
+  throw new Error(
+    `[${entity}] ${failures.length} batch post(s) failed; ${postedRows}/${sourceRows} row(s) posted. First failure: ${first}`,
+  );
+}
+
 async function syncReceivingHistory(pool) {
   if (!String(effectiveSql.receiving_history ?? "").trim()) {
     console.warn("[receiving_history] CP_RECEIVING_HISTORY_QUERY empty; skip");
@@ -1393,6 +1401,8 @@ async function syncReceivingHistory(pool) {
     const RECV_BATCH = 50;
     const CONCURRENCY = 2;
     const pendingRequests = [];
+    const failures = [];
+    let postedRows = 0;
 
     console.info(`[receiving_history] sending ${rows.length} rows (batch=${RECV_BATCH}, parallel=${CONCURRENCY})...`);
 
@@ -1416,9 +1426,11 @@ async function syncReceivingHistory(pool) {
       const promise = rosPost("receiving_history", body)
         .then((summary) => {
           console.info("[receiving_history] batch", summary);
+          postedRows += chunk.length;
         })
         .catch((err) => {
           console.error("[receiving_history] batch failed:", err.message);
+          failures.push(err);
         })
         .finally(() => {
           pendingRequests.splice(pendingRequests.indexOf(promise), 1);
@@ -1430,9 +1442,11 @@ async function syncReceivingHistory(pool) {
       }
     }
     await Promise.all(pendingRequests);
-    return rows.length;
+    throwIfBatchFailures("receiving_history", failures, postedRows, rows.length);
+    return postedRows;
   } catch (err) {
     console.error("[receiving_history] sync failed:", err?.message ?? err);
+    throw err;
   }
 }
 
@@ -1641,7 +1655,9 @@ async function syncCustomers(pool) {
 
   const mapped = rows.map((row) => mapCustomerRow(normalizeRowKeys(row))).filter((r) => r.cust_no);
   const pendingRequests = [];
-  let inFlight = 0;
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
 
   for (let i = 0; i < mapped.length; i += CUSTOMER_BATCH) {
     const chunk = mapped.slice(i, i + CUSTOMER_BATCH);
@@ -1654,13 +1670,12 @@ async function syncCustomers(pool) {
     const promise = rosPost("customers", body)
       .then((summary) => {
         console.info("[customers] batch", summary);
-        if (last) {
-          state.customers_cursor = last;
-          writeState(state);
-        }
+        postedRows += chunk.length;
+        if (last) lastSuccessfulCursor = last;
       })
       .catch((err) => {
         console.error("[customers] batch failed:", err.message);
+        failures.push(err);
       })
       .finally(() => {
         pendingRequests.splice(pendingRequests.indexOf(promise), 1);
@@ -1672,7 +1687,12 @@ async function syncCustomers(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return mapped.length;
+  throwIfBatchFailures("customers", failures, postedRows, mapped.length);
+  if (lastSuccessfulCursor) {
+    state.customers_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 async function syncInventory(pool) {
@@ -1689,6 +1709,9 @@ async function syncInventory(pool) {
   const INV_BATCH = 400;
   const MAX_CONCURRENCY = 5;
   const pendingRequests = [];
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
 
   for (let i = 0; i < mapped.length; i += INV_BATCH) {
     const chunk = mapped.slice(i, i + INV_BATCH);
@@ -1700,11 +1723,12 @@ async function syncInventory(pool) {
     const promise = rosPost("inventory", body)
       .then((summary) => {
         console.info("[inventory] batch", summary);
-        state.inventory_cursor = String(i + chunk.length);
-        writeState(state);
+        postedRows += chunk.length;
+        lastSuccessfulCursor = String(i + chunk.length);
       })
       .catch((err) => {
         console.error("[inventory] batch failed:", err.message);
+        failures.push(err);
       })
       .finally(() => {
         pendingRequests.splice(pendingRequests.indexOf(promise), 1);
@@ -1716,7 +1740,12 @@ async function syncInventory(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return mapped.length;
+  throwIfBatchFailures("inventory", failures, postedRows, mapped.length);
+  if (lastSuccessfulCursor) {
+    state.inventory_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 function mapCategoryMasterRow(r) {
@@ -1739,6 +1768,7 @@ async function syncCategoryMasters(pool) {
   }
   logToDashboard(`[category_masters] SQL returned ${rows.length} category(s)`);
   console.info("[category_masters] SQL returned", rows.length, "row(s); sending in batches of", BATCH);
+  let postedRows = 0;
   for (let i = 0; i < rows.length; i += BATCH) {
     const chunk = rows.slice(i, i + BATCH);
     const last = chunk[chunk.length - 1]?.cp_category;
@@ -1748,8 +1778,9 @@ async function syncCategoryMasters(pool) {
     };
     const summary = await rosPost("category_masters", body);
     console.info("[category_masters] batch", summary);
+    postedRows += chunk.length;
   }
-  return rows.length;
+  return postedRows;
 }
 
 async function syncCatalog(pool) {
@@ -1804,9 +1835,12 @@ async function syncCatalog(pool) {
   let batchBuffer = [];
   let totalProcessed = 0;
   let totalRowsReceived = 0;
+  let totalMappedRows = 0;
   let skippedDuplicates = 0;
   let inFlight = 0;
   const pendingRequests = [];
+  const failures = [];
+  let lastSuccessfulCursor = null;
 
   return new Promise((resolve, reject) => {
     const request = pool.request();
@@ -1828,6 +1862,7 @@ async function syncCatalog(pool) {
       const mapped = mapCatalogRow(normalized, cellLookup[itemNo] ?? []);
 
       if (mapped.item_no) {
+        totalMappedRows++;
         batchBuffer.push(mapped);
         if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
           const chunk = [...batchBuffer];
@@ -1844,15 +1879,13 @@ async function syncCatalog(pool) {
                 logToDashboard(`[catalog] ingest: ${totalProcessed} items processed...`);
                 console.info(`[catalog] progress: ${totalProcessed} items (skipped ${skippedDuplicates} duplicates)...`);
               }
-              if (last) {
-                state.catalog_cursor = last;
-                writeState(state);
-              }
+              if (last) lastSuccessfulCursor = last;
               inFlight--;
               if (inFlight < MAX_CONCURRENCY) request.resume();
             })
             .catch((err) => {
               console.error("[catalog] batch failed:", err.message);
+              failures.push(err);
               inFlight--;
               if (inFlight < MAX_CONCURRENCY) request.resume();
             });
@@ -1869,14 +1902,27 @@ async function syncCatalog(pool) {
     request.on("done", async () => {
       try {
         if (batchBuffer.length > 0) {
-          const last = batchBuffer[batchBuffer.length - 1].item_no;
-          pendingRequests.push(rosPost("catalog", { rows: batchBuffer, sync: { entity: "catalog", cursor: last } }));
-          if (last) {
-            state.catalog_cursor = last;
-            writeState(state);
-          }
+          const chunk = [...batchBuffer];
+          const last = chunk[chunk.length - 1].item_no;
+          pendingRequests.push(
+            rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } })
+              .then((summary) => {
+                console.info("[catalog] batch", summary);
+                totalProcessed += chunk.length;
+                if (last) lastSuccessfulCursor = last;
+              })
+              .catch((err) => {
+                console.error("[catalog] batch failed:", err.message);
+                failures.push(err);
+              }),
+          );
         }
         await Promise.all(pendingRequests);
+        throwIfBatchFailures("catalog", failures, totalProcessed, totalMappedRows);
+        if (lastSuccessfulCursor) {
+          state.catalog_cursor = lastSuccessfulCursor;
+          writeState(state);
+        }
         logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
         console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
         resolve(totalProcessed);
@@ -1920,7 +1966,9 @@ async function syncGiftCards(pool) {
   logToDashboard(`[gift_cards] SQL returned ${mapped.length} card(s)`);
   const CONCURRENCY = 2;
   const pendingRequests = [];
-  let inFlight = 0;
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
   console.info("[gift_cards] SQL returned", mapped.length, "card(s); sending with parallel-concurrency=5");
 
   const state = readState();
@@ -1935,13 +1983,12 @@ async function syncGiftCards(pool) {
     const promise = rosPost("gift_cards", body)
       .then((summary) => {
         console.info("[gift_cards] batch", summary);
-        if (last) {
-          state.gift_cards_cursor = last;
-          writeState(state);
-        }
+        postedRows += chunk.length;
+        if (last) lastSuccessfulCursor = last;
       })
       .catch((err) => {
         console.error("[gift_cards] batch failed:", err.message);
+        failures.push(err);
       })
       .finally(() => {
         pendingRequests.splice(pendingRequests.indexOf(promise), 1);
@@ -1953,7 +2000,12 @@ async function syncGiftCards(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return mapped.length;
+  throwIfBatchFailures("gift_cards", failures, postedRows, mapped.length);
+  if (lastSuccessfulCursor) {
+    state.gift_cards_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 async function syncTickets(pool) {
@@ -2021,6 +2073,7 @@ async function syncTickets(pool) {
       const nr = normalizeRowKeys(row);
       const ref = String(nr.tkt_no ?? nr.ticket_ref ?? "").trim();
       if (!ref) continue;
+      if (!giftLookup[ref]) giftLookup[ref] = [];
       giftLookup[ref].push(nr);
     }
   }
@@ -2089,6 +2142,9 @@ async function syncTickets(pool) {
   console.info(`[tickets] Processing mapped headers (batch=${TICKET_BATCH}, concurrency=${TICKET_CONCURRENCY})...`);
   const state = readState();
   const pendingRequests = [];
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
 
   for (let i = 0; i < mapped.length; i += TICKET_BATCH) {
     const chunk = mapped.slice(i, i + TICKET_BATCH);
@@ -2101,13 +2157,12 @@ async function syncTickets(pool) {
     const promise = rosPost("tickets", body)
       .then((summary) => {
         console.info("[tickets] batch", summary);
-        if (last) {
-          state.tickets_cursor = last;
-          writeState(state);
-        }
+        postedRows += chunk.length;
+        if (last) lastSuccessfulCursor = last;
       })
       .catch((err) => {
         console.error("[tickets] batch failed:", err.message);
+        failures.push(err);
       })
       .finally(() => {
         pendingRequests.splice(pendingRequests.indexOf(promise), 1);
@@ -2119,7 +2174,12 @@ async function syncTickets(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return recordCount;
+  throwIfBatchFailures("tickets", failures, postedRows, recordCount);
+  if (lastSuccessfulCursor) {
+    state.tickets_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 async function syncStoreCreditOpening(pool) {
@@ -2152,7 +2212,9 @@ async function syncStoreCreditOpening(pool) {
   const state = readState();
   const CONCURRENCY = 2;
   const pendingRequests = [];
-  let inFlight = 0;
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
 
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
@@ -2165,13 +2227,12 @@ async function syncStoreCreditOpening(pool) {
     const promise = rosPost("store_credit_opening", body)
       .then((summary) => {
         console.info("[store_credit_opening] batch", summary);
-        if (last) {
-          state.store_credit_opening_cursor = last;
-          writeState(state);
-        }
+        postedRows += chunk.length;
+        if (last) lastSuccessfulCursor = last;
       })
       .catch((err) => {
         console.error("[store_credit_opening] batch failed:", err.message);
+        failures.push(err);
       })
       .finally(() => {
         pendingRequests.splice(pendingRequests.indexOf(promise), 1);
@@ -2183,7 +2244,12 @@ async function syncStoreCreditOpening(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return mapped.length;
+  throwIfBatchFailures("store_credit_opening", failures, postedRows, mapped.length);
+  if (lastSuccessfulCursor) {
+    state.store_credit_opening_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 async function syncOpenDocs(pool) {
@@ -2251,7 +2317,9 @@ async function syncOpenDocs(pool) {
   const state = readState();
   const CONCURRENCY = 2;
   const pendingRequests = [];
-  let inFlight = 0;
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
 
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
@@ -2264,13 +2332,12 @@ async function syncOpenDocs(pool) {
     const promise = rosPost("open_docs", body)
       .then((summary) => {
         console.info("[open_docs] batch", summary);
-        if (last) {
-          state.open_docs_cursor = last;
-          writeState(state);
-        }
+        postedRows += chunk.length;
+        if (last) lastSuccessfulCursor = last;
       })
       .catch((err) => {
         console.error("[open_docs] batch failed:", err.message);
+        failures.push(err);
       })
       .finally(() => {
         pendingRequests.splice(pendingRequests.indexOf(promise), 1);
@@ -2282,7 +2349,12 @@ async function syncOpenDocs(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return recordCount;
+  throwIfBatchFailures("open_docs", failures, postedRows, recordCount);
+  if (lastSuccessfulCursor) {
+    state.open_docs_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 async function syncLoyaltyHist(pool) {
@@ -2325,6 +2397,8 @@ async function syncLoyaltyHist(pool) {
 
   const CONCURRENCY = 2;
   const pendingRequests = [];
+  const failures = [];
+  let postedRows = 0;
 
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
@@ -2336,9 +2410,11 @@ async function syncLoyaltyHist(pool) {
     const promise = rosPost("loyalty_hist", body)
       .then((summary) => {
         console.info("[loyalty_hist] batch", summary);
+        postedRows += chunk.length;
       })
       .catch((err) => {
         console.error("[loyalty_hist] batch failed:", err.message);
+        failures.push(err);
       })
       .finally(() => {
         pendingRequests.splice(pendingRequests.indexOf(promise), 1);
@@ -2350,7 +2426,8 @@ async function syncLoyaltyHist(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return recordCount;
+  throwIfBatchFailures("loyalty_hist", failures, postedRows, recordCount);
+  return postedRows;
 }
 
 async function syncVendorItems(pool) {
@@ -2384,15 +2461,22 @@ async function syncVendorItems(pool) {
   const CONCURRENCY = 2;
   const pendingRequests = [];
   const state = readState();
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
 
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
-    const body = { rows: chunk, sync: { entity: "vendor_items", cursor: String(i + chunk.length) } };
+    const cursor = String(i + chunk.length);
+    const body = { rows: chunk, sync: { entity: "vendor_items", cursor } };
 
     const promise = rosPost("vendor_items", body).then(summary => {
       console.info("[vendor_items] batch", summary);
-      state.vendor_items_cursor = String(i + chunk.length);
-      writeState(state);
+      postedRows += chunk.length;
+      lastSuccessfulCursor = cursor;
+    }).catch(err => {
+      console.error("[vendor_items] batch failed:", err.message);
+      failures.push(err);
     }).finally(() => {
       pendingRequests.splice(pendingRequests.indexOf(promise), 1);
     });
@@ -2403,7 +2487,12 @@ async function syncVendorItems(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return mapped.length;
+  throwIfBatchFailures("vendor_items", failures, postedRows, mapped.length);
+  if (lastSuccessfulCursor) {
+    state.vendor_items_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 async function syncVendors(pool) {
@@ -2446,6 +2535,9 @@ async function syncVendors(pool) {
   const CONCURRENCY = 2;
   const pendingRequests = [];
   const state = readState();
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
 
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
@@ -2454,9 +2546,11 @@ async function syncVendors(pool) {
 
     const promise = rosPost("vendors", body).then(summary => {
       console.info("[vendors] batch", summary);
-      if (last) { state.vendors_cursor = last; writeState(state); }
+      postedRows += chunk.length;
+      if (last) lastSuccessfulCursor = last;
     }).catch(err => {
       console.error("[vendors] batch failed:", err.message);
+      failures.push(err);
     }).finally(() => {
       pendingRequests.splice(pendingRequests.indexOf(promise), 1);
     });
@@ -2467,7 +2561,12 @@ async function syncVendors(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return recordCount;
+  throwIfBatchFailures("vendors", failures, postedRows, recordCount);
+  if (lastSuccessfulCursor) {
+    state.vendors_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 async function syncCustomerNotes(pool) {
@@ -2496,15 +2595,22 @@ async function syncCustomerNotes(pool) {
   const CONCURRENCY = 2;
   const pendingRequests = [];
   const state = readState();
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
 
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
-    const body = { rows: chunk, sync: { entity: "customer_notes", cursor: String(i + chunk.length) } };
+    const cursor = String(i + chunk.length);
+    const body = { rows: chunk, sync: { entity: "customer_notes", cursor } };
 
     const promise = rosPost("customer_notes", body).then(summary => {
       console.info("[customer_notes] batch", summary);
-      state.customer_notes_cursor = String(i + chunk.length);
-      writeState(state);
+      postedRows += chunk.length;
+      lastSuccessfulCursor = cursor;
+    }).catch(err => {
+      console.error("[customer_notes] batch failed:", err.message);
+      failures.push(err);
     }).finally(() => {
       pendingRequests.splice(pendingRequests.indexOf(promise), 1);
     });
@@ -2515,7 +2621,12 @@ async function syncCustomerNotes(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return mapped.length;
+  throwIfBatchFailures("customer_notes", failures, postedRows, mapped.length);
+  if (lastSuccessfulCursor) {
+    state.customer_notes_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 async function syncStaff(pool) {
@@ -2587,15 +2698,22 @@ async function syncStaff(pool) {
   const CONCURRENCY = 2;
   const pendingRequests = [];
   const state = readState();
+  const failures = [];
+  let postedRows = 0;
+  let lastSuccessfulCursor = null;
 
   for (let i = 0; i < allRows.length; i += BATCH) {
     const chunk = allRows.slice(i, i + BATCH);
-    const body = { rows: chunk, sync: { entity: "staff", cursor: String(i + chunk.length) } };
+    const cursor = String(i + chunk.length);
+    const body = { rows: chunk, sync: { entity: "staff", cursor } };
 
     const promise = rosPost("staff", body).then(summary => {
       console.info("[staff] batch", summary);
-      state.staff_cursor = String(i + chunk.length);
-      writeState(state);
+      postedRows += chunk.length;
+      lastSuccessfulCursor = cursor;
+    }).catch(err => {
+      console.error("[staff] batch failed:", err.message);
+      failures.push(err);
     }).finally(() => {
       pendingRequests.splice(pendingRequests.indexOf(promise), 1);
     });
@@ -2606,7 +2724,12 @@ async function syncStaff(pool) {
     }
   }
   await Promise.all(pendingRequests);
-  return allRows.length;
+  throwIfBatchFailures("staff", failures, postedRows, allRows.length);
+  if (lastSuccessfulCursor) {
+    state.staff_cursor = lastSuccessfulCursor;
+    writeState(state);
+  }
+  return postedRows;
 }
 
 /**
@@ -2994,6 +3117,7 @@ async function runSyncEntity(entityLabel, fn) {
       durationMs: dur,
     };
     pushEvent('error', entityLabel, msg, { durationMs: dur });
+    throw e;
   }
 }
 
