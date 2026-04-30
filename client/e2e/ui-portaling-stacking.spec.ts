@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator } from "@playwright/test";
 import {
   signInToBackOffice,
   openBackofficeSidebarTab,
@@ -24,6 +24,33 @@ async function getTransactionDisplayId(
   expect(detailRes.status(), detailText).toBe(200);
   const detail = JSON.parse(detailText) as { transaction_display_id?: string | null };
   return detail.transaction_display_id ?? transactionId;
+}
+
+async function ownsPointerAtCenter(target: Locator): Promise<boolean> {
+  return target.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return false;
+    }
+    const centerX = Math.min(
+      Math.max(rect.left + rect.width / 2, 0),
+      Math.max(window.innerWidth - 1, 0),
+    );
+    const centerY = Math.min(
+      Math.max(rect.top + rect.height / 2, 0),
+      Math.max(window.innerHeight - 1, 0),
+    );
+    const topElement = document.elementFromPoint(centerX, centerY);
+    return Boolean(topElement && (topElement === node || node.contains(topElement)));
+  });
+}
+
+async function readNumericZIndex(target: Locator): Promise<number> {
+  return target.evaluate((node) => {
+    const z = window.getComputedStyle(node).zIndex;
+    const value = Number.parseInt(z, 10);
+    return Number.isFinite(value) ? value : 0;
+  });
 }
 
 test.describe("UI Portaling and Stacking", () => {
@@ -117,12 +144,28 @@ test.describe("UI Portaling and Stacking", () => {
     // The modal is portaled to #drawer-root. It should be visible and above the drawer.
     const refundModal = page.getByRole("dialog", { name: /Process refund/i });
     await expect(refundModal).toBeVisible({ timeout: 10_000 });
+    await expect(refundModal).toBeInViewport();
+
+    const refundBackdrop = page.locator(".ui-overlay-backdrop", { has: refundModal }).first();
+    await expect(refundBackdrop).toBeVisible();
+    const [drawerZ, refundZ] = await Promise.all([
+      readNumericZIndex(drawer),
+      readNumericZIndex(refundBackdrop),
+    ]);
+    expect(refundZ).toBeGreaterThan(drawerZ);
 
     // Verify it's interactive (not blocked by drawer backdrop or layering)
     const amountInput = refundModal.getByLabel(/Amount/i);
     await expect(amountInput).toBeVisible();
+    await expect(amountInput).toBeInViewport();
     await amountInput.fill("10.00");
     await expect(amountInput).toHaveValue("10.00");
+    expect(await ownsPointerAtCenter(amountInput)).toBe(true);
+
+    // Background drawer controls should be visible but not pointer-targetable while modal is active.
+    const drawerClose = drawer.locator("header").getByRole("button", { name: /Close drawer/i });
+    await expect(drawerClose).toBeVisible();
+    expect(await ownsPointerAtCenter(drawerClose)).toBe(false);
 
     // Close and verify drawer is still there
     await refundModal.getByRole("button", { name: /Cancel/i }).click();
@@ -193,9 +236,8 @@ test.describe("UI Portaling and Stacking", () => {
     await expect(drawer).toBeVisible();
   });
 
-  test("Confirmation modal appears on top of Exchange Wizard", async ({
+  test("Exchange wizard overlay stays top-layer and blocks background actions", async ({
     page,
-    request,
   }) => {
     test.setTimeout(120_000);
     await signInToBackOffice(page, { persistSession: true });
@@ -215,26 +257,21 @@ test.describe("UI Portaling and Stacking", () => {
     await expect(trigger).toBeVisible({ timeout: 15_000 });
     await trigger.click();
 
-    const wizard = page.getByTestId("pos-exchange-wizard-dialog");
-    await expect(wizard).toBeVisible({ timeout: 15_000 });
+    const wizardOverlay = page.getByTestId("pos-exchange-wizard-dialog");
+    await expect(wizardOverlay).toBeVisible({ timeout: 15_000 });
+    await expect(wizardOverlay).toBeInViewport();
 
-    // Try to close it (should trigger confirmation if we've interacted, or just close if not)
-    // To ensure confirmation, let's type something in the search if available
-    const searchInput = wizard.getByPlaceholder(/search by transaction id/i);
-    if (await searchInput.isVisible()) {
-      await searchInput.fill("TXN-123");
-    }
+    const closeBtn = wizardOverlay.getByRole("button", { name: /close/i }).first();
+    await expect(closeBtn).toBeVisible();
+    await expect(closeBtn).toBeInViewport();
+    expect(await ownsPointerAtCenter(closeBtn)).toBe(true);
 
-    const closeBtn = wizard.getByRole("button", { name: /close/i }).first();
+    // The background trigger remains rendered but should not be pointer-targetable while overlay is active.
+    await expect(trigger).toBeVisible();
+    expect(await ownsPointerAtCenter(trigger)).toBe(false);
+
     await closeBtn.click();
-
-    // The Exchange Wizard has a CloseConfirmation if items were added or logic was started.
-    // Actually, let's just verify it's interactive.
-    // If it closes immediately, that's also fine for a smoke test of visibility.
-    // But let's check for ConfirmationModal if we can trigger it.
-    
-    // For now, let's verify POS-level portals like RegisterRequiredModal
-    // (We can trigger this by trying to pay without an open session, but sessions are usually open in E2E)
+    await expect(wizardOverlay).toBeHidden();
   });
 
   test("Stock Adjustment modal appears on top of Product Hub drawer", async ({
@@ -250,8 +287,12 @@ test.describe("UI Portaling and Stacking", () => {
     await expect(manageButton).toBeVisible({ timeout: 30_000 });
     await manageButton.click();
 
-    const hubDrawer = page.getByRole("dialog").filter({ hasText: /Item Identity|General|Stock Status/i }).last();
+    const hubDrawer = page
+      .getByRole("dialog")
+      .filter({ hasText: /Item Identity|General|Stock Status/i })
+      .last();
     await expect(hubDrawer).toBeVisible({ timeout: 15_000 });
+    await expect(hubDrawer).toBeInViewport();
 
     // 2. Trigger Stock Adjustment modal from the BOARD (behind the drawer)
     // Actually, we can't easily click the board if the drawer is modal.
@@ -265,14 +306,29 @@ test.describe("UI Portaling and Stacking", () => {
 
     // Trigger adjustment modal
     const adjustBtn = page.getByRole("button", { name: /quick adjust|adjust/i }).first();
-    if (await adjustBtn.isVisible()) {
-      await adjustBtn.click();
-      const adjustModal = page.getByText(/Stock Adjustment/i);
-      await expect(adjustModal).toBeVisible();
-      
-      // Verify it's in the drawer-root
-      const drawerRoot = page.locator("#drawer-root");
-      await expect(drawerRoot.locator(adjustModal)).toBeVisible();
-    }
+    await expect(adjustBtn).toBeVisible();
+    await adjustBtn.click();
+
+    const drawerRoot = page.locator("#drawer-root");
+    const adjustOverlay = drawerRoot
+      .locator(".ui-overlay-backdrop", { has: page.locator(".ui-modal", { hasText: /Stock Adjustment/i }) })
+      .first();
+    await expect(adjustOverlay).toBeVisible({ timeout: 10_000 });
+    const adjustModal = adjustOverlay.locator(".ui-modal").first();
+    await expect(adjustModal).toBeVisible();
+    await expect(adjustModal).toBeInViewport();
+
+    // `adjustOverlay` is already scoped to #drawer-root and visible.
+
+    const reasonInput = adjustModal.getByPlaceholder(/count was off by one/i);
+    await expect(reasonInput).toBeVisible();
+    await expect(reasonInput).toBeInViewport();
+    await reasonInput.fill("E2E stock adjust overlay check");
+    await expect(reasonInput).toHaveValue("E2E stock adjust overlay check");
+
+    // Background board action should be rendered but not pointer-targetable while modal is active.
+    const refreshInventory = page.getByRole("button", { name: /Refresh Inventory/i });
+    await expect(refreshInventory).toBeVisible();
+    expect(await ownsPointerAtCenter(refreshInventory)).toBe(false);
   });
 });
