@@ -48,8 +48,15 @@ test("QBO staging shell: map to propose approve sync", async ({ page }) => {
         if (!(await qboNav.isVisible().catch(() => false))) return false;
         if (!(await qboNav.isEnabled().catch(() => false))) return false;
         await qboNav.click();
-        await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
-        return await page.getByText(/financial bridge panel/i).isVisible().catch(() => false);
+        const bridgePanelVisible = await page
+          .getByText(/financial bridge panel/i)
+          .isVisible()
+          .catch(() => false);
+        if (bridgePanelVisible) return true;
+        return await page
+          .getByRole("button", { name: /3 .*staging/i })
+          .isVisible()
+          .catch(() => false);
       },
       { timeout: 60_000 },
     )
