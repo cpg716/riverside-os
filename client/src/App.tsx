@@ -115,6 +115,33 @@ const INVENTORY_SECTION_KEYS = new Set([
   "intelligence",
 ]);
 
+const SETTINGS_SECTION_KEYS = new Set(
+  SIDEBAR_SUB_SECTIONS.settings
+    .filter((sub) => sub.kind !== "group")
+    .map((sub) => sub.id),
+);
+
+const SETTINGS_DEFAULT_SECTION = "hub";
+
+function parseSettingsPathname(pathname: string): {
+  section: string;
+  normalizedPath: string;
+} | null {
+  const collapsed = pathname.replace(/\/{2,}/g, "/");
+  const trimmed = collapsed.replace(/\/+$/, "") || "/";
+  const parts = trimmed.split("/").filter(Boolean);
+  if (parts[0]?.toLowerCase() !== "settings") return null;
+  const candidate = parts[1]?.trim().toLowerCase() || "";
+  const section = SETTINGS_SECTION_KEYS.has(candidate)
+    ? candidate
+    : SETTINGS_DEFAULT_SECTION;
+  return {
+    section,
+    normalizedPath:
+      section === SETTINGS_DEFAULT_SECTION ? "/settings" : `/settings/${section}`,
+  };
+}
+
 function App() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<SidebarTabId>("home");
@@ -280,16 +307,31 @@ function App() {
     }
   }, []);
 
-  /** Deep link for staff manuals / MCP capture: open POS shell after session bootstrap. */
+  /**
+   * Path-based shell entry:
+   * - `/pos` opens POS shell.
+   * - `/settings` and `/settings/:section` open Settings with section normalization.
+   */
   useEffect(() => {
     if (loading) return;
+    const settingsRoute = parseSettingsPathname(window.location.pathname);
+    if (settingsRoute) {
+      enterBackofficeShell("settings", settingsRoute.section);
+      const normalizedUrl = `${settingsRoute.normalizedPath}${window.location.search}${window.location.hash}`;
+      const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (currentUrl !== normalizedUrl) {
+        window.history.replaceState({}, "", normalizedUrl);
+      }
+      return;
+    }
+
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
     if (path === "/pos") {
       setPosMode(true);
       setInsightsMode(false);
       setActiveTab("register");
     }
-  }, [loading]);
+  }, [loading, enterBackofficeShell]);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
