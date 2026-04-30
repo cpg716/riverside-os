@@ -1457,22 +1457,52 @@ export default function CounterpointSyncSettingsPanel(props?: {
       {tab === "status" && (
         <>
           <div className="mb-4 rounded-xl border border-app-border bg-app-surface-2/40 p-3">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Status Sections
+                </p>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  Switch views here. All bridge controls, verification cards, run details, and reset tools are still available.
+                </p>
+              </div>
+              <span className="ui-pill bg-app-warning/15 text-app-warning text-[9px]">
+                Viewing {STATUS_SECTIONS.find((section) => section.key === statusSection)?.label}
+              </span>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-              {STATUS_SECTIONS.map((section) => {
+              {STATUS_SECTIONS.map((section, index) => {
                 const active = statusSection === section.key;
                 return (
                   <button
                     key={section.key}
                     type="button"
+                    aria-pressed={active}
                     onClick={() => setStatusSection(section.key)}
                     className={`rounded-lg border p-3 text-left transition-colors ${
                       active
-                        ? "border-app-warning/40 bg-app-warning/15 text-app-text"
-                        : "border-app-border bg-app-bg/40 text-app-text-muted hover:bg-app-surface/40"
+                        ? "border-app-warning/60 bg-app-warning/15 text-app-text shadow-sm"
+                        : "border-app-border bg-app-bg/40 text-app-text-muted hover:border-app-warning/30 hover:bg-app-surface/50 hover:text-app-text"
                     }`}
                   >
-                    <span className="block text-[10px] font-black uppercase tracking-widest">
-                      {section.label}
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-black ${
+                            active
+                              ? "border-app-warning/50 bg-app-warning/20 text-app-warning"
+                              : "border-app-border bg-app-surface/50 text-app-text-muted"
+                          }`}
+                        >
+                          {index + 1}
+                        </span>
+                        <span className="text-[10px] font-black uppercase tracking-widest">
+                          {section.label}
+                        </span>
+                      </span>
+                      <span className={`text-[9px] font-black uppercase tracking-widest ${active ? "text-app-warning" : "text-app-text-muted"}`}>
+                        {active ? "Viewing" : "Open"}
+                      </span>
                     </span>
                     <span className="mt-1 block text-[10px] leading-snug">
                       {section.description}
@@ -1582,6 +1612,37 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     <p className={`text-lg font-black tabular-nums ${Object.values(bridgeLive.entityStats || {}).filter(s => s.error).length ? "text-app-danger" : "text-app-text-muted"}`}>
                       {Object.values(bridgeLive.entityStats || {}).filter(s => s.error).length}
                     </p>
+                  </div>
+                </div>
+                <div className="mt-4 rounded-xl border border-app-border bg-app-bg/60 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Next Steps
+                  </p>
+                  <p className="mt-1 text-xs text-app-text-muted">
+                    After a bridge run, use these sections to prove the data landed and review any issues.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStatusSection("signoff")}
+                      className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Open Sign-off Checklist
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusSection("details")}
+                      className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Open Run Details
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusSection("advanced")}
+                      className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Open Advanced / Reset
+                    </button>
                   </div>
                 </div>
               </div>
@@ -2086,9 +2147,9 @@ export default function CounterpointSyncSettingsPanel(props?: {
               {!bridgeOnline && bridgeFailCount >= 3 && (
                 <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 mb-4 text-center">
                   <WifiOff className="h-10 w-10 text-red-500/50 mx-auto mb-3" />
-                  <p className="font-bold text-app-text">Bridge unreachable at localhost:3002</p>
+                  <p className="font-bold text-app-text">Bridge controls are not reachable on this workstation</p>
                   <p className="text-xs text-app-text-muted mt-1 mb-4">
-                    Automatic checking stopped after 3 attempts.
+                    Automatic checking stopped after 3 attempts to reach the local bridge control port.
                   </p>
                   <button
                     type="button"
@@ -2105,10 +2166,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 mb-4 flex items-start gap-3">
                 <WifiOff className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" aria-hidden />
                 <div className="text-xs">
-                  <p className="font-bold text-app-text">Bridge not reachable at localhost:3002</p>
+                  <p className="font-bold text-app-text">Bridge controls are not reachable on this workstation</p>
                   <p className="text-app-text-muted mt-1">
-                    Start the Counterpoint bridge to review one-time import scope, rerun warnings,
-                    record counts, and import controls.
+                    The panel checks the bridge control port on 127.0.0.1:3002 and localhost:3002.
+                    ROS heartbeat below can still show online when the Windows bridge is posting to the server.
                   </p>
                 </div>
               </div>

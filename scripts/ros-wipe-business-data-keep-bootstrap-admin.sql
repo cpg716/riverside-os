@@ -84,7 +84,7 @@ DELETE FROM shipment_event;
 DELETE FROM shipment;
 
 -- Storefront / online account
-DELETE FROM order_coupon_redemptions;
+DELETE FROM transaction_coupon_redemptions;
 DELETE FROM customer_online_credential;
 DELETE FROM store_guest_cart_line;
 DELETE FROM store_guest_cart;
@@ -106,7 +106,7 @@ DELETE FROM staff_weekly_availability;
 
 -- Loyalty / gift cards
 DELETE FROM loyalty_reward_issuances;
-DELETE FROM order_loyalty_accrual;
+DELETE FROM transaction_loyalty_accrual;
 DELETE FROM loyalty_point_ledger;
 DELETE FROM gift_card_events;
 DELETE FROM gift_cards;

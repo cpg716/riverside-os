@@ -3380,7 +3380,9 @@ async function main() {
     logToDashboard("Bridge started in IDLE mode. Use dashboard or wait for timer.");
   }
 
-  console.info(`Repeating full sync every ${POLL_MS} ms (set RUN_ONCE=1 for a single pass, then exit).`);
+  console.info(
+    `Polling for manual ROS requests every ${POLL_MS} ms. Scheduled sync runs only when Continuous Sync is enabled.`,
+  );
   setInterval(tick, POLL_MS);
 }
 
