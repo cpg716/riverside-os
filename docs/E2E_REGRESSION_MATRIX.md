@@ -79,6 +79,31 @@ These remain useful but are lower-signal or environment-sensitive and should def
 
 **Guardrail:** financial, tax, register, and audit contract suites stay blocking.
 
+### ROS Dev Center E2E Health telemetry config (Phase 2)
+
+The ROS Dev Center **E2E Health** card can show live blocking/nightly lane status from GitHub Actions.
+
+- **Required:** `RIVERSIDE_OPS_E2E_GITHUB_REPO` (format: `owner/repo`)
+- **Required:** `RIVERSIDE_OPS_E2E_GITHUB_TOKEN` (server-side only; never exposed to browser/client env)
+- **Optional:** `RIVERSIDE_OPS_E2E_GITHUB_TIMEOUT_MS` (default `8000`, bounded `1000..30000`)
+
+Token guidance:
+
+- Use a **read-only** token with minimum access needed to read workflow runs/jobs/logs (GitHub Actions metadata).
+- Do not reuse broad admin tokens.
+- Store only in server/runtime environment variables; do not place in client `.env` files.
+
+Degraded mode:
+
+- If repo/token env vars are missing, or GitHub requests fail/timeout, ROS Dev Center stays operational.
+- E2E Health reports **degraded/unavailable** telemetry and keeps policy/playbook guidance visible.
+
+How to verify in ROS Dev Center:
+
+1. Open **Settings → ROS Dev Center → E2E Health**.
+2. Confirm **Source** shows `live` when env vars are set.
+3. Remove either required env var and confirm the card shows degraded/unavailable mode without breaking the rest of ROS Dev Center.
+
 ---
 
 ## Playwright UI specs (`client/e2e/`)
