@@ -292,6 +292,20 @@ export async function enterPosShell(page: Page): Promise<void> {
     return;
   }
 
+  const waitForPosNavigationVisible = async (timeoutMs: number): Promise<boolean> => {
+    try {
+      await expect
+        .poll(
+          async () => await posNav.isVisible().catch(() => false),
+          { timeout: timeoutMs },
+        )
+        .toBeTruthy();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   for (let attempt = 0; attempt < 5; attempt += 1) {
     if (await posNav.isVisible().catch(() => false)) {
       return;
@@ -306,7 +320,9 @@ export async function enterPosShell(page: Page): Promise<void> {
       if (await posNav.isVisible().catch(() => false)) {
         return;
       }
-      await page.waitForTimeout(600);
+      if (await waitForPosNavigationVisible(2_000)) {
+        return;
+      }
       continue;
     }
 
@@ -322,7 +338,9 @@ export async function enterPosShell(page: Page): Promise<void> {
     if (await posNav.isVisible().catch(() => false)) {
       return;
     }
-    await page.waitForTimeout(800);
+    if (await waitForPosNavigationVisible(2_000)) {
+      return;
+    }
   }
 
   await expect(posNav).toBeVisible({ timeout: 20_000 });
