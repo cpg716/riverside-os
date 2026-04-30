@@ -33,6 +33,58 @@ Review **Settings → Counterpoint → Status** while the bridge is running on t
 
 Treat those values as the real import scope for the migration record.
 
+## Repeat import rehearsal checklist
+
+Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the issue before continuing if any required item cannot be confirmed.
+
+### Pre-run checklist
+
+- Confirm a current ROS database backup exists and is usable before changing import state.
+- Confirm the Counterpoint bridge `.env` points at the correct Counterpoint company database and ROS server.
+- Confirm `COUNTERPOINT_SYNC_TOKEN`, `CP_IMPORT_SINCE`, `RUN_ONCE`, staging mode, and enabled `SYNC_*` entities in the bridge runtime snapshot.
+- Confirm the enabled entities follow the required order: staff / sales-rep stubs, vendors, customers, store credit opening, customer notes, catalog, inventory, vendor items, gift cards if used, tickets, open docs, loyalty history.
+- Decide whether to run **Settings → Counterpoint → Status → Fresh baseline reset** before this pass. Use it when you need a clean ROS import baseline while preserving reviewed Counterpoint mapping configuration.
+- Decide whether to clear the bridge-local `.counterpoint-bridge-state.json` file before launch. Clear it only when the next run must replay from the beginning instead of continuing from saved bridge cursors.
+
+### Run checklist
+
+- Start the ROS server and confirm **Settings → Counterpoint → Status** is reachable.
+- Start the Counterpoint bridge on the Counterpoint host.
+- Start the selected entities from the bridge dashboard or allow the configured `RUN_ONCE=1` pass to begin.
+- Watch bridge status, current entity, batch counts, and errors in the bridge dashboard.
+- Watch ROS **Settings → Counterpoint → Status** for heartbeat state, staging queue movement, server sync history, and open sync issues.
+- If staging is enabled, apply only the intended staged batches and keep the inbound queue under review.
+
+### Post-run verification
+
+- Review **Landing Verification** and confirm the expected domains landed in ROS.
+- Review **Transaction Reconciliation (Preview)** for imported ticket count, lines, payments, total/payment difference, business-day grouping, and payment-type grouping.
+- Review **Open Docs / Orders Verification** for open-doc transactions, lines, payments, customer links, zero-line docs, zero-payment docs, and staff attribution.
+- Review **Inventory & Catalog Verification** for products, variants, SKU/barcode/cost/price coverage, quantity flags, category mapping, vendor links, and linked vendor count.
+- Confirm the staging queue is empty after all intended batches are applied, or document every intentionally pending/discarded batch.
+- Confirm open sync issues are empty, resolved, or explicitly documented with an owner and next action.
+
+### Acceptance criteria
+
+- No unresolved sync issues remain unless they are explicitly documented and accepted for this rehearsal pass.
+- Every expected domain for the selected scope appears in Landing Verification.
+- Weak or approximate domains, especially gift cards and closed-ticket payments, have been reviewed and documented.
+- Transaction, open-doc, and inventory/catalog warnings are documented with either a fix plan or an accepted explanation.
+- Bridge counts, ROS landed counts, staging state, and verification snapshots are captured for the rehearsal record.
+
+### Stop / rollback criteria
+
+- Any batch POST failure, entity-level failure, or manual request failure appears in the bridge or ROS status.
+- Expected landed counts drop unexpectedly from a prior accepted rehearsal with the same scope.
+- Required customers, products, variants, tickets, or open docs are missing from ROS verification.
+- Open docs show unexpected missing customer links, zero-line docs, or zero-payment docs.
+- Inventory/catalog verification shows unexpected missing SKU, barcode, cost, price, category, or vendor-link coverage.
+- The bridge cursor state does not match the intended run mode, such as a replay expected but `.counterpoint-bridge-state.json` was not cleared.
+
+### Final go-live note
+
+After the final accepted import, stop using the bridge. Disable or rotate `COUNTERPOINT_SYNC_TOKEN`, stop the Counterpoint bridge process, remove startup/scheduled launch paths, and treat ROS as the system of record.
+
 ## Batch failure and retry behavior
 
 The bridge now treats batch POST failures as entity failures. Failed chunks are no longer logged and swallowed, and the success count reflects rows actually posted to ROS, not just rows returned by the Counterpoint SQL query.
