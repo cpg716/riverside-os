@@ -59,6 +59,29 @@ type Props = {
   };
 };
 
+function addRosSafeBlocks(ed: Editor) {
+  const blockManager = ed.BlockManager;
+  if (!blockManager || blockManager.get("ros-featured-products")) return;
+  blockManager.add("ros-featured-products", {
+    label: "Featured products",
+    category: "ROS Store",
+    content:
+      '<section data-ros-block="featured-products" style="padding:32px 20px;border:1px solid #e5e7eb;border-radius:12px"><h2>Featured products</h2><p>Links shoppers to the ROS-native product catalog.</p><p><a href="/shop/products">View products</a></p></section>',
+  });
+  blockManager.add("ros-campaign-banner", {
+    label: "Campaign banner",
+    category: "ROS Store",
+    content:
+      '<section data-ros-block="campaign-banner" style="padding:24px 20px;border:1px solid #c084fc;border-radius:12px"><h2>Campaign banner</h2><p>Add campaign copy here. Coupons, cart, checkout, tax, and inventory stay ROS-native.</p><p><a href="/shop/products">Shop now</a></p></section>',
+  });
+  blockManager.add("ros-store-faq", {
+    label: "Store FAQ",
+    category: "ROS Store",
+    content:
+      '<section data-ros-block="store-faq" style="padding:32px 20px"><h2>Store FAQ</h2><h3>Can I shop online?</h3><p>Yes. Product availability, cart, checkout, tax, and fulfillment are controlled by ROS.</p></section>',
+  });
+}
+
 export default function StorePageStudioEditor({
   licenseKey,
   projectJson,
@@ -81,6 +104,7 @@ export default function StorePageStudioEditor({
 
   const attachApi = useCallback(
     (ed: Editor) => {
+      addRosSafeBlocks(ed);
       onEditorReady?.({
         exportHtml: async () => {
           try {

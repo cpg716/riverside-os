@@ -132,6 +132,15 @@ interface StoreNavigationMenu {
   items?: StoreNavigationItem[];
 }
 
+interface StoreHomeLayoutBlock {
+  type?: string;
+  title?: string;
+  body?: string;
+  cta_label?: string;
+  cta_url?: string;
+  items?: Array<{ question?: string; answer?: string }>;
+}
+
 interface CartLineLocal {
   variant_id: string;
   qty: number;
@@ -1649,11 +1658,23 @@ function LandingPage({ navigate }: { navigate: (p: string) => void }) {
       return res.json() as Promise<{ pages?: PublishedPageSummary[] }>;
     },
   });
+  const { data: layoutData } = useQuery({
+    queryKey: ["store-home-layout"],
+    queryFn: async () => {
+      const res = await fetch(apiUrl(API_BASE, "/api/store/home-layout"));
+      if (!res.ok) throw new Error("layout");
+      return res.json() as Promise<{ blocks?: StoreHomeLayoutBlock[] }>;
+    },
+  });
   const pages = data?.pages ?? [];
+  const blocks = Array.isArray(layoutData?.blocks) ? layoutData.blocks : [];
 
   return (
     <div className="space-y-8">
-      <div>
+      {blocks.length > 0 ? (
+        <StoreHomeLayout blocks={blocks} navigate={navigate} />
+      ) : (
+        <div>
         <h1 className="text-3xl font-black uppercase italic tracking-tight">
           Riverside storefront
         </h1>
@@ -1673,7 +1694,8 @@ function LandingPage({ navigate }: { navigate: (p: string) => void }) {
             Cart
           </Button>
         </div>
-      </div>
+        </div>
+      )}
 
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -1724,6 +1746,127 @@ function LandingPage({ navigate }: { navigate: (p: string) => void }) {
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+function StoreHomeLayout({
+  blocks,
+  navigate,
+}: {
+  blocks: StoreHomeLayoutBlock[];
+  navigate: (p: string) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      {blocks.map((block, index) => {
+        if (block.type === "hero") {
+          return (
+            <section
+              key={index}
+              className="rounded-2xl border border-storefront-border bg-storefront-card p-6 sm:p-8"
+            >
+              <h1 className="max-w-2xl text-3xl font-black uppercase italic tracking-tight">
+                {block.title || "Riverside storefront"}
+              </h1>
+              {block.body ? (
+                <p className="mt-3 max-w-2xl text-sm text-storefront-muted-foreground">
+                  {block.body}
+                </p>
+              ) : null}
+              <Button
+                className="mt-5"
+                type="button"
+                onClick={() => navigate(block.cta_url || "/shop/products")}
+              >
+                {block.cta_label || "View products"}
+              </Button>
+            </section>
+          );
+        }
+        if (block.type === "campaign_banner") {
+          return (
+            <section
+              key={index}
+              className="rounded-2xl border border-storefront-primary/30 bg-storefront-primary/10 p-5"
+            >
+              <p className="text-xs font-black uppercase tracking-widest text-storefront-primary">
+                {block.title || "Campaign"}
+              </p>
+              {block.body ? <p className="mt-2 text-sm">{block.body}</p> : null}
+              {block.cta_url ? (
+                <Button
+                  className="mt-3"
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={() => navigate(block.cta_url || "/shop")}
+                >
+                  {block.cta_label || "Open"}
+                </Button>
+              ) : null}
+            </section>
+          );
+        }
+        if (block.type === "featured_products") {
+          return (
+            <section key={index} className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-xs font-black uppercase tracking-widest text-storefront-muted-foreground">
+                  {block.title || "Featured products"}
+                </h2>
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  onClick={() => navigate("/shop/products")}
+                >
+                  View catalog
+                </Button>
+              </div>
+            </section>
+          );
+        }
+        if (block.type === "faq") {
+          const items = Array.isArray(block.items) ? block.items : [];
+          return (
+            <section key={index} className="space-y-3">
+              <h2 className="text-xs font-black uppercase tracking-widest text-storefront-muted-foreground">
+                {block.title || "FAQ"}
+              </h2>
+              <div className="grid gap-2">
+                {items.map((item, itemIndex) => (
+                  <Card key={`${item.question}-${itemIndex}`}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">
+                        {item.question}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-sm text-storefront-muted-foreground">
+                      {item.answer}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          );
+        }
+        return (
+          <section
+            key={index}
+            className="rounded-2xl border border-storefront-border p-5"
+          >
+            <h2 className="text-lg font-black">
+              {block.title || "Store section"}
+            </h2>
+            {block.body ? (
+              <p className="mt-2 text-sm text-storefront-muted-foreground">
+                {block.body}
+              </p>
+            ) : null}
+          </section>
+        );
+      })}
     </div>
   );
 }

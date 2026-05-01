@@ -497,6 +497,25 @@ pub async fn create_session(
         .idempotency_key
         .filter(|key| !key.trim().is_empty())
         .unwrap_or_else(|| format!("store-checkout-{}", Uuid::new_v4()));
+    let normalized_email = input.contact.email.trim().to_lowercase();
+    let resolved_customer_id = match input.customer_id {
+        Some(customer_id) => Some(customer_id),
+        None if normalized_email.is_empty() => None,
+        None => {
+            sqlx::query_scalar::<_, Uuid>(
+                r#"
+            SELECT id
+            FROM customers
+            WHERE lower(btrim(email)) = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+            )
+            .bind(&normalized_email)
+            .fetch_optional(&state.db)
+            .await?
+        }
+    };
     let contact = serde_json::to_value(&input.contact).unwrap_or_else(|_| json!({}));
     let lines_value = Value::Array(line_json);
 
@@ -518,6 +537,7 @@ pub async fn create_session(
         )
         ON CONFLICT (idempotency_key) DO UPDATE
         SET contact = EXCLUDED.contact,
+            customer_id = COALESCE(store_checkout_session.customer_id, EXCLUDED.customer_id),
             fulfillment_method = EXCLUDED.fulfillment_method,
             ship_to = EXCLUDED.ship_to,
             shipping_rate_quote_id = EXCLUDED.shipping_rate_quote_id,
@@ -547,7 +567,7 @@ pub async fn create_session(
         "#,
     )
     .bind(input.cart_id)
-    .bind(input.customer_id)
+    .bind(resolved_customer_id)
     .bind(contact)
     .bind(input.fulfillment_method)
     .bind(ship_to_json)

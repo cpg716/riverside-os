@@ -4,7 +4,7 @@
 
 **Related:** **[`docs/PLAN_ONLINE_STORE_MODULE.md`](PLAN_ONLINE_STORE_MODULE.md)** (roadmap: Stripe checkout, Insights channel pivot, asset pipeline, etc.), **[`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)** (**`POST /api/store/shipping/rates`**), **[`docs/PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`](PODIUM_STOREFRONT_CSP_AND_PRIVACY.md)** (widget on public builds), **[`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md)** (**`online_store.manage`**), **[`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md)** (PLP **`search`**, optional Meilisearch **`ros_store_products`**).
 
-**Future (goals only, not scheduled):** Unified **customer identity** on the web (match/link to existing **`customers`**) and **receipt-grade purchase history** spanning in-store and web — separate staff vs customer surfaces, one database — **[`docs/PLAN_ONLINE_STORE_UNIFIED_CUSTOMER.md`](PLAN_ONLINE_STORE_UNIFIED_CUSTOMER.md)**.
+**Identity direction:** Storefront accounts and guest checkout both use the shared **`customers`** table. Guest checkout auto-links to an existing customer when the submitted email matches a ROS customer; account login/activation controls password-backed access.
 
 ---
 
@@ -16,7 +16,7 @@
 | **Public app** | **`client/src/main.tsx`** mounts **`PublicStorefront`** when the path is **`/shop`** or **`/shop/*`** (no staff auth). |
 | **Guest theme** | **`/shop`** uses the same **`ros.theme.mode`** + **`<html data-theme>`** bootstrap as the staff app (`syncDocumentThemeFromStorage` in **`main.tsx`**). **`[data-storefront="true"]`** supplies light **`--sf-*`** HSL channels; **`[data-theme="dark"][data-storefront="true"]`** in **`client/src/index.css`** supplies the dark guest palette so Tailwind **`storefront.*`** and shadcn primitives track system/user dark mode. |
 | **Public API** | **`/api/store/*`** — catalog, published pages (HTML sanitized server-side with **ammonia**), coupon preview, tax preview, guest **cart line pricing**, Shippo rates — **`server/src/api/store.rs`**. |
-| **Admin API** | **`/api/admin/store/*`** — pages and coupons — same module; requires **`online_store.manage`** or **`settings.admin`**. |
+| **Admin API** | **`/api/admin/store/*`** — dashboard, pages, coupons, campaigns, navigation, media, publish history, web transaction actions, and analytics — same module; requires **`online_store.manage`** or **`settings.admin`**. |
 | **Inventory** | Web publish flags and bulk actions — see plan §1 and **`InventoryControlBoard`**. |
 | **Back Office** | **Online Store** main workspace: dashboard, storefront pages (raw HTML + **GrapesJS Studio SDK** visual editor), web product merchandising, promotions/coupons, and operational links. **Settings → Online Store** is configuration/status only. |
 
@@ -28,6 +28,9 @@
   - **Raw HTML:** edit textarea → **Save draft HTML** → **Publish** when ready (public site reads sanitized HTML for **`published = true`** rows).
   - **Visual (Studio):** lazy-loaded **`@grapesjs/studio-sdk`** (**`StorePageStudioEditor.tsx`**). Project data autosaves to **`project_json`** via **`PATCH`**. Image uploads use **`POST /api/admin/store/assets`** (base64 JSON) and resolve to **`GET /api/store/media/{id}`** URLs embedded in the page. Use **Export Studio HTML to raw draft** to generate HTML into the raw editor, then **Save draft HTML** if you want that snapshot in **`published_html`**.
 - **Products:** **Online Store → Products** is the web merchandising surface over Inventory truth. Staff can review live/draft/blocked products, edit storefront slugs, toggle web publish status, set web-only price overrides, set gallery sort order, open public PDP links, and jump to the full Product Hub. Catalog/PDP/cart remain ROS-native; GrapesJS is not used for product or catalog pages.
+- **Layout:** **Online Store → Layout** edits ROS-native homepage blocks rendered by **`GET /api/store/home-layout`**. These blocks can link to the catalog and campaigns but do not replace typed product/catalog/checkout flows.
+- **Navigation / media / publish history:** staff can edit header/footer links, update media alt text and usage notes, archive unused media, preview published pages, and restore captured publish snapshots.
+- **Orders / analytics:** paid web transactions can be marked ready for pickup, shipped with tracking, or flagged for cancel/refund review without bypassing transaction/refund workflows. Analytics reports checkout funnel counts and campaign revenue from ROS checkout sessions.
 - **Coupons:** create, list, activate/deactivate (**`PATCH`**).
 - **Production Studio:** set **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** in the client env for non-localhost deployments (SDK license rules: [GrapesJS Studio licenses](https://app.grapesjs.com/docs-sdk/overview/licenses)). Local dev may use the SDK’s documented dev key pattern.
 
@@ -111,7 +114,9 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 |--------|------|--------|
 | GET | `/dashboard` | Online Store operating counts: web sales, checkout sessions, campaigns, media. |
 | GET | `/orders` | Web transactions with **`sale_channel = web`**. |
+| PATCH | `/orders/{id}` | Web transaction operational status actions: ready for pickup, shipped, cancel review, refund needed. |
 | GET | `/carts` | Checkout sessions and abandoned/failed checkout signals. |
+| GET | `/analytics` | Checkout funnel, web revenue, and campaign attribution summary. |
 | GET/POST | `/campaigns` | Campaigns with landing-page/coupon attribution. |
 | PATCH | `/campaigns/{id}` | Update campaign config. |
 | GET | `/seo` | Storefront SEO/catalog/page health issue list. |
@@ -119,7 +124,9 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 | GET/PATCH | `/home-layout` | ROS-native homepage layout blocks. |
 | GET | `/media` | Media library list with alt text and usage metadata. |
 | PATCH | `/media/{id}` | Update asset alt text / usage note. |
+| POST | `/media/{id}/archive` | Soft-archive an unused media asset; returns **409** if referenced by a store page. |
 | GET | `/publish-history` | Published page snapshots. |
+| POST | `/publish-history/{id}/restore` | Restore page draft/published HTML from a captured publish snapshot. |
 | GET/POST | `/pages` | List / create. |
 | GET/PATCH | `/pages/{slug}` | Includes **`project_json`**, **`published_html`**. |
 | POST | `/pages/{slug}/publish` | Sets **`published = true`** and captures a publish revision. |
@@ -153,7 +160,7 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 
 ## Still planned (see **`PLAN_ONLINE_STORE_MODULE.md`**)
 
-- Deeper **cart** features (merge rules across devices, abandoned-cart analytics).
-- **Insights** / Orders UI pivots on **`sale_channel`**.
+- Provider sandbox/live transaction certification for Stripe and Helcim in the deployment environment.
+- Deeper **cart** outreach workflows after marketing consent and messaging rules are approved.
 
 **Last reviewed:** 2026-05-01

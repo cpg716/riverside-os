@@ -1281,11 +1281,14 @@ struct AdminWebOrderRow {
     display_id: String,
     booked_at: chrono::DateTime<Utc>,
     status: String,
+    web_order_status: Option<String>,
     total_price: Decimal,
     amount_paid: Decimal,
     balance_due: Decimal,
     fulfillment_method: String,
     shipping_amount_usd: Option<Decimal>,
+    tracking_number: Option<String>,
+    tracking_url_provider: Option<String>,
     payment_provider: Option<String>,
     customer_display_name: Option<String>,
     customer_email: Option<String>,
@@ -1305,11 +1308,14 @@ async fn admin_list_web_orders(
             t.display_id,
             t.booked_at,
             t.status::text AS status,
+            t.metadata->>'web_order_status' AS web_order_status,
             t.total_price,
             t.amount_paid,
             t.balance_due,
             t.fulfillment_method::text AS fulfillment_method,
             t.shipping_amount_usd,
+            t.tracking_number,
+            t.tracking_url_provider,
             (
                 SELECT string_agg(DISTINCT COALESCE(pt.payment_provider, pt.payment_method), ', ' ORDER BY COALESCE(pt.payment_provider, pt.payment_method))
                 FROM payment_allocations pa
@@ -1331,6 +1337,95 @@ async fn admin_list_web_orders(
         Ok(rows) => (StatusCode::OK, Json(json!({ "orders": rows }))).into_response(),
         Err(e) => {
             tracing::error!(error = %e, "admin_list_web_orders");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct AdminWebOrderActionBody {
+    action: String,
+    tracking_number: Option<String>,
+    tracking_url_provider: Option<String>,
+    note: Option<String>,
+}
+
+async fn admin_update_web_order(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<AdminWebOrderActionBody>,
+) -> impl IntoResponse {
+    let staff = match require_store_manage_staff(&state, &headers).await {
+        Ok(staff) => staff,
+        Err(e) => return e.into_response(),
+    };
+    let action = body.action.trim().to_lowercase();
+    let status = match action.as_str() {
+        "ready_for_pickup" => "ready_for_pickup",
+        "mark_shipped" => "shipped",
+        "cancel_requested" => "cancel_requested",
+        "refund_needed" => "refund_needed",
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "unsupported web transaction action" })),
+            )
+                .into_response();
+        }
+    };
+    let tracking_number = body
+        .tracking_number
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let tracking_url_provider = body
+        .tracking_url_provider
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let note = body
+        .note
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let event = json!({
+        "web_order_status": status,
+        "web_order_action": action,
+        "web_order_action_at": Utc::now(),
+        "web_order_action_staff_id": staff.id,
+        "web_order_note": note,
+    });
+    let result = sqlx::query(
+        r#"
+        UPDATE transactions
+        SET
+            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+            tracking_number = COALESCE($3, tracking_number),
+            tracking_url_provider = COALESCE($4, tracking_url_provider)
+        WHERE id = $1 AND sale_channel = 'web'
+        "#,
+    )
+    .bind(id)
+    .bind(event)
+    .bind(tracking_number)
+    .bind(tracking_url_provider)
+    .execute(&state.db)
+    .await;
+    match result {
+        Ok(r) if r.rows_affected() > 0 => (
+            StatusCode::OK,
+            Json(json!({ "status": "updated", "web_order_status": status })),
+        )
+            .into_response(),
+        Ok(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "web transaction not found" })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_update_web_order");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "database error" })),
@@ -1377,6 +1472,85 @@ async fn admin_list_checkout_sessions(
         Ok(rows) => (StatusCode::OK, Json(json!({ "sessions": rows }))).into_response(),
         Err(e) => {
             tracing::error!(error = %e, "admin_list_checkout_sessions");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct StoreAnalyticsSummaryRow {
+    checkout_sessions: i64,
+    checkout_started: i64,
+    payment_started: i64,
+    paid_sessions: i64,
+    failed_sessions: i64,
+    expired_sessions: i64,
+    cancelled_sessions: i64,
+    paid_revenue_usd: Decimal,
+    web_transactions: i64,
+    web_transaction_revenue_usd: Decimal,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct StoreAnalyticsCampaignRow {
+    campaign_slug: Option<String>,
+    sessions: i64,
+    paid_sessions: i64,
+    revenue_usd: Decimal,
+}
+
+async fn admin_store_analytics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    let summary = sqlx::query_as::<_, StoreAnalyticsSummaryRow>(
+        r#"
+        SELECT
+            COUNT(*)::bigint AS checkout_sessions,
+            COUNT(*) FILTER (WHERE checkout_started_at IS NOT NULL)::bigint AS checkout_started,
+            COUNT(*) FILTER (WHERE payment_started_at IS NOT NULL)::bigint AS payment_started,
+            COUNT(*) FILTER (WHERE status = 'paid')::bigint AS paid_sessions,
+            COUNT(*) FILTER (WHERE status = 'failed')::bigint AS failed_sessions,
+            COUNT(*) FILTER (WHERE status = 'expired')::bigint AS expired_sessions,
+            COUNT(*) FILTER (WHERE status = 'cancelled')::bigint AS cancelled_sessions,
+            COALESCE(ROUND(SUM(total_usd) FILTER (WHERE status = 'paid'), 2), 0)::numeric AS paid_revenue_usd,
+            COALESCE((SELECT COUNT(*)::bigint FROM transactions WHERE sale_channel = 'web'), 0) AS web_transactions,
+            COALESCE((SELECT ROUND(SUM(total_price), 2)::numeric FROM transactions WHERE sale_channel = 'web'), 0)::numeric AS web_transaction_revenue_usd
+        FROM store_checkout_session
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await;
+    let campaigns = sqlx::query_as::<_, StoreAnalyticsCampaignRow>(
+        r#"
+        SELECT
+            NULLIF(btrim(campaign_slug), '') AS campaign_slug,
+            COUNT(*)::bigint AS sessions,
+            COUNT(*) FILTER (WHERE status = 'paid')::bigint AS paid_sessions,
+            COALESCE(ROUND(SUM(total_usd) FILTER (WHERE status = 'paid'), 2), 0)::numeric AS revenue_usd
+        FROM store_checkout_session
+        GROUP BY NULLIF(btrim(campaign_slug), '')
+        ORDER BY revenue_usd DESC, sessions DESC
+        LIMIT 25
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await;
+    match (summary, campaigns) {
+        (Ok(summary), Ok(campaigns)) => (
+            StatusCode::OK,
+            Json(json!({ "summary": summary, "campaigns": campaigns })),
+        )
+            .into_response(),
+        (Err(e), _) | (_, Err(e)) => {
+            tracing::error!(error = %e, "admin_store_analytics");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "database error" })),
@@ -1959,6 +2133,72 @@ async fn admin_patch_media(
     }
 }
 
+async fn admin_archive_media(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    let asset_ref = format!("/api/store/media/{id}");
+    let used = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM store_pages
+            WHERE COALESCE(published_html, '') LIKE '%' || $1 || '%'
+               OR COALESCE(project_json::text, '') LIKE '%' || $1 || '%'
+        )
+        "#,
+    )
+    .bind(&asset_ref)
+    .fetch_one(&state.db)
+    .await;
+    let is_used = match used {
+        Ok(value) => value,
+        Err(e) => {
+            tracing::error!(error = %e, "admin_archive_media usage check");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response();
+        }
+    };
+    if is_used {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "asset is used by a store page" })),
+        )
+            .into_response();
+    }
+    match sqlx::query(
+        "UPDATE store_media_asset SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .execute(&state.db)
+    .await
+    {
+        Ok(r) if r.rows_affected() > 0 => {
+            (StatusCode::OK, Json(json!({ "status": "archived" }))).into_response()
+        }
+        Ok(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "asset not found" })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_archive_media");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 struct PublishRevisionRow {
     id: Uuid,
@@ -1989,6 +2229,55 @@ async fn admin_list_publish_history(
         Ok(revisions) => (StatusCode::OK, Json(json!({ "revisions": revisions }))).into_response(),
         Err(e) => {
             tracing::error!(error = %e, "admin_list_publish_history");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn admin_restore_publish_revision(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let staff = match require_store_manage_staff(&state, &headers).await {
+        Ok(staff) => staff,
+        Err(e) => return e.into_response(),
+    };
+    let result = sqlx::query(
+        r#"
+        UPDATE store_pages p
+        SET
+            project_json = r.project_json,
+            published_html = r.published_html,
+            published = true,
+            updated_at = now()
+        FROM storefront_publish_revision r
+        WHERE r.id = $1 AND p.id = r.page_id
+        "#,
+    )
+    .bind(id)
+    .execute(&state.db)
+    .await;
+    match result {
+        Ok(r) if r.rows_affected() > 0 => (
+            StatusCode::OK,
+            Json(json!({
+                "status": "restored",
+                "restored_by_staff_id": staff.id,
+            })),
+        )
+            .into_response(),
+        Ok(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "publish revision not found" })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_restore_publish_revision");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "database error" })),
@@ -2321,7 +2610,9 @@ pub fn admin_router() -> Router<AppState> {
     Router::new()
         .route("/dashboard", get(admin_store_dashboard))
         .route("/orders", get(admin_list_web_orders))
+        .route("/orders/{id}", patch(admin_update_web_order))
         .route("/carts", get(admin_list_checkout_sessions))
+        .route("/analytics", get(admin_store_analytics))
         .route(
             "/campaigns",
             get(admin_list_campaigns).post(admin_create_campaign),
@@ -2334,7 +2625,12 @@ pub fn admin_router() -> Router<AppState> {
         )
         .route("/media", get(admin_list_media))
         .route("/media/{id}", patch(admin_patch_media))
+        .route("/media/{id}/archive", post(admin_archive_media))
         .route("/publish-history", get(admin_list_publish_history))
+        .route(
+            "/publish-history/{id}/restore",
+            post(admin_restore_publish_revision),
+        )
         .route(
             "/home-layout",
             get(admin_get_home_layout).patch(admin_patch_home_layout),

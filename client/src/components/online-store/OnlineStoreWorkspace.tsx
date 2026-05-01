@@ -26,6 +26,7 @@ import OnlineStoreProductsPanel from "./OnlineStoreProductsPanel";
 type OnlineStoreSection =
   | "dashboard"
   | "storefront"
+  | "layout"
   | "products"
   | "orders"
   | "carts"
@@ -108,6 +109,11 @@ const sections: {
     id: "storefront",
     label: "Storefront",
     desc: "CMS pages, Studio editing, and publishing.",
+  },
+  {
+    id: "layout",
+    label: "Layout",
+    desc: "ROS-native homepage sections and safe storefront blocks.",
   },
   {
     id: "products",
@@ -289,26 +295,48 @@ function EmptyState({ label }: { label: string }) {
 
 type HeaderFactory = () => Record<string, string>;
 
-function OrdersPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+function OrdersPanel({
+  baseUrl,
+  headers,
+}: {
+  baseUrl: string;
+  headers: HeaderFactory;
+}) {
   const [orders, setOrders] = useState<Array<Record<string, unknown>>>([]);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/orders"), {
-          headers: headers(),
-        });
-        const json = (await res.json()) as { orders?: Array<Record<string, unknown>>; error?: string };
-        if (!res.ok) {
-          setError(json.error ?? "Could not load web orders.");
-          return;
-        }
-        setOrders(json.orders ?? []);
-      } catch {
-        setError("Could not load web orders.");
-      }
-    })();
+  const [tracking, setTracking] = useState<Record<string, string>>({});
+  const load = useCallback(async () => {
+    const res = await fetch(apiUrl(baseUrl, "/api/admin/store/orders"), {
+      headers: headers(),
+    });
+    const json = (await res.json()) as {
+      orders?: Array<Record<string, unknown>>;
+      error?: string;
+    };
+    if (!res.ok) throw new Error(json.error ?? "Could not load web orders.");
+    setOrders(json.orders ?? []);
   }, [baseUrl, headers]);
+  useEffect(() => {
+    void load().catch((err: Error) => setError(err.message));
+  }, [load]);
+  const updateOrder = async (id: string, action: string) => {
+    setError(null);
+    const res = await fetch(apiUrl(baseUrl, `/api/admin/store/orders/${id}`), {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({
+        action,
+        tracking_number: tracking[id] || null,
+        tracking_url_provider: tracking[id] ? "carrier" : null,
+      }),
+    });
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(json.error ?? "Could not update web transaction.");
+      return;
+    }
+    await load();
+  };
   return (
     <DataPanel
       title="Web orders"
@@ -316,37 +344,102 @@ function OrdersPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFac
       icon={ShoppingBag}
     >
       {error ? <EmptyState label={error} /> : null}
-      {orders.length === 0 && !error ? <EmptyState label="No web orders yet." /> : null}
+      {orders.length === 0 && !error ? (
+        <EmptyState label="No web orders yet." />
+      ) : null}
       <div className="grid gap-3">
-        {orders.map((order) => (
-          <section key={String(order.transaction_id)} className="ui-card p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-black text-app-text">
-                  {String(order.display_id ?? "Web transaction")}
-                </p>
-                <p className="text-xs text-app-text-muted">
-                  {shortDate(String(order.booked_at ?? ""))} · {String(order.fulfillment_method ?? "pickup")}
-                </p>
+        {orders.map((order) => {
+          const transactionId = String(order.transaction_id);
+          return (
+            <section key={transactionId} className="ui-card p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-black text-app-text">
+                    {String(order.display_id ?? "Web transaction")}
+                  </p>
+                  <p className="text-xs text-app-text-muted">
+                    {shortDate(String(order.booked_at ?? ""))} ·{" "}
+                    {String(order.fulfillment_method ?? "pickup")}
+                  </p>
+                </div>
+                <div className="text-right font-mono text-sm font-black text-app-text">
+                  {money(order.total_price as string)}
+                </div>
               </div>
-              <div className="text-right font-mono text-sm font-black text-app-text">
-                {money(order.total_price as string)}
+              <div className="mt-3 grid gap-2 text-xs text-app-text-muted sm:grid-cols-4">
+                <span>Status: {String(order.status ?? "—")}</span>
+                <span>Web: {String(order.web_order_status ?? "new")}</span>
+                <span>Paid: {money(order.amount_paid as string)}</span>
+                <span>Balance: {money(order.balance_due as string)}</span>
+                <span>Provider: {String(order.payment_provider ?? "—")}</span>
               </div>
-            </div>
-            <div className="mt-3 grid gap-2 text-xs text-app-text-muted sm:grid-cols-4">
-              <span>Status: {String(order.status ?? "—")}</span>
-              <span>Paid: {money(order.amount_paid as string)}</span>
-              <span>Balance: {money(order.balance_due as string)}</span>
-              <span>Provider: {String(order.payment_provider ?? "—")}</span>
-            </div>
-          </section>
-        ))}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="ui-btn-secondary text-[10px] font-black uppercase tracking-widest"
+                  onClick={() =>
+                    void updateOrder(transactionId, "ready_for_pickup")
+                  }
+                >
+                  Ready for pickup
+                </button>
+                <input
+                  className="ui-input max-w-56 text-xs"
+                  value={
+                    tracking[transactionId] ??
+                    String(order.tracking_number ?? "")
+                  }
+                  onChange={(e) =>
+                    setTracking((current) => ({
+                      ...current,
+                      [transactionId]: e.target.value,
+                    }))
+                  }
+                  placeholder="Tracking number"
+                />
+                <button
+                  type="button"
+                  className="ui-btn-secondary text-[10px] font-black uppercase tracking-widest"
+                  onClick={() =>
+                    void updateOrder(transactionId, "mark_shipped")
+                  }
+                >
+                  Mark shipped
+                </button>
+                <button
+                  type="button"
+                  className="ui-btn-secondary text-[10px] font-black uppercase tracking-widest"
+                  onClick={() =>
+                    void updateOrder(transactionId, "cancel_requested")
+                  }
+                >
+                  Cancel review
+                </button>
+                <button
+                  type="button"
+                  className="ui-btn-secondary text-[10px] font-black uppercase tracking-widest"
+                  onClick={() =>
+                    void updateOrder(transactionId, "refund_needed")
+                  }
+                >
+                  Refund needed
+                </button>
+              </div>
+            </section>
+          );
+        })}
       </div>
     </DataPanel>
   );
 }
 
-function CartsPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+function CartsPanel({
+  baseUrl,
+  headers,
+}: {
+  baseUrl: string;
+  headers: HeaderFactory;
+}) {
   const [sessions, setSessions] = useState<Array<Record<string, unknown>>>([]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -355,7 +448,10 @@ function CartsPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFact
         const res = await fetch(apiUrl(baseUrl, "/api/admin/store/carts"), {
           headers: headers(),
         });
-        const json = (await res.json()) as { sessions?: Array<Record<string, unknown>>; error?: string };
+        const json = (await res.json()) as {
+          sessions?: Array<Record<string, unknown>>;
+          error?: string;
+        };
         if (!res.ok) {
           setError(json.error ?? "Could not load checkout sessions.");
           return;
@@ -373,16 +469,22 @@ function CartsPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFact
       icon={ShoppingCart}
     >
       {error ? <EmptyState label={error} /> : null}
-      {sessions.length === 0 && !error ? <EmptyState label="No checkout sessions yet." /> : null}
+      {sessions.length === 0 && !error ? (
+        <EmptyState label="No checkout sessions yet." />
+      ) : null}
       <div className="grid gap-3 md:grid-cols-2">
         {sessions.map((session) => {
-          const contact = session.contact as { email?: string; name?: string } | undefined;
+          const contact = session.contact as
+            | { email?: string; name?: string }
+            | undefined;
           return (
             <section key={String(session.id)} className="ui-card p-4">
               <div className="flex justify-between gap-3">
                 <div>
                   <p className="text-sm font-black text-app-text">
-                    {String(contact?.email ?? contact?.name ?? "Guest checkout")}
+                    {String(
+                      contact?.email ?? contact?.name ?? "Guest checkout",
+                    )}
                   </p>
                   <p className="text-xs text-app-text-muted">
                     {shortDate(String(session.created_at ?? ""))}
@@ -405,15 +507,31 @@ function CartsPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFact
   );
 }
 
-function CampaignsPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
-  const [campaigns, setCampaigns] = useState<Array<Record<string, unknown>>>([]);
-  const [draft, setDraft] = useState({ slug: "", name: "", landing_page_slug: "", notes: "" });
+function CampaignsPanel({
+  baseUrl,
+  headers,
+}: {
+  baseUrl: string;
+  headers: HeaderFactory;
+}) {
+  const [campaigns, setCampaigns] = useState<Array<Record<string, unknown>>>(
+    [],
+  );
+  const [draft, setDraft] = useState({
+    slug: "",
+    name: "",
+    landing_page_slug: "",
+    notes: "",
+  });
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
     const res = await fetch(apiUrl(baseUrl, "/api/admin/store/campaigns"), {
       headers: headers(),
     });
-    const json = (await res.json()) as { campaigns?: Array<Record<string, unknown>>; error?: string };
+    const json = (await res.json()) as {
+      campaigns?: Array<Record<string, unknown>>;
+      error?: string;
+    };
     if (!res.ok) throw new Error(json.error ?? "Could not load campaigns.");
     setCampaigns(json.campaigns ?? []);
   }, [baseUrl, headers]);
@@ -447,10 +565,31 @@ function CampaignsPanel({ baseUrl, headers }: { baseUrl: string; headers: Header
       icon={Megaphone}
     >
       <section className="ui-card grid gap-3 p-4 lg:grid-cols-4">
-        <input className="ui-input" value={draft.slug} onChange={(e) => setDraft((d) => ({ ...d, slug: e.target.value }))} placeholder="campaign-slug" />
-        <input className="ui-input" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} placeholder="Campaign name" />
-        <input className="ui-input" value={draft.landing_page_slug} onChange={(e) => setDraft((d) => ({ ...d, landing_page_slug: e.target.value }))} placeholder="Landing page slug" />
-        <button type="button" className="ui-btn-primary" onClick={() => void create()}>
+        <input
+          className="ui-input"
+          value={draft.slug}
+          onChange={(e) => setDraft((d) => ({ ...d, slug: e.target.value }))}
+          placeholder="campaign-slug"
+        />
+        <input
+          className="ui-input"
+          value={draft.name}
+          onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+          placeholder="Campaign name"
+        />
+        <input
+          className="ui-input"
+          value={draft.landing_page_slug}
+          onChange={(e) =>
+            setDraft((d) => ({ ...d, landing_page_slug: e.target.value }))
+          }
+          placeholder="Landing page slug"
+        />
+        <button
+          type="button"
+          className="ui-btn-primary"
+          onClick={() => void create()}
+        >
           Create campaign
         </button>
       </section>
@@ -458,11 +597,17 @@ function CampaignsPanel({ baseUrl, headers }: { baseUrl: string; headers: Header
       <div className="grid gap-3 md:grid-cols-2">
         {campaigns.map((campaign) => (
           <section key={String(campaign.id)} className="ui-card p-4">
-            <p className="text-sm font-black text-app-text">{String(campaign.name)}</p>
-            <p className="text-xs font-mono text-app-text-muted">/shop/{String(campaign.landing_page_slug ?? campaign.slug)}</p>
+            <p className="text-sm font-black text-app-text">
+              {String(campaign.name)}
+            </p>
+            <p className="text-xs font-mono text-app-text-muted">
+              /shop/{String(campaign.landing_page_slug ?? campaign.slug)}
+            </p>
             <div className="mt-3 grid gap-1 text-xs text-app-text-muted">
               <span>Coupon: {String(campaign.coupon_code ?? "—")}</span>
-              <span>Paid checkouts: {String(campaign.paid_checkouts ?? 0)}</span>
+              <span>
+                Paid checkouts: {String(campaign.paid_checkouts ?? 0)}
+              </span>
               <span>Revenue: {money(campaign.revenue_usd as string)}</span>
             </div>
           </section>
@@ -472,7 +617,13 @@ function CampaignsPanel({ baseUrl, headers }: { baseUrl: string; headers: Header
   );
 }
 
-function SeoPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+function SeoPanel({
+  baseUrl,
+  headers,
+}: {
+  baseUrl: string;
+  headers: HeaderFactory;
+}) {
   const [issues, setIssues] = useState<Array<Record<string, unknown>>>([]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -481,7 +632,10 @@ function SeoPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactor
         const res = await fetch(apiUrl(baseUrl, "/api/admin/store/seo"), {
           headers: headers(),
         });
-        const json = (await res.json()) as { issues?: Array<Record<string, unknown>>; error?: string };
+        const json = (await res.json()) as {
+          issues?: Array<Record<string, unknown>>;
+          error?: string;
+        };
         if (!res.ok) {
           setError(json.error ?? "Could not load SEO health.");
           return;
@@ -493,15 +647,28 @@ function SeoPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactor
     })();
   }, [baseUrl, headers]);
   return (
-    <DataPanel title="SEO health" subtitle="Actionable storefront publishing and catalog issues." icon={Search}>
+    <DataPanel
+      title="SEO health"
+      subtitle="Actionable storefront publishing and catalog issues."
+      icon={Search}
+    >
       {error ? <EmptyState label={error} /> : null}
-      {issues.length === 0 && !error ? <EmptyState label="No SEO issues found." /> : null}
+      {issues.length === 0 && !error ? (
+        <EmptyState label="No SEO issues found." />
+      ) : null}
       <div className="grid gap-2">
         {issues.map((issue, idx) => (
-          <section key={`${String(issue.kind)}-${String(issue.entity_id)}-${idx}`} className="ui-card flex flex-wrap items-center justify-between gap-3 p-4">
+          <section
+            key={`${String(issue.kind)}-${String(issue.entity_id)}-${idx}`}
+            className="ui-card flex flex-wrap items-center justify-between gap-3 p-4"
+          >
             <div>
-              <p className="text-sm font-black text-app-text">{String(issue.label)}</p>
-              <p className="text-xs text-app-text-muted">{String(issue.kind)} · {String(issue.entity_id)}</p>
+              <p className="text-sm font-black text-app-text">
+                {String(issue.label)}
+              </p>
+              <p className="text-xs text-app-text-muted">
+                {String(issue.kind)} · {String(issue.entity_id)}
+              </p>
             </div>
           </section>
         ))}
@@ -510,44 +677,350 @@ function SeoPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactor
   );
 }
 
-function NavigationPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+function NavigationPanel({
+  baseUrl,
+  headers,
+}: {
+  baseUrl: string;
+  headers: HeaderFactory;
+}) {
   const [menus, setMenus] = useState<Array<Record<string, unknown>>>([]);
+  const [selectedHandle, setSelectedHandle] = useState("header");
+  const [draftTitle, setDraftTitle] = useState("Header");
+  const [draftItems, setDraftItems] = useState<Array<Record<string, unknown>>>(
+    [],
+  );
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/navigation"), {
-          headers: headers(),
-        });
-        const json = (await res.json()) as { menus?: Array<Record<string, unknown>>; error?: string };
-        if (!res.ok) {
-          setError(json.error ?? "Could not load navigation.");
-          return;
-        }
-        setMenus(json.menus ?? []);
-      } catch {
-        setError("Could not load navigation.");
-      }
-    })();
+  const load = useCallback(async () => {
+    const res = await fetch(apiUrl(baseUrl, "/api/admin/store/navigation"), {
+      headers: headers(),
+    });
+    const json = (await res.json()) as {
+      menus?: Array<Record<string, unknown>>;
+      error?: string;
+    };
+    if (!res.ok) throw new Error(json.error ?? "Could not load navigation.");
+    setMenus(json.menus ?? []);
   }, [baseUrl, headers]);
+  useEffect(() => {
+    void load().catch((err: Error) => setError(err.message));
+  }, [load]);
+  useEffect(() => {
+    const selected = menus.find(
+      (menu) => String(menu.handle) === selectedHandle,
+    );
+    setDraftTitle(
+      String(
+        selected?.title ?? (selectedHandle === "footer" ? "Footer" : "Header"),
+      ),
+    );
+    setDraftItems([
+      ...(
+        (selected?.items as Array<Record<string, unknown>> | undefined) ?? []
+      ).map((item, idx) => ({
+        label: String(item.label ?? ""),
+        url: String(item.url ?? ""),
+        item_kind: String(item.item_kind ?? "custom"),
+        sort_order: Number(item.sort_order ?? idx * 10),
+        is_active: item.is_active !== false,
+      })),
+    ]);
+  }, [menus, selectedHandle]);
+  const updateItem = (index: number, patch: Record<string, unknown>) => {
+    setDraftItems((items) =>
+      items.map((item, idx) => (idx === index ? { ...item, ...patch } : item)),
+    );
+  };
+  const moveItem = (index: number, delta: number) => {
+    setDraftItems((items) => {
+      const next = [...items];
+      const to = index + delta;
+      if (to < 0 || to >= next.length) return items;
+      const [item] = next.splice(index, 1);
+      next.splice(to, 0, item);
+      return next.map((row, idx) => ({ ...row, sort_order: idx * 10 }));
+    });
+  };
+  const save = async () => {
+    setError(null);
+    const res = await fetch(apiUrl(baseUrl, "/api/admin/store/navigation"), {
+      method: "PUT",
+      headers: headers(),
+      body: JSON.stringify({
+        handle: selectedHandle,
+        title: draftTitle,
+        items: draftItems.map((item, idx) => ({
+          ...item,
+          sort_order: idx * 10,
+        })),
+      }),
+    });
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(json.error ?? "Could not save navigation.");
+      return;
+    }
+    await load();
+  };
   return (
-    <DataPanel title="Navigation" subtitle="Header and footer menus rendered by the public storefront." icon={Navigation}>
+    <DataPanel
+      title="Navigation"
+      subtitle="Header and footer menus rendered by the public storefront."
+      icon={Navigation}
+    >
       {error ? <EmptyState label={error} /> : null}
-      <div className="grid gap-3 md:grid-cols-2">
-        {menus.map((menu) => {
-          const items = (menu.items as Array<Record<string, unknown>> | undefined) ?? [];
+      <section className="ui-card space-y-4 p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="grid gap-1 text-xs font-black uppercase tracking-widest text-app-text-muted">
+            Menu
+            <select
+              className="ui-input min-w-40"
+              value={selectedHandle}
+              onChange={(e) => setSelectedHandle(e.target.value)}
+            >
+              <option value="header">Header</option>
+              <option value="footer">Footer</option>
+            </select>
+          </label>
+          <label className="grid min-w-64 flex-1 gap-1 text-xs font-black uppercase tracking-widest text-app-text-muted">
+            Title
+            <input
+              className="ui-input"
+              value={draftTitle}
+              onChange={(e) => setDraftTitle(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="ui-btn-primary text-[10px] font-black uppercase tracking-widest"
+            onClick={() => void save()}
+          >
+            Save menu
+          </button>
+          <button
+            type="button"
+            className="ui-btn-secondary text-[10px] font-black uppercase tracking-widest"
+            onClick={() =>
+              setDraftItems((items) => [
+                ...items,
+                {
+                  label: "New link",
+                  url: "/shop",
+                  item_kind: "custom",
+                  sort_order: items.length * 10,
+                  is_active: true,
+                },
+              ])
+            }
+          >
+            Add link
+          </button>
+        </div>
+        <div className="grid gap-2">
+          {draftItems.map((item, index) => (
+            <div
+              key={`${index}-${String(item.label)}`}
+              className="grid gap-2 rounded-xl border border-app-border p-3 lg:grid-cols-[1fr_1fr_auto]"
+            >
+              <input
+                className="ui-input"
+                value={String(item.label ?? "")}
+                onChange={(e) => updateItem(index, { label: e.target.value })}
+                placeholder="Label"
+              />
+              <input
+                className="ui-input"
+                value={String(item.url ?? "")}
+                onChange={(e) => updateItem(index, { url: e.target.value })}
+                placeholder="/shop/products"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-xs font-bold text-app-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={item.is_active !== false}
+                    onChange={(e) =>
+                      updateItem(index, { is_active: e.target.checked })
+                    }
+                  />
+                  Active
+                </label>
+                <button
+                  type="button"
+                  className="ui-btn-secondary px-3 py-2 text-xs"
+                  onClick={() => moveItem(index, -1)}
+                >
+                  Up
+                </button>
+                <button
+                  type="button"
+                  className="ui-btn-secondary px-3 py-2 text-xs"
+                  onClick={() => moveItem(index, 1)}
+                >
+                  Down
+                </button>
+                <button
+                  type="button"
+                  className="ui-btn-secondary px-3 py-2 text-xs"
+                  onClick={() =>
+                    setDraftItems((items) =>
+                      items.filter((_, idx) => idx !== index),
+                    )
+                  }
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+          {draftItems.length === 0 ? (
+            <EmptyState label="No menu items yet." />
+          ) : null}
+        </div>
+      </section>
+    </DataPanel>
+  );
+}
+
+function MediaPanel({
+  baseUrl,
+  headers,
+}: {
+  baseUrl: string;
+  headers: HeaderFactory;
+}) {
+  const [assets, setAssets] = useState<Array<Record<string, unknown>>>([]);
+  const [drafts, setDrafts] = useState<
+    Record<string, { alt_text: string; usage_note: string }>
+  >({});
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    const res = await fetch(apiUrl(baseUrl, "/api/admin/store/media"), {
+      headers: headers(),
+    });
+    const json = (await res.json()) as {
+      assets?: Array<Record<string, unknown>>;
+      error?: string;
+    };
+    if (!res.ok) throw new Error(json.error ?? "Could not load media.");
+    const nextAssets = json.assets ?? [];
+    setAssets(nextAssets);
+    setDrafts(
+      Object.fromEntries(
+        nextAssets.map((asset) => [
+          String(asset.id),
+          {
+            alt_text: String(asset.alt_text ?? ""),
+            usage_note: String(asset.usage_note ?? ""),
+          },
+        ]),
+      ),
+    );
+  }, [baseUrl, headers]);
+  useEffect(() => {
+    void load().catch((err: Error) => setError(err.message));
+  }, [load]);
+  const patchAsset = async (id: string) => {
+    setError(null);
+    const draft = drafts[id] ?? { alt_text: "", usage_note: "" };
+    const res = await fetch(apiUrl(baseUrl, `/api/admin/store/media/${id}`), {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({
+        alt_text: draft.alt_text || null,
+        usage_note: draft.usage_note || null,
+      }),
+    });
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(json.error ?? "Could not save media.");
+      return;
+    }
+    await load();
+  };
+  const archiveAsset = async (id: string) => {
+    setError(null);
+    const res = await fetch(
+      apiUrl(baseUrl, `/api/admin/store/media/${id}/archive`),
+      {
+        method: "POST",
+        headers: headers(),
+      },
+    );
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(json.error ?? "Could not archive media.");
+      return;
+    }
+    await load();
+  };
+  return (
+    <DataPanel
+      title="Media library"
+      subtitle="Uploaded Studio/CMS assets with alt text and usage context."
+      icon={ImageIcon}
+    >
+      {error ? <EmptyState label={error} /> : null}
+      {assets.length === 0 && !error ? (
+        <EmptyState label="No uploaded media yet." />
+      ) : null}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {assets.map((asset) => {
+          const id = String(asset.id);
+          const draft = drafts[id] ?? { alt_text: "", usage_note: "" };
           return (
-            <section key={String(menu.id)} className="ui-card p-4">
-              <p className="text-sm font-black text-app-text">{String(menu.title)}</p>
-              <p className="text-xs font-mono text-app-text-muted">{String(menu.handle)}</p>
-              <ul className="mt-3 space-y-2 text-sm">
-                {items.map((item) => (
-                  <li key={String(item.id)} className="flex justify-between gap-3 rounded-lg border border-app-border p-2">
-                    <span>{String(item.label)}</span>
-                    <span className="font-mono text-xs text-app-text-muted">{String(item.url)}</span>
-                  </li>
-                ))}
-              </ul>
+            <section key={id} className="ui-card overflow-hidden">
+              <img
+                src={apiUrl(baseUrl, `/api/store/media/${id}`)}
+                alt={draft.alt_text}
+                className="h-36 w-full object-cover"
+              />
+              <div className="space-y-1 p-3 text-xs text-app-text-muted">
+                <p className="font-black text-app-text">
+                  {String(asset.original_filename ?? "Uploaded image")}
+                </p>
+                <p>
+                  {String(asset.mime_type)} · {String(asset.byte_size)} bytes
+                </p>
+                <input
+                  className="ui-input text-xs"
+                  value={draft.alt_text}
+                  onChange={(e) =>
+                    setDrafts((current) => ({
+                      ...current,
+                      [id]: { ...draft, alt_text: e.target.value },
+                    }))
+                  }
+                  placeholder="Alt text"
+                />
+                <input
+                  className="ui-input text-xs"
+                  value={draft.usage_note}
+                  onChange={(e) =>
+                    setDrafts((current) => ({
+                      ...current,
+                      [id]: { ...draft, usage_note: e.target.value },
+                    }))
+                  }
+                  placeholder="Usage note"
+                />
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    type="button"
+                    className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    onClick={() => void patchAsset(id)}
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    onClick={() => void archiveAsset(id)}
+                  >
+                    Archive
+                  </button>
+                </div>
+              </div>
             </section>
           );
         })}
@@ -556,38 +1029,99 @@ function NavigationPanel({ baseUrl, headers }: { baseUrl: string; headers: Heade
   );
 }
 
-function MediaPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
-  const [assets, setAssets] = useState<Array<Record<string, unknown>>>([]);
+function PublishHistoryPanel({
+  baseUrl,
+  headers,
+}: {
+  baseUrl: string;
+  headers: HeaderFactory;
+}) {
+  const [revisions, setRevisions] = useState<Array<Record<string, unknown>>>(
+    [],
+  );
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/media"), {
-          headers: headers(),
-        });
-        const json = (await res.json()) as { assets?: Array<Record<string, unknown>>; error?: string };
-        if (!res.ok) {
-          setError(json.error ?? "Could not load media.");
-          return;
-        }
-        setAssets(json.assets ?? []);
-      } catch {
-        setError("Could not load media.");
-      }
-    })();
+  const load = useCallback(async () => {
+    const res = await fetch(
+      apiUrl(baseUrl, "/api/admin/store/publish-history"),
+      {
+        headers: headers(),
+      },
+    );
+    const json = (await res.json()) as {
+      revisions?: Array<Record<string, unknown>>;
+      error?: string;
+    };
+    if (!res.ok)
+      throw new Error(json.error ?? "Could not load publish history.");
+    setRevisions(json.revisions ?? []);
   }, [baseUrl, headers]);
+  useEffect(() => {
+    void load().catch((err: Error) => setError(err.message));
+  }, [load]);
+  const restore = async (id: string) => {
+    setError(null);
+    const res = await fetch(
+      apiUrl(baseUrl, `/api/admin/store/publish-history/${id}/restore`),
+      {
+        method: "POST",
+        headers: headers(),
+      },
+    );
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(json.error ?? "Could not restore publish snapshot.");
+      return;
+    }
+    await load();
+  };
   return (
-    <DataPanel title="Media library" subtitle="Uploaded Studio/CMS assets with alt text and usage context." icon={ImageIcon}>
+    <DataPanel
+      title="Publish history"
+      subtitle="Published page snapshots captured when staff publish."
+      icon={FileClock}
+    >
       {error ? <EmptyState label={error} /> : null}
-      {assets.length === 0 && !error ? <EmptyState label="No uploaded media yet." /> : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {assets.map((asset) => (
-          <section key={String(asset.id)} className="ui-card overflow-hidden">
-            <img src={apiUrl(baseUrl, `/api/store/media/${String(asset.id)}`)} alt={String(asset.alt_text ?? "")} className="h-36 w-full object-cover" />
-            <div className="space-y-1 p-3 text-xs text-app-text-muted">
-              <p className="font-black text-app-text">{String(asset.original_filename ?? "Uploaded image")}</p>
-              <p>{String(asset.mime_type)} · {String(asset.byte_size)} bytes</p>
-              <p>Alt: {String(asset.alt_text ?? "—")}</p>
+      {revisions.length === 0 && !error ? (
+        <EmptyState label="No publish snapshots yet." />
+      ) : null}
+      <div className="grid gap-2">
+        {revisions.map((revision) => (
+          <section
+            key={String(revision.id)}
+            className="ui-card flex flex-wrap justify-between gap-3 p-4"
+          >
+            <div>
+              <p className="text-sm font-black text-app-text">
+                {String(revision.title)}
+              </p>
+              <p className="text-xs font-mono text-app-text-muted">
+                /shop/{String(revision.slug)}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs text-app-text-muted">
+                {shortDate(String(revision.published_at ?? ""))}
+              </p>
+              <button
+                type="button"
+                className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                onClick={() => void restore(String(revision.id))}
+              >
+                Restore
+              </button>
+              <button
+                type="button"
+                className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                onClick={() =>
+                  window.open(
+                    `/shop/${String(revision.slug)}`,
+                    "_blank",
+                    "noopener,noreferrer",
+                  )
+                }
+              >
+                Preview
+              </button>
             </div>
           </section>
         ))}
@@ -596,41 +1130,206 @@ function MediaPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFact
   );
 }
 
-function PublishHistoryPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
-  const [revisions, setRevisions] = useState<Array<Record<string, unknown>>>([]);
+function HomeLayoutPanel({
+  baseUrl,
+  headers,
+}: {
+  baseUrl: string;
+  headers: HeaderFactory;
+}) {
+  const sample = `[
+  {
+    "type": "hero",
+    "title": "Formalwear made simple",
+    "body": "Shop live Riverside inventory online.",
+    "cta_label": "View products",
+    "cta_url": "/shop/products"
+  },
+  {
+    "type": "featured_products",
+    "title": "Featured styles"
+  }
+]`;
+  const [draft, setDraft] = useState(sample);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(
+          apiUrl(baseUrl, "/api/admin/store/home-layout"),
+          {
+            headers: headers(),
+          },
+        );
+        const json = (await res.json()) as { blocks?: unknown; error?: string };
+        if (!res.ok) {
+          setError(json.error ?? "Could not load homepage layout.");
+          return;
+        }
+        setDraft(
+          JSON.stringify(
+            Array.isArray(json.blocks) ? json.blocks : [],
+            null,
+            2,
+          ),
+        );
+      } catch {
+        setError("Could not load homepage layout.");
+      }
+    })();
+  }, [baseUrl, headers]);
+  const save = async () => {
+    setError(null);
+    setSaved(false);
+    let blocks: unknown;
+    try {
+      blocks = JSON.parse(draft);
+    } catch {
+      setError("Layout must be valid JSON.");
+      return;
+    }
+    if (!Array.isArray(blocks)) {
+      setError("Layout must be a JSON array.");
+      return;
+    }
+    const res = await fetch(apiUrl(baseUrl, "/api/admin/store/home-layout"), {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ blocks }),
+    });
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(json.error ?? "Could not save homepage layout.");
+      return;
+    }
+    setSaved(true);
+  };
+  return (
+    <DataPanel
+      title="Homepage layout"
+      subtitle="ROS-native sections rendered by the public storefront without replacing product/catalog truth."
+      icon={Navigation}
+    >
+      {error ? <EmptyState label={error} /> : null}
+      {saved ? <EmptyState label="Homepage layout saved." /> : null}
+      <section className="ui-card space-y-3 p-4">
+        <textarea
+          className="ui-input min-h-[360px] font-mono text-xs"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          spellCheck={false}
+        />
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="ui-btn-primary text-[10px] font-black uppercase tracking-widest"
+            onClick={() => void save()}
+          >
+            Save layout
+          </button>
+          <button
+            type="button"
+            className="ui-btn-secondary text-[10px] font-black uppercase tracking-widest"
+            onClick={() => setDraft(sample)}
+          >
+            Use starter layout
+          </button>
+        </div>
+      </section>
+    </DataPanel>
+  );
+}
+
+function AnalyticsPanel({
+  baseUrl,
+  headers,
+}: {
+  baseUrl: string;
+  headers: HeaderFactory;
+}) {
+  const [summary, setSummary] = useState<Record<string, unknown> | null>(null);
+  const [campaigns, setCampaigns] = useState<Array<Record<string, unknown>>>(
+    [],
+  );
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/publish-history"), {
+        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/analytics"), {
           headers: headers(),
         });
-        const json = (await res.json()) as { revisions?: Array<Record<string, unknown>>; error?: string };
+        const json = (await res.json()) as {
+          summary?: Record<string, unknown>;
+          campaigns?: Array<Record<string, unknown>>;
+          error?: string;
+        };
         if (!res.ok) {
-          setError(json.error ?? "Could not load publish history.");
+          setError(json.error ?? "Could not load analytics.");
           return;
         }
-        setRevisions(json.revisions ?? []);
+        setSummary(json.summary ?? null);
+        setCampaigns(json.campaigns ?? []);
       } catch {
-        setError("Could not load publish history.");
+        setError("Could not load analytics.");
       }
     })();
   }, [baseUrl, headers]);
+  const paid = Number(summary?.paid_sessions ?? 0);
+  const started = Number(summary?.checkout_started ?? 0);
+  const paymentStarted = Number(summary?.payment_started ?? 0);
+  const pct = (num: number, den: number) =>
+    den > 0 ? `${Math.round((num / den) * 100)}%` : "0%";
   return (
-    <DataPanel title="Publish history" subtitle="Published page snapshots captured when staff publish." icon={FileClock}>
+    <DataPanel
+      title="Analytics"
+      subtitle="Storefront checkout funnel and campaign revenue."
+      icon={BarChart3}
+    >
       {error ? <EmptyState label={error} /> : null}
-      {revisions.length === 0 && !error ? <EmptyState label="No publish snapshots yet." /> : null}
-      <div className="grid gap-2">
-        {revisions.map((revision) => (
-          <section key={String(revision.id)} className="ui-card flex flex-wrap justify-between gap-3 p-4">
-            <div>
-              <p className="text-sm font-black text-app-text">{String(revision.title)}</p>
-              <p className="text-xs font-mono text-app-text-muted">/shop/{String(revision.slug)}</p>
-            </div>
-            <p className="text-xs text-app-text-muted">{shortDate(String(revision.published_at ?? ""))}</p>
-          </section>
-        ))}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <StatusCard
+          label="Checkout starts"
+          value={String(summary?.checkout_started ?? 0)}
+          detail={`${summary?.checkout_sessions ?? 0} total saved sessions.`}
+        />
+        <StatusCard
+          label="Payment starts"
+          value={String(summary?.payment_started ?? 0)}
+          detail={`${pct(paymentStarted, started)} of started checkouts.`}
+        />
+        <StatusCard
+          label="Paid sessions"
+          value={String(summary?.paid_sessions ?? 0)}
+          detail={`${pct(paid, started)} conversion from checkout start.`}
+        />
+        <StatusCard
+          label="Paid revenue"
+          value={money(summary?.paid_revenue_usd as string)}
+          detail={`${summary?.web_transactions ?? 0} web transactions in ROS.`}
+        />
       </div>
+      <section className="ui-card p-4">
+        <p className="text-sm font-black text-app-text">Campaign performance</p>
+        <div className="mt-3 grid gap-2">
+          {campaigns.map((campaign, idx) => (
+            <div
+              key={`${String(campaign.campaign_slug ?? "direct")}-${idx}`}
+              className="grid gap-2 rounded-lg border border-app-border p-3 text-xs text-app-text-muted sm:grid-cols-4"
+            >
+              <span className="font-black text-app-text">
+                {String(campaign.campaign_slug ?? "direct")}
+              </span>
+              <span>Sessions {String(campaign.sessions ?? 0)}</span>
+              <span>Paid {String(campaign.paid_sessions ?? 0)}</span>
+              <span>Revenue {money(campaign.revenue_usd as string)}</span>
+            </div>
+          ))}
+          {campaigns.length === 0 ? (
+            <EmptyState label="No campaign sessions yet." />
+          ) : null}
+        </div>
+      </section>
     </DataPanel>
   );
 }
@@ -671,16 +1370,16 @@ export default function OnlineStoreWorkspace({
     try {
       const [pagesRes, couponsRes, merchRes, checkoutRes, dashboardRes] =
         await Promise.all([
-        fetch(`${baseUrl}/api/admin/store/pages`, { headers: headers() }),
-        fetch(`${baseUrl}/api/admin/store/coupons`, { headers: headers() }),
-        fetch(apiUrl(baseUrl, "/api/inventory/control-board?limit=5000"), {
-          headers: headers(),
-        }),
-        fetch(apiUrl(baseUrl, "/api/store/checkout/config")),
-        fetch(apiUrl(baseUrl, "/api/admin/store/dashboard"), {
-          headers: headers(),
-        }),
-      ]);
+          fetch(`${baseUrl}/api/admin/store/pages`, { headers: headers() }),
+          fetch(`${baseUrl}/api/admin/store/coupons`, { headers: headers() }),
+          fetch(apiUrl(baseUrl, "/api/inventory/control-board?limit=5000"), {
+            headers: headers(),
+          }),
+          fetch(apiUrl(baseUrl, "/api/store/checkout/config")),
+          fetch(apiUrl(baseUrl, "/api/admin/store/dashboard"), {
+            headers: headers(),
+          }),
+        ]);
       if (
         !pagesRes.ok ||
         !couponsRes.ok ||
@@ -701,9 +1400,7 @@ export default function OnlineStoreWorkspace({
       const dashboardJson =
         (await dashboardRes.json()) as StoreDashboardResponse;
       setPages(Array.isArray(pagesJson.pages) ? pagesJson.pages : []);
-      setCoupons(
-        Array.isArray(couponsJson.coupons) ? couponsJson.coupons : [],
-      );
+      setCoupons(Array.isArray(couponsJson.coupons) ? couponsJson.coupons : []);
       setMerchRows(Array.isArray(merchJson.rows) ? merchJson.rows : []);
       setCheckoutConfig(checkoutJson);
       setDashboard(dashboardJson);
@@ -720,9 +1417,7 @@ export default function OnlineStoreWorkspace({
   const activeCoupons = coupons.filter((coupon) => coupon.is_active).length;
   const merchProductIds = new Set(merchRows.map((row) => row.product_id));
   const onWebProductIds = new Set(
-    merchRows
-      .filter((row) => row.web_published)
-      .map((row) => row.product_id),
+    merchRows.filter((row) => row.web_published).map((row) => row.product_id),
   );
   const needsSlugProductIds = new Set(
     merchRows
@@ -744,7 +1439,8 @@ export default function OnlineStoreWorkspace({
     (row.web_price_override ?? "").trim(),
   ).length;
   const enabledPaymentProviders = useMemo(
-    () => checkoutConfig?.providers.filter((provider) => provider.enabled) ?? [],
+    () =>
+      checkoutConfig?.providers.filter((provider) => provider.enabled) ?? [],
     [checkoutConfig?.providers],
   );
 
@@ -945,6 +1641,10 @@ export default function OnlineStoreWorkspace({
         </section>
       ) : null}
 
+      {section === "layout" ? (
+        <HomeLayoutPanel baseUrl={baseUrl} headers={headers} />
+      ) : null}
+
       {section === "promotions" ? (
         <section className="space-y-4">
           <div>
@@ -1004,7 +1704,9 @@ export default function OnlineStoreWorkspace({
         <CampaignsPanel baseUrl={baseUrl} headers={headers} />
       ) : null}
 
-      {section === "seo" ? <SeoPanel baseUrl={baseUrl} headers={headers} /> : null}
+      {section === "seo" ? (
+        <SeoPanel baseUrl={baseUrl} headers={headers} />
+      ) : null}
 
       {section === "navigation" ? (
         <NavigationPanel baseUrl={baseUrl} headers={headers} />
@@ -1015,13 +1717,7 @@ export default function OnlineStoreWorkspace({
       ) : null}
 
       {section === "analytics" ? (
-        <RoutePanel
-          icon={BarChart3}
-          title="Channel analytics will use ROS reporting"
-          body="The sale_channel field already exists for register vs web attribution. Phase 1 keeps analytics routed to existing reports until paid web checkout creates live web orders."
-          buttonLabel="Open reports"
-          onClick={() => onNavigateToTab("reports")}
-        />
+        <AnalyticsPanel baseUrl={baseUrl} headers={headers} />
       ) : null}
 
       <section className="ui-card flex flex-wrap items-center justify-between gap-4 p-4">
