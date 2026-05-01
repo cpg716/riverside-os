@@ -76,8 +76,8 @@ export default function BackofficeSignInGate({
           const data = await res.json();
           setRoster(data);
         }
-      } catch (e) {
-        console.error("Could not load roster", e);
+      } catch {
+        setRoster([]);
       }
     })();
   }, [serverUrl]);

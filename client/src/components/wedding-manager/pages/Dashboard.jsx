@@ -462,6 +462,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                                 <option value="" disabled>Specific Month</option>
                                                 {Array.from({ length: 12 }, (_, i) => {
                                                     const d = new Date();
+                                                    d.setDate(1);
                                                     d.setMonth(d.getMonth() + i);
                                                     const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
                                                     return <option key={val} value={val}>{d.toLocaleString('default', { month: 'long', year: 'numeric' })}</option>

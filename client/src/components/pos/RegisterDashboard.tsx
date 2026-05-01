@@ -24,7 +24,10 @@ import {
   type CompassActionRow,
   type RushOrderRow,
 } from "../../lib/morningCompassQueue";
-import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import {
+  hasStaffOrPosAuthHeaders,
+  mergedPosStaffHeaders,
+} from "../../lib/posRegisterAuth";
 import CompassMemberDetailDrawer from "../operations/CompassMemberDetailDrawer";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 import DashboardGridCard from "../ui/DashboardGridCard";
@@ -109,6 +112,10 @@ export default function RegisterDashboard({
   const { openDrawer } = useNotificationCenter();
 
   const apiAuth = useCallback(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
+  const hasDashboardAuth = useCallback(
+    () => hasStaffOrPosAuthHeaders(apiAuth()),
+    [apiAuth],
+  );
 
   const [taskOpen, setTaskOpen] = useState<{ id: string; title_snapshot: string; due_date: string | null }[]>([]);
   const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
@@ -119,13 +126,14 @@ export default function RegisterDashboard({
 
   const loadTasks = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("tasks.complete")) return;
+    if (!hasDashboardAuth()) return;
     try {
       const res = await fetch(`${baseUrl}/api/tasks/me`, { headers: apiAuth() });
       if (!res.ok) return;
       const data = (await res.json());
       setTaskOpen(Array.isArray(data.open) ? data.open : []);
     } catch { /* ignore */ }
-  }, [apiAuth, hasPermission, permissionsLoaded]);
+  }, [apiAuth, hasDashboardAuth, hasPermission, permissionsLoaded]);
 
   const loadNotifications = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("notifications.view")) return;

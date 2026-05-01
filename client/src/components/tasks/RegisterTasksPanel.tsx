@@ -2,7 +2,10 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
 import { ListChecks } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import {
+  hasStaffOrPosAuthHeaders,
+  mergedPosStaffHeaders,
+} from "../../lib/posRegisterAuth";
 import TaskChecklistDrawer from "./TaskChecklistDrawer";
 
 const baseUrl = getBaseUrl();
@@ -22,17 +25,25 @@ export default function RegisterTasksPanel() {
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
+  const hasTaskAuth = useCallback(
+    () => hasStaffOrPosAuthHeaders(auth()),
+    [auth],
+  );
   const [me, setMe] = useState<MeJson | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!hasTaskAuth()) {
+      setMe(null);
+      return;
+    }
     try {
       const res = await fetch(`${baseUrl}/api/tasks/me`, { headers: auth() });
       if (res.ok) setMe((await res.json()) as MeJson);
     } catch {
       /* ignore */
     }
-  }, [auth]);
+  }, [auth, hasTaskAuth]);
 
   useEffect(() => {
     void refresh();

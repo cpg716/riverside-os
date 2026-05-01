@@ -84,6 +84,15 @@ export function hasRegisterSessionPollCredentials(
   );
 }
 
+export function hasStaffOrPosAuthHeaders(h: Record<string, string>): boolean {
+  return Boolean(
+    ((h["x-riverside-staff-code"] ?? "").trim() &&
+      (h["x-riverside-staff-pin"] ?? "").trim()) ||
+      ((h["x-riverside-pos-session-id"] ?? "").trim() &&
+        (h["x-riverside-pos-session-token"] ?? "").trim()),
+  );
+}
+
 /** Header names (case-insensitive) that must never be persisted (offline queue / IndexedDB). */
 const NON_PERSISTABLE_HEADER_NAMES = new Set([
   "x-riverside-staff-pin",

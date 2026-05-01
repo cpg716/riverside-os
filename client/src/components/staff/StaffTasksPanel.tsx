@@ -9,7 +9,10 @@ import {
   Search,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import {
+  hasStaffOrPosAuthHeaders,
+  mergedPosStaffHeaders,
+} from "../../lib/posRegisterAuth";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import { useToast } from "../ui/ToastProviderLogic";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
@@ -79,6 +82,10 @@ export default function StaffTasksPanel({
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
+  const hasTaskAuth = useCallback(
+    () => hasStaffOrPosAuthHeaders(auth()),
+    [auth],
+  );
 
   const canManage = hasPermission("tasks.manage");
   const canTeam = hasPermission("tasks.view_team");
@@ -119,13 +126,17 @@ export default function StaffTasksPanel({
   const [teamSearch, setTeamSearch] = useState("");
 
   const refreshMe = useCallback(async () => {
+    if (!hasTaskAuth()) {
+      setMe(null);
+      return;
+    }
     try {
       const res = await fetch(`${baseUrl}/api/tasks/me`, { headers: auth() });
       if (res.ok) setMe((await res.json()) as MeJson);
     } catch {
       /* ignore */
     }
-  }, [auth]);
+  }, [auth, hasTaskAuth]);
 
   const refreshAdmin = useCallback(async () => {
     if (!canManage) return;

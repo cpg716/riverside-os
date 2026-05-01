@@ -4,6 +4,10 @@ import { type SearchResult } from "../components/pos/cart/PosSearchResultList";
 
 const POS_SEARCH_RESULT_CAP = 200;
 
+function shouldAttemptExactSkuScan(query: string): boolean {
+  return /\d/.test(query) || /^[a-z]{1,6}[-_/]/i.test(query);
+}
+
 export function safeSearchResultLabel(item: Partial<SearchResult> | undefined | null): string {
   if (!item) return "";
   const name = typeof item.name === "string" ? item.name.trim() : "";
@@ -92,31 +96,34 @@ export function usePosSearch({
     const requests: Promise<void>[] = [];
     const collected: SearchResult[] = [];
 
-    // 1. Direct SKU/Scan resolution
-    requests.push(
-      fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
-        headers: apiAuth(),
-      }).then(async (res) => {
-        if (res.ok) {
-          const r = (await res.json()) as Partial<SearchResult>;
-          const sku = typeof r.sku === "string" ? r.sku : String(r.sku ?? "");
-          const name = safeSearchResultLabel({ ...r, sku }) || sku;
-          collected.push({
-            ...(r as SearchResult),
-            product_id:
-              typeof r.product_id === "string"
-                ? r.product_id
-                : String(r.product_id ?? ""),
-            variant_id:
-              typeof r.variant_id === "string"
-                ? r.variant_id
-                : String(r.variant_id ?? ""),
-            sku,
-            name,
-          });
-        }
-      }),
-    );
+    // 1. Direct SKU/Scan resolution. Skip plain name searches so expected misses do not
+    // surface as noisy 404s while staff are searching customers or product names.
+    if (shouldAttemptExactSkuScan(q)) {
+      requests.push(
+        fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
+          headers: apiAuth(),
+        }).then(async (res) => {
+          if (res.ok) {
+            const r = (await res.json()) as Partial<SearchResult>;
+            const sku = typeof r.sku === "string" ? r.sku : String(r.sku ?? "");
+            const name = safeSearchResultLabel({ ...r, sku }) || sku;
+            collected.push({
+              ...(r as SearchResult),
+              product_id:
+                typeof r.product_id === "string"
+                  ? r.product_id
+                  : String(r.product_id ?? ""),
+              variant_id:
+                typeof r.variant_id === "string"
+                  ? r.variant_id
+                  : String(r.variant_id ?? ""),
+              sku,
+              name,
+            });
+          }
+        }),
+      );
+    }
 
     // 2. Control Board Fuzzy Search
     requests.push(

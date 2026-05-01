@@ -45,7 +45,10 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { parseCsv } from "../../lib/parseCsv";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import {
+  hasStaffOrPosAuthHeaders,
+  mergedPosStaffHeaders,
+} from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import WeddingPartySearchInput from "../ui/WeddingPartySearchInput";
 import {
@@ -182,6 +185,10 @@ export default function CustomersWorkspace({
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
+  );
+  const canRequestCustomerData = useMemo(
+    () => permissionsLoaded && hasStaffOrPosAuthHeaders(apiAuth()),
+    [apiAuth, permissionsLoaded],
   );
   const [_q, _setQ] = useState("");
   const [showAddDrawer, setShowAddDrawer] = useState(false);
@@ -408,6 +415,7 @@ export default function CustomersWorkspace({
 
   const fetchBrowsePage = useCallback(
     async (offset: number): Promise<CustomerBrowseRow[]> => {
+      if (!canRequestCustomerData) return [];
       const res = await fetch(
         `${baseUrl}/api/customers/browse?${buildBrowseParams(offset).toString()}`,
         { headers: apiAuth() },
@@ -415,7 +423,7 @@ export default function CustomersWorkspace({
       if (!res.ok) throw new Error("browse failed");
       return (await res.json()) as CustomerBrowseRow[];
     },
-    [buildBrowseParams, apiAuth],
+    [buildBrowseParams, apiAuth, canRequestCustomerData],
   );
 
   const browseFiltersKey = useMemo(
@@ -441,6 +449,10 @@ export default function CustomersWorkspace({
   );
 
   useEffect(() => {
+    if (!canRequestCustomerData) {
+      setCustomerGroups([]);
+      return;
+    }
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/api/customers/groups`, {
@@ -457,10 +469,17 @@ export default function CustomersWorkspace({
         /* ignore */
       }
     })();
-  }, [apiAuth]);
+  }, [apiAuth, canRequestCustomerData]);
 
   const loadFirstPage = useCallback(
     async (clearList: boolean) => {
+      if (!canRequestCustomerData) {
+        setRows([]);
+        setHasMore(false);
+        setBrowseLoadFailed(false);
+        setLoading(false);
+        return;
+      }
       if (clearList) {
         setRows([]);
         setHasMore(false);
@@ -481,7 +500,7 @@ export default function CustomersWorkspace({
         setLoading(false);
       }
     },
-    [fetchBrowsePage, toast],
+    [canRequestCustomerData, fetchBrowsePage, toast],
   );
 
   useEffect(() => {
@@ -489,6 +508,7 @@ export default function CustomersWorkspace({
   }, [browseFiltersKey, loadFirstPage]);
 
   const fetchPipelineStats = useCallback(async () => {
+    if (!canRequestCustomerData) return;
     try {
       const res = await fetch(`${baseUrl}/api/customers/pipeline-stats`, {
         headers: apiAuth(),
@@ -499,7 +519,7 @@ export default function CustomersWorkspace({
     } catch {
       /* ignore */
     }
-  }, [apiAuth]);
+  }, [apiAuth, canRequestCustomerData]);
 
   const refresh = useCallback(() => {
     void loadFirstPage(false);
