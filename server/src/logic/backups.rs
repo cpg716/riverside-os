@@ -10,6 +10,13 @@ use tokio::process::Command;
 use tracing::{error, info};
 
 const BACKUP_DIR_ENV: &str = "RIVERSIDE_BACKUP_DIR";
+const RESTORE_SCHEMA_PRE_CLEAN_SQL: &str = r#"
+DROP SCHEMA IF EXISTS reporting CASCADE;
+DROP SCHEMA IF EXISTS public CASCADE;
+CREATE SCHEMA public;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT USAGE ON SCHEMA public TO public;
+"#;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BackupSettings {
@@ -318,9 +325,70 @@ impl BackupManager {
             } else {
                 let d_err = String::from_utf8_lossy(&d_out.stderr);
                 error!(stderr = %d_err, "Docker fallback pg_restore also failed");
+
+                info!("Attempting destructive schema pre-clean restore via Docker fallback");
+                let preclean = Command::new("docker")
+                    .arg("exec")
+                    .arg("riverside-os-db")
+                    .arg("psql")
+                    .arg("-U")
+                    .arg("postgres")
+                    .arg("-d")
+                    .arg("riverside_os")
+                    .arg("-v")
+                    .arg("ON_ERROR_STOP=1")
+                    .arg("-c")
+                    .arg(RESTORE_SCHEMA_PRE_CLEAN_SQL)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped())
+                    .output()
+                    .await
+                    .context("Failed to execute Docker schema pre-clean")?;
+
+                if !preclean.status.success() {
+                    let p_err = String::from_utf8_lossy(&preclean.stderr);
+                    error!(stderr = %p_err, "Docker schema pre-clean failed");
+                    return Err(anyhow::anyhow!(
+                        "pg_restore failed and schema pre-clean failed. Restore error: {}",
+                        d_err.trim()
+                    ));
+                }
+
+                let mut replay_cmd = Command::new("docker");
+                replay_cmd
+                    .arg("exec")
+                    .arg("-i")
+                    .arg("riverside-os-db")
+                    .arg("pg_restore")
+                    .arg("-U")
+                    .arg("postgres")
+                    .arg("-d")
+                    .arg("riverside_os")
+                    .arg("--no-owner");
+
+                replay_cmd
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped());
+
+                let mut replay = replay_cmd
+                    .spawn()
+                    .context("Failed to spawn Docker schema pre-clean pg_restore")?;
+                if let Some(mut stdin) = replay.stdin.take() {
+                    stdin.write_all(&dump_data).await?;
+                    stdin.flush().await?;
+                }
+                let replay_out = replay.wait_with_output().await?;
+                if replay_out.status.success() {
+                    info!("Database restoration successful via Docker schema pre-clean fallback");
+                    return Ok(());
+                }
+
+                let replay_err = String::from_utf8_lossy(&replay_out.stderr);
+                error!(stderr = %replay_err, "Docker schema pre-clean pg_restore failed");
                 return Err(anyhow::anyhow!(
-                    "pg_restore failed (host and docker fallback). Host error: {}",
-                    err.trim()
+                    "pg_restore failed after schema pre-clean fallback: {}",
+                    replay_err.trim()
                 ));
             }
         }
@@ -461,6 +529,12 @@ mod tests {
             .listed_backup_path("backup_20260425_120000.dump")
             .expect("listed path");
         assert_eq!(path, tmp.path().join("backup_20260425_120000.dump"));
+    }
+
+    #[test]
+    fn restore_schema_pre_clean_drops_app_schemas_before_replay() {
+        assert!(RESTORE_SCHEMA_PRE_CLEAN_SQL.contains("DROP SCHEMA IF EXISTS public CASCADE"));
+        assert!(RESTORE_SCHEMA_PRE_CLEAN_SQL.contains("CREATE SCHEMA public"));
     }
 }
 
