@@ -272,6 +272,12 @@ jobs:
             elif grep -Eqi 'checkout-tender-financial-contract|tax-audit-contract|commission-audit-contract|inventory-audit-contract|register-audit-contract|register-close-reconciliation|offline-recovery-contract|qbo-audit-contract|tender-matrix-contract|tax|ledger|rounding|financial[^[:alnum:]]*contract' blocking-e2e.log; then
               category="financial-contract"
               hint="Financial contract regression. Validate tax/ledger/rounding invariants before UI triage."
+            elif grep -Eqi 'runtime-console-cleanliness|console|unexpected[^[:alnum:]]+api|api[^[:alnum:]]+noise' blocking-e2e.log; then
+              category="runtime-cleanliness"
+              hint="Runtime cleanliness regression. Inspect unexpected browser console output or API 4xx noise before changing tests."
+            elif grep -Eqi 'staff-audit-labels|settings-mobile|reports-mobile-cards|loyalty-eligible-mobile|inventory-physical-mobile-cards|customer-relationship-mobile-cards|gift-cards-mobile-cards|scheduler-mobile-ergonomics|backoffice-mobile-workflow-smoke|pos-small-screen-smoke|pwa-responsive|readability|wording|viewport|outside of the viewport|toBeInViewport' blocking-e2e.log; then
+              category="staff-wording-layout"
+              hint="Staff-facing wording or layout regression. Compare against current copy and responsive layout before changing tests."
             elif grep -Eqi 'locator|toBeVisible|toBeHidden|toBeInViewport|strict mode violation|not visible|viewport|outside of the viewport' blocking-e2e.log; then
               category="ui-contract"
               hint="UI contract mismatch. Review locator/visibility/viewport assertions and recent UI changes."
@@ -327,6 +333,8 @@ jobs:
               "app-startup",
               "auth-seed",
               "ui-contract",
+              "staff-wording-layout",
+              "runtime-cleanliness",
               "financial-contract",
               "flaky-timing",
             ]);
@@ -349,6 +357,8 @@ jobs:
               "e2e:app-startup": { color: "D93F0B", description: "Startup or connectivity failure" },
               "e2e:auth-seed": { color: "FBCA04", description: "Auth or seed-data failure" },
               "e2e:ui-contract": { color: "5319E7", description: "UI contract assertion failure" },
+              "e2e:staff-wording-layout": { color: "C5DEF5", description: "Staff-facing wording or responsive layout failure" },
+              "e2e:runtime-cleanliness": { color: "D4C5F9", description: "Runtime console or API cleanliness failure" },
               "e2e:financial-contract": { color: "0E8A16", description: "Financial contract assertion failure" },
               "e2e:flaky-timing": { color: "C2E0C6", description: "Timeout/retry/timing instability" },
               "e2e:unknown": { color: "BFD4F2", description: "Unclassified blocking lane failure" },

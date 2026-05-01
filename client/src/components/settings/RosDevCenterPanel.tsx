@@ -224,6 +224,16 @@ const E2E_FAILURE_PLAYBOOK: Array<{
       "Reproduce with a single spec in headed mode, verify data-testid/role contract, and patch the smallest stable locator.",
   },
   {
+    category: "staff-facing wording/layout",
+    nextAction:
+      "Compare the failure with current staff-facing copy and responsive layout, then update the UI and matching E2E wording together.",
+  },
+  {
+    category: "runtime console/API cleanliness",
+    nextAction:
+      "Run the runtime cleanliness spec and inspect unexpected browser console output or API 4xx noise before changing tests.",
+  },
+  {
     category: "financial/audit contract",
     nextAction:
       "Treat as release-blocking. Compare the failed result, then confirm money and audit rules still hold.",
@@ -722,8 +732,8 @@ export default function RosDevCenterPanel({
           </h3>
         </div>
         <p className="text-sm text-app-text-muted">
-          Live lane telemetry with operational run commands and failure triage
-          guidance.
+          Live lane status with commands and guidance for blocking, nightly,
+          responsive, readability, and runtime-cleanliness checks.
         </p>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -775,7 +785,7 @@ export default function RosDevCenterPanel({
             </p>
             <p className="mt-2 text-sm font-bold text-app-text">
               {blockingLane?.purpose ??
-                "High-signal financial, tax, register, audit, and core navigation contracts."}
+                "High-signal financial, tax, register, audit, staff-language, and core navigation contracts."}
               {" "}Must pass for merge.
             </p>
           </div>
@@ -785,7 +795,7 @@ export default function RosDevCenterPanel({
             </p>
             <p className="mt-2 text-sm font-bold text-app-text">
               {nightlyLane?.purpose ??
-                "Broader responsiveness and full-suite coverage (including visuals) for drift detection without PR blocking."}
+                "Broader responsive, full-suite, visual, and runtime-cleanliness coverage for drift detection without PR blocking."}
             </p>
           </div>
         </div>
@@ -866,6 +876,18 @@ export default function RosDevCenterPanel({
             </p>
             <p>
               nightly: <span className="font-black">npm --prefix client run test:e2e:nightly</span>
+            </p>
+            <p>
+              runtime:{" "}
+              <span className="font-black">
+                npm --prefix client run test:e2e -- e2e/runtime-console-cleanliness.spec.ts --workers=1
+              </span>
+            </p>
+            <p>
+              readability:{" "}
+              <span className="font-black">
+                npm --prefix client run test:e2e -- e2e/staff-audit-labels.spec.ts e2e/settings-mobile.spec.ts e2e/reports-mobile-cards.spec.ts --workers=1
+              </span>
             </p>
           </div>
         </div>

@@ -17,7 +17,7 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 
 ---
 
-## Current hardening + execution policy (2026-04-30)
+## Current hardening + execution policy (2026-05-01)
 
 ### Recently hardened
 
@@ -26,6 +26,8 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 - Overlay stacking checks were hardened for deterministic top-layer/interactability assertions.
 - Added **`staff-audit-labels.spec.ts`** for staff-facing readable/non-technical label coverage.
 - Added **`settings-deeplink-contract.spec.ts`** for Settings direct-route/fallback/normalization coverage.
+- Added **`runtime-console-cleanliness.spec.ts`** to catch unexpected console/API noise in POS search, Customers browse loading, and Wedding dashboard date handling.
+- Recent staff-facing copy and responsive layout sweeps are covered by the staff-label, settings-mobile, reports-mobile, loyalty-mobile, inventory-physical-mobile, and POS dropdown suites.
 
 ### Blocking core suite (release gate)
 
@@ -69,6 +71,7 @@ These remain useful but are lower-signal or environment-sensitive and should def
 - `loyalty-eligible-mobile.spec.ts`
 - `scheduler-mobile-ergonomics.spec.ts`
 - `alterations-register-lookup-mobile.spec.ts`
+- `runtime-console-cleanliness.spec.ts`
 
 ### Consolidation candidates (plan only, no removals yet)
 
@@ -97,6 +100,8 @@ Degraded mode:
 
 - If repo/token env vars are missing, or GitHub requests fail/timeout, ROS Dev Center stays operational.
 - E2E Health reports **degraded/unavailable** telemetry and keeps policy/playbook guidance visible.
+- The E2E manager classifies failures into startup, auth/seed, financial/audit, selector/UI, staff-facing wording/layout, runtime console/API cleanliness, and timing buckets.
+- The blocking-lane GitHub failure tracker uses matching labels, including **`e2e:staff-wording-layout`** and **`e2e:runtime-cleanliness`**, so tracker issues and ROS Dev Center triage stay aligned.
 
 How to verify in ROS Dev Center:
 
@@ -123,6 +128,7 @@ How to verify in ROS Dev Center:
 | **`register-close-reconciliation.spec.ts`** | Register close notes for cash discrepancies, historical till-group session list, and pending close coordination | Register session lifecycle and reconciliation contract |
 | **`morning-compass-coach.spec.ts`** | **Suggested next** coach on **Register dashboard** + **Operations** morning home | Permissions: **`weddings.view`** or **`tasks.complete`** or **`notifications.view`** |
 | **`data-quality-signals.spec.ts`** | Lightweight completeness/data-quality summaries in workspaces | UI smoke for operator-facing quality indicators |
+| **`runtime-console-cleanliness.spec.ts`** | Runtime console/API noise guard for POS product search, Customers auth-gated browse, and Wedding dashboard month-end stability | Browser E2E; catches unexpected console warnings/errors and API 4xx noise in staff-facing flows |
 | **`notification-deep-link-contract.spec.ts`** | Notification deep-link actionability, bundle preview behavior, severity/recency mapping, and bulk lifecycle helpers | Unit-style Playwright contract without browser navigation |
 | **`staff-tasks.spec.ts`** | **Staff → Tasks** → **My tasks** | Migration **56**, task permissions |
 | **`staff-scheduler.spec.ts`** | Staff public weekly roster, individual availability, master scheduler, store events, and master-template mode | Staff scheduling UI contract |
@@ -152,7 +158,7 @@ How to verify in ROS Dev Center:
 | **`alterations-smart-scheduler.spec.ts`** | Smart alterations scheduler planning, wedding member alteration status, and manual alteration appointment creation | Scheduler + Alterations + Wedding Hub contract |
 | **`inventory-receiving-api.spec.ts`** | Batch scan staging, final PO receipt exact-once behavior, unified inventory truth, timeline history, and direct invoice exact-once replay | Inventory receiving API contract |
 | **`inventory-receiving-ui.spec.ts`** | Receive Stock operator flow, standard PO submit/stage/receive path, and direct invoice receiving without raw ID entry | Inventory receiving UI contract |
-| **`inventory-physical-ui.spec.ts`** | Physical inventory review surfaces missing in-scope SKUs and publish applies reconciled stock | Physical inventory UI contract |
+| **`inventory-physical-ui.spec.ts`** | Physical inventory review surfaces items missing from the count area and publish applies reviewed stock | Physical inventory UI contract |
 | **`inventory-physical-mobile-cards.spec.ts`** | Physical inventory responsive cards across phone/tablet/iPad/desktop | Responsive physical inventory smoke |
 | **`visual-baselines.spec.ts`** | Full-page screenshots: register closed, QBO, dark inventory, customers, operations | **Opt-in only**: runs only when **`E2E_RUN_VISUAL=1`** (local or CI). By default this suite is skipped to avoid release-blocking snapshot drift (fonts/layout/render differences). Visual stability is improved via Playwright defaults (`animation: "disabled"`, `timezoneId: "UTC"`, `locale: "en-US"`); canonical screenshot updates should run in a pinned environment. |
 | **`ui-portaling-stacking.spec.ts`** | Refund modal over Transaction Detail drawer, receipt action availability, exchange confirmation modal stacking, and stock adjustment modal over Product Hub | Overlay/portal stacking contract |
@@ -256,6 +262,7 @@ Local release gate remains the Vite path, but use **`E2E_BASE_URL=http://localho
 
 | Date | Change |
 |------|--------|
+| 2026-05-01 | Reconciled the matrix against all 64 top-level `client/e2e/*.spec.ts` files; added runtime console/API cleanliness coverage and updated ROS Dev Center E2E health buckets plus blocking-lane failure labels for recent staff-facing wording/layout and responsive checks. |
 | 2026-04-30 | Documented current suite hardening status (deterministic POS bootstrap waits, QBO readiness waits, hardened overlay stacking), added explicit staff-audit/settings-deeplink coverage notes, and recorded consolidation candidates (plan-only; no removals yet). |
 | 2026-04-30 | Reconciled the matrix against the full `client/e2e/*.spec.ts` inventory; added hardening contracts for Settings grouped navigation/deep links, Orders Transaction Record/Fulfillment/Layaway wording, and expanded checkout cash-rounding coverage. |
 | 2026-04-25 | Added production hardening audit contracts for checkout tender financials, tax, commission, inventory, offline recovery, QBO, and register close; latest local release gate reported **181 passed, 7 skipped, 0 failed**. |

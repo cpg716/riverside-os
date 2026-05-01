@@ -281,10 +281,10 @@ impl E2eLaneKey {
     fn purpose(self) -> &'static str {
         match self {
             Self::Blocking => {
-                "High-signal financial, tax, register, audit, and core navigation contracts."
+                "High-signal financial, tax, register, audit, staff-language, and core navigation contracts."
             }
             Self::Nightly => {
-                "Broader responsiveness and full-suite coverage (including visuals) for drift detection without PR blocking."
+                "Broader responsive, full-suite, visual, and runtime-cleanliness coverage for drift detection without PR blocking."
             }
         }
     }
@@ -397,6 +397,18 @@ fn e2e_failure_playbook() -> Vec<E2eFailurePlaybookItem> {
                     .to_string(),
         },
         E2eFailurePlaybookItem {
+            category: "staff-facing wording/layout".to_string(),
+            recommended_next_action:
+                "Compare the failure with current staff-facing copy and responsive layout, then update the UI and matching E2E wording together."
+                    .to_string(),
+        },
+        E2eFailurePlaybookItem {
+            category: "runtime console/API cleanliness".to_string(),
+            recommended_next_action:
+                "Run the runtime cleanliness spec and inspect unexpected browser console output or API 4xx noise before changing tests."
+                    .to_string(),
+        },
+        E2eFailurePlaybookItem {
             category: "financial/audit contract".to_string(),
             recommended_next_action:
                 "Treat as release-blocking and inspect API payload/status deltas first, then confirm money/audit invariants."
@@ -474,6 +486,13 @@ fn classify_failure_category(
         return "auth/seed data".to_string();
     }
 
+    if failed_specs
+        .iter()
+        .any(|spec| spec == "e2e/runtime-console-cleanliness.spec.ts")
+    {
+        return "runtime console/API cleanliness".to_string();
+    }
+
     if failed_specs.iter().any(|spec| {
         matches!(
             spec.as_str(),
@@ -489,6 +508,19 @@ fn classify_failure_category(
         )
     }) {
         return "financial/audit contract".to_string();
+    }
+
+    if failed_specs.iter().any(|spec| {
+        spec.contains("mobile")
+            || spec.contains("staff-audit-labels")
+            || spec.contains("customer-relationship-mobile-cards")
+            || spec.contains("gift-cards-mobile-cards")
+            || spec.contains("loyalty-eligible-mobile")
+            || spec.contains("reports-mobile-cards")
+            || spec.contains("scheduler-mobile-ergonomics")
+            || spec.contains("settings-mobile")
+    }) {
+        return "staff-facing wording/layout".to_string();
     }
 
     if failed_specs
