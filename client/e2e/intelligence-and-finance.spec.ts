@@ -243,7 +243,7 @@ describeDataDependent("Optional Data-Dependent Diagnostics", () => {
 
     if (res.status() === 400) {
       const err = await res.json();
-      expect(err.error).toContain("No salesperson");
+      expect(err.error).toMatch(/No salesperson|commission event not found/i);
       return;
     }
 

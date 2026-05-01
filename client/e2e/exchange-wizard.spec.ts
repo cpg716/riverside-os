@@ -342,6 +342,7 @@ test.describe("POS exchange wizard", () => {
       `${apiBase()}/api/transactions/${checkout.transaction_id}?register_session_id=${encodeURIComponent(sessionId)}`,
       {
         headers: {
+          ...adminHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
         },
@@ -357,6 +358,7 @@ test.describe("POS exchange wizard", () => {
       `${apiBase()}/api/transactions/${checkout.transaction_id}/returns?register_session_id=${encodeURIComponent(sessionId)}`,
       {
         headers: {
+          ...adminHeaders(),
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
@@ -379,6 +381,7 @@ test.describe("POS exchange wizard", () => {
       `${apiBase()}/api/transactions/${checkout.transaction_id}?register_session_id=${encodeURIComponent(sessionId)}`,
       {
         headers: {
+          ...adminHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
         },

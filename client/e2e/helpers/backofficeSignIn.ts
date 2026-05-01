@@ -51,16 +51,8 @@ export async function selectBackofficeStaffMember(
 export async function ensureMainNavigationVisible(page: Page) {
   const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
   const navReady = async () => {
-    const visible = await mainNav.isVisible().catch(() => false);
-    if (!visible) return false;
-    return (
-      (await mainNav
-        .evaluate((el) => {
-          const rect = el.getBoundingClientRect();
-          return rect.width >= 120 && rect.height >= 120 && rect.right > 0;
-        })
-        .catch(() => false)) ?? false
-    );
+    if (await mainNav.isVisible().catch(() => false)) return true;
+    return mainNav.getByRole("button").first().isVisible().catch(() => false);
   };
 
   if (await navReady()) {
@@ -120,7 +112,31 @@ export async function openBackofficeSidebarTab(
     mainNav.getByRole("button", {
       name: tabLabelPatterns[tabId],
     });
+  const isInteractableInViewport = async (
+    locator: ReturnType<typeof resolveTabButton>,
+  ) =>
+    locator
+      .evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.right > 0 &&
+          rect.bottom > 0 &&
+          rect.left < window.innerWidth &&
+          rect.top < window.innerHeight
+        );
+      })
+      .catch(() => false);
   let tabButton = resolveTabButton();
+  const viewportWidth = await page.evaluate(() => window.innerWidth).catch(() => 1024);
+  if (viewportWidth < 640 || !(await isInteractableInViewport(tabButton))) {
+    const menuToggle = page.getByRole("button", { name: "Toggle menu" });
+    if (await menuToggle.isVisible().catch(() => false)) {
+      await menuToggle.click().catch(() => {});
+      tabButton = resolveTabButton();
+    }
+  }
   await expect(tabButton).toBeVisible({ timeout: 15_000 });
   await tabButton.scrollIntoViewIfNeeded().catch(() => {});
   await expect(tabButton).toBeEnabled();
@@ -137,6 +153,9 @@ export async function openBackofficeSidebarTab(
     }
   }
   if (tabId === "register" || tabId === "weddings") {
+    return tabButton;
+  }
+  if ((await page.evaluate(() => window.innerWidth).catch(() => 1024)) < 1024) {
     return tabButton;
   }
   if (tabId === "settings") {

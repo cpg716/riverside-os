@@ -354,7 +354,7 @@ for (const viewport of DRAWER_VIEWPORTS) {
       timeout: 20_000,
     });
 
-    if (viewport.width <= 1023) {
+    if (viewport.width <= 1279) {
       await expect(dialog.getByText(/channel:/i)).toBeVisible({ timeout: 10_000 });
       await expect(dialog.getByRole("table")).toHaveCount(0);
     } else {
@@ -366,7 +366,7 @@ for (const viewport of DRAWER_VIEWPORTS) {
       timeout: 20_000,
     });
 
-    if (viewport.width <= 1023) {
+    if (viewport.width <= 1279) {
       await expect(dialog.getByText(/neck:/i)).toBeVisible({ timeout: 10_000 });
     } else {
       await expect(dialog.getByRole("table")).toBeVisible({ timeout: 10_000 });
@@ -436,7 +436,7 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
   });
 
   await dialog.getByRole("button", { name: /^History$/i }).click();
-  await expect(dialog.getByText(/interactions and purchases/i)).toBeVisible();
+    await expect(dialog.getByText(/customer notes, visits, and past purchases/i)).toBeVisible();
   await expect(dialog.getByText(/Purchased 2 items/i)).toBeVisible();
   await expect(dialog.getByText(/TXN-9012/i)).toBeVisible();
 

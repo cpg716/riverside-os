@@ -417,7 +417,7 @@ test("customer lifecycle filter and hub badge use the same explicit state", asyn
       name: new RegExp(`${pendingCustomer.first_name}.*Pending`, "i"),
     }),
   ).toBeVisible();
-  await page.getByLabel(/lifecycle/i).selectOption("issue");
+  await page.getByRole("combobox", { name: /^status$/i }).selectOption("issue");
 
   await expect(
     page.getByRole("button", {

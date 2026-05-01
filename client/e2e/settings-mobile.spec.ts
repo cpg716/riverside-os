@@ -140,7 +140,7 @@ test("Settings sidebar groups stay visible and ordered", async ({ page }) => {
     "Shippo",
     "ROS Dev Center",
   ]) {
-    await expect(mainNav.getByRole("button", { name: section })).toBeVisible();
+    await expect(mainNav.getByRole("button", { name: section, exact: true })).toBeVisible();
   }
 
   const navText = (await mainNav.textContent()) ?? "";

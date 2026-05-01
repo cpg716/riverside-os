@@ -1,9 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import {
-  ensureMainNavigationVisible,
-  openBackofficeSidebarTab,
-  signInToBackOffice,
-} from "./helpers/backofficeSignIn";
+import { openBackofficeSidebarTab, signInToBackOffice } from "./helpers/backofficeSignIn";
 
 type SettingsViewport = {
   label: string;
@@ -34,10 +30,7 @@ for (const viewport of SETTINGS_VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await signInToBackOffice(page);
 
-    const mainNav = await ensureMainNavigationVisible(page);
-    const settingsButton = mainNav.getByRole("button", { name: /^settings(?:\s+bo)?$/i });
-    await expect(settingsButton).toBeVisible({ timeout: 20_000 });
-    await settingsButton.click();
+    await openBackofficeSidebarTab(page, "settings");
     await expect(page.getByTestId("settings-workspace-content")).toBeVisible({
       timeout: 20_000,
     });

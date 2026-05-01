@@ -105,9 +105,7 @@ async function openPosRegisterSurface(page: Page): Promise<void> {
   }
 
   await expect(cartShell).toBeVisible({ timeout: 25_000 });
-  if (await page.getByTestId("pos-sale-cashier-overlay").isVisible().catch(() => false)) {
-    await ensurePosSaleCashierSignedIn(page);
-  }
+  await ensurePosSaleCashierSignedIn(page);
 
   await expect(page.getByTestId("pos-product-search")).toBeVisible({
     timeout: 20_000,

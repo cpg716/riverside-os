@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import {
-  ensureMainNavigationVisible,
   openBackofficeSidebarTab,
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
@@ -57,10 +56,7 @@ for (const viewport of WORKSPACE_VIEWPORTS) {
       });
     }
 
-    const mainNav = await ensureMainNavigationVisible(page);
-    const settingsButton = mainNav.getByRole("button", { name: /^settings(?:\s+bo)?$/i });
-    await expect(settingsButton).toBeVisible({ timeout: 20_000 });
-    await settingsButton.click();
+    await openBackofficeSidebarTab(page, "settings");
     await expect(appShellState).toHaveAttribute("data-active-tab", "settings", {
       timeout: 20_000,
     });

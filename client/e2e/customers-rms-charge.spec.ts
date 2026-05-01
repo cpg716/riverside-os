@@ -177,8 +177,12 @@ test("exception ownership and retry flow stay support-safe", async ({ request, p
 
     await signInToBackOffice(page);
     await openCustomersRmsWorkspace(page);
-    await page.getByPlaceholder(/search customer for rms charge/i).fill("E2E");
-    await page.locator("ul button").first().click();
+    await page
+      .getByPlaceholder(/search customer for rms charge/i)
+      .fill(fixture.customer.customer_code);
+    await page
+      .getByRole("button", { name: new RegExp(fixture.customer.customer_code, "i") })
+      .click();
     await page.getByTestId("rms-workspace-tab-accounts").click();
 
     const selectedCustomerId = (await page.getByTestId("rms-selected-customer-id").textContent())?.trim();

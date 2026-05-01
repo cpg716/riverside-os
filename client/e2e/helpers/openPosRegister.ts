@@ -99,16 +99,29 @@ async function waitForPosRegisterPanel(page: Page): Promise<void> {
   await expect(shell).toBeVisible({ timeout: 20_000 });
 
   if ((await shell.getAttribute("data-pos-active-tab").catch(() => null)) !== "register") {
-    const registerTab = page.getByTestId("pos-sidebar-tab-register");
-    const registerNavButton = page
-      .getByRole("navigation", { name: "POS Navigation" })
-      .getByRole("button", { name: /^register$/i });
-    const target = (await registerTab.isVisible().catch(() => false))
-      ? registerTab
-      : registerNavButton;
-    await expect(target).toBeVisible({ timeout: 20_000 });
-    await expect(target).toBeEnabled();
-    await target.click();
+    await expect
+      .poll(
+        async () => {
+          if ((await shell.getAttribute("data-pos-active-tab").catch(() => null)) === "register") {
+            return true;
+          }
+
+          const registerTab = page.getByTestId("pos-sidebar-tab-register");
+          const registerNavButton = page
+            .getByRole("navigation", { name: "POS Navigation" })
+            .getByRole("button", { name: /^register$/i });
+          const target = (await registerTab.isVisible().catch(() => false))
+            ? registerTab
+            : registerNavButton;
+
+          if (!(await target.isVisible().catch(() => false))) return false;
+          if (!(await target.isEnabled().catch(() => false))) return false;
+          await target.click({ force: true }).catch(() => {});
+          return (await shell.getAttribute("data-pos-active-tab").catch(() => null)) === "register";
+        },
+        { timeout: 20_000 },
+      )
+      .toBeTruthy();
   }
 
   await expect(shell).toHaveAttribute("data-pos-active-tab", "register", {

@@ -20,9 +20,21 @@ const WORKFLOW_VIEWPORTS: WorkflowViewport[] = [
 async function openMainNavSubItem(page: Page, label: RegExp): Promise<void> {
   const menuToggle = page.getByRole("button", { name: /toggle menu/i });
   if (await menuToggle.isVisible().catch(() => false)) {
-    await menuToggle.click().catch(() => {});
+    const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
+    const existingSubButton = mainNav.getByRole("button", { name: label }).first();
+    if (!(await existingSubButton.isVisible().catch(() => false))) {
+      await menuToggle.click().catch(() => {});
+    }
   }
-  const subButton = page.getByRole("button", { name: label }).first();
+  const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
+  let subButton = mainNav.getByRole("button", { name: label }).first();
+  if (!(await subButton.isVisible().catch(() => false))) {
+    const expandButton = page.getByRole("button", { name: /expand sidebar/i });
+    if (await expandButton.isVisible().catch(() => false)) {
+      await expandButton.click().catch(() => {});
+      subButton = mainNav.getByRole("button", { name: label }).first();
+    }
+  }
   await expect(subButton).toBeVisible({ timeout: 20_000 });
   await expect(subButton).toBeEnabled();
   await subButton.click({ force: true });

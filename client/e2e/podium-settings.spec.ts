@@ -60,7 +60,7 @@ test.describe("Settings Podium integration", () => {
     await settingsButton.click();
 
     const integrationsButton = mainNav.getByRole("button", {
-      name: /^integrations$/i,
+      name: /^integrations overview$/i,
     });
     await expect(integrationsButton).toBeVisible({ timeout: 15_000 });
     await expect(integrationsButton).toBeEnabled();
