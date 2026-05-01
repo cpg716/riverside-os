@@ -6,6 +6,8 @@ Stripe remains the current/default integrated card provider in Riverside OS. The
 
 Provider attempt records are audit/control rows only. They are intended for future pending/approved/canceled terminal flows and do not replace `payment_transactions`, receipt payment summaries, Stripe PaymentIntents, or refund handling.
 
+The server can also detect Helcim backend configuration through `HELCIM_API_TOKEN`, `HELCIM_DEVICE_CODE`, and optional `HELCIM_API_BASE_URL`. This is status-only groundwork: Stripe remains the active/default provider, the Helcim token stays server-side only, and no Helcim checkout, purchase, refund, or webhook flow is enabled from this WisePOS E setup path.
+
 ### Phase 1: De-provisioning & Device Reset
 Before the reader can be added to a new account, it must be cleared of its previous configuration.
 

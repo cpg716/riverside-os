@@ -1,6 +1,7 @@
 //! Stripe Terminal handshake: create a `card_present` PaymentIntent for the physical reader.
 
-use crate::logic::stripe_vault;
+use crate::auth::permissions::SETTINGS_ADMIN;
+use crate::logic::{helcim, stripe_vault};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -28,6 +29,8 @@ pub enum PaymentError {
     InvalidPayload(String),
     #[error("{0}")]
     Unauthorized(String),
+    #[error("{0}")]
+    Forbidden(String),
     #[error("Too many payment intent requests; try again shortly")]
     RateLimited,
 }
@@ -39,10 +42,10 @@ fn map_pay_session(e: (StatusCode, axum::Json<serde_json::Value>)) -> PaymentErr
         .and_then(|x| x.as_str())
         .unwrap_or("not authorized")
         .to_string();
-    if st == StatusCode::UNAUTHORIZED {
-        PaymentError::Unauthorized(msg)
-    } else {
-        PaymentError::InvalidPayload(msg)
+    match st {
+        StatusCode::UNAUTHORIZED => PaymentError::Unauthorized(msg),
+        StatusCode::FORBIDDEN => PaymentError::Forbidden(msg),
+        _ => PaymentError::InvalidPayload(msg),
     }
 }
 
@@ -51,6 +54,7 @@ impl IntoResponse for PaymentError {
         let (status, msg) = match self {
             PaymentError::InvalidPayload(m) => (StatusCode::BAD_REQUEST, m),
             PaymentError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
+            PaymentError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             PaymentError::RateLimited => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "Too many payment intent requests; try again shortly".to_string(),
@@ -92,6 +96,7 @@ pub fn router() -> Router<AppState> {
         .route("/intent", post(create_payment_intent))
         .route("/intent/cancel", post(cancel_payment_intent))
         .route("/config", get(get_payments_config))
+        .route("/providers/helcim/status", get(get_helcim_provider_status))
         .route("/customers/{id}/payment-methods", get(get_vaulted_methods))
         .route(
             "/customers/{id}/setup-intent",
@@ -113,6 +118,17 @@ async fn get_payments_config(
 ) -> Result<Json<serde_json::Value>, PaymentError> {
     let public_key = std::env::var("STRIPE_PUBLIC_KEY").unwrap_or_default();
     Ok(Json(json!({ "stripe_public_key": public_key })))
+}
+
+async fn get_helcim_provider_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<helcim::HelcimConfigStatus>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+
+    Ok(Json(helcim::HelcimConfig::from_env().status()))
 }
 
 async fn get_vaulted_methods(

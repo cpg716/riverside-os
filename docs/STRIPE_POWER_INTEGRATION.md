@@ -97,6 +97,19 @@ Attempt records capture:
 
 Stripe checkout behavior is unchanged and continues to use the existing Stripe PaymentIntent path. Helcim, if implemented later, should use attempt rows to track pending, approved, canceled, failed, and completed terminal states before any approved payment is recorded in `payment_transactions`.
 
+### Helcim Backend Configuration Skeleton
+
+The backend can now detect Helcim configuration without enabling Helcim checkout. `GET /api/payments/providers/helcim/status` is a `settings.admin` read-only status endpoint that reports whether the server has the required Helcim environment values. It returns only enabled/configured booleans, a masked device-code suffix, the API base host, and missing-config notes.
+
+Server-side Helcim environment variables:
+- `HELCIM_API_TOKEN`
+- `HELCIM_DEVICE_CODE`
+- `HELCIM_API_BASE_URL` (optional; defaults to `https://api.helcim.com/v2`)
+
+`HELCIM_API_TOKEN` must remain server-side only. It is never returned by the status endpoint and must not be placed in client env files or browser-visible settings.
+
+No Helcim purchase endpoint, POS tender option, payment finalization, refund behavior, or webhook handling is enabled yet. The next phase is a purchase-attempt endpoint with device locking and provider-attempt lifecycle writes.
+
 ---
 
 ## 🧪 Environmental Requirements

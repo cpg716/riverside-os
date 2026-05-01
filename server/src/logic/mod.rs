@@ -20,6 +20,7 @@ pub mod customer_open_deposit;
 pub mod customer_transaction_history;
 pub mod customers;
 pub mod gift_card_ops;
+pub mod helcim;
 pub mod help_corpus;
 pub mod help_manual_policy;
 pub mod importer;
