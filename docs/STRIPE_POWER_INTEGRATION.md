@@ -83,6 +83,20 @@ For existing Stripe payments, `payment_provider` is `stripe` and `provider_payme
 
 No Helcim purchase, refund, settings, or webhook behavior is implemented by this metadata foundation. Helcim, if added later, must use its own server-side provider adapter and must not change the existing Stripe/WisePOS E behavior.
 
+### Provider Attempt Records
+
+ROS also includes a provider-neutral `payment_provider_attempts` table for future terminal-provider control flow. These records are audit/control rows for a payment attempt lifecycle, not payment ledger rows and not revenue records.
+
+Attempt records capture:
+- provider and status
+- amount/currency
+- register session and staff context
+- device or terminal identity
+- provider/idempotency references
+- redacted error/audit references
+
+Stripe checkout behavior is unchanged and continues to use the existing Stripe PaymentIntent path. Helcim, if implemented later, should use attempt rows to track pending, approved, canceled, failed, and completed terminal states before any approved payment is recorded in `payment_transactions`.
+
 ---
 
 ## 🧪 Environmental Requirements
