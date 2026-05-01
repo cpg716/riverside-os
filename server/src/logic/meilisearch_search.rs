@@ -29,6 +29,17 @@ struct IdHit {
     id: String,
 }
 
+struct ControlBoardMeiliFilters<'a> {
+    category_id: Option<Uuid>,
+    vendor_id: Option<Uuid>,
+    brand: Option<&'a str>,
+    web_published_only: bool,
+    clothing_only: bool,
+    filter_flag: Option<&'a str>,
+    oos_only: Option<bool>,
+    negative_stock_only: Option<bool>,
+}
+
 fn parse_hit_ids(hits: &[meilisearch_sdk::search::SearchResult<IdHit>]) -> Vec<Uuid> {
     let mut out = Vec::with_capacity(hits.len());
     for h in hits {
@@ -40,37 +51,28 @@ fn parse_hit_ids(hits: &[meilisearch_sdk::search::SearchResult<IdHit>]) -> Vec<U
 }
 
 /// Build Meilisearch filter for control-board flags we can express exactly.
-pub fn control_board_meili_filter_parts(
-    category_id: Option<Uuid>,
-    vendor_id: Option<Uuid>,
-    brand: Option<&str>,
-    web_published_only: bool,
-    clothing_only: bool,
-    filter_flag: Option<&str>,
-    oos_only: Option<bool>,
-    negative_stock_only: Option<bool>,
-) -> Option<String> {
+fn control_board_meili_filter_parts(filters: &ControlBoardMeiliFilters<'_>) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(cid) = category_id {
+    if let Some(cid) = filters.category_id {
         parts.push(format!("category_id = \"{cid}\""));
     }
-    if let Some(vid) = vendor_id {
+    if let Some(vid) = filters.vendor_id {
         parts.push(format!("primary_vendor_id = \"{vid}\""));
     }
-    if let Some(brand) = brand.map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(brand) = filters.brand.map(str::trim).filter(|s| !s.is_empty()) {
         let brand = brand.replace('\\', "\\\\").replace('"', "\\\"");
         parts.push(format!("brand = \"{brand}\""));
     }
-    if web_published_only {
+    if filters.web_published_only {
         parts.push("web_published = true".to_string());
     }
-    if clothing_only || filter_flag == Some("clothing") {
+    if filters.clothing_only || filters.filter_flag == Some("clothing") {
         parts.push("is_clothing_footwear = true".to_string());
     }
-    if oos_only == Some(true) {
+    if filters.oos_only == Some(true) {
         parts.push("stock_status = \"out_of_stock\"".to_string());
     }
-    if negative_stock_only == Some(true) {
+    if filters.negative_stock_only == Some(true) {
         parts.push("stock_status = \"negative\"".to_string());
     }
     if parts.is_empty() {
@@ -91,20 +93,20 @@ pub async fn control_board_search_variant_ids(
     web_published_only: bool,
     clothing_only: bool,
     filter_flag: Option<&str>,
-    _oos_only: Option<bool>,
-    _negative_stock_only: Option<bool>,
+    oos_only: Option<bool>,
+    negative_stock_only: Option<bool>,
 ) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
     let index = client.index(INDEX_VARIANTS);
-    let filter = control_board_meili_filter_parts(
+    let filter = control_board_meili_filter_parts(&ControlBoardMeiliFilters {
         category_id,
         vendor_id,
         brand,
         web_published_only,
         clothing_only,
         filter_flag,
-        _oos_only,
-        _negative_stock_only,
-    );
+        oos_only,
+        negative_stock_only,
+    });
     let mut sq = index.search();
     sq.with_query(query_text)
         .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))

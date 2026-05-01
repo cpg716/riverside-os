@@ -2,7 +2,7 @@
 
 **Intent:** The deployment model is role-based: one Windows Tauri machine is the **HOST machine**, a different Windows Tauri machine is the **MAIN REGISTER**, local-network PWA access is for devices on the same network as the host, and **remote access** is a separate Tailscale path for off-site devices. This file tracks **repo implementation** plus **one-time store sign-off** before production.
 
-Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build commands), `BACKUP_RESTORE_GUIDE.md`, `docs/TRANSACTION_RETURNS_EXCHANGES.md` (`/api/transactions/*` routes with `orders.*` RBAC), `docs/SEARCH_AND_PAGINATION.md` (POS customer + inventory directory paging), **`docs/REGISTER_DASHBOARD.md`** (POS **Dashboard** tab, metrics, notifications, **`weddings.view`** on morning board APIs), **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`** (lanes **66–67**, one drawer + satellite registers, combined Z-close), **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** (migrations **68–69**: server **Park**, Z-close purge, **`pos_rms_charge_record`** **charge** vs **payment**, Sales Support **notifications** + **tasks**, **Customers → RMS charge**, QBO **`RMS_R2S_PAYMENT_CLEARING`**, optional **`VITE_POS_OFFLINE_CARD_SIM`**).
+Related: [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) (Tailscale / TLS), [`DEVELOPER.md`](../DEVELOPER.md) (build commands), [`BACKUP_RESTORE_GUIDE.md`](../BACKUP_RESTORE_GUIDE.md), [`TRANSACTION_RETURNS_EXCHANGES.md`](TRANSACTION_RETURNS_EXCHANGES.md) (`/api/transactions/*` routes with `orders.*` RBAC), [`SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md) (POS customer + inventory directory paging), **[`REGISTER_DASHBOARD.md`](REGISTER_DASHBOARD.md)** (POS **Dashboard** tab, metrics, notifications, **`weddings.view`** on morning board APIs), **[`TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md)** (lanes **66–67**, one drawer + satellite registers, combined Z-close), **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](POS_PARKED_SALES_AND_RMS_CHARGES.md)** (migrations **68–69**: server **Park**, Z-close purge, **`pos_rms_charge_record`** **charge** vs **payment**, Sales Support **notifications** + **tasks**, **Customers → RMS charge**, QBO **`RMS_R2S_PAYMENT_CLEARING`**, optional **`VITE_POS_OFFLINE_CARD_SIM`**).
 
 ---
 
@@ -20,6 +20,14 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 - [x] **Separate PWA vs register builds:** `client/.env.pwa.example`, `client/.env.register.example` (copy to `.env.pwa` / `.env.register`, gitignored). Scripts: `npm run build:pwa`, `npm run build:register`. Tauri uses `beforeBuildCommand`: `npm run build:register` in `client/src-tauri/tauri.conf.json`.
 - [x] **Version display:** Settings → General → **About this build** (semver, git SHA, Tauri version, API base).
 
+### A.1 Current release artifact status (2026-05-01)
+
+- [x] Target app version is now **`v0.4.0`** for the deployment-audit release candidate.
+- [ ] **`v0.4.0` Windows installer/updater assets are not published yet.** Required Windows release artifacts are `latest.json`, the Windows MSI, and the `.sig`.
+- [x] Previous updater proof exists: **`v0.2.1`** release includes `latest.json`, MSI, and `.sig`.
+- [ ] Before installing Windows stations for **`v0.4.0`**, run the Windows updater release workflow, use a manual workflow artifact, or produce an approved local Windows build and record the artifact URL.
+- [ ] Latest `main` **Lint Checks** must be green before calling the current head release-ready. The previous GitHub run failed on a Meilisearch helper too-many-arguments lint; the local v0.4.0 readiness fix refactors that helper, and CI still needs a fresh run after commit/push.
+
 ---
 
 ## B. PWA installability and polish
@@ -35,7 +43,7 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 
 ## C. Network, TLS, and remote access
 
-- [x] **HTTPS in production:** Follow `REMOTE_ACCESS_GUIDE.md` (Tailscale Serve, reverse proxy, or equivalent). Do not expose plain HTTP to the public internet for staff-facing PWA.
+- [x] **HTTPS in production:** Follow [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) (Tailscale Serve, reverse proxy, or equivalent). Do not expose plain HTTP to the public internet for staff-facing PWA.
 - [x] **CORS:** `server/src/main.rs` / `launcher.rs` — when **`RIVERSIDE_CORS_ORIGINS`** is unset, `allow_origin(Any)` (dev/Tauri). Production browser hosts should set **`RIVERSIDE_STRICT_PRODUCTION=true`** so startup refuses missing CORS allowlists, missing storefront JWT secret, and invalid `FRONTEND_DIST`.
 - [x] **Server bind:** Defaults to `0.0.0.0:3000`. Override with **`RIVERSIDE_HTTP_BIND`** (e.g. `127.0.0.1:3000` behind a local reverse proxy).
 - [x] **Dedicated host smoke check:** the host panel now shows the host machine's local satellite URL plus detected LAN identity, so stores can verify a second same-network device loads the sign-in gate before opening.
@@ -49,6 +57,21 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 - [x] **Thermal / ESC-POS:** **Desktop / Tauri:** `client/src/lib/printerBridge.ts` → Tauri `invoke("print_*")` → `client/src-tauri/src/hardware.rs` TCP to printer. **PWA / browser:** same module falls back to `POST /api/hardware/print`, then browser print fallback.
 - [x] **Auto-update (desktop):** Tauri updater is supported via the release workflow `.github/workflows/tauri-register-updater-release.yml`. It emits `latest.json` + signed Windows updater artifacts for your hosted update endpoint.
 - [x] **Kiosk-ish (optional):** Not bundled; use Windows assigned access / shell replacement, or Tauri fullscreen + `tauri-plugin-single-instance` if you add it later.
+
+### D.1 Windows install paths
+
+Use one of these paths for each Windows station:
+
+1. **Current release installer:** run `.github/workflows/tauri-register-updater-release.yml` for the target version, then install from the release assets.
+2. **Manual build artifact:** run `.github/workflows/tauri-register-build.yml`, download `tauri-windows-bundle`, and install the bundle on the station.
+3. **Local Windows build:** copy `client/.env.register.example` to `.env.register`, set `VITE_API_BASE`, then run `npm ci` and `npm run tauri:build` from `client/`.
+
+Station role rules:
+
+- **Backoffice / Server PC:** may run the server and Shop Host; do not confuse it with Register #1.
+- **Register #1:** Windows Tauri cashier station; owns the cash drawer and physical receipt workflow.
+- **Other Windows laptops:** use browser-installed PWA unless the station needs native Tauri hardware paths.
+- **iPad Register #2:** PWA satellite lane; thermal receipt printing still routes through Register #1 or another Windows Tauri station today.
 
 ---
 
@@ -92,7 +115,7 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 ### PWA will not load
 
 1. Reachability: open `VITE_API_BASE` from the device browser.
-2. Tailscale / DNS: `REMOTE_ACCESS_GUIDE.md`.
+2. Tailscale / DNS: [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md).
 3. HTTPS clock skew and certificate validity.
 4. Hard refresh; clear site data or reinstall the home screen icon.
 5. Collect **Settings → General → About this build** (version, git, API base).

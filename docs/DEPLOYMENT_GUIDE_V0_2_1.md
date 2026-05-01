@@ -29,6 +29,10 @@ This makes the dedicated Windows host + local satellite PWA path explicit and te
 4. Enter the PostgreSQL URL and the listen port.
 5. Start **Shop Host**.
 
+## Current deployment caveat
+
+This v0.2.1 guide explains the historical host-mode behavior, but it is not the current release status page. The current deployment target is **`v0.4.0`**. For current deployment readiness, including whether the target release has Windows installer/updater assets, use **[`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md)** and **[`PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md)**.
+
 If startup succeeds, the panel shows:
 
 - the bind address

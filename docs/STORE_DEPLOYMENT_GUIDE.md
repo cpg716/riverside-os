@@ -55,11 +55,28 @@ flowchart TB
 
 | Role | Recommended client | Notes |
 |------|-------------------|--------|
-| **Host machine** | Windows PC running services | Run PostgreSQL and `riverside-server` here. If you use Shop Host, this is the one Tauri machine that should serve local-network satellite clients. This PC should stay on and be on UPS if possible. |
-| **Main Register** | **Tauri (Windows)** | Separate from the host machine. This is the primary cashier station and the preferred surface for **physical receipt print** from the post-sale flow (see section 6). |
+| **Backoffice / Server PC** | Windows PC running services + optional Tauri | Run PostgreSQL and `riverside-server` here. If you use Shop Host, this is the one Tauri machine that should serve local-network satellite clients. This PC should stay on and be on UPS if possible. |
+| **Register #1** | **Tauri (Windows)** | Separate from the host machine. This is the primary cashier station and the preferred surface for **physical receipt print** from the post-sale flow (see section 6). |
+| **Register #2** | **iPad PWA** | Use the local satellite URL shown by the host when the iPad is in the store. Add to Home Screen and train staff that physical thermal receipts still come from a Windows Tauri station today. |
 | **Back office workstation** | Browser or optional Tauri | Same API origin and auth model; optional Tauri if you want a dedicated shell. |
-| **Local iPad / phone satellites** | **PWA** | Use Add to Home Screen and point to the host machine while on the same local network. Shared device: **log out or close the register** when unattended ([`PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md)). |
+| **Other Windows PCs / laptops** | **PWA or optional Tauri** | Use a browser-installed PWA for Back Office/POS where hardware printing is not required; use Tauri where native printer/scanner reliability is required. |
 | **Off-site phones / laptops** | **PWA over Tailscale** | Use **Tailscale** (or equivalent private mesh) and **HTTPS** when the device is not on the same local network as the host. Do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
+
+### 2.1 Current deployment status snapshot (2026-05-01)
+
+This is the current repo/deployment status to verify before a live install:
+
+| Item | Current status | Deployment impact |
+|------|----------------|-------------------|
+| Target release version | **`v0.4.0`** | Version metadata is bumped locally for the deployment-audit release candidate. |
+| Latest published GitHub release | **`v0.3.1`** published 2026-04-25 | The new `v0.4.0` tag/release has not been published yet. |
+| `v0.4.0` Windows installer assets | **Not published yet** | Do **not** install Windows stations until `latest.json`, the Windows MSI, and the `.sig` are produced by the updater release workflow, a manual workflow artifact, or an approved local Windows build. |
+| Last published Windows updater installer assets | **`v0.2.1`** release has `latest.json`, MSI, and `.sig` | Good evidence the updater pipeline works, but not current for `v0.4.0`. |
+| Latest Playwright E2E on `main` | Latest-known pass at `ed4172de` on 2026-05-01 | Treat as supporting evidence, not a substitute for the final release cut checks. |
+| Latest Lint Checks on `main` | Previous GitHub run failed server Clippy on `control_board_meili_filter_parts`; the local v0.4.0 readiness fix refactors that helper | Rerun GitHub checks on the release commit before calling the code gate green. |
+| Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |
+
+Before installing the two Windows PCs and PWA devices for production use, create or publish a current Windows installer/updater artifact for **`v0.4.0`** and record its release/run URL in the deployment log.
 
 ### Till shift: Register #1 and satellite lanes
 
@@ -75,6 +92,41 @@ The app supports **multiple open register terminals** (migration **66**) sharing
 - **Production web bundle** `client/dist` copied next to the deployment layout your runbook uses (Axum serves this folder in production).
 - **Database**: PostgreSQL reachable via **`DATABASE_URL`**. Apply all migrations in `migrations/` in order (see [`DEVELOPER.md`](../DEVELOPER.md)). If you ship ROS-AI help, set **`RIVERSIDE_REPO_ROOT`** to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`** and run **`POST /api/ai/admin/reindex-docs`** after upgrades that change staff docs — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 
+#### 3.1.1 Backoffice / Server PC first-time setup
+
+Use this checklist for the Windows PC that owns the store database and API:
+
+1. Install **PostgreSQL 16** (or a vetted hosted/local PostgreSQL 16 equivalent) and create the Riverside database/user.
+2. Install or place the **`riverside-server.exe`** release binary in a stable folder, for example `C:\RiversideOS\server\`.
+3. Place the built web bundle in a stable folder, for example `C:\RiversideOS\client\dist\`.
+4. Create a server environment file or service environment with at least:
+   - `DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/riverside_os`
+   - `FRONTEND_DIST=C:\RiversideOS\client\dist`
+   - `RIVERSIDE_HTTP_BIND=0.0.0.0:3000` for LAN/PWA access, or `127.0.0.1:3000` only when a reverse proxy handles remote clients
+   - `RIVERSIDE_STRICT_PRODUCTION=true` for browser/PWA production
+   - `RIVERSIDE_CORS_ORIGINS=` with every browser/PWA origin staff will use
+   - `RIVERSIDE_STORE_CUSTOMER_JWT_SECRET=` with a long random value
+   - payment, QBO, backup, Meilisearch, and integration secrets as needed for the store
+5. Apply migrations from the release bundle using `scripts/apply-migrations-psql.sh` or the manual `psql` sequence in [`LOCAL_UPDATE_PROTOCOL.md`](LOCAL_UPDATE_PROTOCOL.md).
+6. Start the API manually once and confirm the log says it is listening on the expected bind address.
+7. Open Windows Firewall inbound **TCP 3000** only for trusted LAN/Tailscale networks.
+8. Configure the final run method:
+   - Windows service or scheduled task is acceptable, but store-specific and not shipped by this repo.
+   - Record the exact start/stop command in the store deployment log.
+9. Open the app from the server PC browser and confirm staff sign-in, **Settings → General → About this build**, and **Settings → Remote Access**.
+10. If this PC is also the **Shop Host**, start **Shop Host** from **Settings → Remote Access** and smoke-test a second device on the same network before opening.
+
+#### 3.1.2 Minimum server acceptance checks
+
+- [ ] `DATABASE_URL` points at the intended production database, not dev/staging.
+- [ ] Latest migration filename in `ros_schema_migrations` matches the release bundle.
+- [ ] `FRONTEND_DIST` points at the deployed `client/dist` and contains `index.html`.
+- [ ] `RIVERSIDE_STRICT_PRODUCTION=true` starts successfully.
+- [ ] Server URL loads from another machine on the store LAN.
+- [ ] Backup path is writable and visible in Settings.
+- [ ] Meilisearch status is understood: configured and rebuilt, or intentionally disabled with SQL fallback.
+- [ ] If Shop Host is used, the local satellite URL opens the sign-in gate from a second device.
+
 ### 3.2 Windows desktop app (Register 1 + Back office)
 
 1. Copy [`client/.env.register.example`](../client/.env.register.example) to **`client/.env.register`** (gitignored).
@@ -82,6 +134,16 @@ The app supports **multiple open register terminals** (migration **66**) sharing
 3. From **`client/`**: `npm run tauri:build` (runs the register build first per Tauri config).
 
 Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) section D.
+
+#### 3.2.0 Getting the Windows installer
+
+Use one of these paths:
+
+1. **Preferred current release path:** run **Tauri register updater release (Windows)** (`.github/workflows/tauri-register-updater-release.yml`) for the target version. It publishes `latest.json`, the Windows installer/update artifact, and the `.sig` file to the matching GitHub release.
+2. **Manual artifact path:** run **Tauri register (Windows)** (`.github/workflows/tauri-register-build.yml`) and download the `tauri-windows-bundle` artifact from the completed workflow run.
+3. **Local build path:** on a Windows build machine with Rust/Node prerequisites, build from `client/` with `npm ci` then `npm run tauri:build`.
+
+Record the installer version, GitHub run URL or release URL, and target API base in the deployment log. Do not reuse an older installer just because it is the latest release asset; confirm **About this build** matches the software version you intend to deploy.
 
 #### 3.2.1 Tauri station install checklist (per Windows station)
 
@@ -93,6 +155,25 @@ Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PW
 - [ ] Confirm scanner input reaches focused fields as keyboard wedge text.
 - [ ] Execute one supervised smoke flow (open POS, search item, open checkout drawer, cancel safely).
 - [ ] Record station name, install time, artifact version, and installer owner in deployment log.
+
+#### 3.2.2 Register #1 Windows install checklist
+
+- [ ] Confirm this PC is **Register #1**, not the server/host role.
+- [ ] Confirm **`VITE_API_BASE`** points at the Backoffice / Server PC or production HTTPS origin.
+- [ ] Sign in with a cashier/manager and open **Register #1**.
+- [ ] Confirm scanner input reaches product search.
+- [ ] Confirm receipt-printer settings are station-local and correct.
+- [ ] Complete one supervised low-risk sale or test transaction path according to store policy.
+- [ ] Confirm receipt success or the documented recovery path.
+- [ ] Confirm Register #1 can Z-close the till group and that staff understand Register #2+ are satellite lanes.
+
+#### 3.2.3 Backoffice Windows app install checklist
+
+- [ ] Confirm whether this PC is the **Backoffice / Server PC** or only a client workstation.
+- [ ] If it is a client workstation, do not start **Shop Host** there.
+- [ ] Confirm staff sign-in, Customers, Orders, Inventory, Reports, and Settings load against the intended API.
+- [ ] Confirm any local printer/scanner needs are configured for that station.
+- [ ] Confirm About this build reports the expected app version and API base.
 
 ### 3.3 PWA (iPad, phones, optional browser-only PCs)
 
@@ -128,6 +209,16 @@ Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PW
 - [ ] If the lane uses barcode scanning, verify the paired scanner/HID flow on the iPad specifically.
 - [ ] If a receipt is needed, confirm staff understand that physical thermal receipt printing still requires a Windows Tauri station today.
 
+#### 3.3.1a.1 Register #2 iPad PWA install checklist
+
+- [ ] Confirm Register #1 is open before using the iPad as Register #2.
+- [ ] Launch Riverside from the installed Home Screen icon.
+- [ ] Sign in with staff PIN and attach/open the satellite register lane.
+- [ ] Verify customer lookup, item lookup, cart, and checkout drawer fit comfortably on iPad.
+- [ ] Verify paired Bluetooth scanner behaves as keyboard input if this lane scans items.
+- [ ] Complete a supervised low-risk register path according to store policy.
+- [ ] Confirm staff know printed receipts must be reprinted from Register #1 or another Windows Tauri station unless future PWA receipt dispatch is added.
+
 #### 3.3.1b Local phone smoke (same-network PWA)
 
 - [ ] Confirm the phone is on the same local network as the dedicated **HOST machine**.
@@ -136,6 +227,17 @@ Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PW
 - [ ] Verify phone shell flow is usable: menu button visible, universal search visible, no horizontal overflow, and offline/pending-sync pills readable.
 - [ ] Verify one phone-relevant task such as quick customer lookup, order lookup, or shipment status access.
 - [ ] Validate stale-cache recovery on phone: close/reopen icon, then clear site data or reinstall only if still stale.
+
+#### 3.3.1d Windows laptop PWA install checklist
+
+- [ ] Open the production/local Riverside URL in Edge or Chrome.
+- [ ] Use the browser **Install app** action when available.
+- [ ] Launch from the installed app icon and confirm it opens standalone.
+- [ ] Confirm staff sign-in, Back Office navigation, and POS navigation if this laptop is allowed to use POS.
+- [ ] Confirm the laptop is using the intended path:
+  - same-network store laptop: local host URL
+  - off-site laptop: Tailscale remote path
+- [ ] Confirm no horizontal scrolling appears in core Back Office/POS workflows at the laptop's normal resolution.
 
 #### 3.3.1c Remote PWA smoke (off-site over Tailscale)
 
@@ -289,7 +391,7 @@ So **iPad PWA cannot print a thermal receipt from that button today**, even thou
 
 ## 7. Operations
 
-- **Applying updates (local / no GitHub):** [`docs/LOCAL_UPDATE_PROTOCOL.md`](LOCAL_UPDATE_PROTOCOL.md) — backup, migrations, server binary + `FRONTEND_DIST`, Tauri and PWA rollout, rollback.
+- **Applying updates (local / no GitHub):** [`LOCAL_UPDATE_PROTOCOL.md`](LOCAL_UPDATE_PROTOCOL.md) — backup, migrations, server binary + `FRONTEND_DIST`, Tauri and PWA rollout, rollback.
 - **Backups and restore:** [`BACKUP_RESTORE_GUIDE.md`](../BACKUP_RESTORE_GUIDE.md).
 - **Offline behavior:** POS may **queue checkouts** offline; back-office and inventory mutations generally require the API ([`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) section F).
 - **Large catalogs:** customer browse and inventory lists use paging; spot-check latency on Wi-Fi and Tailscale before busy weekends ([`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md)).

@@ -2,9 +2,39 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
+## Current Deployment Status (2026-05-01)
+
+- [x] Target release version is **`v0.4.0`**.
+- [ ] Current release tag exists: **`v0.4.0`**.
+- [ ] Current release has Windows installer/updater assets published.
+  - Evidence: **`v0.4.0`** has not been tagged/published yet.
+  - Previous proof: **`v0.2.1`** has `latest.json`, MSI, and `.sig`.
+  - Required action: tag/publish `v0.4.0`, then run the Windows updater release workflow, use a manual workflow artifact, or produce an approved local Windows build before installing Windows stations.
+  - Required artifacts: `latest.json`, Windows MSI, and `.sig`.
+- [x] Latest-known Playwright E2E push on `main` passed at `ed4172de`.
+  - This is supporting evidence only; rerun the required checks for the final `v0.4.0` release cut.
+- [ ] Latest Lint Checks push on `main` passed.
+  - Previous blocker: server Clippy reported `control_board_meili_filter_parts` has too many arguments in `server/src/logic/meilisearch_search.rs`.
+  - Local v0.4.0 readiness fix: refactor the helper so `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` passes before commit.
+- [ ] Production station deployment log is complete for:
+  - Backoffice / Server PC
+  - Register #1 Windows Tauri
+  - Register #2 iPad PWA
+  - other Windows laptop PWA / optional Tauri clients
+
+## v0.4.0 Release Readiness Blockers
+
+- [x] Server Clippy blocker is fixed locally for the v0.4.0 readiness pass.
+- [ ] `v0.4.0` Windows updater assets exist: `latest.json`, MSI, and `.sig`.
+- [ ] Physical station smoke is complete for Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
+- [ ] GitHub checks have rerun and passed on the final release commit.
+
 ## Code Gate
 
 - [x] No unresolved AI-actionable code-level P0/P1 findings remain in `docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`; human/environment verification gates below remain required.
+- [x] `cargo fmt --manifest-path server/Cargo.toml --check` — passed locally for v0.4.0 readiness on 2026-05-01.
+- [x] `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` — passed locally for v0.4.0 readiness on 2026-05-01 after the Meilisearch helper refactor.
+- [x] `cargo check --manifest-path server/Cargo.toml` — passed locally for v0.4.0 readiness on 2026-05-01.
 - [x] `cargo fmt --check --manifest-path server/Cargo.toml` — passed locally on 2026-04-25.
 - [x] `npm run check:server` — passed locally on 2026-04-25.
 - [x] `npm run lint` — passed locally on 2026-04-25.
