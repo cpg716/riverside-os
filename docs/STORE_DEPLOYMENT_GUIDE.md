@@ -72,7 +72,7 @@ This is the current repo/deployment status to verify before a live install:
 | Latest published GitHub release | **`v0.3.1`** published 2026-04-25 | The new `v0.4.0` tag/release has not been published yet. |
 | `v0.4.0` Windows installer assets | **Not published yet** | Do **not** install Windows stations until `latest.json`, the Windows MSI, and the `.sig` are produced by the updater release workflow, a manual workflow artifact, or an approved local Windows build. |
 | Last published Windows updater installer assets | **`v0.2.1`** release has `latest.json`, MSI, and `.sig` | Good evidence the updater pipeline works, but not current for `v0.4.0`. |
-| Latest Playwright E2E on `main` | Latest-known pass at `ed4172de` on 2026-05-01 | Treat as supporting evidence, not a substitute for the final release cut checks. |
+| Latest Playwright E2E on `main` | Later GitHub run at `ef1f6a28` failed individualized-shirt order contract coverage; local v0.4.0 readiness fix now passes that targeted slice | Rerun GitHub checks on the release commit before calling the code gate green. |
 | Latest Lint Checks on `main` | Previous GitHub run failed server Clippy on `control_board_meili_filter_parts`; the local v0.4.0 readiness fix refactors that helper | Rerun GitHub checks on the release commit before calling the code gate green. |
 | Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |
 

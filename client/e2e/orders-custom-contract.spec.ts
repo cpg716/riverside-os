@@ -241,14 +241,15 @@ async function fetchCatalogPricing(
   );
   expect(res.status()).toBe(200);
   const body = (await res.json()) as { rows?: ControlBoardRow[] };
-  const row = (body.rows ?? []).find((candidate) => candidate.sku === sku) ?? body.rows?.[0];
+  const row = (body.rows ?? []).find((candidate) => candidate.sku === sku);
   if (row) {
     return row;
   }
 
   if (!KNOWN_CUSTOM_CATALOG[sku]) {
-    expect(row).toBeTruthy();
-    return row as ControlBoardRow;
+    const fallbackRow = body.rows?.[0];
+    expect(fallbackRow).toBeTruthy();
+    return fallbackRow as ControlBoardRow;
   }
 
   await createKnownCustomCatalogSku(request, sku);
@@ -292,8 +293,7 @@ async function fetchCatalogPricing(
   );
   expect(seededRes.status()).toBe(200);
   const seededBody = (await seededRes.json()) as { rows?: ControlBoardRow[] };
-  const seededRow =
-    (seededBody.rows ?? []).find((candidate) => candidate.sku === sku) ?? seededBody.rows?.[0];
+  const seededRow = (seededBody.rows ?? []).find((candidate) => candidate.sku === sku);
   expect(seededRow).toBeTruthy();
   return seededRow as ControlBoardRow;
 }

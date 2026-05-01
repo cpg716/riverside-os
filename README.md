@@ -1,8 +1,8 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.3.2 introduces a comprehensive redesign of the Exchange/Return Wizard, a global 60-day return policy with manager-override guards, and automatic RBAC synchronization for staff profiles. It continues the v0.3 focus on financial truth, inventory audit coverage, and release-readiness.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.4.0 is the deployment-audit release candidate for the store rollout model: Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and Windows laptop PWA/optional Tauri clients. It keeps the v0.3 financial, inventory, staff, and UI hardening work while making deployment status and station setup explicit.
 
-Current Version: **v0.3.2** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.4.0** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 

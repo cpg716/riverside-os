@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.4.0] — 2026-05-01
+### Added
+- Deployment readiness audit for the production topology: Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and Windows laptop PWA/optional Tauri clients.
+- Current deployment status sections documenting release artifact state, CI status, station install paths, and remaining go-live blockers.
+- Step-by-step Windows server, Windows register, iPad PWA, and Windows laptop PWA installation checklists in the canonical deployment docs.
+- Release documentation for the `v0.4.0` deployment-audit release candidate.
+
+### Changed
+- Bumped application/package metadata to `0.4.0` across root, client, server, and Tauri manifests/lockfiles.
+- Clarified that `v0.4.0` requires fresh Windows installer/updater assets before station install, because the latest published Windows updater assets remain on the older `v0.2.1` release.
+- Updated go/no-go guidance to keep the current Clippy failure and station hardware signoffs visible as release blockers.
+
+### Fixed
+- Corrected stale deployment doc links and clarified which guide is canonical for current deployment status.
  
 ## [0.3.4] — 2026-04-28
 ### Added
