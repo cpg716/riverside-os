@@ -121,6 +121,17 @@ interface PublishedPageSummary {
   updated_at: string;
 }
 
+interface StoreNavigationItem {
+  label: string;
+  url: string;
+}
+
+interface StoreNavigationMenu {
+  handle: string;
+  title: string;
+  items?: StoreNavigationItem[];
+}
+
 interface CartLineLocal {
   variant_id: string;
   qty: number;
@@ -438,6 +449,17 @@ function PublicStorefrontShell() {
     setStoreJwt(readStoreAccountJwt());
   }, []);
 
+  const { data: navigation } = useQuery({
+    queryKey: ["store-navigation"],
+    queryFn: async () => {
+      const res = await fetch(apiUrl(API_BASE, "/api/store/navigation"));
+      if (!res.ok) throw new Error("navigation");
+      return res.json() as Promise<{ menus?: StoreNavigationMenu[] }>;
+    },
+  });
+  const headerItems =
+    navigation?.menus?.find((menu) => menu.handle === "header")?.items ?? [];
+
   return (
     <div
       data-storefront="true"
@@ -454,24 +476,24 @@ function PublicStorefrontShell() {
             Shop
           </Button>
           <nav className="flex flex-wrap items-center gap-1 text-[10px] font-black uppercase tracking-widest text-storefront-muted-foreground">
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              className="text-storefront-muted-foreground"
-              onClick={() => navigate("/shop/products")}
-            >
-              Products
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              className="text-storefront-muted-foreground"
-              onClick={() => navigate("/shop/cart")}
-            >
-              Cart
-            </Button>
+            {(headerItems.length > 0
+              ? headerItems
+              : [
+                  { label: "Products", url: "/shop/products" },
+                  { label: "Cart", url: "/shop/cart" },
+                ]
+            ).map((item) => (
+              <Button
+                key={`${item.label}-${item.url}`}
+                variant="ghost"
+                size="sm"
+                type="button"
+                className="text-storefront-muted-foreground"
+                onClick={() => navigate(item.url)}
+              >
+                {item.label}
+              </Button>
+            ))}
             <Button
               variant="ghost"
               size="sm"
@@ -2885,6 +2907,7 @@ function CheckoutPane({
     setPayment(null);
     try {
       const cartId = window.localStorage.getItem(CART_SESSION_STORAGE_KEY);
+      const urlParams = new URLSearchParams(window.location.search);
       const sessionRes = await fetch(
         apiUrl(API_BASE, "/api/store/checkout/session"),
         {
@@ -2915,6 +2938,10 @@ function CheckoutPane({
             shipping_rate_quote_id:
               fulfillment === "ship" ? selectedQuoteId : null,
             selected_provider: provider,
+            source: urlParams.get("utm_source"),
+            medium: urlParams.get("utm_medium"),
+            campaign_slug:
+              urlParams.get("utm_campaign") ?? urlParams.get("campaign"),
             idempotency_key: `store-checkout-${cartId || ""}-${provider}-${Date.now()}`,
           }),
         },

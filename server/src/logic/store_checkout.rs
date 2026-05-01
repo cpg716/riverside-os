@@ -90,6 +90,12 @@ pub struct CreateCheckoutSessionInput {
     pub shipping_rate_quote_id: Option<Uuid>,
     pub selected_provider: String,
     #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub medium: Option<String>,
+    #[serde(default)]
+    pub campaign_slug: Option<String>,
+    #[serde(default)]
     pub idempotency_key: Option<String>,
 }
 
@@ -500,13 +506,15 @@ pub async fn create_session(
             guest_cart_id, customer_id, contact, fulfillment_method, ship_to,
             shipping_rate_quote_id, lines_snapshot, coupon_id, coupon_code,
             coupon_snapshot, subtotal_usd, discount_usd, tax_usd, shipping_usd,
-            total_usd, selected_provider, status, idempotency_key
+            total_usd, selected_provider, source, medium, campaign_slug,
+            checkout_started_at, status, idempotency_key
         )
         VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9,
             $10, $11, $12, $13, $14,
-            $15, $16, 'draft', $17
+            $15, $16, $17, $18, $19,
+            now(), 'draft', $20
         )
         ON CONFLICT (idempotency_key) DO UPDATE
         SET contact = EXCLUDED.contact,
@@ -523,6 +531,10 @@ pub async fn create_session(
             shipping_usd = EXCLUDED.shipping_usd,
             total_usd = EXCLUDED.total_usd,
             selected_provider = EXCLUDED.selected_provider,
+            source = EXCLUDED.source,
+            medium = EXCLUDED.medium,
+            campaign_slug = EXCLUDED.campaign_slug,
+            checkout_started_at = COALESCE(store_checkout_session.checkout_started_at, now()),
             status = CASE
                 WHEN store_checkout_session.status IN ('paid', 'payment_pending') THEN store_checkout_session.status
                 ELSE 'draft'
@@ -550,6 +562,9 @@ pub async fn create_session(
     .bind(shipping_amount)
     .bind(total)
     .bind(&selected_provider)
+    .bind(input.source.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()))
+    .bind(input.medium.map(|value| value.trim().to_string()).filter(|value| !value.is_empty()))
+    .bind(input.campaign_slug.map(|value| value.trim().to_lowercase()).filter(|value| !value.is_empty()))
     .bind(idempotency_key)
     .fetch_one(&state.db)
     .await?;
@@ -703,9 +718,9 @@ pub async fn create_payment(
 
         sqlx::query(
             r#"
-            UPDATE store_checkout_session
-            SET status = 'payment_pending', selected_provider = 'helcim'
-            WHERE id = $1
+        UPDATE store_checkout_session
+        SET status = 'payment_pending', selected_provider = 'helcim', payment_started_at = COALESCE(payment_started_at, now())
+        WHERE id = $1
             "#,
         )
         .bind(row.id)
@@ -738,7 +753,7 @@ pub async fn create_payment(
     sqlx::query(
         r#"
         UPDATE store_checkout_session
-        SET status = 'payment_pending', selected_provider = $2
+        SET status = 'payment_pending', selected_provider = $2, payment_started_at = COALESCE(payment_started_at, now())
         WHERE id = $1
         "#,
     )
@@ -1077,7 +1092,7 @@ async fn finalize_paid_checkout(
     sqlx::query(
         r#"
         UPDATE store_checkout_session
-        SET status = 'paid', finalized_transaction_id = $2
+        SET status = 'paid', finalized_transaction_id = $2, paid_at = COALESCE(paid_at, now())
         WHERE id = $1
         "#,
     )

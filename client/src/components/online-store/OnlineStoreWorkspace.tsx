@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type React from "react";
 import {
   BarChart3,
   ExternalLink,
+  FileClock,
+  Image as ImageIcon,
+  Megaphone,
+  Navigation,
+  Search,
   Settings,
   ShoppingBag,
+  ShoppingCart,
   Truck,
   Users,
 } from "lucide-react";
@@ -21,8 +28,13 @@ type OnlineStoreSection =
   | "storefront"
   | "products"
   | "orders"
+  | "carts"
   | "customers"
   | "promotions"
+  | "campaigns"
+  | "seo"
+  | "navigation"
+  | "media"
   | "shipping"
   | "analytics";
 
@@ -73,6 +85,15 @@ interface StoreCheckoutConfigResponse {
   }>;
 }
 
+interface StoreDashboardResponse {
+  web_transactions: number;
+  web_sales_usd: string;
+  pending_checkouts: number;
+  abandoned_checkouts: number;
+  active_campaigns: number;
+  media_assets: number;
+}
+
 const sections: {
   id: OnlineStoreSection;
   label: string;
@@ -96,7 +117,12 @@ const sections: {
   {
     id: "orders",
     label: "Orders",
-    desc: "Web order operating surface as checkout comes online.",
+    desc: "Paid web transactions and fulfillment routing.",
+  },
+  {
+    id: "carts",
+    label: "Carts",
+    desc: "Checkout sessions, failures, and abandoned cart signals.",
   },
   {
     id: "customers",
@@ -107,6 +133,26 @@ const sections: {
     id: "promotions",
     label: "Promotions",
     desc: "Coupons and campaign controls.",
+  },
+  {
+    id: "campaigns",
+    label: "Campaigns",
+    desc: "Landing pages, coupon attribution, and performance.",
+  },
+  {
+    id: "seo",
+    label: "SEO",
+    desc: "Storefront health issues and fix paths.",
+  },
+  {
+    id: "navigation",
+    label: "Navigation",
+    desc: "Header and footer storefront menus.",
+  },
+  {
+    id: "media",
+    label: "Media",
+    desc: "Uploaded assets, alt text, and usage notes.",
   },
   {
     id: "shipping",
@@ -190,6 +236,405 @@ function RoutePanel({
   );
 }
 
+function money(value: string | number | null | undefined) {
+  const n =
+    typeof value === "number"
+      ? value
+      : Number.parseFloat(String(value ?? "0").replace(/,/g, ""));
+  return Number.isFinite(n) ? `$${n.toFixed(2)}` : "$0.00";
+}
+
+function shortDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}
+
+function DataPanel({
+  title,
+  subtitle,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  icon: LucideIcon;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-app-accent/10 text-app-accent">
+          <Icon size={18} />
+        </div>
+        <div>
+          <h2 className="text-2xl font-black italic uppercase tracking-tight text-app-text">
+            {title}
+          </h2>
+          <p className="mt-1 text-sm text-app-text-muted">{subtitle}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return (
+    <div className="ui-card p-6 text-sm font-medium text-app-text-muted">
+      {label}
+    </div>
+  );
+}
+
+type HeaderFactory = () => Record<string, string>;
+
+function OrdersPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+  const [orders, setOrders] = useState<Array<Record<string, unknown>>>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/orders"), {
+          headers: headers(),
+        });
+        const json = (await res.json()) as { orders?: Array<Record<string, unknown>>; error?: string };
+        if (!res.ok) {
+          setError(json.error ?? "Could not load web orders.");
+          return;
+        }
+        setOrders(json.orders ?? []);
+      } catch {
+        setError("Could not load web orders.");
+      }
+    })();
+  }, [baseUrl, headers]);
+  return (
+    <DataPanel
+      title="Web orders"
+      subtitle="Paid web transactions created by ROS checkout."
+      icon={ShoppingBag}
+    >
+      {error ? <EmptyState label={error} /> : null}
+      {orders.length === 0 && !error ? <EmptyState label="No web orders yet." /> : null}
+      <div className="grid gap-3">
+        {orders.map((order) => (
+          <section key={String(order.transaction_id)} className="ui-card p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-black text-app-text">
+                  {String(order.display_id ?? "Web transaction")}
+                </p>
+                <p className="text-xs text-app-text-muted">
+                  {shortDate(String(order.booked_at ?? ""))} · {String(order.fulfillment_method ?? "pickup")}
+                </p>
+              </div>
+              <div className="text-right font-mono text-sm font-black text-app-text">
+                {money(order.total_price as string)}
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-app-text-muted sm:grid-cols-4">
+              <span>Status: {String(order.status ?? "—")}</span>
+              <span>Paid: {money(order.amount_paid as string)}</span>
+              <span>Balance: {money(order.balance_due as string)}</span>
+              <span>Provider: {String(order.payment_provider ?? "—")}</span>
+            </div>
+          </section>
+        ))}
+      </div>
+    </DataPanel>
+  );
+}
+
+function CartsPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+  const [sessions, setSessions] = useState<Array<Record<string, unknown>>>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/carts"), {
+          headers: headers(),
+        });
+        const json = (await res.json()) as { sessions?: Array<Record<string, unknown>>; error?: string };
+        if (!res.ok) {
+          setError(json.error ?? "Could not load checkout sessions.");
+          return;
+        }
+        setSessions(json.sessions ?? []);
+      } catch {
+        setError("Could not load checkout sessions.");
+      }
+    })();
+  }, [baseUrl, headers]);
+  return (
+    <DataPanel
+      title="Carts"
+      subtitle="Checkout sessions, pending payments, failures, and abandoned signals."
+      icon={ShoppingCart}
+    >
+      {error ? <EmptyState label={error} /> : null}
+      {sessions.length === 0 && !error ? <EmptyState label="No checkout sessions yet." /> : null}
+      <div className="grid gap-3 md:grid-cols-2">
+        {sessions.map((session) => {
+          const contact = session.contact as { email?: string; name?: string } | undefined;
+          return (
+            <section key={String(session.id)} className="ui-card p-4">
+              <div className="flex justify-between gap-3">
+                <div>
+                  <p className="text-sm font-black text-app-text">
+                    {String(contact?.email ?? contact?.name ?? "Guest checkout")}
+                  </p>
+                  <p className="text-xs text-app-text-muted">
+                    {shortDate(String(session.created_at ?? ""))}
+                  </p>
+                </div>
+                <span className="text-xs font-black uppercase text-app-accent">
+                  {String(session.status ?? "draft")}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-1 font-mono text-xs text-app-text-muted">
+                <span>Total {money(session.total_usd as string)}</span>
+                <span>Provider {String(session.selected_provider ?? "—")}</span>
+                <span>Coupon {String(session.coupon_code ?? "—")}</span>
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </DataPanel>
+  );
+}
+
+function CampaignsPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+  const [campaigns, setCampaigns] = useState<Array<Record<string, unknown>>>([]);
+  const [draft, setDraft] = useState({ slug: "", name: "", landing_page_slug: "", notes: "" });
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    const res = await fetch(apiUrl(baseUrl, "/api/admin/store/campaigns"), {
+      headers: headers(),
+    });
+    const json = (await res.json()) as { campaigns?: Array<Record<string, unknown>>; error?: string };
+    if (!res.ok) throw new Error(json.error ?? "Could not load campaigns.");
+    setCampaigns(json.campaigns ?? []);
+  }, [baseUrl, headers]);
+  useEffect(() => {
+    void load().catch((err: Error) => setError(err.message));
+  }, [load]);
+  const create = async () => {
+    setError(null);
+    const res = await fetch(apiUrl(baseUrl, "/api/admin/store/campaigns"), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        slug: draft.slug,
+        name: draft.name,
+        landing_page_slug: draft.landing_page_slug || null,
+        notes: draft.notes || null,
+      }),
+    });
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      setError(json.error ?? "Could not create campaign.");
+      return;
+    }
+    setDraft({ slug: "", name: "", landing_page_slug: "", notes: "" });
+    await load();
+  };
+  return (
+    <DataPanel
+      title="Campaigns"
+      subtitle="Landing pages, coupon attribution, source tags, and web revenue."
+      icon={Megaphone}
+    >
+      <section className="ui-card grid gap-3 p-4 lg:grid-cols-4">
+        <input className="ui-input" value={draft.slug} onChange={(e) => setDraft((d) => ({ ...d, slug: e.target.value }))} placeholder="campaign-slug" />
+        <input className="ui-input" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} placeholder="Campaign name" />
+        <input className="ui-input" value={draft.landing_page_slug} onChange={(e) => setDraft((d) => ({ ...d, landing_page_slug: e.target.value }))} placeholder="Landing page slug" />
+        <button type="button" className="ui-btn-primary" onClick={() => void create()}>
+          Create campaign
+        </button>
+      </section>
+      {error ? <EmptyState label={error} /> : null}
+      <div className="grid gap-3 md:grid-cols-2">
+        {campaigns.map((campaign) => (
+          <section key={String(campaign.id)} className="ui-card p-4">
+            <p className="text-sm font-black text-app-text">{String(campaign.name)}</p>
+            <p className="text-xs font-mono text-app-text-muted">/shop/{String(campaign.landing_page_slug ?? campaign.slug)}</p>
+            <div className="mt-3 grid gap-1 text-xs text-app-text-muted">
+              <span>Coupon: {String(campaign.coupon_code ?? "—")}</span>
+              <span>Paid checkouts: {String(campaign.paid_checkouts ?? 0)}</span>
+              <span>Revenue: {money(campaign.revenue_usd as string)}</span>
+            </div>
+          </section>
+        ))}
+      </div>
+    </DataPanel>
+  );
+}
+
+function SeoPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+  const [issues, setIssues] = useState<Array<Record<string, unknown>>>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/seo"), {
+          headers: headers(),
+        });
+        const json = (await res.json()) as { issues?: Array<Record<string, unknown>>; error?: string };
+        if (!res.ok) {
+          setError(json.error ?? "Could not load SEO health.");
+          return;
+        }
+        setIssues(json.issues ?? []);
+      } catch {
+        setError("Could not load SEO health.");
+      }
+    })();
+  }, [baseUrl, headers]);
+  return (
+    <DataPanel title="SEO health" subtitle="Actionable storefront publishing and catalog issues." icon={Search}>
+      {error ? <EmptyState label={error} /> : null}
+      {issues.length === 0 && !error ? <EmptyState label="No SEO issues found." /> : null}
+      <div className="grid gap-2">
+        {issues.map((issue, idx) => (
+          <section key={`${String(issue.kind)}-${String(issue.entity_id)}-${idx}`} className="ui-card flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <p className="text-sm font-black text-app-text">{String(issue.label)}</p>
+              <p className="text-xs text-app-text-muted">{String(issue.kind)} · {String(issue.entity_id)}</p>
+            </div>
+          </section>
+        ))}
+      </div>
+    </DataPanel>
+  );
+}
+
+function NavigationPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+  const [menus, setMenus] = useState<Array<Record<string, unknown>>>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/navigation"), {
+          headers: headers(),
+        });
+        const json = (await res.json()) as { menus?: Array<Record<string, unknown>>; error?: string };
+        if (!res.ok) {
+          setError(json.error ?? "Could not load navigation.");
+          return;
+        }
+        setMenus(json.menus ?? []);
+      } catch {
+        setError("Could not load navigation.");
+      }
+    })();
+  }, [baseUrl, headers]);
+  return (
+    <DataPanel title="Navigation" subtitle="Header and footer menus rendered by the public storefront." icon={Navigation}>
+      {error ? <EmptyState label={error} /> : null}
+      <div className="grid gap-3 md:grid-cols-2">
+        {menus.map((menu) => {
+          const items = (menu.items as Array<Record<string, unknown>> | undefined) ?? [];
+          return (
+            <section key={String(menu.id)} className="ui-card p-4">
+              <p className="text-sm font-black text-app-text">{String(menu.title)}</p>
+              <p className="text-xs font-mono text-app-text-muted">{String(menu.handle)}</p>
+              <ul className="mt-3 space-y-2 text-sm">
+                {items.map((item) => (
+                  <li key={String(item.id)} className="flex justify-between gap-3 rounded-lg border border-app-border p-2">
+                    <span>{String(item.label)}</span>
+                    <span className="font-mono text-xs text-app-text-muted">{String(item.url)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+    </DataPanel>
+  );
+}
+
+function MediaPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+  const [assets, setAssets] = useState<Array<Record<string, unknown>>>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/media"), {
+          headers: headers(),
+        });
+        const json = (await res.json()) as { assets?: Array<Record<string, unknown>>; error?: string };
+        if (!res.ok) {
+          setError(json.error ?? "Could not load media.");
+          return;
+        }
+        setAssets(json.assets ?? []);
+      } catch {
+        setError("Could not load media.");
+      }
+    })();
+  }, [baseUrl, headers]);
+  return (
+    <DataPanel title="Media library" subtitle="Uploaded Studio/CMS assets with alt text and usage context." icon={ImageIcon}>
+      {error ? <EmptyState label={error} /> : null}
+      {assets.length === 0 && !error ? <EmptyState label="No uploaded media yet." /> : null}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {assets.map((asset) => (
+          <section key={String(asset.id)} className="ui-card overflow-hidden">
+            <img src={apiUrl(baseUrl, `/api/store/media/${String(asset.id)}`)} alt={String(asset.alt_text ?? "")} className="h-36 w-full object-cover" />
+            <div className="space-y-1 p-3 text-xs text-app-text-muted">
+              <p className="font-black text-app-text">{String(asset.original_filename ?? "Uploaded image")}</p>
+              <p>{String(asset.mime_type)} · {String(asset.byte_size)} bytes</p>
+              <p>Alt: {String(asset.alt_text ?? "—")}</p>
+            </div>
+          </section>
+        ))}
+      </div>
+    </DataPanel>
+  );
+}
+
+function PublishHistoryPanel({ baseUrl, headers }: { baseUrl: string; headers: HeaderFactory }) {
+  const [revisions, setRevisions] = useState<Array<Record<string, unknown>>>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl(baseUrl, "/api/admin/store/publish-history"), {
+          headers: headers(),
+        });
+        const json = (await res.json()) as { revisions?: Array<Record<string, unknown>>; error?: string };
+        if (!res.ok) {
+          setError(json.error ?? "Could not load publish history.");
+          return;
+        }
+        setRevisions(json.revisions ?? []);
+      } catch {
+        setError("Could not load publish history.");
+      }
+    })();
+  }, [baseUrl, headers]);
+  return (
+    <DataPanel title="Publish history" subtitle="Published page snapshots captured when staff publish." icon={FileClock}>
+      {error ? <EmptyState label={error} /> : null}
+      {revisions.length === 0 && !error ? <EmptyState label="No publish snapshots yet." /> : null}
+      <div className="grid gap-2">
+        {revisions.map((revision) => (
+          <section key={String(revision.id)} className="ui-card flex flex-wrap justify-between gap-3 p-4">
+            <div>
+              <p className="text-sm font-black text-app-text">{String(revision.title)}</p>
+              <p className="text-xs font-mono text-app-text-muted">/shop/{String(revision.slug)}</p>
+            </div>
+            <p className="text-xs text-app-text-muted">{shortDate(String(revision.published_at ?? ""))}</p>
+          </section>
+        ))}
+      </div>
+    </DataPanel>
+  );
+}
+
 export default function OnlineStoreWorkspace({
   activeSection,
   onNavigateToTab,
@@ -204,6 +649,9 @@ export default function OnlineStoreWorkspace({
   const [pages, setPages] = useState<StorePageRow[]>([]);
   const [coupons, setCoupons] = useState<StoreCouponRow[]>([]);
   const [merchRows, setMerchRows] = useState<StoreMerchRow[]>([]);
+  const [dashboard, setDashboard] = useState<StoreDashboardResponse | null>(
+    null,
+  );
   const [checkoutConfig, setCheckoutConfig] =
     useState<StoreCheckoutConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -221,15 +669,25 @@ export default function OnlineStoreWorkspace({
     if (!canManage) return;
     setLoadError(null);
     try {
-      const [pagesRes, couponsRes, merchRes, checkoutRes] = await Promise.all([
+      const [pagesRes, couponsRes, merchRes, checkoutRes, dashboardRes] =
+        await Promise.all([
         fetch(`${baseUrl}/api/admin/store/pages`, { headers: headers() }),
         fetch(`${baseUrl}/api/admin/store/coupons`, { headers: headers() }),
         fetch(apiUrl(baseUrl, "/api/inventory/control-board?limit=5000"), {
           headers: headers(),
         }),
         fetch(apiUrl(baseUrl, "/api/store/checkout/config")),
+        fetch(apiUrl(baseUrl, "/api/admin/store/dashboard"), {
+          headers: headers(),
+        }),
       ]);
-      if (!pagesRes.ok || !couponsRes.ok || !merchRes.ok || !checkoutRes.ok) {
+      if (
+        !pagesRes.ok ||
+        !couponsRes.ok ||
+        !merchRes.ok ||
+        !checkoutRes.ok ||
+        !dashboardRes.ok
+      ) {
         setLoadError("Could not load online store status.");
         return;
       }
@@ -240,12 +698,15 @@ export default function OnlineStoreWorkspace({
       const merchJson = (await merchRes.json()) as StoreMerchResponse;
       const checkoutJson =
         (await checkoutRes.json()) as StoreCheckoutConfigResponse;
+      const dashboardJson =
+        (await dashboardRes.json()) as StoreDashboardResponse;
       setPages(Array.isArray(pagesJson.pages) ? pagesJson.pages : []);
       setCoupons(
         Array.isArray(couponsJson.coupons) ? couponsJson.coupons : [],
       );
       setMerchRows(Array.isArray(merchJson.rows) ? merchJson.rows : []);
       setCheckoutConfig(checkoutJson);
+      setDashboard(dashboardJson);
     } catch {
       setLoadError("Could not load online store status.");
     }
@@ -289,6 +750,26 @@ export default function OnlineStoreWorkspace({
 
   const dashboardCards = useMemo(
     () => [
+      {
+        label: "Web sales",
+        value: money(dashboard?.web_sales_usd ?? "0"),
+        detail: `${dashboard?.web_transactions ?? 0} paid web transactions.`,
+      },
+      {
+        label: "Open checkouts",
+        value: `${dashboard?.pending_checkouts ?? 0}`,
+        detail: "Draft or payment-pending storefront checkouts.",
+      },
+      {
+        label: "Abandoned",
+        value: `${dashboard?.abandoned_checkouts ?? 0}`,
+        detail: "Failed, expired, or cancelled checkout sessions.",
+      },
+      {
+        label: "Campaigns",
+        value: `${dashboard?.active_campaigns ?? 0}`,
+        detail: "Active Online Store campaigns.",
+      },
       {
         label: "Published pages",
         value: `${publishedPages}/${pages.length}`,
@@ -337,6 +818,11 @@ export default function OnlineStoreWorkspace({
     [
       activeCoupons,
       coupons.length,
+      dashboard?.abandoned_checkouts,
+      dashboard?.active_campaigns,
+      dashboard?.pending_checkouts,
+      dashboard?.web_sales_usd,
+      dashboard?.web_transactions,
       merchProductIds.size,
       needsSlugProductIds.size,
       onWebProductIds.size,
@@ -440,7 +926,7 @@ export default function OnlineStoreWorkspace({
       ) : null}
 
       {section === "storefront" ? (
-        <section className="space-y-4">
+        <section className="space-y-6">
           <div>
             <h2 className="text-2xl font-black italic uppercase tracking-tight text-app-text">
               Storefront
@@ -455,6 +941,7 @@ export default function OnlineStoreWorkspace({
             mode="pages"
             showHeader={false}
           />
+          <PublishHistoryPanel baseUrl={baseUrl} headers={headers} />
         </section>
       ) : null}
 
@@ -486,13 +973,11 @@ export default function OnlineStoreWorkspace({
       ) : null}
 
       {section === "orders" ? (
-        <RoutePanel
-          icon={ShoppingBag}
-          title="Web checkout creates ROS transactions"
-          body="Paid storefront checkout now finalizes through the ROS transaction ledger with sale_channel = web. Use the existing Orders surface for fulfillment review while this workspace grows a dedicated web-order queue."
-          buttonLabel="Open orders"
-          onClick={() => onNavigateToTab("orders", "open")}
-        />
+        <OrdersPanel baseUrl={baseUrl} headers={headers} />
+      ) : null}
+
+      {section === "carts" ? (
+        <CartsPanel baseUrl={baseUrl} headers={headers} />
       ) : null}
 
       {section === "customers" ? (
@@ -513,6 +998,20 @@ export default function OnlineStoreWorkspace({
           buttonLabel="Open shipments hub"
           onClick={() => onNavigateToTab("customers", "ship")}
         />
+      ) : null}
+
+      {section === "campaigns" ? (
+        <CampaignsPanel baseUrl={baseUrl} headers={headers} />
+      ) : null}
+
+      {section === "seo" ? <SeoPanel baseUrl={baseUrl} headers={headers} /> : null}
+
+      {section === "navigation" ? (
+        <NavigationPanel baseUrl={baseUrl} headers={headers} />
+      ) : null}
+
+      {section === "media" ? (
+        <MediaPanel baseUrl={baseUrl} headers={headers} />
       ) : null}
 
       {section === "analytics" ? (

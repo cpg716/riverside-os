@@ -1140,32 +1140,902 @@ async fn admin_publish_page(
     headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> impl IntoResponse {
-    if let Err(e) = require_store_manage(&state, &headers).await {
-        return e.into_response();
-    }
+    let staff = match require_store_manage_staff(&state, &headers).await {
+        Ok(staff) => staff,
+        Err(e) => return e.into_response(),
+    };
     let slug_l = slug.trim().to_lowercase();
-    let res = sqlx::query(
+    let res = sqlx::query_as::<_, (Uuid, String, String, Value, String)>(
         r#"
         UPDATE store_pages
         SET published = true, updated_at = NOW()
         WHERE lower(slug) = $1
+        RETURNING id, slug, title, project_json, published_html
         "#,
     )
     .bind(&slug_l)
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await;
 
     match res {
-        Ok(r) if r.rows_affected() > 0 => {
+        Ok(Some((page_id, page_slug, title, project_json, published_html))) => {
+            if let Err(e) = sqlx::query(
+                r#"
+                INSERT INTO storefront_publish_revision (
+                    page_id, slug, title, project_json, published_html, published_by_staff_id
+                )
+                VALUES ($1, $2, $3, $4, $5, $6)
+                "#,
+            )
+            .bind(page_id)
+            .bind(&page_slug)
+            .bind(&title)
+            .bind(project_json)
+            .bind(&published_html)
+            .bind(staff.id)
+            .execute(&state.db)
+            .await
+            {
+                tracing::error!(error = %e, "admin_publish_page revision insert");
+            }
             (StatusCode::OK, Json(json!({ "status": "published" }))).into_response()
         }
-        Ok(_) => (
+        Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "page not found" })),
         )
             .into_response(),
         Err(e) => {
             tracing::error!(error = %e, "admin_publish_page");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+// ── Storefront control, growth, and operations ─────────────────────────────
+
+async fn get_public_navigation(State(state): State<AppState>) -> impl IntoResponse {
+    match load_navigation(&state.db, false).await {
+        Ok(menus) => (StatusCode::OK, Json(json!({ "menus": menus }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "get_public_navigation");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn get_public_home_layout(State(state): State<AppState>) -> impl IntoResponse {
+    match sqlx::query_scalar::<_, Value>(
+        "SELECT storefront_home_layout FROM store_settings WHERE id = 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some(layout)) => (StatusCode::OK, Json(json!({ "blocks": layout }))).into_response(),
+        Ok(None) => (StatusCode::OK, Json(json!({ "blocks": [] }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "get_public_home_layout");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct AdminStoreDashboardRow {
+    web_transactions: i64,
+    web_sales_usd: Decimal,
+    pending_checkouts: i64,
+    abandoned_checkouts: i64,
+    active_campaigns: i64,
+    media_assets: i64,
+}
+
+async fn admin_store_dashboard(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    match sqlx::query_as::<_, AdminStoreDashboardRow>(
+        r#"
+        SELECT
+            COALESCE((SELECT COUNT(*)::bigint FROM transactions WHERE sale_channel = 'web'), 0) AS web_transactions,
+            COALESCE((SELECT ROUND(SUM(total_price), 2) FROM transactions WHERE sale_channel = 'web'), 0)::numeric AS web_sales_usd,
+            COALESCE((SELECT COUNT(*)::bigint FROM store_checkout_session WHERE status IN ('draft', 'payment_pending')), 0) AS pending_checkouts,
+            COALESCE((SELECT COUNT(*)::bigint FROM store_checkout_session WHERE status IN ('failed', 'expired', 'cancelled')), 0) AS abandoned_checkouts,
+            COALESCE((SELECT COUNT(*)::bigint FROM storefront_campaign WHERE is_active = true), 0) AS active_campaigns,
+            COALESCE((SELECT COUNT(*)::bigint FROM store_media_asset WHERE deleted_at IS NULL), 0) AS media_assets
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(row) => (StatusCode::OK, Json(json!(row))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_store_dashboard");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct AdminWebOrderRow {
+    transaction_id: Uuid,
+    display_id: String,
+    booked_at: chrono::DateTime<Utc>,
+    status: String,
+    total_price: Decimal,
+    amount_paid: Decimal,
+    balance_due: Decimal,
+    fulfillment_method: String,
+    shipping_amount_usd: Option<Decimal>,
+    payment_provider: Option<String>,
+    customer_display_name: Option<String>,
+    customer_email: Option<String>,
+}
+
+async fn admin_list_web_orders(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    match sqlx::query_as::<_, AdminWebOrderRow>(
+        r#"
+        SELECT
+            t.id AS transaction_id,
+            t.display_id,
+            t.booked_at,
+            t.status::text AS status,
+            t.total_price,
+            t.amount_paid,
+            t.balance_due,
+            t.fulfillment_method::text AS fulfillment_method,
+            t.shipping_amount_usd,
+            (
+                SELECT string_agg(DISTINCT COALESCE(pt.payment_provider, pt.payment_method), ', ' ORDER BY COALESCE(pt.payment_provider, pt.payment_method))
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = t.id
+            ) AS payment_provider,
+            NULLIF(btrim(concat_ws(' ', c.first_name, c.last_name)), '') AS customer_display_name,
+            c.email AS customer_email
+        FROM transactions t
+        LEFT JOIN customers c ON c.id = t.customer_id
+        WHERE t.sale_channel = 'web'
+        ORDER BY t.booked_at DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => (StatusCode::OK, Json(json!({ "orders": rows }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_list_web_orders");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct AdminCheckoutSessionRow {
+    id: Uuid,
+    status: String,
+    selected_provider: Option<String>,
+    total_usd: Decimal,
+    coupon_code: Option<String>,
+    campaign_slug: Option<String>,
+    finalized_transaction_id: Option<Uuid>,
+    created_at: chrono::DateTime<Utc>,
+    updated_at: chrono::DateTime<Utc>,
+    expires_at: chrono::DateTime<Utc>,
+    contact: Value,
+}
+
+async fn admin_list_checkout_sessions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    match sqlx::query_as::<_, AdminCheckoutSessionRow>(
+        r#"
+        SELECT id, status, selected_provider, total_usd, coupon_code, campaign_slug,
+               finalized_transaction_id, created_at, updated_at, expires_at, contact
+        FROM store_checkout_session
+        ORDER BY created_at DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => (StatusCode::OK, Json(json!({ "sessions": rows }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_list_checkout_sessions");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct AdminCampaignRow {
+    id: Uuid,
+    slug: String,
+    name: String,
+    coupon_id: Option<Uuid>,
+    coupon_code: Option<String>,
+    landing_page_slug: Option<String>,
+    source: Option<String>,
+    medium: Option<String>,
+    starts_at: Option<chrono::DateTime<Utc>>,
+    ends_at: Option<chrono::DateTime<Utc>>,
+    is_active: bool,
+    notes: Option<String>,
+    paid_checkouts: i64,
+    revenue_usd: Decimal,
+    created_at: chrono::DateTime<Utc>,
+}
+
+async fn admin_list_campaigns(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    match sqlx::query_as::<_, AdminCampaignRow>(
+        r#"
+        SELECT
+            c.id, c.slug, c.name, c.coupon_id, sc.code AS coupon_code,
+            c.landing_page_slug, c.source, c.medium, c.starts_at, c.ends_at,
+            c.is_active, c.notes,
+            COALESCE(COUNT(s.id) FILTER (WHERE s.status = 'paid'), 0)::bigint AS paid_checkouts,
+            COALESCE(ROUND(SUM(s.total_usd) FILTER (WHERE s.status = 'paid'), 2), 0)::numeric AS revenue_usd,
+            c.created_at
+        FROM storefront_campaign c
+        LEFT JOIN store_coupons sc ON sc.id = c.coupon_id
+        LEFT JOIN store_checkout_session s ON lower(s.campaign_slug) = lower(c.slug)
+        GROUP BY c.id, sc.code
+        ORDER BY c.created_at DESC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => (StatusCode::OK, Json(json!({ "campaigns": rows }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_list_campaigns");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CampaignBody {
+    slug: String,
+    name: String,
+    coupon_id: Option<Uuid>,
+    landing_page_slug: Option<String>,
+    source: Option<String>,
+    medium: Option<String>,
+    starts_at: Option<chrono::DateTime<Utc>>,
+    ends_at: Option<chrono::DateTime<Utc>>,
+    is_active: Option<bool>,
+    notes: Option<String>,
+}
+
+async fn admin_create_campaign(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CampaignBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    let slug = body.slug.trim().to_lowercase();
+    let name = body.name.trim();
+    if slug.is_empty() || name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "slug and name are required" })),
+        )
+            .into_response();
+    }
+    match sqlx::query(
+        r#"
+        INSERT INTO storefront_campaign (
+            slug, name, coupon_id, landing_page_slug, source, medium,
+            starts_at, ends_at, is_active, notes
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, true), $10)
+        "#,
+    )
+    .bind(slug)
+    .bind(name)
+    .bind(body.coupon_id)
+    .bind(body.landing_page_slug)
+    .bind(body.source)
+    .bind(body.medium)
+    .bind(body.starts_at)
+    .bind(body.ends_at)
+    .bind(body.is_active)
+    .bind(body.notes)
+    .execute(&state.db)
+    .await
+    {
+        Ok(_) => (StatusCode::CREATED, Json(json!({ "status": "created" }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_create_campaign");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "could not create campaign" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn admin_patch_campaign(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CampaignBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    let slug = body.slug.trim().to_lowercase();
+    let name = body.name.trim();
+    if slug.is_empty() || name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "slug and name are required" })),
+        )
+            .into_response();
+    }
+    match sqlx::query(
+        r#"
+        UPDATE storefront_campaign
+        SET slug = $2, name = $3, coupon_id = $4, landing_page_slug = $5,
+            source = $6, medium = $7, starts_at = $8, ends_at = $9,
+            is_active = COALESCE($10, is_active), notes = $11
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .bind(slug)
+    .bind(name)
+    .bind(body.coupon_id)
+    .bind(body.landing_page_slug)
+    .bind(body.source)
+    .bind(body.medium)
+    .bind(body.starts_at)
+    .bind(body.ends_at)
+    .bind(body.is_active)
+    .bind(body.notes)
+    .execute(&state.db)
+    .await
+    {
+        Ok(r) if r.rows_affected() > 0 => {
+            (StatusCode::OK, Json(json!({ "status": "updated" }))).into_response()
+        }
+        Ok(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "campaign not found" })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_patch_campaign");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "could not update campaign" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+async fn admin_seo_health(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    let product_issues = sqlx::query_as::<_, (String, String, String)>(
+        r#"
+        SELECT issue_kind, product_id::text AS entity_id, label
+        FROM (
+            SELECT 'missing_slug' AS issue_kind, p.id AS product_id, p.name AS label
+            FROM products p
+            WHERE EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.web_published = true)
+              AND (p.catalog_handle IS NULL OR btrim(p.catalog_handle) = '')
+            UNION ALL
+            SELECT 'missing_image', p.id, p.name
+            FROM products p
+            WHERE EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.web_published = true)
+              AND (p.images IS NULL OR cardinality(p.images) = 0)
+            UNION ALL
+            SELECT 'zero_stock', p.id, p.name
+            FROM products p
+            WHERE EXISTS (
+                SELECT 1 FROM product_variants pv
+                WHERE pv.product_id = p.id
+                  AND pv.web_published = true
+                GROUP BY pv.product_id
+                HAVING SUM(GREATEST(0, pv.stock_on_hand - pv.reserved_stock)) <= 0
+            )
+        ) issues
+        ORDER BY issue_kind, label
+        LIMIT 200
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await;
+    let page_issues = sqlx::query_as::<_, (String, String, String)>(
+        r#"
+        SELECT 'page_unpublished' AS issue_kind, slug AS entity_id, title AS label
+        FROM store_pages
+        WHERE published = false
+        UNION ALL
+        SELECT 'page_empty_html', slug, title
+        FROM store_pages
+        WHERE published = true AND btrim(published_html) = ''
+        ORDER BY issue_kind, label
+        LIMIT 200
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match (product_issues, page_issues) {
+        (Ok(products), Ok(pages)) => {
+            let issues: Vec<Value> = products
+                .into_iter()
+                .chain(pages.into_iter())
+                .map(|(kind, entity_id, label)| {
+                    json!({ "kind": kind, "entity_id": entity_id, "label": label })
+                })
+                .collect();
+            (StatusCode::OK, Json(json!({ "issues": issues }))).into_response()
+        }
+        (Err(e), _) | (_, Err(e)) => {
+            tracing::error!(error = %e, "admin_seo_health");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct NavigationMenuRow {
+    id: Uuid,
+    handle: String,
+    title: String,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct NavigationItemRow {
+    id: Uuid,
+    menu_id: Uuid,
+    label: String,
+    url: String,
+    item_kind: String,
+    sort_order: i32,
+    is_active: bool,
+}
+
+async fn load_navigation(
+    pool: &sqlx::PgPool,
+    include_inactive: bool,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let menus = sqlx::query_as::<_, NavigationMenuRow>(
+        "SELECT id, handle, title FROM storefront_navigation_menu ORDER BY handle",
+    )
+    .fetch_all(pool)
+    .await?;
+    let item_sql = if include_inactive {
+        r#"
+        SELECT id, menu_id, label, url, item_kind, sort_order, is_active
+        FROM storefront_navigation_item
+        ORDER BY menu_id, sort_order, created_at
+        "#
+    } else {
+        r#"
+        SELECT id, menu_id, label, url, item_kind, sort_order, is_active
+        FROM storefront_navigation_item
+        WHERE is_active = true
+        ORDER BY menu_id, sort_order, created_at
+        "#
+    };
+    let items = sqlx::query_as::<_, NavigationItemRow>(item_sql)
+        .fetch_all(pool)
+        .await?;
+    Ok(menus
+        .into_iter()
+        .map(|menu| {
+            let menu_items: Vec<&NavigationItemRow> = items
+                .iter()
+                .filter(|item| item.menu_id == menu.id)
+                .collect();
+            json!({
+                "id": menu.id,
+                "handle": menu.handle,
+                "title": menu.title,
+                "items": menu_items,
+            })
+        })
+        .collect())
+}
+
+async fn admin_get_navigation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    match load_navigation(&state.db, true).await {
+        Ok(menus) => (StatusCode::OK, Json(json!({ "menus": menus }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_get_navigation");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct NavigationUpsertBody {
+    handle: String,
+    title: String,
+    items: Vec<NavigationItemBody>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NavigationItemBody {
+    label: String,
+    url: String,
+    #[serde(default = "default_nav_kind")]
+    item_kind: String,
+    #[serde(default)]
+    sort_order: i32,
+    #[serde(default = "default_true")]
+    is_active: bool,
+}
+
+fn default_nav_kind() -> String {
+    "custom".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+async fn admin_put_navigation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<NavigationUpsertBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    let handle = body.handle.trim().to_lowercase();
+    let title = body.title.trim();
+    if handle.is_empty() || title.is_empty() || body.items.len() > 50 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "valid handle, title, and up to 50 items are required" })),
+        )
+            .into_response();
+    }
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!(error = %e, "admin_put_navigation begin");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response();
+        }
+    };
+    let existing_menu_id: Result<Option<Uuid>, sqlx::Error> = sqlx::query_scalar(
+        "SELECT id FROM storefront_navigation_menu WHERE lower(btrim(handle)) = $1",
+    )
+    .bind(&handle)
+    .fetch_optional(&mut *tx)
+    .await;
+    let menu_id: Uuid = match existing_menu_id {
+        Ok(Some(id)) => {
+            if let Err(e) =
+                sqlx::query("UPDATE storefront_navigation_menu SET title = $2 WHERE id = $1")
+                    .bind(id)
+                    .bind(title)
+                    .execute(&mut *tx)
+                    .await
+            {
+                let _ = tx.rollback().await;
+                tracing::error!(error = %e, "admin_put_navigation update");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "could not save menu" })),
+                )
+                    .into_response();
+            }
+            id
+        }
+        Ok(None) => match sqlx::query_scalar(
+            "INSERT INTO storefront_navigation_menu (handle, title) VALUES ($1, $2) RETURNING id",
+        )
+        .bind(&handle)
+        .bind(title)
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                let _ = tx.rollback().await;
+                tracing::error!(error = %e, "admin_put_navigation insert");
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "could not save menu" })),
+                )
+                    .into_response();
+            }
+        },
+        Err(e) => {
+            let _ = tx.rollback().await;
+            tracing::error!(error = %e, "admin_put_navigation lookup");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "could not save menu" })),
+            )
+                .into_response();
+        }
+    };
+    if sqlx::query("DELETE FROM storefront_navigation_item WHERE menu_id = $1")
+        .bind(menu_id)
+        .execute(&mut *tx)
+        .await
+        .is_err()
+    {
+        let _ = tx.rollback().await;
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "database error" })),
+        )
+            .into_response();
+    }
+    for (idx, item) in body.items.iter().enumerate() {
+        let label = item.label.trim();
+        let url = item.url.trim();
+        let kind = item.item_kind.trim().to_lowercase();
+        if label.is_empty() || url.is_empty() {
+            let _ = tx.rollback().await;
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "navigation items require label and URL" })),
+            )
+                .into_response();
+        }
+        if sqlx::query(
+            r#"
+            INSERT INTO storefront_navigation_item (
+                menu_id, label, url, item_kind, sort_order, is_active
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(menu_id)
+        .bind(label)
+        .bind(url)
+        .bind(kind)
+        .bind(if item.sort_order == 0 {
+            idx as i32 * 10
+        } else {
+            item.sort_order
+        })
+        .bind(item.is_active)
+        .execute(&mut *tx)
+        .await
+        .is_err()
+        {
+            let _ = tx.rollback().await;
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "could not save navigation item" })),
+            )
+                .into_response();
+        }
+    }
+    if tx.commit().await.is_err() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "database error" })),
+        )
+            .into_response();
+    }
+    (StatusCode::OK, Json(json!({ "status": "updated" }))).into_response()
+}
+
+async fn admin_list_media(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    match store_media_asset::list_images(&state.db, 200).await {
+        Ok(assets) => (StatusCode::OK, Json(json!({ "assets": assets }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_list_media");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct PatchMediaBody {
+    alt_text: Option<String>,
+    usage_note: Option<String>,
+}
+
+async fn admin_patch_media(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<PatchMediaBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    match sqlx::query(
+        r#"
+        UPDATE store_media_asset
+        SET alt_text = $2, usage_note = $3
+        WHERE id = $1 AND deleted_at IS NULL
+        "#,
+    )
+    .bind(id)
+    .bind(body.alt_text)
+    .bind(body.usage_note)
+    .execute(&state.db)
+    .await
+    {
+        Ok(r) if r.rows_affected() > 0 => {
+            (StatusCode::OK, Json(json!({ "status": "updated" }))).into_response()
+        }
+        Ok(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "asset not found" })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_patch_media");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct PublishRevisionRow {
+    id: Uuid,
+    slug: String,
+    title: String,
+    published_at: chrono::DateTime<Utc>,
+    published_by_staff_id: Option<Uuid>,
+}
+
+async fn admin_list_publish_history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    match sqlx::query_as::<_, PublishRevisionRow>(
+        r#"
+        SELECT id, slug, title, published_at, published_by_staff_id
+        FROM storefront_publish_revision
+        ORDER BY published_at DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(revisions) => (StatusCode::OK, Json(json!({ "revisions": revisions }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_list_publish_history");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "database error" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct HomeLayoutBody {
+    blocks: Value,
+}
+
+async fn admin_get_home_layout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    get_public_home_layout(State(state)).await.into_response()
+}
+
+async fn admin_patch_home_layout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<HomeLayoutBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_store_manage(&state, &headers).await {
+        return e.into_response();
+    }
+    if !body.blocks.is_array() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "home layout blocks must be an array" })),
+        )
+            .into_response();
+    }
+    match sqlx::query("UPDATE store_settings SET storefront_home_layout = $1 WHERE id = 1")
+        .bind(body.blocks)
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => (StatusCode::OK, Json(json!({ "status": "updated" }))).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "admin_patch_home_layout");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "database error" })),
@@ -1441,12 +2311,34 @@ pub fn public_router() -> Router<AppState> {
             "/checkout/session/{id}/confirm",
             post(post_checkout_confirm),
         )
+        .route("/navigation", get(get_public_navigation))
+        .route("/home-layout", get(get_public_home_layout))
         .route("/media/{id}", get(get_store_media))
         .route("/tax/preview", get(tax_preview_handler))
 }
 
 pub fn admin_router() -> Router<AppState> {
     Router::new()
+        .route("/dashboard", get(admin_store_dashboard))
+        .route("/orders", get(admin_list_web_orders))
+        .route("/carts", get(admin_list_checkout_sessions))
+        .route(
+            "/campaigns",
+            get(admin_list_campaigns).post(admin_create_campaign),
+        )
+        .route("/campaigns/{id}", patch(admin_patch_campaign))
+        .route("/seo", get(admin_seo_health))
+        .route(
+            "/navigation",
+            get(admin_get_navigation).put(admin_put_navigation),
+        )
+        .route("/media", get(admin_list_media))
+        .route("/media/{id}", patch(admin_patch_media))
+        .route("/publish-history", get(admin_list_publish_history))
+        .route(
+            "/home-layout",
+            get(admin_get_home_layout).patch(admin_patch_home_layout),
+        )
         .route("/pages", get(admin_list_pages).post(admin_create_page))
         .route("/pages/{slug}", get(admin_get_page).patch(admin_patch_page))
         .route("/pages/{slug}/publish", post(admin_publish_page))

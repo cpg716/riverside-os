@@ -96,6 +96,8 @@
 | POST | `/account/password` | **`Bearer`** — body **`current_password`**, **`new_password`** (Argon2, min **8**). |
 | GET | `/account/orders` | Same **`Bearer`** — paged order history (**`sale_channel`** included). |
 | GET | `/account/orders/{order_id}` | **`Bearer`** — read-only detail for that order **only if** **`orders.customer_id`** matches the token; strips **unit cost** and internal Shippo ids; includes **tracking** link when present. |
+| GET | `/navigation` | Public header/footer navigation menus controlled from Online Store. |
+| GET | `/home-layout` | Public ROS-native homepage layout block config. |
 
 **Rate limits (rolling 60s):** per client key from **`ConnectInfo`** (socket IP) or first hop of **`X-Forwarded-For`** when behind a reverse proxy — **`RIVERSIDE_STORE_ACCOUNT_UNAUTH_POST_PER_MINUTE_IP`** (default **20**) for **`login`**, **`register`**, **`activate`** combined; per **`customer_id`** — **`RIVERSIDE_STORE_ACCOUNT_AUTH_PER_MINUTE`** (default **120**) for authenticated **`me`**, **`password`**, **`orders`**, **`orders/{id}`**. Set to **0** to disable that limit. **429** + JSON error when exceeded.
 
@@ -107,9 +109,20 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 
 | Method | Path | Notes |
 |--------|------|--------|
+| GET | `/dashboard` | Online Store operating counts: web sales, checkout sessions, campaigns, media. |
+| GET | `/orders` | Web transactions with **`sale_channel = web`**. |
+| GET | `/carts` | Checkout sessions and abandoned/failed checkout signals. |
+| GET/POST | `/campaigns` | Campaigns with landing-page/coupon attribution. |
+| PATCH | `/campaigns/{id}` | Update campaign config. |
+| GET | `/seo` | Storefront SEO/catalog/page health issue list. |
+| GET/PUT | `/navigation` | Header/footer menu management. |
+| GET/PATCH | `/home-layout` | ROS-native homepage layout blocks. |
+| GET | `/media` | Media library list with alt text and usage metadata. |
+| PATCH | `/media/{id}` | Update asset alt text / usage note. |
+| GET | `/publish-history` | Published page snapshots. |
 | GET/POST | `/pages` | List / create. |
 | GET/PATCH | `/pages/{slug}` | Includes **`project_json`**, **`published_html`**. |
-| POST | `/pages/{slug}/publish` | Sets **`published = true`**. |
+| POST | `/pages/{slug}/publish` | Sets **`published = true`** and captures a publish revision. |
 | GET/POST | `/coupons` | List / create. |
 | PATCH | `/coupons/{id}` | **`is_active`**, **`max_uses`**, **`ends_at`**. |
 | POST | `/assets` | JSON: **`file_base64`**, **`mime_type`**, optional **`filename`** — insert **`store_media_asset`** (max **3 MiB** decoded). |
