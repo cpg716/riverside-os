@@ -81,7 +81,7 @@ New [`server/src/api/notifications.rs`](../server/src/api/notifications.rs) (reg
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /api/notifications` | Inbox (+ optional `include_archived`, `kinds`) |
+| `GET /api/notifications` | Inbox by default; `mode=history` for completed/dismissed rows, `mode=all` / legacy `include_archived=true` for diagnostic full lists, plus optional `kinds` |
 | `GET /api/notifications/unread-count` | Bell / SMS badge |
 | `POST /api/notifications/{staff_notification_id}/read` | Set `read_at` + action log |
 | `POST /api/notifications/{staff_notification_id}/complete` | Set `completed_at` (+ `read_at` if null) + action log |
@@ -93,7 +93,7 @@ Logic: [`server/src/logic/notifications.rs`](../server/src/logic/notifications.r
 ## Architecture (client)
 
 - **`NotificationCenterProvider`** ([`client/src/context/NotificationCenterContext.tsx`](../client/src/context/NotificationCenterContext.tsx) — new): unread count, refresh, open/close, mark read/complete, navigate callback from `App`.
-- **`NotificationCenterBell`** + **`NotificationCenterDrawer`** (wraps `DetailDrawer`): Inbox / History; **compact** rows (kind + title); **broadcast** tap expands full message; **bundle** tap expands item list; routable single-row tap → navigate (**`notificationDeepLink.ts`**). **Inbox** **Dismiss** → **`POST /.../archive`**. **[`RegisterDashboard`](../client/src/components/pos/RegisterDashboard.tsx)** — short preview (“N items — open inbox to expand” for bundles) + Read / Complete / Dismiss.
+- **`NotificationCenterBell`** + **`NotificationCenterDrawer`** (wraps `DetailDrawer`): Inbox / History; **compact** rows (kind + title); **broadcast** tap expands full message; **bundle** tap expands item list; routable single-row tap → navigate (**`notificationDeepLink.ts`**). **Inbox** **Dismiss** → **`POST /.../archive`**. History requests **`mode=history`** and shows completed or archived rows only. **[`RegisterDashboard`](../client/src/components/pos/RegisterDashboard.tsx)** — short preview (“N items — open inbox to expand” for bundles) + clear lifecycle wording such as **Mark as read** / Complete / Dismiss.
 - **`BroadcastComposer`**: when `notifications.broadcast` (or admin).
 
 **Mount points:** [`Header.tsx`](../client/src/components/layout/Header.tsx), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx).
@@ -372,8 +372,9 @@ Per-row lifecycle:
 Cleanup behavior:
 
 - read/archive are per-staff state
-- shared `read-all` exists only for specific shared/common notification classes where that behavior is intentional
+- shared `read-all` exists only for specific shared/common notification classes where that behavior is intentional, and the backend enforces that eligibility before marking other staff rows read
 - completion remains limited to task-like notifications
+- notification generator health is persisted per generator so one failing sweep is visible without hiding later generator outcomes
 
 Bulk cleanup:
 
@@ -425,9 +426,11 @@ Client-side contract coverage includes:
 Server-side notification tests cover:
 
 - taxonomy/category mapping
-- mandatory fallback behavior
+- mandatory-system and unknown-kind behavior
 - default-enabled preference behavior
 - explicit review of emitted kinds
+- shared-read eligibility for shared/common notification classes
+- persisted generator health and delivery suppression visibility
 
 Must not regress:
 

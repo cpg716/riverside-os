@@ -26,6 +26,19 @@ pub enum NotificationPreferenceCategory {
     Announcements,
 }
 
+impl NotificationPreferenceCategory {
+    fn as_key(self) -> &'static str {
+        match self {
+            NotificationPreferenceCategory::Orders => "orders",
+            NotificationPreferenceCategory::Tasks => "tasks",
+            NotificationPreferenceCategory::WeddingsAppointments => "weddings_appointments",
+            NotificationPreferenceCategory::InventoryPurchasing => "inventory_purchasing",
+            NotificationPreferenceCategory::CustomersLoyalty => "customers_loyalty",
+            NotificationPreferenceCategory::Announcements => "announcements",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StaffNotificationPreferences {
     #[serde(default = "notification_preferences_enabled_by_default")]
@@ -74,6 +87,13 @@ enum NotificationPreferenceHandling {
     Mandatory,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotificationDeliveryPolicy {
+    Configurable(NotificationPreferenceCategory),
+    Mandatory,
+    Unknown,
+}
+
 #[cfg(test)]
 const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "admin_broadcast",
@@ -104,6 +124,10 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "order_fully_fulfilled",
     "pickup_stale",
     "pin_failure_digest",
+    "podium_email_bundle",
+    "podium_email_inbound",
+    "podium_sms_bundle",
+    "podium_sms_inbound",
     "po_direct_invoice_overdue",
     "po_draft_stale",
     "po_overdue_receive",
@@ -112,6 +136,7 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "po_submitted_no_expected_date",
     "qbo_sync_failed",
     "register_cash_discrepancy",
+    "review_invite_sent",
     "rms_r2s_charge",
     "special_order_ready_to_stage",
     "staff_bug_report",
@@ -120,14 +145,17 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
 ];
 
 fn semantic_notification_kind<'a>(kind: &'a str, deep_link: &'a Value) -> &'a str {
-    if kind == "notification_bundle" {
-        deep_link
-            .get("bundle_kind")
-            .and_then(Value::as_str)
-            .unwrap_or(kind)
-    } else {
-        kind
-    }
+    deep_link
+        .get("type")
+        .and_then(Value::as_str)
+        .filter(|t| *t == "notification_bundle")
+        .and_then(|_| deep_link.get("bundle_kind").and_then(Value::as_str))
+        .filter(|bundle_kind| !bundle_kind.trim().is_empty())
+        .unwrap_or(kind)
+}
+
+fn semantic_notification_kind_owned(kind: &str, deep_link: &Value) -> String {
+    semantic_notification_kind(kind, deep_link).to_string()
 }
 
 /// Reviewed taxonomy for every currently emitted semantic kind.
@@ -163,7 +191,12 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
         "customer_merge_completed"
         | "gift_card_direct_pos_load"
         | "gift_card_expiring_soon"
-        | "messaging_unread_nudge" => Some(Handling::Configurable(Category::CustomersLoyalty)),
+        | "messaging_unread_nudge"
+        | "podium_email_bundle"
+        | "podium_email_inbound"
+        | "podium_sms_bundle"
+        | "podium_sms_inbound"
+        | "review_invite_sent" => Some(Handling::Configurable(Category::CustomersLoyalty)),
         "morning_refund_queue"
         | "order_due_stale"
         | "order_fully_fulfilled"
@@ -186,15 +219,56 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
     }
 }
 
+fn notification_delivery_policy(kind: &str, deep_link: &Value) -> NotificationDeliveryPolicy {
+    let semantic_kind = semantic_notification_kind(kind, deep_link);
+    match reviewed_notification_preference_handling_for_semantic_kind(semantic_kind) {
+        Some(NotificationPreferenceHandling::Configurable(category)) => {
+            NotificationDeliveryPolicy::Configurable(category)
+        }
+        Some(NotificationPreferenceHandling::Mandatory) => NotificationDeliveryPolicy::Mandatory,
+        None => NotificationDeliveryPolicy::Unknown,
+    }
+}
+
 pub fn notification_preference_category(
     kind: &str,
     deep_link: &Value,
 ) -> Option<NotificationPreferenceCategory> {
-    let semantic_kind = semantic_notification_kind(kind, deep_link);
-    match reviewed_notification_preference_handling_for_semantic_kind(semantic_kind) {
-        Some(NotificationPreferenceHandling::Configurable(category)) => Some(category),
-        Some(NotificationPreferenceHandling::Mandatory) | None => None,
+    match notification_delivery_policy(kind, deep_link) {
+        NotificationDeliveryPolicy::Configurable(category) => Some(category),
+        NotificationDeliveryPolicy::Mandatory | NotificationDeliveryPolicy::Unknown => None,
     }
+}
+
+pub fn is_shared_read_eligible(kind: &str, deep_link: &Value) -> bool {
+    let semantic_kind = semantic_notification_kind(kind, deep_link);
+    matches!(
+        semantic_kind,
+        "after_hours_access_digest"
+            | "catalog_import_rows_skipped"
+            | "gift_card_expiring_soon"
+            | "messaging_unread_nudge"
+            | "morning_alteration_due"
+            | "morning_low_stock"
+            | "morning_po_expected"
+            | "morning_refund_queue"
+            | "morning_wedding_today"
+            | "physical_inventory_count_complete"
+            | "podium_email_bundle"
+            | "podium_email_inbound"
+            | "podium_sms_bundle"
+            | "podium_sms_inbound"
+            | "po_direct_invoice_overdue"
+            | "po_draft_stale"
+            | "po_overdue_receive"
+            | "po_partial_receive_stale"
+            | "po_received_unlabeled"
+            | "po_submitted_no_expected_date"
+            | "register_cash_discrepancy"
+            | "review_invite_sent"
+            | "special_order_ready_to_stage"
+            | "staff_bug_report"
+    )
 }
 
 fn parse_staff_notification_preferences(value: &Value) -> StaffNotificationPreferences {
@@ -214,6 +288,75 @@ pub struct NotificationListItem {
     pub read_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationListMode {
+    Inbox,
+    History,
+    All,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NotificationHealthSummary {
+    pub active_inbox_rows: i64,
+    pub unread_rows: i64,
+    pub stale_unread_rows: i64,
+    pub history_rows: i64,
+    pub canonical_notifications_24h: i64,
+    pub staff_rows_24h: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NotificationGeneratorHealthRow {
+    pub generator_key: String,
+    pub last_started_at: DateTime<Utc>,
+    pub last_finished_at: DateTime<Utc>,
+    pub last_success_at: Option<DateTime<Utc>>,
+    pub last_error_at: Option<DateTime<Utc>>,
+    pub last_status: String,
+    pub last_error: Option<String>,
+    pub consecutive_failures: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NotificationKindMetric {
+    pub semantic_kind: String,
+    pub kind: String,
+    pub canonical_count: i64,
+    pub recipient_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NotificationStaleUnreadMetric {
+    pub semantic_kind: String,
+    pub unread_count: i64,
+    pub oldest_created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NotificationSuppressionMetric {
+    pub semantic_kind: String,
+    pub reason: String,
+    pub category: Option<String>,
+    pub suppressed_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NotificationBroadcastSummary {
+    pub broadcast_count_7d: i64,
+    pub recipient_rows_7d: i64,
+    pub latest_broadcast_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NotificationHealthResponse {
+    pub summary: NotificationHealthSummary,
+    pub generator_runs: Vec<NotificationGeneratorHealthRow>,
+    pub volume_by_kind_7d: Vec<NotificationKindMetric>,
+    pub stale_unread_by_kind: Vec<NotificationStaleUnreadMetric>,
+    pub delivery_suppression_7d: Vec<NotificationSuppressionMetric>,
+    pub broadcast_summary: NotificationBroadcastSummary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -429,8 +572,30 @@ pub async fn fan_out_notification_to_staff_ids(
         return Ok(());
     };
 
-    let Some(category) = notification_preference_category(&kind, &deep_link) else {
-        return fan_out_to_staff_ids(pool, notification_id, staff_ids).await;
+    let category = match notification_delivery_policy(&kind, &deep_link) {
+        NotificationDeliveryPolicy::Configurable(category) => category,
+        NotificationDeliveryPolicy::Mandatory => {
+            return fan_out_to_staff_ids(pool, notification_id, staff_ids).await;
+        }
+        NotificationDeliveryPolicy::Unknown => {
+            tracing::error!(
+                notification_id = %notification_id,
+                kind = %kind,
+                semantic_kind = %semantic_notification_kind(&kind, &deep_link),
+                "notification fan-out blocked because kind has no reviewed taxonomy"
+            );
+            record_delivery_suppressions(
+                pool,
+                notification_id,
+                &kind,
+                &deep_link,
+                None,
+                "unreviewed_taxonomy",
+                staff_ids,
+            )
+            .await?;
+            return Ok(());
+        }
     };
 
     #[derive(sqlx::FromRow)]
@@ -451,14 +616,73 @@ pub async fn fan_out_notification_to_staff_ids(
     .await?;
 
     let filtered: Vec<Uuid> = rows
-        .into_iter()
+        .iter()
         .filter_map(|row| {
             let prefs = parse_staff_notification_preferences(&row.notification_preferences);
             prefs.is_enabled(category).then_some(row.id)
         })
         .collect();
 
+    let suppressed: Vec<Uuid> = rows
+        .into_iter()
+        .filter_map(|row| {
+            let prefs = parse_staff_notification_preferences(&row.notification_preferences);
+            (!prefs.is_enabled(category)).then_some(row.id)
+        })
+        .collect();
+
+    record_delivery_suppressions(
+        pool,
+        notification_id,
+        &kind,
+        &deep_link,
+        Some(category),
+        "preference_disabled",
+        &suppressed,
+    )
+    .await?;
+
     fan_out_to_staff_ids(pool, notification_id, &filtered).await
+}
+
+async fn record_delivery_suppressions(
+    pool: &PgPool,
+    notification_id: Uuid,
+    kind: &str,
+    deep_link: &Value,
+    category: Option<NotificationPreferenceCategory>,
+    reason: &str,
+    staff_ids: &[Uuid],
+) -> Result<(), sqlx::Error> {
+    if staff_ids.is_empty() {
+        return Ok(());
+    }
+    let semantic_kind = semantic_notification_kind_owned(kind, deep_link);
+    let category_key = category.map(NotificationPreferenceCategory::as_key);
+    for staff_id in staff_ids {
+        sqlx::query(
+            r#"
+            INSERT INTO notification_delivery_suppression (
+                notification_id,
+                staff_id,
+                kind,
+                semantic_kind,
+                category,
+                reason
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(notification_id)
+        .bind(staff_id)
+        .bind(kind)
+        .bind(&semantic_kind)
+        .bind(category_key)
+        .bind(reason)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn staff_ids_with_permission(pool: &PgPool, key: &str) -> Result<Vec<Uuid>, sqlx::Error> {
@@ -586,7 +810,7 @@ pub async fn resolve_broadcast_audience(
 pub async fn list_inbox_for_staff(
     pool: &PgPool,
     staff_id: Uuid,
-    include_archived: bool,
+    mode: NotificationListMode,
     kinds: Option<&str>,
     limit: i64,
 ) -> Result<Vec<NotificationListItem>, sqlx::Error> {
@@ -631,14 +855,18 @@ pub async fn list_inbox_for_staff(
             FROM staff_notification sn
             JOIN app_notification an ON an.id = sn.notification_id
             WHERE sn.staff_id = $1
-              AND ($2::bool OR sn.archived_at IS NULL)
+              AND (
+                $2::text = 'all'
+                OR ($2::text = 'inbox' AND sn.archived_at IS NULL AND sn.completed_at IS NULL)
+                OR ($2::text = 'history' AND (sn.archived_at IS NOT NULL OR sn.completed_at IS NOT NULL))
+              )
               AND an.kind = ANY($3)
             ORDER BY an.created_at DESC
             LIMIT $4
             "#,
         )
         .bind(staff_id)
-        .bind(include_archived)
+        .bind(list_mode_sql(mode))
         .bind(ks)
         .bind(limit)
         .fetch_all(pool)
@@ -661,13 +889,17 @@ pub async fn list_inbox_for_staff(
             FROM staff_notification sn
             JOIN app_notification an ON an.id = sn.notification_id
             WHERE sn.staff_id = $1
-              AND ($2::bool OR sn.archived_at IS NULL)
+              AND (
+                $2::text = 'all'
+                OR ($2::text = 'inbox' AND sn.archived_at IS NULL AND sn.completed_at IS NULL)
+                OR ($2::text = 'history' AND (sn.archived_at IS NOT NULL OR sn.completed_at IS NOT NULL))
+              )
             ORDER BY an.created_at DESC
             LIMIT $3
             "#,
         )
         .bind(staff_id)
-        .bind(include_archived)
+        .bind(list_mode_sql(mode))
         .bind(limit)
         .fetch_all(pool)
         .await?
@@ -705,6 +937,14 @@ pub async fn list_inbox_for_staff(
         .collect())
 }
 
+fn list_mode_sql(mode: NotificationListMode) -> &'static str {
+    match mode {
+        NotificationListMode::Inbox => "inbox",
+        NotificationListMode::History => "history",
+        NotificationListMode::All => "all",
+    }
+}
+
 pub async fn unread_count_for_staff(pool: &PgPool, staff_id: Uuid) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar(
         r#"
@@ -733,12 +973,235 @@ pub async fn unread_podium_inbox_count_for_staff(
         WHERE sn.staff_id = $1
           AND sn.read_at IS NULL
           AND sn.archived_at IS NULL
-          AND an.kind IN ('podium_sms_inbound', 'podium_email_inbound')
+          AND (
+            an.kind IN ('podium_sms_inbound', 'podium_email_inbound')
+            OR an.deep_link->>'bundle_kind' IN ('podium_sms_bundle', 'podium_email_bundle')
+          )
         "#,
     )
     .bind(staff_id)
     .fetch_one(pool)
     .await
+}
+
+pub async fn notification_health(pool: &PgPool) -> Result<NotificationHealthResponse, sqlx::Error> {
+    let (
+        active_inbox_rows,
+        unread_rows,
+        stale_unread_rows,
+        history_rows,
+        canonical_notifications_24h,
+        staff_rows_24h,
+    ): (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            (SELECT COUNT(*)::bigint
+             FROM staff_notification
+             WHERE archived_at IS NULL AND completed_at IS NULL),
+            (SELECT COUNT(*)::bigint
+             FROM staff_notification
+             WHERE archived_at IS NULL AND read_at IS NULL),
+            (SELECT COUNT(*)::bigint
+             FROM staff_notification sn
+             JOIN app_notification an ON an.id = sn.notification_id
+             WHERE sn.archived_at IS NULL
+               AND sn.read_at IS NULL
+               AND an.created_at < NOW() - INTERVAL '24 hours'),
+            (SELECT COUNT(*)::bigint
+             FROM staff_notification
+             WHERE archived_at IS NOT NULL OR completed_at IS NOT NULL),
+            (SELECT COUNT(*)::bigint
+             FROM app_notification
+             WHERE created_at >= NOW() - INTERVAL '24 hours'),
+            (SELECT COUNT(*)::bigint
+             FROM staff_notification sn
+             JOIN app_notification an ON an.id = sn.notification_id
+             WHERE an.created_at >= NOW() - INTERVAL '24 hours')
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let summary = NotificationHealthSummary {
+        active_inbox_rows,
+        unread_rows,
+        stale_unread_rows,
+        history_rows,
+        canonical_notifications_24h,
+        staff_rows_24h,
+    };
+
+    let generator_runs = sqlx::query_as::<
+        _,
+        (
+            String,
+            DateTime<Utc>,
+            DateTime<Utc>,
+            Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
+            String,
+            Option<String>,
+            i32,
+        ),
+    >(
+        r#"
+        SELECT
+            generator_key,
+            last_started_at,
+            last_finished_at,
+            last_success_at,
+            last_error_at,
+            last_status,
+            last_error,
+            consecutive_failures
+        FROM notification_generator_run
+        ORDER BY
+            CASE WHEN last_status = 'failed' THEN 0 ELSE 1 END,
+            last_finished_at DESC,
+            generator_key ASC
+        LIMIT 40
+        "#,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(
+        |(
+            generator_key,
+            last_started_at,
+            last_finished_at,
+            last_success_at,
+            last_error_at,
+            last_status,
+            last_error,
+            consecutive_failures,
+        )| NotificationGeneratorHealthRow {
+            generator_key,
+            last_started_at,
+            last_finished_at,
+            last_success_at,
+            last_error_at,
+            last_status,
+            last_error,
+            consecutive_failures,
+        },
+    )
+    .collect();
+
+    let volume_by_kind_7d = sqlx::query_as::<_, (String, String, i64, i64)>(
+        r#"
+        SELECT
+            COALESCE(NULLIF(an.deep_link->>'bundle_kind', ''), an.kind) AS semantic_kind,
+            an.kind,
+            COUNT(*)::bigint AS canonical_count,
+            COALESCE(SUM(rec.recipient_count), 0)::bigint AS recipient_count
+        FROM app_notification an
+        LEFT JOIN (
+            SELECT notification_id, COUNT(*)::bigint AS recipient_count
+            FROM staff_notification
+            GROUP BY notification_id
+        ) rec ON rec.notification_id = an.id
+        WHERE an.created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY 1, 2
+        ORDER BY recipient_count DESC, canonical_count DESC, semantic_kind ASC
+        LIMIT 12
+        "#,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(
+        |(semantic_kind, kind, canonical_count, recipient_count)| NotificationKindMetric {
+            semantic_kind,
+            kind,
+            canonical_count,
+            recipient_count,
+        },
+    )
+    .collect();
+
+    let stale_unread_by_kind = sqlx::query_as::<_, (String, i64, DateTime<Utc>)>(
+        r#"
+        SELECT
+            COALESCE(NULLIF(an.deep_link->>'bundle_kind', ''), an.kind) AS semantic_kind,
+            COUNT(*)::bigint AS unread_count,
+            MIN(an.created_at) AS oldest_created_at
+        FROM staff_notification sn
+        JOIN app_notification an ON an.id = sn.notification_id
+        WHERE sn.archived_at IS NULL
+          AND sn.read_at IS NULL
+          AND an.created_at < NOW() - INTERVAL '24 hours'
+        GROUP BY 1
+        ORDER BY unread_count DESC, oldest_created_at ASC
+        LIMIT 12
+        "#,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(
+        |(semantic_kind, unread_count, oldest_created_at)| NotificationStaleUnreadMetric {
+            semantic_kind,
+            unread_count,
+            oldest_created_at,
+        },
+    )
+    .collect();
+
+    let delivery_suppression_7d = sqlx::query_as::<_, (String, String, Option<String>, i64)>(
+        r#"
+        SELECT semantic_kind, reason, category, COUNT(*)::bigint
+        FROM notification_delivery_suppression
+        WHERE created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY semantic_kind, reason, category
+        ORDER BY COUNT(*) DESC, semantic_kind ASC
+        LIMIT 12
+        "#,
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(
+        |(semantic_kind, reason, category, suppressed_count)| NotificationSuppressionMetric {
+            semantic_kind,
+            reason,
+            category,
+            suppressed_count,
+        },
+    )
+    .collect();
+
+    let (broadcast_count_7d, recipient_rows_7d, latest_broadcast_at): (
+        i64,
+        Option<i64>,
+        Option<DateTime<Utc>>,
+    ) = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(DISTINCT an.id)::bigint,
+            COUNT(sn.id)::bigint,
+            MAX(an.created_at)
+        FROM app_notification an
+        LEFT JOIN staff_notification sn ON sn.notification_id = an.id
+        WHERE an.kind = 'admin_broadcast'
+          AND an.created_at >= NOW() - INTERVAL '7 days'
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(NotificationHealthResponse {
+        summary,
+        generator_runs,
+        volume_by_kind_7d,
+        stale_unread_by_kind,
+        delivery_suppression_7d,
+        broadcast_summary: NotificationBroadcastSummary {
+            broadcast_count_7d,
+            recipient_rows_7d: recipient_rows_7d.unwrap_or(0),
+            latest_broadcast_at,
+        },
+    })
 }
 
 async fn log_action(
@@ -763,22 +1226,140 @@ async fn log_action(
     Ok(())
 }
 
-/// Mark every non-archived inbox row for this canonical notification as read (shared dismiss).
-pub async fn mark_read_for_all_recipients(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SharedReadOutcome {
+    NotFound,
+    NotRecipient,
+    CurrentRecipientOnly(u64),
+    SharedRecipients(u64),
+}
+
+/// Mark a canonical notification read. Only explicitly shared-safe notification
+/// kinds can update all recipients; all other kinds only update the actor row.
+pub async fn mark_read_for_notification_recipients(
     pool: &PgPool,
     notification_id: Uuid,
-) -> Result<u64, sqlx::Error> {
-    let res = sqlx::query(
+    actor_staff_id: Uuid,
+) -> Result<SharedReadOutcome, sqlx::Error> {
+    let Some((kind, deep_link)) = sqlx::query_as::<_, (String, Value)>(
+        r#"SELECT kind, deep_link FROM app_notification WHERE id = $1"#,
+    )
+    .bind(notification_id)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(SharedReadOutcome::NotFound);
+    };
+
+    let actor_row_exists: bool = sqlx::query_scalar(
         r#"
-        UPDATE staff_notification
-        SET read_at = COALESCE(read_at, NOW())
-        WHERE notification_id = $1 AND archived_at IS NULL AND read_at IS NULL
+        SELECT EXISTS(
+            SELECT 1
+            FROM staff_notification
+            WHERE notification_id = $1
+              AND staff_id = $2
+              AND archived_at IS NULL
+        )
         "#,
     )
     .bind(notification_id)
-    .execute(pool)
+    .bind(actor_staff_id)
+    .fetch_one(pool)
     .await?;
-    Ok(res.rows_affected())
+
+    if !actor_row_exists {
+        return Ok(SharedReadOutcome::NotRecipient);
+    }
+
+    if !is_shared_read_eligible(&kind, &deep_link) {
+        let updated =
+            mark_read_for_current_recipient_by_notification(pool, notification_id, actor_staff_id)
+                .await?;
+        return Ok(SharedReadOutcome::CurrentRecipientOnly(updated));
+    }
+
+    let updated: i64 = sqlx::query_scalar(
+        r#"
+        WITH updated AS (
+            UPDATE staff_notification
+            SET read_at = COALESCE(read_at, NOW())
+            WHERE notification_id = $1
+              AND archived_at IS NULL
+              AND read_at IS NULL
+            RETURNING id
+        ),
+        logged AS (
+            INSERT INTO staff_notification_action (
+                staff_notification_id,
+                actor_staff_id,
+                action,
+                metadata
+            )
+            SELECT
+                updated.id,
+                $2,
+                'read',
+                jsonb_build_object(
+                    'shared_read_all', true,
+                    'notification_id', $1::text
+                )
+            FROM updated
+            RETURNING 1
+        )
+        SELECT COUNT(*)::bigint FROM updated
+        "#,
+    )
+    .bind(notification_id)
+    .bind(actor_staff_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(SharedReadOutcome::SharedRecipients(updated.max(0) as u64))
+}
+
+async fn mark_read_for_current_recipient_by_notification(
+    pool: &PgPool,
+    notification_id: Uuid,
+    actor_staff_id: Uuid,
+) -> Result<u64, sqlx::Error> {
+    let updated: i64 = sqlx::query_scalar(
+        r#"
+        WITH updated AS (
+            UPDATE staff_notification
+            SET read_at = COALESCE(read_at, NOW())
+            WHERE notification_id = $1
+              AND staff_id = $2
+              AND archived_at IS NULL
+              AND read_at IS NULL
+            RETURNING id
+        ),
+        logged AS (
+            INSERT INTO staff_notification_action (
+                staff_notification_id,
+                actor_staff_id,
+                action,
+                metadata
+            )
+            SELECT
+                updated.id,
+                $2,
+                'read',
+                jsonb_build_object(
+                    'shared_read_all', false,
+                    'notification_id', $1::text
+                )
+            FROM updated
+            RETURNING 1
+        )
+        SELECT COUNT(*)::bigint FROM updated
+        "#,
+    )
+    .bind(notification_id)
+    .bind(actor_staff_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(updated.max(0) as u64)
 }
 
 pub async fn mark_read(
@@ -1218,8 +1799,8 @@ pub async fn emit_nuorder_sync_failed(
 #[cfg(test)]
 mod tests {
     use super::{
-        notification_preference_category,
-        reviewed_notification_preference_handling_for_semantic_kind,
+        is_shared_read_eligible, notification_delivery_policy, notification_preference_category,
+        reviewed_notification_preference_handling_for_semantic_kind, NotificationDeliveryPolicy,
         NotificationPreferenceCategory, NotificationPreferenceHandling,
         StaffNotificationPreferences, KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS,
     };
@@ -1249,7 +1830,7 @@ mod tests {
         );
         assert_eq!(
             notification_preference_category(
-                "notification_bundle",
+                "morning_po_expected_bundle",
                 &json!({
                     "type": "notification_bundle",
                     "bundle_kind": "morning_po_expected",
@@ -1271,10 +1852,27 @@ mod tests {
             notification_preference_category("admin_broadcast", &json!({ "type": "none" })),
             Some(NotificationPreferenceCategory::Announcements)
         );
+        assert_eq!(
+            notification_preference_category(
+                "review_invite_sent",
+                &json!({ "type": "customers", "section": "reviews" }),
+            ),
+            Some(NotificationPreferenceCategory::CustomersLoyalty)
+        );
+        assert_eq!(
+            notification_preference_category(
+                "notification_bundle",
+                &json!({
+                    "type": "notification_bundle",
+                    "bundle_kind": "podium_sms_bundle",
+                }),
+            ),
+            Some(NotificationPreferenceCategory::CustomersLoyalty)
+        );
     }
 
     #[test]
-    fn system_and_unknown_notifications_stay_mandatory_by_default() {
+    fn system_notifications_stay_mandatory_but_unknown_kinds_are_unreviewed() {
         assert_eq!(
             notification_preference_category(
                 "qbo_sync_failed",
@@ -1287,9 +1885,31 @@ mod tests {
             Some(NotificationPreferenceHandling::Mandatory)
         );
         assert_eq!(
-            notification_preference_category("some_future_kind", &json!({ "type": "none" })),
-            None
+            notification_delivery_policy("some_future_kind", &json!({ "type": "none" })),
+            NotificationDeliveryPolicy::Unknown
         );
+    }
+
+    #[test]
+    fn shared_read_eligibility_is_explicit_and_semantic_bundle_aware() {
+        assert!(is_shared_read_eligible(
+            "notification_bundle",
+            &json!({
+                "type": "notification_bundle",
+                "bundle_kind": "podium_sms_bundle",
+            }),
+        ));
+        assert!(is_shared_read_eligible(
+            "morning_low_stock_bundle",
+            &json!({
+                "type": "notification_bundle",
+                "bundle_kind": "morning_low_stock",
+            }),
+        ));
+        assert!(!is_shared_read_eligible(
+            "task_due_soon",
+            &json!({ "type": "staff_tasks", "instance_id": "task-1" }),
+        ));
     }
 
     #[test]

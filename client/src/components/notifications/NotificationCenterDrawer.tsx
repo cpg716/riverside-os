@@ -27,6 +27,7 @@ import {
   isActionableNotificationDeepLink,
   isCompletableNotification,
   notificationDestinationLabel,
+  isSharedReadEligibleNotification,
   notificationPrimaryInteraction,
   notificationRecencyBucket,
   notificationSeverity,
@@ -224,6 +225,10 @@ function formatRelativeTime(iso: string): string {
   return rtf.format(Math.round(diffMs / dayMs), "day");
 }
 
+function formatCount(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
+}
+
 function rowPreviewText(r: NotificationRow, bundleCount: number | null): string {
   if (bundleCount != null) {
     return `${bundleCount} related update${bundleCount === 1 ? "" : "s"}`;
@@ -234,6 +239,49 @@ function rowPreviewText(r: NotificationRow, bundleCount: number | null): string 
 }
 
 type Tab = "inbox" | "history" | "broadcast";
+
+type NotificationHealth = {
+  summary: {
+    active_inbox_rows: number;
+    unread_rows: number;
+    stale_unread_rows: number;
+    history_rows: number;
+    canonical_notifications_24h: number;
+    staff_rows_24h: number;
+  };
+  generator_runs: Array<{
+    generator_key: string;
+    last_started_at: string;
+    last_finished_at: string;
+    last_success_at: string | null;
+    last_error_at: string | null;
+    last_status: "ok" | "failed";
+    last_error: string | null;
+    consecutive_failures: number;
+  }>;
+  volume_by_kind_7d: Array<{
+    semantic_kind: string;
+    kind: string;
+    canonical_count: number;
+    recipient_count: number;
+  }>;
+  stale_unread_by_kind: Array<{
+    semantic_kind: string;
+    unread_count: number;
+    oldest_created_at: string;
+  }>;
+  delivery_suppression_7d: Array<{
+    semantic_kind: string;
+    reason: string;
+    category: string | null;
+    suppressed_count: number;
+  }>;
+  broadcast_summary: {
+    broadcast_count_7d: number;
+    recipient_rows_7d: number;
+    latest_broadcast_at: string | null;
+  };
+};
 
 function recencySectionMeta(
   bucket: "today" | "earlier",
@@ -279,6 +327,7 @@ export default function NotificationCenterDrawer({
 }) {
   const { toast } = useToast();
   const { hasPermission } = useBackofficeAuth();
+  const canBroadcast = hasPermission("notifications.broadcast");
   const [tab, setTab] = useState<Tab>("inbox");
   const [rows, setRows] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -292,12 +341,14 @@ export default function NotificationCenterDrawer({
   const [sending, setSending] = useState(false);
   const [expandedSnId, setExpandedSnId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState<"read" | "archive" | null>(null);
+  const [health, setHealth] = useState<NotificationHealth | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const q =
-        tab === "history" ? "?include_archived=true&limit=120" : "?limit=120";
+        tab === "history" ? "?mode=history&limit=120" : "?limit=120";
       const res = await fetch(`${baseUrl}/api/notifications${q}`, {
         headers: apiAuth(),
       });
@@ -315,6 +366,28 @@ export default function NotificationCenterDrawer({
     if (!isOpen) return;
     void load();
   }, [isOpen, load]);
+
+  const loadHealth = useCallback(async () => {
+    if (!canBroadcast) return;
+    setHealthLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/notifications/health`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) throw new Error("health");
+      setHealth((await res.json()) as NotificationHealth);
+    } catch {
+      setHealth(null);
+      toast("Could not load notification health.", "error");
+    } finally {
+      setHealthLoading(false);
+    }
+  }, [apiAuth, canBroadcast, toast]);
+
+  useEffect(() => {
+    if (!isOpen || tab !== "broadcast") return;
+    void loadHealth();
+  }, [isOpen, loadHealth, tab]);
 
   useEffect(() => {
     if (!isOpen) setExpandedSnId(null);
@@ -490,6 +563,7 @@ export default function NotificationCenterDrawer({
       setSelectedStaff([]);
       onCountsChanged();
       void load();
+      void loadHealth();
     } catch {
       toast("Network error", "error");
     } finally {
@@ -498,23 +572,7 @@ export default function NotificationCenterDrawer({
   };
 
   const markSharedReadAllIfNeeded = async (r: NotificationRow) => {
-    const k = r.kind.toLowerCase();
-    if (
-      k.startsWith("podium_") ||
-      k.startsWith("review_") ||
-      k === "messaging_unread_nudge" ||
-      k.includes("morning_") ||
-      k === "staff_bug_report" ||
-      k === "special_order_ready_to_stage" ||
-      k === "physical_inventory_count_complete" ||
-      k === "register_cash_discrepancy" ||
-      k === "catalog_import_rows_skipped" ||
-      k === "after_hours_access_digest" ||
-      k === "gift_card_expiring_soon" ||
-      k.includes("purchase_order") ||
-      k.includes("po_") ||
-      k.includes("layaway")
-    ) {
+    if (isSharedReadEligibleNotification(r.kind, r.deep_link)) {
       try {
         await fetch(
           `${baseUrl}/api/notifications/by-notification/${encodeURIComponent(r.notification_id)}/read-all`,
@@ -551,7 +609,6 @@ export default function NotificationCenterDrawer({
     );
   };
 
-  const _canBroadcast = hasPermission("notifications.broadcast");
   const groupedRows = rows.reduce<
     Array<{ bucket: "today" | "earlier"; rows: NotificationRow[] }>
   >((groups, row) => {
@@ -578,7 +635,7 @@ export default function NotificationCenterDrawer({
         {/* Modern Tab Matrix */}
         <div className="flex h-12 shrink-0 items-center gap-1 border-b border-app-border bg-app-surface-2 px-6">
           {(["inbox", "history", "broadcast"] as const).map((t) => {
-            if (t === "broadcast" && !_canBroadcast) return null;
+            if (t === "broadcast" && !canBroadcast) return null;
             const Icon = t === "inbox" ? Inbox : t === "history" ? History : Send;
             const active = tab === t;
             return (
@@ -735,16 +792,175 @@ export default function NotificationCenterDrawer({
                 </div>
               ) : null}
 
-              <button
-                type="button"
-                disabled={sending}
-                onClick={() => void sendBroadcast()}
-                className="ui-btn-primary w-full bg-app-success py-3 text-sm font-black uppercase tracking-widest hover:brightness-110"
-              >
-                {sending ? "Sending..." : "Send Announcement"}
-              </button>
+                <button
+                  type="button"
+                  disabled={sending}
+                  onClick={() => void sendBroadcast()}
+                  className="ui-btn-primary w-full bg-app-success py-3 text-sm font-black uppercase tracking-widest hover:brightness-110"
+                >
+                  {sending ? "Sending..." : "Send Announcement"}
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-app-border bg-app-surface p-4">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Notification health
+                    </p>
+                    <p className="mt-1 text-xs text-app-text-muted">
+                      Generator runs, stale alerts, and delivery noise.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadHealth()}
+                    disabled={healthLoading}
+                    className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-app-accent disabled:opacity-50"
+                  >
+                    {healthLoading ? "Checking..." : "Refresh"}
+                  </button>
+                </div>
+
+                {healthLoading && !health ? (
+                  <p className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-xs text-app-text-muted">
+                    Checking notification health...
+                  </p>
+                ) : health ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        ["Unread", health.summary.unread_rows],
+                        ["Stale unread", health.summary.stale_unread_rows],
+                        ["Active rows", health.summary.active_inbox_rows],
+                        ["Generated 24h", health.summary.canonical_notifications_24h],
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-lg border border-app-border bg-app-surface-2 p-3">
+                          <p className="text-[9px] font-black uppercase tracking-[0.14em] text-app-text-muted">
+                            {label}
+                          </p>
+                          <p className="mt-1 text-lg font-black text-app-text">
+                            {formatCount(Number(value))}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="rounded-lg border border-app-border bg-app-surface-2 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Generator status
+                        </p>
+                        <p className="text-[10px] font-bold text-app-text-muted">
+                          {health.generator_runs.filter((r) => r.last_status === "failed").length} failing
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        {health.generator_runs.slice(0, 5).map((row) => (
+                          <div key={row.generator_key} className="flex items-start justify-between gap-3 text-xs">
+                            <div className="min-w-0">
+                              <p className="truncate font-bold text-app-text">
+                                {formatKindLabel(row.generator_key)}
+                              </p>
+                              <p className="truncate text-[10px] text-app-text-muted">
+                                {row.last_status === "failed"
+                                  ? row.last_error || "Generator failed"
+                                  : `Last ran ${formatRelativeTime(row.last_finished_at)}`}
+                              </p>
+                            </div>
+                            <span className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] ${
+                              row.last_status === "failed"
+                                ? "border-app-danger/20 bg-app-danger/10 text-app-danger"
+                                : "border-app-success/20 bg-app-success/10 text-app-success"
+                            }`}>
+                              {row.last_status === "failed" ? `${row.consecutive_failures}x fail` : "OK"}
+                            </span>
+                          </div>
+                        ))}
+                        {health.generator_runs.length === 0 ? (
+                          <p className="text-xs text-app-text-muted">
+                            No generator run records yet.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3">
+                      <div>
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Highest volume
+                        </p>
+                        <div className="space-y-1">
+                          {health.volume_by_kind_7d.slice(0, 4).map((row) => (
+                            <div key={`${row.kind}:${row.semantic_kind}`} className="flex justify-between gap-3 text-xs">
+                              <span className="truncate text-app-text">{formatKindLabel(row.semantic_kind)}</span>
+                              <span className="font-bold text-app-text-muted">{formatCount(row.recipient_count)} rows</span>
+                            </div>
+                          ))}
+                          {health.volume_by_kind_7d.length === 0 ? (
+                            <p className="text-xs text-app-text-muted">No volume in the last 7 days.</p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Stale unread
+                        </p>
+                        <div className="space-y-1">
+                          {health.stale_unread_by_kind.slice(0, 4).map((row) => (
+                            <div key={row.semantic_kind} className="flex justify-between gap-3 text-xs">
+                              <span className="truncate text-app-text">{formatKindLabel(row.semantic_kind)}</span>
+                              <span className="font-bold text-app-warning">{formatCount(row.unread_count)}</span>
+                            </div>
+                          ))}
+                          {health.stale_unread_by_kind.length === 0 ? (
+                            <p className="text-xs text-app-text-muted">No stale unread notifications.</p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Suppressed delivery
+                        </p>
+                        <div className="space-y-1">
+                          {health.delivery_suppression_7d.slice(0, 4).map((row) => (
+                            <div key={`${row.semantic_kind}:${row.reason}:${row.category ?? "none"}`} className="flex justify-between gap-3 text-xs">
+                              <span className="truncate text-app-text">{formatKindLabel(row.semantic_kind)}</span>
+                              <span className="font-bold text-app-text-muted">
+                                {formatCount(row.suppressed_count)} {row.reason.replace(/_/g, " ")}
+                              </span>
+                            </div>
+                          ))}
+                          {health.delivery_suppression_7d.length === 0 ? (
+                            <p className="text-xs text-app-text-muted">No preference or taxonomy suppressions recorded.</p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-app-border bg-app-surface-2 p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Announcements
+                        </p>
+                        <p className="mt-1 text-xs text-app-text-muted">
+                          {formatCount(health.broadcast_summary.broadcast_count_7d)} sent to {formatCount(health.broadcast_summary.recipient_rows_7d)} staff rows in 7 days.
+                        </p>
+                        {health.broadcast_summary.latest_broadcast_at ? (
+                          <p className="mt-1 text-[10px] text-app-text-muted">
+                            Latest {formatRelativeTime(health.broadcast_summary.latest_broadcast_at)}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-xs text-app-text-muted">
+                    Health data is unavailable right now.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
         ) : (
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
             {loading ? (

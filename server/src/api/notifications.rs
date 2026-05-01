@@ -15,7 +15,8 @@ use crate::api::AppState;
 use crate::auth::permissions::NOTIFICATIONS_BROADCAST;
 use crate::logic::notifications::{
     self, fan_out_notification_to_staff_ids, insert_app_notification_deduped,
-    mark_read_for_all_recipients, resolve_broadcast_audience, BroadcastAudience,
+    mark_read_for_notification_recipients, resolve_broadcast_audience, BroadcastAudience,
+    NotificationListMode, SharedReadOutcome,
 };
 use crate::middleware;
 
@@ -23,6 +24,7 @@ use crate::middleware;
 pub struct ListQuery {
     #[serde(default)]
     pub include_archived: bool,
+    pub mode: Option<String>,
     pub kinds: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: i64,
@@ -44,6 +46,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_notifications))
         .route("/unread-count", get(unread_count))
+        .route("/health", get(notification_health))
         .route("/broadcast", post(post_broadcast))
         .route(
             "/by-notification/{notification_id}/read-all",
@@ -65,7 +68,7 @@ async fn list_notifications(
     let rows = notifications::list_inbox_for_staff(
         &state.db,
         staff.id,
-        q.include_archived,
+        list_mode_from_query(&q),
         q.kinds.as_deref(),
         q.limit,
     )
@@ -75,6 +78,16 @@ async fn list_notifications(
         StatusCode::INTERNAL_SERVER_ERROR.into_response()
     })?;
     Ok(Json(rows))
+}
+
+fn list_mode_from_query(q: &ListQuery) -> NotificationListMode {
+    match q.mode.as_deref().unwrap_or("").trim() {
+        "history" => NotificationListMode::History,
+        "all" => NotificationListMode::All,
+        "inbox" | "" if q.include_archived => NotificationListMode::All,
+        "inbox" | "" => NotificationListMode::Inbox,
+        _ => NotificationListMode::Inbox,
+    }
 }
 
 async fn unread_count(
@@ -107,16 +120,32 @@ async fn mark_read_all_for_notification(
     headers: HeaderMap,
     axum::extract::Path(nid): axum::extract::Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, Response> {
-    let _staff = middleware::require_notification_viewer(&state, &headers)
+    let staff = middleware::require_notification_viewer(&state, &headers)
         .await
         .map_err(|e| e.into_response())?;
-    let n = mark_read_for_all_recipients(&state.db, nid)
+    let outcome = mark_read_for_notification_recipients(&state.db, nid, staff.id)
         .await
         .map_err(|e| {
-            tracing::error!(error = %e, "mark_read_for_all_recipients");
+            tracing::error!(error = %e, "mark_read_for_notification_recipients");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
-    Ok(Json(json!({ "ok": true, "updated": n })))
+    match outcome {
+        SharedReadOutcome::NotFound | SharedReadOutcome::NotRecipient => Err((
+            StatusCode::NOT_FOUND,
+            axum::Json(json!({ "error": "notification not found" })),
+        )
+            .into_response()),
+        SharedReadOutcome::CurrentRecipientOnly(updated) => Ok(Json(json!({
+            "ok": true,
+            "shared": false,
+            "updated": updated
+        }))),
+        SharedReadOutcome::SharedRecipients(updated) => Ok(Json(json!({
+            "ok": true,
+            "shared": true,
+            "updated": updated
+        }))),
+    }
 }
 
 async fn mark_read(
@@ -189,6 +218,22 @@ async fn mark_archive(
             .into_response());
     }
     Ok(Json(json!({ "ok": true })))
+}
+
+async fn notification_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<notifications::NotificationHealthResponse>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, NOTIFICATIONS_BROADCAST)
+        .await
+        .map_err(|e| e.into_response())?;
+    let health = notifications::notification_health(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "notification_health");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
+    Ok(Json(health))
 }
 
 async fn post_broadcast(

@@ -109,7 +109,7 @@ export default function RegisterDashboard({
     staffDisplayName,
     staffRole,
   } = useBackofficeAuth();
-  const { openDrawer } = useNotificationCenter();
+  const { openDrawer, refreshUnread } = useNotificationCenter();
 
   const apiAuth = useCallback(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
   const hasDashboardAuth = useCallback(
@@ -192,6 +192,7 @@ export default function RegisterDashboard({
       const res = await fetch(`${baseUrl}/api/notifications/${id}/${path}`, { method: "POST", headers: apiAuth() });
       if (!res.ok) return;
       void loadNotifications();
+      void refreshUnread();
     } catch { /* ignore */ }
   };
 
@@ -388,7 +389,7 @@ export default function RegisterDashboard({
                 <DashboardGridCard
                   title="Notifications"
                   icon={Bell}
-                  actionLabel="Show Feedback"
+                  actionLabel="Open notification"
                   onAction={openDrawer}
                 >
                    <div className="space-y-3">
@@ -396,7 +397,7 @@ export default function RegisterDashboard({
                         <div key={r.staff_notification_id} className="p-3 rounded-xl border border-app-border hover:border-app-accent/30 transition-all cursor-pointer group/notif">
                            <p className="text-xs font-bold text-app-text truncate group-hover/notif:text-app-accent">{r.title}</p>
                            <div className="flex gap-3 mt-2">
-                              <button onClick={() => notifAction(r.staff_notification_id, "read")} className="text-[10px] font-bold text-app-accent">Dismiss</button>
+                              <button onClick={() => notifAction(r.staff_notification_id, "read")} className="text-[10px] font-bold text-app-accent">Mark as read</button>
                               <button onClick={openDrawer} className="text-[10px] font-bold text-app-text-muted">Details</button>
                            </div>
                         </div>

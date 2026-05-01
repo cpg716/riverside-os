@@ -135,11 +135,49 @@ export type NotificationSeverity =
   | "system";
 
 function semanticNotificationKind(kind: string, link: unknown): string {
-  if (kind !== "notification_bundle" || !link || typeof link !== "object") {
+  if (!link || typeof link !== "object") {
     return kind;
   }
+  const type = (link as Record<string, unknown>).type;
+  if (type !== "notification_bundle") return kind;
   const bundleKind = (link as Record<string, unknown>).bundle_kind;
   return typeof bundleKind === "string" && bundleKind.trim() ? bundleKind : kind;
+}
+
+export function isSharedReadEligibleNotification(
+  kind: string,
+  link: unknown,
+): boolean {
+  const semanticKind = semanticNotificationKind(kind, link);
+  switch (semanticKind) {
+    case "after_hours_access_digest":
+    case "catalog_import_rows_skipped":
+    case "gift_card_expiring_soon":
+    case "messaging_unread_nudge":
+    case "morning_alteration_due":
+    case "morning_low_stock":
+    case "morning_po_expected":
+    case "morning_refund_queue":
+    case "morning_wedding_today":
+    case "physical_inventory_count_complete":
+    case "podium_email_bundle":
+    case "podium_email_inbound":
+    case "podium_sms_bundle":
+    case "podium_sms_inbound":
+    case "po_direct_invoice_overdue":
+    case "po_draft_stale":
+    case "po_overdue_receive":
+    case "po_partial_receive_stale":
+    case "po_received_unlabeled":
+    case "po_submitted_no_expected_date":
+    case "register_cash_discrepancy":
+    case "review_invite_sent":
+    case "special_order_ready_to_stage":
+    case "staff_bug_report":
+      return true;
+    default:
+      return false;
+  }
 }
 
 export function notificationSeverity(
@@ -194,6 +232,10 @@ export function notificationSeverity(
     case "messaging_unread_nudge":
     case "morning_low_stock":
     case "nuorder_sync_success":
+    case "podium_email_bundle":
+    case "podium_email_inbound":
+    case "podium_sms_bundle":
+    case "podium_sms_inbound":
     case "review_invite_sent":
       return "info";
     default:

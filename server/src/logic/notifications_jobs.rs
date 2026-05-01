@@ -133,29 +133,175 @@ async fn staff_for_alteration_order(
 }
 
 pub async fn run_notification_generators(pool: &PgPool) -> Result<(), sqlx::Error> {
-    run_morning_admin_digest(pool).await?;
-    run_task_due_reminders(pool).await?;
-    run_wedding_soon(pool).await?;
-    run_stale_open_orders(pool).await?;
-    run_pickup_stale(pool).await?;
-    run_alteration_due(pool).await?;
-    run_po_overdue_receive(pool).await?;
-    run_po_direct_invoice_overdue(pool).await?;
-    run_po_received_unlabeled(pool).await?;
-    run_po_partial_receive_stale(pool).await?;
-    run_po_draft_stale(pool).await?;
-    run_po_submitted_no_expected_date(pool).await?;
-    run_qbo_failed_reminder_sweep(pool).await?;
-    run_backup_admin_notifications(pool).await?;
-    run_integration_health_admin_notifications(pool).await?;
-    run_counterpoint_sync_admin_notifications(pool).await?;
-    run_appointment_soon_reminders(pool).await?;
-    run_negative_available_stock_admin(pool).await?;
-    run_pin_failure_security_digest(pool).await?;
-    run_after_hours_access_digest(pool).await?;
-    run_gift_card_expiring_reminders(pool).await?;
-    run_special_order_ready_to_stage(pool).await?;
-    run_messaging_and_reviews_unread_nudges(pool).await?;
+    let mut first_error: Option<sqlx::Error> = None;
+
+    macro_rules! run_generator {
+        ($name:literal, $future:expr) => {
+            let started_at = Utc::now();
+            if let Err(e) = $future.await {
+                tracing::error!(
+                    error = %e,
+                    generator = $name,
+                    "notification generator failed; continuing remaining generators"
+                );
+                if let Err(record_err) =
+                    record_notification_generator_run(pool, $name, started_at, Some(&e)).await
+                {
+                    tracing::error!(
+                        error = %record_err,
+                        generator = $name,
+                        "failed to record notification generator failure"
+                    );
+                }
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            } else if let Err(record_err) =
+                record_notification_generator_run(pool, $name, started_at, None).await
+            {
+                tracing::error!(
+                    error = %record_err,
+                    generator = $name,
+                    "failed to record notification generator success"
+                );
+            }
+        };
+    }
+
+    run_generator!("morning_admin_digest", run_morning_admin_digest(pool));
+    run_generator!("task_due_reminders", run_task_due_reminders(pool));
+    run_generator!("wedding_soon", run_wedding_soon(pool));
+    run_generator!("stale_open_orders", run_stale_open_orders(pool));
+    run_generator!("pickup_stale", run_pickup_stale(pool));
+    run_generator!("alteration_due", run_alteration_due(pool));
+    run_generator!("po_overdue_receive", run_po_overdue_receive(pool));
+    run_generator!(
+        "po_direct_invoice_overdue",
+        run_po_direct_invoice_overdue(pool)
+    );
+    run_generator!("po_received_unlabeled", run_po_received_unlabeled(pool));
+    run_generator!(
+        "po_partial_receive_stale",
+        run_po_partial_receive_stale(pool)
+    );
+    run_generator!("po_draft_stale", run_po_draft_stale(pool));
+    run_generator!(
+        "po_submitted_no_expected_date",
+        run_po_submitted_no_expected_date(pool)
+    );
+    run_generator!(
+        "qbo_failed_reminder_sweep",
+        run_qbo_failed_reminder_sweep(pool)
+    );
+    run_generator!(
+        "backup_admin_notifications",
+        run_backup_admin_notifications(pool)
+    );
+    run_generator!(
+        "integration_health_admin_notifications",
+        run_integration_health_admin_notifications(pool)
+    );
+    run_generator!(
+        "counterpoint_sync_admin_notifications",
+        run_counterpoint_sync_admin_notifications(pool)
+    );
+    run_generator!(
+        "appointment_soon_reminders",
+        run_appointment_soon_reminders(pool)
+    );
+    run_generator!(
+        "negative_available_stock_admin",
+        run_negative_available_stock_admin(pool)
+    );
+    run_generator!(
+        "pin_failure_security_digest",
+        run_pin_failure_security_digest(pool)
+    );
+    run_generator!(
+        "after_hours_access_digest",
+        run_after_hours_access_digest(pool)
+    );
+    run_generator!(
+        "gift_card_expiring_reminders",
+        run_gift_card_expiring_reminders(pool)
+    );
+    run_generator!(
+        "special_order_ready_to_stage",
+        run_special_order_ready_to_stage(pool)
+    );
+    run_generator!(
+        "messaging_and_reviews_unread_nudges",
+        run_messaging_and_reviews_unread_nudges(pool)
+    );
+
+    if let Some(e) = first_error {
+        Err(e)
+    } else {
+        Ok(())
+    }
+}
+
+async fn record_notification_generator_run(
+    pool: &PgPool,
+    generator_key: &str,
+    started_at: chrono::DateTime<Utc>,
+    error: Option<&sqlx::Error>,
+) -> Result<(), sqlx::Error> {
+    let finished_at = Utc::now();
+    let last_status = if error.is_some() { "failed" } else { "ok" };
+    let last_error = error.map(|e| e.to_string());
+    sqlx::query(
+        r#"
+        INSERT INTO notification_generator_run (
+            generator_key,
+            last_started_at,
+            last_finished_at,
+            last_success_at,
+            last_error_at,
+            last_status,
+            last_error,
+            consecutive_failures,
+            updated_at
+        )
+        VALUES (
+            $1,
+            $2,
+            $3,
+            CASE WHEN $4::text = 'ok' THEN $3 ELSE NULL END,
+            CASE WHEN $4::text = 'failed' THEN $3 ELSE NULL END,
+            $4,
+            $5,
+            CASE WHEN $4::text = 'failed' THEN 1 ELSE 0 END,
+            NOW()
+        )
+        ON CONFLICT (generator_key) DO UPDATE SET
+            last_started_at = EXCLUDED.last_started_at,
+            last_finished_at = EXCLUDED.last_finished_at,
+            last_success_at = CASE
+                WHEN EXCLUDED.last_status = 'ok' THEN EXCLUDED.last_finished_at
+                ELSE notification_generator_run.last_success_at
+            END,
+            last_error_at = CASE
+                WHEN EXCLUDED.last_status = 'failed' THEN EXCLUDED.last_finished_at
+                ELSE notification_generator_run.last_error_at
+            END,
+            last_status = EXCLUDED.last_status,
+            last_error = EXCLUDED.last_error,
+            consecutive_failures = CASE
+                WHEN EXCLUDED.last_status = 'failed'
+                    THEN notification_generator_run.consecutive_failures + 1
+                ELSE 0
+            END,
+            updated_at = NOW()
+        "#,
+    )
+    .bind(generator_key)
+    .bind(started_at)
+    .bind(finished_at)
+    .bind(last_status)
+    .bind(last_error)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -175,6 +321,7 @@ pub async fn run_messaging_and_reviews_unread_nudges(pool: &PgPool) -> Result<()
         WHERE an.created_at <= NOW() - INTERVAL '18 hours'
           AND (
             an.kind IN ('podium_sms_inbound', 'podium_email_inbound')
+            OR an.deep_link->>'bundle_kind' IN ('podium_sms_bundle', 'podium_email_bundle')
             OR an.kind LIKE 'review\_%' ESCAPE '\'
           )
           AND EXISTS (

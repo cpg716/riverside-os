@@ -31,7 +31,7 @@ Never log sync tokens or API keys.
 
 | Area | Location |
 |------|----------|
-| Hourly / scheduled generators | `server/src/logic/notifications_jobs.rs` (`run_notification_generators`, maintenance) — **bundled** kinds (`*_bundle`) upsert one **`app_notification`** per store-local day (or per assignee+day for **`task_due_soon_bundle`**) |
+| Hourly / scheduled generators | `server/src/logic/notifications_jobs.rs` (`run_notification_generators`, maintenance) — **bundled** kinds (`*_bundle`) upsert one **`app_notification`** per store-local day (or per assignee+day for **`task_due_soon_bundle`**). Generator failures are logged by generator name and later generators continue running in the same sweep. |
 | Emitters + audience helpers | `server/src/logic/notifications.rs` — **`upsert_app_notification_by_dedupe`**, **`delete_app_notification_by_dedupe`**, incl. **`rms_r2s_charge`** from checkout (migration **68**) |
 | Integration success/failure + PIN audit rows | `server/src/logic/integration_alerts.rs`; PIN insert on mismatch in `server/src/auth/pins.rs` |
 | HTTP API (list, read, archive, broadcast) | `server/src/api/notifications.rs` |
@@ -44,6 +44,16 @@ Many hourly generators set **`app_notification.deep_link.type`** = **`notificati
 ## Deep links (client)
 
 Notification `deep_link.type` values handled in Back Office include **`order`**, **`notification_bundle`** (expand then navigate per item), **`settings`** (`section`: `backups`, `general`, `profile`, …), **`inventory`**, **`qbo`** / **`qbo_staging`**, **`dashboard`** (`subsection` e.g. `payouts`), **`register`**, **`customers`**, **`appointments`**, **`staff`**, **`staff_tasks`** (`instance_id` → Staff → Tasks checklist drawer), **`gift-cards`**, **`wedding_party`**, **`alteration`**, **`purchase_order`**. Extend `handleNotificationNavigate` when adding new generator kinds.
+
+History uses `GET /api/notifications?mode=history` so active inbox rows do not duplicate into Earlier. The legacy `include_archived=true` query remains a diagnostic all-rows mode for older callers.
+
+Shared read-all is backend gated. Only reviewed shared/common notification kinds can mark all recipient rows read; other notification kinds fall back to the current staff recipient only.
+
+Notification health uses migration **100** tables:
+
+- `notification_generator_run` stores each generator's latest success/failure, error text, and consecutive failure count.
+- `notification_delivery_suppression` stores preference-disabled and unreviewed-taxonomy delivery suppressions.
+- `GET /api/notifications/health` is restricted to staff who can broadcast notifications and feeds the drawer's **Announce → Notification health** panel with generator status, stale unread counts, high-volume kinds, suppression counts, and broadcast summary.
 
 ## Related docs
 

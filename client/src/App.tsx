@@ -497,8 +497,7 @@ function App() {
       const instanceId = linkStr(link, "instance_id");
       if (t === "staff_tasks" && instanceId) {
         setStaffTasksFocusInstanceId(instanceId);
-        setActiveTab("home");
-        setActiveSubSection("dashboard");
+        enterBackofficeShell("staff", "tasks");
         return;
       }
 

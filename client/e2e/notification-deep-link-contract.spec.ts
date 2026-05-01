@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   isActionableNotificationDeepLink,
   isCompletableNotification,
+  isSharedReadEligibleNotification,
   notificationDestinationLabel,
   notificationPrimaryInteraction,
   notificationRecencyBucket,
@@ -163,6 +164,39 @@ test.describe("Notification deep-link contracts", () => {
         type: "inventory",
       }),
     ).toBe("info");
+
+    expect(
+      notificationSeverity("notification_bundle", {
+        type: "notification_bundle",
+        bundle_kind: "podium_sms_bundle",
+        items: [],
+      }),
+    ).toBe("info");
+  });
+
+  test("shared read eligibility is explicit for shared notification classes", async () => {
+    expect(
+      isSharedReadEligibleNotification("notification_bundle", {
+        type: "notification_bundle",
+        bundle_kind: "podium_sms_bundle",
+        items: [],
+      }),
+    ).toBe(true);
+
+    expect(
+      isSharedReadEligibleNotification("morning_low_stock_bundle", {
+        type: "notification_bundle",
+        bundle_kind: "morning_low_stock",
+        items: [],
+      }),
+    ).toBe(true);
+
+    expect(
+      isSharedReadEligibleNotification("task_due_soon", {
+        type: "staff_tasks",
+        instance_id: "task-1",
+      }),
+    ).toBe(false);
   });
 
   test("recency bucket separates today from earlier activity", async () => {
