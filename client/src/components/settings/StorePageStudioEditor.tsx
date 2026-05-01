@@ -50,6 +50,8 @@ type Props = {
   licenseKey: string;
   projectJson: unknown;
   fallbackHtml?: string;
+  containerClassName?: string;
+  editorClassName?: string;
   onSaveProject: (project: unknown) => Promise<void>;
   onEditorReady?: (api: StoreStudioApi) => void;
   /** When set, Studio image uploads go to `POST /api/admin/store/assets` (returns `/api/store/media/{id}` URLs). */
@@ -86,6 +88,8 @@ export default function StorePageStudioEditor({
   licenseKey,
   projectJson,
   fallbackHtml,
+  containerClassName,
+  editorClassName,
   onSaveProject,
   onEditorReady,
   studioAssetUpload,
@@ -124,9 +128,14 @@ export default function StorePageStudioEditor({
   );
 
   return (
-    <div className="min-h-[560px] w-full overflow-hidden rounded-xl border border-app-border bg-app-surface">
+    <div
+      className={
+        containerClassName ??
+        "min-h-[560px] w-full overflow-hidden rounded-xl border border-app-border bg-app-surface"
+      }
+    >
       <StudioEditor
-        className="h-[560px] w-full"
+        className={editorClassName ?? "h-[560px] w-full"}
         onEditor={(ed) => {
           attachApi(ed);
         }}

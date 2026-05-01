@@ -26,13 +26,13 @@
 
 - **Storefront pages:** Create slug + title; **Edit page** loads **`published_html`** and **`project_json`**.
   - **Raw HTML:** edit textarea → **Save draft HTML** → **Publish** when ready (public site reads sanitized HTML for **`published = true`** rows).
-  - **Visual (Studio):** lazy-loaded **`@grapesjs/studio-sdk`** (**`StorePageStudioEditor.tsx`**). Project data autosaves to **`project_json`** via **`PATCH`**. Image uploads use **`POST /api/admin/store/assets`** (base64 JSON) and resolve to **`GET /api/store/media/{id}`** URLs embedded in the page. Use **Export Studio HTML to raw draft** to generate HTML into the raw editor, then **Save draft HTML** if you want that snapshot in **`published_html`**.
+  - **Visual (Studio):** lazy-loaded **`@grapesjs/studio-sdk`** (**`StorePageStudioEditor.tsx`**) opens as a fullscreen ROS overlay. Project data autosaves to **`project_json`** via **`PATCH`**. Image uploads use **`POST /api/admin/store/assets`** (base64 JSON) and resolve to **`GET /api/store/media/{id}`** URLs embedded in the page. Use **Export HTML** / **Export Studio HTML to raw draft** to generate HTML into the raw editor, then **Save draft HTML** if you want that snapshot in **`published_html`**.
 - **Products:** **Online Store → Products** is the web merchandising surface over Inventory truth. Staff can review live/draft/blocked products, edit storefront slugs, toggle web publish status, set web-only price overrides, set gallery sort order, open public PDP links, and jump to the full Product Hub. Catalog/PDP/cart remain ROS-native; GrapesJS is not used for product or catalog pages.
 - **Layout:** **Online Store → Layout** edits ROS-native homepage blocks rendered by **`GET /api/store/home-layout`**. These blocks can link to the catalog and campaigns but do not replace typed product/catalog/checkout flows.
 - **Navigation / media / publish history:** staff can edit header/footer links, update media alt text and usage notes, archive unused media, preview published pages, and restore captured publish snapshots.
 - **Orders / analytics:** paid web transactions can be marked ready for pickup, shipped with tracking, or flagged for cancel/refund review without bypassing transaction/refund workflows. Analytics reports checkout funnel counts and campaign revenue from ROS checkout sessions.
 - **Coupons:** create, list, activate/deactivate (**`PATCH`**).
-- **Production Studio:** set **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** in the client env for non-localhost deployments (SDK license rules: [GrapesJS Studio licenses](https://app.grapesjs.com/docs-sdk/overview/licenses)). Local dev may use the SDK’s documented dev key pattern.
+- **Studio licensing:** set **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** in the client env for non-localhost deployments (SDK license rules: [GrapesJS Studio licenses](https://app.grapesjs.com/docs-sdk/overview/licenses)). Local dev may use the SDK’s documented dev key pattern. Studio AI is intentionally not enabled in ROS right now.
 
 **Permission:** **`online_store.manage`** (or **`settings.admin`** for the same admin routes).
 

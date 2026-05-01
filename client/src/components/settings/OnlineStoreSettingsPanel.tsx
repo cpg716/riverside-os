@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -67,11 +68,10 @@ export default function OnlineStoreSettingsPanel({
   const [slugDraft, setSlugDraft] = useState("");
   const [titleDraft, setTitleDraft] = useState("");
   const [editSlug, setEditSlug] = useState<string | null>(null);
-  const [pageEditMode, setPageEditMode] = useState<"html" | "studio">(
-    "studio",
-  );
+  const [pageEditMode, setPageEditMode] = useState<"html" | "studio">("studio");
   const [projectJsonDraft, setProjectJsonDraft] = useState<unknown>({});
   const [studioMountKey, setStudioMountKey] = useState(0);
+  const [studioFullscreenOpen, setStudioFullscreenOpen] = useState(false);
   const [htmlDraft, setHtmlDraft] = useState("");
   const studioApiRef = useRef<StoreStudioApi | null>(null);
   const [couponCode, setCouponCode] = useState("");
@@ -132,6 +132,7 @@ export default function OnlineStoreSettingsPanel({
     setProjectJsonDraft(j.project_json ?? {});
     setStudioMountKey((k) => k + 1);
     setPageEditMode("studio");
+    setStudioFullscreenOpen(true);
     studioApiRef.current = null;
   };
 
@@ -179,6 +180,7 @@ export default function OnlineStoreSettingsPanel({
     setHtmlDraft(html);
     toast("HTML placed in raw draft — choose Save draft HTML", "info");
     setPageEditMode("html");
+    setStudioFullscreenOpen(false);
   };
 
   const publishPage = async (slug: string) => {
@@ -248,6 +250,35 @@ export default function OnlineStoreSettingsPanel({
     }
     await loadCoupons();
   };
+  const studioEditor = editSlug ? (
+    <Suspense
+      fallback={
+        <p className="text-sm text-app-text-muted">Loading Studio editor…</p>
+      }
+    >
+      <StorePageStudioEditor
+        key={studioMountKey}
+        licenseKey={GRAPESJS_STUDIO_LICENSE_KEY}
+        projectJson={projectJsonDraft}
+        fallbackHtml={htmlDraft}
+        containerClassName="h-full min-h-0 w-full overflow-hidden bg-app-surface"
+        editorClassName="h-full w-full"
+        onSaveProject={(p) => saveStudioProject(p)}
+        onEditorReady={(api) => {
+          studioApiRef.current = api;
+        }}
+        studioAssetUpload={{
+          apiBaseUrl: baseUrl,
+          headers: () =>
+            mergedPosStaffHeaders(backofficeHeaders) as Record<string, string>,
+        }}
+      />
+    </Suspense>
+  ) : null;
+  const studioOverlayRoot =
+    typeof document !== "undefined"
+      ? document.getElementById("drawer-root") || document.body
+      : null;
 
   if (!canManage) {
     return (
@@ -399,32 +430,26 @@ export default function OnlineStoreSettingsPanel({
                   </div>
                 </>
               ) : (
-                <Suspense
-                  fallback={
-                    <p className="text-sm text-app-text-muted">
-                      Loading Studio editor…
-                    </p>
-                  }
-                >
-                  <StorePageStudioEditor
-                    key={studioMountKey}
-                    licenseKey={GRAPESJS_STUDIO_LICENSE_KEY}
-                    projectJson={projectJsonDraft}
-                    fallbackHtml={htmlDraft}
-                    onSaveProject={(p) => saveStudioProject(p)}
-                    onEditorReady={(api) => {
-                      studioApiRef.current = api;
-                    }}
-                    studioAssetUpload={{
-                      apiBaseUrl: baseUrl,
-                      headers: () =>
-                        mergedPosStaffHeaders(backofficeHeaders) as Record<
-                          string,
-                          string
-                        >,
-                    }}
-                  />
-                </Suspense>
+                <section className="rounded-xl border border-app-border bg-app-surface p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-app-text">
+                        Studio opens fullscreen
+                      </p>
+                      <p className="mt-1 text-xs text-app-text-muted">
+                        Visual page editing uses the full workspace. Project
+                        data autosaves while Studio is open.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setStudioFullscreenOpen(true)}
+                      className="ui-btn-primary text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Open Studio fullscreen
+                    </button>
+                  </div>
+                </section>
               )}
               <div className="flex flex-wrap gap-2 border-t border-app-border pt-3">
                 {pageEditMode === "studio" ? (
@@ -440,6 +465,7 @@ export default function OnlineStoreSettingsPanel({
                   type="button"
                   onClick={() => {
                     setEditSlug(null);
+                    setStudioFullscreenOpen(false);
                     studioApiRef.current = null;
                   }}
                   className="ui-btn-secondary text-[10px] font-black uppercase"
@@ -520,6 +546,40 @@ export default function OnlineStoreSettingsPanel({
           </ul>
         </div>
       )}
+      {studioFullscreenOpen && studioOverlayRoot && editSlug
+        ? createPortal(
+            <div className="ui-overlay-backdrop fixed inset-0 z-200 flex flex-col bg-app-bg">
+              <header className="flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-app-border bg-app-surface px-4 py-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Online Store Studio
+                  </p>
+                  <h2 className="text-lg font-black italic uppercase tracking-tight text-app-text">
+                    /shop/{editSlug}
+                  </h2>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void exportStudioToHtmlDraft()}
+                    className="ui-btn-secondary text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Export HTML
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStudioFullscreenOpen(false)}
+                    className="ui-btn-primary text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Close Studio
+                  </button>
+                </div>
+              </header>
+              <div className="min-h-0 flex-1">{studioEditor}</div>
+            </div>,
+            studioOverlayRoot,
+          )
+        : null}
     </div>
   );
 }
