@@ -498,8 +498,15 @@ pub async fn list_task_history(
 ) -> Result<Vec<TaskHistoryRow>, TaskError> {
     let mut search_ids: Option<Vec<Uuid>> = None;
     if let (Some(m), Some(q)) = (meili, search_text.as_ref()) {
-        if let Ok(ids) = crate::logic::meilisearch_search::task_search_ids(m, q).await {
-            search_ids = Some(ids);
+        match crate::logic::meilisearch_search::task_search_ids(m, q).await {
+            Ok(ids) if !ids.is_empty() => search_ids = Some(ids),
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Meilisearch task search failed; using PostgreSQL ILIKE"
+                );
+            }
         }
     }
 

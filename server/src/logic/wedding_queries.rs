@@ -150,7 +150,8 @@ pub async fn query_party_list_page(
                 )
                 .await
                 {
-                    Ok(ids) => Some(ids),
+                    Ok(ids) if !ids.is_empty() => Some(ids),
+                    Ok(_) => None,
                     Err(e) => {
                         tracing::warn!(
                             error = %e,
@@ -753,15 +754,19 @@ pub async fn search_appointments_hybrid(
 
     let mut search_ids: Option<Vec<Uuid>> = None;
     if let Some(c) = meili {
-        if let Ok(ids) = crate::logic::meilisearch_search::appointment_search_ids(c, q).await {
-            search_ids = Some(ids);
+        match crate::logic::meilisearch_search::appointment_search_ids(c, q).await {
+            Ok(ids) if !ids.is_empty() => search_ids = Some(ids),
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Meilisearch appointment search failed; using PostgreSQL ILIKE"
+                );
+            }
         }
     }
 
     if let Some(ids) = search_ids {
-        if ids.is_empty() {
-            return Ok(vec![]);
-        }
         let rows = sqlx::query_as::<_, AppointmentRow>(
             r#"
             SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,

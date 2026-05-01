@@ -1127,6 +1127,7 @@ pub async fn list_control_board(
                 search_raw,
                 query.category_id,
                 query.vendor_id,
+                brand_raw,
                 query.web_published_only.unwrap_or(false),
                 query.clothing_only.unwrap_or(false),
                 query.filter.as_deref(),

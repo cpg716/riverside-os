@@ -63,12 +63,25 @@ pub(crate) async fn wait_task_ok(client: &Client, t: TaskInfo) -> Result<(), Mei
     Ok(())
 }
 
-/// Apply index settings and wait for tasks (used by reindex / admin).
-pub async fn ensure_variant_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_VARIANTS);
+async fn ensure_variant_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
-        index.set_searchable_attributes(["search_text"]).await?,
+        index
+            .set_searchable_attributes([
+                "sku",
+                "barcode",
+                "vendor_upc",
+                "product_name",
+                "brand",
+                "variation_label",
+                "catalog_handle",
+                "search_text",
+            ])
+            .await?,
     )
     .await?;
     wait_task_ok(
@@ -80,15 +93,35 @@ pub async fn ensure_variant_index_settings(client: &Client) -> Result<(), MeiliE
                 "primary_vendor_id",
                 "web_published",
                 "is_clothing_footwear",
+                "is_active",
+                "stock_status",
+                "stock_on_hand",
+                "available_stock",
+                "brand",
             ])
+            .await?,
+    )
+    .await?;
+    wait_task_ok(
+        client,
+        index
+            .set_sortable_attributes(["stock_on_hand", "available_stock"])
             .await?,
     )
     .await?;
     Ok(())
 }
 
-pub async fn ensure_store_products_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_STORE_PRODUCTS);
+/// Apply index settings and wait for tasks (used by reindex / admin).
+pub async fn ensure_variant_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_variant_index_settings_for_uid(client, INDEX_VARIANTS).await
+}
+
+async fn ensure_store_products_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
         index.set_searchable_attributes(["search_text"]).await?,
@@ -102,18 +135,43 @@ pub async fn ensure_store_products_index_settings(client: &Client) -> Result<(),
     Ok(())
 }
 
-pub async fn ensure_customers_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_CUSTOMERS);
+pub async fn ensure_store_products_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_store_products_index_settings_for_uid(client, INDEX_STORE_PRODUCTS).await
+}
+
+async fn ensure_customers_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
-        index.set_searchable_attributes(["search_text"]).await?,
+        index
+            .set_searchable_attributes([
+                "customer_code",
+                "email",
+                "phone_digits",
+                "full_name",
+                "first_name",
+                "last_name",
+                "company_name",
+                "search_text",
+            ])
+            .await?,
     )
     .await?;
     Ok(())
 }
 
-pub async fn ensure_wedding_parties_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_WEDDING_PARTIES);
+pub async fn ensure_customers_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_customers_index_settings_for_uid(client, INDEX_CUSTOMERS).await
+}
+
+async fn ensure_wedding_parties_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
         index.set_searchable_attributes(["search_text"]).await?,
@@ -127,11 +185,56 @@ pub async fn ensure_wedding_parties_index_settings(client: &Client) -> Result<()
     Ok(())
 }
 
-pub async fn ensure_transactions_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_TRANSACTIONS);
+pub async fn ensure_wedding_parties_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_wedding_parties_index_settings_for_uid(client, INDEX_WEDDING_PARTIES).await
+}
+
+async fn ensure_transactions_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
-        index.set_searchable_attributes(["search_text"]).await?,
+        index
+            .set_searchable_attributes([
+                "display_id",
+                "id",
+                "customer_name",
+                "party_name",
+                "search_text",
+            ])
+            .await?,
+    )
+    .await?;
+    wait_task_ok(
+        client,
+        index.set_filterable_attributes(["status_open"]).await?,
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn ensure_transactions_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_transactions_index_settings_for_uid(client, INDEX_TRANSACTIONS).await
+}
+
+async fn ensure_orders_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
+    wait_task_ok(
+        client,
+        index
+            .set_searchable_attributes([
+                "display_id",
+                "id",
+                "customer_name",
+                "party_name",
+                "search_text",
+            ])
+            .await?,
     )
     .await?;
     wait_task_ok(
@@ -143,22 +246,14 @@ pub async fn ensure_transactions_index_settings(client: &Client) -> Result<(), M
 }
 
 pub async fn ensure_orders_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_ORDERS);
-    wait_task_ok(
-        client,
-        index.set_searchable_attributes(["search_text"]).await?,
-    )
-    .await?;
-    wait_task_ok(
-        client,
-        index.set_filterable_attributes(["status_open"]).await?,
-    )
-    .await?;
-    Ok(())
+    ensure_orders_index_settings_for_uid(client, INDEX_ORDERS).await
 }
 
-pub async fn ensure_help_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_HELP);
+async fn ensure_help_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
         index
@@ -174,8 +269,15 @@ pub async fn ensure_help_index_settings(client: &Client) -> Result<(), MeiliErro
     Ok(())
 }
 
-pub async fn ensure_staff_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_STAFF);
+pub async fn ensure_help_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_help_index_settings_for_uid(client, INDEX_HELP).await
+}
+
+async fn ensure_staff_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
         index.set_searchable_attributes(["search_text"]).await?,
@@ -191,8 +293,15 @@ pub async fn ensure_staff_index_settings(client: &Client) -> Result<(), MeiliErr
     Ok(())
 }
 
-pub async fn ensure_vendors_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_VENDORS);
+pub async fn ensure_staff_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_staff_index_settings_for_uid(client, INDEX_STAFF).await
+}
+
+async fn ensure_vendors_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
         index.set_searchable_attributes(["search_text"]).await?,
@@ -206,8 +315,15 @@ pub async fn ensure_vendors_index_settings(client: &Client) -> Result<(), MeiliE
     Ok(())
 }
 
-pub async fn ensure_categories_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_CATEGORIES);
+pub async fn ensure_vendors_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_vendors_index_settings_for_uid(client, INDEX_VENDORS).await
+}
+
+async fn ensure_categories_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
         index.set_searchable_attributes(["search_text"]).await?,
@@ -216,8 +332,15 @@ pub async fn ensure_categories_index_settings(client: &Client) -> Result<(), Mei
     Ok(())
 }
 
-pub async fn ensure_appointments_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_APPOINTMENTS);
+pub async fn ensure_categories_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_categories_index_settings_for_uid(client, INDEX_CATEGORIES).await
+}
+
+async fn ensure_appointments_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
         index.set_searchable_attributes(["search_text"]).await?,
@@ -231,8 +354,15 @@ pub async fn ensure_appointments_index_settings(client: &Client) -> Result<(), M
     Ok(())
 }
 
-pub async fn ensure_tasks_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_TASKS);
+pub async fn ensure_appointments_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_appointments_index_settings_for_uid(client, INDEX_APPOINTMENTS).await
+}
+
+async fn ensure_tasks_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
         index.set_searchable_attributes(["search_text"]).await?,
@@ -248,8 +378,15 @@ pub async fn ensure_tasks_index_settings(client: &Client) -> Result<(), MeiliErr
     Ok(())
 }
 
-pub async fn ensure_alterations_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_ALTERATIONS);
+pub async fn ensure_tasks_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_tasks_index_settings_for_uid(client, INDEX_TASKS).await
+}
+
+async fn ensure_alterations_index_settings_for_uid(
+    client: &Client,
+    index_uid: &str,
+) -> Result<(), MeiliError> {
+    let index = client.index(index_uid);
     wait_task_ok(
         client,
         index.set_searchable_attributes(["search_text"]).await?,
@@ -263,6 +400,37 @@ pub async fn ensure_alterations_index_settings(client: &Client) -> Result<(), Me
     )
     .await?;
     Ok(())
+}
+
+pub async fn ensure_alterations_index_settings(client: &Client) -> Result<(), MeiliError> {
+    ensure_alterations_index_settings_for_uid(client, INDEX_ALTERATIONS).await
+}
+
+pub async fn ensure_index_settings_for_uid(
+    client: &Client,
+    settings_source_uid: &str,
+    target_uid: &str,
+) -> Result<(), MeiliError> {
+    match settings_source_uid {
+        INDEX_VARIANTS => ensure_variant_index_settings_for_uid(client, target_uid).await,
+        INDEX_STORE_PRODUCTS => {
+            ensure_store_products_index_settings_for_uid(client, target_uid).await
+        }
+        INDEX_CUSTOMERS => ensure_customers_index_settings_for_uid(client, target_uid).await,
+        INDEX_WEDDING_PARTIES => {
+            ensure_wedding_parties_index_settings_for_uid(client, target_uid).await
+        }
+        INDEX_ORDERS => ensure_orders_index_settings_for_uid(client, target_uid).await,
+        INDEX_TRANSACTIONS => ensure_transactions_index_settings_for_uid(client, target_uid).await,
+        INDEX_HELP => ensure_help_index_settings_for_uid(client, target_uid).await,
+        INDEX_STAFF => ensure_staff_index_settings_for_uid(client, target_uid).await,
+        INDEX_VENDORS => ensure_vendors_index_settings_for_uid(client, target_uid).await,
+        INDEX_CATEGORIES => ensure_categories_index_settings_for_uid(client, target_uid).await,
+        INDEX_APPOINTMENTS => ensure_appointments_index_settings_for_uid(client, target_uid).await,
+        INDEX_TASKS => ensure_tasks_index_settings_for_uid(client, target_uid).await,
+        INDEX_ALTERATIONS => ensure_alterations_index_settings_for_uid(client, target_uid).await,
+        _ => Ok(()),
+    }
 }
 
 pub async fn ensure_all_meilisearch_index_settings(client: &Client) -> Result<(), MeiliError> {

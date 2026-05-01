@@ -11,7 +11,7 @@ When **`RIVERSIDE_MEILISEARCH_URL`** is set (and **`RIVERSIDE_MEILISEARCH_API_KE
 ### Meilisearch Administrative Mandate
 As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch architecture**. All manual UUID or SKU entry fields (e.g., Task assignments, Gift Card issuance, Loyalty adjustments, Physical Inventory) have been replaced with Meilisearch-powered components (`CustomerSearchInput`, `VariantSearchInput`). This eliminates human error associated with raw ID handling.
 
-- **Fallback:** If Meilisearch is unavailable, handlers fall back to PostgreSQL **ILIKE** paths.
+- **Fallback:** If Meilisearch is unavailable or returns an empty ID set for a text query, handlers fall back to PostgreSQL **ILIKE** paths where a safe SQL search exists. Empty Meilisearch hits are not treated as authoritative for inventory, customers, weddings, appointments, tasks, or alterations.
 - **Indices:** 
   - `ros_products`, `ros_variants`, `ros_store_products`
   - `ros_customers`, `ros_wedding_parties`
@@ -23,9 +23,10 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch
   - `ros_help` (Staff Help Center)
 - **Sync Health Dashboard:** Located at **Settings → Integrations → Meilisearch**.
   - **Tracked Categories:** Shows real-time sync status for all primary indices.
-  - **Health Metrics:** Displays Row Counts, Last Sync timestamps, and Success/Failure state.
+  - **Health Metrics:** Displays tracked SQL row counts, live Meilisearch document counts when available, last sync timestamps, latest visible Meilisearch task IDs/status, and Success/Failure state.
   - **Stale Protection:** System triggers a **Warning** if an index has not successfully synced within 24 hours.
 - **Refresh vs. rebuild:** **Refresh** reloads the Settings health view only. **Rebuild search index** re-pushes PostgreSQL records into Meilisearch for all current indices and refreshes row counts.
+- **Safe rebuild behavior:** Full rebuilds write each supported index into a temporary Meilisearch UID, apply settings to that temporary index, enqueue documents, wait for Meilisearch settings/document tasks to complete, then swap the temporary UID into the live UID. If a task fails before the swap, the live index remains in service and the Settings health table records the failure from the failed rebuild path. The Help Center index follows the same staged rebuild pattern.
 - **Automatic updates:** Meilisearch does **not** subscribe to PostgreSQL or update itself. ROS updates search when specific server write paths spawn an incremental Meilisearch upsert after saving the PostgreSQL record. Successful incremental upserts refresh the index's last-success timestamp; they do not recalculate full row counts. PostgreSQL remains authoritative and search falls back to SQL when Meilisearch is unavailable.
 - **When stale is normal vs. actionable:** A stale warning means ROS has not recorded a successful rebuild or incremental upsert for that index in more than 24 hours. It is expected for quiet indices with no writes. It is actionable when staff recently changed records in that area, search results look wrong, or a restore/import/deploy happened without a rebuild.
 - **Local dev:** `docker compose` includes a **`meilisearch`** service (port **7700**). From the host-run API use **`http://127.0.0.1:7700`**; from a containerized API use **`http://meilisearch:7700`**.
@@ -35,6 +36,14 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch
 **Orders and transactions search:** Back Office Orders and financial Transactions are separate Meilisearch indices. `ros_orders` tracks the order-style transaction records shown in the Orders workspace (special/custom/wedding/layaway/open-document work). `ros_transactions` tracks all financial checkout records. Checkout writes upsert the affected transaction document and, when that transaction has order-style lines, the matching Orders document. The Settings dashboard shows both so staff can tell whether order search and all-transaction search are current.
 
 **Alterations search:** `ros_alterations` indexes open and historical alteration work by customer name, phone digits, email, address/ZIP, garment description, work requested, notes, source SKU, and linked transaction display ID. Alterations Hub and universal search hydrate matched alteration rows from PostgreSQL after Meilisearch lookup, with PostgreSQL `ILIKE` fallback when the search service is unavailable.
+
+**Relevance fields:** Identifier fields are indexed separately ahead of broad `search_text` where the source data already exists. Variant search prioritizes SKU, barcode, UPC, product name, brand, variation label, and catalog handle. Customer search prioritizes customer code, email, phone digits, full name, first/last name, and company. Orders and transactions prioritize display/reference IDs before customer or party context. The concatenated `search_text` field remains as a broad fallback.
+
+**Filter fields:** Variant documents include existing catalog/inventory fields: product/category/vendor IDs, web-published, clothing/footwear, active status, stock quantity, available stock, and stock status (`in_stock`, `out_of_stock`, `negative`). No PostgreSQL schema changes are required; PostgreSQL remains authoritative during hydration.
+
+**Meilisearch hit caps:** Normal UI search helpers request a rank buffer instead of blanket 10k-50k windows: inventory 5,000 IDs, customers/weddings/tasks/appointments/alterations 1,000 IDs, transactions/orders 2,000 IDs, staff/vendors/store catalog 500 IDs, help 40 hits. These caps are Meilisearch ranking windows only; SQL still applies each endpoint's `LIMIT`/`OFFSET` and filters. Admin/export flows that need complete sets should use SQL-backed export paths, not search ranking windows.
+
+**Maintained but not blocking:** `ros_staff`, `ros_vendors`, and `ros_categories` are maintained for global-search/search-picker expansion and Settings visibility. They should not block staff workflows; existing staff/vendor/category pickers must keep SQL-backed behavior unless a caller explicitly hydrates Meilisearch IDs through PostgreSQL.
 
 ---
 

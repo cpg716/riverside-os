@@ -12,6 +12,22 @@ pub struct VariantDoc {
     pub primary_vendor_id: Option<String>,
     pub web_published: bool,
     pub is_clothing_footwear: bool,
+    pub is_active: bool,
+    pub stock_on_hand: i32,
+    pub available_stock: i32,
+    pub stock_status: String,
+    pub sku: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub barcode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vendor_upc: Option<String>,
+    pub product_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brand: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variation_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_handle: Option<String>,
     /// Concatenated searchable text (SKU, codes, labels).
     pub search_text: String,
 }
@@ -27,6 +43,18 @@ pub struct StoreProductDoc {
 #[derive(Debug, Clone, Serialize)]
 pub struct CustomerDoc {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub company_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone_digits: Option<String>,
     pub search_text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_code: Option<String>,
@@ -43,6 +71,10 @@ pub struct WeddingPartyDoc {
 pub struct TransactionDoc {
     pub id: String,
     pub display_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub party_name: Option<String>,
     /// Open / pending_measurement when true (for default orders list filter).
     pub status_open: bool,
     pub search_text: String,
@@ -52,6 +84,10 @@ pub struct TransactionDoc {
 pub struct OrderDoc {
     pub id: String,
     pub display_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub party_name: Option<String>,
     /// Has open/unfulfilled order work when true.
     pub status_open: bool,
     pub search_text: String,
@@ -240,6 +276,9 @@ pub fn variant_doc_from_row(
     primary_vendor_id: Option<uuid::Uuid>,
     web_published: bool,
     is_clothing_footwear: bool,
+    is_active: bool,
+    stock_on_hand: i32,
+    reserved_stock: i32,
     sku: &str,
     barcode: Option<&str>,
     vendor_upc: Option<&str>,
@@ -248,6 +287,14 @@ pub fn variant_doc_from_row(
     variation_label: Option<&str>,
     catalog_handle: Option<&str>,
 ) -> VariantDoc {
+    let available_stock = stock_on_hand.saturating_sub(reserved_stock).max(0);
+    let stock_status = if stock_on_hand < 0 {
+        "negative"
+    } else if available_stock <= 0 {
+        "out_of_stock"
+    } else {
+        "in_stock"
+    };
     VariantDoc {
         id: variant_id.to_string(),
         product_id: product_id.to_string(),
@@ -255,6 +302,32 @@ pub fn variant_doc_from_row(
         primary_vendor_id: primary_vendor_id.map(|u| u.to_string()),
         web_published,
         is_clothing_footwear,
+        is_active,
+        stock_on_hand,
+        available_stock,
+        stock_status: stock_status.to_string(),
+        sku: sku.trim().to_string(),
+        barcode: barcode
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        vendor_upc: vendor_upc
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        product_name: product_name.trim().to_string(),
+        brand: brand
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        variation_label: variation_label
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        catalog_handle: catalog_handle
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
         search_text: build_variant_search_text(
             sku,
             barcode,

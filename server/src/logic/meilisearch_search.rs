@@ -1,6 +1,7 @@
 //! Meilisearch query helpers — return ordered UUID primary keys for hybrid SQL hydration.
 
 use meilisearch_sdk::client::Client;
+use meilisearch_sdk::search::Selectors;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -10,17 +11,18 @@ use crate::logic::meilisearch_client::{
     INDEX_WEDDING_PARTIES,
 };
 
-const CONTROL_BOARD_MEILI_HIT_CAP: usize = 50_000;
-const STORE_PRODUCT_MEILI_HIT_CAP: usize = 2_000;
-const CUSTOMER_MEILI_HIT_CAP: usize = 5_000;
-const WEDDING_MEILI_HIT_CAP: usize = 10_000;
-const TRANSACTION_MEILI_HIT_CAP: usize = 10_000;
+const CONTROL_BOARD_MEILI_HIT_CAP: usize = 5_000;
+const STORE_PRODUCT_MEILI_HIT_CAP: usize = 500;
+const CUSTOMER_MEILI_HIT_CAP: usize = 1_000;
+const WEDDING_MEILI_HIT_CAP: usize = 1_000;
+const TRANSACTION_MEILI_HIT_CAP: usize = 2_000;
 const HELP_MEILI_HIT_CAP: usize = 40;
-const STAFF_MEILI_HIT_CAP: usize = 1_000;
-const VENDOR_MEILI_HIT_CAP: usize = 2_000;
-const TASK_MEILI_HIT_CAP: usize = 20_000;
-const APPOINTMENT_MEILI_HIT_CAP: usize = 10_000;
-const ALTERATION_MEILI_HIT_CAP: usize = 10_000;
+const STAFF_MEILI_HIT_CAP: usize = 500;
+const VENDOR_MEILI_HIT_CAP: usize = 500;
+const TASK_MEILI_HIT_CAP: usize = 1_000;
+const APPOINTMENT_MEILI_HIT_CAP: usize = 1_000;
+const ALTERATION_MEILI_HIT_CAP: usize = 1_000;
+const ID_ATTRIBUTES: &[&str] = &["id"];
 
 #[derive(Debug, Deserialize)]
 struct IdHit {
@@ -41,11 +43,12 @@ fn parse_hit_ids(hits: &[meilisearch_sdk::search::SearchResult<IdHit>]) -> Vec<U
 pub fn control_board_meili_filter_parts(
     category_id: Option<Uuid>,
     vendor_id: Option<Uuid>,
+    brand: Option<&str>,
     web_published_only: bool,
     clothing_only: bool,
     filter_flag: Option<&str>,
-    _oos_only: Option<bool>,
-    _negative_stock_only: Option<bool>,
+    oos_only: Option<bool>,
+    negative_stock_only: Option<bool>,
 ) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     if let Some(cid) = category_id {
@@ -54,15 +57,22 @@ pub fn control_board_meili_filter_parts(
     if let Some(vid) = vendor_id {
         parts.push(format!("primary_vendor_id = \"{vid}\""));
     }
+    if let Some(brand) = brand.map(str::trim).filter(|s| !s.is_empty()) {
+        let brand = brand.replace('\\', "\\\\").replace('"', "\\\"");
+        parts.push(format!("brand = \"{brand}\""));
+    }
     if web_published_only {
         parts.push("web_published = true".to_string());
     }
     if clothing_only || filter_flag == Some("clothing") {
         parts.push("is_clothing_footwear = true".to_string());
     }
-    // Note: VariantDoc currently doesn't index stock_on_hand.
-    // If it did, we'd add oos/negative filters here.
-    // For now, Postgres handles these during hydration.
+    if oos_only == Some(true) {
+        parts.push("stock_status = \"out_of_stock\"".to_string());
+    }
+    if negative_stock_only == Some(true) {
+        parts.push("stock_status = \"negative\"".to_string());
+    }
     if parts.is_empty() {
         None
     } else {
@@ -77,6 +87,7 @@ pub async fn control_board_search_variant_ids(
     query_text: &str,
     category_id: Option<Uuid>,
     vendor_id: Option<Uuid>,
+    brand: Option<&str>,
     web_published_only: bool,
     clothing_only: bool,
     filter_flag: Option<&str>,
@@ -87,6 +98,7 @@ pub async fn control_board_search_variant_ids(
     let filter = control_board_meili_filter_parts(
         category_id,
         vendor_id,
+        brand,
         web_published_only,
         clothing_only,
         filter_flag,
@@ -95,6 +107,7 @@ pub async fn control_board_search_variant_ids(
     );
     let mut sq = index.search();
     sq.with_query(query_text)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(CONTROL_BOARD_MEILI_HIT_CAP);
     if let Some(ref f) = filter {
         sq.with_filter(f);
@@ -112,6 +125,7 @@ pub async fn store_product_search_ids(
         .search()
         .with_query(query_text)
         .with_filter("catalog_ok = true")
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(STORE_PRODUCT_MEILI_HIT_CAP)
         .execute::<IdHit>()
         .await?;
@@ -126,6 +140,7 @@ pub async fn customer_search_ids(
     let res = index
         .search()
         .with_query(query_text)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(CUSTOMER_MEILI_HIT_CAP)
         .execute::<IdHit>()
         .await?;
@@ -147,6 +162,7 @@ pub async fn wedding_party_search_ids(
         .search()
         .with_query(query_text)
         .with_filter(&filter)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(WEDDING_MEILI_HIT_CAP)
         .execute::<IdHit>()
         .await?;
@@ -161,6 +177,7 @@ pub async fn transaction_search_ids(
     let index = client.index(INDEX_TRANSACTIONS);
     let mut sq = index.search();
     sq.with_query(query_text)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(TRANSACTION_MEILI_HIT_CAP);
     if open_only {
         sq.with_filter("status_open = true");
@@ -177,6 +194,7 @@ pub async fn order_search_ids(
     let index = client.index(INDEX_ORDERS);
     let mut sq = index.search();
     sq.with_query(query_text)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(TRANSACTION_MEILI_HIT_CAP);
     if open_only {
         sq.with_filter("status_open = true");
@@ -219,6 +237,7 @@ pub async fn staff_search_ids(
     let res = index
         .search()
         .with_query(query_text)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(STAFF_MEILI_HIT_CAP)
         .execute::<IdHit>()
         .await?;
@@ -233,6 +252,7 @@ pub async fn vendor_search_ids(
     let res = index
         .search()
         .with_query(query_text)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(VENDOR_MEILI_HIT_CAP)
         .execute::<IdHit>()
         .await?;
@@ -247,6 +267,7 @@ pub async fn task_search_ids(
     let res = index
         .search()
         .with_query(query_text)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(TASK_MEILI_HIT_CAP)
         .execute::<IdHit>()
         .await?;
@@ -261,6 +282,7 @@ pub async fn appointment_search_ids(
     let res = index
         .search()
         .with_query(query_text)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(APPOINTMENT_MEILI_HIT_CAP)
         .execute::<IdHit>()
         .await?;
@@ -275,6 +297,7 @@ pub async fn alteration_search_ids(
     let index = client.index(INDEX_ALTERATIONS);
     let mut sq = index.search();
     sq.with_query(query_text)
+        .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(ALTERATION_MEILI_HIT_CAP);
     if open_only {
         sq.with_filter("status_open = true");

@@ -483,12 +483,8 @@ async fn list_alterations(
         match crate::logic::meilisearch_search::alteration_search_ids(client, query_text, false)
             .await
         {
-            Ok(ids) => {
-                if ids.is_empty() {
-                    return Ok(Json(Vec::new()));
-                }
-                meili_ids = Some(ids);
-            }
+            Ok(ids) if !ids.is_empty() => meili_ids = Some(ids),
+            Ok(_) => {}
             Err(e) => {
                 tracing::warn!(error = %e, "Meilisearch alteration search failed; using PostgreSQL ILIKE");
             }

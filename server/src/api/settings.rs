@@ -15,6 +15,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::Row;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use thiserror::Error;
 
@@ -1331,14 +1332,35 @@ async fn post_podium_oauth_exchange(
     })))
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct MeilisearchSyncRow {
+#[derive(Debug, sqlx::FromRow)]
+struct MeilisearchSyncDbRow {
     pub index_name: String,
     pub last_success_at: Option<chrono::DateTime<chrono::Utc>>,
     pub last_attempt_at: chrono::DateTime<chrono::Utc>,
     pub is_success: bool,
     pub row_count: i64,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MeilisearchTaskSummary {
+    pub uid: u32,
+    pub status: String,
+    pub index_uid: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MeilisearchSyncRow {
+    pub index_name: String,
+    pub last_success_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_attempt_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub is_success: bool,
+    pub row_count: i64,
+    pub error_message: Option<String>,
+    pub document_count: Option<usize>,
+    pub latest_task: Option<MeilisearchTaskSummary>,
+    pub latest_failed_task: Option<MeilisearchTaskSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1348,12 +1370,80 @@ pub struct MeilisearchStatusResponse {
     pub is_indexing: bool,
 }
 
+fn meili_task_summary(task: &meilisearch_sdk::tasks::Task) -> MeilisearchTaskSummary {
+    match task {
+        meilisearch_sdk::tasks::Task::Enqueued { content } => MeilisearchTaskSummary {
+            uid: content.uid,
+            status: "enqueued".to_string(),
+            index_uid: content.index_uid.clone(),
+            error: None,
+        },
+        meilisearch_sdk::tasks::Task::Processing { content } => MeilisearchTaskSummary {
+            uid: content.uid,
+            status: "processing".to_string(),
+            index_uid: content.index_uid.clone(),
+            error: None,
+        },
+        meilisearch_sdk::tasks::Task::Succeeded { content } => MeilisearchTaskSummary {
+            uid: content.uid,
+            status: "succeeded".to_string(),
+            index_uid: content.index_uid.clone(),
+            error: None,
+        },
+        meilisearch_sdk::tasks::Task::Failed { content } => MeilisearchTaskSummary {
+            uid: content.task.uid,
+            status: "failed".to_string(),
+            index_uid: content.task.index_uid.clone(),
+            error: Some(content.error.to_string()),
+        },
+    }
+}
+
+async fn meili_document_counts_from_env() -> HashMap<String, usize> {
+    let Some(url) = std::env::var("RIVERSIDE_MEILISEARCH_URL")
+        .ok()
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+    else {
+        return HashMap::new();
+    };
+    let key = std::env::var("RIVERSIDE_MEILISEARCH_API_KEY")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let http = reqwest::Client::new();
+    let mut req = http.get(format!("{url}/stats"));
+    if let Some(key) = key {
+        req = req.bearer_auth(key);
+    }
+
+    let Ok(resp) = req.send().await else {
+        return HashMap::new();
+    };
+    let Ok(body) = resp.json::<Value>().await else {
+        return HashMap::new();
+    };
+    let Some(indexes) = body.get("indexes").and_then(Value::as_object) else {
+        return HashMap::new();
+    };
+
+    indexes
+        .iter()
+        .filter_map(|(uid, stats)| {
+            let count = stats.get("numberOfDocuments")?.as_u64()?;
+            Some((uid.clone(), count as usize))
+        })
+        .collect()
+}
+
 async fn get_meilisearch_status(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<MeilisearchStatusResponse>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
     let tracked_indices = vec![
+        "ros_reindex_run".to_string(),
         crate::logic::meilisearch_client::INDEX_VARIANTS.to_string(),
         crate::logic::meilisearch_client::INDEX_STORE_PRODUCTS.to_string(),
         crate::logic::meilisearch_client::INDEX_CUSTOMERS.to_string(),
@@ -1368,7 +1458,7 @@ async fn get_meilisearch_status(
         crate::logic::meilisearch_client::INDEX_TASKS.to_string(),
         crate::logic::meilisearch_client::INDEX_ALTERATIONS.to_string(),
     ];
-    let indices = sqlx::query_as::<_, MeilisearchSyncRow>(
+    let sync_rows = sqlx::query_as::<_, MeilisearchSyncDbRow>(
         r#"
         SELECT index_name, last_success_at, last_attempt_at, is_success, row_count, error_message
         FROM meilisearch_sync_status
@@ -1380,11 +1470,54 @@ async fn get_meilisearch_status(
     .fetch_all(&state.db)
     .await?;
 
-    let is_indexing = if let Some(c) = &state.meilisearch {
-        crate::logic::meilisearch_client::is_indexing(c).await
+    let sync_by_index: HashMap<String, MeilisearchSyncDbRow> = sync_rows
+        .into_iter()
+        .map(|row| (row.index_name.clone(), row))
+        .collect();
+
+    let mut doc_counts: HashMap<String, usize> = HashMap::new();
+    let mut latest_by_index: HashMap<String, MeilisearchTaskSummary> = HashMap::new();
+    let mut latest_failed_by_index: HashMap<String, MeilisearchTaskSummary> = HashMap::new();
+
+    let is_indexing = if let Some(client) = &state.meilisearch {
+        doc_counts = meili_document_counts_from_env().await;
+
+        if let Ok(tasks) = client.get_tasks().await {
+            for task in tasks.results {
+                let summary = meili_task_summary(&task);
+                if let Some(index_uid) = summary.index_uid.clone() {
+                    latest_by_index
+                        .entry(index_uid.clone())
+                        .or_insert_with(|| summary.clone());
+                    if summary.status == "failed" {
+                        latest_failed_by_index.entry(index_uid).or_insert(summary);
+                    }
+                }
+            }
+        }
+
+        crate::logic::meilisearch_client::is_indexing(client).await
     } else {
         false
     };
+
+    let indices = tracked_indices
+        .into_iter()
+        .map(|index_name| {
+            let sync = sync_by_index.get(&index_name);
+            MeilisearchSyncRow {
+                index_name: index_name.clone(),
+                last_success_at: sync.and_then(|row| row.last_success_at),
+                last_attempt_at: sync.map(|row| row.last_attempt_at),
+                is_success: sync.map(|row| row.is_success).unwrap_or(false),
+                row_count: sync.map(|row| row.row_count).unwrap_or(0),
+                error_message: sync.and_then(|row| row.error_message.clone()),
+                document_count: doc_counts.get(&index_name).copied(),
+                latest_task: latest_by_index.get(&index_name).cloned(),
+                latest_failed_task: latest_failed_by_index.get(&index_name).cloned(),
+            }
+        })
+        .collect();
 
     Ok(Json(MeilisearchStatusResponse {
         configured: state.meilisearch.is_some(),

@@ -1,6 +1,10 @@
 //! Push PostgreSQL rows into Meilisearch (best-effort; failures are logged).
 
 use meilisearch_sdk::client::Client;
+use meilisearch_sdk::client::SwapIndexes;
+use meilisearch_sdk::indexes::Index;
+use meilisearch_sdk::task_info::TaskInfo;
+use serde::Serialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -24,6 +28,8 @@ struct VariantRow {
     primary_vendor_id: Option<Uuid>,
     web_published: bool,
     is_clothing_footwear: Option<bool>,
+    stock_on_hand: i32,
+    reserved_stock: i32,
     sku: String,
     barcode: Option<String>,
     vendor_upc: Option<String>,
@@ -41,6 +47,8 @@ struct Row {
     primary_vendor_id: Option<Uuid>,
     web_published: bool,
     is_clothing_footwear: Option<bool>,
+    stock_on_hand: i32,
+    reserved_stock: i32,
     sku: String,
     barcode: Option<String>,
     vendor_upc: Option<String>,
@@ -49,6 +57,27 @@ struct Row {
     variation_label: Option<String>,
     catalog_handle: Option<String>,
     is_active: bool,
+}
+
+fn customer_full_name(first_name: Option<&str>, last_name: Option<&str>) -> Option<String> {
+    let value = format!(
+        "{} {}",
+        first_name.unwrap_or("").trim(),
+        last_name.unwrap_or("").trim()
+    )
+    .trim()
+    .to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn optional_trimmed(value: Option<String>) -> Option<String> {
+    value
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn log_meili_add_err(context: &'static str, e: &meilisearch_sdk::errors::Error) {
@@ -106,6 +135,8 @@ pub async fn upsert_variant_document(client: &Client, pool: &PgPool, variant_id:
             p.primary_vendor_id,
             COALESCE(pv.web_published, false) AS web_published,
             c.is_clothing_footwear,
+            COALESCE(pv.stock_on_hand, 0)::integer AS stock_on_hand,
+            COALESCE(pv.reserved_stock, 0)::integer AS reserved_stock,
             pv.sku,
             pv.barcode,
             pv.vendor_upc,
@@ -141,6 +172,9 @@ pub async fn upsert_variant_document(client: &Client, pool: &PgPool, variant_id:
         row.primary_vendor_id,
         row.web_published,
         row.is_clothing_footwear.unwrap_or(false),
+        row.is_active,
+        row.stock_on_hand,
+        row.reserved_stock,
         &row.sku,
         row.barcode.as_deref(),
         row.vendor_upc.as_deref(),
@@ -316,6 +350,16 @@ pub async fn upsert_customer_document(client: &Client, pool: &PgPool, customer_i
 
     let doc = CustomerDoc {
         id: row.id.to_string(),
+        first_name: optional_trimmed(row.first_name.clone()),
+        last_name: optional_trimmed(row.last_name.clone()),
+        full_name: customer_full_name(row.first_name.as_deref(), row.last_name.as_deref()),
+        company_name: optional_trimmed(row.company_name.clone()),
+        email: optional_trimmed(row.email.clone()),
+        phone_digits: row
+            .phone
+            .as_deref()
+            .map(crate::logic::meilisearch_documents::digits_only)
+            .filter(|s| !s.is_empty()),
         search_text,
         customer_code: Some(row.customer_code),
     };
@@ -497,6 +541,8 @@ pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transac
         row.customer_first.as_deref().unwrap_or(""),
         row.customer_last.as_deref().unwrap_or("")
     );
+    let customer_name =
+        customer_full_name(row.customer_first.as_deref(), row.customer_last.as_deref());
     let search_text = format!(
         "{} {} {} {} {}",
         row.id,
@@ -509,6 +555,8 @@ pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transac
     let doc = TransactionDoc {
         id: row.id.to_string(),
         display_id: row.display_id,
+        customer_name,
+        party_name: optional_trimmed(row.party_name),
         status_open,
         search_text,
     };
@@ -595,6 +643,11 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, transaction_i
     let doc = OrderDoc {
         id: row.id.to_string(),
         display_id: row.display_id,
+        customer_name: customer_full_name(
+            row.customer_first.as_deref(),
+            row.customer_last.as_deref(),
+        ),
+        party_name: optional_trimmed(row.party_name),
         status_open: row.status_open,
         search_text,
     };
@@ -783,7 +836,8 @@ pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id
 pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid) {
     let task = sqlx::query(
         r#"
-        SELECT ti.id, ti.title_snapshot AS title, ti.status::text AS status, ti.due_date, s.full_name AS assignee_name
+        SELECT ti.id, ti.title_snapshot AS title, ti.status::text AS status, ti.due_date,
+               ti.assignee_staff_id, s.full_name AS assignee_name
         FROM task_instance ti
         LEFT JOIN staff s ON s.id = ti.assignee_staff_id
         WHERE ti.id = $1
@@ -805,7 +859,9 @@ pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid)
         status: row
             .get::<Option<String>, _>("status")
             .unwrap_or_else(|| "open".to_string()),
-        assignee_id: None,
+        assignee_id: row
+            .get::<Option<Uuid>, _>("assignee_staff_id")
+            .map(|id| id.to_string()),
         search_text: format!(
             "{} {}",
             row.get::<String, _>("title"),
@@ -958,15 +1014,98 @@ pub async fn record_sync_status(
     }
 }
 
+fn reindex_temp_uid(index_name: &str) -> String {
+    format!("{index_name}__rebuild__{}", Uuid::new_v4().simple())
+}
+
+async fn ensure_live_index_exists_for_swap(
+    client: &Client,
+    live_uid: &str,
+) -> Result<(), meilisearch_sdk::errors::Error> {
+    if client.get_raw_index(live_uid).await.is_ok() {
+        return Ok(());
+    }
+    let task = client.create_index(live_uid, Some("id")).await?;
+    crate::logic::meilisearch_client::wait_task_ok(client, task).await
+}
+
+async fn prepare_temp_index(
+    client: &Client,
+    live_uid: &str,
+    temp_uid: &str,
+) -> Result<Index, meilisearch_sdk::errors::Error> {
+    let task = client.create_index(temp_uid, Some("id")).await?;
+    crate::logic::meilisearch_client::wait_task_ok(client, task).await?;
+    crate::logic::meilisearch_client::ensure_index_settings_for_uid(client, live_uid, temp_uid)
+        .await?;
+    Ok(client.index(temp_uid))
+}
+
+async fn enqueue_documents<T: Serialize + Send + Sync>(
+    index: &Index,
+    documents: &[T],
+    pending_tasks: &mut Vec<TaskInfo>,
+) -> Result<(), meilisearch_sdk::errors::Error> {
+    if documents.is_empty() {
+        return Ok(());
+    }
+    pending_tasks.push(index.add_documents(documents, Some("id")).await?);
+    Ok(())
+}
+
+async fn wait_pending_tasks(
+    client: &Client,
+    pending_tasks: Vec<TaskInfo>,
+) -> Result<(), meilisearch_sdk::errors::Error> {
+    for task in pending_tasks {
+        crate::logic::meilisearch_client::wait_task_ok(client, task).await?;
+    }
+    Ok(())
+}
+
+async fn swap_temp_into_live(
+    client: &Client,
+    live_uid: &str,
+    temp_uid: &str,
+) -> Result<(), meilisearch_sdk::errors::Error> {
+    ensure_live_index_exists_for_swap(client, live_uid).await?;
+    let swap = SwapIndexes {
+        indexes: (live_uid.to_string(), temp_uid.to_string()),
+        rename: None,
+    };
+    let task = client.swap_indexes([&swap]).await?;
+    crate::logic::meilisearch_client::wait_task_ok(client, task).await?;
+    match client.delete_index(temp_uid).await {
+        Ok(task) => {
+            if let Err(e) = crate::logic::meilisearch_client::wait_task_ok(client, task).await {
+                tracing::warn!(error = %e, index = temp_uid, "Meilisearch old-index cleanup task failed after successful swap");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, index = temp_uid, "Meilisearch old-index cleanup enqueue failed after successful swap");
+        }
+    }
+    Ok(())
+}
+
+pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::Result<()> {
+    let result = reindex_all_meilisearch_inner(client, pool).await;
+    match &result {
+        Ok(()) => record_sync_status(pool, "ros_reindex_run", true, 0, None).await,
+        Err(e) => record_sync_status(pool, "ros_reindex_run", false, 0, Some(&e.to_string())).await,
+    }
+    result
+}
+
 /// Full rebuild: settings + all documents (admin / script).
 /// Optimized with bulk additions to avoid 500k sequential HTTP calls.
-pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::Result<()> {
+async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow::Result<()> {
     tracing::info!("Starting full Meilisearch reindex...");
-    crate::logic::meilisearch_client::ensure_all_meilisearch_index_settings(client).await?;
 
     // 1. Variants (the largest index)
-    let index_v = client.index(INDEX_VARIANTS);
-    index_v.delete_all_documents().await?;
+    let temp_variants = reindex_temp_uid(INDEX_VARIANTS);
+    let index_v = prepare_temp_index(client, INDEX_VARIANTS, &temp_variants).await?;
+    let mut variant_tasks = Vec::new();
 
     let mut variant_stream = sqlx::query_as::<_, VariantRow>(
         r#"
@@ -977,6 +1116,8 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             p.primary_vendor_id,
             COALESCE(pv.web_published, false) AS web_published,
             c.is_clothing_footwear,
+            COALESCE(pv.stock_on_hand, 0)::integer AS stock_on_hand,
+            COALESCE(pv.reserved_stock, 0)::integer AS reserved_stock,
             pv.sku,
             pv.barcode,
             pv.vendor_upc,
@@ -1003,6 +1144,9 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
                 row.primary_vendor_id,
                 row.web_published,
                 row.is_clothing_footwear.unwrap_or(false),
+                true,
+                row.stock_on_hand,
+                row.reserved_stock,
                 &row.sku,
                 row.barcode.as_deref(),
                 row.vendor_upc.as_deref(),
@@ -1013,20 +1157,23 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             ));
             if v_batch.len() >= 1000 {
                 n_variants += v_batch.len();
-                index_v.add_documents(&v_batch, Some("id")).await?;
+                enqueue_documents(&index_v, &v_batch, &mut variant_tasks).await?;
                 v_batch.clear();
             }
         }
     }
     if !v_batch.is_empty() {
         n_variants += v_batch.len();
-        index_v.add_documents(&v_batch, Some("id")).await?;
+        enqueue_documents(&index_v, &v_batch, &mut variant_tasks).await?;
     }
+    wait_pending_tasks(client, variant_tasks).await?;
+    swap_temp_into_live(client, INDEX_VARIANTS, &temp_variants).await?;
     record_sync_status(pool, INDEX_VARIANTS, true, n_variants as i64, None).await;
 
     // 2. Store Products
-    let index_p = client.index(INDEX_STORE_PRODUCTS);
-    index_p.delete_all_documents().await?;
+    let temp_products = reindex_temp_uid(INDEX_STORE_PRODUCTS);
+    let index_p = prepare_temp_index(client, INDEX_STORE_PRODUCTS, &temp_products).await?;
+    let mut product_tasks = Vec::new();
     let mut product_stream = sqlx::query(
         r#"
         SELECT
@@ -1067,20 +1214,23 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             }
             if p_batch.len() >= 500 {
                 n_products += p_batch.len();
-                index_p.add_documents(&p_batch, Some("id")).await?;
+                enqueue_documents(&index_p, &p_batch, &mut product_tasks).await?;
                 p_batch.clear();
             }
         }
     }
     if !p_batch.is_empty() {
         n_products += p_batch.len();
-        index_p.add_documents(&p_batch, Some("id")).await?;
+        enqueue_documents(&index_p, &p_batch, &mut product_tasks).await?;
     }
+    wait_pending_tasks(client, product_tasks).await?;
+    swap_temp_into_live(client, INDEX_STORE_PRODUCTS, &temp_products).await?;
     record_sync_status(pool, INDEX_STORE_PRODUCTS, true, n_products as i64, None).await;
 
     // 3. Customers
-    let index_c = client.index(INDEX_CUSTOMERS);
-    index_c.delete_all_documents().await?;
+    let temp_customers = reindex_temp_uid(INDEX_CUSTOMERS);
+    let index_c = prepare_temp_index(client, INDEX_CUSTOMERS, &temp_customers).await?;
+    let mut customer_tasks = Vec::new();
     let mut customer_stream = sqlx::query(
         r#"
         SELECT
@@ -1130,25 +1280,37 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             );
             c_batch.push(CustomerDoc {
                 id: row.get::<Uuid, _>("id").to_string(),
+                first_name: optional_trimmed(first_name.clone()),
+                last_name: optional_trimmed(last_name.clone()),
+                full_name: customer_full_name(first_name.as_deref(), last_name.as_deref()),
+                company_name: optional_trimmed(company_name.clone()),
+                email: optional_trimmed(email.clone()),
+                phone_digits: phone
+                    .as_deref()
+                    .map(crate::logic::meilisearch_documents::digits_only)
+                    .filter(|s| !s.is_empty()),
                 search_text,
                 customer_code: Some(customer_code),
             });
             if c_batch.len() >= 1000 {
                 n_customers += c_batch.len();
-                index_c.add_documents(&c_batch, Some("id")).await?;
+                enqueue_documents(&index_c, &c_batch, &mut customer_tasks).await?;
                 c_batch.clear();
             }
         }
     }
     if !c_batch.is_empty() {
         n_customers += c_batch.len();
-        index_c.add_documents(&c_batch, Some("id")).await?;
+        enqueue_documents(&index_c, &c_batch, &mut customer_tasks).await?;
     }
+    wait_pending_tasks(client, customer_tasks).await?;
+    swap_temp_into_live(client, INDEX_CUSTOMERS, &temp_customers).await?;
     record_sync_status(pool, INDEX_CUSTOMERS, true, n_customers as i64, None).await;
 
     // 4. Wedding Parties
-    let index_w = client.index(INDEX_WEDDING_PARTIES);
-    index_w.delete_all_documents().await?;
+    let temp_weddings = reindex_temp_uid(INDEX_WEDDING_PARTIES);
+    let index_w = prepare_temp_index(client, INDEX_WEDDING_PARTIES, &temp_weddings).await?;
+    let mut wedding_tasks = Vec::new();
     let mut party_stream = sqlx::query(
         r#"
         SELECT
@@ -1199,20 +1361,23 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             });
             if w_batch.len() >= 500 {
                 n_weddings += w_batch.len();
-                index_w.add_documents(&w_batch, Some("id")).await?;
+                enqueue_documents(&index_w, &w_batch, &mut wedding_tasks).await?;
                 w_batch.clear();
             }
         }
     }
     if !w_batch.is_empty() {
         n_weddings += w_batch.len();
-        index_w.add_documents(&w_batch, Some("id")).await?;
+        enqueue_documents(&index_w, &w_batch, &mut wedding_tasks).await?;
     }
+    wait_pending_tasks(client, wedding_tasks).await?;
+    swap_temp_into_live(client, INDEX_WEDDING_PARTIES, &temp_weddings).await?;
     record_sync_status(pool, INDEX_WEDDING_PARTIES, true, n_weddings as i64, None).await;
 
     // 5. Transactions
-    let index_txns = client.index(INDEX_TRANSACTIONS);
-    index_txns.delete_all_documents().await?;
+    let temp_txns = reindex_temp_uid(INDEX_TRANSACTIONS);
+    let index_txns = prepare_temp_index(client, INDEX_TRANSACTIONS, &temp_txns).await?;
+    let mut txn_tasks = Vec::new();
     let mut txn_stream = sqlx::query(
         r#"
         SELECT
@@ -1263,20 +1428,27 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             txn_batch.push(TransactionDoc {
                 id: transaction_id_str,
                 display_id,
+                customer_name: customer_full_name(
+                    row.get::<Option<String>, _>("customer_first").as_deref(),
+                    row.get::<Option<String>, _>("customer_last").as_deref(),
+                ),
+                party_name: optional_trimmed(row.get::<Option<String>, _>("party_name")),
                 status_open,
                 search_text,
             });
             if txn_batch.len() >= 1000 {
                 n_txns += txn_batch.len();
-                index_txns.add_documents(&txn_batch, Some("id")).await?;
+                enqueue_documents(&index_txns, &txn_batch, &mut txn_tasks).await?;
                 txn_batch.clear();
             }
         }
     }
     if !txn_batch.is_empty() {
         n_txns += txn_batch.len();
-        index_txns.add_documents(&txn_batch, Some("id")).await?;
+        enqueue_documents(&index_txns, &txn_batch, &mut txn_tasks).await?;
     }
+    wait_pending_tasks(client, txn_tasks).await?;
+    swap_temp_into_live(client, INDEX_TRANSACTIONS, &temp_txns).await?;
     record_sync_status(pool, INDEX_TRANSACTIONS, true, n_txns as i64, None).await;
 
     // 6. Orders workspace records (transaction-backed order work, not every checkout)
@@ -1294,8 +1466,9 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         status_open: bool,
     }
 
-    let index_orders = client.index(INDEX_ORDERS);
-    index_orders.delete_all_documents().await?;
+    let temp_orders = reindex_temp_uid(INDEX_ORDERS);
+    let index_orders = prepare_temp_index(client, INDEX_ORDERS, &temp_orders).await?;
+    let mut order_tasks = Vec::new();
     let mut order_stream = sqlx::query_as::<_, OrderReindexRow>(
         r#"
         SELECT
@@ -1347,19 +1520,26 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         order_batch.push(OrderDoc {
             id: order_id_str,
             display_id: row.display_id,
+            customer_name: customer_full_name(
+                row.customer_first.as_deref(),
+                row.customer_last.as_deref(),
+            ),
+            party_name: optional_trimmed(row.party_name),
             status_open: row.status_open,
             search_text,
         });
         if order_batch.len() >= 1000 {
             n_orders += order_batch.len();
-            index_orders.add_documents(&order_batch, Some("id")).await?;
+            enqueue_documents(&index_orders, &order_batch, &mut order_tasks).await?;
             order_batch.clear();
         }
     }
     if !order_batch.is_empty() {
         n_orders += order_batch.len();
-        index_orders.add_documents(&order_batch, Some("id")).await?;
+        enqueue_documents(&index_orders, &order_batch, &mut order_tasks).await?;
     }
+    wait_pending_tasks(client, order_tasks).await?;
+    swap_temp_into_live(client, INDEX_ORDERS, &temp_orders).await?;
     record_sync_status(pool, INDEX_ORDERS, true, n_orders as i64, None).await;
 
     // 7. Help
@@ -1371,8 +1551,9 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     }
 
     // 8. Staff
-    let index_staff = client.index(INDEX_STAFF);
-    index_staff.delete_all_documents().await?;
+    let temp_staff = reindex_temp_uid(INDEX_STAFF);
+    let index_staff = prepare_temp_index(client, INDEX_STAFF, &temp_staff).await?;
+    let mut staff_tasks = Vec::new();
     let mut staff_stream =
         sqlx::query("SELECT id, full_name, cashier_code, role::text, is_active FROM staff")
             .fetch(pool);
@@ -1394,13 +1575,16 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         }
     }
     if !staff_batch.is_empty() {
-        index_staff.add_documents(&staff_batch, Some("id")).await?;
+        enqueue_documents(&index_staff, &staff_batch, &mut staff_tasks).await?;
     }
+    wait_pending_tasks(client, staff_tasks).await?;
+    swap_temp_into_live(client, INDEX_STAFF, &temp_staff).await?;
     record_sync_status(pool, INDEX_STAFF, true, staff_batch.len() as i64, None).await;
 
     // 9. Vendors
-    let index_vendors = client.index(INDEX_VENDORS);
-    index_vendors.delete_all_documents().await?;
+    let temp_vendors = reindex_temp_uid(INDEX_VENDORS);
+    let index_vendors = prepare_temp_index(client, INDEX_VENDORS, &temp_vendors).await?;
+    let mut vendor_tasks = Vec::new();
     let mut vendor_stream =
         sqlx::query("SELECT id, name, vendor_code, is_active FROM vendors").fetch(pool);
     let mut vendor_batch = Vec::new();
@@ -1417,15 +1601,16 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         }
     }
     if !vendor_batch.is_empty() {
-        index_vendors
-            .add_documents(&vendor_batch, Some("id"))
-            .await?;
+        enqueue_documents(&index_vendors, &vendor_batch, &mut vendor_tasks).await?;
     }
+    wait_pending_tasks(client, vendor_tasks).await?;
+    swap_temp_into_live(client, INDEX_VENDORS, &temp_vendors).await?;
     record_sync_status(pool, INDEX_VENDORS, true, vendor_batch.len() as i64, None).await;
 
     // 10. Categories
-    let index_categories = client.index(INDEX_CATEGORIES);
-    index_categories.delete_all_documents().await?;
+    let temp_categories = reindex_temp_uid(INDEX_CATEGORIES);
+    let index_categories = prepare_temp_index(client, INDEX_CATEGORIES, &temp_categories).await?;
+    let mut category_tasks = Vec::new();
     let mut category_stream = sqlx::query("SELECT id, name FROM categories").fetch(pool);
     let mut category_batch = Vec::new();
     while let Some(res) = category_stream.next().await {
@@ -1438,10 +1623,10 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         }
     }
     if !category_batch.is_empty() {
-        index_categories
-            .add_documents(&category_batch, Some("id"))
-            .await?;
+        enqueue_documents(&index_categories, &category_batch, &mut category_tasks).await?;
     }
+    wait_pending_tasks(client, category_tasks).await?;
+    swap_temp_into_live(client, INDEX_CATEGORIES, &temp_categories).await?;
     record_sync_status(
         pool,
         INDEX_CATEGORIES,
@@ -1452,8 +1637,10 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     .await;
 
     // 11. Appointments
-    let index_appointments = client.index(INDEX_APPOINTMENTS);
-    index_appointments.delete_all_documents().await?;
+    let temp_appointments = reindex_temp_uid(INDEX_APPOINTMENTS);
+    let index_appointments =
+        prepare_temp_index(client, INDEX_APPOINTMENTS, &temp_appointments).await?;
+    let mut appointment_tasks = Vec::new();
     let mut appt_stream = sqlx::query(
         r#"
         SELECT a.id, c.first_name, c.last_name, wp.party_name, a.notes, a.status::text as status
@@ -1492,10 +1679,10 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         }
     }
     if !appt_batch.is_empty() {
-        index_appointments
-            .add_documents(&appt_batch, Some("id"))
-            .await?;
+        enqueue_documents(&index_appointments, &appt_batch, &mut appointment_tasks).await?;
     }
+    wait_pending_tasks(client, appointment_tasks).await?;
+    swap_temp_into_live(client, INDEX_APPOINTMENTS, &temp_appointments).await?;
     record_sync_status(
         pool,
         INDEX_APPOINTMENTS,
@@ -1506,15 +1693,18 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     .await;
 
     // 12. Tasks
-    let index_tasks = client.index(INDEX_TASKS);
-    index_tasks.delete_all_documents().await?;
+    let temp_tasks = reindex_temp_uid(INDEX_TASKS);
+    let index_tasks = prepare_temp_index(client, INDEX_TASKS, &temp_tasks).await?;
+    let mut task_tasks = Vec::new();
     let mut task_stream = sqlx::query(
         r#"
-        SELECT ti.id, ti.title_snapshot AS title, ti.status::text AS status, s.full_name AS assignee_name
+        SELECT ti.id, ti.title_snapshot AS title, ti.status::text AS status,
+               ti.assignee_staff_id, s.full_name AS assignee_name
         FROM task_instance ti
         LEFT JOIN staff s ON s.id = ti.assignee_staff_id
-        "#
-    ).fetch(pool);
+        "#,
+    )
+    .fetch(pool);
     let mut task_batch = Vec::new();
     while let Some(res) = task_stream.next().await {
         if let Ok(row) = res {
@@ -1526,14 +1716,18 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             task_batch.push(TaskDoc {
                 id: row.get::<Uuid, _>("id").to_string(),
                 status: status.unwrap_or_else(|| "open".to_string()),
-                assignee_id: None,
+                assignee_id: row
+                    .get::<Option<Uuid>, _>("assignee_staff_id")
+                    .map(|id| id.to_string()),
                 search_text,
             });
         }
     }
     if !task_batch.is_empty() {
-        index_tasks.add_documents(&task_batch, Some("id")).await?;
+        enqueue_documents(&index_tasks, &task_batch, &mut task_tasks).await?;
     }
+    wait_pending_tasks(client, task_tasks).await?;
+    swap_temp_into_live(client, INDEX_TASKS, &temp_tasks).await?;
     record_sync_status(pool, INDEX_TASKS, true, task_batch.len() as i64, None).await;
 
     // 13. Alterations
@@ -1558,8 +1752,10 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         source_sku: Option<String>,
     }
 
-    let index_alterations = client.index(INDEX_ALTERATIONS);
-    index_alterations.delete_all_documents().await?;
+    let temp_alterations = reindex_temp_uid(INDEX_ALTERATIONS);
+    let index_alterations =
+        prepare_temp_index(client, INDEX_ALTERATIONS, &temp_alterations).await?;
+    let mut alteration_tasks = Vec::new();
     let mut alteration_stream = sqlx::query_as::<_, AlterationReindexRow>(
         r#"
         SELECT
@@ -1616,10 +1812,10 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         }
     }
     if !alteration_batch.is_empty() {
-        index_alterations
-            .add_documents(&alteration_batch, Some("id"))
-            .await?;
+        enqueue_documents(&index_alterations, &alteration_batch, &mut alteration_tasks).await?;
     }
+    wait_pending_tasks(client, alteration_tasks).await?;
+    swap_temp_into_live(client, INDEX_ALTERATIONS, &temp_alterations).await?;
     record_sync_status(
         pool,
         INDEX_ALTERATIONS,

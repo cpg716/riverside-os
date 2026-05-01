@@ -11,10 +11,23 @@ const baseUrl = getBaseUrl();
 type MeilisearchSyncRow = {
   index_name: string;
   last_success_at: string | null;
-  last_attempt_at: string;
+  last_attempt_at: string | null;
   is_success: boolean;
   row_count: number;
   error_message: string | null;
+  document_count?: number | null;
+  latest_task?: {
+    uid: number;
+    status: string;
+    index_uid: string | null;
+    error: string | null;
+  } | null;
+  latest_failed_task?: {
+    uid: number;
+    status: string;
+    index_uid: string | null;
+    error: string | null;
+  } | null;
 };
 
 type MeilisearchStatusResponse = {
@@ -22,6 +35,17 @@ type MeilisearchStatusResponse = {
   indices: MeilisearchSyncRow[];
   is_indexing: boolean;
 };
+
+function latestAttemptDateLabel(rows: MeilisearchSyncRow[]) {
+  let latest: string | null = null;
+  for (const row of rows) {
+    if (!row.last_attempt_at) continue;
+    if (!latest || new Date(row.last_attempt_at) > new Date(latest)) {
+      latest = row.last_attempt_at;
+    }
+  }
+  return latest?.split("T")[0] || "Never";
+}
 
 export default function MeilisearchSettingsPanel() {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
@@ -193,7 +217,7 @@ export default function MeilisearchSettingsPanel() {
             </code>{" "}
             and{" "}
             <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">
-              RIVERSIDE_MEILISEARCH_KEY
+              RIVERSIDE_MEILISEARCH_API_KEY
             </code>{" "}
             are set on the API host.
           </div>
@@ -255,29 +279,24 @@ export default function MeilisearchSettingsPanel() {
                   Last Contact
                 </p>
                 <span className="text-xs font-black text-app-text truncate">
-                  {meiliIndices.length > 0
-                    ? meiliIndices
-                        .reduce((prev, curr) =>
-                          new Date(curr.last_attempt_at) >
-                          new Date(prev.last_attempt_at)
-                            ? curr
-                            : prev,
-                        )
-                        .last_attempt_at.split("T")[0]
-                    : "Never"}
+                  {latestAttemptDateLabel(meiliIndices)}
                 </span>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {[
+                "ros_reindex_run",
                 "ros_variants",
+                "ros_store_products",
                 "ros_customers",
                 "ros_wedding_parties",
                 "ros_orders",
                 "ros_transactions",
+                "ros_help",
                 "ros_staff",
                 "ros_vendors",
+                "ros_categories",
                 "ros_tasks",
                 "ros_appointments",
                 "ros_alterations",
@@ -289,6 +308,7 @@ export default function MeilisearchSettingsPanel() {
                   row_count: 0,
                   is_success: false,
                   last_success_at: null,
+                  last_attempt_at: null,
                   error_message: "Index not yet created or tracked.",
                 };
 
@@ -308,13 +328,17 @@ export default function MeilisearchSettingsPanel() {
                 const displayLabel =
                   (
                     {
+                      ros_reindex_run: "Last Rebuild",
                       ros_variants: "Inventory",
+                      ros_store_products: "Store Catalog",
                       ros_wedding_parties: "Weddings",
                       ros_customers: "Customers",
                       ros_orders: "Orders",
                       ros_transactions: "Transactions",
+                      ros_help: "Help Center",
                       ros_staff: "Staff",
                       ros_vendors: "Vendors",
+                      ros_categories: "Categories",
                       ros_tasks: "Tasks",
                       ros_appointments: "Appointments",
                       ros_alterations: "Alterations",
@@ -371,6 +395,27 @@ export default function MeilisearchSettingsPanel() {
                           {idx.row_count.toLocaleString()}
                         </span>
                       </div>
+                      {idx.document_count !== null &&
+                        idx.document_count !== undefined && (
+                          <div className="flex justify-between items-center text-[11px]">
+                            <span className="text-app-text-muted font-bold">
+                              Live Docs
+                            </span>
+                            <span className="text-app-text font-black">
+                              {idx.document_count.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                      {idx.latest_task && (
+                        <div className="flex justify-between items-center text-[9px]">
+                          <span className="text-app-text-muted font-bold">
+                            Task
+                          </span>
+                          <span className="text-app-text font-black opacity-80">
+                            #{idx.latest_task.uid} {idx.latest_task.status}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center text-[9px]">
                         <span className="text-app-text-muted font-bold">
                           Last Sync
@@ -389,6 +434,12 @@ export default function MeilisearchSettingsPanel() {
                       {!isIndexing && !idx.is_success && idx.error_message && (
                         <div className="mt-2 text-[8px] font-bold text-app-danger bg-app-danger/10 p-2 rounded-lg border border-app-danger/10 break-words leading-tight">
                           {idx.error_message}
+                        </div>
+                      )}
+                      {!isIndexing && idx.latest_failed_task?.error && (
+                        <div className="mt-2 text-[8px] font-bold text-app-danger bg-app-danger/10 p-2 rounded-lg border border-app-danger/10 break-words leading-tight">
+                          Latest Meili task #{idx.latest_failed_task.uid}:{" "}
+                          {idx.latest_failed_task.error}
                         </div>
                       )}
                       {idx.is_success && isStale && (
@@ -412,8 +463,9 @@ export default function MeilisearchSettingsPanel() {
             <p className="text-[10px] text-app-text-muted leading-relaxed">
               If search results feel stale or Meilisearch was recently wiped,
               run a full rebuild. This will re-push all records from SQL to
-              Meilisearch. Large catalogs may take minutes; Refresh only checks
-              the latest status.
+              Meilisearch using a staged rebuild, then swap the finished index
+              into service. Large catalogs may take minutes; Refresh only
+              checks the latest status.
             </p>
           </div>
           <button
@@ -437,7 +489,7 @@ export default function MeilisearchSettingsPanel() {
         <ConfirmationModal
           isOpen={true}
           title="Rebuild all search indices?"
-          message="This reloads Meilisearch from PostgreSQL for all modules (Products, Customers, Orders, Transactions, Staff, Vendors, Tasks, Appointments, and Alterations). It can take several minutes on large catalogs. Staff can keep working during the process."
+          message="This reloads Meilisearch from PostgreSQL for all modules. Finished replacement indices are swapped into service only after Meilisearch accepts the rebuild tasks. It can take several minutes on large catalogs. Staff can keep working during the process."
           confirmLabel="Execute Rebuild"
           onConfirm={() => void runReindex()}
           onClose={() => setMeiliReindexConfirmOpen(false)}

@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use meilisearch_sdk::client::Client;
+use meilisearch_sdk::client::SwapIndexes;
 use serde::Serialize;
+use uuid::Uuid;
 
 use crate::logic::meilisearch_client::INDEX_HELP;
 
@@ -216,30 +218,98 @@ fn log_meili_help_err(e: &meilisearch_sdk::errors::Error) {
     tracing::warn!(error = %e, "Meilisearch help index operation failed");
 }
 
-/// Full rebuild of `ros_help` (settings, delete-all, add chunks).
+fn help_reindex_temp_uid() -> String {
+    format!("{INDEX_HELP}__rebuild__{}", Uuid::new_v4().simple())
+}
+
+async fn ensure_help_live_index_exists(
+    client: &Client,
+) -> Result<(), meilisearch_sdk::errors::Error> {
+    if client.get_raw_index(INDEX_HELP).await.is_ok() {
+        return Ok(());
+    }
+    let task = client.create_index(INDEX_HELP, Some("id")).await?;
+    crate::logic::meilisearch_client::wait_task_ok(client, task).await
+}
+
+/// Full rebuild of `ros_help` into a temporary index, then swap when ready.
 pub async fn reindex_help_meilisearch(
     client: &Client,
 ) -> Result<(), meilisearch_sdk::errors::Error> {
     use meilisearch_sdk::errors::Error as MeiliError;
 
-    crate::logic::meilisearch_client::ensure_help_index_settings(client).await?;
-
     let chunks = load_help_chunk_docs().map_err(|e| MeiliError::Other(Box::new(e)))?;
 
-    let index = client.index(INDEX_HELP);
-    let del = index.delete_all_documents().await?;
-    crate::logic::meilisearch_client::wait_task_ok(client, del).await?;
+    let temp_uid = help_reindex_temp_uid();
+    let create = client.create_index(&temp_uid, Some("id")).await?;
+    crate::logic::meilisearch_client::wait_task_ok(client, create).await?;
+    crate::logic::meilisearch_client::ensure_index_settings_for_uid(client, INDEX_HELP, &temp_uid)
+        .await?;
 
-    if chunks.is_empty() {
-        tracing::info!("Meilisearch help index cleared (no chunks)");
-        return Ok(());
+    let temp_index = client.index(&temp_uid);
+    if !chunks.is_empty() {
+        let add = temp_index.add_or_replace(&chunks, Some("id")).await?;
+        crate::logic::meilisearch_client::wait_task_ok(client, add).await?;
     }
 
-    if let Err(e) = index.add_or_replace(&chunks, Some("id")).await {
-        log_meili_help_err(&e);
-        return Err(e);
+    ensure_help_live_index_exists(client).await?;
+    let swap = SwapIndexes {
+        indexes: (INDEX_HELP.to_string(), temp_uid.clone()),
+        rename: None,
+    };
+    let swap_task = client.swap_indexes([&swap]).await?;
+    crate::logic::meilisearch_client::wait_task_ok(client, swap_task).await?;
+
+    match client.delete_index(&temp_uid).await {
+        Ok(task) => {
+            if let Err(e) = crate::logic::meilisearch_client::wait_task_ok(client, task).await {
+                log_meili_help_err(&e);
+            }
+        }
+        Err(e) => {
+            log_meili_help_err(&e);
+        }
     }
 
     tracing::info!(chunks = chunks.len(), "Meilisearch help index rebuilt");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn live_help_reindex_smoke_when_configured() {
+        let Some(url) = std::env::var("RIVERSIDE_MEILISEARCH_URL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        else {
+            eprintln!("skipping live Meilisearch smoke: RIVERSIDE_MEILISEARCH_URL is unset");
+            return;
+        };
+        let key = std::env::var("RIVERSIDE_MEILISEARCH_API_KEY")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let client = Client::new(url.trim_end_matches('/'), key.as_deref())
+            .expect("Meilisearch client should initialize for live smoke");
+
+        reindex_help_meilisearch(&client)
+            .await
+            .expect("staged help reindex should complete");
+        let hits = client
+            .index(INDEX_HELP)
+            .search()
+            .with_query("settings")
+            .with_limit(1)
+            .execute::<serde_json::Value>()
+            .await
+            .expect("live help index search should be readable");
+        assert!(
+            !hits.hits.is_empty(),
+            "help reindex should publish searchable chunks"
+        );
+    }
 }
