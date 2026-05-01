@@ -101,6 +101,8 @@ Stripe checkout behavior is unchanged and continues to use the existing Stripe P
 
 The backend can now detect Helcim configuration without enabling Helcim checkout. `GET /api/payments/providers/helcim/status` is a `settings.admin` read-only status endpoint that reports whether the server has the required Helcim environment values. It returns only enabled/configured booleans, a masked device-code suffix, the API base host, and missing-config notes.
 
+Settings > Payment Processing now shows this as a read-only Helcim status card next to the active Stripe reporting surface. The card is visibility only: Stripe remains the active/default card provider, and Helcim checkout is not enabled yet.
+
 Server-side Helcim environment variables:
 - `HELCIM_API_TOKEN`
 - `HELCIM_DEVICE_CODE`

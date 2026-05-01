@@ -8,6 +8,8 @@ Provider attempt records are audit/control rows only. They are intended for futu
 
 The server can also detect Helcim backend configuration through `HELCIM_API_TOKEN`, `HELCIM_DEVICE_CODE`, and optional `HELCIM_API_BASE_URL`. This is status-only groundwork: Stripe remains the active/default provider, the Helcim token stays server-side only, and no Helcim checkout, purchase, refund, or webhook flow is enabled from this WisePOS E setup path.
 
+Settings > Payment Processing includes a read-only Helcim status card for configured/missing backend values, masked device-code visibility, and API host visibility. This does not change WisePOS E setup or Stripe checkout behavior.
+
 ### Phase 1: De-provisioning & Device Reset
 Before the reader can be added to a new account, it must be cleared of its previous configuration.
 

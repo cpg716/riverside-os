@@ -11,9 +11,14 @@ import {
   ExternalLink,
   Search,
   Calendar,
+  CheckCircle2,
+  AlertTriangle,
+  Server,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import helcimIcon from "../../assets/images/brands/Helcim_Icon.png";
+import helcimLogo from "../../assets/images/brands/Helcim_Logo.png";
 
 interface MerchantTransaction {
   id: string;
@@ -35,6 +40,14 @@ interface MerchantActivity {
   transactions: MerchantTransaction[];
 }
 
+interface HelcimProviderStatus {
+  enabled: boolean;
+  device_configured: boolean;
+  device_code_suffix?: string | null;
+  api_base_host: string;
+  missing_config: string[];
+}
+
 const StripeSettingsPanel: React.FC = () => {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
@@ -42,9 +55,15 @@ const StripeSettingsPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<MerchantActivity | null>(null);
   const [, setError] = useState<string | null>(null);
+  const [helcimStatus, setHelcimStatus] =
+    useState<HelcimProviderStatus | null>(null);
+  const [helcimLoading, setHelcimLoading] = useState(true);
+  const [helcimError, setHelcimError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setHelcimLoading(true);
+    setHelcimError(null);
     try {
       const res = await fetch(`${baseUrl}/api/insights/merchant-activity`, {
         headers: backofficeHeaders() as Record<string, string>,
@@ -59,6 +78,24 @@ const StripeSettingsPanel: React.FC = () => {
       setError("Payment activity is unavailable right now.");
     } finally {
       setLoading(false);
+    }
+
+    try {
+      const res = await fetch(`${baseUrl}/api/payments/providers/helcim/status`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (res.ok) {
+        const status = (await res.json()) as HelcimProviderStatus;
+        setHelcimStatus(status);
+      } else {
+        setHelcimStatus(null);
+        setHelcimError("Helcim status is unavailable.");
+      }
+    } catch {
+      setHelcimStatus(null);
+      setHelcimError("Helcim status is unavailable.");
+    } finally {
+      setHelcimLoading(false);
     }
   }, [baseUrl, backofficeHeaders]);
 
@@ -106,6 +143,98 @@ const StripeSettingsPanel: React.FC = () => {
           Refresh Stats
         </button>
       </header>
+
+      <section className="ui-card ui-tint-neutral overflow-hidden">
+        <div className="flex flex-col gap-5 p-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-border bg-white shadow-sm">
+              <img
+                src={helcimIcon}
+                alt=""
+                className="h-9 w-9 object-contain"
+                aria-hidden="true"
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-3">
+                <img
+                  src={helcimLogo}
+                  alt="Helcim"
+                  className="h-6 w-auto max-w-[120px] object-contain"
+                />
+                <span className="rounded-full bg-app-surface-2 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted ring-1 ring-app-border">
+                  Backup provider visibility
+                </span>
+              </div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Helcim Status
+              </h3>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Stripe remains the active payment provider. Helcim checkout is
+                not enabled yet.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 text-xs font-semibold text-app-text-muted sm:grid-cols-3 lg:min-w-[520px]">
+            <div className="rounded-xl border border-app-border bg-app-surface p-3">
+              <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                {helcimStatus?.enabled ? (
+                  <CheckCircle2 size={13} className="text-app-success" />
+                ) : (
+                  <AlertTriangle size={13} className="text-app-warning" />
+                )}
+                Configuration
+              </div>
+              <p className="font-black text-app-text">
+                {helcimLoading
+                  ? "Checking..."
+                  : helcimError
+                    ? "Unavailable"
+                    : helcimStatus?.enabled
+                      ? "Configured"
+                      : "Not configured"}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-app-border bg-app-surface p-3">
+              <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                <CreditCard size={13} className="text-app-info" />
+                Device
+              </div>
+              <p className="font-black text-app-text">
+                {helcimLoading
+                  ? "Checking..."
+                  : helcimStatus?.device_configured
+                    ? `•••• ${helcimStatus.device_code_suffix ?? "set"}`
+                    : "Not configured"}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-app-border bg-app-surface p-3">
+              <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                <Server size={13} className="text-app-info" />
+                API host
+              </div>
+              <p className="truncate font-black text-app-text">
+                {helcimLoading
+                  ? "Checking..."
+                  : helcimStatus?.api_base_host || "Unavailable"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-app-border bg-app-surface-2 px-6 py-4">
+          <p className="text-xs font-semibold text-app-text-muted">
+            {helcimError
+              ? helcimError
+              : helcimStatus?.missing_config.length
+                ? `Missing configuration: ${helcimStatus.missing_config.join(", ")}`
+                : "Helcim backend configuration detected for future provider setup."}
+          </p>
+        </div>
+      </section>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
