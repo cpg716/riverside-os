@@ -96,14 +96,23 @@ Use for:
 - line fulfillment analysis
 
 Visible first:
+- `transaction_display_id`
 - `order_short_id`
+- `fulfillment_order_display_id`
 - `order_business_date`
 - `order_recognition_business_date`
 - `order_status`
-- `product_name`
+- `item_display_name`
+- `product_display_name`
+- `variant_display_name`
 - `sku`
+- `barcode`
+- `category_name`
+- `vendor_display_name`
 - `customer_display_name`
 - `customer_phone`
+- `line_salesperson_display_name`
+- `primary_salesperson_display_name`
 - `quantity`
 - `unit_price`
 - `line_extended_price`
@@ -114,6 +123,8 @@ Visible first:
 
 Hide by default:
 - `line_id`
+- `line_display_id`
+- `transaction_id`
 - `order_id`
 - `product_id`
 - `variant_id`
@@ -208,11 +219,13 @@ Visible first:
 - `status`
 - `payment_method`
 - `check_number`
+- `payment_provider`
 - `gross_amount`
 - `merchant_fee`
 - `net_amount`
 - `payer_name`
 - `payer_phone`
+- `payer_email`
 - `primary_transaction_display_id`
 - `linked_transaction_display_ids`
 - `linked_customer_names`
@@ -224,6 +237,10 @@ Hide by default:
 - `payment_transaction_id`
 - `payer_id`
 - `linked_transaction_id`
+- `provider_payment_id`
+- `provider_transaction_id`
+- `provider_auth_code`
+- `provider_terminal_id`
 - `stripe_intent_id` for staff-facing models unless explicitly needed
 
 ### 7. `reporting.merchant_reconciliation`

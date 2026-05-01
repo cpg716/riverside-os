@@ -40,6 +40,18 @@ Target outcome:
 
 ## 2. Rescan and sync metadata
 
+Preferred repeatable command:
+
+```bash
+node scripts/metabase-refresh-reporting-metadata.mjs
+```
+
+This uses the local Metabase admin credentials from `server/.env`, runs the
+Metabase schema sync and field-value rescan, then reapplies the Riverside
+staff-facing field model for `reporting.order_lines` and
+`reporting.payment_ledger` so readable labels stay visible and raw IDs stay
+hidden.
+
 In Metabase:
 
 1. Open **Admin**
