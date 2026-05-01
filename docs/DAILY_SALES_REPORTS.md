@@ -8,6 +8,7 @@ The Daily Sales Reports in Riverside OS provide store managers and cashiers with
 
 - **Back Office**: Navigate to Operations → Daily Sales
 - **POS**: Click REPORTS in the register sidebar
+- **Back Office Reports library**: search **Register Day Summary**, **Closed Register Drawers**, **cash**, **drawer**, **pickup**, or **daily sales** from Back Office → Reports
 
 Required permission: `register.reports`
 
@@ -108,6 +109,8 @@ Register session closure history.
 | Custom | User-selected range |
 
 ## Reporting Basis
+
+The Back Office Reports library uses the same staff-facing **Booked (sale date)** and **Completed (recognition)** wording for curated report tiles that support basis selection.
 
 ### Booked (Sale Date)
 - Uses the date when the sale was processed

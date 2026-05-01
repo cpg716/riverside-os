@@ -1813,6 +1813,494 @@ pub struct WeddingHealthSummary {
     pub wedding_members_with_open_balance: i64,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct AppointmentNoShowReportRow {
+    pub appointment_date: NaiveDate,
+    pub appointment_type: String,
+    pub salesperson: String,
+    pub appointment_count: i64,
+    pub completed_count: i64,
+    pub cancellation_count: i64,
+    pub no_show_count: i64,
+    pub wedding_linked_count: i64,
+    pub walk_in_count: i64,
+}
+
+async fn appointments_no_show_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<AppointmentNoShowReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, AppointmentNoShowReportRow>(
+        r#"
+        SELECT
+            starts_at::date AS appointment_date,
+            COALESCE(NULLIF(TRIM(appointment_type), ''), 'Unspecified') AS appointment_type,
+            COALESCE(NULLIF(TRIM(salesperson), ''), 'Unassigned') AS salesperson,
+            COUNT(*)::bigint AS appointment_count,
+            COUNT(*) FILTER (
+                WHERE lower(replace(replace(COALESCE(status, ''), ' ', '_'), '-', '_')) IN ('complete', 'completed', 'checked_in', 'showed', 'done')
+            )::bigint AS completed_count,
+            COUNT(*) FILTER (
+                WHERE lower(replace(replace(COALESCE(status, ''), ' ', '_'), '-', '_')) IN ('cancelled', 'canceled')
+            )::bigint AS cancellation_count,
+            COUNT(*) FILTER (
+                WHERE lower(replace(replace(COALESCE(status, ''), ' ', '_'), '-', '_')) IN ('no_show', 'noshow')
+            )::bigint AS no_show_count,
+            COUNT(*) FILTER (
+                WHERE wedding_party_id IS NOT NULL OR wedding_member_id IS NOT NULL
+            )::bigint AS wedding_linked_count,
+            COUNT(*) FILTER (
+                WHERE wedding_party_id IS NULL AND wedding_member_id IS NULL
+            )::bigint AS walk_in_count
+        FROM wedding_appointments
+        WHERE starts_at >= $1 AND starts_at < $2
+        GROUP BY appointment_date, appointment_type, salesperson
+        ORDER BY appointment_date DESC, appointment_type ASC, salesperson ASC
+        LIMIT 500
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct WeddingEventReadinessReportRow {
+    pub event_date: NaiveDate,
+    pub wedding_party_id: Uuid,
+    pub wedding_party_name: String,
+    pub salesperson: String,
+    pub member_count: i64,
+    pub missing_measurements_count: i64,
+    pub unpaid_balance_count: i64,
+    pub unpaid_balance_total: Decimal,
+    pub unfulfilled_item_count: i64,
+    pub pending_alteration_count: i64,
+    pub shipment_or_pickup_risk_count: i64,
+}
+
+async fn wedding_event_readiness_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<WeddingEventReadinessReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, WeddingEventReadinessReportRow>(
+        r#"
+        WITH member_rollup AS (
+            SELECT
+                wm.wedding_party_id,
+                COUNT(*)::bigint AS member_count,
+                COUNT(*) FILTER (WHERE COALESCE(wm.measured, false) = false)::bigint AS missing_measurements_count
+            FROM wedding_members wm
+            GROUP BY wm.wedding_party_id
+        ),
+        transaction_rollup AS (
+            SELECT
+                wm.wedding_party_id,
+                COUNT(DISTINCT wm.id) FILTER (WHERE COALESCE(t.balance_due, 0) > 0)::bigint AS unpaid_balance_count,
+                COALESCE(SUM(CASE WHEN COALESCE(t.balance_due, 0) > 0 THEN t.balance_due ELSE 0 END), 0)::numeric(14,2) AS unpaid_balance_total
+            FROM wedding_members wm
+            LEFT JOIN transactions t ON t.wedding_member_id = wm.id AND t.status::text <> 'cancelled'
+            GROUP BY wm.wedding_party_id
+        ),
+        line_rollup AS (
+            SELECT
+                wm.wedding_party_id,
+                COUNT(DISTINCT tl.id) FILTER (WHERE tl.fulfilled_at IS NULL)::bigint AS unfulfilled_item_count
+            FROM wedding_members wm
+            JOIN transactions t ON t.wedding_member_id = wm.id AND t.status::text <> 'cancelled'
+            JOIN transaction_lines tl ON tl.transaction_id = t.id
+            GROUP BY wm.wedding_party_id
+        ),
+        alteration_rollup AS (
+            SELECT
+                wm.wedding_party_id,
+                COUNT(DISTINCT ao.id) FILTER (WHERE ao.status::text <> 'picked_up')::bigint AS pending_alteration_count
+            FROM wedding_members wm
+            LEFT JOIN transactions t ON t.wedding_member_id = wm.id AND t.status::text <> 'cancelled'
+            LEFT JOIN alteration_orders ao ON ao.wedding_member_id = wm.id OR ao.transaction_id = t.id
+            GROUP BY wm.wedding_party_id
+        ),
+        shipment_rollup AS (
+            SELECT
+                wm.wedding_party_id,
+                COUNT(DISTINCT s.id) FILTER (WHERE s.status::text NOT IN ('delivered', 'cancelled'))::bigint AS open_shipment_count
+            FROM wedding_members wm
+            JOIN transactions t ON t.wedding_member_id = wm.id AND t.status::text <> 'cancelled'
+            LEFT JOIN transaction_lines tl ON tl.transaction_id = t.id
+            JOIN shipment s ON s.transaction_id = t.id OR s.fulfillment_order_id = tl.fulfillment_order_id
+            GROUP BY wm.wedding_party_id
+        )
+        SELECT
+            wp.event_date,
+            wp.id AS wedding_party_id,
+            COALESCE(NULLIF(TRIM(wp.party_name), ''), NULLIF(TRIM(wp.groom_name), ''), 'Unnamed wedding') AS wedding_party_name,
+            COALESCE(NULLIF(TRIM(wp.salesperson), ''), 'Unassigned') AS salesperson,
+            COALESCE(mr.member_count, 0)::bigint AS member_count,
+            COALESCE(mr.missing_measurements_count, 0)::bigint AS missing_measurements_count,
+            COALESCE(tr.unpaid_balance_count, 0)::bigint AS unpaid_balance_count,
+            COALESCE(tr.unpaid_balance_total, 0)::numeric(14,2) AS unpaid_balance_total,
+            COALESCE(lr.unfulfilled_item_count, 0)::bigint AS unfulfilled_item_count,
+            COALESCE(ar.pending_alteration_count, 0)::bigint AS pending_alteration_count,
+            (
+                COALESCE(lr.unfulfilled_item_count, 0)
+                + COALESCE(sr.open_shipment_count, 0)
+            )::bigint AS shipment_or_pickup_risk_count
+        FROM wedding_parties wp
+        LEFT JOIN member_rollup mr ON mr.wedding_party_id = wp.id
+        LEFT JOIN transaction_rollup tr ON tr.wedding_party_id = wp.id
+        LEFT JOIN line_rollup lr ON lr.wedding_party_id = wp.id
+        LEFT JOIN alteration_rollup ar ON ar.wedding_party_id = wp.id
+        LEFT JOIN shipment_rollup sr ON sr.wedding_party_id = wp.id
+        WHERE wp.event_date >= $1::date
+          AND wp.event_date < $2::date
+          AND COALESCE(wp.is_deleted, false) = false
+        ORDER BY wp.event_date ASC, wedding_party_name ASC
+        LIMIT 500
+        "#,
+    )
+    .bind(start.date_naive())
+    .bind(end.date_naive())
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct StaffScheduleCoverageSalesReportRow {
+    pub report_date: NaiveDate,
+    pub scheduled_staff_count: i64,
+    pub sales_volume: Decimal,
+    pub transaction_count: i64,
+    pub appointment_count: i64,
+    pub pickup_count: i64,
+    pub register_payment_count: i64,
+}
+
+async fn staff_schedule_coverage_sales_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<StaffScheduleCoverageSalesReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, StaffScheduleCoverageSalesReportRow>(
+        r#"
+        WITH days AS (
+            SELECT generate_series($1::date, ($2::date - INTERVAL '1 day')::date, INTERVAL '1 day')::date AS report_date
+        ),
+        published_schedule AS (
+            SELECT
+                (sws.week_start + (swd.weekday::int * INTERVAL '1 day'))::date AS report_date,
+                COUNT(DISTINCT sws.staff_id)::bigint AS scheduled_staff_count
+            FROM staff_weekly_schedule sws
+            JOIN staff_weekly_schedule_day swd
+              ON swd.staff_id = sws.staff_id
+             AND swd.week_start = sws.week_start
+            JOIN staff st ON st.id = sws.staff_id
+            WHERE sws.status = 'published'
+              AND swd.works = true
+              AND st.is_active = true
+              AND (sws.week_start + (swd.weekday::int * INTERVAL '1 day'))::date >= $1::date
+              AND (sws.week_start + (swd.weekday::int * INTERVAL '1 day'))::date < $2::date
+            GROUP BY 1
+        ),
+        sales AS (
+            SELECT
+                booked_at::date AS report_date,
+                COUNT(*)::bigint AS transaction_count,
+                COALESCE(SUM(total_price), 0)::numeric(14,2) AS sales_volume
+            FROM transactions
+            WHERE booked_at >= $3 AND booked_at < $4
+              AND status::text <> 'cancelled'
+            GROUP BY 1
+        ),
+        appointments AS (
+            SELECT starts_at::date AS report_date, COUNT(*)::bigint AS appointment_count
+            FROM wedding_appointments
+            WHERE starts_at >= $3 AND starts_at < $4
+            GROUP BY 1
+        ),
+        pickups AS (
+            SELECT fulfilled_at::date AS report_date, COUNT(*)::bigint AS pickup_count
+            FROM transaction_lines
+            WHERE fulfilled_at >= $3 AND fulfilled_at < $4
+            GROUP BY 1
+        ),
+        register_activity AS (
+            SELECT created_at::date AS report_date, COUNT(*)::bigint AS register_payment_count
+            FROM payment_transactions
+            WHERE created_at >= $3 AND created_at < $4
+              AND status = 'success'
+            GROUP BY 1
+        )
+        SELECT
+            d.report_date,
+            COALESCE(ps.scheduled_staff_count, 0)::bigint AS scheduled_staff_count,
+            COALESCE(s.sales_volume, 0)::numeric(14,2) AS sales_volume,
+            COALESCE(s.transaction_count, 0)::bigint AS transaction_count,
+            COALESCE(a.appointment_count, 0)::bigint AS appointment_count,
+            COALESCE(p.pickup_count, 0)::bigint AS pickup_count,
+            COALESCE(ra.register_payment_count, 0)::bigint AS register_payment_count
+        FROM days d
+        LEFT JOIN published_schedule ps ON ps.report_date = d.report_date
+        LEFT JOIN sales s ON s.report_date = d.report_date
+        LEFT JOIN appointments a ON a.report_date = d.report_date
+        LEFT JOIN pickups p ON p.report_date = d.report_date
+        LEFT JOIN register_activity ra ON ra.report_date = d.report_date
+        ORDER BY d.report_date DESC
+        LIMIT 500
+        "#,
+    )
+    .bind(start.date_naive())
+    .bind(end.date_naive())
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct CustomerFollowUpReportRow {
+    pub customer_id: Uuid,
+    pub customer_name: String,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub open_balance_total: Decimal,
+    pub pending_pickup_count: i64,
+    pub recent_transaction_count: i64,
+    pub upcoming_wedding_date: Option<NaiveDate>,
+    pub stale_rms_charge_count: i64,
+    pub last_transaction_at: Option<DateTime<Utc>>,
+    pub follow_up_reason: String,
+}
+
+async fn customer_follow_up_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<CustomerFollowUpReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, CustomerFollowUpReportRow>(
+        r#"
+        WITH tx AS (
+            SELECT
+                customer_id,
+                COALESCE(SUM(balance_due) FILTER (WHERE balance_due > 0), 0)::numeric(14,2) AS open_balance_total,
+                COUNT(*) FILTER (WHERE booked_at >= $1 AND booked_at < $2)::bigint AS recent_transaction_count,
+                MAX(booked_at) AS last_transaction_at
+            FROM transactions
+            WHERE customer_id IS NOT NULL
+              AND status::text <> 'cancelled'
+            GROUP BY customer_id
+        ),
+        pending_pickups AS (
+            SELECT t.customer_id, COUNT(DISTINCT tl.id)::bigint AS pending_pickup_count
+            FROM transactions t
+            JOIN transaction_lines tl ON tl.transaction_id = t.id
+            WHERE t.customer_id IS NOT NULL
+              AND t.status::text <> 'cancelled'
+              AND tl.fulfilled_at IS NULL
+            GROUP BY t.customer_id
+        ),
+        upcoming_weddings AS (
+            SELECT wm.customer_id, MIN(wp.event_date) AS upcoming_wedding_date
+            FROM wedding_members wm
+            JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+            WHERE wp.event_date >= CURRENT_DATE
+              AND COALESCE(wp.is_deleted, false) = false
+            GROUP BY wm.customer_id
+        ),
+        stale_rms AS (
+            SELECT customer_id, COUNT(*)::bigint AS stale_rms_charge_count
+            FROM pos_rms_charge_record
+            WHERE customer_id IS NOT NULL
+              AND record_kind = 'charge'
+              AND created_at < now() - INTERVAL '14 days'
+            GROUP BY customer_id
+        )
+        SELECT
+            c.id AS customer_id,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.company_name, c.customer_code, 'Unnamed customer') AS customer_name,
+            c.phone,
+            c.email,
+            COALESCE(tx.open_balance_total, 0)::numeric(14,2) AS open_balance_total,
+            COALESCE(pp.pending_pickup_count, 0)::bigint AS pending_pickup_count,
+            COALESCE(tx.recent_transaction_count, 0)::bigint AS recent_transaction_count,
+            uw.upcoming_wedding_date,
+            COALESCE(sr.stale_rms_charge_count, 0)::bigint AS stale_rms_charge_count,
+            tx.last_transaction_at,
+            CONCAT_WS(
+                ', ',
+                CASE WHEN COALESCE(tx.open_balance_total, 0) > 0 THEN 'Open balance' END,
+                CASE WHEN COALESCE(pp.pending_pickup_count, 0) > 0 THEN 'Pending pickup' END,
+                CASE WHEN uw.upcoming_wedding_date IS NOT NULL THEN 'Upcoming wedding' END,
+                CASE WHEN COALESCE(sr.stale_rms_charge_count, 0) > 0 THEN 'Stale RMS charge' END,
+                CASE WHEN tx.last_transaction_at IS NULL OR tx.last_transaction_at < now() - INTERVAL '90 days' THEN 'No recent transaction' END
+            ) AS follow_up_reason
+        FROM customers c
+        LEFT JOIN tx ON tx.customer_id = c.id
+        LEFT JOIN pending_pickups pp ON pp.customer_id = c.id
+        LEFT JOIN upcoming_weddings uw ON uw.customer_id = c.id
+        LEFT JOIN stale_rms sr ON sr.customer_id = c.id
+        WHERE COALESCE(c.is_active, true) = true
+          AND (
+            COALESCE(tx.open_balance_total, 0) > 0
+            OR COALESCE(pp.pending_pickup_count, 0) > 0
+            OR uw.upcoming_wedding_date IS NOT NULL
+            OR COALESCE(sr.stale_rms_charge_count, 0) > 0
+            OR tx.last_transaction_at < now() - INTERVAL '90 days'
+          )
+        ORDER BY
+            COALESCE(tx.open_balance_total, 0) DESC,
+            uw.upcoming_wedding_date ASC NULLS LAST,
+            tx.last_transaction_at ASC NULLS LAST
+        LIMIT 500
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct ExceptionRiskReportRow {
+    pub risk_type: String,
+    pub risk_count: i64,
+    pub oldest_at: Option<DateTime<Utc>>,
+    pub total_amount: Option<Decimal>,
+    pub owner_area: String,
+    pub recommended_action: String,
+}
+
+async fn exception_risk_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<ExceptionRiskReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, ExceptionRiskReportRow>(
+        r#"
+        SELECT
+            risk_type,
+            risk_count,
+            oldest_at,
+            total_amount,
+            owner_area,
+            recommended_action
+        FROM (
+            SELECT
+                'Negative stock'::text AS risk_type,
+                COUNT(*)::bigint AS risk_count,
+                NULL::timestamptz AS oldest_at,
+                NULL::numeric(14,2) AS total_amount,
+                'Inventory'::text AS owner_area,
+                'Review inventory counts and recent receiving or adjustment history.'::text AS recommended_action
+            FROM product_variants
+            WHERE stock_on_hand < 0
+
+            UNION ALL
+
+            SELECT
+                'Stale fulfillment orders'::text,
+                COUNT(*)::bigint,
+                MIN(created_at),
+                NULL::numeric(14,2),
+                'Fulfillment',
+                'Review open fulfillment orders older than 14 days.'
+            FROM fulfillment_orders
+            WHERE status::text NOT IN ('picked_up', 'shipped', 'cancelled')
+              AND created_at < now() - INTERVAL '14 days'
+
+            UNION ALL
+
+            SELECT
+                'Overdue alterations'::text,
+                COUNT(*)::bigint,
+                MIN(due_at),
+                NULL::numeric(14,2),
+                'Alterations',
+                'Review alteration orders past due and not picked up.'
+            FROM alteration_orders
+            WHERE status::text <> 'picked_up'
+              AND due_at IS NOT NULL
+              AND due_at < now()
+
+            UNION ALL
+
+            SELECT
+                'High discounts'::text,
+                COUNT(*)::bigint,
+                MIN(created_at),
+                NULL::numeric(14,2),
+                'Register',
+                'Review discount events over 40 percent in the selected range.'
+            FROM discount_event_usage
+            WHERE created_at >= $1 AND created_at < $2
+              AND discount_percent >= 40
+
+            UNION ALL
+
+            SELECT
+                'Failed payments'::text,
+                COUNT(*)::bigint,
+                MIN(created_at),
+                COALESCE(SUM(amount), 0)::numeric(14,2),
+                'Payments',
+                'Review failed payment attempts and customer follow-up.'
+            FROM payment_transactions
+            WHERE created_at >= $1 AND created_at < $2
+              AND status <> 'success'
+
+            UNION ALL
+
+            SELECT
+                'Open register sessions'::text,
+                COUNT(*)::bigint,
+                MIN(opened_at),
+                COALESCE(SUM(expected_cash), 0)::numeric(14,2),
+                'Register',
+                'Close or reconcile open register sessions.'
+            FROM register_sessions
+            WHERE COALESCE(lifecycle_status, CASE WHEN is_open THEN 'open' ELSE 'closed' END) = 'open'
+
+            UNION ALL
+
+            SELECT
+                'Unclosed tasks'::text,
+                COUNT(*)::bigint,
+                MIN(materialized_at),
+                NULL::numeric(14,2),
+                'Operations',
+                'Review open tasks with due dates before today.'
+            FROM task_instance
+            WHERE status = 'open'
+              AND due_date IS NOT NULL
+              AND due_date < CURRENT_DATE
+        ) risks
+        WHERE risk_count > 0
+        ORDER BY risk_count DESC, risk_type ASC
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct WeddingSavedViewCreateBody {
     pub name: String,
@@ -2351,6 +2839,17 @@ pub fn router() -> Router<AppState> {
         .route("/register-override-mix", get(register_override_mix))
         .route("/nys-tax-audit", get(nys_tax_audit))
         .route("/staff-performance", get(staff_performance))
+        .route("/appointments-no-show", get(appointments_no_show_report))
+        .route(
+            "/wedding-event-readiness",
+            get(wedding_event_readiness_report),
+        )
+        .route(
+            "/staff-schedule-coverage-sales",
+            get(staff_schedule_coverage_sales_report),
+        )
+        .route("/customer-follow-up", get(customer_follow_up_report))
+        .route("/exception-risk", get(exception_risk_report))
         .route("/best-sellers", get(best_sellers))
         .route("/dead-stock", get(dead_stock))
         .route("/loyalty-velocity", get(loyalty_velocity))

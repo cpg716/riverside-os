@@ -11,6 +11,8 @@ Riverside OS uses two time axes for revenue-style analytics:
 
 ## API (`GET /api/insights/*`)
 
+Back Office -> Reports exposes these curated report tiles through staff-facing names and a local search box. Staff can search by task or question (for example **tax**, **pickup**, **balance**, **slow stock**, or **What sold best last month?**) without changing the underlying basis rules below.
+
 - **`sales-pivot`** — Query **`basis`**: `booked` / `sale` / `booking` vs `fulfilled` / `pickup` / `fulfillment`. Fulfilled uses fulfillment filter + fulfilled date for **`group_by=date`**.
 - **`register-day-activity`** — Query **`basis`**: `booked` (default) vs `fulfilled`. Fulfilled timeline uses fulfillment timestamp. Z-close EOD snapshots remain **booked** only.
 - **`register-override-mix`** — Optional **`basis`** + `from` / `to` (flattened): fulfilled = fulfillment window.
@@ -38,6 +40,7 @@ After migration **142**:
 - **`/api/insights/best-sellers`** and **`/dead-stock`** use the same **`basis`** query parameter as **`/api/insights/sales-pivot`** (**`booked`** → **`transactions.booked_at`**; **`fulfilled`** → fulfillment instant per **`transaction_date_filter_sql`** / **`reporting.transaction_recognition_at`** — see migration **142**).
 - **`/api/insights/margin-pivot`** (**Admin only**) uses the same **`basis`** and **`group_by`** as **`sales-pivot`**; margin is pre-tax line revenue minus **`SUM(transaction_lines.unit_cost × quantity)`** (cost frozen at checkout).
 - **Metabase** (**`reporting.transaction_lines_v1`**, migration **142**): same line-level **`unit_cost`**, **`line_extended_cost`**, **`line_gross_margin_pre_tax`**; filter by **`transaction_business_date`** (booked) or **`transaction_recognition_business_date`** (fulfilled) to match API **`basis`**.
+- Operational Reports catalog tiles for appointment no-shows, wedding readiness, schedule coverage, customer follow-up, and exception risk use dedicated read-only endpoints. They must not be used as a substitute for the booked vs fulfilled API contracts above.
 
 ## Related docs
 

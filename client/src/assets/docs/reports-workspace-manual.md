@@ -2,11 +2,11 @@
 id: reports-workspace
 title: "Reports Workspace (reports)"
 order: 1083
-summary: "Draft maintainer scaffold for client/src/components/reports/ReportsWorkspace.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Find curated store reports by task, question, keyword, audience, or sensitivity."
 source: client/src/components/reports/ReportsWorkspace.tsx
-last_scanned: 2026-04-27
-tags: reports-workspace, component, auto-scaffold
-status: draft
+last_scanned: 2026-05-01
+tags: reports-workspace, reports, search, reporting, staff
+status: approved
 ---
 
 # Reports Workspace (reports)
@@ -17,42 +17,46 @@ _Linked component: `client/src/components/reports/ReportsWorkspace.tsx`._
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Reports is the Back Office report library. Use it when you need a trusted store report without building a custom Insights question.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use Reports to find sales, inventory, register, wedding, customer, finance, staff, and operations reports by the task you are trying to finish.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- Sign in to Back Office.
+- You need the report's required staff access before its tile appears.
+- Admin-only reports stay separated and are visible only to Admin role users.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. Open Back Office -> Reports.
+2. Use the search box: "Search reports by task, question, or keyword".
+3. Search with plain terms such as pickup, balance, tax, cash, drawer, slow stock, appointments, no-show, or open orders.
+4. Choose a report tile.
+5. Use From, To, Basis, and Group by when those controls appear.
+6. Use Refresh after changing filters.
+7. Use CSV or Print Report when the table view supports it.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- Category labels describe the report area: Sales, Inventory, Register, Weddings, Customers, Finance, Staff, or Operations.
+- Audience labels describe the usual reader: Staff, Manager, Owner, or Admin.
+- Sensitivity labels describe access expectations: Staff-safe, Manager, or Admin-only.
+- Roadmap reports should only appear as planned when they do not have a real backend report yet.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+Available reports open a detail view and load current data from Riverside.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
+- Reports (curated) staff manual
+- Daily Sales Reports
+- Booked vs Fulfilled reporting
+- Insights / Metabase
 
 ## Screenshots
 
-Add PNGs under `../images/help/reports-workspace/` and replace this example with governed screenshots.
-
-![Example](../images/help/reports-workspace/example.png)
-
+Screenshots should be captured from the live Reports workspace with customer names and financial details redacted.

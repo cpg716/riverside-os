@@ -1,11 +1,13 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, BarChart3, ChevronLeft, Download, RefreshCw, Printer } from "lucide-react";
+import { ArrowRight, BarChart3, ChevronLeft, Download, Printer, RefreshCw, Search } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
   PIVOT_GROUP_OPTIONS,
   REPORTS_CATALOG,
+  isAvailableReport,
+  reportSearchScore,
   reportVisible,
   type ReportDef,
   type ReportUrlContext,
@@ -51,6 +53,107 @@ function keysFromRows(rows: Record<string, unknown>[]): string[] {
   return Array.from(s);
 }
 
+const FIELD_LABELS: Record<string, string> = {
+  appointment_type: "Appointment Type",
+  appointment_count: "Appointments",
+  appointment_date: "Appointment Date",
+  avg_discount_percent: "Avg. Discount %",
+  brand: "Brand",
+  cashier_name: "Cashier",
+  category: "Category",
+  completed_count: "Completed",
+  customer_display_name: "Customer",
+  customer_name: "Customer",
+  cancellation_count: "Cancellations",
+  date: "Date",
+  event_date: "Event Date",
+  exempt_sales: "Exempt Sales",
+  expected_cash: "Expected Cash",
+  follow_up_reason: "Follow-Up Reason",
+  fees: "Processing Fees",
+  from: "From",
+  gross: "Gross",
+  gross_margin: "Gross Margin",
+  gross_sales: "Gross Sales",
+  last_transaction_at: "Last Transaction",
+  item_name: "Item",
+  line_count: "Line Count",
+  member_count: "Members",
+  missing_measurements_count: "Missing Measurements",
+  net: "Net",
+  net_sales: "Net Sales",
+  no_show_count: "No-Shows",
+  open_balance: "Open Balance",
+  open_balance_total: "Open Balance Total",
+  order_count: "Transactions",
+  owner_area: "Owner Area",
+  pending_alteration_count: "Pending Alterations",
+  pending_pickup_count: "Pending Pickups",
+  payments_total: "Payments",
+  points_burned: "Points Used",
+  points_earned: "Points Earned",
+  product_name: "Product",
+  quantity: "Quantity",
+  reason: "Reason",
+  recent_transaction_count: "Recent Transactions",
+  recommended_action: "Recommended Action",
+  recognized_at: "Completed At",
+  register_id: "Register",
+  register_number: "Register #",
+  report_date: "Report Date",
+  reporting_basis: "Basis",
+  risk_count: "Risk Count",
+  risk_type: "Risk Type",
+  oldest_at: "Oldest Item",
+  sales_count: "Sales Count",
+  sales_volume: "Sales Volume",
+  salesperson: "Salesperson",
+  session_id: "Session",
+  sku: "SKU",
+  staff_name: "Staff",
+  scheduled_staff_count: "Scheduled Staff",
+  shipment_or_pickup_risk_count: "Shipment/Pickup Risk",
+  stale_rms_charge_count: "Stale RMS Charges",
+  tax_collected: "Tax Collected",
+  taxable_sales: "Taxable Sales",
+  to: "To",
+  total: "Total",
+  total_cost: "Total Cost",
+  total_discount: "Total Discount",
+  total_fees: "Processing Fees",
+  total_net: "Net Total",
+  total_sales: "Sales Total",
+  transaction_count: "Transactions",
+  unit_cost: "Unit Cost",
+  units_sold: "Units Sold",
+  unpaid_balance_count: "Unpaid Members",
+  unpaid_balance_total: "Unpaid Balance Total",
+  unfulfilled_item_count: "Unfulfilled Items",
+  upcoming_wedding_date: "Upcoming Wedding Date",
+  variance: "Variance",
+  walk_in_count: "Walk-Ins",
+  wedding_linked_count: "Wedding-Linked",
+  wedding_party_name: "Wedding Party",
+};
+
+function fieldLabel(key: string): string {
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
+}
+
+function rowsWithDisplayLabels(
+  rows: Record<string, unknown>[],
+  columns: string[],
+): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+    for (const column of columns) out[fieldLabel(column)] = row[column];
+    return out;
+  });
+}
+
 function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   const cols = keysFromRows(rows);
   const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
@@ -88,6 +191,7 @@ export default function ReportsWorkspace({
   const [{ from, to }, setRange] = useState(defaultRange);
   const [basis, setBasis] = useState("booked");
   const [groupBy, setGroupBy] = useState<string>("brand");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState<ReportDef | null>(null);
   const [payload, setPayload] = useState<unknown>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -104,8 +208,19 @@ export default function ReportsWorkspace({
     [hasPermission, staffRole],
   );
 
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim();
+    if (!query) return visible;
+    return visible
+      .map((report) => ({ report, score: reportSearchScore(report, query) }))
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(({ report }) => report);
+  }, [searchQuery, visible]);
+
   const runLoad = useCallback(
     async (r: ReportDef) => {
+      if (!isAvailableReport(r)) return;
       setLoading(true);
       setLoadErr(null);
       setPayload(null);
@@ -141,30 +256,44 @@ export default function ReportsWorkspace({
   );
 
   useEffect(() => {
-    if (selected) void runLoad(selected);
+    if (!selected) return;
+    if (isAvailableReport(selected)) {
+      void runLoad(selected);
+      return;
+    }
+    setLoading(false);
+    setLoadErr(null);
+    setPayload(null);
   }, [selected, runLoad]);
 
+  const selectedAvailable = selected && isAvailableReport(selected) ? selected : null;
+
   const tableRows = useMemo(() => {
-    if (!payload || !selected) return [];
-    if (selected.responseKind === "sales_pivot" || selected.responseKind === "margin_pivot") {
+    if (!payload || !selectedAvailable) return [];
+    if (selectedAvailable.responseKind === "sales_pivot" || selectedAvailable.responseKind === "margin_pivot") {
       const o = payload as { rows?: Record<string, unknown>[] };
       return o.rows ?? [];
     }
     if (
-      selected.responseKind === "best_sellers" ||
-      selected.responseKind === "dead_stock"
+      selectedAvailable.responseKind === "best_sellers" ||
+      selectedAvailable.responseKind === "dead_stock"
     ) {
       return rowsFromUnknown(payload);
     }
-    if (selected.responseKind === "rows" || selected.responseKind === "wedding_saved_views") {
+    if (selectedAvailable.responseKind === "rows" || selectedAvailable.responseKind === "wedding_saved_views") {
       return rowsFromUnknown(payload);
     }
     return [];
-  }, [payload, selected]);
+  }, [payload, selectedAvailable]);
 
-  const showRange = selected?.usesGlobalDateRange ?? false;
-  const showBasis = selected?.usesBasis ?? false;
-  const showGroup = selected?.supportsGroupBy ?? false;
+  const tableColumns = useMemo(() => keysFromRows(tableRows), [tableRows]);
+  const displayRows = useMemo(
+    () => rowsWithDisplayLabels(tableRows, tableColumns),
+    [tableColumns, tableRows],
+  );
+  const showRange = selectedAvailable?.usesGlobalDateRange ?? false;
+  const showBasis = selectedAvailable?.usesBasis ?? false;
+  const showGroup = selectedAvailable?.supportsGroupBy ?? false;
 
   return (
     <div
@@ -180,9 +309,8 @@ export default function ReportsWorkspace({
             </h1>
           </div>
           <p className="mt-1 max-w-2xl text-sm font-semibold text-app-text-muted">
-            Curated owner and manager reports backed by Riverside APIs. Use{" "}
-            <span className="text-app-text">Insights</span> (Metabase) to explore ad-hoc cuts on
-            the <code className="text-xs">reporting</code> schema.
+            Search the curated report library by task, question, or keyword. Sensitive reports stay
+            separated by staff access.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -225,28 +353,73 @@ export default function ReportsWorkspace({
           {!permissionsLoaded ? (
             <p className="text-sm font-semibold text-app-text-muted">Loading permissions…</p>
           ) : (
-            <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {visible.map((r) => (
-                <li key={r.id}>
-                  <button
-                    type="button"
-                    data-testid={`reports-catalog-card-${r.id}`}
-                    onClick={() => setSelected(r)}
-                    className="flex h-full w-full flex-col rounded-2xl border border-app-border bg-app-surface p-4 text-left shadow-sm transition hover:border-app-accent/45"
-                  >
-                    <span className="text-sm font-black text-app-text">{r.title}</span>
-                    <span className="mt-2 flex-1 text-xs font-semibold leading-snug text-app-text-muted">
-                      {r.description}
-                    </span>
-                    {r.adminOnly ? (
-                      <span className="mt-3 ui-chip w-fit bg-app-warning/10 text-[10px] font-black uppercase text-app-warning">
-                        Admin only
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              <label className="relative block max-w-2xl">
+                <span className="sr-only">Search reports</span>
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted"
+                  aria-hidden
+                />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search reports by task, question, or keyword"
+                  className="ui-input w-full rounded-xl py-2 pl-9 pr-3 text-sm font-semibold"
+                />
+              </label>
+
+              {searchResults.length > 0 ? (
+                <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {searchResults.map((r) => (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        data-testid={`reports-catalog-card-${r.id}`}
+                        onClick={() => setSelected(r)}
+                        className="flex h-full w-full flex-col rounded-2xl border border-app-border bg-app-surface p-4 text-left shadow-sm transition hover:border-app-accent/45"
+                      >
+                        <span className="text-sm font-black text-app-text">{r.title}</span>
+                        <span className="mt-2 flex-1 text-xs font-semibold leading-snug text-app-text-muted">
+                          {r.description}
+                        </span>
+                        <span className="mt-3 flex flex-wrap gap-1.5">
+                          <span className="ui-chip bg-app-surface-2 text-[10px] font-black uppercase text-app-text-muted">
+                            {r.category}
+                          </span>
+                          <span className="ui-chip bg-app-surface-2 text-[10px] font-black uppercase text-app-text-muted">
+                            For {r.audience}
+                          </span>
+                          <span className="ui-chip bg-app-surface-2 text-[10px] font-black uppercase text-app-text-muted">
+                            {r.sensitivity === "Staff-safe"
+                              ? "Staff-safe"
+                              : `${r.sensitivity} access`}
+                          </span>
+                          {!isAvailableReport(r) ? (
+                            <span className="ui-chip bg-app-accent/10 text-[10px] font-black uppercase text-app-accent">
+                              Planned
+                            </span>
+                          ) : null}
+                          {r.adminOnly && r.sensitivity !== "Admin-only" ? (
+                            <span className="ui-chip bg-app-warning/10 text-[10px] font-black uppercase text-app-warning">
+                              Admin only
+                            </span>
+                          ) : null}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : searchQuery.trim() ? (
+                <p className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-sm font-semibold text-app-text-muted">
+                  No matching reports yet. Try a task like pickup, balance, tax, or slow stock.
+                </p>
+              ) : (
+                <p className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-sm font-semibold text-app-text-muted">
+                  No reports are available for your current access.
+                </p>
+              )}
+            </>
           )}
         </>
       ) : (
@@ -267,17 +440,35 @@ export default function ReportsWorkspace({
             <span className="min-w-0 flex-1 basis-full text-sm font-black text-app-text sm:basis-auto">
               {selected.title}
             </span>
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => void runLoad(selected)}
-              className="ui-btn-secondary inline-flex w-full items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-bold uppercase sm:ml-auto sm:w-auto"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
-              Refresh
-            </button>
+            {isAvailableReport(selected) ? (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => void runLoad(selected)}
+                className="ui-btn-secondary inline-flex w-full items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-bold uppercase sm:ml-auto sm:w-auto"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
+                Refresh
+              </button>
+            ) : null}
           </div>
 
+          {!isAvailableReport(selected) ? (
+            <div
+              data-testid="reports-planned-card"
+              className="rounded-xl border border-app-accent/20 bg-app-accent/10 px-4 py-3"
+            >
+              <p className="text-sm font-black text-app-text">Planned curated report</p>
+              <p className="mt-1 text-sm font-semibold text-app-text-muted">
+                {selected.plannedReason}
+              </p>
+              <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                Search tags: {selected.keywords.slice(0, 6).join(", ")}
+              </p>
+            </div>
+          ) : null}
+
+          {isAvailableReport(selected) ? (
           <div data-testid="reports-detail-filters" className="flex flex-wrap items-end gap-3">
             {showRange ? (
               <>
@@ -331,6 +522,7 @@ export default function ReportsWorkspace({
               </label>
             ) : null}
           </div>
+          ) : null}
 
           {selected.id === "commission_ledger" ? (
             <p className="text-xs font-semibold text-app-text-muted">
@@ -359,9 +551,9 @@ export default function ReportsWorkspace({
             <p className="text-sm font-semibold text-app-text-muted">Loading…</p>
           ) : null}
 
-          {!loading && payload !== null && !loadErr ? (
+          {!loading && payload !== null && !loadErr && selectedAvailable ? (
             <>
-              {selected.responseKind === "wedding_health" &&
+              {selectedAvailable.responseKind === "wedding_health" &&
               payload &&
               typeof payload === "object" ? (
                 <dl
@@ -374,7 +566,7 @@ export default function ReportsWorkspace({
                       className="rounded-xl border border-app-border bg-app-surface px-3 py-2"
                     >
                       <dt className="text-[10px] font-black uppercase text-app-text-muted">
-                        {k}
+                        {fieldLabel(k)}
                       </dt>
                       <dd className="text-lg font-black text-app-text">{toCellString(v)}</dd>
                     </div>
@@ -382,7 +574,7 @@ export default function ReportsWorkspace({
                 </dl>
               ) : null}
 
-              {selected.responseKind === "row_object" &&
+              {selectedAvailable.responseKind === "row_object" &&
               payload &&
               typeof payload === "object" &&
               !Array.isArray(payload) ? (
@@ -396,7 +588,7 @@ export default function ReportsWorkspace({
                         key={k}
                         className="rounded-xl border border-app-border bg-app-surface px-3 py-2"
                       >
-                        <dt className="text-[10px] font-black uppercase text-app-text-muted">{k}</dt>
+                        <dt className="text-[10px] font-black uppercase text-app-text-muted">{fieldLabel(k)}</dt>
                         <dd className="mt-1 text-sm font-semibold text-app-text">{toCellString(v)}</dd>
                       </div>
                     ))}
@@ -411,7 +603,7 @@ export default function ReportsWorkspace({
                         {Object.entries(payload as Record<string, unknown>).map(([k, v]) => (
                           <tr key={k} className="border-b border-app-border">
                             <th className="whitespace-nowrap bg-app-surface-2 px-3 py-2 font-bold text-app-text">
-                              {k}
+                              {fieldLabel(k)}
                             </th>
                             <td className="px-3 py-2 font-semibold text-app-text-muted">
                               {toCellString(v)}
@@ -424,8 +616,8 @@ export default function ReportsWorkspace({
                 )
               ) : null}
 
-              {(selected.responseKind === "best_sellers" ||
-                selected.responseKind === "dead_stock") &&
+              {(selectedAvailable.responseKind === "best_sellers" ||
+                selectedAvailable.responseKind === "dead_stock") &&
               payload &&
               typeof payload === "object" ? (
                 <div className="text-xs font-semibold text-app-text-muted">
@@ -440,7 +632,7 @@ export default function ReportsWorkspace({
                 </div>
               ) : null}
 
-              {selected.responseKind === "sales_pivot" || selected.responseKind === "margin_pivot"
+              {selectedAvailable.responseKind === "sales_pivot" || selectedAvailable.responseKind === "margin_pivot"
                 ? payload &&
                   typeof payload === "object" &&
                   "truncated" in payload &&
@@ -451,7 +643,7 @@ export default function ReportsWorkspace({
                 ) : null
                 : null}
 
-              {selected.responseKind === "register_day_summary" ? (
+              {selectedAvailable.responseKind === "register_day_summary" ? (
                 <pre
                   data-testid="reports-detail-register-day"
                   className="max-h-[60vh] overflow-auto rounded-xl border border-app-border bg-app-surface p-4 text-xs font-mono text-app-text"
@@ -464,7 +656,7 @@ export default function ReportsWorkspace({
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => downloadCsv(`${selected.id}.csv`, tableRows)}
+                    onClick={() => downloadCsv(`${selected.id}.csv`, displayRows)}
                     className="ui-btn-secondary inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold uppercase"
                   >
                     <Download className="h-4 w-4" aria-hidden />
@@ -476,8 +668,8 @@ export default function ReportsWorkspace({
                       openProfessionalTablePrint({
                         title: selected.title,
                         subtitle: `${from} to ${to} (${basis} basis${groupBy ? `, grouped by ${groupBy}` : ""})`,
-                        columns: keysFromRows(tableRows),
-                        rows: tableRows
+                        columns: keysFromRows(displayRows),
+                        rows: displayRows
                       });
                     }}
                     className="ui-btn-secondary inline-flex items-center gap-2 rounded-xl border-app-success/20 px-3 py-2 text-xs font-bold uppercase text-app-success hover:bg-app-success hover:text-white"
@@ -497,13 +689,13 @@ export default function ReportsWorkspace({
                         className="rounded-xl border border-app-border bg-app-surface px-3 py-3"
                       >
                         <dl className="space-y-2">
-                          {keysFromRows(tableRows).map((k) => (
+                          {tableColumns.map((k) => (
                             <div
                               key={k}
                               className="grid grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] items-start gap-2 text-xs"
                             >
                               <dt className="truncate font-black uppercase tracking-wide text-app-text-muted">
-                                {k}
+                                {fieldLabel(k)}
                               </dt>
                               <dd className="break-all font-semibold text-app-text">
                                 {toCellString(row[k])}
@@ -522,9 +714,9 @@ export default function ReportsWorkspace({
                     >
                       <thead>
                         <tr className="border-b border-app-border bg-app-surface-2">
-                          {keysFromRows(tableRows).map((k) => (
+                          {tableColumns.map((k) => (
                             <th key={k} className="whitespace-nowrap px-3 py-2 font-black text-app-text">
-                              {k}
+                              {fieldLabel(k)}
                             </th>
                           ))}
                         </tr>
@@ -532,7 +724,7 @@ export default function ReportsWorkspace({
                       <tbody>
                         {tableRows.map((row, i) => (
                           <tr key={i} className="border-b border-app-border/70">
-                            {keysFromRows(tableRows).map((k) => (
+                            {tableColumns.map((k) => (
                               <td key={k} className="px-3 py-2 font-semibold text-app-text-muted">
                                 {toCellString(row[k])}
                               </td>
@@ -545,9 +737,9 @@ export default function ReportsWorkspace({
                 )
               ) : null}
 
-              {selected.responseKind === "row_object" ||
-              selected.responseKind === "wedding_health" ||
-              selected.responseKind === "register_day_summary" ||
+              {selectedAvailable.responseKind === "row_object" ||
+              selectedAvailable.responseKind === "wedding_health" ||
+              selectedAvailable.responseKind === "register_day_summary" ||
               tableRows.length > 0
                 ? null
                 : (

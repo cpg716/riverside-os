@@ -14,7 +14,7 @@
 
 **Reports** is a **fixed catalog** of read-only reports. Each tile calls **one** Riverside API, so what you see matches **store permissions** (unlike Metabase, where access is controlled separately inside Metabase).
 
-Use **Reports** when you need a **quick answer**: sales by dimension, best sellers, tax buckets, register history, wedding pipeline health, and similar.
+Use **Reports** when you need a **quick answer**: sales by dimension, best sellers, tax buckets, register history, wedding pipeline health, and similar. You can now search by the task or question you have, not only by report title.
 
 Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions, or use dashboards your admins built there. On the Reports page, **Open Insights (Metabase)** switches to that shell.
 
@@ -26,13 +26,28 @@ Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions,
 
 1. Sign in to **Back Office** (staff code and PIN when required).
 2. Select **Reports** in the left rail.
-3. **Choose a report card** to open the detail view.
-4. When the detail shows **From** / **To**, pick the **date range** (store-local dates as shown by the control).
-5. When **Basis** appears, choose:
+3. Use **Search reports by task, question, or keyword** if you already know what you need.
+   - Examples: **pickup**, **balance**, **tax**, **cash**, **drawer**, **slow stock**, **appointments**, **no-show**, **open orders**.
+   - You can also search by natural questions like **What sold best last month?** or **Who still owes money?**
+4. **Choose a report card** to open the detail view.
+5. When the detail shows **From** / **To**, pick the **date range** (store-local dates as shown by the control).
+6. When **Basis** appears, choose:
    - **Booked (sale date)** — when the sale was rung (pipeline / “what we sold”).
    - **Completed (recognition)** — when qualifying fulfillment events happened (pickup / ship per your store rules). Same ideas as Metabase reporting; see **[REPORTING_BOOKED_AND_RECOGNITION.md](../REPORTING_BOOKED_AND_RECOGNITION.md)** if you need detail.
-6. For **Sales pivot** and **Margin pivot** (Admin only), use **Group by** to change the breakdown (brand, category, salesperson, customer, or day).
-7. Use **Refresh** if you change filters. Use **CSV** (when shown) to download the current table.
+7. For **Sales Breakdown** and **Margin & Cost Breakdown** (Admin only), use **Group by** to change the breakdown (brand, category, salesperson, customer, or day).
+8. Use **Refresh** if you change filters. Use **CSV** (when shown) to download the current table.
+
+## Search labels on report cards
+
+Each report card includes labels that help you pick the right report quickly:
+
+| Label | Meaning |
+|-------|---------|
+| **Category** | Report area: **Sales**, **Inventory**, **Register**, **Weddings**, **Customers**, **Finance**, **Staff**, or **Operations** |
+| **Audience** | Usual reader: **Staff**, **Manager**, **Owner**, or **Admin** |
+| **Sensitivity** | Access expectation: **Staff-safe**, **Manager**, or **Admin-only** |
+
+**Admin-only** reports remain separated. If you do not have Admin access, those cards do not appear.
 
 **Shortcuts on the page**
 
@@ -47,20 +62,26 @@ Tiles **only appear** if you have **every** required permission for that tile (a
 
 | Tile (approximate name) | What it is | Permissions |
 |-------------------------|------------|-------------|
-| **Sales pivot** | Revenue, tax, units, orders by **Group by** dimension | **insights.view** |
-| **Margin pivot** | Gross margin and cost-loaded metrics (sensitive) | **insights.view** + **Admin** role |
-| **Best sellers** | Top SKUs by units in range | **insights.view** |
-| **Dead stock** | On-hand SKUs with low sales in range | **insights.view** |
-| **Wedding pipeline health** | Upcoming events, members without orders, balances | **insights.view** |
-| **Commission ledger** | Read-only commission snapshot for a date window (not finalize) | **insights.view** |
-| **NYS tax audit** | Clothing / footwear vs standard path buckets | **insights.view** |
-| **Staff performance** | High-ticket and momentum-style stats | **insights.view** |
-| **RMS charges export** | Aggregated RMS / R2S charge and payment lines | **insights.view** |
-| **RMS charge records (CRM)** | Paged list aligned with **Customers → RMS charge** | **customers.rms_charge** |
-| **Closed register sessions** | Recent closes, variance-oriented summary | **insights.view** |
-| **Price override mix** | Counts of override reasons | **insights.view** |
-| **Register day activity** | Store-wide register day summary | **register.reports** |
-| **Saved wedding views** | Your saved filter bundles | **insights.view** |
+| **Sales Breakdown** | Revenue, tax, units, and transactions by **Group by** dimension | **insights.view** |
+| **Margin & Cost Breakdown** | Gross margin and cost-loaded metrics (sensitive) | **insights.view** + **Admin** role |
+| **Best Sellers** | Top products by units in range | **insights.view** |
+| **Slow Stock** | On-hand products with little or no sales in range | **insights.view** |
+| **Wedding Pipeline** | Upcoming events, members without orders, balances | **insights.view** |
+| **Commission Snapshot** | Read-only commission snapshot for a date window (not finalize) | **insights.view** |
+| **New York Tax Audit** | Clothing / footwear vs standard taxable buckets | **insights.view** |
+| **Staff Sales Performance** | High-ticket and momentum-style stats | **insights.view** |
+| **RMS Charge Summary** | Aggregated RMS / R2S charge and payment lines | **insights.view** |
+| **Customer RMS Charge Records** | Paged list aligned with **Customers → RMS charge** | **customers.rms_charge** |
+| **Closed Register Drawers** | Recent closes, variance-oriented summary | **insights.view** |
+| **Discount & Override Reasons** | Counts of override and discount reasons | **insights.view** |
+| **Register Day Summary** | Store-wide register day summary | **register.reports** |
+| **Saved Wedding Report Views** | Your saved filter bundles | **insights.view** |
+| **Card Processing Summary** | Daily card volume, fees, and net settlement values | **insights.view** |
+| **Appointments & No-Show Report** | Appointment count, completed visits, cancellations/no-shows, type, salesperson, and wedding-linked vs walk-in | **insights.view** |
+| **Wedding Event Readiness Report** | Upcoming weddings with missing measurements, unpaid balances, unfulfilled items, pending alterations, and pickup/shipment risk | **insights.view** |
+| **Staff Schedule Coverage vs Sales Report** | Staffing coverage by day compared with sales volume, appointments, pickups, and register activity | **insights.view** |
+| **Customer Follow-Up Report** | Customers with balances, pending pickups, recent transactions, upcoming wedding dates, stale RMS charges, or contact gaps | **insights.view** |
+| **Exception & Risk Report** | Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks | **insights.view** |
 
 Exact titles in the app may vary slightly as the catalog is updated; trust the **card description** on screen.
 
@@ -72,6 +93,7 @@ Exact titles in the app may vary slightly as the catalog is updated; trust the *
 |--------|-------------------|---------------|
 | No **Reports** tab | Missing **insights.view** | Admin / **[STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)** |
 | Tile missing | Need an extra key (e.g. **register.reports**) or margin is **Admin only** | Admin |
+| Search returns nothing | Try a task word like **pickup**, **balance**, **tax**, or **slow stock** | Manager if the report should exist |
 | Empty or truncated table | Widen dates; **Basis** may exclude rows you expect | Manager / **[REPORTING_BOOKED_AND_RECOGNITION.md](../REPORTING_BOOKED_AND_RECOGNITION.md)** |
 | Error after open | Note the message; retry **Refresh** | IT if it persists |
 | Need a chart or custom cut | Use **Open Insights (Metabase)** | Metabase training |
@@ -94,4 +116,4 @@ Exact titles in the app may vary slightly as the catalog is updated; trust the *
 - **[../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** — RMS charge vs payment
 - **[pos-reports.md](pos-reports.md)** — POS **Reports** rail
 
-**Last reviewed:** 2026-04-08
+**Last reviewed:** 2026-05-01
