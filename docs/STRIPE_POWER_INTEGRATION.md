@@ -66,6 +66,25 @@ ROS supports issuing credits directly to a customer's card via the Stripe termin
 
 ---
 
+## Provider-Neutral Payment Metadata
+
+Stripe remains the current/default processor for integrated card workflows. ROS also stores additive provider-neutral metadata on `payment_transactions` so future processors can be represented without removing or repurposing the existing Stripe fields.
+
+Provider-neutral fields include:
+- `payment_provider`
+- `provider_payment_id`
+- `provider_status`
+- `provider_terminal_id`
+- `provider_transaction_id`
+- `provider_auth_code`
+- `provider_card_type`
+
+For existing Stripe payments, `payment_provider` is `stripe` and `provider_payment_id` mirrors `stripe_intent_id`. The original `stripe_intent_id`, `stripe_customer_id`, and `stripe_payment_method_id` fields remain the Stripe compatibility source of truth.
+
+No Helcim purchase, refund, settings, or webhook behavior is implemented by this metadata foundation. Helcim, if added later, must use its own server-side provider adapter and must not change the existing Stripe/WisePOS E behavior.
+
+---
+
 ## 🧪 Environmental Requirements
 
 Runtime environment variables used by the shipped Stripe integration:

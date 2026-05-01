@@ -221,6 +221,13 @@ pub struct ResolvedPaymentSplit {
     pub gift_card_code: Option<String>,
     pub metadata: serde_json::Value,
     pub stripe_intent_id: Option<String>,
+    pub payment_provider: Option<String>,
+    pub provider_payment_id: Option<String>,
+    pub provider_status: Option<String>,
+    pub provider_terminal_id: Option<String>,
+    pub provider_transaction_id: Option<String>,
+    pub provider_auth_code: Option<String>,
+    pub provider_card_type: Option<String>,
     pub check_number: Option<String>,
     pub merchant_fee: Decimal,
     pub net_amount: Decimal,
@@ -1268,7 +1275,33 @@ fn resolve_payment_splits(
                 let stripe_intent_id = normalized_meta
                     .get("stripe_intent_id")
                     .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
                     .map(|s| s.to_string());
+                let payment_provider = normalized_meta
+                    .get("payment_provider")
+                    .or_else(|| normalized_meta.get("provider"))
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_ascii_lowercase)
+                    .or_else(|| stripe_intent_id.as_ref().map(|_| "stripe".to_string()));
+                let provider_payment_id = normalized_meta
+                    .get("provider_payment_id")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .or_else(|| stripe_intent_id.clone());
+                let provider_status = metadata_optional_text(&normalized_meta, "provider_status");
+                let provider_terminal_id =
+                    metadata_optional_text(&normalized_meta, "provider_terminal_id");
+                let provider_transaction_id =
+                    metadata_optional_text(&normalized_meta, "provider_transaction_id");
+                let provider_auth_code =
+                    metadata_optional_text(&normalized_meta, "provider_auth_code");
+                let provider_card_type =
+                    metadata_optional_text(&normalized_meta, "provider_card_type");
                 let card_brand = normalized_meta
                     .get("card_brand")
                     .and_then(|v| v.as_str())
@@ -1311,6 +1344,13 @@ fn resolve_payment_splits(
                     gift_card_code: gift_card_code.clone(),
                     metadata: normalized_meta,
                     stripe_intent_id,
+                    payment_provider,
+                    provider_payment_id,
+                    provider_status,
+                    provider_terminal_id,
+                    provider_transaction_id,
+                    provider_auth_code,
+                    provider_card_type,
                     check_number,
                     merchant_fee: fee,
                     net_amount: a - fee,
@@ -1359,6 +1399,13 @@ fn resolve_payment_splits(
             gift_card_code: None,
             metadata: json!({}),
             stripe_intent_id: None,
+            payment_provider: None,
+            provider_payment_id: None,
+            provider_status: None,
+            provider_terminal_id: None,
+            provider_transaction_id: None,
+            provider_auth_code: None,
+            provider_card_type: None,
             check_number: None,
             merchant_fee: Decimal::ZERO,
             net_amount: amount_paid,
@@ -3328,9 +3375,15 @@ pub async fn execute_checkout(
                 r#"
                 INSERT INTO payment_transactions (
                     session_id, wedding_member_id, category, payment_method, amount, metadata,
-                    stripe_intent_id, merchant_fee, net_amount, card_brand, card_last4, check_number
+                    stripe_intent_id, payment_provider, provider_payment_id, provider_status,
+                    provider_terminal_id, provider_transaction_id, provider_auth_code,
+                    provider_card_type, merchant_fee, net_amount, card_brand, card_last4,
+                    check_number
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                    $11, $12, $13, $14, $15, $16, $17, $18, $19
+                )
                 RETURNING id
                 "#,
             )
@@ -3341,6 +3394,13 @@ pub async fn execute_checkout(
             .bind(split.amount)
             .bind(&split.metadata)
             .bind(&split.stripe_intent_id)
+            .bind(&split.payment_provider)
+            .bind(&split.provider_payment_id)
+            .bind(&split.provider_status)
+            .bind(&split.provider_terminal_id)
+            .bind(&split.provider_transaction_id)
+            .bind(&split.provider_auth_code)
+            .bind(&split.provider_card_type)
             .bind(split.merchant_fee)
             .bind(split.net_amount)
             .bind(&split.card_brand)
@@ -4229,6 +4289,13 @@ mod tests {
             gift_card_code: None,
             metadata: json!({}),
             stripe_intent_id: None,
+            payment_provider: None,
+            provider_payment_id: None,
+            provider_status: None,
+            provider_terminal_id: None,
+            provider_transaction_id: None,
+            provider_auth_code: None,
+            provider_card_type: None,
             check_number: None,
             merchant_fee: Decimal::ZERO,
             net_amount: amount,

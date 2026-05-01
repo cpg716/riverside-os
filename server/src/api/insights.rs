@@ -2686,6 +2686,13 @@ pub struct MerchantTransaction {
     pub amount: Decimal,
     pub merchant_fee: Decimal,
     pub net_amount: Decimal,
+    pub payment_provider: Option<String>,
+    pub provider_payment_id: Option<String>,
+    pub provider_status: Option<String>,
+    pub provider_terminal_id: Option<String>,
+    pub provider_transaction_id: Option<String>,
+    pub provider_auth_code: Option<String>,
+    pub provider_card_type: Option<String>,
     pub payment_method: String,
     pub card_brand: Option<String>,
     pub card_last4: Option<String>,
@@ -2709,11 +2716,27 @@ async fn get_merchant_activity(
 
     let txs: Vec<MerchantTransaction> = sqlx::query_as(
         r#"
-        SELECT id, created_at AS occurred_at, amount, merchant_fee, net_amount, payment_method, 
-               card_brand, card_last4, stripe_intent_id, status::text
+        SELECT
+            id,
+            created_at AS occurred_at,
+            amount,
+            merchant_fee,
+            net_amount,
+            COALESCE(payment_provider, CASE WHEN stripe_intent_id IS NOT NULL THEN 'stripe' END) AS payment_provider,
+            COALESCE(provider_payment_id, stripe_intent_id) AS provider_payment_id,
+            provider_status,
+            provider_terminal_id,
+            provider_transaction_id,
+            provider_auth_code,
+            provider_card_type,
+            payment_method,
+            card_brand,
+            card_last4,
+            stripe_intent_id,
+            status::text
         FROM payment_transactions
         WHERE created_at >= $1 AND created_at < $2
-          AND stripe_intent_id IS NOT NULL
+          AND COALESCE(payment_provider, CASE WHEN stripe_intent_id IS NOT NULL THEN 'stripe' END) IS NOT NULL
         ORDER BY created_at DESC
         "#,
     )

@@ -2,6 +2,8 @@
 
 This plan outlines the process for decommissioning a BBPOS WisePOS E from a third-party POS environment and re-integrating it into a custom, server-driven workflow using the Stripe Terminal API.
 
+Stripe remains the current/default integrated card provider in Riverside OS. The payment ledger now includes additive provider-neutral metadata for future processors, but WisePOS E setup and Stripe vaulting remain Stripe-specific. No Helcim purchase, refund, settings, or webhook behavior exists in this setup path.
+
 ### Phase 1: De-provisioning & Device Reset
 Before the reader can be added to a new account, it must be cleared of its previous configuration.
 
