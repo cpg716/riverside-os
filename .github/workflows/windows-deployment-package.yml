@@ -1,0 +1,154 @@
+name: Windows deployment package
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: "Release notes shown in updater prompts"
+        required: false
+        default: "Riverside POS update"
+
+permissions:
+  contents: read
+
+jobs:
+  build-package:
+    runs-on: windows-latest
+    env:
+      RIVERSIDE_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+      RIVERSIDE_UPDATER_PUBLIC_KEY: ${{ vars.RIVERSIDE_UPDATER_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      RIVERSIDE_UPDATER_BASE_URL: https://github.com/${{ github.repository }}/releases/latest/download
+      RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+      LLAMA_CPP_RELEASE: b8994
+      LLAMA_CPP_WIN_CPU_ASSET: llama-b8994-bin-win-cpu-x64.zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+          components: clippy, rustfmt
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Install Windows ROSIE sidecar
+        shell: pwsh
+        working-directory: client
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP $env:LLAMA_CPP_WIN_CPU_ASSET
+          $extractDir = Join-Path $env:RUNNER_TEMP "llama-cpp-win"
+          $downloadUrl = "https://github.com/ggml-org/llama.cpp/releases/download/$env:LLAMA_CPP_RELEASE/$env:LLAMA_CPP_WIN_CPU_ASSET"
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $extractDir -Force
+
+          $binaryDir = "src-tauri/binaries"
+          New-Item -ItemType Directory -Force -Path $binaryDir | Out-Null
+          Copy-Item -Path (Join-Path $extractDir "llama-server.exe") -Destination "$binaryDir/llama-server-x86_64-pc-windows-msvc.exe" -Force
+          Copy-Item -Path (Join-Path $extractDir "*.dll") -Destination $binaryDir -Force
+
+      - name: Build signed register updater bundle
+        shell: pwsh
+        working-directory: client
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_UPDATER_ENDPOINT)) {
+            throw "RIVERSIDE_UPDATER_ENDPOINT is required"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_UPDATER_PUBLIC_KEY)) {
+            throw "RIVERSIDE_UPDATER_PUBLIC_KEY is required"
+          }
+
+          $updaterConfig = @{
+            bundle = @{
+              createUpdaterArtifacts = $true
+              resources = @("../dist", "binaries/*.dll")
+            }
+            plugins = @{
+              updater = @{
+                active = $true
+                endpoints = @($env:RIVERSIDE_UPDATER_ENDPOINT)
+                pubkey = $env:RIVERSIDE_UPDATER_PUBLIC_KEY
+                windows = @{
+                  installMode = "passive"
+                }
+              }
+            }
+          } | ConvertTo-Json -Depth 8
+
+          Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
+          npx tauri build --config src-tauri/tauri.updater.conf.json
+
+      - name: Prepare updater files
+        shell: pwsh
+        working-directory: client
+        run: |
+          $targetRoot = "src-tauri/target"
+          $sig = Get-ChildItem -Path $targetRoot -Recurse -Filter *.sig | Select-Object -First 1
+          if ($null -eq $sig) {
+            throw "No updater signature file (*.sig) found. Ensure TAURI_SIGNING_PRIVATE_KEY is configured."
+          }
+
+          $artifactPath = [System.IO.Path]::GetFullPath(($sig.FullName.Substring(0, $sig.FullName.Length - 4)))
+          if (-not (Test-Path $artifactPath)) {
+            throw "Could not find updater artifact paired with signature: $artifactPath"
+          }
+
+          $pkg = Get-Content "package.json" | ConvertFrom-Json
+          $version = $pkg.version
+          $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $artifactName = [System.IO.Path]::GetFileName($artifactPath)
+          $releaseAssetName = $artifactName -replace ' ', '.'
+          $signature = (Get-Content $sig.FullName -Raw).Trim()
+          $notes = if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) { "Riverside POS update" } else { $env:RELEASE_NOTES }
+
+          $manifest = @{
+            version = $version
+            notes = $notes
+            pub_date = $pubDate
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $signature
+                url = "$($env:RIVERSIDE_UPDATER_BASE_URL.TrimEnd('/'))/$releaseAssetName"
+              }
+            }
+          } | ConvertTo-Json -Depth 6
+
+          New-Item -ItemType Directory -Force -Path updater-dist | Out-Null
+          Copy-Item -Path $artifactPath -Destination "updater-dist/$releaseAssetName" -Force
+          Copy-Item -Path $sig.FullName -Destination "updater-dist/$($sig.Name)" -Force
+          Set-Content -Path "updater-dist/latest.json" -Value $manifest -NoNewline
+
+      - name: Build Windows server binary
+        shell: pwsh
+        run: cargo build --release --manifest-path server/Cargo.toml
+
+      - name: Assemble deployment package
+        shell: pwsh
+        run: |
+          $version = (Get-Content "client/package.json" | ConvertFrom-Json).version
+          .\deployment\windows\build-deployment-package.ps1 `
+            -Version $version `
+            -ServerBinaryPath ".\server\target\release\riverside-server.exe" `
+            -ClientDistPath ".\client\dist" `
+            -RegisterBundlePath ".\client\src-tauri\target\release\bundle" `
+            -UpdaterDistPath ".\client\updater-dist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riverside-windows-deployment-package
+          path: dist/deployment/*.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-windows-updater-dist
+          path: client/updater-dist/

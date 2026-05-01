@@ -5,6 +5,7 @@ param(
   [string]$ServerBinaryPath = "$PSScriptRoot\..\..\server\target\release\riverside-server.exe",
   [string]$ClientDistPath = "$PSScriptRoot\..\..\client\dist",
   [string]$RegisterBundlePath = "$PSScriptRoot\..\..\client\src-tauri\target\release\bundle",
+  [string]$UpdaterDistPath = "$PSScriptRoot\..\..\client\updater-dist",
   [switch]$AllowMissingRegisterBundle
 )
 
@@ -33,6 +34,7 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\server" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\client-dist" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\migrations" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\register" | Out-Null
+New-Item -ItemType Directory -Force -Path "$packageRoot\updater" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\docs" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\release-docs" | Out-Null
 
@@ -61,6 +63,10 @@ if (Test-Path $RegisterBundlePath) {
   Copy-Item "$RegisterBundlePath\*" "$packageRoot\register" -Recurse -Force
 }
 
+if (Test-Path $UpdaterDistPath) {
+  Copy-Item "$UpdaterDistPath\*" "$packageRoot\updater" -Recurse -Force
+}
+
 $readme = @"
 # RiversideOS $Version Windows Deployment Package
 
@@ -76,6 +82,12 @@ $readme = @"
 
 The Register installer writes `C:\ProgramData\RiversideOS\station-config.json`.
 The desktop app imports that file on first launch and saves the API/printer settings for the station.
+
+If the `updater` folder is present, keep those files with the release:
+
+- `latest.json`
+- the Windows updater installer or archive
+- the matching `.sig` signature file
 "@
 Set-Content -Path "$packageRoot\README.md" -Value $readme -Encoding UTF8
 
