@@ -2117,24 +2117,25 @@ export default function StaffWeeklyGridView() {
                     <td key={i} className="px-2 py-1 align-top">
                       <div className="flex flex-col gap-1">
                         {dayEvents.map((e) => (
-                          <div
+                          <button
                             key={e.id}
+                            type="button"
                             onClick={() => {
                               setEditingEvent(e);
                               setShowEventModal(true);
                             }}
-                            className={`group/evt relative rounded-md border p-1 cursor-pointer transition-colors ${
+                            className={`group/evt relative min-h-11 w-full rounded-md border p-2 text-left transition-colors ${
                               e.kind === "holiday" 
                                 ? "bg-red-100 border-red-300 hover:bg-red-200" 
                                 : "bg-amber-100 border-amber-200 hover:bg-amber-200"
                             }`}
                           >
-                            <p className={`text-[9px] font-black leading-tight line-clamp-2 ${
+                            <p className={`line-clamp-2 text-xs font-black leading-tight ${
                               e.kind === "holiday" ? "text-red-900" : "text-amber-900"
                             }`}>
                               {e.kind === "holiday" ? "★ " : ""}{e.label}
                             </p>
-                          </div>
+                          </button>
                         ))}
                         {canEdit && (
                           <button
@@ -2149,7 +2150,7 @@ export default function StaffWeeklyGridView() {
                               });
                               setShowEventModal(true);
                             }}
-                            className="mt-1 flex items-center justify-center gap-1 py-1 rounded-md border border-dashed border-amber-300 text-amber-600 hover:bg-amber-100 hover:border-amber-400 text-[9px] font-bold transition-all"
+                            className="mt-1 flex min-h-11 items-center justify-center gap-1 rounded-md border border-dashed border-amber-300 px-2 py-2 text-xs font-bold text-amber-600 transition-all hover:border-amber-400 hover:bg-amber-100"
                           >
                             <Plus size={10} />
                             Add Event

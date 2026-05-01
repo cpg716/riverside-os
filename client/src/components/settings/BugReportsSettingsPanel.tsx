@@ -470,7 +470,7 @@ export default function BugReportsSettingsPanel({
                   </button>
                 ))}
               </div>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
               <table className="w-full min-w-[760px] border-collapse text-left text-sm">
                 <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   <tr>
@@ -572,7 +572,7 @@ export default function BugReportsSettingsPanel({
             No reports in this filter.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
             <table className="w-full min-w-[720px] border-collapse text-left text-sm">
               <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 <tr>

@@ -905,11 +905,11 @@ export default function OrdersWorkspace({
   return (
     <div className="ui-page flex flex-1 flex-col bg-transparent p-0">
       <div className="flex flex-1 flex-col bg-transparent">
-        <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
+        <div className="grid shrink-0 grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-6 sm:pb-2 xl:grid-cols-4">
           {orderStatCards.map((stat) => (
             <div
               key={stat.label}
-              className={`ui-card flex min-w-[200px] flex-1 items-center gap-4 p-4 ${stat.tint}`}
+              className={`ui-card flex min-w-0 items-center gap-4 p-4 ${stat.tint}`}
             >
               <div
                 className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${stat.border} ${stat.bg} shadow-sm`}
@@ -1080,7 +1080,7 @@ export default function OrdersWorkspace({
                 </select>
             </div>
 
-            <div className="grid gap-3 p-3 lg:hidden">
+            <div className="grid gap-3 p-3 xl:hidden">
               {transactionRows.map((r) => (
                 <OrderMobileCard
                   key={r.transaction_id}
@@ -1113,8 +1113,8 @@ export default function OrdersWorkspace({
               )}
             </div>
 
-            <div className="hidden flex-1 custom-scrollbar overflow-x-auto lg:block">
-              <table className="w-full text-left border-collapse min-w-[1000px]">
+            <div className="hidden flex-1 custom-scrollbar overflow-x-auto xl:block">
+              <table className="w-full min-w-[960px] border-collapse text-left">
               <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-3">
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>

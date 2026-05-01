@@ -246,7 +246,7 @@ export default function Sidebar({
                         key={sub.id}
                         type="button"
                         onClick={() => onSubSectionChange(sub.id)}
-                        className={`flex w-full cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 ${
+                        className={`flex min-h-11 w-full cursor-pointer items-center gap-1 rounded-lg px-2.5 py-2 text-left text-xs transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 ${
                           activeSubSection === sub.id
                             ? "bg-app-surface-2 font-black text-app-accent"
                             : "font-semibold text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"

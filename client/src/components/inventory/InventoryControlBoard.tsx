@@ -1292,7 +1292,7 @@ export default function InventoryControlBoard({
                 <button
                   type="button"
                   onClick={() => setGroupByPrimaryVendor(!groupByPrimaryVendor)}
-                  className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+                  className={`min-h-11 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wide transition-all ${
                     groupByPrimaryVendor
                       ? "bg-app-accent text-white shadow-lg"
                       : "text-app-text-muted hover:text-app-text hover:bg-app-surface-2"
@@ -1355,8 +1355,8 @@ export default function InventoryControlBoard({
             setHighValueOnly(!highValueOnly),
           )}
           {discoveryBtn(webOnly, "On web", () => setWebOnly(!webOnly))}
-          <div className="w-full overflow-x-auto pb-1 no-scrollbar sm:w-auto sm:overflow-visible sm:pb-0">
-            <div className="flex items-center gap-2">
+          <div className="w-full pb-1 sm:w-auto sm:pb-0">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="mx-1 h-6 w-px shrink-0 bg-app-border" />
               {[
                 ["suits", "Suits"],
@@ -1367,7 +1367,7 @@ export default function InventoryControlBoard({
                   key={id}
                   type="button"
                   onClick={() => toggleQuickPick(id as NonNullable<QuickPick>)}
-                  className={`shrink-0 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
+                  className={`min-h-11 shrink-0 rounded-full border px-3 py-2 text-xs font-black uppercase tracking-wide transition-all ${
                     quickPick === id
                       ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20"
                       : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-input-border hover:bg-app-surface"
@@ -1453,9 +1453,9 @@ export default function InventoryControlBoard({
         </div>
       </div>
 
-      <div className="ui-card ui-tint-neutral flex flex-col overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+      <div className="ui-card ui-tint-neutral flex flex-col overflow-x-auto overscroll-x-contain lg:overflow-x-visible [-webkit-overflow-scrolling:touch]">
         <div 
-          className="min-w-[760px] outline-none lg:min-w-[1000px]"
+          className="min-w-[640px] outline-none lg:min-w-0"
           onFocus={() => setTableFocus(true)}
           onBlur={() => setTableFocus(false)}
           onKeyDown={onTableKeyDown}

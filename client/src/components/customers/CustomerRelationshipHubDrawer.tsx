@@ -411,7 +411,7 @@ export function CustomerRelationshipHubDrawer({
   const canOrdersView = hasPermission("orders.view");
   const canShipmentsView = hasPermission("shipments.view");
   const canAlterationsView = hasPermission("alterations.manage");
-  const isCompactHub = useMediaQuery("(max-width: 1023px)");
+  const isCompactHub = useMediaQuery("(max-width: 1279px)");
   const backofficeOrderOpener =
     onOpenOrderInBackoffice ?? onOpenTransactionInBackoffice;
   const [tab, setTab] = useState<HubTab>("profile");
@@ -1780,7 +1780,7 @@ export function CustomerRelationshipHubDrawer({
                         onClick={() => {
                           setSelectedTransactionId(row.transaction_id);
                         }}
-                        className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
+                        className="min-h-11 rounded-lg border border-app-success/20 bg-app-success/10 px-3 py-2 text-xs font-black uppercase tracking-wide text-app-success"
                       >
                         {tab === "transactions" ? "Open Transaction" : "Open Order"}
                       </button>

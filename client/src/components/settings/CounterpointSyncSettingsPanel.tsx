@@ -1953,7 +1953,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       </div>
                     </div>
 
-                    <div className="mt-4 rounded-xl border border-app-border overflow-x-auto">
+                    <div className="mt-4 overflow-x-auto overscroll-x-contain rounded-xl border border-app-border [-webkit-overflow-scrolling:touch]">
                       <table className="w-full min-w-[860px] text-left text-xs">
                         <thead>
                           <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">

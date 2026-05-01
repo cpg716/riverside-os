@@ -53,8 +53,8 @@ const SETTINGS_DEEP_LINKS: SettingsDeepLinkCase[] = [
   },
   {
     section: "ros-dev-center",
-    title: "Open ROS Dev Center",
-    expected: /ROS Dev Center/i,
+    title: "Open Support Center",
+    expected: /Support Center/i,
   },
 ];
 

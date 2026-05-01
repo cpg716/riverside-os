@@ -78,13 +78,13 @@ export function PosSearchResultList({
                   ) || item,
                 )
               }
-              className={`group relative flex items-center gap-4 overflow-hidden rounded-2xl border-2 p-4 text-left transition-all ${
+              className={`group relative flex min-h-[76px] items-start gap-3 overflow-hidden rounded-2xl border-2 p-3 text-left transition-all sm:min-h-[88px] sm:items-center sm:gap-4 sm:p-4 ${
                 isExactSku
                   ? "border-app-accent bg-app-accent/5"
                   : "border-app-border hover:border-app-border hover:bg-app-surface-2"
               }`}
             >
-              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-sm transition-transform group-hover:scale-105">
+              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-sm transition-transform group-hover:scale-105 sm:h-16 sm:w-16">
                 {item.image_url ? (
                   <img
                     src={item.image_url}
@@ -98,24 +98,24 @@ export function PosSearchResultList({
                   />
                 )}
               </div>
-              <div className="min-w-0 flex-1 relative z-10">
-                <div className="mb-1 flex items-center gap-2">
-                  <p className="truncate text-base font-black uppercase italic leading-tight tracking-tighter text-app-text group-hover/name:text-app-accent">
+              <div className="relative z-10 min-w-0 flex-1">
+                <div className="mb-1 flex min-w-0 items-center gap-2">
+                  <p className="line-clamp-2 text-sm font-black leading-snug text-app-text sm:text-base">
                     {item.name}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] font-black uppercase tracking-[0.12em] text-app-text-muted">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-xs font-black uppercase tracking-wide text-app-text-muted">
                     {variationCount > 1
                       ? `${variationCount} Variations`
                       : `SKU: ${item.sku}`}
                   </span>
                   {variationCount === 1 && (
                     <span
-                      className={`text-[10px] font-black uppercase tracking-widest ${
+                      className={`rounded-full px-2 py-0.5 text-xs font-black uppercase tracking-wide ${
                         (item.stock_on_hand || 0) > 0
-                          ? "text-emerald-600"
-                          : "text-red-500"
+                          ? "bg-emerald-600/10 text-emerald-700"
+                          : "bg-red-500/10 text-red-600"
                       }`}
                     >
                       {item.stock_on_hand || 0} IN STOCK
@@ -127,13 +127,13 @@ export function PosSearchResultList({
                     {group.slice(0, 4).map((v) => (
                       <span
                         key={v.sku}
-                        className="rounded-lg bg-app-surface-2 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted"
+                        className="rounded-lg bg-app-surface-2 px-2 py-1 text-xs font-black uppercase tracking-wide text-app-text-muted"
                       >
                         {v.variation_label || v.sku.slice(-4)}
                       </span>
                     ))}
                     {variationCount > 4 && (
-                      <span className="rounded-lg bg-app-surface-2 px-2 py-1 text-[9px] font-black text-app-text-muted">
+                      <span className="rounded-lg bg-app-surface-2 px-2 py-1 text-xs font-black text-app-text-muted">
                         +{variationCount - 4} More
                       </span>
                     )}
@@ -141,11 +141,11 @@ export function PosSearchResultList({
                 )}
               </div>
               <div className="shrink-0 text-right">
-                <p className="text-xl font-black italic tracking-tighter text-app-text tabular-nums">
+                <p className="text-lg font-black tabular-nums text-app-text sm:text-xl">
                   ${item.standard_retail_price}
                 </p>
-                <div className="mt-1 flex translate-x-2 items-center justify-end font-black text-app-accent opacity-0 transition-opacity group-hover:translate-x-0 group-hover:opacity-100">
-                  <span className="text-[10px] uppercase tracking-tighter">
+                <div className="mt-1 flex items-center justify-end font-black text-app-accent">
+                  <span className="text-xs uppercase tracking-wide">
                     {variationCount > 1 && !isExactSku
                       ? "Size Select"
                       : "Add Cart"}

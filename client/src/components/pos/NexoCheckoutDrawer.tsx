@@ -837,7 +837,7 @@ export default function NexoCheckoutDrawer({
       noPadding
       contentContained
       footer={
-        <div className="bg-app-surface border-t border-app-border p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div className="flex flex-col items-center justify-between gap-4 border-t border-app-border bg-app-surface p-4 sm:flex-row sm:gap-6 sm:p-5">
             <div className="flex items-center gap-8">
                <div className="flex flex-col">
                   <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 mb-1 leading-none">Balance Due</span>
@@ -866,7 +866,7 @@ export default function NexoCheckoutDrawer({
                 <button
                   type="button"
                   onClick={() => setIsTaxExempt(!isTaxExempt)}
-                  className={`flex h-9 items-center gap-2 rounded-xl border px-3 transition-all ${
+                  className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 transition-all ${
                     isTaxExempt 
                       ? "border-rose-500 bg-rose-500/10 text-rose-600 shadow-sm" 
                       : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-input-border"
@@ -882,7 +882,7 @@ export default function NexoCheckoutDrawer({
                   <select
                     value={taxExemptReason}
                     onChange={(e) => setTaxExemptReason(e.target.value)}
-                    className="h-7 w-32 rounded-lg border border-rose-200 bg-rose-50/50 px-2 text-[9px] font-black uppercase tracking-tight text-rose-700 outline-none"
+                    className="min-h-11 w-40 rounded-lg border border-rose-200 bg-rose-50/50 px-3 text-xs font-bold text-rose-700 outline-none"
                   >
                     {taxExemptReason.startsWith("Customer tax exempt") ? (
                       <option value={taxExemptReason}>{taxExemptReason}</option>
@@ -905,7 +905,7 @@ export default function NexoCheckoutDrawer({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 text-xs font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text sm:px-6"
+                  className="min-h-11 px-4 py-2 text-xs font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text sm:px-6"
                 >
                   Cancel
                 </button>
@@ -935,7 +935,7 @@ export default function NexoCheckoutDrawer({
          </div>
       }
     >
-      <div className="relative flex h-full flex-col bg-app-bg overflow-hidden">
+      <div className="relative flex h-full flex-col overflow-y-auto overscroll-contain bg-app-bg">
         
         {busy && (
           <div className="absolute inset-0 z-50 bg-white/60 dark:bg-black/60 backdrop-blur-md flex flex-col items-center justify-center">
@@ -1062,14 +1062,14 @@ export default function NexoCheckoutDrawer({
                       <button
                         type="button"
                         onClick={payBalance}
-                        className="inline-flex items-center justify-center px-4 h-9 rounded-full bg-app-accent text-[10px] font-black text-white uppercase italic tracking-wider hover:brightness-110 active:scale-95 shadow-lg shadow-app-accent/20 transition-all border-b-2 border-app-accent-hover"
+                        className="inline-flex min-h-11 items-center justify-center rounded-full border-b-2 border-app-accent-hover bg-app-accent px-4 text-xs font-black uppercase tracking-wide text-white shadow-lg shadow-app-accent/20 transition-all hover:brightness-110 active:scale-95"
                       >
                         Full Balance
                       </button>
                       <button
                         type="button"
                         onClick={splitBalance}
-                        className="inline-flex items-center justify-center px-4 h-9 rounded-full border border-app-border bg-app-surface text-[10px] font-black uppercase italic tracking-wider text-app-text-muted hover:border-app-input-border hover:text-app-text active:scale-95 transition-all"
+                        className="inline-flex min-h-11 items-center justify-center rounded-full border border-app-border bg-app-surface px-4 text-xs font-black uppercase tracking-wide text-app-text-muted transition-all hover:border-app-input-border hover:text-app-text active:scale-95"
                       >
                         Split Payment
                       </button>
@@ -1376,7 +1376,7 @@ export default function NexoCheckoutDrawer({
                       <div className="flex flex-col sm:flex-row gap-4">
                         <div className="flex w-full gap-1 rounded-xl border border-app-border bg-app-bg p-1 sm:w-72">
                           {GIFT_CARD_TYPES.map(t => (
-                            <button key={t} type="button" onClick={() => setGiftCardSubType(t)} className={`flex-1 h-10 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${giftCardSubType === t ? "bg-app-accent text-white" : "text-app-text-muted hover:text-app-text"}`}>{giftCardTypeLabel(t)}</button>
+                            <button key={t} type="button" onClick={() => setGiftCardSubType(t)} className={`min-h-11 flex-1 rounded-lg text-xs font-black uppercase tracking-wide transition-all ${giftCardSubType === t ? "bg-app-accent text-white" : "text-app-text-muted hover:text-app-text"}`}>{giftCardTypeLabel(t)}</button>
                           ))}
                         </div>
                         <div className="relative flex-1">
@@ -1430,13 +1430,13 @@ export default function NexoCheckoutDrawer({
 
                 <div className="flex-1 space-y-1.5 overflow-y-auto no-scrollbar mb-3">
                    {applied.length === 0 && depositDisplayCents === 0 && (
-                     <div className="flex flex-col items-center justify-center h-full opacity-10 py-6 text-center">
+                     <div className="flex h-full flex-col items-center justify-center py-6 text-center opacity-30">
                         <Wallet size={24} strokeWidth={1} />
-                        <p className="mt-2 px-6 text-[8px] font-black uppercase tracking-widest leading-tight">
+                        <p className="mt-2 px-6 text-xs font-black uppercase tracking-wide leading-tight">
                           No payments added yet
                         </p>
                         {remainingCents > 0 && (
-                          <p className="mt-1 px-6 text-[8px] font-bold leading-tight">
+                          <p className="mt-1 px-6 text-xs font-semibold leading-snug">
                             Select a tender, enter the amount, then add payment.
                           </p>
                         )}
@@ -1445,23 +1445,23 @@ export default function NexoCheckoutDrawer({
                    {applied.map(p => (
                      <div key={p.id} className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-800/40 border border-white/5 group transition-all hover:bg-zinc-800/80">
                         <div className="flex flex-col min-w-0">
-                           <span className="text-[10px] font-black uppercase italic truncate">{p.label}</span>
-                           {p.metadata?.check_number && <span className="text-[8px] font-mono text-zinc-500 truncate mt-0.5 opacity-60">Check #{p.metadata.check_number}</span>}
-                           {p.gift_card_code && <span className="text-[8px] font-mono text-zinc-500 truncate mt-0.5 opacity-60">{p.gift_card_code}</span>}
+                           <span className="truncate text-xs font-black uppercase">{p.label}</span>
+                           {p.metadata?.check_number && <span className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">Check #{p.metadata.check_number}</span>}
+                           {p.gift_card_code && <span className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">{p.gift_card_code}</span>}
                            {p.metadata?.program_label && p.metadata?.masked_account && (
-                             <span className="text-[8px] font-mono text-zinc-500 truncate mt-0.5 opacity-60">
+                             <span className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">
                                {p.metadata.program_label} · {p.metadata.masked_account}
                              </span>
                            )}
                            {p.metadata?.rms_charge_collection && p.metadata?.masked_account && !p.metadata?.program_label && (
-                             <span className="text-[8px] font-mono text-zinc-500 truncate mt-0.5 opacity-60">
+                             <span className="mt-0.5 truncate font-mono text-[10px] text-zinc-400">
                                RMS Payment · {p.metadata.masked_account}
                              </span>
                            )}
                         </div>
                         <div className="flex items-center gap-2.5 ml-2">
                            <span className="text-[11px] font-black tabular-nums tracking-tight opacity-90">${centsToFixed2(p.amountCents)}</span>
-                           <button onClick={() => void removePaymentLine(p)} className="text-zinc-500 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><Trash2 size={12} /></button>
+                           <button onClick={() => void removePaymentLine(p)} className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-zinc-400 transition-all hover:bg-rose-500/10 hover:text-rose-400" aria-label={`Remove ${p.label} payment`}><Trash2 size={14} /></button>
                         </div>
                      </div>
                    ))}
@@ -1476,10 +1476,10 @@ export default function NexoCheckoutDrawer({
                            type="button"
                            disabled={busy}
                            onClick={() => onOpenSplitDeposit()}
-                           className="flex items-center justify-center gap-2 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/5 text-indigo-300 hover:bg-indigo-500/10 transition-all w-full"
+                           className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/5 py-2 text-indigo-300 transition-all hover:bg-indigo-500/10"
                          >
                             <Layers size={12} />
-                            <span className="text-[9px] font-black uppercase tracking-wider">Split Deposit Payer</span>
+                            <span className="text-xs font-black uppercase tracking-wide">Split Deposit Payer</span>
                          </button>
                        )}
                      </div>
@@ -1489,7 +1489,7 @@ export default function NexoCheckoutDrawer({
                 <div className="border-t border-white/5 pt-3 space-y-1.5 opacity-90">
                    {depositDisplayCents > 0 && depositDisplayCents !== amountDueCents && (
                      <div className="flex items-center justify-between text-zinc-500">
-                        <span className="text-[8px] font-black uppercase tracking-[0.15em]">Due Now</span>
+                        <span className="text-xs font-black uppercase tracking-wide">Due Now</span>
                         <span className="text-xs font-bold tabular-nums">${centsToFixed2(depositDisplayCents)}</span>
                      </div>
                    )}
@@ -1502,26 +1502,26 @@ export default function NexoCheckoutDrawer({
               </div>
 
               <div className="bg-app-surface border border-app-border rounded-xl p-3.5 space-y-2.5 shadow-sm overflow-hidden mt-auto">
-                <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Sale Summary</span>
+                <span className="text-xs font-black uppercase tracking-wide text-app-text-muted opacity-70">Sale Summary</span>
                 <div className="space-y-1.5 pt-1">
-                  <div className="flex justify-between text-[10px]">
+                  <div className="flex justify-between text-xs">
                     <span className="text-app-text-muted">Merchandise</span>
                     <span className="font-bold tabular-nums text-app-text opacity-70">${centsToFixed2(amountDueCents - (stateTaxCents + localTaxCents + shippingCents))}</span>
                   </div>
                   {shippingCents > 0 && (
-                    <div className="flex justify-between text-[10px]">
+                    <div className="flex justify-between text-xs">
                       <span className="text-app-text-muted">Shipping</span>
                       <span className="font-bold tabular-nums text-app-text opacity-70">${centsToFixed2(shippingCents)}</span>
                     </div>
                   )}
                   
-                  <div className="flex items-center justify-between border-b border-app-border/30 pb-1 text-[10px] font-bold uppercase tracking-widest">
+                  <div className="flex items-center justify-between border-b border-app-border/30 pb-1 text-xs font-bold uppercase tracking-wide">
                     <span className="text-app-text-muted">State Tax</span>
                     <span className={isTaxExempt ? "text-rose-500 line-through opacity-50" : "text-app-text"}>
                       ${centsToFixed2(effectiveStateTax)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between border-b border-app-border/30 pb-1 text-[10px] font-bold uppercase tracking-widest">
+                  <div className="flex items-center justify-between border-b border-app-border/30 pb-1 text-xs font-bold uppercase tracking-wide">
                     <span className="text-app-text-muted">Local Tax</span>
                     <span className={isTaxExempt ? "text-rose-500 line-through opacity-50" : "text-app-text"}>
                       ${centsToFixed2(effectiveLocalTax)}

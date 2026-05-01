@@ -18,17 +18,17 @@ async function openInventoryPhysicalCount(page: Parameters<typeof test>[0]["page
     page.getByRole("navigation", { name: "Breadcrumb" }).getByText(/^inventory$/i),
   ).toBeVisible({ timeout: 15_000 });
   const physicalCountButton = page.getByRole("button", {
-    name: /^count\/reconcile$/i,
+    name: /^count\/(?:review|reconcile)$/i,
   });
   await expect(physicalCountButton).toBeVisible({ timeout: 15_000 });
   await physicalCountButton.click({ force: true });
-  await expect(page.getByRole("heading", { name: /count\/reconcile|physical inventory|review phase/i }).first()).toBeVisible({
+  await expect(page.getByRole("heading", { name: /count\/review|physical inventory|review phase/i }).first()).toBeVisible({
     timeout: 20_000,
   });
 }
 
 test.describe("Physical inventory review and publish verification", () => {
-  test("review surfaces missing in-scope SKUs and publish applies reconciled stock", async ({
+  test("review surfaces missing SKUs in the count area and publishes reviewed stock", async ({
     page,
     request,
   }) => {
@@ -63,14 +63,14 @@ test.describe("Physical inventory review and publish verification", () => {
     await expect(missingRow).toContainText(/not counted/i);
     await expect(missingRow).toContainText(/\b-2\b/);
 
-    await expect(page.getByText(/1 in-scope sku .* never counted/i)).toBeVisible({
+    await expect(page.getByText(/1 sku.*in this area.*never counted/i)).toBeVisible({
       timeout: 10_000,
     });
     await page.getByRole("button", { name: /commit changes/i }).click();
 
     const publishDialog = page.getByText(
       new RegExp(
-        `${session.session_number}.*2 scoped variants, 1 counted, 1 missing in scope, delta -5`,
+        `${session.session_number}.*2 items in area, 1 counted, 1 missing from count, delta -5`,
         "i",
       ),
     );

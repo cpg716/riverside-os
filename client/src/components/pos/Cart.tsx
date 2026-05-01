@@ -1354,7 +1354,7 @@ export default function Cart({
 
   return (
     <div
-      className="relative grid h-full w-full bg-app-bg overflow-y-auto lg:overflow-hidden lg:[grid-template-columns:minmax(0,1fr)_clamp(300px,28vw,376px)]"
+      className="relative grid h-full min-h-0 w-full overflow-y-auto bg-app-bg lg:overflow-hidden lg:[grid-template-columns:minmax(0,1fr)_clamp(300px,28vw,376px)]"
       data-testid="pos-register-cart-shell"
       data-sale-hydrated={saleHydrated ? "true" : "false"}
       data-cashier-blocked={!checkoutOperator ? "true" : "false"}
@@ -1368,7 +1368,7 @@ export default function Cart({
           aria-hidden
         />
       ) : null}
-      <div className="relative z-0 flex min-w-0 flex-col border-r border-app-border">
+      <div className="relative z-0 flex min-h-0 min-w-0 flex-col border-r border-app-border">
         <div className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2 shadow-sm sm:px-4 lg:px-6 lg:py-3">
           <div className="space-y-2 rounded-2xl border border-app-border/90 bg-[color-mix(in_srgb,var(--app-surface)_90%,var(--app-surface-2))] p-2.5 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.22)]">
           {/* Wedding link badge */}
@@ -1644,7 +1644,7 @@ export default function Cart({
         </div>
 
         {/* Scrollable line items — designed for 5-6 items visible */}
-        <div className="flex-1 p-2 sm:p-3 lg:p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4">
           {lines.length > 0 ? (
             <div className="space-y-1.5">
               <p className="px-1 pt-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-app-text-muted">
@@ -1803,7 +1803,7 @@ export default function Cart({
       </div>
 
       <aside
-        className={`relative z-0 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-app-border/80 bg-[color-mix(in_srgb,var(--app-surface-2)_84%,var(--app-bg))] shadow-[-8px_0_32px_-12px_rgba(15,23,42,0.18)] ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
+        className={`relative z-0 flex h-full min-h-0 w-full flex-col overflow-y-auto overscroll-contain border-l border-app-border/80 bg-[color-mix(in_srgb,var(--app-surface-2)_84%,var(--app-bg))] shadow-[-8px_0_32px_-12px_rgba(15,23,42,0.18)] ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
         aria-label="Customer, sale totals and keypad"
       >
         {/* ── Customer selector (payment rail) ── */}
@@ -2005,7 +2005,7 @@ export default function Cart({
         </div>
 
         {/* ── Pay button ── */}
-        <div className="shrink-0 border-t border-app-border/70 bg-app-surface/95 p-2.5 shadow-[0_-10px_40px_-18px_rgba(0,0,0,0.15)] backdrop-blur-sm">
+        <div className="sticky bottom-0 z-10 shrink-0 border-t border-app-border/70 bg-app-surface/95 p-2.5 shadow-[0_-10px_40px_-18px_rgba(0,0,0,0.15)] backdrop-blur-sm">
            <button 
              type="button" 
              data-testid="pos-pay-button"

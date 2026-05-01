@@ -18,7 +18,7 @@ const SESSION_NUMBER = "PI-2026-0426";
 async function openInventoryPhysicalCount(page: Page): Promise<void> {
   await openBackofficeSidebarTab(page, "inventory");
   let physicalCountButton = page.getByRole("button", {
-    name: /^count\/reconcile$/i,
+    name: /^count\/(?:review|reconcile)$/i,
   });
   if (!(await physicalCountButton.isVisible().catch(() => false))) {
     const menuToggle = page.getByRole("button", { name: /toggle menu/i });
@@ -36,7 +36,7 @@ async function openInventoryPhysicalCount(page: Page): Promise<void> {
       .catch(() => {});
     physicalCountButton = page
       .getByRole("navigation", { name: "Main Navigation" })
-      .getByRole("button", { name: /^count\/reconcile$/i });
+      .getByRole("button", { name: /^count\/(?:review|reconcile)$/i });
   }
   await expect(physicalCountButton).toBeVisible({ timeout: 20_000 });
   await physicalCountButton.click({ force: true });
