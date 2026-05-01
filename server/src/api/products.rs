@@ -148,6 +148,7 @@ pub struct GeneratedVariant {
 #[derive(Debug, Deserialize)]
 pub struct CreateProductRequest {
     pub category_id: Option<Uuid>,
+    pub primary_vendor_id: Option<Uuid>,
     pub name: String,
     pub brand: Option<String>,
     pub description: Option<String>,
@@ -176,6 +177,19 @@ pub struct CreateVariantInput {
     pub cost_override: Option<Decimal>,
     #[serde(default)]
     pub track_low_stock: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NextRosSkuQuery {
+    pub count: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NextRosSkuResponse {
+    pub prefix: String,
+    pub start: i64,
+    pub count: i64,
+    pub skus: Vec<String>,
 }
 
 fn normalize_sku_key(raw: &str) -> String {
@@ -324,6 +338,29 @@ async fn ensure_category_exists(
                 "category_id does not exist".to_string(),
             ));
         }
+    }
+    Ok(())
+}
+
+async fn ensure_active_vendor_exists(
+    pool: &sqlx::PgPool,
+    vendor_id: Option<Uuid>,
+) -> Result<(), ProductError> {
+    let Some(vendor_id) = vendor_id else {
+        return Err(ProductError::InvalidPayload(
+            "primary_vendor_id is required".to_string(),
+        ));
+    };
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM vendors WHERE id = $1 AND is_active = TRUE)",
+    )
+    .bind(vendor_id)
+    .fetch_one(pool)
+    .await?;
+    if !exists {
+        return Err(ProductError::InvalidPayload(
+            "primary_vendor_id not found or inactive".to_string(),
+        ));
     }
     Ok(())
 }
@@ -744,6 +781,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/maintenance", get(get_maintenance_ledger))
         .route("/", post(create_product).get(list_products))
+        .route("/next-ros-skus", get(next_ros_skus))
         .route("/control-board", get(list_control_board))
         .route("/bulk-update", post(bulk_update_product_model))
         .route("/bulk-set-model", post(bulk_set_product_model))
@@ -932,6 +970,37 @@ async fn generate_matrix(
     Ok(Json(results))
 }
 
+async fn next_ros_skus(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<NextRosSkuQuery>,
+) -> Result<Json<NextRosSkuResponse>, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+    let count = query.count.unwrap_or(1).clamp(1, 500);
+    let next_start: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(
+            MAX((substring(sku from '^ROS-([0-9]{6})$'))::bigint),
+            0
+        ) + 1
+        FROM product_variants
+        WHERE sku ~ '^ROS-[0-9]{6}$'
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    let skus = (0..count)
+        .map(|offset| format!("ROS-{:06}", next_start + offset))
+        .collect();
+
+    Ok(Json(NextRosSkuResponse {
+        prefix: "ROS".to_string(),
+        start: next_start,
+        count,
+        skus,
+    }))
+}
+
 async fn create_product(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -940,6 +1009,7 @@ async fn create_product(
     require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
     let (normalized_axes, normalized_skus) = validate_create_product_payload(&payload)?;
     ensure_category_exists(&state.db, payload.category_id).await?;
+    ensure_active_vendor_exists(&state.db, payload.primary_vendor_id).await?;
     ensure_skus_do_not_exist(&state.db, &normalized_skus).await?;
 
     let mut tx = state.db.begin().await?;
@@ -948,9 +1018,9 @@ async fn create_product(
         r#"
         INSERT INTO products (
             category_id, name, brand, description, base_retail_price, base_cost, variation_axes, images,
-            track_low_stock, tax_category_override
+            track_low_stock, tax_category_override, primary_vendor_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING id, name, brand, base_retail_price, base_cost
         "#,
     )
@@ -964,6 +1034,7 @@ async fn create_product(
     .bind(payload.images.unwrap_or_default())
     .bind(payload.track_low_stock)
     .bind(payload.tax_category_override)
+    .bind(payload.primary_vendor_id)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -3100,6 +3171,7 @@ mod tests {
     fn sample_request() -> CreateProductRequest {
         CreateProductRequest {
             category_id: None,
+            primary_vendor_id: Some(Uuid::new_v4()),
             name: "Validation Product".to_string(),
             brand: Some("Riverside".to_string()),
             description: Some("Test".to_string()),

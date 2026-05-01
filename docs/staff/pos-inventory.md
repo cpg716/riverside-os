@@ -12,14 +12,15 @@
 
 POS **Inventory** is a **fast lookup**: **price**, **availability**, **SKU**, and sometimes **image** context — without opening the full **Inventory List** control board. Use it while the customer is at the counter.
 
-The same tab implements **browse-and-add** to the cart (control-board search):
+The same tab implements **browse-and-add** to the cart:
 
 1. Type **at least two characters** in search; results debounce briefly.
 2. Tap a product: **one variant** adds to the cart immediately; **multiple variants** open a picker (sizes/options sorted for apparel).
 3. Tap **Add to sale** (emerald) on the correct variant.
-4. Use **Load more products** for the next page — the list is paged, not all-at-once.
-5. **Out of stock** rows may show an extra control (clipboard icon) for **special order** follow-up — use **manager SOP**; do not promise dates the system has not confirmed.
-6. **Custom Items:** Known Custom garment SKUs book as **Custom** orders in the Register instead of same-day inventory lines. The main Custom SKUs are `100`, `105`, `110`, and `200`. Sale price is entered when the order is booked, and actual vendor cost is entered when the garment is received.
+4. ROS returns you to Register and adds the SKU to the active sale.
+5. Use **Load more products** for the next page — the list is paged, not all-at-once.
+6. **Out of stock** rows may show an extra control (clipboard icon) for **special order** follow-up — use **manager SOP**; do not promise dates the system has not confirmed.
+7. **Custom Items:** Known Custom garment SKUs book as **Custom** orders in the Register instead of same-day inventory lines. The main Custom SKUs are `100`, `105`, `110`, and `200`. Sale price is entered when the order is booked, and actual vendor cost is entered when the garment is received.
 
 Receiving and PO posting remain in **Back Office → Inventory → Receiving** — [inventory-back-office.md](inventory-back-office.md).
 

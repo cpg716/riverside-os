@@ -1153,7 +1153,7 @@ export default function InventoryControlBoard({
               </h3>
               {highValue && (
                 <span className="flex items-center gap-0.5 rounded-full border border-app-warning/20 bg-app-warning/10 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-widest text-app-warning">
-                  <Gem size={7} /> ASSET
+                  <Gem size={7} /> Inventory value
                 </span>
               )}
             </div>
@@ -1182,7 +1182,7 @@ export default function InventoryControlBoard({
              <p className={`text-xl font-black tabular-nums tracking-tighter ${oos ? 'text-app-danger' : low ? 'text-app-warning' : 'text-app-success'}`}>
                {totalSoh}
              </p>
-             <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-50">SOH UNITS</p>
+             <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-50">On hand</p>
           </div>
           <div className="flex-1 max-w-[80px]">
             <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-[0.1em] text-app-text-muted mb-1 opacity-50">
@@ -1206,7 +1206,7 @@ export default function InventoryControlBoard({
                 <span className="font-mono text-[10px] font-black">+8%</span>
                 <ArrowUpRight size={10} />
               </div>
-              <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-40">30D VEL</p>
+              <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-40">30-day sales</p>
            </div>
         </div>
 
@@ -1214,11 +1214,11 @@ export default function InventoryControlBoard({
         <div className="flex shrink-0 flex-1 flex-wrap gap-1.5 justify-end">
            {row.web_published_count > 0 && (
              <div className="flex items-center gap-1 rounded-lg border border-app-success/16 bg-app-success/8 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-success">
-               <Globe size={9} /> WEB
+               <Globe size={9} /> Online
              </div>
            )}
            {row.unlabeled_count > 0 && (
-             <div className="rounded-lg border border-app-danger/16 bg-app-danger/8 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-danger">UNLABELED</div>
+             <div className="rounded-lg border border-app-danger/16 bg-app-danger/8 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-danger">Needs tag</div>
            )}
         </div>
 
@@ -1298,7 +1298,7 @@ export default function InventoryControlBoard({
                       : "text-app-text-muted hover:text-app-text hover:bg-app-surface-2"
                   }`}
                 >
-                  Stack by Vendor
+                  Group by vendor
                 </button>
               </div>
             </div>
@@ -1345,7 +1345,7 @@ export default function InventoryControlBoard({
           {discoveryBtn(negativeStockOnly, "Negative Stock", () =>
             setNegativeStockOnly(!negativeStockOnly),
           )}
-          {discoveryBtn(clothingOnly, "Clothing Exempt", () =>
+          {discoveryBtn(clothingOnly, "Clothing / footwear", () =>
             setClothingOnly(!clothingOnly),
           )}
           {discoveryBtn(unlabeledOnly, "Missing Labels", () =>

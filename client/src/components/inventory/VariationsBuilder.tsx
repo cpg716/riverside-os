@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { 
   Settings2, 
   Trash2, 
@@ -24,6 +24,9 @@ export interface GeneratedVariationRow {
 
 interface VariationsBuilderProps {
   onGenerated: (rows: GeneratedVariationRow[], axes: string[]) => void;
+  initialAxes?: AxisInput[];
+  templateVersion?: number;
+  skuStart?: number;
 }
 
 function cartesian(input: Record<string, string[]>): Record<string, string>[] {
@@ -42,14 +45,22 @@ function cartesian(input: Record<string, string[]>): Record<string, string>[] {
   return acc;
 }
 
-export default function VariationsBuilder({ onGenerated }: VariationsBuilderProps) {
-  const [axes, setAxes] = useState<AxisInput[]>([
-    { name: "Model", optionsRaw: "Slim, Classic" },
-    { name: "Color", optionsRaw: "Navy, Charcoal" },
-    { name: "Size", optionsRaw: "38R, 40R, 42R" },
-  ]);
-  const [skuPrefix, setSkuPrefix] = useState("SKU");
+export default function VariationsBuilder({
+  onGenerated,
+  initialAxes,
+  templateVersion = 0,
+  skuStart = 1,
+}: VariationsBuilderProps) {
+  const [axes, setAxes] = useState<AxisInput[]>(
+    initialAxes?.length ? initialAxes : [{ name: "", optionsRaw: "" }],
+  );
+  const [skuPrefix] = useState("ROS");
   const [defaultStock, setDefaultStock] = useState(0);
+
+  useEffect(() => {
+    if (!initialAxes) return;
+    setAxes(initialAxes.length ? initialAxes : [{ name: "", optionsRaw: "" }]);
+  }, [initialAxes, templateVersion]);
 
   const parsed = useMemo(() => {
     const out: Record<string, string[]> = {};
@@ -74,7 +85,7 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
       return {
         variation_values: row,
         variation_label: values.join(" / "),
-        sku: `${skuPrefix}-${idx + 1}`.toUpperCase(),
+        sku: `${skuPrefix}-${String(skuStart + idx).padStart(6, "0")}`,
         stock_on_hand: defaultStock,
       };
     });
@@ -160,13 +171,16 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
         <div className="flex flex-wrap items-center gap-6">
             <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-1">
-                    <Hash size={10} /> SKU Prefix
+                    <Hash size={10} /> SKU Family
                 </label>
                 <input
                     value={skuPrefix}
-                    onChange={(e) => setSkuPrefix(e.target.value)}
+                    readOnly
                     className="ui-input h-12 w-48 text-sm font-black uppercase"
                 />
+                <p className="mt-1 max-w-52 text-[10px] font-bold leading-tight text-app-text-muted">
+                  New Riverside items use ROS codes. Imported Counterpoint SKUs keep their original codes.
+                </p>
             </div>
             <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-1">

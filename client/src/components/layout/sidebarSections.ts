@@ -52,10 +52,11 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "queue", label: "Queue" },
   ],
   orders: [],
-  inventory: [
-    { id: "list", label: "Find Item" },
-    { id: "add", label: "Add/Edit Catalog" },
-    { id: "purchase_orders", label: "Order Stock" },
+	  inventory: [
+	    { id: "list", label: "Find Item" },
+	    { id: "add", label: "Add/Edit Catalog" },
+	    { id: "discount_events", label: "Promotions" },
+	    { id: "purchase_orders", label: "Order Stock" },
     { id: "receiving", label: "Receive Stock" },
     { id: "damaged", label: "Correct Stock" },
     { id: "physical", label: "Count/Reconcile" },

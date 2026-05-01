@@ -374,11 +374,71 @@ export default function VendorHub() {
         </div>
       </div>
 
-      {loadErr && (
-        <p className="text-xs font-bold text-red-600">{loadErr}</p>
-      )}
+	      {loadErr && (
+	        <p className="text-xs font-bold text-red-600">{loadErr}</p>
+	      )}
 
-      {hub && (
+	      <section className="rounded-[28px] border border-app-border bg-app-surface p-4 shadow-sm">
+	        <div className="mb-3 flex items-center justify-between gap-3">
+	          <div>
+	            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+	              Vendors
+	            </h3>
+	            <p className="text-xs font-bold text-app-text-muted">
+	              Select a vendor to view, edit, merge, or manage brand links.
+	            </p>
+	          </div>
+	          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+	            {vendors.length} total
+	          </span>
+	        </div>
+	        <div className="max-h-72 overflow-auto rounded-2xl border border-app-border">
+	          <table className="w-full text-left text-xs">
+	            <thead className="sticky top-0 bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+	              <tr>
+	                <th className="px-4 py-3">Vendor</th>
+	                <th className="px-4 py-3">Code</th>
+	                <th className="px-4 py-3">Account</th>
+	                <th className="px-4 py-3">Contact</th>
+	                <th className="px-4 py-3">Status</th>
+	              </tr>
+	            </thead>
+	            <tbody className="divide-y divide-app-border">
+	              {vendors
+	                .filter((v) => {
+	                  if (!vendorSearch.trim()) return true;
+	                  const q = vendorSearch.toLowerCase();
+	                  return (
+	                    v.name.toLowerCase().includes(q) ||
+	                    v.vendor_code?.toLowerCase().includes(q) ||
+	                    v.account_number?.toLowerCase().includes(q)
+	                  );
+	                })
+	                .map((v) => (
+	                  <tr
+	                    key={v.id}
+	                    onClick={() => setVendorId(v.id)}
+	                    className={`cursor-pointer transition-colors hover:bg-app-accent/5 ${
+	                      vendorId === v.id ? "bg-app-accent/10" : "bg-app-surface"
+	                    }`}
+	                  >
+	                    <td className="px-4 py-3 font-black text-app-text">{v.name}</td>
+	                    <td className="px-4 py-3 font-mono text-app-text-muted">{v.vendor_code || "—"}</td>
+	                    <td className="px-4 py-3 text-app-text-muted">{v.account_number || "—"}</td>
+	                    <td className="px-4 py-3 text-app-text-muted">{v.email || v.phone || "—"}</td>
+	                    <td className="px-4 py-3">
+	                      <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-widest ${v.is_active === false ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+	                        {v.is_active === false ? "Inactive" : "Active"}
+	                      </span>
+	                    </td>
+	                  </tr>
+	                ))}
+	            </tbody>
+	          </table>
+	        </div>
+	      </section>
+
+	      {hub && (
         <>
           <div className="grid gap-4 sm:grid-cols-3">
              <DashboardStatsCard

@@ -99,6 +99,16 @@ List data comes from **`GET /api/inventory/control-board`** (same handler as **`
 
 **Inventory → Import** is now a **catalog-only** CSV mapper. It updates product identity, variant structure, categories, vendors, price, and cost through **`POST /api/products/import`** but does **not** mutate live **`stock_on_hand`**. For pre-launch inventory quantities, use **Counterpoint sync** as the authoritative path; after launch, stock changes must come from **Receiving**, **Physical Inventory**, or other operational inventory flows. Product creation and PO workflows now also expect clean vendor linkage, unique vendor codes, and non-negative catalog pricing before downstream receiving begins. Mapping keys, body-size limits, and **`vendors.vendor_code`** behavior are documented in **`docs/CATALOG_IMPORT.md`**.
 
+## Manual catalog creation
+
+Manually created Riverside OS items use the **`ROS-XXXXXX`** SKU family. Counterpoint-synced/imported items keep their imported SKU family, including **`B-XXXXXX`**, so staff can distinguish older imported inventory from products created directly in ROS.
+
+Manual **Add Item** requires a **Primary Vendor** before save. The vendor link is used by ordering, receiving, vendor-scoped promotions, and stock-out context.
+
+Category defaults can provide up to three ordered option types, such as **Size**, **Color**, and **Fit**. Add Item loads those option types when the category is selected. Existing two-axis category defaults remain valid and are treated as the first two option types.
+
+The option builder may copy variation setup from an existing product, but it must not copy live stock, prices, cost, product name, description, or vendor. Browser dialogs remain prohibited for inventory edits; price and stock changes must use controlled inputs, modals, or established drawer patterns.
+
 ## Suit / 3-piece component swaps (planned)
 
 Swapping **vest** or **pants** (or jacket) for another **SKU** on **one customer’s sale** (not editing the **product** in the catalog) — with correct **stock**, **line cost/retail**, and **QuickBooks inventory adjustments** — is a **separate** workflow from scanning, receiving, and physical counts. Requirements and QBO notes: **`docs/SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md`** (see also **`docs/PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md`** §3.2).

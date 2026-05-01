@@ -72,8 +72,8 @@ export default function DiscountEventsPanel() {
   const [scopeType, setScopeType] = useState<
     "variants" | "category" | "vendor"
   >("variants");
-  const [scopeCategoryId] = useState("");
-  const [scopeVendorId] = useState("");
+  const [scopeCategoryId, setScopeCategoryId] = useState("");
+  const [scopeVendorId, setScopeVendorId] = useState("");
 
   const [categories, setCategories] = useState<{ id: string; name: string }[]>(
     [],
@@ -212,6 +212,14 @@ export default function DiscountEventsPanel() {
       toast("Enter a discount percentage between 0 and 100.", "error");
       return;
     }
+    if (scopeType === "category" && !scopeCategoryId) {
+      toast("Select a category for this promotion.", "error");
+      return;
+    }
+    if (scopeType === "vendor" && !scopeVendorId) {
+      toast("Select a vendor for this promotion.", "error");
+      return;
+    }
     const body: Record<string, unknown> = {
       name: name.trim(),
       receipt_label: receiptLabel.trim(),
@@ -284,8 +292,8 @@ export default function DiscountEventsPanel() {
     <div className="flex h-full flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
       <div className="flex items-center justify-between px-2">
         <div>
-          <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Yield Management</h3>
-          <h2 className="text-2xl font-black tracking-tight text-app-text">Strategic Promotions</h2>
+          <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Promotions</h3>
+          <h2 className="text-2xl font-black tracking-tight text-app-text">Promotions</h2>
         </div>
       </div>
 
@@ -318,17 +326,17 @@ export default function DiscountEventsPanel() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-app-surface/40 border-b border-app-border/40">
                     <tr>
-                      <th className="px-6 py-4 font-black uppercase tracking-widest text-app-text-muted opacity-60">Event Label</th>
-                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Volume</th>
-                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Units</th>
-                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Capture</th>
+	                      <th className="px-6 py-4 font-black uppercase tracking-widest text-app-text-muted opacity-60">Promotion</th>
+	                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Lines</th>
+	                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Units</th>
+	                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Sales</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-app-border/40">
                     {usageRows.map((u) => (
                       <tr key={u.event_id} className="hover:bg-app-surface/20 transition-colors group">
                         <td className="px-6 py-4 font-black uppercase italic tracking-tight text-app-text group-hover:text-app-accent transition-colors">{u.event_name}</td>
-                        <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">{u.line_count} <span className="text-[10px] opacity-40">LNS</span></td>
+	                        <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">{u.line_count}</td>
                         <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">{u.units_sold}</td>
                         <td className="px-6 py-4 text-right font-mono font-black text-emerald-500">${u.subtotal_sum}</td>
                       </tr>
@@ -412,14 +420,14 @@ export default function DiscountEventsPanel() {
             <div className="flex items-center gap-3 text-app-accent mb-6">
               <Plus size={20} />
               <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">
-                Deploy Promotion
+	                Create Promotion
               </h4>
             </div>
 
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                  Internal Name
+	                  Promotion Name
                 </label>
                 <input
                   className="ui-input h-12 text-xs font-bold"
@@ -429,7 +437,7 @@ export default function DiscountEventsPanel() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                  Receipt Descriptor
+	                  Receipt Label
                 </label>
                 <input
                   className="ui-input h-12 text-xs font-bold"
@@ -440,7 +448,7 @@ export default function DiscountEventsPanel() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                    Activation
+	                    Starts
                   </label>
                   <input
                     className="ui-input h-10 text-[10px] font-black uppercase"
@@ -451,7 +459,7 @@ export default function DiscountEventsPanel() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                    Expiration
+	                    Ends
                   </label>
                   <input
                     className="ui-input h-10 text-[10px] font-black uppercase"
@@ -463,7 +471,7 @@ export default function DiscountEventsPanel() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                  Markdown Percentage
+	                  Discount %
                 </label>
                 <div className="relative">
                   <input
@@ -493,14 +501,52 @@ export default function DiscountEventsPanel() {
                       setScopeType(value);
                     }
                   }}
-                >
-                  <option value="variants">Selected SKUs</option>
-                  <option value="category">Whole Category</option>
-                  <option value="vendor">Primary Vendor</option>
-                </select>
-              </div>
+	                >
+	                  <option value="variants">Selected SKUs</option>
+	                  <option value="category">Whole Category</option>
+	                  <option value="vendor">Primary Vendor</option>
+	                </select>
+	              </div>
+	              {scopeType === "category" && (
+	                <div className="space-y-1.5">
+	                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
+	                    Category
+	                  </label>
+	                  <select
+	                    className="ui-input h-12 text-xs font-bold"
+	                    value={scopeCategoryId}
+	                    onChange={(e) => setScopeCategoryId(e.target.value)}
+	                  >
+	                    <option value="">Select category...</option>
+	                    {categories.map((c) => (
+	                      <option key={c.id} value={c.id}>
+	                        {c.name}
+	                      </option>
+	                    ))}
+	                  </select>
+	                </div>
+	              )}
+	              {scopeType === "vendor" && (
+	                <div className="space-y-1.5">
+	                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
+	                    Vendor
+	                  </label>
+	                  <select
+	                    className="ui-input h-12 text-xs font-bold"
+	                    value={scopeVendorId}
+	                    onChange={(e) => setScopeVendorId(e.target.value)}
+	                  >
+	                    <option value="">Select vendor...</option>
+	                    {promoVendors.map((v) => (
+	                      <option key={v.id} value={v.id}>
+	                        {v.name}
+	                      </option>
+	                    ))}
+	                  </select>
+	                </div>
+	              )}
 
-              <button
+	              <button
                 onClick={createEvent}
                 className="w-full h-14 rounded-2xl bg-app-accent text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 transition-all mt-4"
               >

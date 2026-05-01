@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Clock,
   ExternalLink,
@@ -28,6 +28,7 @@ const CUSTOMERS_ICON = getAppIcon("customers");
 import DetailDrawer from "../layout/DetailDrawer";
 import ReceiptSummaryModal from "../pos/ReceiptSummaryModal";
 import type { FulfillmentKind } from "../pos/types";
+import VariantSearchInput from "../ui/VariantSearchInput";
 
 function fmtMoney(v: string | number): string {
   return formatUsdFromCents(parseMoneyToCents(v));
@@ -117,7 +118,7 @@ export interface TransactionDrawerOrderActions {
     quantity: number;
     fulfillment: FulfillmentKind;
   }) => void;
-  addBySku?: () => Promise<boolean>;
+  addBySku?: (skuOverride?: string) => Promise<boolean>;
   updateLine?: (
     item: {
       transaction_line_id: string;
@@ -513,7 +514,6 @@ export default function TransactionDetailDrawer({
     useState<EditableFulfillmentKind>("special_order");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const addSkuInputRef = useRef<HTMLInputElement | null>(null);
 
   const usesControlledData =
     controlledDetail !== undefined ||
@@ -699,11 +699,10 @@ export default function TransactionDetailDrawer({
     </div>
   ) : null;
 
-  const handleAddBySku = useCallback(async () => {
-    if (!orderActions?.addBySku) return;
-    const added = await orderActions.addBySku();
-    if (!added) addSkuInputRef.current?.focus();
-  }, [orderActions]);
+	  const handleAddBySku = useCallback(async () => {
+	    if (!orderActions?.addBySku) return;
+	    await orderActions.addBySku();
+	  }, [orderActions]);
 
   return (
     <>
@@ -1095,16 +1094,17 @@ export default function TransactionDetailDrawer({
                 detail.status !== "cancelled" &&
                 orderActions.setSku &&
                 orderActions.addBySku ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      ref={addSkuInputRef}
-                      value={orderActions.sku ?? ""}
-                      onChange={(event) => orderActions.setSku?.(event.target.value)}
-                      placeholder="Add SKU"
-                      className="h-9 rounded-lg border border-app-border bg-app-surface px-3 text-[11px] font-semibold outline-none"
-                    />
-                    <button
-                      type="button"
+	                  <div className="flex min-w-[280px] items-center gap-2">
+	                    <VariantSearchInput
+	                      className="h-9 min-w-[220px] rounded-lg border border-app-border bg-app-surface px-3 text-[11px] font-semibold outline-none"
+	                      placeholder="Search item or SKU..."
+	                      onSelect={(variant) => {
+	                        orderActions.setSku?.(variant.sku);
+	                        void orderActions.addBySku?.(variant.sku);
+	                      }}
+	                    />
+	                    <button
+	                      type="button"
                       onClick={() => {
                         void handleAddBySku();
                       }}

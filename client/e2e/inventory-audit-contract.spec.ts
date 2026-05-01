@@ -229,7 +229,10 @@ test.describe("inventory audit contract", () => {
     test.setTimeout(90_000);
     const suffix = uniqueSuffix("po-audit");
     const vendor = await createVendor(request, suffix);
-    const product = await createSingleVariantProduct(request, suffix, { stockOnHand: 3 });
+    const product = await createSingleVariantProduct(request, suffix, {
+      stockOnHand: 3,
+      vendorId: vendor.id,
+    });
     const po = await createDraftPurchaseOrder(request, vendor.id);
     await addPurchaseOrderLine(request, po.id, product.variantId, 2);
     await submitPurchaseOrder(request, po.id);

@@ -5,6 +5,7 @@ import {
   List,
   Search,
   Printer,
+  Package,
   SlidersHorizontal,
   ShieldAlert,
   DollarSign,
@@ -84,7 +85,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     [backofficeHeaders],
   );
 
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [viewMode, setViewMode] = useState<"cards" | "matrix" | "list">("cards");
   const [localSearch, setLocalSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBatchPriceModal, setShowBatchPriceModal] = useState(false);
@@ -323,17 +324,26 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           </h2>
           <div className="flex items-center gap-3">
             <div
-              className={`flex rounded-xl bg-app-surface shadow-sm border border-app-border p-1 ${viewMode === "grid" ? "ring-1 ring-app-accent/20" : ""}`}
+              className={`flex rounded-xl bg-app-surface shadow-sm border border-app-border p-1 ${viewMode === "cards" ? "ring-1 ring-app-accent/20" : ""}`}
             >
               <button
-                onClick={() => setViewMode("grid")}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${viewMode === "grid" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
+                onClick={() => setViewMode("cards")}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${viewMode === "cards" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
+                title="Card view"
+              >
+                <Package size={16} />
+              </button>
+              <button
+                onClick={() => setViewMode("matrix")}
+                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${viewMode === "matrix" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
+                title="Matrix view"
               >
                 <LayoutGrid size={16} />
               </button>
               <button
                 onClick={() => setViewMode("list")}
                 className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${viewMode === "list" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
+                title="List view"
               >
                 <List size={16} />
               </button>
@@ -368,7 +378,89 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
       </div>
 
       {/* Main View Area */}
-      {viewMode === "grid" ? (
+      {viewMode === "cards" ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {displayVariants.map((v) => (
+            <section
+              key={v.id}
+              className="rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-mono text-xs font-black text-app-text">
+                    {v.sku}
+                  </p>
+                  <p className="mt-1 text-sm font-black text-app-text">
+                    {v.variation_label || "Standard"}
+                  </p>
+                </div>
+                <span
+                  className={`rounded-xl px-3 py-1 text-sm font-black tabular-nums ${
+                    v.stock_on_hand <= 0
+                      ? "bg-red-50 text-red-700"
+                      : v.stock_on_hand <= v.reorder_point
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-emerald-50 text-emerald-700"
+                  }`}
+                >
+                  {v.stock_on_hand} on hand
+                </span>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-widest">
+                <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-app-text-muted">
+                  ${centsToFixed2(parseMoneyToCents(v.effective_retail))}
+                </span>
+                <span className={`rounded-lg border px-2 py-1 ${v.web_published ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-app-border bg-app-surface-2 text-app-text-muted"}`}>
+                  {v.web_published ? "Online" : "Not online"}
+                </span>
+                {productTrackLowStock && v.track_low_stock ? (
+                  <span className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                    Low-stock alert
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void adjustStock(v.id, 1)}
+                  className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-emerald-300 hover:text-emerald-700"
+                >
+                  Adjust +1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void patchVariant(v.id, { retail_price_override: null })}
+                  className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-accent hover:text-app-accent"
+                >
+                  Clear Price
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                  title="Print inventory tag"
+                >
+                  <Printer size={14} className="mr-1 inline" />
+                  Print tag
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMaintenanceTarget({ variantId: v.id, sku: v.sku, type: "damaged" })}
+                  className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-700"
+                >
+                  Damage/Loss
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMaintenanceTarget({ variantId: v.id, sku: v.sku, type: "return_to_vendor" })}
+                  className="col-span-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-accent hover:text-app-accent"
+                >
+                  Return to Vendor
+                </button>
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : viewMode === "matrix" ? (
         <div className="relative overflow-auto rounded-[24px] border border-app-border bg-app-surface/40 shadow-sm backdrop-blur-xl max-h-[70vh]">
           <table className="w-full border-separate border-spacing-0">
             <thead>

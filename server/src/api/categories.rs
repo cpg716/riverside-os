@@ -83,6 +83,8 @@ pub struct Category {
     pub matrix_row_axis_key: Option<String>,
     /// JSON key for inventory matrix columns (e.g. `Sleeve`, `Inseam`).
     pub matrix_col_axis_key: Option<String>,
+    /// Ordered category defaults used when creating manual product variations.
+    pub variation_axis_presets: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,6 +98,8 @@ pub struct CreateCategoryRequest {
     pub matrix_row_axis_key: Option<String>,
     #[serde(default)]
     pub matrix_col_axis_key: Option<String>,
+    #[serde(default)]
+    pub variation_axis_presets: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +114,8 @@ pub struct UpdateCategoryRequest {
     pub matrix_row_axis_key: Option<String>,
     #[serde(default)]
     pub matrix_col_axis_key: Option<String>,
+    #[serde(default)]
+    pub variation_axis_presets: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -155,7 +161,33 @@ pub struct CategoryNode {
     pub parent_id: Option<Uuid>,
     pub matrix_row_axis_key: Option<String>,
     pub matrix_col_axis_key: Option<String>,
+    pub variation_axis_presets: Vec<String>,
     pub children: Vec<CategoryNode>,
+}
+
+fn normalize_axis_presets(raw: Option<&[String]>) -> Vec<String> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for axis in raw.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        if out
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(axis))
+        {
+            continue;
+        }
+        out.push(axis.to_string());
+        if out.len() >= 3 {
+            break;
+        }
+    }
+    out
+}
+
+fn legacy_axes_from_row_col(row: Option<String>, col: Option<String>) -> Vec<String> {
+    let raw = [row.unwrap_or_default(), col.unwrap_or_default()];
+    normalize_axis_presets(Some(&raw))
 }
 
 async fn list_categories(
@@ -165,7 +197,8 @@ async fn list_categories(
     require_cat(&state, &headers, CATALOG_VIEW).await?;
     let categories = sqlx::query_as::<_, Category>(
         r#"
-        SELECT id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key
+        SELECT id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key,
+               COALESCE(variation_axis_presets, '{}'::text[]) AS variation_axis_presets
         FROM categories
         ORDER BY name
         "#,
@@ -183,7 +216,8 @@ async fn get_category_tree(
     require_cat(&state, &headers, CATALOG_VIEW).await?;
     let rows = sqlx::query_as::<_, Category>(
         r#"
-        SELECT id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key
+        SELECT id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key,
+               COALESCE(variation_axis_presets, '{}'::text[]) AS variation_axis_presets
         FROM categories
         ORDER BY name
         "#,
@@ -223,6 +257,7 @@ async fn get_category_tree(
             parent_id: base.parent_id,
             matrix_row_axis_key: base.matrix_row_axis_key.clone(),
             matrix_col_axis_key: base.matrix_col_axis_key.clone(),
+            variation_axis_presets: base.variation_axis_presets.clone(),
             children,
         })
     }
@@ -309,21 +344,33 @@ async fn create_category(
 
     let row_key = normalize_axis_key(payload.matrix_row_axis_key.as_deref());
     let col_key = normalize_axis_key(payload.matrix_col_axis_key.as_deref());
+    let axis_presets = payload
+        .variation_axis_presets
+        .as_deref()
+        .map(|axes| normalize_axis_presets(Some(axes)))
+        .unwrap_or_else(|| legacy_axes_from_row_col(row_key.clone(), col_key.clone()));
+    let matrix_row_key = axis_presets.first().cloned().or(row_key);
+    let matrix_col_key = axis_presets.get(1).cloned().or(col_key);
 
     let mut tx = state.db.begin().await?;
 
     let category = sqlx::query_as::<_, Category>(
         r#"
-        INSERT INTO categories (name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key
+        INSERT INTO categories (
+            name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key,
+            variation_axis_presets
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key,
+                  variation_axis_presets
         "#,
     )
     .bind(name)
     .bind(payload.is_clothing_footwear.unwrap_or(false))
     .bind(payload.parent_id)
-    .bind(row_key)
-    .bind(col_key)
+    .bind(matrix_row_key)
+    .bind(matrix_col_key)
+    .bind(axis_presets)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -366,7 +413,8 @@ async fn resolve_category_tax(
     while let Some(id) = current {
         let row = sqlx::query_as::<_, Category>(
             r#"
-            SELECT id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key
+            SELECT id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key,
+                   COALESCE(variation_axis_presets, '{}'::text[]) AS variation_axis_presets
             FROM categories
             WHERE id = $1
             "#,
@@ -405,7 +453,8 @@ async fn update_category(
     require_cat(&state, &headers, CATALOG_EDIT).await?;
     let existing = sqlx::query_as::<_, Category>(
         r#"
-        SELECT id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key
+        SELECT id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key,
+               COALESCE(variation_axis_presets, '{}'::text[]) AS variation_axis_presets
         FROM categories
         WHERE id = $1
         "#,
@@ -438,6 +487,15 @@ async fn update_category(
         None => existing.matrix_col_axis_key.clone(),
         Some(s) => normalize_axis_key(Some(s)),
     };
+    let next_axis_presets = if let Some(axes) = payload.variation_axis_presets.as_deref() {
+        normalize_axis_presets(Some(axes))
+    } else if payload.matrix_row_axis_key.is_some() || payload.matrix_col_axis_key.is_some() {
+        legacy_axes_from_row_col(next_matrix_row.clone(), next_matrix_col.clone())
+    } else {
+        existing.variation_axis_presets.clone()
+    };
+    let next_matrix_row = next_axis_presets.first().cloned().or(next_matrix_row);
+    let next_matrix_col = next_axis_presets.get(1).cloned().or(next_matrix_col);
 
     let mut tx = state.db.begin().await?;
 
@@ -449,9 +507,11 @@ async fn update_category(
             is_clothing_footwear = $2,
             parent_id = $3,
             matrix_row_axis_key = $4,
-            matrix_col_axis_key = $5
-        WHERE id = $6
-        RETURNING id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key
+            matrix_col_axis_key = $5,
+            variation_axis_presets = $6
+        WHERE id = $7
+        RETURNING id, name, is_clothing_footwear, parent_id, matrix_row_axis_key, matrix_col_axis_key,
+                  variation_axis_presets
         "#,
     )
     .bind(next_name.as_str())
@@ -459,6 +519,7 @@ async fn update_category(
     .bind(next_parent_id)
     .bind(next_matrix_row)
     .bind(next_matrix_col)
+    .bind(next_axis_presets)
     .bind(category_id)
     .fetch_one(&mut *tx)
     .await?;
@@ -545,6 +606,22 @@ async fn update_category(
         .bind(category_id)
         .bind(existing.matrix_col_axis_key.clone())
         .bind(updated.matrix_col_axis_key.clone())
+        .bind(actor)
+        .bind(note)
+        .execute(&mut *tx)
+        .await?;
+    }
+    if existing.variation_axis_presets != updated.variation_axis_presets {
+        sqlx::query(
+            r#"
+            INSERT INTO category_audit_log
+                (category_id, changed_field, old_value, new_value, changed_by, change_note)
+            VALUES ($1, 'variation_axis_presets', $2, $3, $4, $5)
+            "#,
+        )
+        .bind(category_id)
+        .bind(existing.variation_axis_presets.join(", "))
+        .bind(updated.variation_axis_presets.join(", "))
         .bind(actor)
         .bind(note)
         .execute(&mut *tx)

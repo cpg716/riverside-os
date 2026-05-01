@@ -14,6 +14,7 @@ interface CategoryNode {
   parent_id: string | null;
   matrix_row_axis_key: string | null;
   matrix_col_axis_key: string | null;
+  variation_axis_presets: string[];
   children: CategoryNode[];
 }
 
@@ -58,14 +59,20 @@ function CategoryVariationAxisEditor({
 }) {
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
-  const [row, setRow] = useState(node.matrix_row_axis_key ?? "");
-  const [col, setCol] = useState(node.matrix_col_axis_key ?? "");
+  const [axes, setAxes] = useState<string[]>(
+    node.variation_axis_presets?.length
+      ? node.variation_axis_presets.slice(0, 3)
+      : [node.matrix_row_axis_key ?? "", node.matrix_col_axis_key ?? "", ""],
+  );
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setRow(node.matrix_row_axis_key ?? "");
-    setCol(node.matrix_col_axis_key ?? "");
-  }, [node.id, node.matrix_row_axis_key, node.matrix_col_axis_key]);
+    setAxes(
+      node.variation_axis_presets?.length
+        ? [...node.variation_axis_presets.slice(0, 3), "", "", ""].slice(0, 3)
+        : [node.matrix_row_axis_key ?? "", node.matrix_col_axis_key ?? "", ""],
+    );
+  }, [node.id, node.matrix_row_axis_key, node.matrix_col_axis_key, node.variation_axis_presets]);
 
   const save = async () => {
     setSaving(true);
@@ -77,8 +84,7 @@ function CategoryVariationAxisEditor({
           ...mergedPosStaffHeaders(backofficeHeaders),
         },
         body: JSON.stringify({
-          matrix_row_axis_key: row.trim(),
-          matrix_col_axis_key: col.trim(),
+          variation_axis_presets: axes.map((axis) => axis.trim()).filter(Boolean),
           changed_by_staff_id: actorStaffId,
           change_note: "Variation axes (Category Manager)",
         }),
@@ -105,18 +111,21 @@ function CategoryVariationAxisEditor({
          <span className="text-[10px] font-black uppercase tracking-widest leading-none">Default Options</span>
       </div>
       <div className="flex flex-1 flex-wrap gap-3">
-          <input
-            value={row}
-            onChange={(e) => setRow(e.target.value)}
-            placeholder="Default option type, e.g. Size"
-            className="ui-input h-10 min-w-[160px] flex-1 text-xs font-bold"
-          />
-          <input
-            value={col}
-            onChange={(e) => setCol(e.target.value)}
-            placeholder="Second option type, e.g. Color"
-            className="ui-input h-10 min-w-[160px] flex-1 text-xs font-bold"
-          />
+          {[0, 1, 2].map((idx) => (
+            <input
+              key={idx}
+              value={axes[idx] ?? ""}
+              onChange={(e) =>
+                setAxes((prev) =>
+                  [0, 1, 2].map((axisIdx) =>
+                    axisIdx === idx ? e.target.value : (prev[axisIdx] ?? ""),
+                  ),
+                )
+              }
+              placeholder={`Option type ${idx + 1}${idx === 0 ? ", e.g. Size" : ""}`}
+              className="ui-input h-10 min-w-[150px] flex-1 text-xs font-bold"
+            />
+          ))}
       </div>
       <button
         type="button"
@@ -146,8 +155,7 @@ export default function CategoryManager() {
   const [createName, setCreateName] = useState("");
   const [createParentId, setCreateParentId] = useState("");
   const [createIsClothing, setCreateIsClothing] = useState(false);
-  const [createMatrixRow, setCreateMatrixRow] = useState("");
-  const [createMatrixCol, setCreateMatrixCol] = useState("");
+  const [createAxes, setCreateAxes] = useState(["", "", ""]);
   
   const [auditRows, setAuditRows] = useState<CategoryAuditEntry[]>([]);
   const [actorStaffId, setActorStaffId] = useState<string | null>(null);
@@ -218,12 +226,7 @@ export default function CategoryManager() {
           is_clothing_footwear: createIsClothing,
           changed_by_staff_id: actorStaffId,
           change_note: "Created in Category Manager Hub",
-          ...(createMatrixRow.trim()
-            ? { matrix_row_axis_key: createMatrixRow.trim() }
-            : {}),
-          ...(createMatrixCol.trim()
-            ? { matrix_col_axis_key: createMatrixCol.trim() }
-            : {}),
+          variation_axis_presets: createAxes.map((axis) => axis.trim()).filter(Boolean),
         }),
       });
       if (!res.ok) {
@@ -234,8 +237,7 @@ export default function CategoryManager() {
       setCreateName("");
       setCreateParentId("");
       setCreateIsClothing(false);
-      setCreateMatrixRow("");
-      setCreateMatrixCol("");
+      setCreateAxes(["", "", ""]);
       toast("Category added", "success");
       await refresh();
     } finally {
@@ -395,24 +397,25 @@ export default function CategoryManager() {
                     ))}
                 </select>
             </div>
-            <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Default Option</label>
-                <input
-                    value={createMatrixRow}
-                    onChange={(e) => setCreateMatrixRow(e.target.value)}
-                    placeholder="e.g. Size"
-                    className="w-full h-12 bg-app-surface border border-app-border rounded-2xl px-5 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
-                />
-            </div>
-            <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Second Option</label>
-                <input
-                    value={createMatrixCol}
-                    onChange={(e) => setCreateMatrixCol(e.target.value)}
-                    placeholder="e.g. Color"
-                    className="w-full h-12 bg-app-surface border border-app-border rounded-2xl px-5 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
-                />
-            </div>
+	            {[0, 1, 2].map((idx) => (
+	              <div key={idx} className="space-y-2">
+	                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">
+	                  Option Type {idx + 1}
+	                </label>
+	                <input
+	                  value={createAxes[idx] ?? ""}
+	                  onChange={(e) =>
+	                    setCreateAxes((prev) =>
+	                      [0, 1, 2].map((axisIdx) =>
+	                        axisIdx === idx ? e.target.value : (prev[axisIdx] ?? ""),
+	                      ),
+	                    )
+	                  }
+	                  placeholder={idx === 0 ? "e.g. Size" : idx === 1 ? "e.g. Color" : "e.g. Fit"}
+	                  className="w-full h-12 bg-app-surface border border-app-border rounded-2xl px-5 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
+	                />
+	              </div>
+	            ))}
             <div className="flex flex-col justify-end gap-3">
                  <label className="space-y-1 px-1">
                     <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted">Tax Category</span>

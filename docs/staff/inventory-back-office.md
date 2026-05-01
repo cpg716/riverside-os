@@ -2,7 +2,7 @@
 
 **Audience:** Inventory leads, buyers, receivers.
 
-**Where in ROS:** Back Office → **Inventory**. Opening Inventory shows the **Inventory Hub**. Main jobs: **Find Item**, **Add/Edit Catalog**, **Order Stock**, **Receive Stock**, **Correct Stock**, **Count/Reconcile**.
+**Where in ROS:** Back Office → **Inventory**. Opening Inventory shows the **Inventory Hub**. Main jobs: **Find Item**, **Add/Edit Catalog**, **Promotions**, **Order Stock**, **Receive Stock**, **Correct Stock**, **Count/Reconcile**.
 
 **Related permissions:** **catalog.view** / **catalog.edit** for catalog surfaces. **procurement.view** / **procurement.mutate** for PO-style receiving. **physical_inventory.view** for **Physical count**.
 
@@ -15,7 +15,8 @@ Pick the area that matches the **job**, not the person:
 | Staff job | Use it for | Previous tools now under it |
 |-----------|------------|-----------------------------|
 | **Find Item** | Find, open, and manage existing items from Product hub | Inventory List |
-| **Add/Edit Catalog** | Create items and manage catalog structure | Add Inventory, Categories, Vendors, Import, Discount events |
+| **Add/Edit Catalog** | Create items and manage catalog structure | Add Item, Categories, Vendors, Import |
+| **Promotions** | Create and review time-boxed discounts | Discount events |
 | **Order Stock** | Build vendor orders and review buying guidance | Purchase Orders, Stock Guidance |
 | **Receive Stock** | Post arrived merchandise from vendor paperwork | Receiving, direct invoice receiving |
 | **Correct Stock** | Review damaged/lost stock and return-to-vendor movements | Damaged / Loss, Return to Vendor |
@@ -38,15 +39,18 @@ To edit an existing item, always start in **Find Item**. Search for the SKU or s
 
 ## Add/Edit Catalog
 
-Use **Add/Edit Catalog** for setup tooling: creating new items, managing category and vendor records, importing catalog files, and maintaining promotions. For existing item edits, start in **Find Item** instead.
+Use **Add/Edit Catalog** for setup tooling: creating new items, managing category and vendor records, and importing catalog files. For existing item edits, start in **Find Item** instead.
 
 ### Add Item
 
-1. **Add/Edit Catalog** → **Add Item** → follow wizard steps (category, matrix, initial SKU).
+1. **Add/Edit Catalog** → **Add Item** → follow wizard steps (category, **primary vendor**, matrix, initial SKU).
 2. Enter **non-negative** base retail and cost values. Negative benchmark pricing, negative cost, and negative initial stock are blocked.
-3. Keep generated SKUs unique. If a SKU already exists anywhere in ROS, the product will not save until the conflict is resolved.
-4. **Save** each step; do not close the browser mid-wizard.
-5. Verify the SKU appears in **Inventory List** search.
+3. Primary vendor is required for manually created items because downstream ordering and receiving depend on it.
+4. New Riverside-created SKUs use **`ROS-XXXXXX`** and should advance to the next available ROS number. Imported Counterpoint SKUs such as **`B-XXXXXX`** stay unchanged.
+5. Use **Copy From** when a new item has similar options to an existing style. Copy From copies option structure only; it does not copy name, vendor, stock, cost, retail, or descriptions.
+6. Keep generated SKUs unique. If a SKU already exists anywhere in ROS, the product will not save until the conflict is resolved.
+7. **Save** each step; do not close the browser mid-wizard.
+8. Verify the SKU appears in **Find Item** search.
 
 ### Categories
 
@@ -54,28 +58,31 @@ Use **Add/Edit Catalog** for setup tooling: creating new items, managing categor
 
 1. **Inventory** → **Add/Edit Catalog** → **Categories**.
 2. **Add** or **rename** nodes per SOP; avoid duplicate names that confuse receivers.
-3. **Drag** to reparent only when **buying** and **reporting** agree — large moves need **manager** sign-off.
-4. After big changes, spot-check **Inventory List** filters and one **Insights** slice if your role can.
+3. Set up to three default option types, such as **Size**, **Color**, and **Fit**. Add Item loads these defaults when that category is selected.
+4. **Drag** to reparent only when **buying** and **reporting** agree — large moves need **manager** sign-off.
+5. After big changes, spot-check **Find Item** filters and one **Insights** slice if your role can.
 
-### Discount events
+## Promotions
 
 **Purpose:** Time-boxed **merchandising** discounts; POS can apply eligible events automatically when lines match.
 
-1. **Inventory** → **Add/Edit Catalog** → **Promotions**.
-2. Create or edit an event: **name**, **start/end**, and **rules** your UI exposes.
-3. Attach **variants** / SKUs to the event; **save** each step.
-4. **Test at POS:** add one attached SKU in a **test** cart and confirm discount behavior **before** customer-facing launch.
-5. **Usage:** aggregated usage is available to the API as **`/api/discount-events/usage-report`** (admin reporting / future NL tools — see [AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)); use it for post-mortems after big promos.
+1. **Inventory** → **Promotions**.
+2. Create or edit a promotion: **Promotion Name**, **Receipt Label**, **Starts**, **Ends**, **Discount %**, and **Applies To**.
+3. For category or vendor promotions, select the matching category or primary vendor before saving.
+4. Attach **variants** / SKUs to selected-SKU promotions; **save** each step.
+5. **Test at POS:** add one attached SKU in a **test** cart and confirm discount behavior **before** customer-facing launch.
+6. **Usage:** aggregated usage is available to the API as **`/api/discount-events/usage-report`** (admin reporting / future NL tools — see [AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)); use it for post-mortems after big promos.
 
 ### Vendors
 
 **Purpose:** Supplier records used by **receiving**, **PO** flows, and **catalog import** matching.
 
 1. **Inventory** → **Add/Edit Catalog** → **Vendors**.
-2. Keep **vendor name** and **vendor code** unique and consistent with **Import** / **Counterpoint** mappings (see [CATALOG_IMPORT.md](../CATALOG_IMPORT.md)).
-3. When onboarding a new supplier, add the vendor **before** bulk import if your file keys off **vendor_code**.
-4. Use **Merge** to consolidate duplicate supplier records instead of letting PO and receiving history split across multiple vendors.
-5. Do not delete vendors with **open PO** history without **manager** + accounting alignment.
+2. Use the vendor list to search, select, add, edit, or merge suppliers.
+3. Keep **vendor name** and **vendor code** unique and consistent with **Import** / **Counterpoint** mappings (see [CATALOG_IMPORT.md](../CATALOG_IMPORT.md)).
+4. When onboarding a new supplier, add the vendor **before** bulk import if your file keys off **vendor_code**.
+5. Use **Merge** to consolidate duplicate supplier records instead of letting PO and receiving history split across multiple vendors.
+6. Do not delete vendors with **open PO** history without **manager** + accounting alignment.
 
 ### Import (CSV)
 
@@ -128,6 +135,16 @@ Choose the correction path by the real-world reason:
 | Run a full or category count | **Count/Reconcile** | You are reconciling a shelf, category, cycle count, or full-store count. |
 
 The **Damage/Loss History** and **Vendor Return History** sections under **Correct Stock** are review/report sections. They show prior movements; they are not the starting point for a new correction.
+
+## Product Hub variation modes
+
+Open **Product Hub** from **Find Item**. The **Variations** tab supports three views:
+
+- **Cards:** default, touch-friendly inventory cards for daily SKU work.
+- **Matrix:** compact axis grid when a style has true size/color/fit structure.
+- **List:** dense table for long SKU lists and bulk edits.
+
+All views should represent the same filtered SKUs. Imported Counterpoint SKUs and new ROS SKUs must both remain searchable, editable, sellable, and usable in receiving and order workflows.
 
 ## Count/Reconcile
 

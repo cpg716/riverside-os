@@ -15,6 +15,7 @@ export interface CreatedProduct {
 
 export interface CreateSingleVariantProductOptions {
   categoryId?: string | null;
+  vendorId?: string;
   stockOnHand?: number;
   namePrefix?: string;
   skuPrefix?: string;
@@ -208,6 +209,8 @@ export async function createSingleVariantProduct(
 ): Promise<CreatedProduct> {
   const categoryId = options.categoryId ?? (await fetchFirstCategoryId(request));
   requireOrSkip(Boolean(categoryId), "No categories available for inventory receiving E2E setup");
+  const vendorId =
+    options.vendorId ?? (await createVendor(request, suffix)).id;
 
   const brand = `E2E Receiving ${suffix}`;
   const name = `${options.namePrefix?.trim() || "Receiving Proof"} ${suffix}`;
@@ -220,6 +223,7 @@ export async function createSingleVariantProduct(
     },
     data: {
       category_id: categoryId,
+      primary_vendor_id: vendorId,
       name,
       brand,
       description: "Receiving hardening verification SKU",

@@ -20,7 +20,7 @@ const ShipmentsHubSection = lazy(() => import("../customers/ShipmentsHubSection"
 const SettingsWorkspace = lazy(() => import("../settings/SettingsWorkspace"));
 
 const OrdersWorkspace = lazy(() => import("../orders/OrdersWorkspace"));
-const InventoryWorkspace = lazy(() => import("../inventory/InventoryWorkspace"));
+const ProcurementHub = lazy(() => import("../pos/ProcurementHub"));
 const GiftCardsWorkspace = lazy(() => import("../gift-cards/GiftCardsWorkspace"));
 
 const AlterationsWorkspace = lazy(() => import("../alterations/AlterationsWorkspace"));
@@ -437,13 +437,18 @@ export default function PosShell({
             </div>
           )}
 
-          {activePosTab === "inventory" && (
-            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Inventory...</div>}>
-                <InventoryWorkspace activeSection="list" surface="pos" />
-              </Suspense>
-            </div>
-          )}
+	          {activePosTab === "inventory" && (
+	            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+	              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Inventory...</div>}>
+	                <ProcurementHub
+	                  onAddItemToCart={(sku) => {
+	                    setPendingInventorySku(sku);
+	                    setActivePosTab("register");
+	                  }}
+	                />
+	              </Suspense>
+	            </div>
+	          )}
           {activePosTab === "orders" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Order Hub...</div>}>

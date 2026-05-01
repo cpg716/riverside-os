@@ -28,6 +28,8 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [stockDraft, setStockDraft] = useState("");
+  const [priceDraft, setPriceDraft] = useState("");
+  const [editingPrice, setEditingPrice] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [flash, setFlash] = useState<"success" | "error" | null>(null);
 
@@ -72,26 +74,45 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
     >
       {/* Price Section */}
       <div className="flex items-center justify-between">
-        <button
-          onClick={() => {
-            const p = prompt(
-              "New retail price override:",
-              centsToFixed2(parseMoneyToCents(variant.effective_retail)),
-            );
-            if (p === null) return;
-            if (p.trim() === "") {
-              onUpdatePrice(null);
-            } else {
-              const c = parseMoneyToCents(p);
-              if (!isNaN(c)) onUpdatePrice(c);
-            }
-          }}
-          className={`text-[11px] font-black tracking-tight tabular-nums transition-colors hover:opacity-80 ${
-            hasPriceOverride ? "text-app-accent" : "text-app-text-muted"
-          }`}
-        >
-          ${centsToFixed2(parseMoneyToCents(variant.effective_retail))}
-        </button>
+        {editingPrice ? (
+          <div className="flex items-center gap-1">
+            <input
+              value={priceDraft}
+              onChange={(e) => setPriceDraft(e.target.value)}
+              placeholder={centsToFixed2(parseMoneyToCents(variant.effective_retail))}
+              className="h-7 w-20 rounded-lg border border-app-border bg-app-surface px-2 text-[11px] font-black"
+            />
+            <button
+              type="button"
+              className="rounded-md bg-app-accent px-2 py-1 text-[9px] font-black uppercase text-white"
+              onClick={() => {
+                const trimmed = priceDraft.trim();
+                if (!trimmed) {
+                  void onUpdatePrice(null);
+                } else {
+                  const cents = parseMoneyToCents(trimmed);
+                  if (!Number.isNaN(cents)) void onUpdatePrice(cents);
+                }
+                setEditingPrice(false);
+                setPriceDraft("");
+              }}
+            >
+              Save
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => {
+              setPriceDraft(centsToFixed2(parseMoneyToCents(variant.effective_retail)));
+              setEditingPrice(true);
+            }}
+            className={`text-[11px] font-black tracking-tight tabular-nums transition-colors hover:opacity-80 ${
+              hasPriceOverride ? "text-app-accent" : "text-app-text-muted"
+            }`}
+          >
+            ${centsToFixed2(parseMoneyToCents(variant.effective_retail))}
+          </button>
+        )}
         {variant.web_published && (
           <Globe size={10} className="text-app-success" />
         )}

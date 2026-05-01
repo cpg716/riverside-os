@@ -83,7 +83,7 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string; 
     toolLabel: "Categories",
   },
   discount_events: {
-    title: "Add/Edit Catalog",
+    title: "Promotions",
     subtitle: "Schedule time-boxed markdowns by SKU, category, or vendor.",
     toolLabel: "Promotions",
   },
@@ -130,9 +130,15 @@ const INVENTORY_JOBS: InventoryJob[] = [
   },
   {
     label: "Add/Edit Catalog",
-    description: "Create items and manage catalog structure, vendors, import, and promotions.",
+    description: "Create items and manage catalog structure, vendors, and import.",
     primarySection: "add",
-    sections: ["add", "categories", "vendors", "import", "discount_events"],
+    sections: ["add", "categories", "vendors", "import"],
+  },
+  {
+    label: "Promotions",
+    description: "Create and review time-boxed discounts by SKU, category, or vendor.",
+    primarySection: "discount_events",
+    sections: ["discount_events"],
   },
   {
     label: "Order Stock",

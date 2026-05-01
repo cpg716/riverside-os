@@ -1,6 +1,7 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import VariationsBuilder, {
+  type AxisInput,
   type GeneratedVariationRow,
 } from "./VariationsBuilder";
 import { apiUrl } from "../../lib/apiUrl";
@@ -27,6 +28,33 @@ interface Category {
   is_clothing_footwear: boolean;
   matrix_row_axis_key?: string | null;
   matrix_col_axis_key?: string | null;
+  variation_axis_presets?: string[];
+}
+
+interface Vendor {
+  id: string;
+  name: string;
+  vendor_code?: string | null;
+}
+
+interface CopyProductResult {
+  product_id: string;
+  product_name: string;
+  brand: string | null;
+  category_name: string | null;
+}
+
+interface CopyProductHub {
+  product: {
+    variation_axes?: string[];
+  };
+  variants: Array<{
+    variation_values?: Record<string, unknown>;
+  }>;
+}
+
+interface NextRosSkuResponse {
+  start: number;
 }
 
 interface ProductMasterFormProps {
@@ -49,12 +77,14 @@ export default function ProductMasterForm({
 
   const [step, setStep] = useState<FormStep>("shell");
   const [categories, setCategories] = useState<Category[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
 
   // Shell Info
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [primaryVendorId, setPrimaryVendorId] = useState("");
 
   // Financials
   const [baseRetail, setBaseRetail] = useState("0.00");
@@ -69,18 +99,35 @@ export default function ProductMasterForm({
   // Matrix
   const [rows, setRows] = useState<GeneratedVariationRow[]>([]);
   const [axes, setAxes] = useState<string[]>([]);
+  const [variationTemplate, setVariationTemplate] = useState<AxisInput[]>([]);
+  const [variationTemplateVersion, setVariationTemplateVersion] = useState(0);
+  const [rosSkuStart, setRosSkuStart] = useState(1);
+  const [copySearch, setCopySearch] = useState("");
+  const [copyResults, setCopyResults] = useState<CopyProductResult[]>([]);
+  const [copyBusy, setCopyBusy] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     void (async () => {
       try {
-        const r = await fetch(apiUrl(baseUrl, "/api/categories"), {
-          headers: apiAuth(),
-        });
-        const data = r.ok ? ((await r.json()) as unknown) : [];
-        setCategories(Array.isArray(data) ? (data as Category[]) : []);
+        const [categoryRes, vendorRes, skuRes] = await Promise.all([
+          fetch(apiUrl(baseUrl, "/api/categories"), { headers: apiAuth() }),
+          fetch(apiUrl(baseUrl, "/api/vendors"), { headers: apiAuth() }),
+          fetch(apiUrl(baseUrl, "/api/products/next-ros-skus?count=1"), {
+            headers: apiAuth(),
+          }),
+        ]);
+        const categoryData = categoryRes.ok ? ((await categoryRes.json()) as unknown) : [];
+        const vendorData = vendorRes.ok ? ((await vendorRes.json()) as unknown) : [];
+        setCategories(Array.isArray(categoryData) ? (categoryData as Category[]) : []);
+        setVendors(Array.isArray(vendorData) ? (vendorData as Vendor[]) : []);
+        if (skuRes.ok) {
+          const skuData = (await skuRes.json()) as NextRosSkuResponse;
+          setRosSkuStart(Number.isFinite(skuData.start) ? skuData.start : 1);
+        }
       } catch {
         setCategories([]);
+        setVendors([]);
       }
     })();
   }, [baseUrl, apiAuth]);
@@ -90,7 +137,23 @@ export default function ProductMasterForm({
     [categories, categoryId],
   );
 
-  const canContinueToFinancials = name.trim() && categoryId;
+  useEffect(() => {
+    const category = categories.find((c) => c.id === categoryId);
+    const presets =
+      category?.variation_axis_presets?.length
+        ? category.variation_axis_presets
+        : [category?.matrix_row_axis_key, category?.matrix_col_axis_key].filter(
+            (axis): axis is string => Boolean(axis?.trim()),
+          );
+    setVariationTemplate(
+      presets.length
+        ? presets.slice(0, 3).map((axis) => ({ name: axis, optionsRaw: "" }))
+        : [{ name: "", optionsRaw: "" }],
+    );
+    setVariationTemplateVersion((v) => v + 1);
+  }, [categories, categoryId]);
+
+  const canContinueToFinancials = name.trim() && categoryId && primaryVendorId;
   const baseRetailCents = parseMoneyToCents(baseRetail || "0");
   const baseCostCents = parseMoneyToCents(baseCost || "0");
   const hasInvalidGeneratedRows = rows.some(
@@ -106,6 +169,10 @@ export default function ProductMasterForm({
 
   const submitProduct = async () => {
     if (!name.trim() || rows.length === 0) return;
+    if (!primaryVendorId) {
+      toast("Select a primary vendor before saving the item.", "error");
+      return;
+    }
     if (baseRetailCents < 0) {
       toast("Retail price must be zero or higher.", "error");
       return;
@@ -136,6 +203,7 @@ export default function ProductMasterForm({
         },
         body: JSON.stringify({
           category_id: categoryId || null,
+          primary_vendor_id: primaryVendorId,
           name: name.trim(),
           brand: brand.trim() || null,
           description: description.trim() || null,
@@ -162,6 +230,7 @@ export default function ProductMasterForm({
       setBaseCost("0.00");
       setTaxCategoryOverride("");
       setRows([]);
+      setPrimaryVendorId("");
       setStep("shell");
       setTrackLowStockTemplate(false);
       setPublishVariantsToWeb(false);
@@ -174,6 +243,72 @@ export default function ProductMasterForm({
       );
     } finally {
       setBusy(false);
+    }
+  };
+
+  const searchCopyProducts = async () => {
+    const q = copySearch.trim();
+    if (q.length < 2) {
+      toast("Enter at least two characters to search products to copy from.", "info");
+      return;
+    }
+    setCopyBusy(true);
+    try {
+      const res = await fetch(
+        apiUrl(baseUrl, `/api/inventory/control-board?search=${encodeURIComponent(q)}&limit=80`),
+        { headers: apiAuth() },
+      );
+      if (!res.ok) {
+        toast("We couldn't search products to copy from.", "error");
+        return;
+      }
+      const data = (await res.json()) as { rows?: CopyProductResult[] };
+      const byProduct = new Map<string, CopyProductResult>();
+      for (const row of data.rows ?? []) {
+        if (!byProduct.has(row.product_id)) byProduct.set(row.product_id, row);
+      }
+      setCopyResults([...byProduct.values()].slice(0, 12));
+    } finally {
+      setCopyBusy(false);
+    }
+  };
+
+  const copyVariationSetup = async (product: CopyProductResult) => {
+    setCopyBusy(true);
+    try {
+      const res = await fetch(apiUrl(baseUrl, `/api/products/${product.product_id}/hub`), {
+        headers: apiAuth(),
+      });
+      if (!res.ok) {
+        toast("We couldn't load that product setup.", "error");
+        return;
+      }
+      const hub = (await res.json()) as CopyProductHub;
+      const axesFromProduct = hub.product.variation_axes ?? [];
+      const axesToUse =
+        axesFromProduct.length > 0
+          ? axesFromProduct
+          : [
+              ...new Set(
+                hub.variants.flatMap((variant) =>
+                  Object.keys(variant.variation_values ?? {}),
+                ),
+              ),
+            ];
+      const template = axesToUse.slice(0, 5).map((axis) => {
+        const options = new Set<string>();
+        for (const variant of hub.variants) {
+          const raw = variant.variation_values?.[axis];
+          if (typeof raw === "string" && raw.trim()) options.add(raw.trim());
+          if (typeof raw === "number") options.add(String(raw));
+        }
+        return { name: axis, optionsRaw: [...options].join(", ") };
+      });
+      setVariationTemplate(template.length ? template : [{ name: "", optionsRaw: "" }]);
+      setVariationTemplateVersion((v) => v + 1);
+      toast(`Copied option setup from ${product.product_name}.`, "success");
+    } finally {
+      setCopyBusy(false);
     }
   };
 
@@ -245,9 +380,9 @@ export default function ProductMasterForm({
                   <h2 className="text-2xl font-black italic tracking-tighter text-app-text uppercase">
                     Item Details
                   </h2>
-                  <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
-                    Name and category first. Brand can be added later if needed.
-                  </p>
+	                  <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
+	                    Name, category, and primary vendor first. Brand can be added later if needed.
+	                  </p>
                 </div>
                 <div className="h-12 w-12 rounded-2xl bg-violet-100 flex items-center justify-center text-violet-600">
                   <Plus size={24} />
@@ -281,11 +416,29 @@ export default function ProductMasterForm({
                         {c.name}
                       </option>
                     ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                    Item Description
+	                  </select>
+	                </div>
+	                <div className="space-y-1.5">
+	                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
+	                    Primary Vendor
+	                  </label>
+	                  <select
+	                    value={primaryVendorId}
+	                    onChange={(e) => setPrimaryVendorId(e.target.value)}
+	                    className="ui-input h-14 text-sm font-bold"
+	                  >
+	                    <option value="">Select vendor...</option>
+	                    {vendors.map((v) => (
+	                      <option key={v.id} value={v.id}>
+	                        {v.name}
+	                        {v.vendor_code ? ` (${v.vendor_code})` : ""}
+	                      </option>
+	                    ))}
+	                  </select>
+	                </div>
+	                <div className="space-y-1.5">
+	                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
+	                    Item Description
                   </label>
                   <textarea
                     value={description}
@@ -303,11 +456,11 @@ export default function ProductMasterForm({
                     onChange={(e) => setBrand(e.target.value)}
                     placeholder="Leave blank unless the label matters for reports or tags"
                     className="ui-input h-14 text-sm font-bold"
-                  />
-                  <p className="px-1 text-[10px] font-semibold text-app-text-muted">
-                    Vendor is handled on purchase orders and product details; brand is only a descriptive label.
-                  </p>
-                </div>
+	                  />
+	                  <p className="px-1 text-[10px] font-semibold text-app-text-muted">
+	                    Primary vendor is required for ordering and receiving; brand is only a descriptive label.
+	                  </p>
+	                </div>
               </div>
 
               <div className="mt-8 flex justify-end">
@@ -456,12 +609,63 @@ export default function ProductMasterForm({
           )}
 
           {/* STEP 3: MATRIX */}
-          {step === "matrix" && (
-            <div className="space-y-6">
-              <VariationsBuilder
-                onGenerated={(generated, axisNames) => {
-                  setRows(generated);
-                  setAxes(axisNames);
+	          {step === "matrix" && (
+	            <div className="space-y-6">
+	              <section className="rounded-[2rem] border border-app-border bg-app-surface p-6 shadow-sm">
+	                <div className="flex flex-wrap items-end gap-3">
+	                  <div className="min-w-[240px] flex-1 space-y-1.5">
+	                    <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
+	                      Copy From
+	                    </label>
+	                    <input
+	                      value={copySearch}
+	                      onChange={(e) => setCopySearch(e.target.value)}
+	                      onKeyDown={(e) => {
+	                        if (e.key === "Enter") {
+	                          e.preventDefault();
+	                          void searchCopyProducts();
+	                        }
+	                      }}
+	                      placeholder="Find a similar existing item..."
+	                      className="ui-input h-12 text-sm font-bold"
+	                    />
+	                  </div>
+	                  <button
+	                    type="button"
+	                    disabled={copyBusy}
+	                    onClick={() => void searchCopyProducts()}
+	                    className="h-12 rounded-2xl border border-app-border bg-app-surface-2 px-5 text-[10px] font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:text-app-accent disabled:opacity-40"
+	                  >
+	                    {copyBusy ? "Searching..." : "Find Setup"}
+	                  </button>
+	                </div>
+	                {copyResults.length > 0 ? (
+	                  <div className="mt-4 grid gap-2 md:grid-cols-2">
+	                    {copyResults.map((product) => (
+	                      <button
+	                        key={product.product_id}
+	                        type="button"
+	                        onClick={() => void copyVariationSetup(product)}
+	                        className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-left transition-all hover:border-app-accent hover:text-app-accent"
+	                      >
+	                        <span className="block text-xs font-black text-app-text">
+	                          {product.product_name}
+	                        </span>
+	                        <span className="mt-1 block text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+	                          {[product.brand, product.category_name].filter(Boolean).join(" · ") || "Existing item"}
+	                        </span>
+	                      </button>
+	                    ))}
+	                  </div>
+	                ) : null}
+	              </section>
+	              <VariationsBuilder
+	                initialAxes={variationTemplate}
+	                templateVersion={variationTemplateVersion}
+	                skuStart={rosSkuStart}
+	                onGenerated={(generated, axisNames) => {
+	                  setRows(generated);
+	                  setAxes(axisNames);
                   if (generated.length > 0) setStep("review");
                 }}
               />

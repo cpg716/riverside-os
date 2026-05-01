@@ -128,7 +128,7 @@ interface OrderRowActions {
   onCancel: () => void;
   onReturnAll: () => void;
   deleteLine: (it: OrderItem) => void;
-  addBySku: () => Promise<boolean>;
+  addBySku: (skuOverride?: string) => Promise<boolean>;
   updateLine: (
     item: Pick<
       OrderItem,
@@ -583,9 +583,9 @@ export default function OrdersWorkspace({
     }
   }, [loadDetail, loadPipelineStats, loadTransactions, refreshSignal, selectedId]);
 
-  const addBySku = async (): Promise<boolean> => {
-    if (!detail || !sku.trim() || !canModify) return false;
-    const enteredSku = sku.trim();
+  const addBySku = async (skuOverride?: string): Promise<boolean> => {
+    const enteredSku = (skuOverride ?? sku).trim();
+    if (!detail || !enteredSku || !canModify) return false;
     let item: ScanItem;
     try {
       const scanRes = await fetch(

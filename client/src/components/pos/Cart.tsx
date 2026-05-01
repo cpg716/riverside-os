@@ -177,12 +177,14 @@ export default function Cart({
   // initialWeddingLookupOpen removed
   initialWeddingPosLink = null,
   onInitialWeddingPosLinkConsumed,
-  onSaleCompleted,
-  onRegisterTransactionCommitted,
-  onExitPosMode,
-  onCartInteraction,
-  receiptTimezone: receiptTimezoneProp,
-  onOpenWeddingParty,
+	  onSaleCompleted,
+	  onRegisterTransactionCommitted,
+	  onExitPosMode,
+	  pendingInventorySku = null,
+	  onPendingInventorySkuConsumed,
+	  onCartInteraction,
+	  receiptTimezone: receiptTimezoneProp,
+	  onOpenWeddingParty,
 }: CartProps) {
   const receiptTimezone =
     typeof receiptTimezoneProp === "string" && receiptTimezoneProp.trim()
@@ -329,9 +331,9 @@ export default function Cart({
     setPickupConfirmed,
     baseUrl,
     apiAuth,
-  });
+	  });
 
-  const clearCartAndAlterations = useCallback(() => {
+	  const clearCartAndAlterations = useCallback(() => {
     clearCart();
     setPendingAlterationIntakes([]);
     setEditingAlterationIntake(null);
@@ -768,7 +770,7 @@ export default function Cart({
   });
 
   // --- Persistence Hook ---
-  const { saleHydrated } = useCartPersistence({
+	  const { saleHydrated } = useCartPersistence({
     sessionId,
     lines,
     selectedCustomer,
@@ -788,11 +790,50 @@ export default function Cart({
     setCheckoutOperator,
     setPendingAlterationIntakes,
     setOrderPaymentLines,
-    clearCart: clearCartAndAlterations,
-  });
+	    clearCart: clearCartAndAlterations,
+	  });
+
+	  useEffect(() => {
+	    const sku = pendingInventorySku?.trim();
+	    if (!sku || !saleHydrated || !checkoutOperator) return;
+	    let cancelled = false;
+	    void (async () => {
+	      try {
+	        const res = await fetch(
+	          `${baseUrl}/api/inventory/scan/${encodeURIComponent(sku)}`,
+	          { headers: apiAuth() },
+	        );
+	        if (!res.ok) {
+	          toast("We couldn't add that inventory item to the sale. Try searching again or scan the SKU.", "error");
+	          return;
+	        }
+	        const payload = (await res.json()) as Record<string, unknown>;
+	        if (cancelled) return;
+	        addItem(scanPayloadToResolvedItem(payload) as SearchResult);
+	      } catch {
+	        if (!cancelled) {
+	          toast("We couldn't add that inventory item to the sale. Please try again.", "error");
+	        }
+	      } finally {
+	        if (!cancelled) onPendingInventorySkuConsumed?.();
+	      }
+	    })();
+	    return () => {
+	      cancelled = true;
+	    };
+	  }, [
+	    pendingInventorySku,
+	    saleHydrated,
+	    checkoutOperator,
+	    baseUrl,
+	    apiAuth,
+	    addItem,
+	    toast,
+	    onPendingInventorySkuConsumed,
+	  ]);
 
 
-  // pendingExchangeOriginalOrderIdRef removed
+	  // pendingExchangeOriginalOrderIdRef removed
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const didInitialProductSearchFocusRef = useRef(false);
   const initialTransactionApplyingRef = useRef<string | null>(null);
