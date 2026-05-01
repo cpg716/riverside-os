@@ -115,6 +115,10 @@ pub fn router() -> Router<AppState> {
         .route("/providers/helcim/status", get(get_helcim_provider_status))
         .route("/providers/helcim/purchase", post(start_helcim_purchase))
         .route("/providers/helcim/attempts/{id}", get(get_helcim_attempt))
+        .route(
+            "/providers/helcim/attempts/{id}/simulate",
+            post(simulate_helcim_attempt),
+        )
         .route("/customers/{id}/payment-methods", get(get_vaulted_methods))
         .route(
             "/customers/{id}/setup-intent",
@@ -159,8 +163,13 @@ pub struct HelcimPurchaseRequestBody {
     pub register_session_id: Option<Uuid>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct HelcimAttemptResponse {
+#[derive(Debug, Deserialize)]
+pub struct HelcimSimulateAttemptRequest {
+    pub outcome: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct HelcimAttemptRow {
     pub id: Uuid,
     pub provider: String,
     pub status: String,
@@ -176,6 +185,74 @@ pub struct HelcimAttemptResponse {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub raw_audit_reference: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimAttemptResponse {
+    pub id: Uuid,
+    pub provider: String,
+    pub status: String,
+    pub amount_cents: i64,
+    pub currency: String,
+    pub register_session_id: Option<Uuid>,
+    pub staff_id: Option<Uuid>,
+    pub device_id: Option<String>,
+    pub terminal_id: Option<String>,
+    pub idempotency_key: String,
+    pub provider_payment_id: Option<String>,
+    pub provider_transaction_id: Option<String>,
+    pub provider_auth_code: Option<String>,
+    pub provider_card_type: Option<String>,
+    pub card_brand: Option<String>,
+    pub card_last4: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub safe_message: Option<String>,
+    pub raw_audit_reference: Option<String>,
+}
+
+impl HelcimAttemptResponse {
+    fn from_row(
+        row: HelcimAttemptRow,
+        transaction: Option<helcim::HelcimCardTransaction>,
+        safe_message: Option<String>,
+    ) -> Self {
+        let provider_auth_code = transaction
+            .as_ref()
+            .and_then(|transaction| transaction.approval_code.clone());
+        let provider_card_type = transaction
+            .as_ref()
+            .and_then(|transaction| transaction.card_type.clone());
+        let card_brand = transaction
+            .as_ref()
+            .and_then(helcim::HelcimCardTransaction::card_brand);
+        let card_last4 = transaction
+            .as_ref()
+            .and_then(helcim::HelcimCardTransaction::card_last4);
+
+        Self {
+            id: row.id,
+            provider: row.provider,
+            status: row.status,
+            amount_cents: row.amount_cents,
+            currency: row.currency,
+            register_session_id: row.register_session_id,
+            staff_id: row.staff_id,
+            device_id: row.device_id,
+            terminal_id: row.terminal_id,
+            idempotency_key: row.idempotency_key,
+            provider_payment_id: row.provider_payment_id,
+            provider_transaction_id: row.provider_transaction_id,
+            provider_auth_code,
+            provider_card_type,
+            card_brand,
+            card_last4,
+            error_code: row.error_code,
+            error_message: row.error_message,
+            safe_message,
+            raw_audit_reference: row.raw_audit_reference,
+        }
+    }
 }
 
 fn looks_placeholder(value: &str) -> bool {
@@ -303,9 +380,6 @@ async fn start_helcim_purchase(
     }
 
     let config = helcim::HelcimConfig::from_env();
-    let token = config.api_token().ok_or_else(|| {
-        PaymentError::InvalidPayload("Helcim is selected but not configured.".to_string())
-    })?;
     let terminal_id = config.device_code().ok_or_else(|| {
         PaymentError::InvalidPayload("Helcim device code is not configured.".to_string())
     })?;
@@ -360,6 +434,15 @@ async fn start_helcim_purchase(
         return Err(PaymentError::InvalidPayload(e.to_string()));
     }
 
+    if config.simulator_enabled() {
+        return load_helcim_attempt(&state, attempt_id, None)
+            .await
+            .map(Json);
+    }
+
+    let token = config.api_token().ok_or_else(|| {
+        PaymentError::InvalidPayload("Helcim is selected but not configured.".to_string())
+    })?;
     let request_payload =
         helcim::build_purchase_request_payload(payload.amount_cents, currency.clone());
     let url = format!(
@@ -460,6 +543,102 @@ async fn start_helcim_purchase(
         .map(Json)
 }
 
+async fn simulate_helcim_attempt(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(attempt_id): Path<Uuid>,
+    Json(payload): Json<HelcimSimulateAttemptRequest>,
+) -> Result<Json<HelcimAttemptResponse>, PaymentError> {
+    let config = helcim::HelcimConfig::from_env();
+    if !config.simulator_enabled() {
+        return Err(PaymentError::Forbidden(
+            "Helcim simulator is not enabled.".to_string(),
+        ));
+    }
+
+    let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_pay_session)?;
+    let session_id = match auth {
+        middleware::StaffOrPosSession::PosSession { session_id } => Some(session_id),
+        middleware::StaffOrPosSession::Staff(_) => None,
+    };
+    let attempt = load_helcim_attempt_row(&state, attempt_id).await?;
+    if let Some(session_id) = session_id {
+        if attempt.register_session_id != Some(session_id) {
+            return Err(PaymentError::Forbidden(
+                "Helcim attempt does not belong to this register session.".to_string(),
+            ));
+        }
+    }
+    if attempt.status != "pending" {
+        return Err(PaymentError::InvalidPayload(
+            "Only pending Helcim attempts can be simulated.".to_string(),
+        ));
+    }
+
+    let outcome = payload.outcome.trim().to_ascii_lowercase();
+    let transaction_id = format!("helcim-sim-{attempt_id}");
+    let (status, error_code, error_message, provider_payment_id, provider_transaction_id) =
+        match outcome.as_str() {
+            "approve" | "approved" | "capture" | "captured" => (
+                "approved",
+                None,
+                None,
+                Some(transaction_id.clone()),
+                Some(transaction_id.clone()),
+            ),
+            "decline" | "declined" | "fail" | "failed" => (
+                "failed",
+                Some("simulated_decline"),
+                Some("Simulated Helcim decline."),
+                Some(transaction_id.clone()),
+                Some(transaction_id.clone()),
+            ),
+            "cancel" | "canceled" | "cancelled" => (
+                "canceled",
+                Some("simulated_cancel"),
+                Some("Simulated Helcim terminal cancel."),
+                None,
+                None,
+            ),
+            _ => {
+                return Err(PaymentError::InvalidPayload(
+                    "outcome must be approve, decline, or cancel".to_string(),
+                ));
+            }
+        };
+
+    let audit = format!("helcim-sim:{status}:{attempt_id}");
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = $2,
+            provider_payment_id = $3,
+            provider_transaction_id = $4,
+            error_code = $5,
+            error_message = $6,
+            raw_audit_reference = $7,
+            completed_at = now()
+        WHERE id = $1 AND provider = 'helcim' AND status = 'pending'
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(status)
+    .bind(provider_payment_id)
+    .bind(provider_transaction_id)
+    .bind(error_code)
+    .bind(error_message)
+    .bind(audit)
+    .execute(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    load_helcim_attempt(&state, attempt_id, session_id)
+        .await
+        .map(Json)
+}
+
 async fn get_helcim_attempt(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -482,7 +661,63 @@ async fn load_helcim_attempt(
     attempt_id: Uuid,
     pos_session_id: Option<Uuid>,
 ) -> Result<HelcimAttemptResponse, PaymentError> {
-    let attempt = sqlx::query_as::<_, HelcimAttemptResponse>(
+    let attempt = load_helcim_attempt_row(state, attempt_id).await?;
+
+    if let Some(session_id) = pos_session_id {
+        if attempt.register_session_id != Some(session_id) {
+            return Err(PaymentError::Forbidden(
+                "Helcim attempt does not belong to this register session.".to_string(),
+            ));
+        }
+    }
+
+    let (transaction, safe_message) = match attempt.provider_transaction_id.as_deref() {
+        Some(transaction_id) if transaction_id.starts_with("helcim-sim-") => (
+            Some(helcim::simulated_card_transaction(
+                transaction_id,
+                attempt.amount_cents,
+                attempt.currency.clone(),
+                attempt.status.clone(),
+            )),
+            Some("Helcim simulator response.".to_string()),
+        ),
+        Some(transaction_id)
+            if matches!(attempt.status.as_str(), "approved" | "captured" | "failed") =>
+        {
+            let config = helcim::HelcimConfig::from_env();
+            match helcim::fetch_card_transaction(&state.http_client, &config, transaction_id).await
+            {
+                Ok(transaction) => (Some(transaction), None),
+                Err(error) => {
+                    tracing::warn!(
+                        target = "helcim",
+                        attempt_id = %attempt.id,
+                        transaction_id = %transaction_id,
+                        error = %error,
+                        "could not enrich Helcim attempt status"
+                    );
+                    (
+                        None,
+                        Some("Helcim payment status is recorded; card details are not available yet.".to_string()),
+                    )
+                }
+            }
+        }
+        _ => (None, None),
+    };
+
+    Ok(HelcimAttemptResponse::from_row(
+        attempt,
+        transaction,
+        safe_message,
+    ))
+}
+
+async fn load_helcim_attempt_row(
+    state: &AppState,
+    attempt_id: Uuid,
+) -> Result<HelcimAttemptRow, PaymentError> {
+    sqlx::query_as::<_, HelcimAttemptRow>(
         r#"
         SELECT id, provider, status, amount_cents, currency, register_session_id, staff_id,
                device_id, terminal_id, idempotency_key, provider_payment_id,
@@ -495,17 +730,7 @@ async fn load_helcim_attempt(
     .fetch_optional(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
-    .ok_or_else(|| PaymentError::InvalidPayload("Helcim attempt not found.".to_string()))?;
-
-    if let Some(session_id) = pos_session_id {
-        if attempt.register_session_id != Some(session_id) {
-            return Err(PaymentError::Forbidden(
-                "Helcim attempt does not belong to this register session.".to_string(),
-            ));
-        }
-    }
-
-    Ok(attempt)
+    .ok_or_else(|| PaymentError::InvalidPayload("Helcim attempt not found.".to_string()))
 }
 
 async fn get_vaulted_methods(

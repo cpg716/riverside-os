@@ -115,10 +115,18 @@ Server-side Helcim environment variables:
 - `HELCIM_API_TOKEN`
 - `HELCIM_DEVICE_CODE`
 - `HELCIM_API_BASE_URL` (optional; defaults to `https://api.helcim.com/v2`)
+- `HELCIM_WEBHOOK_SECRET` (Helcim webhook verifier token; server-side only)
+- `HELCIM_SIMULATOR_ENABLED` (dev only; ignored when `RIVERSIDE_STRICT_PRODUCTION=true`)
 
-`HELCIM_API_TOKEN` must remain server-side only. It is never returned by status or purchase endpoints and must not be placed in client env files or browser-visible settings.
+`HELCIM_API_TOKEN` and `HELCIM_WEBHOOK_SECRET` must remain server-side only. They are never returned by status, purchase, or attempt endpoints and must not be placed in client env files or browser-visible settings.
 
-`POST /api/payments/providers/helcim/purchase` creates a `payment_provider_attempts` row, enforces one pending Helcim attempt per configured device, sends the purchase request to Helcim, and treats Helcim `202 Accepted` as `pending`. POS shows the pending state and does not add a completed tender or finalize checkout until approval is confirmed through `GET /api/payments/providers/helcim/attempts/{id}`. Webhook confirmation, refunds, and saved-card/vaulting are not implemented in this phase.
+`POST /api/payments/providers/helcim/purchase` creates a `payment_provider_attempts` row, enforces one pending Helcim attempt per configured device, sends the purchase request to Helcim, and treats Helcim `202 Accepted` as `pending`. `202 Accepted` means the terminal request was sent; it does not mean the customer paid.
+
+Helcim completion is confirmed through signed webhooks at `POST /api/webhooks/helcim`. The server verifies Helcim webhook signatures before accepting the event. `cardTransaction` events trigger a server-side transaction lookup, normalize approved/declined details onto the pending attempt, and release the pending terminal lock. `terminalCancel` marks the matching pending attempt canceled. POS polls `GET /api/payments/providers/helcim/attempts/{id}` and only adds a Helcim card tender after the attempt is approved or captured. Failed or canceled attempts are never converted into payment splits.
+
+Refunds and saved-card/vaulting remain future provider-specific work. Stripe vaulting remains Stripe-specific.
+
+For local demos without Helcim hardware, `HELCIM_SIMULATOR_ENABLED=true` makes the Helcim provider available with an internal `SIM1` device. POS still creates a normal pending provider attempt, but development-only simulator controls can approve, decline, or cancel that attempt without calling Helcim. The simulator never runs when `RIVERSIDE_STRICT_PRODUCTION=true` and should not be used for sandbox or live provider validation.
 
 ---
 

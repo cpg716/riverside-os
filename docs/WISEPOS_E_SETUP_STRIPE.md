@@ -6,7 +6,9 @@ Stripe remains the default compatibility card provider in Riverside OS, and Sett
 
 Provider attempt records are audit/control rows only. They are intended for future pending/approved/canceled terminal flows and do not replace `payment_transactions`, receipt payment summaries, Stripe PaymentIntents, or refund handling.
 
-The server can also detect Helcim backend configuration through `HELCIM_API_TOKEN`, `HELCIM_DEVICE_CODE`, and optional `HELCIM_API_BASE_URL`. The Helcim token stays server-side only. When Helcim is selected, POS card reader payments create a Helcim provider attempt and remain pending until terminal approval is confirmed. Refunds, saved-card behavior, and webhooks are future provider-specific work.
+The server can also detect Helcim backend configuration through `HELCIM_API_TOKEN`, `HELCIM_DEVICE_CODE`, optional `HELCIM_API_BASE_URL`, and `HELCIM_WEBHOOK_SECRET`. Helcim secrets stay server-side only. When Helcim is selected, POS card reader payments create a Helcim provider attempt and remain pending until signed webhook confirmation marks the terminal attempt approved or declined. `202 Accepted` from Helcim means the request reached the terminal, not that the payment is complete. Refunds and saved-card behavior are future provider-specific work.
+
+For local demos only, `HELCIM_SIMULATOR_ENABLED=true` enables internal POS controls to approve, decline, or cancel a pending Helcim attempt without Helcim hardware. This is disabled automatically when `RIVERSIDE_STRICT_PRODUCTION=true` and is not a substitute for sandbox/live device validation.
 
 Settings > Payment Processing shows Stripe status, Helcim status, the selected active provider, masked Helcim device-code visibility, API host visibility, and warnings when the selected provider is not fully configured. This does not change WisePOS E setup or the Stripe PaymentIntent path when Stripe is active.
 

@@ -1,6 +1,7 @@
 //! POS checkout: split resolution, validation, and transactional persistence.
 
 use chrono::Utc;
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1429,6 +1430,100 @@ fn resolve_payment_splits(
     ))
 }
 
+async fn validate_helcim_payment_splits(
+    pool: &PgPool,
+    payment_splits: &[ResolvedPaymentSplit],
+) -> Result<(), CheckoutError> {
+    for split in payment_splits {
+        if split.payment_provider.as_deref() != Some("helcim") {
+            continue;
+        }
+
+        let provider_transaction_id = split
+            .provider_transaction_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let provider_payment_id = split
+            .provider_payment_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        if provider_transaction_id.is_none() && provider_payment_id.is_none() {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim card payment is missing its approved transaction reference".to_string(),
+            ));
+        }
+
+        let split_amount_cents = (split.amount.round_dp(2) * Decimal::from(100))
+            .to_i64()
+            .ok_or_else(|| {
+                CheckoutError::InvalidPayload("Helcim card payment amount is not valid".to_string())
+            })?;
+
+        let attempt: Option<(String, i64)> = sqlx::query_as(
+            r#"
+            SELECT status, amount_cents
+            FROM payment_provider_attempts
+            WHERE provider = 'helcim'
+              AND (
+                ($1::text IS NOT NULL AND provider_transaction_id = $1)
+                OR ($2::text IS NOT NULL AND provider_payment_id = $2)
+              )
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(provider_transaction_id)
+        .bind(provider_payment_id)
+        .fetch_optional(pool)
+        .await?;
+        let Some((attempt_status, attempt_amount_cents)) = attempt else {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim card payment has not been confirmed by the terminal".to_string(),
+            ));
+        };
+
+        if !matches!(attempt_status.as_str(), "approved" | "captured") {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim card payment must be approved before checkout can be completed".to_string(),
+            ));
+        }
+        if attempt_amount_cents != split_amount_cents {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim card payment amount does not match the approved terminal amount"
+                    .to_string(),
+            ));
+        }
+
+        let already_recorded: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM payment_transactions
+                WHERE COALESCE(payment_provider, '') = 'helcim'
+                  AND (
+                    ($1::text IS NOT NULL AND provider_transaction_id = $1)
+                    OR ($2::text IS NOT NULL AND provider_payment_id = $2)
+                  )
+            )
+            "#,
+        )
+        .bind(provider_transaction_id)
+        .bind(provider_payment_id)
+        .fetch_one(pool)
+        .await?;
+        if already_recorded {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim card payment has already been used on another transaction".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 async fn prepare_live_corecard_postings(
     pool: &PgPool,
     http: &reqwest::Client,
@@ -2154,6 +2249,8 @@ pub async fn execute_checkout(
             }
         }
     }
+
+    validate_helcim_payment_splits(pool, &payment_splits).await?;
 
     if payload.is_tax_exempt
         && payload

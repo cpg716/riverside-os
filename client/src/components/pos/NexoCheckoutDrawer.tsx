@@ -52,6 +52,7 @@ interface PaymentProviderSettings {
   helcim: {
     enabled: boolean;
     device_configured: boolean;
+    simulator_enabled?: boolean;
     device_code_suffix?: string | null;
     api_base_host: string;
     missing_config: string[];
@@ -66,7 +67,12 @@ interface HelcimAttempt {
   terminal_id?: string | null;
   provider_payment_id?: string | null;
   provider_transaction_id?: string | null;
+  provider_auth_code?: string | null;
+  provider_card_type?: string | null;
+  card_brand?: string | null;
+  card_last4?: string | null;
   error_message?: string | null;
+  safe_message?: string | null;
 }
 
 interface RmsChargeAccountChoice {
@@ -668,6 +674,10 @@ export default function NexoCheckoutDrawer({
             provider_payment_id: attempt.provider_payment_id ?? undefined,
             provider_transaction_id: attempt.provider_transaction_id ?? undefined,
             provider_terminal_id: attempt.terminal_id ?? undefined,
+            provider_auth_code: attempt.provider_auth_code ?? undefined,
+            provider_card_type: attempt.provider_card_type ?? undefined,
+            card_brand: attempt.card_brand ?? undefined,
+            card_last4: attempt.card_last4 ?? undefined,
           },
         },
       ]);
@@ -712,6 +722,64 @@ export default function NexoCheckoutDrawer({
     },
     [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, toast],
   );
+
+  const simulateHelcimAttempt = useCallback(
+    async (attemptId: string, outcome: "approve" | "decline" | "cancel") => {
+      setHelcimAttemptLoading(true);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/simulate`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...mergedPosStaffHeaders(backofficeHeaders),
+            },
+            body: JSON.stringify({ outcome }),
+          },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(body.error ?? "Could not simulate Helcim payment.");
+        }
+        const attempt = (await res.json()) as HelcimAttempt;
+        setHelcimAttempt(attempt);
+        if (attempt.status === "approved" || attempt.status === "captured") {
+          addApprovedHelcimAttempt(attempt);
+          toast("Simulated Helcim approval.", "success");
+        } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
+          pendingHelcimCentsRef.current = 0;
+          toast(attempt.error_message ?? "Simulated Helcim payment did not complete.", "info");
+        }
+      } catch (error) {
+        toast(
+          error instanceof Error ? error.message : "Could not simulate Helcim payment.",
+          "error",
+        );
+      } finally {
+        setHelcimAttemptLoading(false);
+      }
+    },
+    [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, toast],
+  );
+
+  useEffect(() => {
+    if (!isOpen || helcimAttempt?.status !== "pending" || helcimAttemptLoading) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void refreshHelcimAttempt(helcimAttempt.id);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [
+    helcimAttempt?.id,
+    helcimAttempt?.status,
+    helcimAttemptLoading,
+    isOpen,
+    refreshHelcimAttempt,
+  ]);
 
   const applyAmountToTab = useCallback(async (keypadCents: number) => {
     // Magnitude-based capping: we apply the keypad amount up to the magnitude of the remaining balance,
@@ -1296,6 +1364,63 @@ export default function NexoCheckoutDrawer({
                           </button>
                         )}
                       </div>
+                      {providerSettings?.active_provider === "helcim" && helcimAttempt && (
+                        <div className="mt-2 space-y-2">
+                          <p
+                            className={[
+                              "rounded-lg px-3 py-2",
+                              helcimAttempt.status === "pending"
+                                ? "bg-app-info/10 text-app-info"
+                                : ["failed", "canceled", "expired"].includes(helcimAttempt.status)
+                                  ? "bg-app-danger/10 text-app-danger"
+                                  : "bg-app-success/10 text-app-success",
+                            ].join(" ")}
+                          >
+                            {helcimAttempt.status === "pending"
+                              ? "Waiting for terminal approval. Do not finalize until approval is confirmed."
+                              : ["failed", "canceled", "expired"].includes(helcimAttempt.status)
+                                ? (helcimAttempt.safe_message ??
+                                    helcimAttempt.error_message ??
+                                    "Helcim payment did not complete. Try again when ready.")
+                                : "Helcim payment approved."}
+                          </p>
+                          {providerSettings.helcim.simulator_enabled &&
+                            helcimAttempt.status === "pending" && (
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={helcimAttemptLoading}
+                                  onClick={() =>
+                                    void simulateHelcimAttempt(helcimAttempt.id, "approve")
+                                  }
+                                  className="min-h-9 rounded-lg border border-app-success/30 bg-app-success/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-success disabled:opacity-50"
+                                >
+                                  Sim Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={helcimAttemptLoading}
+                                  onClick={() =>
+                                    void simulateHelcimAttempt(helcimAttempt.id, "decline")
+                                  }
+                                  className="min-h-9 rounded-lg border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
+                                >
+                                  Sim Decline
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={helcimAttemptLoading}
+                                  onClick={() =>
+                                    void simulateHelcimAttempt(helcimAttempt.id, "cancel")
+                                  }
+                                  className="min-h-9 rounded-lg border border-app-border bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted disabled:opacity-50"
+                                >
+                                  Sim Cancel
+                                </button>
+                              </div>
+                            )}
+                        </div>
+                      )}
                     </div>
                   )}
 
