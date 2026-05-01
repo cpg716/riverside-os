@@ -26,6 +26,7 @@ use crate::auth::pins::AuthenticatedStaff;
 use crate::logic::shippo::{self, ShippoError};
 use crate::logic::store_cart_resolve;
 use crate::logic::store_catalog;
+use crate::logic::store_checkout;
 use crate::logic::store_guest_cart;
 use crate::logic::store_media_asset;
 use crate::logic::store_promotions::{self, CouponError};
@@ -96,6 +97,85 @@ impl IntoResponse for StoreApiError {
 impl From<ShippoError> for StoreApiError {
     fn from(e: ShippoError) -> Self {
         StoreApiError::Shippo(e)
+    }
+}
+
+fn store_checkout_error_response(e: store_checkout::StoreCheckoutError) -> Response {
+    let (status, message) = match e {
+        store_checkout::StoreCheckoutError::Invalid(message) => (StatusCode::BAD_REQUEST, message),
+        store_checkout::StoreCheckoutError::Provider(message) => (StatusCode::BAD_GATEWAY, message),
+        store_checkout::StoreCheckoutError::NotFound => (
+            StatusCode::NOT_FOUND,
+            "checkout session not found".to_string(),
+        ),
+        store_checkout::StoreCheckoutError::NotReady => (
+            StatusCode::CONFLICT,
+            "checkout session is not ready for that action".to_string(),
+        ),
+        store_checkout::StoreCheckoutError::Database(error) => {
+            tracing::error!(error = %error, "store checkout database error");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "database error".to_string(),
+            )
+        }
+        store_checkout::StoreCheckoutError::Stripe(error) => {
+            tracing::error!(error = %error, "store checkout Stripe error");
+            (
+                StatusCode::BAD_GATEWAY,
+                "payment processor unavailable".to_string(),
+            )
+        }
+    };
+    (status, Json(json!({ "error": message }))).into_response()
+}
+
+async fn get_checkout_config(State(state): State<AppState>) -> impl IntoResponse {
+    match store_checkout::checkout_config(&state.db).await {
+        Ok(config) => (StatusCode::OK, Json(json!(config))).into_response(),
+        Err(e) => store_checkout_error_response(e),
+    }
+}
+
+async fn post_checkout_session(
+    State(state): State<AppState>,
+    Json(body): Json<store_checkout::CreateCheckoutSessionInput>,
+) -> impl IntoResponse {
+    match store_checkout::create_session(&state, body).await {
+        Ok(session) => (StatusCode::CREATED, Json(json!(session))).into_response(),
+        Err(e) => store_checkout_error_response(e),
+    }
+}
+
+async fn get_checkout_session(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+) -> impl IntoResponse {
+    match store_checkout::load_session(&state.db, session_id).await {
+        Ok(session) => (StatusCode::OK, Json(json!(session))).into_response(),
+        Err(e) => store_checkout_error_response(e),
+    }
+}
+
+async fn post_checkout_payment(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<store_checkout::CreatePaymentInput>,
+) -> impl IntoResponse {
+    match store_checkout::create_payment(&state, session_id, body).await {
+        Ok(payment) => (StatusCode::OK, Json(json!(payment))).into_response(),
+        Err(e) => store_checkout_error_response(e),
+    }
+}
+
+async fn post_checkout_confirm(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<store_checkout::ConfirmPaymentInput>,
+) -> impl IntoResponse {
+    match store_checkout::confirm_payment(&state, session_id, body).await {
+        Ok(payment) => (StatusCode::OK, Json(json!(payment))).into_response(),
+        Err(e) => store_checkout_error_response(e),
     }
 }
 
@@ -1349,6 +1429,17 @@ pub fn public_router() -> Router<AppState> {
             get(get_cart_session)
                 .put(put_cart_session)
                 .delete(delete_cart_session),
+        )
+        .route("/checkout/config", get(get_checkout_config))
+        .route("/checkout/session", post(post_checkout_session))
+        .route("/checkout/session/{id}", get(get_checkout_session))
+        .route(
+            "/checkout/session/{id}/payment",
+            post(post_checkout_payment),
+        )
+        .route(
+            "/checkout/session/{id}/confirm",
+            post(post_checkout_confirm),
         )
         .route("/media/{id}", get(get_store_media))
         .route("/tax/preview", get(tax_preview_handler))

@@ -124,7 +124,7 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 - **`server/src/auth/store_customer_password.rs`**, **`store_customer_jwt.rs`** — Argon2 + HS256 for storefront accounts (not staff PIN rules).
 - **`server/src/logic/store_customer_account.rs`** — normalized email lookup + credential insert helpers.
 - **`server/src/logic/store_catalog.rs`** — list/detail + **`map_web_variants_by_id`** (cart resolution).
-- **`server/src/logic/store_cart_resolve.rs`**, **`store_guest_cart.rs`**, **`store_media_asset.rs`** — merge/pricing helper, guest cart persistence, uploaded image blobs.
+- **`server/src/logic/store_cart_resolve.rs`**, **`store_guest_cart.rs`**, **`store_checkout.rs`**, **`store_media_asset.rs`** — merge/pricing helper, guest cart persistence, provider-neutral web checkout sessions, uploaded image blobs.
 - **`server/src/logic/store_promotions.rs`**, **`store_tax.rs`** — coupons and web tax preview (**`web_tax_preview`**: pickup vs ship-to NY vs out-of-state).
 
 ---
@@ -132,6 +132,7 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 ## Money and security
 
 - Server totals use **`rust_decimal::Decimal`** (cart lines, tax preview, coupons).
+- Paid web checkout uses **`store_checkout_session`** + **`store_checkout_payment_attempt`** before finalization. Stripe uses PaymentIntent + Stripe Elements; Helcim uses HelcimPay.js initialization and validates the returned response hash server-side before ROS creates a **`sale_channel = web`** transaction.
 - Storefront **account** passwords are **Argon2** (min **8** characters); protect **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** like any session signing key. **Trust `X-Forwarded-For` only** from your own edge/proxy; otherwise clients can spoof IPs and shift rate-limit buckets.
 - Treat **published HTML** and **embed snippets** (Podium, Constant Contact) as **untrusted** until sanitized / CSP allowlisted — see **`PLAN_ONLINE_STORE_MODULE.md`** §5 and **`PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`**.
 
@@ -139,8 +140,7 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 
 ## Still planned (see **`PLAN_ONLINE_STORE_MODULE.md`**)
 
-- Stripe **web checkout** and **`orders.sale_channel = web`** on paid carts (persist **fulfillment**, **ship-to**, **tax disclaimer**, **rate quote** on the order).
 - Deeper **cart** features (merge rules across devices, abandoned-cart analytics).
 - **Insights** / Orders UI pivots on **`sale_channel`**.
 
-**Last reviewed:** 2026-04-05
+**Last reviewed:** 2026-05-01

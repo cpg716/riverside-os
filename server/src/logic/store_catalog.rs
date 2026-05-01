@@ -261,12 +261,14 @@ pub async fn get_store_product_by_slug(
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct StoreWebVariantOffer {
     pub variant_id: Uuid,
+    pub product_id: Uuid,
     pub product_slug: String,
     pub product_name: String,
     pub sku: String,
     pub variation_label: Option<String>,
     pub available_stock: i32,
     pub unit_price: Decimal,
+    pub unit_cost: Decimal,
     pub primary_image: Option<String>,
 }
 
@@ -281,12 +283,14 @@ pub async fn map_web_variants_by_id(
         r#"
         SELECT
             pv.id AS variant_id,
+            p.id AS product_id,
             btrim(p.catalog_handle) AS product_slug,
             p.name AS product_name,
             pv.sku,
             pv.variation_label,
             GREATEST(0, pv.stock_on_hand - pv.reserved_stock)::integer AS available_stock,
             COALESCE(pv.web_price_override, pv.retail_price_override, p.base_retail_price) AS unit_price,
+            p.base_cost AS unit_cost,
             CASE
                 WHEN p.images IS NOT NULL AND cardinality(p.images) > 0 THEN p.images[1]
                 ELSE NULL

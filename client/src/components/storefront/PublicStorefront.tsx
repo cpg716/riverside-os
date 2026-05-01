@@ -5,6 +5,13 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import {
+  Elements,
+  PaymentElement,
+  useElements,
+  useStripe,
+} from "@stripe/react-stripe-js";
+import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { apiUrl } from "../../lib/apiUrl";
@@ -41,6 +48,8 @@ type Route =
   | { kind: "plp" }
   | { kind: "pdp"; slug: string }
   | { kind: "cart" }
+  | { kind: "checkout" }
+  | { kind: "checkout-complete"; sessionId?: string }
   | { kind: "account"; view: StoreAccountView; orderId?: string };
 
 function parseRoute(pathname: string): Route {
@@ -49,6 +58,14 @@ function parseRoute(pathname: string): Route {
   const tail = norm.slice("/shop".length).replace(/^\//, "");
   if (!tail) return { kind: "landing" };
   if (tail === "cart") return { kind: "cart" };
+  if (tail === "checkout") return { kind: "checkout" };
+  if (tail === "checkout/complete") {
+    const sp = new URLSearchParams(window.location.search);
+    return {
+      kind: "checkout-complete",
+      sessionId: sp.get("session") ?? undefined,
+    };
+  }
   if (tail === "products") return { kind: "plp" };
   if (tail.startsWith("account")) {
     const sub = tail === "account" ? "" : tail.slice("account".length).replace(/^\//, "");
@@ -139,10 +156,67 @@ interface StoreShippingRateRow {
   estimated_days?: string | null;
 }
 
+interface CheckoutProviderReadiness {
+  provider: "stripe" | "helcim";
+  enabled: boolean;
+  label: string;
+  detail: string;
+  missing_config: string[];
+}
+
+interface CheckoutConfigResponse {
+  web_checkout_enabled: boolean;
+  default_provider: "stripe" | "helcim";
+  providers: CheckoutProviderReadiness[];
+  stripe_public_key?: string | null;
+}
+
+interface CheckoutSessionResponse {
+  id: string;
+  status: string;
+  selected_provider: "stripe" | "helcim";
+  subtotal_usd: string;
+  discount_usd: string;
+  tax_usd: string;
+  shipping_usd: string;
+  total_usd: string;
+  finalized_transaction_id?: string | null;
+  lines?: unknown;
+  coupon_code?: string | null;
+}
+
+interface CheckoutPaymentResponse {
+  checkout_session_id: string;
+  provider: "stripe" | "helcim";
+  status: string;
+  amount_cents: number;
+  provider_payment_id?: string | null;
+  client_secret?: string | null;
+  checkout_token?: string | null;
+  hosted_payment_url?: string | null;
+  message?: string | null;
+}
+
+interface CheckoutConfirmResponse {
+  checkout_session_id: string;
+  provider: "stripe" | "helcim";
+  status: string;
+  transaction_id?: string | null;
+  transaction_display_id?: string | null;
+}
+
+declare global {
+  interface Window {
+    appendHelcimPayIframe?: (checkoutToken: string, allowExit?: boolean) => void;
+  }
+}
+
 const SHIP_TO_STORAGE_KEY = "ros.store.shipTo.v1";
 const CART_SESSION_STORAGE_KEY = "ros.store.cartSessionId.v1";
 const FULFILLMENT_STORAGE_KEY = "ros.store.fulfillment.v1";
 const STORE_ACCOUNT_JWT_KEY = "ros.store.customerJwt.v1";
+const SHIPPING_QUOTE_STORAGE_KEY = "ros.store.shippingQuoteId.v1";
+const CHECKOUT_COUPON_STORAGE_KEY = "ros.store.checkoutCoupon.v1";
 
 function readStoreAccountJwt(): string | null {
   try {
@@ -1529,6 +1603,18 @@ function StorefrontBody({
       <ProductDetail slug={route.slug} navigate={navigate} toast={toast} />
     );
   }
+  if (route.kind === "checkout") {
+    return <CheckoutPane navigate={navigate} toast={toast} />;
+  }
+  if (route.kind === "checkout-complete") {
+    return (
+      <CheckoutCompletePane
+        sessionId={route.sessionId}
+        navigate={navigate}
+        toast={toast}
+      />
+    );
+  }
   return <CartPane navigate={navigate} toast={toast} />;
 }
 
@@ -2082,6 +2168,30 @@ function CartPane({
     }
   }, [fulfillment]);
 
+  useEffect(() => {
+    try {
+      if (selectedQuoteId) {
+        window.localStorage.setItem(SHIPPING_QUOTE_STORAGE_KEY, selectedQuoteId);
+      } else {
+        window.localStorage.removeItem(SHIPPING_QUOTE_STORAGE_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [selectedQuoteId]);
+
+  useEffect(() => {
+    try {
+      if (coupon.trim()) {
+        window.localStorage.setItem(CHECKOUT_COUPON_STORAGE_KEY, coupon.trim());
+      } else {
+        window.localStorage.removeItem(CHECKOUT_COUPON_STORAGE_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [coupon]);
+
   const refreshCart = useCallback(() => {
     const raw = window.localStorage.getItem("ros.store.cart.v1");
     setLines(
@@ -2618,10 +2728,723 @@ function CartPane({
 
       <Button
         type="button"
+        disabled={
+          lines.length === 0 ||
+          resolvedLines.length === 0 ||
+          pricedLoading ||
+          (fulfillment === "ship" && (!selectedQuoteId || ratesStale))
+        }
+        className="w-full border-b-8 border-emerald-800 bg-emerald-600 py-6 text-sm font-black uppercase tracking-widest text-white shadow-lg hover:bg-emerald-600 disabled:opacity-40"
+        onClick={() => {
+          if (coupon.trim()) {
+            window.localStorage.setItem(CHECKOUT_COUPON_STORAGE_KEY, coupon.trim());
+          }
+          if (selectedQuoteId) {
+            window.localStorage.setItem(SHIPPING_QUOTE_STORAGE_KEY, selectedQuoteId);
+          }
+          navigate("/shop/checkout");
+        }}
+      >
+        Checkout
+      </Button>
+
+      <Button
+        type="button"
         variant="link"
         className="h-auto p-0 text-[10px] font-black uppercase tracking-widest"
         onClick={() => navigate("/shop/products")}
       >
+        Continue shopping
+      </Button>
+    </div>
+  );
+}
+
+function CheckoutPane({
+  navigate,
+  toast,
+}: {
+  navigate: (p: string) => void;
+  toast: (m: string, t?: "success" | "error" | "info") => void;
+}) {
+  const [lines, setLines] = useState<CartLineLocal[]>([]);
+  const [contact, setContact] = useState({
+    name: "",
+    email: "",
+    phone: "",
+  });
+  const [coupon] = useState(() => {
+    try {
+      return window.localStorage.getItem(CHECKOUT_COUPON_STORAGE_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [fulfillment] = useState<StoreFulfillmentMode>(() =>
+    readStoredFulfillment(),
+  );
+  const [shipTo] = useState<StoreShipToForm>(() => {
+    try {
+      const raw = window.localStorage.getItem(SHIP_TO_STORAGE_KEY);
+      if (raw) {
+        const o = JSON.parse(raw) as Partial<StoreShipToForm>;
+        return {
+          name: String(o.name ?? ""),
+          street1: String(o.street1 ?? ""),
+          city: String(o.city ?? ""),
+          state: String(o.state ?? "NY").toUpperCase().slice(0, 2),
+          zip: String(o.zip ?? ""),
+          country: String(o.country ?? "US").toUpperCase().slice(0, 2) || "US",
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+    return {
+      name: "",
+      street1: "",
+      city: "",
+      state: "NY",
+      zip: "",
+      country: "US",
+    };
+  });
+  const [selectedQuoteId] = useState(() => {
+    try {
+      return window.localStorage.getItem(SHIPPING_QUOTE_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const [config, setConfig] = useState<CheckoutConfigResponse | null>(null);
+  const [provider, setProvider] = useState<"stripe" | "helcim">("stripe");
+  const [session, setSession] = useState<CheckoutSessionResponse | null>(null);
+  const [payment, setPayment] = useState<CheckoutPaymentResponse | null>(null);
+  const [stripePromise, setStripePromise] =
+    useState<Promise<Stripe | null> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      const serverLines = await hydrateCartFromSession();
+      if (serverLines !== null) {
+        setLines(serverLines);
+        return;
+      }
+      try {
+        const raw = window.localStorage.getItem("ros.store.cart.v1");
+        setLines(raw ? (JSON.parse(raw) as CartLineLocal[]) : []);
+      } catch {
+        setLines([]);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl(API_BASE, "/api/store/checkout/config"));
+        const json = (await res.json().catch(() => ({}))) as
+          | CheckoutConfigResponse
+          | { error?: string };
+        if (!res.ok) {
+          setError("Checkout configuration is unavailable.");
+          return;
+        }
+        const cfg = json as CheckoutConfigResponse;
+        setConfig(cfg);
+        const defaultProvider =
+          cfg.providers.find((p) => p.provider === cfg.default_provider && p.enabled)
+            ?.provider ??
+          cfg.providers.find((p) => p.enabled)?.provider ??
+          cfg.default_provider ??
+          "stripe";
+        setProvider(defaultProvider);
+        if (cfg.stripe_public_key) {
+          setStripePromise(loadStripe(cfg.stripe_public_key));
+        }
+      } catch {
+        setError("Checkout configuration is unavailable.");
+      }
+    })();
+  }, []);
+
+  const enabledProviders = config?.providers ?? [];
+  const selectedProvider = enabledProviders.find((p) => p.provider === provider);
+  const canStart =
+    lines.length > 0 &&
+    contact.name.trim().length >= 2 &&
+    contact.email.includes("@") &&
+    Boolean(selectedProvider?.enabled) &&
+    (fulfillment === "store_pickup" || Boolean(selectedQuoteId));
+
+  const startCheckout = async () => {
+    setBusy(true);
+    setError(null);
+    setPayment(null);
+    try {
+      const cartId = window.localStorage.getItem(CART_SESSION_STORAGE_KEY);
+      const sessionRes = await fetch(
+        apiUrl(API_BASE, "/api/store/checkout/session"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cart_id: cartId || null,
+            contact: {
+              name: contact.name.trim(),
+              email: contact.email.trim(),
+              phone: contact.phone.trim() || null,
+            },
+            lines,
+            coupon_code: coupon.trim() || null,
+            fulfillment_method:
+              fulfillment === "store_pickup" ? "pickup" : "ship",
+            ship_to:
+              fulfillment === "ship"
+                ? {
+                    name: shipTo.name || contact.name,
+                    street1: shipTo.street1,
+                    city: shipTo.city,
+                    state: shipTo.state,
+                    zip: shipTo.zip,
+                    country: shipTo.country || "US",
+                  }
+                : null,
+            shipping_rate_quote_id:
+              fulfillment === "ship" ? selectedQuoteId : null,
+            selected_provider: provider,
+            idempotency_key: `store-checkout-${cartId || ""}-${provider}-${Date.now()}`,
+          }),
+        },
+      );
+      const sessionJson = (await sessionRes.json().catch(() => ({}))) as
+        | CheckoutSessionResponse
+        | { error?: string };
+      if (!sessionRes.ok) {
+        setError(
+          "error" in sessionJson
+            ? sessionJson.error ?? "Could not create checkout."
+            : "Could not create checkout.",
+        );
+        return;
+      }
+      const nextSession = sessionJson as CheckoutSessionResponse;
+      setSession(nextSession);
+
+      const paymentRes = await fetch(
+        apiUrl(
+          API_BASE,
+          `/api/store/checkout/session/${nextSession.id}/payment`,
+        ),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider }),
+        },
+      );
+      const paymentJson = (await paymentRes.json().catch(() => ({}))) as
+        | CheckoutPaymentResponse
+        | { error?: string };
+      if (!paymentRes.ok) {
+        setError(
+          "error" in paymentJson
+            ? paymentJson.error ?? "Could not start payment."
+            : "Could not start payment.",
+        );
+        return;
+      }
+      setPayment(paymentJson as CheckoutPaymentResponse);
+    } catch {
+      setError("Checkout could not be started.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (lines.length === 0) {
+    return (
+      <div className="mx-auto max-w-xl space-y-4">
+        <h1 className="text-2xl font-black uppercase italic tracking-tight">
+          Checkout
+        </h1>
+        <p className="text-sm text-storefront-muted-foreground">
+          Your cart is empty.
+        </p>
+        <Button type="button" onClick={() => navigate("/shop/products")}>
+          View products
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-6">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => navigate("/shop/cart")}
+      >
+        Back to cart
+      </Button>
+      <div>
+        <h1 className="text-2xl font-black uppercase italic tracking-tight">
+          Checkout
+        </h1>
+        <p className="mt-1 text-sm text-storefront-muted-foreground">
+          ROS recalculates cart, coupon, tax, shipping, and payment provider
+          status before payment.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Contact</CardTitle>
+          <CardDescription>Used for order confirmation and pickup or shipping.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="checkout-name">Full name</Label>
+            <Input
+              id="checkout-name"
+              value={contact.name}
+              onChange={(event) =>
+                setContact((draft) => ({ ...draft, name: event.target.value }))
+              }
+              autoComplete="name"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="checkout-email">Email</Label>
+            <Input
+              id="checkout-email"
+              type="email"
+              value={contact.email}
+              onChange={(event) =>
+                setContact((draft) => ({ ...draft, email: event.target.value }))
+              }
+              autoComplete="email"
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="checkout-phone">Phone</Label>
+            <Input
+              id="checkout-phone"
+              type="tel"
+              value={contact.phone}
+              onChange={(event) =>
+                setContact((draft) => ({ ...draft, phone: event.target.value }))
+              }
+              autoComplete="tel"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Payment provider</CardTitle>
+          <CardDescription>
+            Stripe and Helcim use the same ROS checkout contract.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {enabledProviders.map((item) => (
+              <button
+                key={item.provider}
+                type="button"
+                disabled={!item.enabled || payment != null}
+                onClick={() => setProvider(item.provider)}
+                className={`rounded-lg border p-3 text-left text-sm ${
+                  provider === item.provider
+                    ? "border-storefront-primary bg-storefront-primary/10"
+                    : "border-storefront-border bg-storefront-card"
+                } ${!item.enabled ? "opacity-50" : ""}`}
+              >
+                <div className="font-black">{item.label}</div>
+                <div className="mt-1 text-xs text-storefront-muted-foreground">
+                  {item.detail}
+                </div>
+              </button>
+            ))}
+          </div>
+          {fulfillment === "ship" && !selectedQuoteId ? (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              Select a shipping rate in the cart before checkout.
+            </p>
+          ) : null}
+          {error ? (
+            <p className="rounded-lg border border-storefront-destructive/30 bg-storefront-destructive/10 p-3 text-sm text-storefront-destructive">
+              {error}
+            </p>
+          ) : null}
+          <Button
+            type="button"
+            disabled={!canStart || busy || payment != null}
+            onClick={() => void startCheckout()}
+            className="w-full"
+          >
+            {busy ? "Preparing payment..." : "Review total & start payment"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {session ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">ROS total</CardTitle>
+            <CardDescription>
+              Server-priced checkout session {session.id.slice(0, 8)}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1 font-mono text-xs">
+            <div>Subtotal: ${parseMoney(session.subtotal_usd).toFixed(2)}</div>
+            <div>Discount: -${parseMoney(session.discount_usd).toFixed(2)}</div>
+            <div>Tax: ${parseMoney(session.tax_usd).toFixed(2)}</div>
+            <div>Shipping: ${parseMoney(session.shipping_usd).toFixed(2)}</div>
+            <div className="border-t border-storefront-border pt-2 text-sm font-black">
+              Total: ${parseMoney(session.total_usd).toFixed(2)}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {payment?.provider === "stripe" &&
+      payment.client_secret &&
+      stripePromise ? (
+        <Elements
+          stripe={stripePromise}
+          options={{ clientSecret: payment.client_secret }}
+        >
+          <CheckoutStripePaymentForm
+            payment={payment}
+            onComplete={(result) => {
+              toast("Payment accepted.", "success");
+              window.localStorage.removeItem("ros.store.cart.v1");
+              window.localStorage.removeItem(CART_SESSION_STORAGE_KEY);
+              window.localStorage.removeItem(SHIPPING_QUOTE_STORAGE_KEY);
+              window.localStorage.removeItem(CHECKOUT_COUPON_STORAGE_KEY);
+              navigate(
+                `/shop/checkout/complete?session=${encodeURIComponent(
+                  result.checkout_session_id,
+                )}`,
+              );
+            }}
+            onError={(message) => setError(message)}
+          />
+        </Elements>
+      ) : null}
+
+      {payment?.provider === "helcim" && payment.checkout_token ? (
+        <CheckoutHelcimPaymentForm
+          payment={payment}
+          onComplete={(result) => {
+            toast("Payment accepted.", "success");
+            window.localStorage.removeItem("ros.store.cart.v1");
+            window.localStorage.removeItem(CART_SESSION_STORAGE_KEY);
+            window.localStorage.removeItem(SHIPPING_QUOTE_STORAGE_KEY);
+            window.localStorage.removeItem(CHECKOUT_COUPON_STORAGE_KEY);
+            navigate(
+              `/shop/checkout/complete?session=${encodeURIComponent(
+                result.checkout_session_id,
+              )}`,
+            );
+          }}
+          onError={(message) => setError(message)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function CheckoutStripePaymentForm({
+  payment,
+  onComplete,
+  onError,
+}: {
+  payment: CheckoutPaymentResponse;
+  onComplete: (result: CheckoutConfirmResponse) => void;
+  onError: (message: string) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [submitting, setSubmitting] = useState(false);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Card payment</CardTitle>
+        <CardDescription>Secure Stripe payment for this ROS checkout.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <PaymentElement />
+        <Button
+          type="button"
+          disabled={!stripe || !elements || submitting}
+          className="w-full"
+          onClick={() => {
+            void (async () => {
+              if (!stripe || !elements || !payment.provider_payment_id) return;
+              setSubmitting(true);
+              try {
+                const result = await stripe.confirmPayment({
+                  elements,
+                  redirect: "if_required",
+                });
+                if (result.error) {
+                  onError(result.error.message ?? "Payment was not accepted.");
+                  return;
+                }
+                const confirmRes = await fetch(
+                  apiUrl(
+                    API_BASE,
+                    `/api/store/checkout/session/${payment.checkout_session_id}/confirm`,
+                  ),
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      provider: "stripe",
+                      provider_payment_id: payment.provider_payment_id,
+                    }),
+                  },
+                );
+                const confirmJson = (await confirmRes.json().catch(() => ({}))) as
+                  | CheckoutConfirmResponse
+                  | { error?: string };
+                if (!confirmRes.ok) {
+                  onError(
+                    "error" in confirmJson
+                      ? confirmJson.error ?? "Payment confirmed, but ROS could not finalize the order."
+                      : "Payment confirmed, but ROS could not finalize the order.",
+                  );
+                  return;
+                }
+                const confirmed = confirmJson as CheckoutConfirmResponse;
+                if (confirmed.status !== "paid") {
+                  onError(`Payment status is ${confirmed.status}.`);
+                  return;
+                }
+                onComplete(confirmed);
+              } finally {
+                setSubmitting(false);
+              }
+            })();
+          }}
+        >
+          {submitting ? "Finalizing..." : "Pay now"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function loadHelcimPayScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (window.appendHelcimPayIframe) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[data-ros-helcim-pay="true"]',
+    );
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("helcim")), {
+        once: true,
+      });
+      return;
+    }
+    const script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src = "https://secure.helcim.app/helcim-pay/services/start.js";
+    script.async = true;
+    script.dataset.rosHelcimPay = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("helcim"));
+    document.head.appendChild(script);
+  });
+}
+
+function CheckoutHelcimPaymentForm({
+  payment,
+  onComplete,
+  onError,
+}: {
+  payment: CheckoutPaymentResponse;
+  onComplete: (result: CheckoutConfirmResponse) => void;
+  onError: (message: string) => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!payment.checkout_token) return;
+    const eventName = `helcim-pay-js-${payment.checkout_token}`;
+    const handler = (event: MessageEvent) => {
+      const data = event.data as
+        | {
+            eventName?: string;
+            eventStatus?: string;
+            eventMessage?: unknown;
+          }
+        | undefined;
+      if (!data || data.eventName !== eventName) return;
+      if (data.eventStatus === "ABORTED") {
+        onError("Helcim payment was not accepted.");
+        setSubmitting(false);
+        return;
+      }
+      if (data.eventStatus !== "SUCCESS") return;
+      void (async () => {
+        try {
+          const eventMessage =
+            typeof data.eventMessage === "string"
+              ? (JSON.parse(data.eventMessage) as unknown)
+              : data.eventMessage;
+          const payload = eventMessage as {
+            data?: unknown;
+            hash?: string;
+          };
+          const confirmRes = await fetch(
+            apiUrl(
+              API_BASE,
+              `/api/store/checkout/session/${payment.checkout_session_id}/confirm`,
+            ),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                provider: "helcim",
+                provider_payment_id: payment.checkout_token,
+                raw_data_response: payload.data,
+                helcim_hash: payload.hash,
+              }),
+            },
+          );
+          const confirmJson = (await confirmRes.json().catch(() => ({}))) as
+            | CheckoutConfirmResponse
+            | { error?: string };
+          if (!confirmRes.ok) {
+            onError(
+              "error" in confirmJson
+                ? confirmJson.error ?? "Helcim payment could not be finalized."
+                : "Helcim payment could not be finalized.",
+            );
+            return;
+          }
+          const confirmed = confirmJson as CheckoutConfirmResponse;
+          if (confirmed.status !== "paid") {
+            onError(`Payment status is ${confirmed.status}.`);
+            return;
+          }
+          onComplete(confirmed);
+        } catch {
+          onError("Helcim payment response could not be read.");
+        } finally {
+          setSubmitting(false);
+        }
+      })();
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [onComplete, onError, payment.checkout_session_id, payment.checkout_token]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Helcim payment</CardTitle>
+        <CardDescription>
+          Secure HelcimPay.js checkout for this ROS order.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button
+          type="button"
+          disabled={submitting}
+          className="w-full"
+          onClick={() => {
+            void (async () => {
+              if (!payment.checkout_token) return;
+              setSubmitting(true);
+              try {
+                await loadHelcimPayScript();
+                if (!window.appendHelcimPayIframe) {
+                  onError("HelcimPay.js could not be loaded.");
+                  setSubmitting(false);
+                  return;
+                }
+                window.appendHelcimPayIframe(payment.checkout_token, true);
+              } catch {
+                onError("HelcimPay.js could not be loaded.");
+                setSubmitting(false);
+              }
+            })();
+          }}
+        >
+          {submitting ? "Waiting for Helcim..." : "Pay with Helcim"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CheckoutCompletePane({
+  sessionId,
+  navigate,
+  toast,
+}: {
+  sessionId?: string;
+  navigate: (p: string) => void;
+  toast: (m: string, t?: "success" | "error" | "info") => void;
+}) {
+  const { data, isPending, isError } = useQuery({
+    queryKey: ["store-checkout-complete", sessionId],
+    queryFn: async () => {
+      if (!sessionId) return null;
+      const res = await fetch(
+        apiUrl(API_BASE, `/api/store/checkout/session/${sessionId}`),
+      );
+      if (!res.ok) throw new Error("checkout");
+      return res.json() as Promise<CheckoutSessionResponse>;
+    },
+    enabled: Boolean(sessionId),
+  });
+
+  useEffect(() => {
+    if (isError) toast("Could not load checkout confirmation.", "error");
+  }, [isError, toast]);
+
+  return (
+    <div className="mx-auto max-w-xl space-y-6">
+      <h1 className="text-2xl font-black uppercase italic tracking-tight">
+        Order received
+      </h1>
+      {isPending ? (
+        <Skeleton className="h-28 w-full rounded-xl" />
+      ) : data?.status === "paid" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Payment accepted</CardTitle>
+            <CardDescription>
+              ROS transaction {data.finalized_transaction_id?.slice(0, 8) ?? "created"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p>Total paid: ${parseMoney(data.total_usd).toFixed(2)}</p>
+            <p className="text-storefront-muted-foreground">
+              We will contact you with pickup or shipping updates.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <p className="text-sm text-storefront-muted-foreground">
+          Checkout status: {data?.status ?? "unknown"}
+        </p>
+      )}
+      <Button type="button" onClick={() => navigate("/shop/products")}>
         Continue shopping
       </Button>
     </div>

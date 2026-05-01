@@ -63,6 +63,16 @@ interface StoreMerchResponse {
   rows?: StoreMerchRow[];
 }
 
+interface StoreCheckoutConfigResponse {
+  web_checkout_enabled: boolean;
+  default_provider: string;
+  providers: Array<{
+    provider: string;
+    enabled: boolean;
+    label: string;
+  }>;
+}
+
 const sections: {
   id: OnlineStoreSection;
   label: string;
@@ -194,6 +204,8 @@ export default function OnlineStoreWorkspace({
   const [pages, setPages] = useState<StorePageRow[]>([]);
   const [coupons, setCoupons] = useState<StoreCouponRow[]>([]);
   const [merchRows, setMerchRows] = useState<StoreMerchRow[]>([]);
+  const [checkoutConfig, setCheckoutConfig] =
+    useState<StoreCheckoutConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const headers = useCallback(
@@ -209,14 +221,15 @@ export default function OnlineStoreWorkspace({
     if (!canManage) return;
     setLoadError(null);
     try {
-      const [pagesRes, couponsRes, merchRes] = await Promise.all([
+      const [pagesRes, couponsRes, merchRes, checkoutRes] = await Promise.all([
         fetch(`${baseUrl}/api/admin/store/pages`, { headers: headers() }),
         fetch(`${baseUrl}/api/admin/store/coupons`, { headers: headers() }),
         fetch(apiUrl(baseUrl, "/api/inventory/control-board?limit=5000"), {
           headers: headers(),
         }),
+        fetch(apiUrl(baseUrl, "/api/store/checkout/config")),
       ]);
-      if (!pagesRes.ok || !couponsRes.ok || !merchRes.ok) {
+      if (!pagesRes.ok || !couponsRes.ok || !merchRes.ok || !checkoutRes.ok) {
         setLoadError("Could not load online store status.");
         return;
       }
@@ -225,11 +238,14 @@ export default function OnlineStoreWorkspace({
         coupons?: StoreCouponRow[];
       };
       const merchJson = (await merchRes.json()) as StoreMerchResponse;
+      const checkoutJson =
+        (await checkoutRes.json()) as StoreCheckoutConfigResponse;
       setPages(Array.isArray(pagesJson.pages) ? pagesJson.pages : []);
       setCoupons(
         Array.isArray(couponsJson.coupons) ? couponsJson.coupons : [],
       );
       setMerchRows(Array.isArray(merchJson.rows) ? merchJson.rows : []);
+      setCheckoutConfig(checkoutJson);
     } catch {
       setLoadError("Could not load online store status.");
     }
@@ -266,6 +282,10 @@ export default function OnlineStoreWorkspace({
   const webPriceOverrideCount = merchRows.filter((row) =>
     (row.web_price_override ?? "").trim(),
   ).length;
+  const enabledPaymentProviders = useMemo(
+    () => checkoutConfig?.providers.filter((provider) => provider.enabled) ?? [],
+    [checkoutConfig?.providers],
+  );
 
   const dashboardCards = useMemo(
     () => [
@@ -301,8 +321,17 @@ export default function OnlineStoreWorkspace({
       },
       {
         label: "Paid checkout",
-        value: "Not enabled",
-        detail: "Phase 1 keeps checkout implementation out of scope.",
+        value: checkoutConfig?.web_checkout_enabled
+          ? enabledPaymentProviders.length > 0
+            ? "Ready"
+            : "Needs provider"
+          : "Disabled",
+        detail:
+          enabledPaymentProviders.length > 0
+            ? `Default ${checkoutConfig?.default_provider ?? "stripe"}; enabled: ${enabledPaymentProviders
+                .map((provider) => provider.label)
+                .join(", ")}.`
+            : "Configure Stripe or Helcim before public checkout is available.",
       },
     ],
     [
@@ -313,6 +342,9 @@ export default function OnlineStoreWorkspace({
       onWebProductIds.size,
       pages.length,
       publishedPages,
+      checkoutConfig?.default_provider,
+      checkoutConfig?.web_checkout_enabled,
+      enabledPaymentProviders,
       webPriceOverrideCount,
       zeroStockProductIds.size,
     ],
@@ -456,8 +488,8 @@ export default function OnlineStoreWorkspace({
       {section === "orders" ? (
         <RoutePanel
           icon={ShoppingBag}
-          title="Web order operations will attach to ROS orders"
-          body="Paid web checkout is not enabled in Phase 1. When web orders are created, this section should focus on sale channel, fulfillment state, pickup or ship-to handling, and staff review."
+          title="Web checkout creates ROS transactions"
+          body="Paid storefront checkout now finalizes through the ROS transaction ledger with sale_channel = web. Use the existing Orders surface for fulfillment review while this workspace grows a dedicated web-order queue."
           buttonLabel="Open orders"
           onClick={() => onNavigateToTab("orders", "open")}
         />

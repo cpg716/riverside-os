@@ -75,6 +75,7 @@ pub mod shippo;
 pub mod staff_schedule;
 pub mod store_cart_resolve;
 pub mod store_catalog;
+pub mod store_checkout;
 pub mod store_credit;
 pub mod store_customer_account;
 pub mod store_guest_cart;
