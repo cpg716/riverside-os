@@ -78,6 +78,8 @@ This is the current repo/deployment status to verify before a live install:
 
 Before installing the two Windows PCs and PWA devices for production use, create or publish a current Windows installer/updater artifact for **`v0.4.0`** and record its release/run URL in the deployment log.
 
+For a near-turnkey Windows setup package, use [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOWS_INSTALLER_PACKAGE.md). That package automates the Server PC install, migration apply, startup task, firewall rule, Register #1 desktop install, station API base, and printer settings import.
+
 ### Till shift: Register #1 and satellite lanes
 
 The app supports **multiple open register terminals** (migration **66**) sharing one **till close group** (**67**): **Register #1** is the **cash drawer** (opening float, paid in/out, **Z-close**). **Register #2+** link to an open **#1** session (**$0** satellite float); **Z** on **#1** closes **all** lanes in the group. Train staff that **physical cash** for the day lives in the **#1** drawer even when tenders post from **#2**. Full behavior: **[`docs/TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md)**.
@@ -95,6 +97,8 @@ The app supports **multiple open register terminals** (migration **66**) sharing
 #### 3.1.1 Backoffice / Server PC first-time setup
 
 Use this checklist for the Windows PC that owns the store database and API:
+
+**Automated path:** build the Windows deployment package and run **`install-server.ps1`** as Administrator on the Server PC. See [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOWS_INSTALLER_PACKAGE.md).
 
 1. Install **PostgreSQL 16** (or a vetted hosted/local PostgreSQL 16 equivalent) and create the Riverside database/user.
 2. Install or place the **`riverside-server.exe`** release binary in a stable folder, for example `C:\RiversideOS\server\`.
@@ -149,6 +153,7 @@ After first install, normal desktop app updates are handled in ROS from **Settin
 
 #### 3.2.1 Tauri station install checklist (per Windows station)
 
+- [ ] If using the deployment package, run **`install-register.ps1`** as Administrator so the desktop app, API base, and printer station settings are installed together.
 - [ ] Confirm Windows user account and local admin rights for install/update.
 - [ ] Install the correct Riverside desktop artifact for the release version.
 - [ ] Launch app and verify **Settings → General → About this build** shows expected app version + API base.
@@ -301,15 +306,16 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 
 **Settings → Printing Hub** stores station-local values in the browser/WebView profile:
 
-- Receipt printer: **`ros.pos.printerIp`**, **`ros.pos.printerPort`** (default port **9100** for raw network printers).
-- Report printer: **`ros.report.printerIp`** (and related keys as shown in Settings).
+- Receipt printer: **`ros.hardware.printer.receipt.mode`**, **`.systemName`**, **`.ip`**, **`.port`**.
+- Tag printer: **`ros.hardware.printer.tag.mode`**, **`.systemName`**, **`.ip`**.
+- Report printer: **`ros.hardware.printer.report.mode`**, **`.systemName`**, **`.ip`**.
 
 **Paths**
 
-- **Tauri:** thermal payloads are sent with **native TCP** from the PC (`printerBridge` → Tauri `invoke` → `client/src-tauri/src/hardware.rs`).
+- **Tauri:** thermal payloads are sent either to the selected **installed Windows printer** or with **native TCP** from the PC (`printerBridge` → Tauri `invoke` → `client/src-tauri/src/hardware.rs`).
 - **Browser / PWA:** the same module can call **`POST /api/hardware/print`** so the **server** opens TCP to the printer IP (printer must be reachable **from the server** on the network).
 
-Configure each **Register 1** PC with the **Epson receipt printer IP** (or your chosen workflow; see hardware section below).
+Configure each **Register 1** PC with either the installed **Epson receipt printer** selected by name or the Epson printer network address. Preferred setup for Register #1 receipts is **Network address** with a static/DHCP-reserved Epson IP because it keeps ESC/POS receipts and cash drawer kick on the direct receipt-printer path. Use **Installed printer on this PC** for USB printers, report/label printers that rely on Windows driver sizing, or as a fallback if raw network printing is not available.
 
 ### 5.1 Station commissioning checklist (go-live required)
 
@@ -335,15 +341,15 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 | Register 1 | **Zebra DS2208** | USB **keyboard wedge (HID)**. Focus the POS search / SKU field; scans appear as typed text. No scanner SDK in the app. |
 | Register 2 | **Zebra CS6080** | Pair to iPad as a **Bluetooth keyboard (HID)** so Safari receives scan data as keystrokes. Program a **suffix** (Enter/Tab) if your workflow needs automatic submit. |
 | Back office | **Zebra LP 2844** | **Shelf / inventory labels:** the app opens a **print layout** and uses the **system print dialog** (`labelPrint.ts`, `@page` **4in × 2.5in**). Install the **Zebra Windows driver**, match **label stock** and driver page size to avoid scaling issues. Tauri and Edge use the same OS print path for this feature. |
-| Register 1 | **Epson TM-m30III** (receipts) | See **subsection 6.1** — important language/protocol note. |
+| Register 1 | **Epson TM-m30III** (receipts) | Prefer **Network address** with static/DHCP-reserved IP for receipts and cash drawer. Installed-printer mode is available for USB/driver-managed fallback. |
 | Register 2 (iPad) | Receipts | See **subsection 6.2** — current app behavior. |
 | Register lanes using card present | **Stripe Terminal reader(s)** | Used for card-present checkout flow; must be registered to correct location and validated per-lane before go-live. |
 
 ### 6.0 Hardware commissioning checklist (required before go-live)
 
 #### Receipt printers
-- [ ] Static/DHCP-reserved IP documented.
-- [ ] Reachable from required host (Tauri PC and/or API host for server-side print path).
+- [ ] Installed Windows printer selected in ROS, or static/DHCP-reserved IP documented for raw network mode.
+- [ ] Reachable from required host (Tauri PC for installed/network desktop print and/or API host for server-side print path).
 - [ ] Test receipt printed from ROS flow.
 - [ ] Spare paper stock and quick paper-reload SOP verified.
 
@@ -367,19 +373,16 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 - [ ] Reader disconnect/failure fallback procedure trained.
 - [ ] Refund/credit reconciliation path verified in reports and logs.
 
-### 6.1 Epson TM-m30III and ZPL (read carefully)
+### 6.1 Epson TM-m30III receipt setup
 
-Today, the POS **Sale complete** flow loads **`GET /api/orders/{order_id}/receipt.zpl`** and sends the response as **ZPL** over **TCP** (default port **9100**) via **`printZplReceipt`** in [`client/src/lib/printerBridge.ts`](../client/src/lib/printerBridge.ts).
+The POS **Sale complete** flow prints the standard Epson receipt as **ESC/POS** through [`client/src/lib/printerBridge.ts`](../client/src/lib/printerBridge.ts). Register #1 can target either:
 
-**ZPL is Zebra’s wire format.** The **Epson TM-m30III** expects **ESC/POS** (or driver-mediated printing), **not ZPL**, on a **raw** socket. Pointing the current ZPL job at the Epson’s raw **9100** port will **not** produce a correct receipt.
+1. **Network address**: direct Epson printer IP and port, usually **9100**.
+2. **Installed printer on this PC**: a locally installed Windows printer selected by name.
 
-**Practical options (operations):**
+**Recommended Register #1 setup:** use **Network address** when the Epson TM-m30III has a static IP or DHCP reservation. This is the simplest path for thermal receipts and the Register #1 cash drawer command. Use **Installed printer on this PC** when the printer is USB-only, Windows driver management is required, or network printing is blocked.
 
-1. **Use a Zebra-class (ZPL-capable) network receipt printer** on raw **IP:9100** if you need the current pipeline without code changes.
-2. Use **Epson driver- or ePOS-based printing** outside the current raw-ZPL path (not exposed as a first-class alternate in the receipt modal today).
-3. **Engineering follow-up:** add an **ESC/POS** receipt generator and client selection (separate project from this guide).
-
-Work with your installer or Epson docs for **static IP** or **DHCP reservation** for the TM-m30III if you move to a supported print path later.
+Work with your installer or Epson docs for the TM-m30III static IP/DHCP reservation. Record the chosen mode, printer name or IP, and test receipt result in the deployment log.
 
 ### 6.2 iPad Register 2 — physical receipt print
 
@@ -423,10 +426,11 @@ So **iPad PWA cannot print a thermal receipt from that button today**, even thou
 
 **Desktop register will not print**
 
-1. Confirm printer **IP** and **ping** from the PC.
-2. Windows Firewall: **outbound** to printer (often **TCP 9100**).
-3. **Tauri** path uses local TCP; **PWA** path uses **`/api/hardware/print`** (server must reach the printer).
-4. Restart the desktop app after network changes.
+1. In **Printers & Scanners**, confirm whether the station uses **Network address** or **Installed printer on this PC**.
+2. For network mode, confirm printer **IP**, port, ping from the PC, and Windows Firewall outbound access, often **TCP 9100**.
+3. For installed-printer mode, confirm the printer appears in Windows and can print a Windows test page.
+4. **Tauri** can use the selected local printer target; **PWA** print fallback uses **`/api/hardware/print`** and requires the server to reach the network printer.
+5. Restart the desktop app after printer or network changes.
 
 **Shelf labels (LP 2844)**
 

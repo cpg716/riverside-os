@@ -26,7 +26,8 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   checkReceiptPrinterConnection,
-  resolvePrinterAddress,
+  describePrinterTarget,
+  resolvePrinterTarget,
 } from "../../lib/printerBridge";
 import RiversideJustLogo from "../../assets/images/logo1.png";
 
@@ -554,7 +555,7 @@ export default function RegisterOverlay({
         });
       }
 
-      const receiptPrinter = resolvePrinterAddress("receipt");
+      const receiptPrinter = resolvePrinterTarget("receipt");
       const printerRequired = registerLaneRef.current <= 1;
       if (!isTauri()) {
         setPrinterReadiness({
@@ -562,15 +563,21 @@ export default function RegisterOverlay({
           detail:
             "Printer diagnostics run only in the Riverside desktop app. Use the Windows register app for live receipt readiness.",
         });
-      } else if (!receiptPrinter.ip.trim()) {
+      } else if (receiptPrinter.mode === "system" && !receiptPrinter.printerName.trim()) {
         setPrinterReadiness({
           status: printerRequired ? "error" : "warning",
           detail:
-            "Receipt printer IP is not configured for this station. Set it in Printers & Scanners before customer checkout.",
+            "Receipt printer is not selected for this station. Set it in Printers & Scanners before customer checkout.",
+        });
+      } else if (receiptPrinter.mode === "network" && !receiptPrinter.ip.trim()) {
+        setPrinterReadiness({
+          status: printerRequired ? "error" : "warning",
+          detail:
+            "Receipt printer address is not configured for this station. Set it in Printers & Scanners before customer checkout.",
         });
       } else if (
-        !Number.isFinite(receiptPrinter.port) ||
-        receiptPrinter.port <= 0
+        receiptPrinter.mode === "network" &&
+        (!Number.isFinite(receiptPrinter.port) || receiptPrinter.port <= 0)
       ) {
         setPrinterReadiness({
           status: printerRequired ? "error" : "warning",
@@ -582,7 +589,7 @@ export default function RegisterOverlay({
           await checkReceiptPrinterConnection(receiptPrinter);
           setPrinterReadiness({
             status: "ready",
-            detail: `Receipt printer responded at ${receiptPrinter.ip}:${receiptPrinter.port}.`,
+            detail: `Receipt printer responded at ${describePrinterTarget(receiptPrinter)}.`,
           });
         } catch (err) {
           const detail =

@@ -58,6 +58,7 @@
 
 - From POS mode, open **Printers & Scanners**.
 - Validate device visibility/config access is available.
+- In **Printers & Scanners**, set Register #1 receipts to **Network address** when the Epson receipt printer has a stable IP; use **Installed printer on this PC** only for USB/driver-managed fallback.
 - Run one print action (receipt or test print) and confirm successful dispatch.
 
 ---

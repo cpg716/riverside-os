@@ -1,0 +1,54 @@
+{
+  "releaseVersion": "0.4.0",
+  "server": {
+    "installRoot": "C:\\RiversideOS",
+    "httpBind": "0.0.0.0:3000",
+    "strictProduction": true,
+    "corsOrigins": [
+      "http://ros-server:3000",
+      "http://192.168.1.10:3000"
+    ],
+    "storeCustomerJwtSecret": "replace-with-at-least-32-characters",
+    "firewallRuleName": "Riverside OS Server",
+    "database": {
+      "host": "127.0.0.1",
+      "port": 5432,
+      "databaseName": "riverside_os",
+      "appUser": "riverside_app",
+      "appPassword": "replace-db-app-password",
+      "adminUser": "postgres",
+      "adminPassword": "replace-postgres-admin-password",
+      "psqlPath": ""
+    },
+    "environment": {
+      "STRIPE_SECRET_KEY": "",
+      "STRIPE_PUBLIC_KEY": "",
+      "STRIPE_WEBHOOK_SECRET": "",
+      "RIVERSIDE_BACKUP_DIR": "C:\\RiversideOS\\backups",
+      "MEILISEARCH_URL": "",
+      "MEILISEARCH_API_KEY": "",
+      "RIVERSIDE_REPO_ROOT": "C:\\RiversideOS\\release"
+    }
+  },
+  "register": {
+    "apiBase": "http://ros-server:3000",
+    "stationLabel": "Register #1",
+    "cashDrawerEnabled": true,
+    "receiptPrinter": {
+      "mode": "network",
+      "ip": "192.168.1.50",
+      "port": 9100,
+      "systemName": ""
+    },
+    "tagPrinter": {
+      "mode": "system",
+      "ip": "",
+      "systemName": "Zebra LP 2844"
+    },
+    "reportPrinter": {
+      "mode": "system",
+      "ip": "",
+      "systemName": ""
+    }
+  }
+}

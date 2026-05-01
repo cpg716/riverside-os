@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Barcode,
   CheckCircle2,
@@ -10,8 +10,11 @@ import {
 } from "lucide-react";
 import {
   checkReceiptPrinterConnection,
+  describePrinterTarget,
+  listSystemPrinters,
   printRawEscPosBase64,
-  resolvePrinterAddress,
+  resolvePrinterTarget,
+  type SystemPrinter,
 } from "../../lib/printerBridge";
 import { isTauri } from "@tauri-apps/api/core";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -24,6 +27,8 @@ type PrinterConfig = {
   helper: string;
   ipStorageKey: string;
   portStorageKey?: string;
+  modeStorageKey: string;
+  systemStorageKey: string;
   defaultIp: string;
   defaultPort: string;
 };
@@ -35,6 +40,8 @@ const PRINTERS: PrinterConfig[] = [
     helper: "Epson TM-m30III / ESC-POS receipts and Register #1 cash drawer",
     ipStorageKey: "ros.hardware.printer.receipt.ip",
     portStorageKey: "ros.hardware.printer.receipt.port",
+    modeStorageKey: "ros.hardware.printer.receipt.mode",
+    systemStorageKey: "ros.hardware.printer.receipt.systemName",
     defaultIp: "127.0.0.1",
     defaultPort: "9100",
   },
@@ -43,6 +50,8 @@ const PRINTERS: PrinterConfig[] = [
     label: "Clothing Tag Station",
     helper: "Zebra 2844 on the host PC for ZPL clothing tags",
     ipStorageKey: "ros.hardware.printer.tag.ip",
+    modeStorageKey: "ros.hardware.printer.tag.mode",
+    systemStorageKey: "ros.hardware.printer.tag.systemName",
     defaultIp: "127.0.0.1",
     defaultPort: "9100",
   },
@@ -51,6 +60,8 @@ const PRINTERS: PrinterConfig[] = [
     label: "Reports Printer",
     helper: "Full-page reports and audit paperwork",
     ipStorageKey: "ros.hardware.printer.report.ip",
+    modeStorageKey: "ros.hardware.printer.report.mode",
+    systemStorageKey: "ros.hardware.printer.report.systemName",
     defaultIp: "",
     defaultPort: "9100",
   },
@@ -81,6 +92,8 @@ export default function PrintersAndScannersPanel({
     () =>
       Object.fromEntries(
         PRINTERS.flatMap((printer) => [
+          [printer.modeStorageKey, getStored(printer.modeStorageKey, "network")],
+          [printer.systemStorageKey, getStored(printer.systemStorageKey, "")],
           [printer.ipStorageKey, getStored(printer.ipStorageKey, printer.defaultIp)],
           [
             printer.portStorageKey ?? `${printer.ipStorageKey}.port`,
@@ -101,6 +114,8 @@ export default function PrintersAndScannersPanel({
   const [drawerTesting, setDrawerTesting] = useState(false);
   const [testPrinting, setTestPrinting] = useState(false);
   const [lastScan, setLastScan] = useState("");
+  const [systemPrinters, setSystemPrinters] = useState<SystemPrinter[]>([]);
+  const [loadingSystemPrinters, setLoadingSystemPrinters] = useState(false);
 
   const saveValue = (key: string, value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -112,6 +127,26 @@ export default function PrintersAndScannersPanel({
     window.localStorage.setItem("ros.hardware.cashDrawer.enabled", enabled ? "true" : "false");
   };
 
+  const refreshSystemPrinters = async () => {
+    if (!isTauri()) {
+      setSystemPrinters([]);
+      return;
+    }
+    setLoadingSystemPrinters(true);
+    try {
+      setSystemPrinters(await listSystemPrinters());
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not load installed printers", "error");
+    } finally {
+      setLoadingSystemPrinters(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshSystemPrinters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const testPrinter = async (printer: PrinterConfig) => {
     setTesting(printer.key);
     try {
@@ -120,11 +155,17 @@ export default function PrintersAndScannersPanel({
           toast("Receipt settings saved. Live printer checks run in the Riverside desktop app.", "success");
           return;
         }
-        await checkReceiptPrinterConnection(resolvePrinterAddress("receipt"));
+        await checkReceiptPrinterConnection(resolvePrinterTarget("receipt"));
       } else {
+        const mode = values[printer.modeStorageKey] === "system" ? "system" : "network";
+        if (mode === "system") {
+          await checkReceiptPrinterConnection(resolvePrinterTarget(printer.key));
+          toast(`${printer.label} is available on this station.`, "success");
+          return;
+        }
         const ip = values[printer.ipStorageKey]?.trim();
         if (!ip) {
-          throw new Error(`${printer.label} IP is not configured.`);
+          throw new Error(`${printer.label} address is not configured.`);
         }
         toast(`${printer.label} saved. Live readiness checks are currently for receipt printers.`, "success");
         return;
@@ -140,14 +181,11 @@ export default function PrintersAndScannersPanel({
   const printTestReceipt = async () => {
     setTestPrinting(true);
     try {
-      const printer = resolvePrinterAddress("receipt");
       const now = new Date().toLocaleString();
       await printRawEscPosBase64(
         escposBase64FromAscii(`Riverside OS\nRegister #1 printer test\n${now}\n\nEpson TM-m30III ESC/POS`),
-        printer.ip,
-        printer.port,
       );
-      toast("Test receipt sent to the Epson station.", "success");
+      toast("Test receipt sent to the receipt station.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Test receipt failed", "error");
     } finally {
@@ -158,8 +196,7 @@ export default function PrintersAndScannersPanel({
   const openCashDrawerTest = async () => {
     setDrawerTesting(true);
     try {
-      const printer = resolvePrinterAddress("receipt");
-      await printRawEscPosBase64("G3AAMvo=", printer.ip, printer.port);
+      await printRawEscPosBase64("G3AAMvo=");
       toast("Cash drawer kick sent.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Cash drawer test failed", "error");
@@ -168,9 +205,8 @@ export default function PrintersAndScannersPanel({
     }
   };
 
-  const receiptIp = values["ros.hardware.printer.receipt.ip"]?.trim() || "Not set";
-  const receiptPort = values["ros.hardware.printer.receipt.port"]?.trim() || "9100";
-  const tagIp = values["ros.hardware.printer.tag.ip"]?.trim() || "Not set";
+  const receiptTarget = describePrinterTarget(resolvePrinterTarget("receipt"));
+  const tagTarget = describePrinterTarget(resolvePrinterTarget("tag"));
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -195,9 +231,9 @@ export default function PrintersAndScannersPanel({
       {mode === "pos" ? (
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           {[
-            ["Receipt", `${receiptIp}:${receiptPort}`, "Epson TM-m30III"],
+            ["Receipt", receiptTarget, "Epson TM-m30III"],
             ["Drawer", cashDrawerEnabled ? "Cash/check only" : "Disabled", "Attached to receipt printer"],
-            ["Tags", tagIp, "Zebra 2844 clothing tags"],
+            ["Tags", tagTarget, "Zebra 2844 clothing tags"],
           ].map(([label, value, helper]) => (
             <div key={label} className="ui-card p-5">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -218,6 +254,7 @@ export default function PrintersAndScannersPanel({
         {PRINTERS.map((printer) => {
           const portKey = printer.portStorageKey ?? `${printer.ipStorageKey}.port`;
           const showPort = printer.key === "receipt";
+          const targetMode = values[printer.modeStorageKey] === "system" ? "system" : "network";
           return (
             <div key={printer.key} className="ui-card flex flex-col gap-5 p-6">
               <div className="flex items-start justify-between gap-3">
@@ -245,31 +282,78 @@ export default function PrintersAndScannersPanel({
                 ) : null}
               </div>
 
-              <div className={showPort ? "grid grid-cols-[1fr_7rem] gap-3" : "grid grid-cols-1 gap-3"}>
+              <div className="grid grid-cols-1 gap-3">
                 <label className="block">
                   <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Printer IP
+                    Printer setup
                   </span>
-                  <input
-                    value={values[printer.ipStorageKey] ?? ""}
-                    onChange={(e) => saveValue(printer.ipStorageKey, e.target.value)}
-                    placeholder={printer.key === "report" ? "Optional" : "192.168.1.50"}
-                    className="ui-input mt-2 w-full font-mono text-xs"
-                  />
+                  <select
+                    value={targetMode}
+                    onChange={(e) => saveValue(printer.modeStorageKey, e.target.value)}
+                    className="ui-input mt-2 w-full text-sm font-bold"
+                  >
+                    <option value="system">Installed printer on this PC</option>
+                    <option value="network">Network address</option>
+                  </select>
                 </label>
-                {showPort ? (
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Port
-                    </span>
-                    <input
-                      value={values[portKey] ?? ""}
-                      onChange={(e) => saveValue(portKey, e.target.value)}
-                      placeholder="9100"
-                      className="ui-input mt-2 w-full font-mono text-xs"
-                    />
-                  </label>
-                ) : null}
+                {targetMode === "system" ? (
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <label className="block min-w-0">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Installed printer
+                      </span>
+                      <select
+                        value={values[printer.systemStorageKey] ?? ""}
+                        onChange={(e) => saveValue(printer.systemStorageKey, e.target.value)}
+                        className="ui-input mt-2 w-full text-sm font-bold"
+                      >
+                        <option value="">Choose printer</option>
+                        {systemPrinters.map((systemPrinter) => (
+                          <option key={systemPrinter.name} value={systemPrinter.name}>
+                            {systemPrinter.name}
+                            {systemPrinter.is_default ? " (default)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void refreshSystemPrinters()}
+                      disabled={loadingSystemPrinters}
+                      className="mt-6 inline-flex min-h-11 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 px-3 text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50"
+                      aria-label="Refresh installed printers"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${loadingSystemPrinters ? "animate-spin" : ""}`} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className={showPort ? "grid grid-cols-[1fr_7rem] gap-3" : "grid grid-cols-1 gap-3"}>
+                    <label className="block">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Printer address
+                      </span>
+                      <input
+                        value={values[printer.ipStorageKey] ?? ""}
+                        onChange={(e) => saveValue(printer.ipStorageKey, e.target.value)}
+                        placeholder={printer.key === "report" ? "Optional" : "192.168.1.50"}
+                        className="ui-input mt-2 w-full font-mono text-xs"
+                      />
+                    </label>
+                    {showPort ? (
+                      <label className="block">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Port
+                        </span>
+                        <input
+                          value={values[portKey] ?? ""}
+                          onChange={(e) => saveValue(portKey, e.target.value)}
+                          placeholder="9100"
+                          className="ui-input mt-2 w-full font-mono text-xs"
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                )}
               </div>
 
               {printer.key === "receipt" ? (

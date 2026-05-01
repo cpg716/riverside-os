@@ -10,6 +10,26 @@ export interface HardwareAddress {
   port: number;
 }
 
+export type SystemPrinter = {
+  name: string;
+  is_default: boolean;
+};
+
+export type HardwarePrinterTarget =
+  | {
+      mode: "network";
+      ip: string;
+      port: number;
+    }
+  | {
+      mode: "system";
+      printerName: string;
+    };
+
+const printerModeKey = (type: PrintDocType) => `ros.hardware.printer.${type}.mode`;
+const printerSystemNameKey = (type: PrintDocType) =>
+  `ros.hardware.printer.${type}.systemName`;
+
 /** Resolves the local station's configured address for a specific document type. */
 export function resolvePrinterAddress(type: PrintDocType): HardwareAddress {
   if (type === "receipt") {
@@ -31,12 +51,80 @@ export function resolvePrinterAddress(type: PrintDocType): HardwareAddress {
   };
 }
 
+export function resolvePrinterTarget(type: PrintDocType): HardwarePrinterTarget {
+  const mode =
+    window.localStorage.getItem(printerModeKey(type)) === "system" ? "system" : "network";
+  if (mode === "system") {
+    return {
+      mode,
+      printerName: window.localStorage.getItem(printerSystemNameKey(type))?.trim() || "",
+    };
+  }
+  return {
+    mode,
+    ...resolvePrinterAddress(type),
+  };
+}
+
+function targetFromAddress(
+  targetOrIp: HardwarePrinterTarget | string | undefined,
+  port: number,
+): HardwarePrinterTarget {
+  if (!targetOrIp) {
+    return resolvePrinterTarget("receipt");
+  }
+  if (typeof targetOrIp === "string") {
+    return { mode: "network", ip: targetOrIp, port };
+  }
+  return targetOrIp;
+}
+
+function asciiToBase64(value: string) {
+  let binary = "";
+  for (const ch of value) {
+    binary += String.fromCharCode(ch.charCodeAt(0) & 0xff);
+  }
+  return btoa(binary);
+}
+
+export async function listSystemPrinters(): Promise<SystemPrinter[]> {
+  if (!isTauri()) {
+    return [];
+  }
+  return invoke<SystemPrinter[]>("list_system_printers");
+}
+
+export function describePrinterTarget(target: HardwarePrinterTarget) {
+  if (target.mode === "system") {
+    return target.printerName ? target.printerName : "No installed printer selected";
+  }
+  return `${target.ip}:${target.port}`;
+}
+
 /**
  * Thermal print bridge: Tauri uses native TCP; browser/PWA tries server `/api/hardware/print`,
  * then `window.open` fallback. PWA note: popup blockers may block the blank window unless the
  * print action runs directly from a user gesture; prefer Tauri or server print on iPad/mobile.
  */
-export async function printZplReceipt(payload: string, ip: string, port = 9100) {
+export async function printZplReceipt(
+  payload: string,
+  targetOrIp: HardwarePrinterTarget | string,
+  port = 9100,
+) {
+  const target = targetFromAddress(targetOrIp, port);
+  if (target.mode === "system") {
+    if (!isTauri()) {
+      throw new Error("Installed printer selection is available only in the Riverside desktop app.");
+    }
+    if (!target.printerName) {
+      throw new Error("Choose an installed printer for this station.");
+    }
+    return invoke("print_raw_to_system_printer_b64", {
+      printer_name: target.printerName,
+      payload_b64: asciiToBase64(payload),
+    });
+  }
+
   // If we're not running inside the Tauri shell (e.g. dev browser)
   // we must fallback to the classic window.open print method.
   if (!isTauri()) {
@@ -48,7 +136,7 @@ export async function printZplReceipt(payload: string, ip: string, port = 9100) 
           "Content-Type": "application/json",
           ...sessionPollAuthHeaders(),
         },
-        body: JSON.stringify({ ip, port, payload })
+        body: JSON.stringify({ ip: target.ip, port: target.port, payload })
       });
       if (!res.ok) {
         const err = await res.json();
@@ -62,7 +150,7 @@ export async function printZplReceipt(payload: string, ip: string, port = 9100) 
   }
 
   try {
-    await invoke("print_zpl_receipt", { ip, port, payload });
+    await invoke("print_zpl_receipt", { ip: target.ip, port: target.port, payload });
   } catch (err) {
     console.error("Hardware Bridge Error: ZPL Print Failed:", err);
     throw new Error(String(err), { cause: err });
@@ -70,7 +158,26 @@ export async function printZplReceipt(payload: string, ip: string, port = 9100) 
 }
 
 /** Pre-built ESC/POS binary as standard base64 (init/raster/cut already included). */
-export async function printRawEscPosBase64(payloadB64: string, ip: string, port = 9100) {
+export async function printRawEscPosBase64(
+  payloadB64: string,
+  targetOrIp?: HardwarePrinterTarget | string,
+  port = 9100,
+) {
+  const target = targetFromAddress(targetOrIp, port);
+  if (target.mode === "system") {
+    if (!isTauri()) {
+      throw new Error("Installed printer selection is available only in the Riverside desktop app.");
+    }
+    if (!target.printerName) {
+      throw new Error("Choose an installed printer for this station.");
+    }
+    await invoke("print_raw_to_system_printer_b64", {
+      printer_name: target.printerName,
+      payload_b64: payloadB64,
+    });
+    return;
+  }
+
   if (!isTauri()) {
     const baseUrl = getBaseUrl();
     const res = await fetch(`${baseUrl}/api/hardware/print`, {
@@ -80,8 +187,8 @@ export async function printRawEscPosBase64(payloadB64: string, ip: string, port 
         ...sessionPollAuthHeaders(),
       },
       body: JSON.stringify({
-        ip,
-        port,
+        ip: target.ip,
+        port: target.port,
         payload: payloadB64,
         format: "raw_escpos_base64",
       }),
@@ -95,8 +202,8 @@ export async function printRawEscPosBase64(payloadB64: string, ip: string, port 
 
   try {
     await invoke("print_escpos_binary_b64", {
-      ip,
-      port,
+      ip: target.ip,
+      port: target.port,
       payload_b64: payloadB64,
     });
   } catch (err) {
@@ -105,7 +212,27 @@ export async function printRawEscPosBase64(payloadB64: string, ip: string, port 
   }
 }
 
-export async function printEscPosReceipt(payload: string, ip: string, port = 9100) {
+export async function printEscPosReceipt(
+  payload: string,
+  targetOrIp: HardwarePrinterTarget | string,
+  port = 9100,
+) {
+  const target = targetFromAddress(targetOrIp, port);
+  if (target.mode === "system") {
+    if (!isTauri()) {
+      throw new Error("Installed printer selection is available only in the Riverside desktop app.");
+    }
+    if (!target.printerName) {
+      throw new Error("Choose an installed printer for this station.");
+    }
+    const init = "\x1b@";
+    const cut = "\x1dVA\0";
+    return invoke("print_raw_to_system_printer_b64", {
+      printer_name: target.printerName,
+      payload_b64: asciiToBase64(`${init}${payload}\n\n\n\n${cut}`),
+    });
+  }
+
   if (!isTauri()) {
     const baseUrl = getBaseUrl();
     try {
@@ -115,7 +242,7 @@ export async function printEscPosReceipt(payload: string, ip: string, port = 910
           "Content-Type": "application/json",
           ...sessionPollAuthHeaders(),
         },
-        body: JSON.stringify({ ip, port, payload })
+        body: JSON.stringify({ ip: target.ip, port: target.port, payload })
       });
       if (!res.ok) {
         const err = await res.json();
@@ -129,7 +256,7 @@ export async function printEscPosReceipt(payload: string, ip: string, port = 910
   }
 
   try {
-    await invoke("print_escpos_receipt", { ip, port, payload });
+    await invoke("print_escpos_receipt", { ip: target.ip, port: target.port, payload });
   } catch (err) {
     console.error("Hardware Bridge Error: ESC/POS Print Failed:", err);
     throw new Error(String(err), { cause: err });
@@ -137,12 +264,30 @@ export async function printEscPosReceipt(payload: string, ip: string, port = 910
 }
 
 export async function checkReceiptPrinterConnection(
-  address: HardwareAddress = resolvePrinterAddress("receipt"),
+  target: HardwarePrinterTarget = resolvePrinterTarget("receipt"),
 ) {
-  const ip = address.ip.trim();
-  const port = address.port;
+  if (target.mode === "system") {
+    if (!target.printerName) {
+      throw new Error("Choose an installed receipt printer for this station.");
+    }
+    if (!isTauri()) {
+      throw new Error(
+        "Installed printer checks are available only in the Riverside desktop app.",
+      );
+    }
+    try {
+      await invoke("check_system_printer", { printer_name: target.printerName });
+      return;
+    } catch (err) {
+      console.error("Hardware Bridge Error: installed printer check failed:", err);
+      throw new Error(String(err), { cause: err });
+    }
+  }
+
+  const ip = target.ip.trim();
+  const port = target.port;
   if (!ip) {
-    throw new Error("Receipt printer IP is not configured for this station.");
+    throw new Error("Receipt printer address is not configured for this station.");
   }
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error("Receipt printer port is invalid for this station.");
@@ -183,14 +328,17 @@ function fallbackBrowserPrint(payload: string) {
  * Ensures the right protocol (ZPL vs ESC/POS) is used for the destination.
  */
 export async function autoRoutePrint(type: PrintDocType, payload: string, format: "zpl" | "escpos" = "zpl") {
-  const { ip, port } = resolvePrinterAddress(type);
-  if (!ip) {
-    throw new Error(`No printer IP configured for ${type} documents.`);
+  const target = resolvePrinterTarget(type);
+  if (target.mode === "system" && !target.printerName) {
+    throw new Error(`No installed printer selected for ${type} documents.`);
+  }
+  if (target.mode === "network" && !target.ip) {
+    throw new Error(`No printer address configured for ${type} documents.`);
   }
 
   if (format === "zpl") {
-    return printZplReceipt(payload, ip, port);
+    return printZplReceipt(payload, target);
   } else {
-    return printEscPosReceipt(payload, ip, port);
+    return printEscPosReceipt(payload, target);
   }
 }

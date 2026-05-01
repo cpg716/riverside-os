@@ -2765,7 +2765,7 @@ async fn admin_ops_capture_screenshots(
     }
 
     let base_url = match body.base_url.as_deref().map(str::trim) {
-        Some(value) if value.is_empty() => None,
+        Some("") => None,
         Some(value) if value.starts_with("http://") || value.starts_with("https://") => {
             Some(value.trim_end_matches('/').to_string())
         }
@@ -2784,7 +2784,7 @@ async fn admin_ops_capture_screenshots(
     .unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
 
     let api_base = match body.api_base.as_deref().map(str::trim) {
-        Some(value) if value.is_empty() => None,
+        Some("") => None,
         Some(value) if value.starts_with("http://") || value.starts_with("https://") => {
             Some(value.trim_end_matches('/').to_string())
         }

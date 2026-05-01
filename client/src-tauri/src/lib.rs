@@ -3,6 +3,7 @@ pub mod app_updates;
 pub mod hardware;
 pub mod llama_server;
 pub mod rosie_voice;
+pub mod station_config;
 pub mod unified_server;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -27,7 +28,11 @@ pub fn run() {
             hardware::print_zpl_receipt,
             hardware::print_escpos_receipt,
             hardware::print_escpos_binary_b64,
+            hardware::print_raw_to_system_printer_b64,
             hardware::check_printer_connection,
+            hardware::check_system_printer,
+            hardware::list_system_printers,
+            station_config::load_station_config,
             llama_server::rosie_llama_start,
             llama_server::rosie_llama_stop,
             llama_server::rosie_llama_status,

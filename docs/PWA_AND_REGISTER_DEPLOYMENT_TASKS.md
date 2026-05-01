@@ -4,6 +4,8 @@
 
 Related: [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) (Tailscale / TLS), [`DEVELOPER.md`](../DEVELOPER.md) (build commands), [`BACKUP_RESTORE_GUIDE.md`](../BACKUP_RESTORE_GUIDE.md), [`TRANSACTION_RETURNS_EXCHANGES.md`](TRANSACTION_RETURNS_EXCHANGES.md) (`/api/transactions/*` routes with `orders.*` RBAC), [`SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md) (POS customer + inventory directory paging), **[`REGISTER_DASHBOARD.md`](REGISTER_DASHBOARD.md)** (POS **Dashboard** tab, metrics, notifications, **`weddings.view`** on morning board APIs), **[`TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md)** (lanes **66–67**, one drawer + satellite registers, combined Z-close), **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](POS_PARKED_SALES_AND_RMS_CHARGES.md)** (migrations **68–69**: server **Park**, Z-close purge, **`pos_rms_charge_record`** **charge** vs **payment**, Sales Support **notifications** + **tasks**, **Customers → RMS charge**, QBO **`RMS_R2S_PAYMENT_CLEARING`**, optional **`VITE_POS_OFFLINE_CARD_SIM`**).
 
+Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOWS_INSTALLER_PACKAGE.md).
+
 ---
 
 ## A. Build targets and configuration
@@ -55,7 +57,7 @@ Related: [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) (Tailscale / TLS)
 
 - [x] **Release pipeline:** Local: `npm run tauri:build` from `client/` (runs `build:register` first). CI template: `.github/workflows/tauri-register-build.yml` (Windows, `workflow_dispatch`). Add a code-signing step before `tauri build` if SmartScreen requires it.
 - [x] **Windows 11 smoke:** Use `docs/WINDOWS11_TAURI_SMOKE_CHECKLIST_V021.md` for release sign-off on v0.2.1 auth/identity hardening (Unified Guard, authenticated staff persona priority, restricted POS Settings, POS hardware access).
-- [x] **Thermal / ESC-POS:** **Desktop / Tauri:** `client/src/lib/printerBridge.ts` → Tauri `invoke("print_*")` → `client/src-tauri/src/hardware.rs` TCP to printer. **PWA / browser:** same module falls back to `POST /api/hardware/print`, then browser print fallback.
+- [x] **Thermal / ESC-POS:** **Desktop / Tauri:** `client/src/lib/printerBridge.ts` → Tauri `invoke("print_*")` → `client/src-tauri/src/hardware.rs` to either the selected installed Windows printer or direct TCP printer address. Prefer direct **Network address** for Register #1 Epson receipts/cash drawer when the printer has a stable IP. **PWA / browser:** same module falls back to `POST /api/hardware/print`, then browser print fallback.
 - [x] **Auto-update (desktop):** Tauri updater is supported via the release workflow `.github/workflows/tauri-register-updater-release.yml`. It emits `latest.json` + signed Windows updater artifacts for your hosted update endpoint. Installed Windows stations use **Settings → Updates → Windows app** for check/install.
 - [x] **Kiosk-ish (optional):** Not bundled; use Windows assigned access / shell replacement, or Tauri fullscreen + `tauri-plugin-single-instance` if you add it later.
 
@@ -63,6 +65,7 @@ Related: [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) (Tailscale / TLS)
 
 Use one of these paths for each Windows station:
 
+0. **Deployment package:** build `deployment/windows/build-deployment-package.ps1`, fill `riverside-deployment.config.json`, then run `install-server.ps1` on the Server PC and `install-register.ps1` on Register #1.
 1. **Current release installer:** run `.github/workflows/tauri-register-updater-release.yml` for the target version, then install from the release assets.
 2. **Manual build artifact:** run `.github/workflows/tauri-register-build.yml`, download `tauri-windows-bundle`, and install the bundle on the station.
 3. **Local Windows build:** copy `client/.env.register.example` to `.env.register`, set `VITE_API_BASE`, then run `npm ci` and `npm run tauri:build` from `client/`.
@@ -131,10 +134,11 @@ Station role rules:
 
 ### Register app will not print
 
-1. Printer IP/port; ping from the PC.
-2. Windows firewall outbound to printer (often TCP 9100).
-3. Tauri path: native `hardware` vs PWA path: `/api/hardware/print` (see `printerBridge.ts`).
-4. Full restart of the desktop app after network changes.
+1. Check **Printers & Scanners** for the station mode: **Network address** or **Installed printer on this PC**.
+2. For network mode, confirm printer IP/port, ping from the PC, and Windows firewall outbound to printer, often TCP 9100.
+3. For installed-printer mode, confirm Windows sees the printer and a Windows test page works.
+4. Tauri path: selected local printer target through native `hardware`; PWA path: `/api/hardware/print` from the server to a network printer.
+5. Full restart of the desktop app after printer or network changes.
 
 ---
 

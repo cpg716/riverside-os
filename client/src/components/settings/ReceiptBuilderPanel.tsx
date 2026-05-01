@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, FileText, Image as ImageIcon, RefreshCw, R
 import { transform } from "receiptline";
 import RiversideReceiptLogo from "../../assets/images/riverside_logo.jpg";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { printRawEscPosBase64, resolvePrinterAddress } from "../../lib/printerBridge";
+import { printRawEscPosBase64 } from "../../lib/printerBridge";
 import { useToast } from "../ui/ToastProviderLogic";
 
 const EPSON_RECEIPT_CPL = 42;
@@ -279,8 +279,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
         command: "escpos",
         cutting: true,
       });
-      const printer = resolvePrinterAddress("receipt");
-      await printRawEscPosBase64(binaryStringToBase64(String(command)), printer.ip, printer.port);
+      await printRawEscPosBase64(binaryStringToBase64(String(command)));
       toast("Test receipt sent to the Epson receipt printer.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Test receipt failed", "error");

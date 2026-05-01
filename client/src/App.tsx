@@ -101,6 +101,7 @@ import {
   hydratePosRegisterAuthIfNeeded,
   setPosRegisterAuth,
 } from "./lib/posRegisterAuth";
+import { applyInstallerStationConfig } from "./lib/stationConfigBootstrap";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -234,6 +235,10 @@ function App() {
   const [bugReportOpen, setBugReportOpen] = useState(false);
   const baseUrl = getBaseUrl();
   const registerMetaRefreshRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    void applyInstallerStationConfig();
+  }, []);
 
   const onRegisterReconcilingBegun = useCallback(() => {
     setLifecycleStatus("reconciling");

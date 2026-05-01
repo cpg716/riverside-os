@@ -17,8 +17,9 @@ import {
 } from "lucide-react";
 import {
   checkReceiptPrinterConnection,
+  describePrinterTarget,
   printRawEscPosBase64,
-  resolvePrinterAddress,
+  resolvePrinterTarget,
 } from "../../lib/printerBridge";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -159,13 +160,8 @@ export default function ReceiptSummaryModal({
 
   const openCashDrawerForSale = useCallback(async () => {
     if (cashDrawerKicked || !shouldKickCashDrawer()) return;
-    const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
-    const printerPort = parseInt(
-      localStorage.getItem("ros.hardware.printer.receipt.port") || "9100",
-      10,
-    );
     try {
-      await printRawEscPosBase64("G3AAMvo=", printerIp, printerPort);
+      await printRawEscPosBase64("G3AAMvo=");
       setCashDrawerKicked(true);
     } catch (e) {
       console.error("Cash drawer kick failed", e);
@@ -335,9 +331,6 @@ export default function ReceiptSummaryModal({
           throw new Error("Receipt printing is unavailable. Try again or use reprint.");
         }
 
-        const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
-        const printerPort = parseInt(localStorage.getItem("ros.hardware.printer.receipt.port") || "9100");
-
         let printableBase64 = escposPayload.escpos_base64;
         if (typeof escposPayload.receiptline_markdown === "string" && escposPayload.receiptline_markdown.trim()) {
           try {
@@ -353,7 +346,7 @@ export default function ReceiptSummaryModal({
           }
         }
 
-        await printRawEscPosBase64(printableBase64, printerIp, printerPort);
+        await printRawEscPosBase64(printableBase64);
         setPrintingSuccessMessage(
           `${opts?.gift ? "Gift receipt" : "Receipt"} sent to the station printer.`,
         );
@@ -384,10 +377,10 @@ export default function ReceiptSummaryModal({
     setCheckingPrinter(true);
     setPrinterCheckMessage(null);
     try {
-      const printer = resolvePrinterAddress("receipt");
+      const printer = resolvePrinterTarget("receipt");
       await checkReceiptPrinterConnection(printer);
       setPrinterCheckMessage(
-        `Receipt printer responded at ${printer.ip}:${printer.port}. You can retry printing now.`,
+        `Receipt printer responded at ${describePrinterTarget(printer)}. You can retry printing now.`,
       );
     } catch (e) {
       console.error("Printer check failed", e);
