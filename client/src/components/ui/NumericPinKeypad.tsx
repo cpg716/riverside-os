@@ -101,7 +101,7 @@ export default function NumericPinKeypad({
     : "min-h-16 rounded-2xl text-2xl";
 
   return (
-    <div className={className}>
+    <div className={className} data-pin-entry="true">
       <div className={`grid grid-cols-3 ${gap}`}>
         {KEYS.map((k) =>
           k === "." && !showDecimal ? (

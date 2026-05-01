@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { MouseEvent } from "react";
 import Sidebar from "./components/layout/Sidebar";
 import {
   type SidebarTabId,
@@ -884,8 +885,15 @@ function App() {
     ];
   }, [activeTab, activeSubSection]);
 
-  const onWorkspaceClick = useCallback(() => {
-    if (window.innerWidth < 1024) setSidebarCollapsed(true);
+  const onWorkspaceClick = useCallback((event?: MouseEvent<HTMLElement>) => {
+    const target = event?.target;
+    if (
+      target instanceof HTMLElement &&
+      target.closest('[data-pin-entry="true"]')
+    ) {
+      return;
+    }
+    setSidebarCollapsed(true);
   }, []);
 
   const markShellNavigationIntent = useCallback(() => {
@@ -1139,7 +1147,7 @@ interface AppShellProps {
   setRegisterReportsDeepLinkTxnId: (id: string | null) => void;
   bugReportsDeepLinkId: string | null;
   setBugReportsDeepLinkId: (id: string | null) => void;
-  onWorkspaceClick: () => void;
+  onWorkspaceClick: (event?: MouseEvent<HTMLElement>) => void;
   helpDrawerOpen: boolean;
   setHelpDrawerOpen: (v: boolean) => void;
   bugReportOpen: boolean;
@@ -1649,7 +1657,7 @@ type AppMainColumnProps = {
   setActiveTab: (t: SidebarTabId) => void;
   activeSubSection: string;
   setActiveSubSection: (id: string) => void;
-  onWorkspaceClick: () => void;
+  onWorkspaceClick: (event?: MouseEvent<HTMLElement>) => void;
   navigateRegister: () => void;
   navigateWedding: (partyId?: string | null) => void;
   pendingWmPartyId: string | null;
@@ -1799,6 +1807,7 @@ function AppMainColumn({
       className={`relative flex min-w-0 flex-1 flex-col ${activeTab === "register" || activeTab === "customers" || activeTab === "alterations" || activeTab === "orders" ? "density-compact" : "density-standard"}`}
       onClick={onWorkspaceClick}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           onWorkspaceClick();
         }
