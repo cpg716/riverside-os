@@ -321,6 +321,7 @@ impl BackupManager {
 
             if d_out.status.success() {
                 info!("Database restoration successful via Docker fallback");
+                self.apply_pending_migrations_after_restore().await?;
                 return Ok(());
             } else {
                 let d_err = String::from_utf8_lossy(&d_out.stderr);
@@ -381,6 +382,7 @@ impl BackupManager {
                 let replay_out = replay.wait_with_output().await?;
                 if replay_out.status.success() {
                     info!("Database restoration successful via Docker schema pre-clean fallback");
+                    self.apply_pending_migrations_after_restore().await?;
                     return Ok(());
                 }
 
@@ -394,7 +396,60 @@ impl BackupManager {
         }
 
         info!("Database restoration completed successfully");
+        self.apply_pending_migrations_after_restore().await?;
         Ok(())
+    }
+
+    async fn apply_pending_migrations_after_restore(&self) -> Result<()> {
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(PathBuf::from)
+            .context("Could not resolve repository root for post-restore migrations")?;
+        let psql_script = repo_root.join("scripts").join("apply-migrations-psql.sh");
+        let docker_script = repo_root.join("scripts").join("apply-migrations-docker.sh");
+
+        if psql_script.exists() {
+            let out = Command::new("bash")
+                .arg(&psql_script)
+                .current_dir(&repo_root)
+                .env("DATABASE_URL", &self.database_url)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+                .await
+                .context("Failed to execute post-restore psql migrations")?;
+            if out.status.success() {
+                info!("Post-restore migrations applied via psql script");
+                return Ok(());
+            }
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            error!(stderr = %stderr, "Post-restore psql migrations failed; trying Docker migration script");
+        }
+
+        if docker_script.exists() {
+            let out = Command::new("bash")
+                .arg(&docker_script)
+                .current_dir(&repo_root)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+                .await
+                .context("Failed to execute post-restore Docker migrations")?;
+            if out.status.success() {
+                info!("Post-restore migrations applied via Docker script");
+                return Ok(());
+            }
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            error!(stderr = %stderr, "Post-restore Docker migrations failed");
+            return Err(anyhow::anyhow!(
+                "restore completed but post-restore migrations failed: {}",
+                stderr.trim()
+            ));
+        }
+
+        Err(anyhow::anyhow!(
+            "restore completed but no migration script was found to bring the database current"
+        ))
     }
 
     /// Delete a backup file.
@@ -535,6 +590,18 @@ mod tests {
     fn restore_schema_pre_clean_drops_app_schemas_before_replay() {
         assert!(RESTORE_SCHEMA_PRE_CLEAN_SQL.contains("DROP SCHEMA IF EXISTS public CASCADE"));
         assert!(RESTORE_SCHEMA_PRE_CLEAN_SQL.contains("CREATE SCHEMA public"));
+    }
+
+    #[test]
+    fn post_restore_migration_scripts_exist_in_repo() {
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(PathBuf::from)
+            .expect("repo root");
+        assert!(repo_root.join("scripts/apply-migrations-psql.sh").exists());
+        assert!(repo_root
+            .join("scripts/apply-migrations-docker.sh")
+            .exists());
     }
 }
 
