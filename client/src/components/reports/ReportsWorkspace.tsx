@@ -317,7 +317,7 @@ export default function ReportsWorkspace({
           <button
             type="button"
             onClick={onOpenMetabaseExplore}
-            className="ui-btn-secondary inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wide"
+            className="ui-btn-secondary inline-flex min-h-11 items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold"
           >
             Open Advanced Reports
             <ArrowRight className="h-4 w-4" aria-hidden />
@@ -329,7 +329,7 @@ export default function ReportsWorkspace({
         <button
           type="button"
           onClick={onNavigateRegisterReports}
-          className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-xs font-bold text-app-text transition hover:border-app-accent/40"
+          className="min-h-11 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-sm font-bold text-app-text transition hover:border-app-accent/40"
         >
           POS register day &amp; lane reports
           <span className="mt-0.5 block font-semibold text-app-text-muted">
@@ -339,7 +339,7 @@ export default function ReportsWorkspace({
         <button
           type="button"
           onClick={onNavigateCommissionPayouts}
-          className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-xs font-bold text-app-text transition hover:border-app-accent/40"
+          className="min-h-11 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-sm font-bold text-app-text transition hover:border-app-accent/40"
         >
           Commission finalize &amp; payouts
           <span className="mt-0.5 block font-semibold text-app-text-muted">
@@ -384,24 +384,24 @@ export default function ReportsWorkspace({
                           {r.description}
                         </span>
                         <span className="mt-3 flex flex-wrap gap-1.5">
-                          <span className="ui-chip bg-app-surface-2 text-[10px] font-black uppercase text-app-text-muted">
+                          <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
                             {r.category}
                           </span>
-                          <span className="ui-chip bg-app-surface-2 text-[10px] font-black uppercase text-app-text-muted">
+                          <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
                             For {r.audience}
                           </span>
-                          <span className="ui-chip bg-app-surface-2 text-[10px] font-black uppercase text-app-text-muted">
+                          <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
                             {r.sensitivity === "Staff-safe"
                               ? "Staff-safe"
                               : `${r.sensitivity} access`}
                           </span>
                           {!isAvailableReport(r) ? (
-                            <span className="ui-chip bg-app-accent/10 text-[10px] font-black uppercase text-app-accent">
+                            <span className="ui-chip bg-app-accent/10 text-xs font-bold text-app-accent">
                               Planned
                             </span>
                           ) : null}
                           {r.adminOnly && r.sensitivity !== "Admin-only" ? (
-                            <span className="ui-chip bg-app-warning/10 text-[10px] font-black uppercase text-app-warning">
+                            <span className="ui-chip bg-app-warning/10 text-xs font-bold text-app-warning">
                               Admin only
                             </span>
                           ) : null}
@@ -432,7 +432,7 @@ export default function ReportsWorkspace({
                 setPayload(null);
                 setLoadErr(null);
               }}
-              className="ui-btn-secondary inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-bold uppercase"
+              className="ui-btn-secondary inline-flex min-h-11 items-center gap-1 rounded-xl px-3 py-2 text-sm font-bold"
             >
               <ChevronLeft className="h-4 w-4" aria-hidden />
               Library
@@ -445,7 +445,7 @@ export default function ReportsWorkspace({
                 type="button"
                 disabled={loading}
                 onClick={() => void runLoad(selected)}
-                className="ui-btn-secondary inline-flex w-full items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-bold uppercase sm:ml-auto sm:w-auto"
+                className="ui-btn-secondary inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl px-3 py-2 text-sm font-bold sm:ml-auto sm:w-auto"
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
                 Refresh
@@ -472,7 +472,7 @@ export default function ReportsWorkspace({
           <div data-testid="reports-detail-filters" className="flex flex-wrap items-end gap-3">
             {showRange ? (
               <>
-                <label className="flex w-full flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted sm:w-auto">
+                <label className="flex w-full flex-col gap-1 text-xs font-bold text-app-text-muted sm:w-auto">
                   From
                   <input
                     type="date"
@@ -481,7 +481,7 @@ export default function ReportsWorkspace({
                     className="ui-input w-full rounded-xl px-3 py-2 text-sm font-semibold sm:w-auto"
                   />
                 </label>
-                <label className="flex w-full flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted sm:w-auto">
+                <label className="flex w-full flex-col gap-1 text-xs font-bold text-app-text-muted sm:w-auto">
                   To
                   <input
                     type="date"
@@ -493,7 +493,7 @@ export default function ReportsWorkspace({
               </>
             ) : null}
             {showBasis ? (
-              <label className="flex w-full flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted sm:w-auto">
+              <label className="flex w-full flex-col gap-1 text-xs font-bold text-app-text-muted sm:w-auto">
                 Basis
                 <select
                   value={basis}
@@ -506,7 +506,7 @@ export default function ReportsWorkspace({
               </label>
             ) : null}
             {showGroup ? (
-              <label className="flex w-full flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted sm:w-auto">
+              <label className="flex w-full flex-col gap-1 text-xs font-bold text-app-text-muted sm:w-auto">
                 Group by
                 <select
                   value={groupBy}
@@ -565,7 +565,7 @@ export default function ReportsWorkspace({
                       key={k}
                       className="rounded-xl border border-app-border bg-app-surface px-3 py-2"
                     >
-                      <dt className="text-[10px] font-black uppercase text-app-text-muted">
+                      <dt className="text-xs font-bold text-app-text-muted">
                         {fieldLabel(k)}
                       </dt>
                       <dd className="text-lg font-black text-app-text">{toCellString(v)}</dd>
@@ -588,7 +588,7 @@ export default function ReportsWorkspace({
                         key={k}
                         className="rounded-xl border border-app-border bg-app-surface px-3 py-2"
                       >
-                        <dt className="text-[10px] font-black uppercase text-app-text-muted">{fieldLabel(k)}</dt>
+                        <dt className="text-xs font-bold text-app-text-muted">{fieldLabel(k)}</dt>
                         <dd className="mt-1 text-sm font-semibold text-app-text">{toCellString(v)}</dd>
                       </div>
                     ))}
@@ -657,7 +657,7 @@ export default function ReportsWorkspace({
                   <button
                     type="button"
                     onClick={() => downloadCsv(`${selected.id}.csv`, displayRows)}
-                    className="ui-btn-secondary inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold uppercase"
+                    className="ui-btn-secondary inline-flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold"
                   >
                     <Download className="h-4 w-4" aria-hidden />
                     Download CSV
@@ -672,7 +672,7 @@ export default function ReportsWorkspace({
                         rows: displayRows
                       });
                     }}
-                    className="ui-btn-secondary inline-flex items-center gap-2 rounded-xl border-app-success/20 px-3 py-2 text-xs font-bold uppercase text-app-success hover:bg-app-success hover:text-white"
+                    className="ui-btn-secondary inline-flex min-h-11 items-center gap-2 rounded-xl border-app-success/20 px-3 py-2 text-sm font-bold text-app-success hover:bg-app-success hover:text-white"
                   >
                     <Printer className="h-4 w-4" aria-hidden />
                     Print Report
@@ -694,7 +694,7 @@ export default function ReportsWorkspace({
                               key={k}
                               className="grid grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] items-start gap-2 text-xs"
                             >
-                              <dt className="truncate font-black uppercase tracking-wide text-app-text-muted">
+                              <dt className="truncate font-bold text-app-text-muted">
                                 {fieldLabel(k)}
                               </dt>
                               <dd className="break-all font-semibold text-app-text">

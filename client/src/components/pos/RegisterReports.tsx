@@ -590,36 +590,36 @@ export default function RegisterReports({
                 <div className="ui-panel ui-tint-success p-3">
                   <div className="flex items-center gap-1.5 mb-2">
                     <DollarSign className="h-3 w-3 text-app-success" />
-                    <span className="text-[10px] font-black uppercase tracking-wider text-app-success">Booked (Sale)</span>
+	                    <span className="text-xs font-bold text-app-success">Booked Sales</span>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     <div className="ui-metric-cell ui-tint-success p-2">
-                      <div className="text-[9px] font-black uppercase text-app-success">Sales #</div>
+	                      <div className="text-xs font-bold text-app-success">Sales</div>
                       <p className="text-lg font-black text-app-text">{summaryBooked.sales_count}</p>
                     </div>
                     <div className="ui-metric-cell ui-tint-success p-2">
-                      <div className="text-[9px] font-black uppercase text-app-success">Sales $</div>
+	                      <div className="text-xs font-bold text-app-success">Sales Total</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_subtotal_no_tax))}</p>
                     </div>
                     <div className="ui-metric-cell ui-tint-warning p-2">
-                      <div className="text-[9px] font-black uppercase text-app-warning">Tax</div>
+	                      <div className="text-xs font-bold text-app-warning">Tax</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_tax_total))}</p>
                     </div>
                     <div className="ui-metric-cell ui-tint-danger p-2">
-                      <div className="text-[9px] font-black uppercase text-app-danger">Fees</div>
+	                      <div className="text-xs font-bold text-app-danger">Fees</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.stripe_fees_total))}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
                     <div className="ui-metric-cell ui-tint-info p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-black uppercase text-app-info">Cash Taken</span>
+	                        <span className="text-xs font-bold text-app-info">Cash Taken</span>
                         <span className="text-lg font-black text-app-text">${summaryBooked.cash_collected}</span>
                       </div>
                     </div>
                     <div className="ui-metric-cell ui-tint-success p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-black uppercase text-app-success">Deposits Taken</span>
+	                        <span className="text-xs font-bold text-app-success">Deposits Taken</span>
                         <span className="text-lg font-black text-app-text">${summaryBooked.deposits_collected}</span>
                       </div>
                     </div>
@@ -632,23 +632,23 @@ export default function RegisterReports({
                 <div className="ui-panel ui-tint-info p-3">
                   <div className="flex items-center gap-1.5 mb-2">
                     <Truck className="h-3 w-3 text-app-info" />
-                    <span className="text-[10px] font-black uppercase tracking-wider text-app-info">Fulfilled</span>
+	                    <span className="text-xs font-bold text-app-info">Completed</span>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     <div className="ui-metric-cell ui-tint-info p-2">
-                      <div className="text-[9px] font-black uppercase text-app-info">Orders</div>
+	                      <div className="text-xs font-bold text-app-info">Orders</div>
                       <p className="text-lg font-black text-app-text">{summary.pickup_count || 0}</p>
                     </div>
                     <div className="ui-metric-cell ui-tint-info p-2">
-                      <div className="text-[9px] font-black uppercase text-app-info">Revenue</div>
+	                      <div className="text-xs font-bold text-app-info">Revenue</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</p>
                     </div>
                     <div className="ui-metric-cell ui-tint-info p-2">
-                      <div className="text-[9px] font-black uppercase text-app-info">Tax</div>
+	                      <div className="text-xs font-bold text-app-info">Tax</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.sales_tax_total))}</p>
                     </div>
                     <div className="ui-metric-cell ui-tint-success p-2">
-                      <div className="text-[9px] font-black uppercase text-app-success">Net</div>
+	                      <div className="text-xs font-bold text-app-success">Net</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.net_sales))}</p>
                     </div>
                   </div>
@@ -658,19 +658,19 @@ export default function RegisterReports({
               {/* Additional Metrics - Compact */}
               <div className="grid grid-cols-4 gap-2">
                 <div className="ui-metric-cell ui-tint-neutral p-2">
-                  <div className="flex items-center gap-1 text-[9px] font-black uppercase text-app-text-muted"><Calendar className="h-2.5 w-2.5" />Appts</div>
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Calendar className="h-3 w-3" />Appts</div>
                   <p className="text-base font-black">{summaryBooked?.appointment_count || 0}</p>
                 </div>
                 <div className="ui-metric-cell ui-tint-info p-2">
-                  <div className="flex items-center gap-1 text-[9px] font-black uppercase text-app-text-muted"><Globe className="h-2.5 w-2.5" />Online</div>
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Globe className="h-3 w-3" />Online</div>
                   <p className="text-base font-black">{summaryBooked?.online_order_count || 0}</p>
                 </div>
                 <div className="ui-metric-cell ui-tint-accent p-2">
-                  <div className="flex items-center gap-1 text-[9px] font-black uppercase text-app-text-muted"><Heart className="h-2.5 w-2.5" />Weddings</div>
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Heart className="h-3 w-3" />Weddings</div>
                   <p className="text-base font-black">{summaryBooked?.new_wedding_parties_count || 0}</p>
                 </div>
                 <div className="ui-metric-cell ui-tint-warning p-2">
-                  <div className="flex items-center gap-1 text-[9px] font-black uppercase text-app-text-muted"><Package className="h-2.5 w-2.5" />Orders</div>
+	                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted"><Package className="h-3 w-3" />Orders</div>
                   <p className="text-base font-black">{summaryBooked?.special_order_sale_count || 0}</p>
                 </div>
               </div>
@@ -738,7 +738,7 @@ export default function RegisterReports({
                                  <span className="truncate">{row.customer_name || "Walk-in Customer"}</span>
                                </h4>
                                <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                                 {row.customer_code && <span className="ui-pill bg-app-surface-3 text-[8px] font-black tracking-widest text-app-text-muted">#{row.customer_code}</span>}
+	                                 {row.customer_code && <span className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted">#{row.customer_code}</span>}
                                  {row.wedding_party_name && (
                                    <button 
                                      type="button" 
@@ -746,7 +746,7 @@ export default function RegisterReports({
                                        e.stopPropagation();
                                        if (row.wedding_party_id && onOpenWeddingParty) onOpenWeddingParty(row.wedding_party_id);
                                      }}
-                                     className="flex items-center gap-1 rounded bg-app-danger/6 px-2 py-0.5 text-[9px] font-black text-app-danger ring-1 ring-app-danger/20 hover:bg-app-danger/10 transition-colors uppercase"
+	                                     className="flex min-h-8 items-center gap-1 rounded bg-app-danger/6 px-2 py-0.5 text-xs font-bold text-app-danger ring-1 ring-app-danger/20 transition-colors hover:bg-app-danger/10"
                                    >
                                      <Heart size={10} /> {row.wedding_party_name}
                                    </button>
@@ -754,14 +754,14 @@ export default function RegisterReports({
                                </div>
                                <div className="mt-3 flex items-center gap-1.5 flex-wrap">
                                   <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">#{row.short_id || row.order_id?.slice(0, 8)}</span>
-                                  {row.is_takeaway && <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-[8px] font-black uppercase leading-none text-app-warning">Takeaway</span>}
-                                  {row.channel === 'web' && <span className="text-[8px] font-black bg-app-info/10 text-app-info px-1.5 py-0.5 rounded uppercase flex items-center gap-1 leading-none"><Globe size={8}/> Online</span>}
+	                                  {row.is_takeaway && <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-warning">Takeaway</span>}
+	                                  {row.channel === 'web' && <span className="flex items-center gap-1 rounded bg-app-info/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-info"><Globe size={10}/> Online</span>}
                                </div>
                             </div>
                           </div>
                           
                           <div className="mt-4 pt-4 border-t border-app-border/40">
-                             <button type="button" onClick={() => setReceiptOrderId(row.order_id!)} className="ui-btn-secondary w-full py-2 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest hover:bg-app-accent hover:text-white transition-all shadow-sm">
+	                             <button type="button" onClick={() => setReceiptOrderId(row.order_id!)} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white">
                                 <Receipt size={14} /> Receipt
                              </button>
                           </div>
@@ -770,12 +770,12 @@ export default function RegisterReports({
                         {/* 2. Items Ledger (Middle) */}
                         <div className="p-5 flex-1 lg:max-w-xl">
                            <div className="mb-3 flex items-center justify-between">
-                              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Line Items</h5>
-                              <span className="text-[10px] font-bold text-app-text-muted opacity-40">({row.items?.length || 0} units)</span>
+	                              <h5 className="text-sm font-black text-app-text-muted">Line Items</h5>
+	                              <span className="text-xs font-semibold text-app-text-muted opacity-70">({row.items?.length || 0} units)</span>
                            </div>
                            <table className="w-full text-left">
                               <thead>
-                                 <tr className="text-[8px] font-black uppercase tracking-[0.1em] text-app-text-muted border-b border-app-border/40 pb-2">
+	                                 <tr className="border-b border-app-border/40 pb-2 text-xs font-bold text-app-text-muted">
                                     <th className="pb-2">Description / SKU</th>
                                     <th className="pb-2 text-center">Qty</th>
                                     <th className="pb-2 text-center">Reg</th>
@@ -788,19 +788,19 @@ export default function RegisterReports({
                                     <tr key={i} className="text-[11px] hover:bg-app-surface-2/30 transition-colors">
                                        <td className="py-2.5 pr-4">
                                           <div className="font-black text-app-text leading-snug">{it.name}</div>
-                                          <div className="font-mono text-[9px] text-app-text-muted opacity-40 uppercase tracking-tighter mt-0.5">{it.sku}</div>
+	                                          <div className="mt-0.5 font-mono text-xs text-app-text-muted opacity-70">{it.sku}</div>
                                        </td>
                                        <td className="py-2.5 text-center align-top font-bold text-app-text">{it.quantity}</td>
                                        <td className="py-2.5 text-center align-top text-app-text-muted/60 line-through font-medium tracking-tighter tabular-nums">${it.reg_price}</td>
                                        <td className="py-2.5 text-center align-top font-black text-app-text tracking-tighter tabular-nums">${it.price}</td>
                                        <td className="py-2.5 text-right align-top">
-                                          <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tight ${
+	                                          <span className={`rounded px-2 py-0.5 text-xs font-bold ${
                                              it.fulfillment === 'takeaway' ? 'bg-app-warning/10 text-app-warning' :
                                              it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'bg-app-info/10 text-app-info' :
                                              it.fulfillment === 'layaway' ? 'bg-app-accent/10 text-app-accent' : it.fulfillment === 'pickup' ? 'bg-app-success/10 text-app-success' :
                                              'bg-app-surface-2 text-app-text-muted font-bold'
                                           }`}>
-                                             {it.fulfillment === 'takeaway' ? 'TAKEN' : it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'ORDERED' : it.fulfillment === 'layaway' ? 'LAYAWAY' : it.fulfillment === 'pickup' ? 'PICKUP' : it.fulfillment?.toUpperCase() || 'UNKNOWN'}
+	                                             {it.fulfillment === 'takeaway' ? 'Taken' : it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'Ordered' : it.fulfillment === 'layaway' ? 'Layaway' : it.fulfillment === 'pickup' ? 'Pickup' : it.fulfillment || 'Unknown'}
                                           </span>
                                        </td>
                                     </tr>
@@ -818,18 +818,18 @@ export default function RegisterReports({
                         <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
                            <div className="space-y-3">
                               <div className="flex flex-col items-end gap-0.5">
-                                 <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Sales Total (Booked)</span>
+	                                 <span className="text-xs font-bold text-app-text-muted">Sales Total (Booked)</span>
                                  <span className="text-lg font-black text-app-text tabular-nums leading-none tracking-tighter">
                                    ${row.sales_total || "0.00"}
                                  </span>
                               </div>
                               
                               <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
-                                 <span className="text-[9px] font-black uppercase tracking-widest text-app-success">Deposits Taken / Trans. Total</span>
+	                                 <span className="text-xs font-bold text-app-success">Deposits Taken / Transaction Total</span>
                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
                                    ${row.transaction_total || "0.00"}
                                  </span>
-                                 <div className="flex items-center gap-1 text-[9px] font-bold text-app-text-muted mt-1 opacity-60">
+	                                 <div className="mt-1 flex items-center gap-1 text-xs font-semibold text-app-text-muted opacity-70">
                                     {row.payment_summary && (
                                        <>
                                          {paymentIcon(row.payment_summary)}
@@ -841,7 +841,7 @@ export default function RegisterReports({
                            </div>
 
                            <div className="mt-6 pt-4 border-t-2 border-app-border flex flex-col items-end">
-                              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted mb-1">Balance Due</span>
+	                              <span className="mb-1 text-xs font-bold text-app-text-muted">Balance Due</span>
                               <span className="text-3xl font-black text-app-accent tabular-nums tracking-tighter leading-none">
                                  ${row.balance_due || "0.00"}
                               </span>
@@ -885,7 +885,7 @@ export default function RegisterReports({
           ) : (
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-2 px-4 py-3 sm:px-6">
-                <div className="no-scrollbar flex gap-1 overflow-x-auto rounded-xl border border-app-border bg-app-surface-2 p-1">
+	                <div className="no-scrollbar flex flex-wrap gap-1 rounded-xl border border-app-border bg-app-surface-2 p-1">
                   {[
                     { id: "recent" as const, label: "Recent" },
                     { id: "today" as const, label: "Today" },
@@ -894,7 +894,7 @@ export default function RegisterReports({
                     { id: "this_month" as const, label: "Month" },
                     { id: "custom" as const, label: "Custom" },
                   ].map((p) => (
-                    <button key={p.id} type="button" onClick={() => setZPreset(p.id)} className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${zPreset === p.id ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
+	                    <button key={p.id} type="button" onClick={() => setZPreset(p.id)} className={`min-h-9 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${zPreset === p.id ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
                       {p.label}
                     </button>
                   ))}
@@ -911,7 +911,7 @@ export default function RegisterReports({
               <div className="border-b border-app-border bg-app-surface-2 px-4 py-4 sm:px-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+	                    <p className="text-xs font-bold text-app-text-muted">
                       Register coordination
                     </p>
                     <p className="mt-1 text-sm font-semibold text-app-text">
@@ -928,7 +928,7 @@ export default function RegisterReports({
                         key={label}
                         className="ui-metric-cell ui-tint-neutral px-3 py-3 text-center"
                       >
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+	                        <p className="text-xs font-bold text-app-text-muted">
                           {label}
                         </p>
                         <p className="mt-1 text-lg font-black tabular-nums text-app-text">
@@ -940,7 +940,7 @@ export default function RegisterReports({
                 </div>
                 {coordinationSummary.pendingCloses > 0 ? (
                   <div className="mt-3 rounded-xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
-                    <p className="text-[10px] font-black uppercase tracking-widest">
+	                    <p className="text-xs font-bold">
                       Pending close in progress
                     </p>
                     <p className="mt-1 font-semibold leading-relaxed">
@@ -949,7 +949,7 @@ export default function RegisterReports({
                   </div>
                 ) : null}
                 <div className="ui-panel ui-tint-info mt-3 px-4 py-3 text-sm text-app-text-muted">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
+	                  <p className="text-xs font-bold text-app-text">
                     Shared drawer rule
                   </p>
                   <p className="mt-1 leading-relaxed">
@@ -978,7 +978,7 @@ export default function RegisterReports({
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+	                              <p className="text-xs font-bold text-app-text-muted">
                                 Drawer group
                               </p>
                               <p className="mt-1 text-sm font-black text-app-text">
@@ -987,11 +987,11 @@ export default function RegisterReports({
                                   : "Shared till group"}
                               </p>
                               <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
-                                Shift ID {group.tillCloseGroupId.slice(0, 8)}…
+	                                Shift {group.tillCloseGroupId.slice(0, 8)}…
                               </p>
                             </div>
                             <span
-                              className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+	                              className={`rounded-full border px-3 py-1 text-xs font-bold ${
                                 isReconciling
                                   ? "border-app-warning/20 bg-app-warning/10 text-app-warning"
                                   : "border-app-info/20 bg-app-info/10 text-app-info"
@@ -1019,7 +1019,7 @@ export default function RegisterReports({
                                   </p>
                                 </div>
                                 <span
-                                  className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${registerLifecycleTone(
+	                                  className={`rounded-full border px-2.5 py-1 text-xs font-bold ${registerLifecycleTone(
                                     session.lifecycle_status,
                                   )}`}
                                 >
@@ -1030,7 +1030,7 @@ export default function RegisterReports({
                           </div>
                           <p className="mt-3 text-[11px] font-medium leading-relaxed text-app-text-muted">
                             {isReconciling
-                              ? "This group is already in reconciliation. Avoid starting another close from a linked register."
+	                              ? "This group is already closing. Avoid starting another close from a linked register."
                               : "Close this shared drawer from Register #1 when every linked lane in the till group is ready."}
                           </p>
                         </div>
@@ -1069,7 +1069,7 @@ export default function RegisterReports({
                       </div>
                       <div className="text-right">
                         <p className="mb-1">
-                          <span className="rounded-full border border-app-border bg-app-surface-3 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+	                          <span className="rounded-full border border-app-border bg-app-surface-3 px-2.5 py-1 text-xs font-bold text-app-text-muted">
                             Z-close anchor
                           </span>
                         </p>

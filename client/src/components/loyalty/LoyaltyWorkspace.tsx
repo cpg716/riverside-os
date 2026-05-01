@@ -192,13 +192,13 @@ function SettingsPanel({
             <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20">
               <Star className="h-5 w-5" />
             </div>
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Policy Engine</h3>
+            <h3 className="text-sm font-black text-app-text">Reward Settings</h3>
           </div>
           
           <div className="space-y-5">
             <div className="grid gap-4">
               <label className="block space-y-2">
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted px-1">Unlock Points (Threshold)</span>
+                <span className="px-1 text-xs font-bold text-app-text-muted">Points needed</span>
                 <div className="relative group">
                    <input type="number" min="1" value={threshold} onChange={e => setThreshold(e.target.value)} className="ui-input w-full bg-app-surface border-app-border pl-10 transition-all font-black text-app-warning focus:border-app-warning/40" />
                    <Coins className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-app-text-muted opacity-40 group-focus-within:opacity-100 transition-opacity" />
@@ -206,7 +206,7 @@ function SettingsPanel({
               </label>
               
               <label className="block space-y-2">
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted px-1">Reward Value ($)</span>
+                <span className="px-1 text-xs font-bold text-app-text-muted">Reward amount</span>
                 <div className="relative group">
                    <input type="number" min="0.01" step="0.01" value={reward} onChange={e => setReward(e.target.value)} className="ui-input w-full bg-app-surface border-app-border pl-10 transition-all font-black text-app-success focus:border-app-success/40" />
                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-app-text-muted opacity-40 group-focus-within:opacity-100 transition-opacity">$</div>
@@ -215,18 +215,18 @@ function SettingsPanel({
             </div>
 
             <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 space-y-2">
-               <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+               <div className="flex justify-between text-xs font-bold text-app-text-muted">
                   <span>Point Multiplier</span>
                   <span>{settings?.points_per_dollar || 1}x</span>
                </div>
-               <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+               <div className="flex justify-between text-xs font-bold text-app-text-muted">
                   <span>Reward ROI</span>
                   <span className="text-app-success">{((parseFloat(reward) || 0) / (parseFloat(threshold) || 1) * 100).toFixed(1)}%</span>
                </div>
             </div>
 
-            {err && <div className="rounded-xl border border-app-danger/20 bg-app-danger/10 p-3 text-[10px] font-black uppercase text-app-danger animate-shake">{err}</div>}
-            {saved && <div className="rounded-xl border border-app-success/20 bg-app-success/10 p-3 text-[10px] font-black uppercase text-app-success">Program settings saved</div>}
+            {err && <div className="animate-shake rounded-xl border border-app-danger/20 bg-app-danger/10 p-3 text-sm font-semibold text-app-danger">{err}</div>}
+            {saved && <div className="rounded-xl border border-app-success/20 bg-app-success/10 p-3 text-sm font-semibold text-app-success">Program settings saved</div>}
 
             <button 
               onClick={save} 
@@ -247,8 +247,8 @@ function SettingsPanel({
               <Mail className="h-5 w-5" />
             </div>
             <div>
-               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Reward Letter Template</h3>
-               <p className="text-[10px] font-bold text-app-text-muted tracking-tight opacity-60">Customer message for reward-card follow-up</p>
+               <h3 className="text-sm font-black text-app-text">Reward Letter Template</h3>
+               <p className="text-xs font-semibold text-app-text-muted">Customer message for reward-card follow-up</p>
             </div>
           </div>
           
@@ -257,7 +257,7 @@ function SettingsPanel({
               <button 
                 key={tag}
                 onClick={() => setTemplate(prev => prev + tag)}
-                className="px-2.5 py-1 rounded-lg bg-app-surface border border-app-border/50 text-[9px] font-black uppercase tracking-tighter text-app-text-muted hover:text-purple-600 hover:border-purple-300 transition-all hover:shadow-sm"
+                className="min-h-9 rounded-lg border border-app-border/50 bg-app-surface px-2.5 py-1 text-xs font-bold text-app-text-muted transition-all hover:border-purple-300 hover:text-purple-600 hover:shadow-sm"
               >
                 {tag}
               </button>
@@ -273,7 +273,7 @@ function SettingsPanel({
              className="h-full w-full resize-none bg-transparent p-4 text-sm font-mono leading-relaxed text-app-text placeholder:opacity-20 tabular-nums focus:outline-none sm:p-6 lg:p-8"
            />
            <div className="absolute bottom-6 right-6 flex items-center gap-2">
-              <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-40">Markdown supported</span>
+              <span className="text-xs font-semibold text-app-text-muted opacity-70">Markdown supported</span>
               <FileText size={12} className="text-app-text-muted opacity-20" />
            </div>
         </div>
@@ -360,7 +360,7 @@ function AdjustPanel() {
             <div className="rounded-xl bg-app-info/10 p-2 text-app-info ring-1 ring-app-info/20">
               <RefreshCw className="h-5 w-5" />
             </div>
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Points Adjustment</h3>
+            <h3 className="text-sm font-black text-app-text">Points Adjustment</h3>
           </div>
 
           <form 
@@ -371,13 +371,13 @@ function AdjustPanel() {
             className="space-y-5"
           >
             <div className="space-y-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Strategic Selection</span>
+              <span className="px-1 text-xs font-bold text-app-text-muted">Customer</span>
               <CustomerSearchInput
                 onSelect={(c: Customer) => {
                   setCustomerId(c.id);
                   setCustomerLabel(`${c.first_name} ${c.last_name}`.trim());
                 }}
-                placeholder="Search Member Registry…"
+                placeholder="Search customers..."
                 className="w-full rounded-2xl bg-app-surface"
               />
               {customerId && (
@@ -386,36 +386,36 @@ function AdjustPanel() {
                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-app-success/10 text-app-success font-black text-[10px] ring-1 ring-app-success/20 uppercase">
                         {customerLabel?.[0] || 'C'}
                      </div>
-                     <p className="text-[11px] text-app-success font-bold uppercase tracking-tight">{customerLabel}</p>
+                     <p className="text-sm font-bold text-app-success">{customerLabel}</p>
                   </div>
-                  <button type="button" onClick={() => setCustomerId("")} className="px-2 text-[9px] font-black uppercase text-app-text-muted transition-colors hover:text-app-danger">Clear</button>
+                  <button type="button" onClick={() => setCustomerId("")} className="min-h-9 rounded-lg px-3 text-xs font-bold text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-danger">Clear</button>
                 </div>
               )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <label className="block space-y-2">
-                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Delta (±)</span>
+                <span className="px-1 text-xs font-bold text-app-text-muted">Point change</span>
                 <input type="number" value={delta} onChange={e => setDelta(e.target.value)} className="ui-input w-full bg-app-surface font-black tabular-nums border-app-border" placeholder="0" />
               </label>
               <label className="block space-y-2">
-                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Auth Badge</span>
-                <input value={badge} onChange={e => setBadge(e.target.value)} className="ui-input w-full bg-app-surface font-black border-app-border" placeholder="CASHIER CODE" />
+                <span className="px-1 text-xs font-bold text-app-text-muted">Manager code</span>
+                <input value={badge} onChange={e => setBadge(e.target.value)} className="ui-input w-full border-app-border bg-app-surface font-black" placeholder="Staff code" />
               </label>
             </div>
 
             <label className="block space-y-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Internal Reason</span>
-              <input value={reason} onChange={e => setReason(e.target.value)} placeholder="CSR Goodwill / Manual Ingestion" className="ui-input w-full bg-app-surface border-app-border" />
+              <span className="px-1 text-xs font-bold text-app-text-muted">Reason</span>
+              <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Goodwill adjustment or correction" className="ui-input w-full border-app-border bg-app-surface" />
             </label>
 
             <label className="block space-y-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Manager Security PIN</span>
+              <span className="px-1 text-xs font-bold text-app-text-muted">Manager Access PIN</span>
               <input type="password" value={pin} onChange={e => setPin(e.target.value)} className="ui-input w-full bg-app-surface border-app-border" placeholder="••••" />
             </label>
 
-            {err && <div className="rounded-xl border border-app-danger/20 bg-app-danger/10 p-3 text-[10px] font-black uppercase text-app-danger animate-shake">{err}</div>}
-            {result && <div className="rounded-xl border border-app-success/20 bg-app-success/10 p-3 text-[10px] font-black uppercase text-app-success">{result}</div>}
+            {err && <div className="animate-shake rounded-xl border border-app-danger/20 bg-app-danger/10 p-3 text-sm font-semibold text-app-danger">{err}</div>}
+            {result && <div className="rounded-xl border border-app-success/20 bg-app-success/10 p-3 text-sm font-semibold text-app-success">{result}</div>}
 
             <button 
               type="submit" 
@@ -434,22 +434,22 @@ function AdjustPanel() {
             <div className="p-2 rounded-xl bg-app-accent/10 text-app-accent ring-1 ring-app-accent/20">
                <LayoutDashboard size={18} />
             </div>
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Loyalty Activity</h3>
+            <h3 className="text-sm font-black text-app-text">Loyalty Activity</h3>
          </div>
 
          {!customerId ? (
            <div className="flex-1 flex flex-col items-center justify-center grayscale opacity-20">
               <RefreshCw size={40} className="mb-4" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Select a customer to view loyalty activity</p>
+              <p className="text-sm font-semibold">Select a customer to view loyalty activity</p>
            </div>
          ) : (
            <div className="space-y-3">
               {ledger.map((p) => (
                 <div key={p.id} className="flex items-center justify-between rounded-xl border border-app-border bg-app-surface-2 p-3 transition-colors hover:bg-app-surface">
                    <div className="flex flex-col">
-                      <span className="text-[11px] font-black uppercase tracking-tight text-app-text">{p.activity_label}</span>
+                      <span className="text-sm font-black text-app-text">{p.activity_label}</span>
                       <span className="text-[10px] text-app-text-muted">{p.activity_detail}</span>
-                      <span className="text-[9px] font-bold text-app-text-muted opacity-60">
+                      <span className="text-xs font-semibold text-app-text-muted opacity-70">
                          {new Date(p.created_at).toLocaleDateString()} at {new Date(p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                    </div>
@@ -457,12 +457,12 @@ function AdjustPanel() {
                       <span className={`text-xs font-black tabular-nums ${p.delta_points > 0 ? 'text-app-success' : 'text-app-danger'}`}>
                          {p.delta_points > 0 ? '+' : ''}{p.delta_points.toLocaleString()}
                       </span>
-                      <span className="text-[9px] font-bold text-app-text-muted opacity-40">Balance: {p.balance_after.toLocaleString()}</span>
+                      <span className="text-xs font-semibold text-app-text-muted opacity-60">Balance: {p.balance_after.toLocaleString()}</span>
                    </div>
                 </div>
               ))}
               {ledger.length === 0 && (
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 text-center py-10">No recent loyalty activity</p>
+                <p className="py-10 text-center text-sm font-semibold text-app-text-muted opacity-70">No recent loyalty activity</p>
               )}
            </div>
          )}
@@ -535,21 +535,21 @@ function EligibleList({
         {loading ? (
           <div className="flex flex-col items-center justify-center py-32 space-y-4">
              <div className="h-10 w-10 border-b-2 border-app-accent rounded-full animate-spin" />
-             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Loading eligible customers...</p>
+	             <p className="text-sm font-semibold text-app-text-muted">Loading eligible customers...</p>
           </div>
         ) : customers.length === 0 ? (
           <div className="flex flex-col items-center gap-6 py-32 grayscale opacity-40">
             <Star className="h-16 w-16" />
-            <p className="text-sm font-black uppercase tracking-widest text-app-text-muted max-w-xs text-center">No customers have reached the threshold yet.</p>
+	            <p className="max-w-xs text-center text-sm font-semibold text-app-text-muted">No customers have reached the reward level yet.</p>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
             {/* High-density Horizontal List for Elite Members */}
             <div className="hidden lg:grid grid-cols-[1fr_2fr_2fr_auto] gap-4 px-8 py-3 mb-2 opacity-40">
-               <span className="text-[9px] font-black uppercase tracking-[0.2em]">Customer</span>
-               <span className="text-[9px] font-black uppercase tracking-[0.2em] px-10">Points Status</span>
-               <span className="text-[9px] font-black uppercase tracking-[0.2em]">Contact & Location</span>
-               <span className="text-right text-[9px] font-black uppercase tracking-[0.2em]">Operations</span>
+	               <span className="text-xs font-bold">Customer</span>
+	               <span className="px-10 text-xs font-bold">Points Status</span>
+	               <span className="text-xs font-bold">Contact & Location</span>
+	               <span className="text-right text-xs font-bold">Actions</span>
             </div>
 
             <div className="space-y-3">
@@ -571,7 +571,7 @@ function EligibleList({
                         </div>
                         <div className="min-w-0 flex flex-col">
                            <span className="text-[15px] font-black tracking-tight text-app-text leading-tight group-hover:translate-x-1 transition-transform">{loyaltyEligibleDisplayName(c)}</span>
-                           <span className="text-[10px] font-black text-app-text-muted uppercase tracking-[0.1em] mt-1 tabular-nums opacity-60">#{c.customer_code || "NEW"}</span>
+	                           <span className="mt-1 text-xs font-bold tabular-nums text-app-text-muted opacity-70">#{c.customer_code || "New"}</span>
                         </div>
                       </div>
                     </div>
@@ -581,17 +581,17 @@ function EligibleList({
                       <div className="flex items-center gap-6">
                          <div className="flex flex-col">
                             <span className="text-2xl font-black text-app-warning tabular-nums tracking-tighter leading-none">{pointsValue}</span>
-                            <span className="text-[9px] font-black uppercase tracking-[0.15em] text-app-text-muted mt-1 opacity-60">Current balance</span>
+	                            <span className="mt-1 text-xs font-bold text-app-text-muted opacity-70">Current balance</span>
                          </div>
                          <div className="h-8 w-px bg-app-border/30 mx-2 hidden lg:block" />
                          <div className="flex flex-col">
                             <div className="flex items-center gap-1.5">
-                               <span className={`text-[10px] font-black uppercase tracking-widest ${isMultiReward ? 'text-app-accent' : 'text-app-success'}`}>
+	                               <span className={`text-xs font-black ${isMultiReward ? 'text-app-accent' : 'text-app-success'}`}>
                                   {isMultiReward ? "Two rewards ready" : "Reward ready"}
                                </span>
                                {isMultiReward && <Award size={14} className="text-purple-500 animate-pulse" />}
                             </div>
-                            <span className="text-[9px] font-black uppercase tracking-[0.15em] text-app-text-muted mt-1 opacity-60">
+	                            <span className="mt-1 text-xs font-bold text-app-text-muted opacity-70">
                                Reward status
                             </span>
                          </div>
@@ -619,7 +619,7 @@ function EligibleList({
                            type="button"
                            onClick={() => setRedeemCustomer(c)}
                            disabled={!settings}
-                           className="flex h-11 items-center gap-3 rounded-2xl bg-emerald-600 px-6 text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-2xl shadow-emerald-500/20 hover:brightness-110 active:scale-95 transition-all border-b-4 border-emerald-800"
+	                           className="flex min-h-11 items-center gap-3 rounded-2xl border-b-4 border-emerald-800 bg-emerald-600 px-6 text-sm font-black text-white shadow-2xl shadow-emerald-500/20 transition-all hover:brightness-110 active:scale-95"
                          >
                            <Award size={18} />
                            Redeem
@@ -688,14 +688,14 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-black tracking-tight text-app-text">Reward Card History</h2>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted mt-1">
+	            <p className="mt-1 text-sm font-semibold text-app-text-muted">
               Recent loyalty reward cards issued to customers
             </p>
           </div>
           <button
             type="button"
             onClick={() => void load()}
-            className="group flex w-full items-center justify-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest shadow-sm transition-all hover:bg-app-surface-2 sm:w-auto"
+	            className="group flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-surface-2 sm:w-auto"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-purple-500" : "text-app-text-muted group-hover:text-purple-500"}`} />
             Refresh History
@@ -706,12 +706,12 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-32 space-y-4">
              <div className="h-12 w-12 border-b-2 border-purple-500 rounded-full animate-spin" />
-             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted italic">Loading reward history...</p>
+	             <p className="text-sm font-semibold text-app-text-muted">Loading reward history...</p>
           </div>
         ) : issuances.length === 0 ? (
           <div className="flex flex-col items-center gap-6 py-32 grayscale opacity-40">
             <LayoutDashboard size={48} className="text-app-text-muted" />
-            <p className="text-xs font-black uppercase tracking-widest text-app-text-muted">No reward cards have been issued yet.</p>
+	            <p className="text-sm font-semibold text-app-text-muted">No reward cards have been issued yet.</p>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -731,7 +731,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                          <span className="truncate text-[14px] font-black text-app-text transition-colors group-hover:text-app-accent">
                            {row.first_name} {row.last_name}
                          </span>
-                         <span className="text-[9px] font-black tracking-widest text-app-text-muted uppercase mt-0.5 opacity-60">
+	                         <span className="mt-0.5 text-xs font-semibold text-app-text-muted opacity-70">
                             {row.fulfillment_date ? new Date(row.fulfillment_date).toLocaleDateString() : 'N/A'} at {row.fulfillment_date ? new Date(row.fulfillment_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                          </span>
                       </div>
@@ -742,7 +742,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                 <div className="lg:w-[1fr] lg:flex-1 lg:px-6">
                   <div className="flex flex-col">
                      <span className="text-lg font-black text-app-success tracking-tight leading-none">${centsToFixed2(parseMoneyToCents(row.reward_amount))}</span>
-                     <span className="text-[9px] font-black uppercase tracking-[0.1em] text-app-text-muted mt-1 opacity-60">
+	                     <span className="mt-1 text-xs font-semibold text-app-text-muted opacity-70">
                         {parseInt(String(row.points_deducted || '0')).toLocaleString()} pts deducted
                      </span>
                   </div>
@@ -758,15 +758,15 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                             {row.card_code}
                           </code>
                        </div>
-                       <span className="text-[8px] font-black uppercase tracking-widest text-app-text-muted ml-6 opacity-40">Reward Card Issued</span>
+	                       <span className="ml-6 text-xs font-semibold text-app-text-muted opacity-70">Reward card issued</span>
                     </div>
                   ) : (
                     <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
                            <ShoppingCart size={14} className="text-app-success opacity-40" />
-                           <span className="text-[10px] font-black uppercase tracking-tight text-app-success italic">Direct Redemption</span>
+	                           <span className="text-xs font-black text-app-success">Direct redemption</span>
                         </div>
-                        <span className="text-[8px] font-black uppercase tracking-widest text-app-text-muted ml-6 opacity-40">Applied to Sale</span>
+	                        <span className="ml-6 text-xs font-semibold text-app-text-muted opacity-70">Applied to sale</span>
                     </div>
                   )}
                 </div>
@@ -867,8 +867,8 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <p className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted opacity-80">{s.label}</p>
-                <span className="rounded-full bg-app-surface-2 px-1.5 py-0.5 text-[8px] font-black text-app-text-muted tabular-nums">{s.trend}</span>
+                <p className="text-xs font-bold text-app-text-muted opacity-80">{s.label}</p>
+                <span className="rounded-full bg-app-surface-2 px-1.5 py-0.5 text-xs font-bold tabular-nums text-app-text-muted">{s.trend}</span>
               </div>
               <p className="text-3xl font-black tabular-nums text-app-text tracking-tight">{s.val}</p>
             </div>

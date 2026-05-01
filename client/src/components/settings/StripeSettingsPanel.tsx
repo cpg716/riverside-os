@@ -53,10 +53,10 @@ const StripeSettingsPanel: React.FC = () => {
         const d = await res.json();
         setData(d);
       } else {
-        setError("Failed to fetch merchant data");
+        setError("Could not load payment activity.");
       }
     } catch {
-      setError("Network error fetching merchant data");
+      setError("Payment activity is unavailable right now.");
     } finally {
       setLoading(false);
     }
@@ -87,16 +87,15 @@ const StripeSettingsPanel: React.FC = () => {
             />
           </div>
           <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-            Merchant Processing Hub
+            Payment Processing
           </h2>
           <p className="text-sm text-app-text-muted mt-2 font-medium italic">
-            High-precision financial terminal for automated processing &
-            reconciliation.
+            Review card payment volume, fees, and settled totals.
           </p>
         </div>
         <button
           onClick={() => void fetchData()}
-          className="h-10 px-6 rounded-xl border border-app-border bg-app-surface shadow-sm text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 transition-all flex items-center gap-2"
+          className="flex min-h-11 items-center gap-2 rounded-xl border border-app-border bg-app-surface px-6 text-sm font-bold text-app-text shadow-sm transition-all hover:bg-app-surface-2"
         >
           <RefreshCw
             size={14}
@@ -123,8 +122,8 @@ const StripeSettingsPanel: React.FC = () => {
           <p className="text-3xl font-black tabular-nums text-app-text tracking-tighter">
             ${data?.total_processed || "0.00"}
           </p>
-          <p className="text-[9px] font-bold uppercase text-app-text-muted mt-2">
-            Cumulative merchant volume
+          <p className="mt-2 text-xs font-semibold text-app-text-muted">
+            Total card volume
           </p>
         </div>
 
@@ -141,8 +140,8 @@ const StripeSettingsPanel: React.FC = () => {
           <p className="text-3xl font-black tabular-nums text-app-text tracking-tighter">
             ${data?.total_fees || "0.00"}
           </p>
-          <p className="text-[9px] font-bold uppercase text-app-text-muted mt-2">
-            Automated fee reconciliation
+          <p className="mt-2 text-xs font-semibold text-app-text-muted">
+            Processing fees
           </p>
         </div>
 
@@ -159,8 +158,8 @@ const StripeSettingsPanel: React.FC = () => {
           <p className="text-3xl font-black tabular-nums text-app-text tracking-tighter">
             ${data?.net_amount || "0.00"}
           </p>
-          <p className="text-[9px] font-bold uppercase text-app-text-muted mt-2">
-            Total recognized revenue
+          <p className="mt-2 text-xs font-semibold text-app-text-muted">
+            Net after fees
           </p>
         </div>
       </div>
@@ -176,15 +175,15 @@ const StripeSettingsPanel: React.FC = () => {
               imageClassName="h-6 w-6 object-contain"
             />
             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-              Integrated Transaction History
+              Payment History
             </h3>
           </div>
           <div className="flex items-center gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-app-text-muted" />
               <input
-                placeholder="Filter Intents..."
-                className="h-9 w-48 pl-9 pr-4 rounded-lg bg-app-surface border border-app-border text-[10px] font-black uppercase tracking-widest focus:ring-1 focus:ring-app-info outline-none"
+                placeholder="Filter payments..."
+                className="min-h-11 w-48 rounded-lg border border-app-border bg-app-surface py-2 pl-9 pr-4 text-sm font-semibold outline-none focus:ring-1 focus:ring-app-info"
               />
             </div>
           </div>
@@ -193,9 +192,9 @@ const StripeSettingsPanel: React.FC = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-app-surface-3 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
+	              <tr className="border-b border-app-border bg-app-surface-3 text-xs font-bold text-app-text-muted">
                 <th className="px-6 py-4">Status / Date</th>
-                <th className="px-6 py-4">Method & Intent</th>
+	                <th className="px-6 py-4">Card & Reference</th>
                 <th className="px-6 py-4 text-right">Gross</th>
                 <th className="px-6 py-4 text-right">Fee</th>
                 <th className="px-6 py-4 text-right">Net</th>
@@ -209,7 +208,7 @@ const StripeSettingsPanel: React.FC = () => {
                     colSpan={6}
                     className="px-6 py-12 text-center text-sm text-app-text-muted font-bold italic"
                   >
-                    No integrated Stripe transactions found in this period.
+	                    No card payments found in this period.
                   </td>
                 </tr>
               ) : (
@@ -224,13 +223,13 @@ const StripeSettingsPanel: React.FC = () => {
                           <div
                             className={`h-1.5 w-1.5 rounded-full ${tx.status === "success" ? "bg-app-success animate-pulse shadow-[0_0_5px_color-mix(in_srgb,var(--app-success)_70%,transparent)]" : "bg-app-danger"}`}
                           />
-                          <span className="text-[10px] font-black uppercase text-app-text tracking-widest">
+	                          <span className="text-xs font-black text-app-text">
                             {tx.status}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5 text-app-text-muted">
                           <Calendar size={10} />
-                          <span className="text-[10px] font-bold tabular-nums">
+	                          <span className="text-xs font-semibold tabular-nums">
                             {new Date(tx.occurred_at).toLocaleDateString()}{" "}
                             {new Date(tx.occurred_at).toLocaleTimeString([], {
                               hour: "2-digit",
@@ -244,12 +243,12 @@ const StripeSettingsPanel: React.FC = () => {
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2">
                           <CreditCard size={12} className="text-app-info" />
-                          <span className="text-[10px] font-black uppercase text-app-text truncate max-w-[120px]">
+	                          <span className="max-w-[120px] truncate text-xs font-black text-app-text">
                             {tx.card_brand || "Standard Card"} ••••{" "}
                             {tx.card_last4 || "****"}
                           </span>
                         </div>
-                        <span className="font-mono text-[9px] text-app-text-muted opacity-60">
+                        <span className="font-mono text-xs text-app-text-muted opacity-70">
                           {tx.stripe_intent_id}
                         </span>
                       </div>
@@ -296,21 +295,18 @@ const StripeSettingsPanel: React.FC = () => {
           </div>
           <div className="flex-1 space-y-4 text-center md:text-left">
             <h3 className="text-xl font-black italic uppercase tracking-tight text-app-text">
-              Autonomous Financial Shield
+	              Payment Support Details
             </h3>
             <p className="text-xs text-app-text-muted leading-relaxed font-medium">
-              Riverside OS utilizes Stripe's High-Level API to track every cent.
-              Real-time Fee Reconciliation ensures your reporting is always
-              accurate to the settlement date, while PCI-compliant vaulting
-              keeps customer payment methods secure and accessible for manual
-              phone orders.
+	              Riverside tracks card payments, processing fees, and settled
+	              totals so managers can compare reports with payment deposits.
             </p>
             <div className="flex flex-wrap justify-center md:justify-start gap-4 pt-2">
-              <span className="px-3 py-1 rounded-full bg-app-surface text-[9px] font-bold uppercase tracking-widest text-app-info ring-1 ring-app-info/20 italic">
+	              <span className="rounded-full bg-app-surface px-3 py-1 text-xs font-bold text-app-info ring-1 ring-app-info/20">
                 Validated integration
               </span>
-              <span className="px-3 py-1 rounded-full bg-app-surface text-[9px] font-bold uppercase tracking-widest text-app-success ring-1 ring-app-success/20 italic">
-                Auto-Reconcile active
+	              <span className="rounded-full bg-app-surface px-3 py-1 text-xs font-bold text-app-success ring-1 ring-app-success/20">
+	                Fee review active
               </span>
             </div>
           </div>

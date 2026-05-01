@@ -108,7 +108,7 @@ export default function ShippoSettingsPanel({
         toast(j.error ?? "Could not save Shippo settings", "error");
       }
     } catch {
-      toast("Communication error with server", "error");
+      toast("Shipping settings are unavailable right now.", "error");
     } finally {
       setBusy(false);
     }
@@ -160,38 +160,37 @@ export default function ShippoSettingsPanel({
               </h3>
               <p className="mt-1 max-w-2xl text-xs leading-relaxed text-app-text-muted">
                 Live rate quoting and label purchase run through Shippo when the
-                store enables shipping and the server host has the required
-                environment token.
+                store enables shipping and the carrier connection is ready.
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span
-              className={`ui-pill text-[10px] font-black uppercase tracking-widest ${
+              className={`ui-pill text-xs font-bold ${
                 settings.api_token_configured
                   ? "bg-app-success/10 text-app-success"
                   : "bg-app-surface-2 text-app-text-muted"
               }`}
             >
               {settings.api_token_configured
-                ? "API token ready"
-                : "Token missing"}
+                ? "Connection ready"
+                : "Connection needed"}
             </span>
             <span
-              className={`ui-pill text-[10px] font-black uppercase tracking-widest ${
+              className={`ui-pill text-xs font-bold ${
                 settings.webhook_secret_configured
                   ? "bg-app-info/10 text-app-info"
                   : "bg-app-surface-2 text-app-text-muted"
               }`}
             >
               {settings.webhook_secret_configured
-                ? "Webhook secret ready"
-                : "Webhook optional"}
+                ? "Notifications ready"
+                : "Notifications optional"}
             </span>
             <button
               type="button"
               onClick={() => void fetchSettings()}
-              className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+              className="ui-btn-secondary inline-flex min-h-11 items-center gap-2 px-4 py-2 text-sm font-bold"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
               Refresh
@@ -218,7 +217,7 @@ export default function ShippoSettingsPanel({
                 setSettings({ ...settings, enabled: e.target.checked })
               }
             />
-            <span className="text-sm font-black uppercase tracking-widest text-app-text">
+              <span className="text-sm font-black text-app-text">
               Enable shipping workflows
             </span>
           </label>
@@ -244,7 +243,7 @@ export default function ShippoSettingsPanel({
                 })
               }
             />
-            <span className="text-sm font-black uppercase tracking-widest text-app-text">
+              <span className="text-sm font-black text-app-text">
               Prefer live carrier rates
             </span>
           </label>
@@ -259,7 +258,7 @@ export default function ShippoSettingsPanel({
               imageClassName="h-6 w-6 object-contain"
             />
             <div>
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">
+	              <h4 className="text-sm font-black text-app-text">
                 From Address
               </h4>
               <p className="mt-1 text-xs text-app-text-muted">
@@ -280,7 +279,7 @@ export default function ShippoSettingsPanel({
               ["phone", "Phone"],
             ].map(([key, label]) => (
               <label key={key} className="block">
-                <span className="mb-2 ml-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+	                <span className="mb-2 ml-1 block text-xs font-bold text-app-text-muted">
                   {label}
                 </span>
                 <input
@@ -311,7 +310,7 @@ export default function ShippoSettingsPanel({
               <Package className="h-5 w-5" aria-hidden />
             </div>
             <div>
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">
+	              <h4 className="text-sm font-black text-app-text">
                 Default Parcel
               </h4>
               <p className="mt-1 text-xs text-app-text-muted">
@@ -329,7 +328,7 @@ export default function ShippoSettingsPanel({
               ["weight_oz", "Weight (oz)"],
             ].map(([key, label]) => (
               <label key={key} className="block">
-                <span className="mb-2 ml-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+	                <span className="mb-2 ml-1 block text-xs font-bold text-app-text-muted">
                   {label}
                 </span>
                 <input
@@ -357,13 +356,13 @@ export default function ShippoSettingsPanel({
           <button
             type="submit"
             disabled={busy}
-            className="ui-btn-primary inline-flex h-12 items-center gap-2 px-8 text-[11px] font-black uppercase tracking-[0.2em] shadow-lg shadow-lime-500/20"
+	            className="ui-btn-primary inline-flex min-h-12 items-center gap-2 px-8 text-sm font-black shadow-lg shadow-lime-500/20"
           >
             <Save className="h-4 w-4" />
             {busy ? "Applying..." : "Save Shippo settings"}
           </button>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
-            Server env still controls API token and webhook secret.
+	          <p className="text-xs font-semibold text-app-text-muted">
+	            Support setup still controls the private connection keys.
           </p>
         </div>
       </form>

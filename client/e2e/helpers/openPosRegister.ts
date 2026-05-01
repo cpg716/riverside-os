@@ -150,35 +150,58 @@ export async function ensurePosRegisterSessionOpen(
   await expect(page.getByText(/loading riverside pos/i)).toBeHidden({ timeout: 20_000 });
 
   await waitForPosRegisterPanel(page);
-  const registerDialog = page.getByRole("dialog", { name: /riverside register/i });
-  const pin1 = registerDialog.getByTestId("pin-key-1");
+  const registerDialog = page.getByRole("dialog", {
+    name: /access register|riverside register/i,
+  });
+  const openPrimaryRegisterButton = page.getByRole("button", {
+    name: /open register #1/i,
+  });
+  const cartShell = page.getByTestId("pos-register-cart-shell");
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
 
-  // 2. Wait for state stabilization (either unmounted because session open, or enabled and ready)
+  // 2. Wait for state stabilization: cart already mounted, primary-register gate, or PIN dialog.
   await expect
     .poll(
       async () => {
-        const registerVisible = await registerDialog.isVisible().catch(() => false);
-        if (!registerVisible && (await posNav.isVisible().catch(() => false))) return true;
-        const visible = await registerDialog.isVisible().catch(() => false);
-        if (!visible) return true;
-        const enabled = await pin1.isEnabled().catch(() => false);
-        return enabled;
+        if (await cartShell.isVisible().catch(() => false)) return "cart";
+        if (await registerDialog.isVisible().catch(() => false)) return "pin";
+        if (await openPrimaryRegisterButton.isVisible().catch(() => false)) return "primary-gate";
+        return "waiting";
       },
       {
         timeout: 30_000,
-        message: "Register dialog state never stabilized (never hidden, never enabled)",
+        message: "Register state never stabilized",
       },
     )
-    .toBeTruthy();
+    .not.toBe("waiting");
+
+  if (await openPrimaryRegisterButton.isVisible().catch(() => false)) {
+    await openPrimaryRegisterButton.click();
+    await expect(registerDialog).toBeVisible({ timeout: 15_000 });
+  }
 
   if (!(await registerDialog.isVisible().catch(() => false))) {
     if (!(await posNav.isVisible().catch(() => false))) {
       await enterPosShell(page);
     }
+    await waitForPosRegisterPanel(page);
     await waitForRegisterCartMounted(page).catch(() => {});
     return;
   }
+
+  const laneSelect = registerDialog.getByLabel(/terminal #|physical register number/i);
+  if (await laneSelect.isVisible().catch(() => false)) {
+    await laneSelect.selectOption("1");
+  }
+
+  const floatInput = registerDialog.locator("input[type='number']").first();
+  if (await floatInput.isVisible().catch(() => false)) {
+    await floatInput.fill("200");
+  }
+
+  const pin1 = registerDialog.getByTestId("pin-key-1");
+  await expect(pin1).toBeVisible({ timeout: 15_000 });
+  await expect(pin1).toBeEnabled({ timeout: 15_000 });
 
   const code = e2eBackofficeStaffCode(options?.staffCode);
   for (const digit of code) {
@@ -186,17 +209,18 @@ export async function ensurePosRegisterSessionOpen(
     await registerDialog.getByTestId(`pin-key-${digit}`).click();
   }
 
-  await registerDialog.getByLabel("Physical register number").selectOption("1");
-
-  const floatInput = registerDialog.locator("input[type='number']").first();
-  await floatInput.fill("200");
-
-  await registerDialog.getByRole("button", { name: /^open register$/i }).click();
+  const openRegisterButton = registerDialog.getByRole("button", {
+    name: /^open register$/i,
+  });
+  if (await openRegisterButton.isVisible().catch(() => false)) {
+    await openRegisterButton.click();
+  }
 
   await expect(registerDialog).toBeHidden({ timeout: 30_000 });
   if (!(await posNav.isVisible().catch(() => false))) {
     await enterPosShell(page);
   }
+  await waitForPosRegisterPanel(page);
   await waitForRegisterCartMounted(page);
 }
 
