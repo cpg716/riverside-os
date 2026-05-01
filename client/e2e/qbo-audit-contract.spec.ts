@@ -7,6 +7,7 @@ import {
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
+import { createVendor } from "./helpers/inventoryReceiving";
 
 type CreatedQboProduct = {
   categoryId: string;
@@ -111,6 +112,7 @@ async function createQboProduct(
   const category = (await categoryRes.json()) as { id: string };
 
   const sku = `QBO-${suffix}`.toUpperCase();
+  const vendor = await createVendor(request, suffix);
   const createRes = await request.post(`${apiBase()}/api/products`, {
     headers: {
       ...staffHeaders(),
@@ -118,6 +120,7 @@ async function createQboProduct(
     },
     data: {
       category_id: category.id,
+      primary_vendor_id: vendor.id,
       name: `E2E QBO Journal Item ${suffix}`,
       brand: "Riverside E2E",
       description: "Deterministic QBO audit SKU",

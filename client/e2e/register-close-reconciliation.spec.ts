@@ -74,6 +74,37 @@ type ProductVariantRow = {
   id: string;
 };
 
+async function ensureVendorId(
+  request: Parameters<typeof test>[0]["request"],
+  suffix: string,
+): Promise<string> {
+  const existingRes = await request.get(`${apiBase()}/api/vendors`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+  expect(existingRes.status()).toBe(200);
+  const existing = (await existingRes.json()) as Array<{ id: string }>;
+  if (existing[0]?.id) {
+    return existing[0].id;
+  }
+
+  const createRes = await request.post(`${apiBase()}/api/vendors`, {
+    headers: {
+      ...adminHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      name: `E2E Register Vendor ${suffix}`,
+      vendor_code: `REG-${suffix}`,
+    },
+    failOnStatusCode: false,
+  });
+  expect(createRes.status()).toBe(200);
+  const created = (await createRes.json()) as { id: string };
+  expect(created.id).toBeTruthy();
+  return created.id;
+}
+
 type CheckoutResponse = {
   transaction_id: string;
 };
@@ -272,6 +303,7 @@ async function createDeterministicProduct(
   });
   expect(categoryRes.status()).toBe(200);
   const category = (await categoryRes.json()) as { id: string };
+  const vendorId = await ensureVendorId(request, suffix);
 
   const createRes = await request.post(`${apiBase()}/api/products`, {
     headers: {
@@ -280,6 +312,7 @@ async function createDeterministicProduct(
     },
     data: {
       category_id: category.id,
+      primary_vendor_id: vendorId,
       name: `E2E Register Close Item ${suffix}`,
       brand: "Riverside E2E",
       description: "Deterministic register close test product",

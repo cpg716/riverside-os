@@ -7,6 +7,7 @@ import {
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
+import { createVendor } from "./helpers/inventoryReceiving";
 
 type CreatedTaxProduct = {
   categoryId: string;
@@ -142,6 +143,7 @@ async function createTaxProduct(
     ));
   const sku = `TAX-${suffix}`.toUpperCase();
   const unitCost = "40.00";
+  const vendor = await createVendor(request, suffix);
 
   const createRes = await request.post(`${apiBase()}/api/products`, {
     headers: {
@@ -150,6 +152,7 @@ async function createTaxProduct(
     },
     data: {
       category_id: categoryId,
+      primary_vendor_id: vendor.id,
       name: `E2E Tax Audit Item ${suffix}`,
       brand: "Riverside E2E",
       description: "Deterministic tax audit SKU",

@@ -153,6 +153,7 @@ async function createKnownCustomCatalogSku(
 ): Promise<void> {
   const seed = KNOWN_CUSTOM_CATALOG[sku];
   expect(seed, `missing known custom catalog seed for sku ${sku}`).toBeTruthy();
+  const vendor = await createVendor(request, `custom-catalog-${sku}`);
 
   const createRes = await request.post(`${apiBase()}/api/products`, {
     headers: {
@@ -161,6 +162,7 @@ async function createKnownCustomCatalogSku(
     },
     data: {
       category_id: CUSTOM_CATALOG_CATEGORY_ID,
+      primary_vendor_id: vendor.id,
       name: seed.name,
       brand: "Riverside E2E",
       description: `Deterministic custom-order catalog SKU ${sku} for Playwright`,
@@ -250,6 +252,36 @@ async function fetchCatalogPricing(
   }
 
   await createKnownCustomCatalogSku(request, sku);
+
+  const seededScanRes = await request.get(
+    `${apiBase()}/api/inventory/scan/${encodeURIComponent(sku)}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  if (seededScanRes.ok()) {
+    const seededScan = (await seededScanRes.json()) as {
+      product_id: string;
+      variant_id: string;
+      sku: string;
+      standard_retail_price: string;
+      unit_cost: string;
+      state_tax: string;
+      local_tax: string;
+      primary_vendor_id?: string | null;
+    };
+    return {
+      product_id: seededScan.product_id,
+      variant_id: seededScan.variant_id,
+      sku: seededScan.sku,
+      retail_price: seededScan.standard_retail_price,
+      cost_price: seededScan.unit_cost,
+      state_tax: seededScan.state_tax,
+      local_tax: seededScan.local_tax,
+      primary_vendor_id: seededScan.primary_vendor_id ?? null,
+    };
+  }
 
   const seededRes = await request.get(
     `${apiBase()}/api/products/control-board?search=${encodeURIComponent(sku)}&limit=5`,

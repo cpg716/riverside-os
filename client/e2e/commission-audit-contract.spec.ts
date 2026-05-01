@@ -7,6 +7,7 @@ import {
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
+import { createVendor } from "./helpers/inventoryReceiving";
 
 type CreatedCommissionProduct = {
   categoryId: string;
@@ -163,6 +164,7 @@ async function createCommissionProduct(
   const sku = `COMM-${suffix}`.toUpperCase();
   const unitPrice = options.unitPrice ?? "100.00";
   const unitCost = "40.00";
+  const vendor = await createVendor(request, suffix);
   const createRes = await request.post(`${apiBase()}/api/products`, {
     headers: {
       ...staffHeaders(),
@@ -170,6 +172,7 @@ async function createCommissionProduct(
     },
     data: {
       category_id: categoryId,
+      primary_vendor_id: vendor.id,
       name: `E2E Commission Item ${suffix}`,
       brand: "Riverside E2E",
       description: "Deterministic commission audit SKU",

@@ -3,6 +3,7 @@ import {
   ensurePosRegisterSessionOpen,
   ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
+import { createVendor } from "./helpers/inventoryReceiving";
 
 function apiBase(): string {
   const raw =
@@ -184,6 +185,7 @@ async function createDeterministicProduct(
   expect(categoryRes.status()).toBe(200);
   const category = (await categoryRes.json()) as { id: string };
   expect(category.id).toBeTruthy();
+  const vendor = await createVendor(request, suffix);
 
   const createRes = await request.post(`${apiBase()}/api/products`, {
     headers: {
@@ -192,6 +194,7 @@ async function createDeterministicProduct(
     },
     data: {
       category_id: category.id,
+      primary_vendor_id: vendor.id,
       name: `E2E Return Jacket ${suffix}`,
       brand: "Riverside E2E",
       description: "Deterministic return/exchange test product",
