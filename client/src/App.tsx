@@ -40,6 +40,9 @@ import { type Customer } from "./components/pos/types";
 const InventoryWorkspace = lazy(
   () => import("./components/inventory/InventoryWorkspace"),
 );
+const OnlineStoreWorkspace = lazy(
+  () => import("./components/online-store/OnlineStoreWorkspace"),
+);
 const QboWorkspace = lazy(() => import("./components/qbo/QboWorkspace"));
 const WeddingManagerApp = lazy(
   () => import("./components/wedding-manager/WeddingManagerApp"),
@@ -81,6 +84,7 @@ import HelpCenterDrawer, {
 import BugReportFlow from "./components/bug-report/BugReportFlow";
 import {
   SIDEBAR_TAB_PERMISSION,
+  SIDEBAR_TAB_PERMISSIONS_ANY,
   subSectionVisible,
 } from "./context/BackofficeAuthPermissions";
 import { BackofficeAuthProvider } from "./context/BackofficeAuthContext";
@@ -583,6 +587,23 @@ function App() {
         return;
       }
 
+      if (t === "online-store") {
+        enterBackofficeShell("online-store");
+        const sec = linkStr(link, "section") || "dashboard";
+        const allowed = new Set([
+          "dashboard",
+          "storefront",
+          "products",
+          "orders",
+          "customers",
+          "promotions",
+          "shipping",
+          "analytics",
+        ]);
+        setActiveSubSection(allowed.has(sec) ? sec : "dashboard");
+        return;
+      }
+
       if (t === "inventory") {
         enterBackofficeShell("inventory");
         const pid = linkStr(link, "product_id");
@@ -834,6 +855,11 @@ function App() {
     if (activeTab === "inventory")
       return [
         { label: "Inventory", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "online-store")
+      return [
+        { label: "Online Store", onClick: tabClick },
         ...(subLabel ? [{ label: subLabel }] : []),
       ];
     if (activeTab === "settings")
@@ -1751,6 +1777,11 @@ function AppMainColumn({
 
   useEffect(() => {
     if (!permissionsLoaded) return;
+    const anyReq = SIDEBAR_TAB_PERMISSIONS_ANY[activeTab];
+    if (anyReq?.length && !anyReq.some((key) => hasPermission(key))) {
+      setActiveTab("home");
+      return;
+    }
     const req = SIDEBAR_TAB_PERMISSION[activeTab];
     if (req && !hasPermission(req)) {
       if (activeTab === "dashboard") setInsightsMode(false);
@@ -1883,6 +1914,18 @@ function AppMainColumn({
                       onProductHubDeepLinkConsumed={
                         onInventoryProductHubConsumed
                       }
+                    />
+                  );
+                if (activeTab === "online-store")
+                  return (
+                    <OnlineStoreWorkspace
+                      activeSection={activeSubSection}
+                      onNavigateToTab={(tab, section) => {
+                        setActiveTab(tab);
+                        if (section) {
+                          setActiveSubSection(section);
+                        }
+                      }}
                     />
                   );
                 if (activeTab === "orders")
@@ -2037,6 +2080,10 @@ function AppMainColumn({
                           setBugReportsDeepLinkId(null)
                         }
                         onNavigateToTab={setActiveSubSection}
+                        onOpenOnlineStore={() => {
+                          setActiveTab("online-store");
+                          setActiveSubSection("dashboard");
+                        }}
                       />
                   );
 

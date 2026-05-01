@@ -39,7 +39,7 @@ import {
 
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
-import OnlineStoreSettingsPanel from "./OnlineStoreSettingsPanel";
+import OnlineStoreConfigPanel from "./OnlineStoreConfigPanel";
 import HelpCenterSettingsPanel from "./HelpCenterSettingsPanel";
 import CounterpointSyncSettingsPanel from "./CounterpointSyncSettingsPanel";
 import { StaffRoleAccessPanel } from "../staff/StaffAccessPanels";
@@ -120,6 +120,7 @@ interface SettingsWorkspaceProps {
   posLifecycleStatus?: string | null;
   onPosRefreshMeta?: () => Promise<void>;
   onNavigateToTab?: (tab: string) => void;
+  onOpenOnlineStore?: () => void;
 }
 
 type IntegrationCardItem = {
@@ -172,6 +173,7 @@ export default function SettingsWorkspace({
   posLifecycleStatus,
   onPosRefreshMeta,
   onNavigateToTab,
+  onOpenOnlineStore,
 }: SettingsWorkspaceProps) {
   const baseUrl = getBaseUrl();
 
@@ -1261,7 +1263,7 @@ export default function SettingsWorkspace({
             )}
 
             {activeTab === "online-store" && (
-              <OnlineStoreSettingsPanel baseUrl={baseUrl} />
+              <OnlineStoreConfigPanel onOpenOnlineStore={onOpenOnlineStore} />
             )}
 
             {activeTab === "rosie" && <RosieSettingsPanel />}

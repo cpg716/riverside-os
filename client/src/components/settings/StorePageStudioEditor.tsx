@@ -7,17 +7,23 @@ type ProjectShape = Record<string, unknown> & {
   pages?: unknown[];
 };
 
-function normalizeStudioProject(raw: unknown): ProjectShape {
+function normalizeStudioProject(
+  raw: unknown,
+  fallbackComponent?: string,
+): ProjectShape {
   const p = raw as ProjectShape | null;
   if (p && Array.isArray(p.pages) && p.pages.length > 0) {
     return p;
   }
+  const component =
+    typeof fallbackComponent === "string" && fallbackComponent.trim()
+      ? fallbackComponent
+      : '<section class="gjs-section" style="padding:48px 24px"><h1>Welcome</h1><p>Edit in Studio, then export HTML to your draft.</p></section>';
   return {
     pages: [
       {
         name: "Home",
-        component:
-          '<section class="gjs-section" style="padding:48px 24px"><h1>Welcome</h1><p>Edit in Studio, then export HTML to your draft.</p></section>',
+        component,
       },
     ],
   };
@@ -43,6 +49,7 @@ function fileToBase64Data(file: File): Promise<string> {
 type Props = {
   licenseKey: string;
   projectJson: unknown;
+  fallbackHtml?: string;
   onSaveProject: (project: unknown) => Promise<void>;
   onEditorReady?: (api: StoreStudioApi) => void;
   /** When set, Studio image uploads go to `POST /api/admin/store/assets` (returns `/api/store/media/{id}` URLs). */
@@ -55,13 +62,14 @@ type Props = {
 export default function StorePageStudioEditor({
   licenseKey,
   projectJson,
+  fallbackHtml,
   onSaveProject,
   onEditorReady,
   studioAssetUpload,
 }: Props) {
   const project = useMemo(
-    () => normalizeStudioProject(projectJson),
-    [projectJson],
+    () => normalizeStudioProject(projectJson, fallbackHtml),
+    [fallbackHtml, projectJson],
   );
 
   const saveProject = useCallback(

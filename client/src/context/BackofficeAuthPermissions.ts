@@ -14,6 +14,7 @@ export const SIDEBAR_TAB_PERMISSION: Partial<Record<string, string>> = {
 /** Tab is visible if the user has any of these permissions (see Loyalty: program vs adjust). */
 export const SIDEBAR_TAB_PERMISSIONS_ANY: Record<string, string[]> = {
   loyalty: ["loyalty.program_settings", "loyalty.adjust_points"],
+  "online-store": ["online_store.manage", "settings.admin"],
   settings: ["settings.admin", "staff.manage_access"],
 };
 
@@ -33,6 +34,7 @@ export const SIDEBAR_SUB_SECTION_PERMISSION: Record<string, string> = {
   "home:inbox": "customers.hub_view",
   "customers:ship": "shipments.view",
   "settings:help-center": "help.manage",
+  "settings:online-store": "settings.admin",
   "settings:bug-reports": "settings.admin",
   "settings:ros-dev-center": "ops.dev_center.view",
   "home:reviews": "reviews.view",

@@ -36,6 +36,7 @@ export type AppIconName =
   | "orders"
   | "orderHistory"
   | "inventory"
+  | "onlineStore"
   | "product"
   | "weddings"
   | "giftCards"
@@ -64,6 +65,7 @@ export const APP_ICONS: Record<AppIconName, LucideIcon> = {
   orders: ClipboardList,
   orderHistory: History,
   inventory: Package,
+  onlineStore: ShoppingCart,
   product: Package,
   weddings: Heart,
   giftCards: Gift,
@@ -92,6 +94,7 @@ export const APP_NAV_ICON_NAMES = {
   alterations: "alterations",
   orders: "orders",
   inventory: "inventory",
+  "online-store": "onlineStore",
   weddings: "weddings",
   "gift-cards": "giftCards",
   loyalty: "loyalty",

@@ -75,6 +75,7 @@ export default function Sidebar({
         },
         { id: "orders", label: "Orders", surface: "POS-Core", icon: getAppIcon(APP_NAV_ICON_NAMES.orders) },
         { id: "inventory", label: "Inventory", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.inventory) },
+        { id: "online-store", label: "Online Store", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES["online-store"]) },
         { id: "weddings", label: "Weddings", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.weddings) },
         { id: "gift-cards", label: "Gift Cards", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES["gift-cards"]) },
         { id: "loyalty", label: "Loyalty", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty) },

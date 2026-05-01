@@ -32,7 +32,19 @@ interface StoreCouponRow {
   max_uses: number | null;
 }
 
-export default function OnlineStoreSettingsPanel({ baseUrl }: { baseUrl: string }) {
+type OnlineStoreSettingsPanelMode = "all" | "pages" | "coupons";
+
+interface OnlineStoreSettingsPanelProps {
+  baseUrl: string;
+  mode?: OnlineStoreSettingsPanelMode;
+  showHeader?: boolean;
+}
+
+export default function OnlineStoreSettingsPanel({
+  baseUrl,
+  mode = "all",
+  showHeader = true,
+}: OnlineStoreSettingsPanelProps) {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
   const headers = useCallback(
@@ -47,13 +59,17 @@ export default function OnlineStoreSettingsPanel({ baseUrl }: { baseUrl: string 
   const canManage =
     hasPermission("online_store.manage") || hasPermission("settings.admin");
 
-  const [sub, setSub] = useState<"pages" | "coupons">("pages");
+  const [sub, setSub] = useState<"pages" | "coupons">(
+    mode === "coupons" ? "coupons" : "pages",
+  );
   const [pages, setPages] = useState<StorePageRow[]>([]);
   const [coupons, setCoupons] = useState<StoreCouponRow[]>([]);
   const [slugDraft, setSlugDraft] = useState("");
   const [titleDraft, setTitleDraft] = useState("");
   const [editSlug, setEditSlug] = useState<string | null>(null);
-  const [pageEditMode, setPageEditMode] = useState<"html" | "studio">("html");
+  const [pageEditMode, setPageEditMode] = useState<"html" | "studio">(
+    "studio",
+  );
   const [projectJsonDraft, setProjectJsonDraft] = useState<unknown>({});
   const [studioMountKey, setStudioMountKey] = useState(0);
   const [htmlDraft, setHtmlDraft] = useState("");
@@ -92,6 +108,12 @@ export default function OnlineStoreSettingsPanel({ baseUrl }: { baseUrl: string 
     void loadCoupons();
   }, [canManage, loadPages, loadCoupons]);
 
+  useEffect(() => {
+    if (mode === "pages" || mode === "coupons") {
+      setSub(mode);
+    }
+  }, [mode]);
+
   const openEditor = async (slug: string) => {
     setEditSlug(slug);
     const res = await fetch(
@@ -109,7 +131,7 @@ export default function OnlineStoreSettingsPanel({ baseUrl }: { baseUrl: string 
     setHtmlDraft(typeof j.published_html === "string" ? j.published_html : "");
     setProjectJsonDraft(j.project_json ?? {});
     setStudioMountKey((k) => k + 1);
-    setPageEditMode("html");
+    setPageEditMode("studio");
     studioApiRef.current = null;
   };
 
@@ -236,40 +258,45 @@ export default function OnlineStoreSettingsPanel({ baseUrl }: { baseUrl: string 
     );
   }
 
+  const activeSub = mode === "all" ? sub : mode;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-black uppercase italic tracking-tight text-app-text">
-          Online store
-        </h2>
-        <p className="mt-1 text-xs text-app-text-muted">
-          Marketing pages for public <span className="font-mono">/shop/…</span>{" "}
-          (raw HTML or GrapesJS Studio visual builder, saved as{" "}
-          <span className="font-mono">project_json</span>
-          ), plus web coupon codes. Optional: set{" "}
-          <span className="font-mono">VITE_GRAPESJS_STUDIO_LICENSE_KEY</span> for
-          production Studio licensing.
-        </p>
-      </div>
+      {showHeader ? (
+        <div>
+          <h2 className="text-2xl font-black uppercase italic tracking-tight text-app-text">
+            Online store
+          </h2>
+          <p className="mt-1 text-xs text-app-text-muted">
+            Marketing pages for public{" "}
+            <span className="font-mono">/shop/…</span> (raw HTML or GrapesJS
+            Studio visual builder, saved as{" "}
+            <span className="font-mono">project_json</span>), plus web coupon
+            codes.
+          </p>
+        </div>
+      ) : null}
 
-      <div className="flex gap-2">
-        {(["pages", "coupons"] as const).map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setSub(id)}
-            className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest ${
-              sub === id
-                ? "bg-app-accent text-white"
-                : "border border-app-border bg-app-surface text-app-text-muted"
-            }`}
-          >
-            {id}
-          </button>
-        ))}
-      </div>
+      {mode === "all" ? (
+        <div className="flex gap-2">
+          {(["pages", "coupons"] as const).map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setSub(id)}
+              className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest ${
+                sub === id
+                  ? "bg-app-accent text-white"
+                  : "border border-app-border bg-app-surface text-app-text-muted"
+              }`}
+            >
+              {id}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-      {sub === "pages" ? (
+      {activeSub === "pages" ? (
         <div className="space-y-4">
           <div className="ui-card space-y-3 p-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -383,6 +410,7 @@ export default function OnlineStoreSettingsPanel({ baseUrl }: { baseUrl: string 
                     key={studioMountKey}
                     licenseKey={GRAPESJS_STUDIO_LICENSE_KEY}
                     projectJson={projectJsonDraft}
+                    fallbackHtml={htmlDraft}
                     onSaveProject={(p) => saveStudioProject(p)}
                     onEditorReady={(api) => {
                       studioApiRef.current = api;
