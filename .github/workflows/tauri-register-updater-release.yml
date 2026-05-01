@@ -24,6 +24,8 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       RIVERSIDE_UPDATER_BASE_URL: https://github.com/${{ github.repository }}/releases/latest/download
       RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+      LLAMA_CPP_RELEASE: b8994
+      LLAMA_CPP_WIN_CPU_ASSET: llama-b8994-bin-win-cpu-x64.zip
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +43,21 @@ jobs:
           toolchain: "1.88"
           components: clippy, rustfmt
 
+      - name: Install Windows ROSIE sidecar
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP $env:LLAMA_CPP_WIN_CPU_ASSET
+          $extractDir = Join-Path $env:RUNNER_TEMP "llama-cpp-win"
+          $downloadUrl = "https://github.com/ggml-org/llama.cpp/releases/download/$env:LLAMA_CPP_RELEASE/$env:LLAMA_CPP_WIN_CPU_ASSET"
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $extractDir -Force
+
+          $binaryDir = "src-tauri/binaries"
+          New-Item -ItemType Directory -Force -Path $binaryDir | Out-Null
+          Copy-Item -Path (Join-Path $extractDir "llama-server.exe") -Destination "$binaryDir/llama-server-x86_64-pc-windows-msvc.exe" -Force
+          Copy-Item -Path (Join-Path $extractDir "*.dll") -Destination $binaryDir -Force
+
       - name: Build signed updater bundle
         shell: pwsh
         run: |
@@ -54,6 +71,7 @@ jobs:
           $updaterConfig = @{
             bundle = @{
               createUpdaterArtifacts = $true
+              resources = @("../dist", "binaries/*.dll")
             }
             plugins = @{
               updater = @{
