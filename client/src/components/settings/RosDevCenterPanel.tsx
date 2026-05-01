@@ -211,7 +211,7 @@ const E2E_FAILURE_PLAYBOOK: Array<{
   {
     category: "app startup",
     nextAction:
-      "Confirm API/UI stack is reachable on expected ports, then rerun one blocking spec before changing tests.",
+      "Confirm the app is reachable, then rerun one blocking check before changing tests.",
   },
   {
     category: "auth/seed data",
@@ -226,7 +226,7 @@ const E2E_FAILURE_PLAYBOOK: Array<{
   {
     category: "financial/audit contract",
     nextAction:
-      "Treat as release-blocking and inspect API payload/status deltas first, then confirm money/audit invariants.",
+      "Treat as release-blocking. Compare the failed result, then confirm money and audit rules still hold.",
   },
   {
     category: "flaky/timing",
@@ -364,7 +364,7 @@ export default function RosDevCenterPanel({
       ]);
 
       if (!o.ok || !r.ok || !s.ok || !a.ok || !au.ok || !b.ok) {
-        toast("Could not load ROS Dev Center data", "error");
+      toast("Could not load Support Center data", "error");
         return;
       }
 
@@ -375,7 +375,7 @@ export default function RosDevCenterPanel({
       setAuditRows((await au.json()) as ActionAuditRow[]);
       setBugsOverview((await b.json()) as BugOverviewRow[]);
     } catch {
-      toast("Network error loading ROS Dev Center", "error");
+      toast("Network error loading Support Center", "error");
     } finally {
       setLoading(false);
     }
@@ -561,8 +561,8 @@ export default function RosDevCenterPanel({
   if (!canView) {
     return (
       <div className="ui-card p-8">
-        <h2 className="text-xl font-black uppercase tracking-widest text-app-text">
-          ROS Dev Center
+          <h2 className="text-xl font-black uppercase tracking-widest text-app-text">
+          Support Center
         </h2>
         <p className="mt-2 text-sm text-app-text-muted">
           You do not have access to this workspace.
@@ -576,11 +576,11 @@ export default function RosDevCenterPanel({
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-            ROS Dev Center
+            Support Center
           </h2>
           <p className="mt-2 text-sm font-medium text-app-text-muted">
-            Operations health, fleet telemetry, guarded actions, and Bug Manager
-            triage in one developer command center.
+            Store health, station status, protected actions, and bug follow-up
+            in one support workspace.
           </p>
           <p className="mt-1 text-xs text-app-text-muted">
             Control app version: <strong>{CLIENT_SEMVER}</strong>
@@ -607,7 +607,7 @@ export default function RosDevCenterPanel({
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="ui-card p-5">
           <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            DB Status
+            System Status
           </div>
           <div className="mt-2 flex items-center gap-2 text-lg font-black text-app-text">
             <Database className="h-5 w-5 text-app-accent" />
@@ -656,14 +656,14 @@ export default function RosDevCenterPanel({
         <div className="mb-4 flex items-center gap-2">
           <Activity className="h-5 w-5 text-app-accent" />
           <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            Runtime Diagnostics
+            Support Details
           </h3>
         </div>
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           <div className="ui-metric-cell ui-tint-info p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-black text-app-text">API Base</p>
+                <p className="text-sm font-black text-app-text">App connection</p>
                 <p className="mt-1 break-all font-mono text-xs text-app-text">
                   {apiBaseDiagnostics.resolved}
                 </p>
@@ -672,14 +672,14 @@ export default function RosDevCenterPanel({
                   {apiBaseDiagnostics.source === "override"
                     ? "local override"
                     : apiBaseDiagnostics.source === "vite-env"
-                      ? "Vite env"
+                      ? "app setting"
                       : apiBaseDiagnostics.source === "same-origin"
-                        ? "same-origin browser"
+                        ? "current browser"
                         : "desktop fallback"}
                 </p>
               </div>
               <span className="rounded-full border border-app-info/30 bg-app-info/12 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-app-info">
-                client
+                app
               </span>
             </div>
           </div>
@@ -707,10 +707,9 @@ export default function RosDevCenterPanel({
           ))}
         </div>
         <p className="mt-3 text-[11px] text-app-text-muted">
-          Read-only runtime snapshot for developer/admin debugging. Secrets are
-          never exposed.
+          Read-only support snapshot. Secrets are never exposed.
           {runtimeDiagnostics?.generated_at
-            ? ` Server snapshot: ${fmtTs(runtimeDiagnostics.generated_at)}`
+            ? ` Last checked: ${fmtTs(runtimeDiagnostics.generated_at)}`
             : ""}
         </p>
       </section>
@@ -888,9 +887,8 @@ export default function RosDevCenterPanel({
         </div>
 
         <p className="mt-4 text-xs text-app-text-muted">
-          Phase 2 contract: lane telemetry is fetched from{" "}
-          <code>/api/ops/e2e-health</code>. If unavailable, this card stays in
-          degraded mode and the rest of Dev Center remains usable.
+          If station test details are unavailable, this card stays limited and
+          the rest of Support Center remains usable.
         </p>
         <p className="mt-1 text-xs text-app-text-muted">
           Reference: <code>docs/E2E_REGRESSION_MATRIX.md</code>
@@ -1050,13 +1048,13 @@ export default function RosDevCenterPanel({
         <div className="mb-4 flex items-center gap-2">
           <Wrench className="h-5 w-5 text-app-accent" />
           <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            Guarded Actions
+            Protected Actions
           </h3>
         </div>
 
         {!canRunActions ? (
           <p className="text-sm text-app-text-muted">
-            You can view action history but do not have permission to run guarded actions.
+            You can view action history, but Manager Access is needed to run protected actions.
           </p>
         ) : (
           <div className="space-y-4">

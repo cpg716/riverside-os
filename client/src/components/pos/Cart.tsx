@@ -914,17 +914,17 @@ export default function Cart({
         setSalePinCredential("");
         toast(`Signed in as ${staff.full_name}`, "success");
       } else {
-        const errJson = await res.json().catch(() => ({}));
+        await res.json().catch(() => ({}));
         if (res.status === 404) {
-          setSalePinError("Authentication service endpoint not found (404). Contact support.");
+          setSalePinError("Staff sign-in is unavailable. Try again or call a manager.");
         } else if (res.status === 401 || res.status === 403) {
-          setSalePinError(errJson.error ?? "Invalid PIN.");
+          setSalePinError("Invalid Access PIN.");
         } else {
-          setSalePinError(errJson.error ?? `Server error (${res.status}).`);
+          setSalePinError("Staff sign-in is unavailable. Try again or call a manager.");
         }
       }
     } catch {
-      setSalePinError("Auth server unreachable.");
+      setSalePinError("Staff sign-in is unavailable. Try again or call a manager.");
     } finally {
       setSalePinBusy(false);
     }
@@ -2401,7 +2401,7 @@ export default function Cart({
                         const tok = await ensurePosTokenForSession();
                         if (!tok) {
                           toast(
-                            "This device is missing the register session token. Open or join the register, then try again.",
+                            "This register is not ready. Open or join the register, then try again.",
                             "error",
                           );
                           return;
@@ -2427,8 +2427,9 @@ export default function Cart({
                             );
                           }
                         } catch (e) {
+                          console.error("Could not delete parked sales", e);
                           toast(
-                            e instanceof Error ? e.message : "Could not delete parked sales",
+                            "Could not delete parked sales. Try again.",
                             "error",
                           );
                           return;
@@ -2662,12 +2663,12 @@ export default function Cart({
               toast("All items voided", "success");
               return true;
             } else {
-              const err = await res.json().catch(() => ({}));
-              toast(err.error ?? "Manager authorization failed.", "error");
+              await res.json().catch(() => ({}));
+              toast("Manager approval failed. Check the Access PIN and try again.", "error");
               return false;
             }
           } catch {
-            toast("Authorization server unreachable.", "error");
+            toast("Manager approval is unavailable. Try again or call a manager.", "error");
             return false;
           }
         }}
@@ -2974,10 +2975,9 @@ export default function Cart({
                     "info",
                   );
                 } catch (e) {
+                  console.error("Could not copy transaction items into register", e);
                   toast(
-                    e instanceof Error
-                      ? e.message
-                      : "We couldn't copy those items into the register. Please try again.",
+                    "We couldn't copy those items into the register. Please try again.",
                     "error",
                   );
                 }

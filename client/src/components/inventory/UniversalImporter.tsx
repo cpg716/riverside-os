@@ -486,16 +486,16 @@ export default function UniversalImporter() {
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                  <div className="w-1.5 h-6 rounded-full bg-app-accent shadow-[0_0_12px_rgba(var(--app-accent),0.5)]" />
-                 <h3 className="text-xs font-black uppercase tracking-[0.2em]">Ingestion Parameters</h3>
+	                 <h3 className="text-xs font-black uppercase tracking-[0.2em]">Import Settings</h3>
               </div>
               <div className="space-y-4">
                 <div className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
                   <p className="text-[10px] font-bold text-emerald-300 leading-relaxed italic">
-                    This importer never changes live on-hand. Use Counterpoint sync for pre-launch inventory quantities, then Receiving and Physical Inventory for operational adjustments.
+	                    This import never changes live on-hand counts. Use Counterpoint sync for starting quantities, then Receiving and Physical Inventory for store adjustments.
                   </p>
                 </div>
                 <div className="p-6 rounded-2xl bg-white/5 border border-white/5">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-3">Global Taxonomy Fallback</p>
+	                  <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-3">Default Category</p>
                   <select
                     value={categoryId}
                     onChange={(e) => setCategoryId(e.target.value)}
@@ -510,7 +510,7 @@ export default function UniversalImporter() {
                 {rows.length >= 2000 && (
                   <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/20">
                      <p className="text-[10px] font-bold text-amber-300 leading-relaxed italic">
-                       High-volume ingestion active. Database transaction may persist for several cycles. Do not close this terminal.
+	                       Large import running. Keep this window open until it finishes.
                      </p>
                   </div>
                 )}

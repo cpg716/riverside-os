@@ -416,7 +416,7 @@ export default function PurchaseOrderPanel({
               ? `Match arrived items to ${selected.po_number}`
               : `Adding items to ${selected.po_number}`
             : isReceiveMode
-              ? "Select vendor paperwork before staging receipt lines"
+              ? "Select vendor paperwork before reviewing received items"
               : "Select a purchase order before adding items"
         }
         icon={Sparkles}

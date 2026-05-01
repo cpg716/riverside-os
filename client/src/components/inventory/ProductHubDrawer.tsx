@@ -323,17 +323,16 @@ export default function ProductHubDrawer({
           body: JSON.stringify(body),
         });
         if (!res.ok) {
-          const errBody = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(errBody.error ?? "Update failed");
+          await res.json().catch(() => ({}));
+          throw new Error("Product update failed. Check the product details and try again.");
         }
         await loadHub();
         onHubMutated?.();
         return true;
       } catch (e) {
+        console.error("Could not update product model", e);
         toast(
-          e instanceof Error ? e.message : "Could not update product",
+          "Product update failed. Check the product details and try again.",
           "error",
         );
         return false;
@@ -771,10 +770,10 @@ export default function ProductHubDrawer({
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h4 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                          Inventory truth
+                          Inventory status
                         </h4>
                         <p className="mt-1 text-xs text-app-text-muted">
-                          This view uses current server inventory values. Reserved units are already
+                          This view uses current inventory values. Reserved units are already
                           promised to open orders and are not available for walk-in sale.
                         </p>
                       </div>
@@ -831,7 +830,7 @@ export default function ProductHubDrawer({
                       </p>
                       <div className="mt-2 space-y-1.5 text-[11px] font-medium leading-relaxed text-app-text-muted">
                         <p>
-                          Available now follows the live server rule: on hand minus units already reserved for open store work.
+                          Available now means on hand minus units already reserved for open store work.
                         </p>
                         <p>
                           Reserved in store covers units already committed to orders, weddings, or other promised pickup work.
@@ -932,10 +931,10 @@ export default function ProductHubDrawer({
                       [
                         "Purchase orders",
                         !hub.can_view_procurement
-                          ? "Procurement access required"
+                          ? "Vendor ordering access needed"
                           : (hub?.po_summary?.open_po_count ?? 0) === 0 &&
                         (hub?.po_summary?.pending_receive_units ?? 0) === 0
-                          ? "No open pipeline"
+                          ? "No open orders"
                           : `${hub?.po_summary?.open_po_count ?? 0} open PO${
                               (hub?.po_summary?.open_po_count ?? 0) === 1 ? "" : "s"
                             } · ${hub?.po_summary?.pending_receive_units ?? 0} pending`,
@@ -1411,7 +1410,7 @@ export default function ProductHubDrawer({
         onClose={() => setCatalogSuggestionConfirmOpen(false)}
         onConfirm={() => void applyCatalogSuggestion()}
         title="Apply ROSIE catalog suggestion"
-        message={`Apply the grounded parent-title suggestion for this product?\n\nCurrent: ${currentParentTitle || "—"}\nSuggested: ${suggestedParentTitle || "—"}\n\nThis writes through the existing product update API and records a ROSIE audit entry.`}
+        message={`Apply ROSIE's product title suggestion?\n\nCurrent: ${currentParentTitle || "—"}\nSuggested: ${suggestedParentTitle || "—"}\n\nRiverside will save the product update and keep a support record.`}
         confirmLabel="Apply suggestion"
         variant="info"
         loading={catalogSuggestionApplying}

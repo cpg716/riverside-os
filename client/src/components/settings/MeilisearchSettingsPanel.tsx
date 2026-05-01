@@ -103,16 +103,16 @@ export default function MeilisearchSettingsPanel() {
         headers: backofficeHeaders() as Record<string, string>,
       });
       if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        toast(j.error || "Reindex failed", "error");
+        await res.json().catch(() => ({}));
+        toast("Search rebuild failed. Check Support details and try again.", "error");
         setMeiliReindexBusy(false);
       } else {
-        toast("Meilisearch rebuild completed", "success");
+        toast("Search rebuild completed.", "success");
         void fetchStatus();
         setMeiliReindexBusy(false);
       }
-    } catch (e) {
-      toast(String(e), "error");
+    } catch {
+      toast("Search rebuild could not start. Try again or call support.", "error");
       setMeiliReindexBusy(false);
     }
   };
@@ -121,7 +121,7 @@ export default function MeilisearchSettingsPanel() {
     return (
       <div className="ui-card p-8 text-center">
         <p className="text-sm font-medium text-app-text-muted">
-          Administrator privileges required to manage search infrastructure.
+          Manager access is needed to manage search health.
         </p>
       </div>
     );
@@ -141,12 +141,11 @@ export default function MeilisearchSettingsPanel() {
           </div>
           <div className="min-w-0 flex-1 space-y-2">
             <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-              Search Infrastructure
+              Search Health
             </h2>
             <p className="text-sm font-medium text-app-text-muted leading-relaxed max-w-3xl">
-              High-performance fuzzy search engine. Riverside uses Meilisearch
-              for inventory, customers, weddings, orders, transactions,
-              alterations, and help-center search when configured.
+              Keeps staff search current for inventory, customers, weddings,
+              orders, transactions, alterations, and help.
             </p>
           </div>
         </div>
@@ -165,12 +164,11 @@ export default function MeilisearchSettingsPanel() {
             </div>
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Sync Health Dashboard
+                Connection Status
               </h3>
               <p className="text-xs text-app-text-muted mt-1 max-w-xl leading-relaxed">
-                Refresh only reloads this health view. Rebuild re-pushes
-                PostgreSQL records; normal writes update their affected search
-                documents as staff work.
+                Refresh reloads this health view. Rebuild refreshes the search
+                copy of store records while staff keep working.
               </p>
             </div>
           </div>
@@ -181,14 +179,14 @@ export default function MeilisearchSettingsPanel() {
               ) : isIndexing ? (
                 <span className="flex items-center gap-1.5 text-emerald-500 font-bold">
                   <RefreshCw className="h-2 w-2 animate-spin" />
-                  Indexing...
+                  Updating search...
                 </span>
               ) : meiliConfigured === null ? (
                 "Status unknown"
               ) : meiliConfigured ? (
-                "Configured on server"
+                "Connected"
               ) : (
-                "Not configured"
+                "Not connected"
               )}
             </span>
             <button
@@ -209,17 +207,26 @@ export default function MeilisearchSettingsPanel() {
         {meiliConfigured === false && (
           <div className="ui-panel ui-tint-warning mb-8 px-4 py-3 text-xs text-app-text-muted leading-relaxed">
             <p className="font-bold text-app-warning uppercase tracking-widest text-[10px] mb-1">
-              Server environment required
+              Search connection needed
             </p>
-            Meilisearch reindex stays disabled until{" "}
-            <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">
-              RIVERSIDE_MEILISEARCH_URL
-            </code>{" "}
-            and{" "}
-            <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">
-              RIVERSIDE_MEILISEARCH_API_KEY
-            </code>{" "}
-            are set on the API host.
+            Search rebuild is disabled until support finishes the search
+            connection.
+            <details className="mt-2">
+              <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-app-text">
+                Support details
+              </summary>
+              <p className="mt-2">
+                Required settings:{" "}
+                <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">
+                  RIVERSIDE_MEILISEARCH_URL
+                </code>{" "}
+                and{" "}
+                <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">
+                  RIVERSIDE_MEILISEARCH_API_KEY
+                </code>
+                .
+              </p>
+            </details>
           </div>
         )}
 
@@ -228,7 +235,7 @@ export default function MeilisearchSettingsPanel() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="ui-metric-cell ui-tint-neutral p-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                  Index Health
+                  Search Health
                 </p>
                 <div className="flex items-center gap-2">
                   <div
@@ -236,7 +243,7 @@ export default function MeilisearchSettingsPanel() {
                   />
                   <span className="text-sm font-black text-app-text">
                     {isIndexing
-                      ? "Indexing..."
+                      ? "Updating..."
                       : meiliIndices.every((i) => i.is_success)
                         ? "All Healthy"
                         : "Action Required"}
@@ -245,13 +252,13 @@ export default function MeilisearchSettingsPanel() {
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                  Total Indexed
+                  Search Items
                 </p>
                 <span className="text-sm font-black text-app-text flex items-center gap-2">
                   {meiliIndices
                     .reduce((acc, i) => acc + i.row_count, 0)
                     .toLocaleString()}{" "}
-                  <span className="text-[10px] opacity-60">Rows</span>
+                  <span className="text-[10px] opacity-60">items</span>
                   {isIndexing && (
                     <RefreshCw className="h-3 w-3 animate-spin text-emerald-500/50" />
                   )}
@@ -259,7 +266,7 @@ export default function MeilisearchSettingsPanel() {
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                  Stale Warning
+                  Needs Refresh
                 </p>
                 <span className="text-sm font-black text-app-text">
                   {
@@ -271,12 +278,12 @@ export default function MeilisearchSettingsPanel() {
                           86400000,
                     ).length
                   }{" "}
-                  <span className="text-[10px] opacity-60">Indices</span>
+                  <span className="text-[10px] opacity-60">areas</span>
                 </span>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                  Last Contact
+                  Last Check
                 </p>
                 <span className="text-xs font-black text-app-text truncate">
                   {latestAttemptDateLabel(meiliIndices)}
@@ -309,7 +316,7 @@ export default function MeilisearchSettingsPanel() {
                   is_success: false,
                   last_success_at: null,
                   last_attempt_at: null,
-                  error_message: "Index not yet created or tracked.",
+                  error_message: "Search area has not been refreshed yet.",
                 };
 
                 const isStale =
@@ -362,12 +369,12 @@ export default function MeilisearchSettingsPanel() {
                         {isIndexing ? (
                           <span className="text-[8px] font-black text-app-success uppercase tracking-tighter flex items-center gap-1">
                             <RefreshCw className="h-2 w-2 animate-spin" />
-                            Indexing...
+                            Updating...
                           </span>
                         ) : (
                           !hasRun && (
                             <span className="text-[8px] font-black text-app-danger uppercase tracking-tighter">
-                              Sync Required
+                              Refresh Needed
                             </span>
                           )
                         )}
@@ -388,8 +395,8 @@ export default function MeilisearchSettingsPanel() {
                     </div>
                     <div className="flex flex-col gap-1.5 mt-3">
                       <div className="flex justify-between items-center text-[11px]">
-                        <span className="text-app-text-muted font-bold">
-                          Rows
+                          <span className="text-app-text-muted font-bold">
+                          Store rows
                         </span>
                         <span className="text-app-text font-black">
                           {idx.row_count.toLocaleString()}
@@ -399,7 +406,7 @@ export default function MeilisearchSettingsPanel() {
                         idx.document_count !== undefined && (
                           <div className="flex justify-between items-center text-[11px]">
                             <span className="text-app-text-muted font-bold">
-                              Live Docs
+                              Search items
                             </span>
                             <span className="text-app-text font-black">
                               {idx.document_count.toLocaleString()}
@@ -409,7 +416,7 @@ export default function MeilisearchSettingsPanel() {
                       {idx.latest_task && (
                         <div className="flex justify-between items-center text-[9px]">
                           <span className="text-app-text-muted font-bold">
-                            Task
+                            Recent job
                           </span>
                           <span className="text-app-text font-black opacity-80">
                             #{idx.latest_task.uid} {idx.latest_task.status}
@@ -438,13 +445,13 @@ export default function MeilisearchSettingsPanel() {
                       )}
                       {!isIndexing && idx.latest_failed_task?.error && (
                         <div className="mt-2 text-[8px] font-bold text-app-danger bg-app-danger/10 p-2 rounded-lg border border-app-danger/10 break-words leading-tight">
-                          Latest Meili task #{idx.latest_failed_task.uid}:{" "}
+                          Support details for job #{idx.latest_failed_task.uid}:{" "}
                           {idx.latest_failed_task.error}
                         </div>
                       )}
                       {idx.is_success && isStale && (
                         <div className="mt-2 text-[8px] font-black uppercase tracking-[0.05em] text-app-warning bg-app-warning/10 p-2 rounded-lg border border-app-warning/10">
-                          Warning: Data stale (24h+)
+                          Needs refresh (24h+)
                         </div>
                       )}
                     </div>
@@ -458,14 +465,12 @@ export default function MeilisearchSettingsPanel() {
         <div className="mt-8 pt-6 border-t border-emerald-500/10 flex flex-wrap items-center justify-between gap-4">
           <div className="max-w-md">
             <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text mb-1">
-              Full index rebuild
+              Full search rebuild
             </h4>
             <p className="text-[10px] text-app-text-muted leading-relaxed">
-              If search results feel stale or Meilisearch was recently wiped,
-              run a full rebuild. This will re-push all records from SQL to
-              Meilisearch using a staged rebuild, then swap the finished index
-              into service. Large catalogs may take minutes; Refresh only
-              checks the latest status.
+              If search results feel stale, run a full rebuild. Riverside
+              refreshes the search copy in the background, then switches it on
+              when ready. Large catalogs may take several minutes.
             </p>
           </div>
           <button
@@ -477,10 +482,10 @@ export default function MeilisearchSettingsPanel() {
             className="ui-btn-primary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest bg-emerald-600 border-emerald-700 shadow-emerald-900/10 hover:bg-emerald-700 disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:border-app-border"
           >
             {isIndexing
-              ? "Indexing..."
+              ? "Updating..."
               : meiliReindexBusy
                 ? "Starting..."
-                : "Rebuild all indices"}
+                : "Rebuild search"}
           </button>
         </div>
       </section>
@@ -488,9 +493,9 @@ export default function MeilisearchSettingsPanel() {
       {meiliReindexConfirmOpen && (
         <ConfirmationModal
           isOpen={true}
-          title="Rebuild all search indices?"
-          message="This reloads Meilisearch from PostgreSQL for all modules. Finished replacement indices are swapped into service only after Meilisearch accepts the rebuild tasks. It can take several minutes on large catalogs. Staff can keep working during the process."
-          confirmLabel="Execute Rebuild"
+          title="Rebuild search?"
+          message="This refreshes search for all areas. Riverside builds a new search copy first, then switches to it when ready. Staff can keep working during the process."
+          confirmLabel="Start rebuild"
           onConfirm={() => void runReindex()}
           onClose={() => setMeiliReindexConfirmOpen(false)}
           variant="info"

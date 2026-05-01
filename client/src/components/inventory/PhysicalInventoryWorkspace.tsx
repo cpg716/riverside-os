@@ -718,7 +718,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                           {s.session_number}
                         </p>
                         <p className="mt-1 text-[11px] font-semibold capitalize text-app-text-muted">
-                          {s.scope} scope
+                          {s.scope} area
                         </p>
                       </div>
                       <StatusBadge status={s.status} />
@@ -755,7 +755,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                   <tr>
                     <th className="px-6 py-4">Internal Serial</th>
-                    <th className="px-6 py-4">Scope</th>
+                    <th className="px-6 py-4">Area</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4">Initialization</th>
                     <th className="px-6 py-4">Items</th>
@@ -1036,7 +1036,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       <div className="flex flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
         <div className="flex flex-wrap items-center justify-between gap-6 px-2">
           <div>
-            <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Audit & Reconciliation</h3>
+            <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Count Review</h3>
             <h2 className="text-2xl font-black tracking-tight text-app-text">Review Phase · <span className="text-app-accent">#{activeSession.session_number}</span></h2>
           </div>
           <div className="flex items-center gap-3">
@@ -1060,7 +1060,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         {reviewSummary && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <DashboardStatsCard
-              title="Scope Variants"
+              title="Items In Area"
               value={reviewSummary.total_variants_in_scope}
               icon={Package}
               trend={{ value: "In review", label: "catalog" }}
@@ -1072,7 +1072,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               trend={{ value: "Aggregated", label: "volume" }}
             />
             <DashboardStatsCard
-              title="Missing In Scope"
+              title="Missing From Count"
               value={reviewSummary.missing_variants}
               icon={AlertCircle}
               trend={{ value: "Needs review", label: "uncounted", isUp: false }}
@@ -1100,10 +1100,10 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
             <AlertCircle className="mt-0.5 shrink-0" size={18} />
             <div>
               <p className="text-[11px] font-black uppercase tracking-widest opacity-70">
-                Incomplete Scope Surfaced
+                Uncounted Items Found
               </p>
               <p className="text-sm font-bold leading-relaxed">
-                {reviewSummary.missing_variants} in-scope SKU{reviewSummary.missing_variants === 1 ? "" : "s"} were never counted. They are now included in review and will reconcile to zero unless you resume counting or enter an override.
+                {reviewSummary.missing_variants} SKU{reviewSummary.missing_variants === 1 ? "" : "s"} in this area were never counted. They are now included in review and will be set to zero unless you resume counting or enter an override.
               </p>
             </div>
           </div>
@@ -1247,10 +1247,10 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
 
         <ConfirmationModal
           isOpen={publishConfirm}
-          title="Apply Reconciled Logic?"
+          title="Apply Reviewed Counts?"
           message={
             reviewSummary 
-              ? `Publishing session ${activeSession.session_number} will overwrite current inventory with reviewed levels. (${reviewSummary.total_variants_in_scope} scoped variants, ${reviewSummary.total_counted} counted, ${reviewSummary.missing_variants} missing in scope, delta ${reviewSummary.total_surplus - reviewSummary.total_shrinkage}). Permanent.`
+              ? `Publishing session ${activeSession.session_number} will overwrite current inventory with reviewed levels. (${reviewSummary.total_variants_in_scope} items in area, ${reviewSummary.total_counted} counted, ${reviewSummary.missing_variants} missing from count, delta ${reviewSummary.total_surplus - reviewSummary.total_shrinkage}). Permanent.`
               : `Publishing session ${activeSession.session_number} will overwrite the current catalog stock levels. Permanent.`
           }
           confirmLabel="Commit Changes"

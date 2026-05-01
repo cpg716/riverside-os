@@ -86,7 +86,7 @@ export default function PodiumOAuthCallback() {
     if (!redirectUri) {
       setStatus("error");
       setMessage(
-        "Could not resolve redirect URI. Start Connect Podium again from Settings, or set VITE_PODIUM_OAUTH_REDIRECT_URI if your callback URL differs from this page’s origin.",
+        "Could not finish the Podium connection. Start Connect Podium again from Settings.",
       );
       return;
     }
@@ -109,12 +109,12 @@ export default function PodiumOAuthCallback() {
         const j = (await res.json()) as { error?: string } & Partial<ExchangeOk>;
         if (!res.ok) {
           setStatus("error");
-          setMessage(j.error ?? `Token exchange failed (HTTP ${res.status})`);
+          setMessage("Podium connection failed. Try again from Settings.");
           return;
         }
         if (!j.refresh_token) {
           setStatus("error");
-          setMessage("Server response did not include a refresh token.");
+          setMessage("Podium connection finished without the setup details support needs.");
           return;
         }
         try {
@@ -126,13 +126,12 @@ export default function PodiumOAuthCallback() {
         setEnvLine(`RIVERSIDE_PODIUM_REFRESH_TOKEN=${j.refresh_token}`);
         setStatus("success");
         setMessage(
-          "Add this line to server .env and restart the API. Keep the client secret on the server only.",
+          "Podium approved the connection. Copy the support details and give them to the system administrator.",
         );
       } catch (e) {
+        console.error("Podium connection failed", e);
         setStatus("error");
-        setMessage(
-          e instanceof Error ? e.message : "Network error during token exchange.",
-        );
+        setMessage("Podium connection failed. Try again from Settings.");
       }
     })();
   }, []);
@@ -141,20 +140,25 @@ export default function PodiumOAuthCallback() {
     <div className="min-h-screen bg-app-bg text-app-text flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-lg ui-card p-8 space-y-4">
         <h1 className="text-sm font-black uppercase tracking-widest text-app-text">
-          Podium OAuth
+          Podium Connection
         </h1>
         <p className="text-sm text-app-text-muted leading-relaxed">{message}</p>
         {envLine ? (
           <div className="space-y-2">
-            <pre className="text-[11px] font-mono whitespace-pre-wrap break-all rounded-lg border border-app-border bg-app-surface-2 p-3">
-              {envLine}
-            </pre>
+            <details className="rounded-lg border border-app-border bg-app-surface-2 p-3">
+              <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Support details
+              </summary>
+              <pre className="mt-2 text-[11px] font-mono whitespace-pre-wrap break-all">
+                {envLine}
+              </pre>
+            </details>
             <button
               type="button"
               className="ui-btn-primary px-4 py-2 text-[10px] font-black uppercase tracking-widest"
               onClick={() => void copyLine()}
             >
-              Copy env line
+              Copy support details
             </button>
           </div>
         ) : null}

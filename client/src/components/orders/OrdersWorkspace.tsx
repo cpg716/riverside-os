@@ -595,20 +595,20 @@ export default function OrdersWorkspace({
         },
       );
       if (!scanRes.ok) {
-        const body = (await scanRes.json().catch(() => ({}))) as { error?: string };
+        await scanRes.json().catch(() => ({}));
         if (scanRes.status === 404) {
           toast(`SKU "${enteredSku}" was not found. Check it and try again.`, "error");
           return false;
         }
         if (scanRes.status === 401 || scanRes.status === 403) {
-          toast(body.error ?? "Your session or access has expired. Sign in again and retry.", "error");
+          toast("Your session or access has expired. Sign in again and retry.", "error");
           return false;
         }
         if (scanRes.status >= 500) {
           toast("SKU lookup is temporarily unavailable. Please try again.", "error");
           return false;
         }
-        toast(body.error ?? "SKU lookup failed. Please try again.", "error");
+        toast("SKU lookup failed. Please try again.", "error");
         return false;
       }
       item = (await scanRes.json()) as ScanItem;
@@ -635,8 +635,8 @@ export default function OrdersWorkspace({
       }),
     });
     if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "We couldn't add this item. Please try again.", "error");
+      await res.json().catch(() => ({}));
+      toast("We couldn't add this item. Please try again.", "error");
       return false;
     }
     setSku("");
@@ -660,8 +660,8 @@ export default function OrdersWorkspace({
       body: JSON.stringify({ status: "cancelled" }),
     });
     if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "We couldn't cancel this transaction. Please try again.", "error");
+      await res.json().catch(() => ({}));
+      toast("We couldn't cancel this transaction. Please try again.", "error");
       return;
     }
     setCancelConfirmOpen(false);
@@ -678,8 +678,8 @@ export default function OrdersWorkspace({
       headers: backofficeHeaders(),
     });
     if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "We couldn't remove this item. Please try again.", "error");
+      await res.json().catch(() => ({}));
+      toast("We couldn't remove this item. Please try again.", "error");
       return;
     }
     await loadDetail(detail.transaction_id);
@@ -729,8 +729,8 @@ export default function OrdersWorkspace({
         },
       );
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(b.error ?? "We couldn't save that line. Please try again.");
+        await res.json().catch(() => ({}));
+        throw new Error("We couldn't save that line. Please try again.");
       }
       toast(`${item.product_name} updated.`, "success");
       await loadDetail(detail.transaction_id);
@@ -765,8 +765,8 @@ export default function OrdersWorkspace({
       body: JSON.stringify({ lines }),
     });
     if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "Return failed", "error");
+      await res.json().catch(() => ({}));
+      toast("Return failed. Check the quantities and try again.", "error");
       return;
     }
     toast("Return saved.", "success");
@@ -816,8 +816,8 @@ export default function OrdersWorkspace({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(b.error ?? "Refund failed", "error");
+        await res.json().catch(() => ({}));
+        toast("Refund failed. Check the amount and try again.", "error");
         return;
       }
       toast("Refund completed.", "success");
@@ -974,7 +974,7 @@ export default function OrdersWorkspace({
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by customer, phone, transaction number, or fulfillment order number..."
+                  placeholder="Search by customer, phone, transaction number, or order number..."
                   className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
@@ -982,7 +982,7 @@ export default function OrdersWorkspace({
               <div className="flex flex-wrap items-center gap-2">
                 {(
                   [
-                    { id: "open", label: "Open Fulfillment" },
+                    { id: "open", label: "Open Orders" },
                     { id: "all", label: "Transaction History" },
                   ] satisfies Array<{ id: OrderViewPreset; label: string }>
                 ).map((preset) => {
@@ -1119,7 +1119,7 @@ export default function OrdersWorkspace({
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Customer</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Fulfillment Summary</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Pickup Summary</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Status</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Transaction Amounts</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted text-right">Balance</th>
@@ -1172,7 +1172,7 @@ export default function OrdersWorkspace({
         message={
           orderUnpaid
             ? "No payments are allocated to this transaction. Loyalty accrual will be reversed when applicable."
-            : "This will queue any refundable payments. Loyalty accrual will be reversed when applicable."
+            : "This will prepare any refundable payments for review. Loyalty accrual will be reversed when applicable."
         }
         confirmLabel={orderUnpaid && !canCancel ? "Void transaction" : "Cancel transaction"}
         variant="danger"

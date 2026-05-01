@@ -218,11 +218,8 @@ export default function ReceiptSummaryModal({
             setEmailDraft((c.email ?? "").trim());
           }
         } else {
-          const b = (await res.json().catch(() => ({}))) as { error?: string };
-          toast(
-            typeof b.error === "string" ? b.error : "Could not load receipt details",
-            "error",
-          );
+          await res.json().catch(() => ({}));
+          toast("Could not load receipt details.", "error");
         }
       } catch (e) {
         console.error("Failed to fetch order detail", e);
@@ -273,11 +270,8 @@ export default function ReceiptSummaryModal({
         body: JSON.stringify({ skip: skipReviewInvite }),
       });
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(
-          typeof b.error === "string" ? b.error : "Could not save review invite choice",
-          "error",
-        );
+        await res.json().catch(() => ({}));
+        toast("Could not save review invite choice.", "error");
       }
     } catch {
       toast("Could not save review invite choice", "error");
@@ -338,7 +332,7 @@ export default function ReceiptSummaryModal({
           typeof escposPayload.escpos_base64 !== "string" ||
           !escposPayload.escpos_base64
         ) {
-          throw new Error("Missing ESC/POS receipt payload from server");
+          throw new Error("Receipt printing is unavailable. Try again or use reprint.");
         }
 
         const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
@@ -365,7 +359,7 @@ export default function ReceiptSummaryModal({
         );
       } catch (e: unknown) {
         console.error("Printing failed", e);
-        const message = e instanceof Error ? e.message : "Thermal Dispatch Error";
+        const message = "Receipt printing is unavailable.";
         setError(message);
         setPrintingFailureTitle(
           opts?.gift ? "Gift receipt did not print" : "Receipt did not print",
@@ -396,8 +390,8 @@ export default function ReceiptSummaryModal({
         `Receipt printer responded at ${printer.ip}:${printer.port}. You can retry printing now.`,
       );
     } catch (e) {
-      const message =
-        e instanceof Error ? e.message : "Printer connection failed.";
+      console.error("Printer check failed", e);
+      const message = "Printer connection failed.";
       setPrinterCheckMessage(
         `${message} Verify printer power, cable/network path, and station printer settings before retrying.`,
       );
@@ -431,13 +425,8 @@ export default function ReceiptSummaryModal({
         }),
       });
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(
-          typeof b.error === "string"
-            ? b.error
-            : "Could not save contact (need customers.hub_edit or use Back Office).",
-          "error",
-        );
+        await res.json().catch(() => ({}));
+        toast("Could not save contact. Manager access may be needed.", "error");
         return;
       }
       toast("Customer contact updated", "success");
@@ -501,11 +490,8 @@ export default function ReceiptSummaryModal({
         body: JSON.stringify(baseBody),
       });
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(
-          typeof b.error === "string" ? b.error : "Could not email receipt",
-          "error",
-        );
+        await res.json().catch(() => ({}));
+        toast("Could not email receipt.", "error");
         return;
       }
       toast(gift ? "Gift receipt emailed" : "Receipt emailed", "success");
@@ -588,11 +574,8 @@ export default function ReceiptSummaryModal({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(
-          typeof b.error === "string" ? b.error : "Could not text receipt",
-          "error",
-        );
+        await res.json().catch(() => ({}));
+        toast("Could not text receipt.", "error");
         return;
       }
       const j = (await res.json().catch(() => ({}))) as { mode?: string };
@@ -698,9 +681,8 @@ export default function ReceiptSummaryModal({
         setReceiptPreviewHtml(await fetchReceiptHtml());
       }
     } catch (e) {
-      const message =
-        e instanceof Error ? e.message : "Receipt preview could not load.";
-      setReceiptPreviewError(message);
+      console.error("Receipt preview failed", e);
+      setReceiptPreviewError("Receipt preview could not load.");
     } finally {
       setReceiptPreviewLoading(false);
     }
@@ -764,9 +746,8 @@ export default function ReceiptSummaryModal({
       });
       toast("Receipt opened for the reports printer.", "success");
     } catch (e) {
-      const message =
-        e instanceof Error ? e.message : "Could not open receipt print view.";
-      toast(message, "error");
+      console.error("Receipt print view failed", e);
+      toast("Could not open receipt print view.", "error");
     }
   };
 
@@ -1163,7 +1144,7 @@ export default function ReceiptSummaryModal({
                 </ul>
               ) : (
                 <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-sm font-semibold text-app-text-muted">
-                  Line items are not listed for this transaction here. Gift receipts still include all lines from the server.
+                  Line items are not shown here. Gift receipts still include every item from this sale.
                 </p>
               )}
               {cust ? (

@@ -216,7 +216,7 @@ function describeLifecycle(detail: TransactionDrawerDetail) {
   if (detail.status === "fulfilled") {
     return isWedding
       ? "Picked up. This wedding order is complete."
-      : "Picked up. This fulfillment work is complete.";
+      : "Picked up. This order is complete.";
   }
   if (detail.status === "pending_measurement") {
     return isWedding
@@ -226,7 +226,7 @@ function describeLifecycle(detail: TransactionDrawerDetail) {
   if (dueCents <= 0) {
     return isWedding
       ? "Balance paid. Receiving and pickup release still stay with the linked wedding member workflow."
-      : "Balance paid. Receiving and pickup release still stay with fulfillment.";
+      : "Balance paid. Receiving and pickup release still stay with order status.";
   }
   if (depositCents > 0) {
     return isWedding
@@ -248,8 +248,8 @@ function describeOrderRules(detail: TransactionDrawerDetail): string[] {
   const lines = [
     "The Transaction Record holds payment, receipt, refund, and balance details.",
     detail.status === "fulfilled"
-      ? "Pickup or fulfillment is already complete for this record."
-      : "Special, Custom, and Wedding lines are fulfillment work; Layaways stay in Layaways.",
+      ? "Pickup is already complete for this record."
+      : "Special, Custom, and Wedding lines stay in order pickup work; Layaways stay in Layaways.",
   ];
 
   if (detail.status === "pending_measurement") {
@@ -837,14 +837,14 @@ export default function TransactionDetailDrawer({
                 <div className="flex items-center gap-2">
                   <ORDERS_ICON size={16} className="text-app-text-muted" />
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
-                    Fulfillment Snapshot
+                    Order Status
                   </h3>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span
                     className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName("info")}`}
                   >
-                    {mode?.modeLabel ?? "Fulfillment Work"}
+                    {mode?.modeLabel ?? "Pickup Work"}
                   </span>
                   <span
                     className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
@@ -937,7 +937,7 @@ export default function TransactionDetailDrawer({
                 </div>
                 <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface p-3">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Lifecycle Note
+                    Status Note
                   </p>
                   <p className="mt-2 text-[12px] font-semibold text-app-text">
                     {describeLifecycle(detail)}
@@ -1272,7 +1272,7 @@ export default function TransactionDetailDrawer({
                                 />
                               </label>
                               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                Fulfillment
+                                Pickup Type
                                 <select
                                   value={editFulfillment}
                                   onChange={(event) =>
@@ -1297,8 +1297,7 @@ export default function TransactionDetailDrawer({
                               </p>
                             ) : (
                               <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
-                                Save updates before leaving the drawer to keep transaction totals and
-                                fulfillment in sync.
+                                Save updates before leaving the drawer to keep transaction totals and item status in sync.
                               </p>
                             )}
                             <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -1355,7 +1354,7 @@ export default function TransactionDetailDrawer({
               <div className="flex items-center gap-2">
                 <ShieldCheck size={16} className="text-app-text-muted" />
                 <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
-                  Transaction and Fulfillment Notes
+                  Transaction and Pickup Notes
                 </h3>
               </div>
               <div className="mt-4 space-y-2 text-[12px] font-semibold text-app-text-muted">

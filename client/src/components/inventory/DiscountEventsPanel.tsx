@@ -262,7 +262,7 @@ export default function DiscountEventsPanel() {
       toast("We couldn't update where this promotion applies. Please try again.", "error");
       return;
     }
-    toast("Promotion scope updated.", "success");
+    toast("Promotion area updated.", "success");
     void load();
     void loadVars(sel);
   };
@@ -679,7 +679,7 @@ export default function DiscountEventsPanel() {
                   onClick={patchSelectedScope}
                   className="w-full h-14 bg-white text-violet-600 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:brightness-110 active:scale-95 transition-all"
                 >
-                  Save Scope
+                  Save Area
                 </button>
               </div>
             </section>
@@ -689,12 +689,12 @@ export default function DiscountEventsPanel() {
             <div className="flex items-center gap-3 text-app-text-muted mb-4">
               <ShieldCheck size={18} />
               <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">
-                Governance
+                Promotion Rules
               </h4>
             </div>
             <p className="text-[10px] font-bold text-app-text-muted leading-relaxed">
               Promotion events are automatically applied at POS based on the
-              checkout timestamp. Category and vendor scopes are helpful for
+              checkout timestamp. Category and vendor areas are helpful for
               broad promotions, but review overlapping promotions before the
               sale starts.
             </p>

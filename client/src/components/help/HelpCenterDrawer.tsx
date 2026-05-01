@@ -757,7 +757,7 @@ export default function HelpCenterDrawer({
 
     if (!rosieSettings.enabled) {
       setRosieStatus(
-        "ROSIE is disabled for this workstation. Turn it on in Settings -> ROSIE.",
+        "ROSIE is turned off for this station. Turn it on in Settings.",
       );
       return;
     }
@@ -892,19 +892,19 @@ export default function HelpCenterDrawer({
     if (rosieBusy) return;
     if (!rosieSettings.enabled) {
       setRosieStatus(
-        "ROSIE is disabled for this workstation. Turn it on in Settings -> ROSIE.",
+        "ROSIE is turned off for this station. Turn it on in Settings.",
       );
       return;
     }
     if (!rosieSettings.voice_enabled || !rosieSettings.microphone_enabled) {
       setRosieStatus(
-        "Voice input is turned off for this workstation. Enable it in Settings -> ROSIE.",
+        "Voice is turned off for this station. Turn it on in Settings.",
       );
       return;
     }
     if (activeRosieMode !== "conversation" && !voiceCapabilities.speech_to_text_supported) {
       setRosieStatus(
-        "Voice input is unavailable because this workstation could not reach the host ROSIE speech stack. Use the text box to ask ROSIE.",
+        "Voice is unavailable on this station. Type your question instead.",
       );
       return;
     }
@@ -948,7 +948,7 @@ export default function HelpCenterDrawer({
       setRosieStatus(
         error instanceof Error
           ? error.message
-          : "Voice input is unavailable because this workstation could not reach the host ROSIE speech stack.",
+          : "Voice is unavailable on this station. Type your question instead.",
       );
     }
   }, [
@@ -1010,7 +1010,7 @@ export default function HelpCenterDrawer({
               }`}
             >
               <Bot size={14} aria-hidden />
-              Help Mode
+              Ask ROSIE
             </button>
             <button
               type="button"
@@ -1023,7 +1023,7 @@ export default function HelpCenterDrawer({
               }`}
             >
               <MessagesSquare size={14} aria-hidden />
-              Conversation (voice)
+              Chat with ROSIE
             </button>
           </div>
           {drawerMode === "browse" ? (
@@ -1075,7 +1075,7 @@ export default function HelpCenterDrawer({
           ) : null}
           {searchFallbackActive ? (
             <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
-              Server search is unavailable, so results are coming from bundled manual content on this station.
+              Live search is unavailable, so results are coming from saved help content on this station.
             </p>
           ) : null}
             </>
@@ -1083,25 +1083,24 @@ export default function HelpCenterDrawer({
             <div className="space-y-2">
               <p className="text-sm font-medium text-app-text-muted">
                 {drawerMode === "conversation"
-                  ? "Talk with ROSIE using the same governed RiversideOS intelligence, store context, and approved tools."
-                  : "Ask ROSIE for grounded Help Center guidance using visible manuals and your store playbook when available."}
+                  ? "Talk with ROSIE about Riverside workflows and store information."
+                  : "Ask ROSIE for help using Riverside guides and store notes."}
               </p>
               <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text-muted">
                 {drawerMode === "conversation"
-                  ? "Mode: Conversation. Grounding: RiversideOS Help, store playbook, and approved operational tool results when available. Voice input and speech output follow ROSIE settings."
-                  : "Mode: Help. Grounding: Help Center, store playbook, and approved operational tool results when available. Source chips show what ROSIE used."}
+                  ? "Chat mode can use Riverside help, store notes, and approved store tools when available."
+                  : "Ask ROSIE uses Riverside help articles and shows sources when available."}
               </p>
               {!rosieSettings.enabled ? (
                 <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
-                  ROSIE is disabled for this workstation. Turn it on in Settings
-                  -&gt; ROSIE to use Help Mode or Conversation Mode.
+                  ROSIE is turned off for this station. Turn it on in Settings to use chat or help.
                 </p>
               ) : null}
               {drawerMode !== "conversation" &&
               rosieSettings.enabled &&
               !voiceCapabilities.speech_to_text_supported ? (
                 <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text-muted">
-                  Voice input is only shown when this workstation can reach the host ROSIE speech stack.
+                  Voice is only shown when this station can use speech input.
                 </p>
               ) : null}
             </div>
@@ -1141,8 +1140,8 @@ export default function HelpCenterDrawer({
                     </p>
                     <p className="mt-2 text-sm text-app-text-muted">
                       {conversationModeActive
-                        ? "Use ROSIE like a staff assistant for RiversideOS workflows and accessible store data. Responses stay on governed paths and show sources or tool context when available."
-                        : "ROSIE is grounded to Help search results, manual sections, and your store playbook when available. Ask the question the way an operator would, then use source chips to open the referenced guidance."}
+                        ? "Use ROSIE like a staff assistant for Riverside workflows and store information. Sources are shown when available."
+                        : "Ask ROSIE the way you would ask another staff member. Use sources to open the related help."}
                     </p>
                   </div>
                 ) : (
@@ -1193,14 +1192,14 @@ export default function HelpCenterDrawer({
                         {message.role === "assistant" && !message.error ? (
                           <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[11px] font-medium text-app-text-muted">
                             {message.transparency === "grounded-conversation"
-                              ? "Grounding: governed RiversideOS context. Tools: approved ROSIE context only when returned below. Voice behavior follows ROSIE settings."
-                              : "Grounding: governed Help context. Tools: approved ROSIE context only when returned below. Source chips show what was used."}
+                              ? "ROSIE used approved Riverside information when available. Voice follows ROSIE settings."
+                              : "ROSIE used Riverside help content when available. Sources show what was used."}
                           </p>
                         ) : null}
                         {message.sources && message.sources.length > 0 && rosieSettings.show_citations ? (
                           <div className="mt-3 space-y-2">
                             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                              Grounded Sources
+                              Sources
                             </p>
                             <div className="flex flex-wrap gap-2">
                               {message.sources.map((source, index) => (
@@ -1312,7 +1311,7 @@ export default function HelpCenterDrawer({
                 ) : null}
                 {conversationModeActive ? (
                   <p className="mb-2 text-[11px] font-medium text-app-text-muted">
-                    Governed chat: ROSIE can use approved RiversideOS context and will show grounding when it is returned.
+                    ROSIE can use approved Riverside help and will show sources when available.
                   </p>
                 ) : null}
                 <div

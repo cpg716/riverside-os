@@ -12,7 +12,7 @@ import {
   openBackofficeSidebarTab,
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
-import { enterPosShell } from "./helpers/openPosRegister";
+import { enterPosShell, ensurePosSaleCashierSignedIn } from "./helpers/openPosRegister";
 
 async function openSettingsHelpCenterManager(
   page: Parameters<typeof test>[0]["page"],
@@ -87,6 +87,7 @@ test("opens Help from POS top bar", async ({ page }) => {
   await signInToBackOffice(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await enterPosShell(page);
+  await ensurePosSaleCashierSignedIn(page);
   await page.getByTestId("help-center-trigger").click();
   await expect(page.getByRole("dialog", { name: /help/i })).toBeVisible();
   await expect(page.getByTestId("help-center-search")).toBeVisible();
@@ -104,7 +105,7 @@ test("help search lists Results after query (Meilisearch or local fallback)", as
   });
 });
 
-test("Ask ROSIE sends grounded Help request and renders source chips", async ({
+test("Ask ROSIE sends Help request and renders sources", async ({
   page,
 }) => {
   await signInToBackOffice(page);
@@ -196,14 +197,14 @@ test("Ask ROSIE sends grounded Help request and renders source chips", async ({
   await page.getByTestId("help-center-ask-rosie-send").click();
 
   await expect(
-    page.getByText(/grounded sources/i).first(),
+    page.getByText(/^sources$/i).first(),
   ).toBeVisible({ timeout: 15_000 });
   await expect(
     page.getByTestId("help-center-rosie-source-chip").first(),
   ).toBeVisible({ timeout: 15_000 });
 });
 
-test("Top Bar ROSIE opens voice-first Conversation Mode with grounded context", async ({
+test("Top Bar ROSIE opens voice-first chat with Riverside context", async ({
   page,
 }) => {
   await signInToBackOffice(page);
@@ -275,7 +276,7 @@ test("Top Bar ROSIE opens voice-first Conversation Mode with grounded context", 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-ask-rosie-trigger").click();
   await expect(page.getByTestId("help-center-rosie-conversation-tab")).toBeVisible();
-  await expect(page.getByText(/Mode: Conversation/i)).toBeVisible();
+  await expect(page.getByText(/Chat mode can use Riverside help/i)).toBeVisible();
   await page
     .getByTestId("help-center-rosie-conversation-input")
     .fill("show me today’s sales");
@@ -285,7 +286,7 @@ test("Top Bar ROSIE opens voice-first Conversation Mode with grounded context", 
     timeout: 15_000,
   });
   await expect(
-    page.getByText(/Grounding: governed RiversideOS context/i),
+    page.getByText(/ROSIE used approved Riverside information/i),
   ).toBeVisible();
   await expect(page.getByText(/Report — sales today/i)).toBeVisible();
   expect(toolContextCalled).toBe(true);
@@ -493,7 +494,7 @@ test("Ask ROSIE voice input reuses the normal text flow and plays speech on the 
     .poll(() => page.evaluate(() => (window as typeof window & { __rosieSatelliteAudioPlayed?: boolean }).__rosieSatelliteAudioPlayed === true))
     .toBe(true);
   await expect(
-    page.getByText(/grounded sources/i).first(),
+    page.getByText(/^sources$/i).first(),
   ).toBeVisible({ timeout: 15_000 });
 
   await page.getByTestId("help-center-ask-rosie-stop-audio").click();

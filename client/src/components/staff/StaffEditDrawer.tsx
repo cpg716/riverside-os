@@ -426,7 +426,7 @@ export default function StaffEditDrawer({
             { id: "economics", label: "Economics", icon: Percent },
             { id: "permissions", label: "Permissions", icon: Shield },
             { id: "attendance", label: "Attendance", icon: Calendar },
-            { id: "lifecycle", label: "Lifecycle", icon: RefreshCw },
+            { id: "lifecycle", label: "Status", icon: RefreshCw },
           ].map((t) => (
             <button
               key={t.id}
@@ -654,9 +654,9 @@ export default function StaffEditDrawer({
                           Commission change timing
                         </p>
                         <p className="mt-1 text-[11px] text-app-text-muted">
-                          Commission reporting follows fulfillment. Choose when this
-                          new rate starts, and whether Riverside should
-                          reconcile eligible unfinalized lines from that date.
+                          Commission counts when the item is picked up or completed.
+                          Choose when this rate starts and whether to review
+                          eligible unfinished lines from that date.
                         </p>
                       </div>
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

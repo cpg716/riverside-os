@@ -93,8 +93,8 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string; 
     toolLabel: "Catalog Import",
   },
   physical: {
-    title: "Count/Reconcile",
-    subtitle: "Cycle counting and full-store reconciliation workflows.",
+    title: "Count/Review",
+    subtitle: "Cycle counts and full-store stock review.",
     toolLabel: "Physical Inventory",
   },
   damaged: {

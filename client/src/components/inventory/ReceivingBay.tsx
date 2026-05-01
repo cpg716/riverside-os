@@ -199,7 +199,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [invGlLabel, setInvGlLabel] = useState("INV_ASSET · not mapped");
-  const [freightGlLabel, setFreightGlLabel] = useState("COGS_FREIGHT · not mapped");
+  const [freightGlLabel, setFreightGlLabel] = useState("Freight cost · not mapped");
   const [useVendorUpc, setUseVendorUpc] = useState(false);
   const [scanMode, setScanMode] = useState<ScanMode>("laser");
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);

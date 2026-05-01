@@ -391,16 +391,9 @@ export default function BugReportsSettingsPanel({
             Bug reports
           </h2>
           <p className="mt-1 max-w-2xl text-xs text-app-text-muted">
-            Submissions from the bug icon (Tauri, PWA, or browser): optional
-            screenshot, client console, API tracing snapshot, correlation id,
-            and triage fields. Automated error events capture recent error toasts
-            so staff do not have to file a full report for every failed action.
-            Notifications go to staff with settings.admin.
-            Old reports purge per{" "}
-            <code className="font-mono text-[10px]">
-              RIVERSIDE_BUG_REPORT_RETENTION_DAYS
-            </code>{" "}
-            (default 365 days, min 30).
+            Staff reports include what happened, a screenshot when available,
+            and support details for follow-up. Automated error reports are saved
+            here so staff do not have to file a report for every failed action.
           </p>
         </div>
         <button
@@ -673,7 +666,7 @@ export default function BugReportsSettingsPanel({
                   ) : null}
                   {detail.client_meta?.tauri_shell_version != null ? (
                     <span className="ui-pill bg-app-surface-2 text-[9px] font-mono text-app-text">
-                      Tauri {String(detail.client_meta.tauri_shell_version)}
+                      Desktop app {String(detail.client_meta.tauri_shell_version)}
                     </span>
                   ) : null}
                   {detail.client_meta?.likely_ios_family === true ? (
@@ -727,7 +720,7 @@ export default function BugReportsSettingsPanel({
                   }
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
-                  Server log (.txt)
+                  Support log (.txt)
                 </button>
                 <button
                   type="button"
@@ -740,13 +733,13 @@ export default function BugReportsSettingsPanel({
                   }
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
-                  Client console (.txt)
+                  Browser log (.txt)
                 </button>
               </div>
 
               <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4 space-y-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Triage (saved to database)
+                  Follow-up notes
                 </p>
                 <label className="block">
                   <span className="text-[10px] font-semibold text-app-text-muted">
@@ -833,35 +826,37 @@ export default function BugReportsSettingsPanel({
                   {detail.steps_context}
                 </p>
               </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Client meta
-                </p>
-                <pre className="mt-1 max-h-40 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text">
-                  {JSON.stringify(detail.client_meta, null, 2)}
-                </pre>
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  API server log (snapshot at submit)
-                </p>
-                <pre className="mt-1 max-h-56 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
-                  {detail.server_log_snapshot || "—"}
-                </pre>
-                <p className="mt-1 text-[10px] text-app-text-muted">
-                  Bounded in-memory <code className="font-mono">tracing</code>{" "}
-                  buffer on the process that handled submit — not the full
-                  terminal session or other replicas.
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Browser console / error buffer
-                </p>
-                <pre className="mt-1 max-h-56 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
-                  {detail.client_console_log || "—"}
-                </pre>
-              </div>
+              <details className="rounded-xl border border-app-border bg-app-surface-2/50 p-3">
+                <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Advanced details
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Support data
+                    </p>
+                    <pre className="mt-1 max-h-40 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text">
+                      {JSON.stringify(detail.client_meta, null, 2)}
+                    </pre>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Support log at submit
+                    </p>
+                    <pre className="mt-1 max-h-56 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
+                      {detail.server_log_snapshot || "—"}
+                    </pre>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Browser log
+                    </p>
+                    <pre className="mt-1 max-h-56 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
+                      {detail.client_console_log || "—"}
+                    </pre>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
         </div>,
@@ -949,40 +944,49 @@ export default function BugReportsSettingsPanel({
                 </div>
               </div>
               <div>
-                {errorEventCapture ? (
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Error event context
-                    </p>
-                    <pre className="mt-1 max-h-48 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text">
-                      {JSON.stringify(errorEventCapture, null, 2)}
-                    </pre>
+                <details className="rounded-xl border border-app-border bg-app-surface-2/50 p-3">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Advanced details
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    {errorEventCapture ? (
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Error context
+                        </p>
+                        <pre className="mt-1 max-h-48 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text">
+                          {JSON.stringify(errorEventCapture, null, 2)}
+                        </pre>
+                      </div>
+                    ) : null}
+                    {errorEventDiagTail ? (
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Browser details
+                        </p>
+                        <pre className="mt-1 max-h-52 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
+                          {errorEventDiagTail}
+                        </pre>
+                      </div>
+                    ) : null}
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Support data
+                      </p>
+                      <pre className="mt-1 max-h-52 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text">
+                        {JSON.stringify(eventDetail.client_meta, null, 2)}
+                      </pre>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Support log near event
+                      </p>
+                      <pre className="mt-1 max-h-56 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
+                        {eventDetail.server_log_snapshot || "—"}
+                      </pre>
+                    </div>
                   </div>
-                ) : null}
-                {errorEventDiagTail ? (
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Recent client diagnostics
-                    </p>
-                    <pre className="mt-1 max-h-52 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
-                      {errorEventDiagTail}
-                    </pre>
-                  </div>
-                ) : null}
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Client meta
-                </p>
-                <pre className="mt-1 max-h-52 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text">
-                  {JSON.stringify(eventDetail.client_meta, null, 2)}
-                </pre>
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  API server log near event
-                </p>
-                <pre className="mt-1 max-h-56 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
-                  {eventDetail.server_log_snapshot || "—"}
-                </pre>
+                </details>
               </div>
               <div className="flex flex-wrap gap-2 border-t border-app-border pt-2">
                 {eventDetail.status === "pending" ? (

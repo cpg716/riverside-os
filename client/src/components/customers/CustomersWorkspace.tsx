@@ -243,7 +243,7 @@ export default function CustomersWorkspace({
         }[];
       };
       if (!res.ok) {
-        toast(body.error ?? `Import failed (${res.status})`, "error");
+        toast("Import failed. Check the file and try again.", "error");
         return;
       }
       const issueList = body.issues ?? [];
@@ -642,8 +642,8 @@ export default function CustomersWorkspace({
       body: JSON.stringify({ customer_ids: ids, is_vip: isVip }),
     });
     if (!res.ok) {
-      const err = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(err.error ?? "VIP update failed", "error");
+      await res.json().catch(() => ({}));
+      toast("VIP update failed. Try again.", "error");
       return;
     }
     toast(
@@ -757,9 +757,9 @@ export default function CustomersWorkspace({
           slave_customer_id: slave,
         }),
       });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        toast(body.error ?? "Merge failed", "error");
+        await res.json().catch(() => ({}));
+        toast("Merge failed. Review both customers and try again.", "error");
         return;
       }
       toast("Customers merged", "success");
@@ -930,7 +930,7 @@ export default function CustomersWorkspace({
       return (
         <div className="ui-page p-6">
           <p className="text-sm text-app-text-muted">
-            You don&apos;t have access to the duplicate review queue.
+            Manager access is needed to review possible duplicates.
           </p>
         </div>
       );
@@ -1154,7 +1154,7 @@ export default function CustomersWorkspace({
                 <div className="h-4 w-[1px] bg-app-border/40 mx-2" />
 
                 <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-80">
-                  Lifecycle
+                  Status
                   <select
                     value={lifecycleFilter}
                     onChange={(e) =>
@@ -1910,7 +1910,7 @@ export default function CustomersWorkspace({
         }}
         onConfirm={() => void runLightspeedImport()}
         title="Import Lightspeed customers"
-        message={`Upload will upsert ${pendingImportRows?.length ?? 0} rows on customer_code (Lightspeed export). Existing Riverside codes are not overwritten by this file unless the code matches. Rows with missing codes or email conflicts are skipped or adjusted; a CSV of issues downloads automatically when present.`}
+        message={`Import ${pendingImportRows?.length ?? 0} customer rows. Existing Riverside customers are matched by customer code; rows with missing codes or email conflicts are skipped or adjusted, and an issues file downloads when needed.`}
         confirmLabel="Run import"
         variant="info"
         loading={importLoading}
@@ -2362,8 +2362,8 @@ export function AddCustomerDrawer({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(b.error ?? "Failed to create customer");
+        await res.json().catch(() => ({}));
+        throw new Error("Could not create customer. Check the required fields and try again.");
       }
       const created = (await res.json()) as {
         id: string;
@@ -2375,7 +2375,7 @@ export function AddCustomerDrawer({
       onCreatedCustomer?.(created as Customer);
       if (form.is_vip) {
         if (!hasPermission("customers.hub_edit")) {
-          toast("VIP flag not saved: you need permission to edit customer profiles.", "error");
+          toast("VIP note not saved. Manager access is needed to edit customer profiles.", "error");
         } else {
           const vipRes = await fetch(`${baseUrl}/api/customers/${created.id}`, {
             method: "PATCH",
@@ -2383,16 +2383,14 @@ export function AddCustomerDrawer({
             body: JSON.stringify({ is_vip: true }),
           });
           if (!vipRes.ok) {
-            const vb = (await vipRes.json().catch(() => ({}))) as {
-              error?: string;
-            };
-            toast(vb.error ?? "Could not set VIP flag", "error");
+            await vipRes.json().catch(() => ({}));
+            toast("Could not save VIP note.", "error");
           }
         }
       }
       if (form.notes.trim()) {
         if (!hasPermission("customers.timeline")) {
-          toast("Note not saved: you need permission to add customer notes.", "error");
+          toast("Note not saved. Manager access is needed to add customer notes.", "error");
         } else {
           const noteRes = await fetch(
             `${baseUrl}/api/customers/${created.id}/notes`,
@@ -2406,17 +2404,16 @@ export function AddCustomerDrawer({
             },
           );
           if (!noteRes.ok) {
-            const nb = (await noteRes.json().catch(() => ({}))) as {
-              error?: string;
-            };
-            toast(nb.error ?? "Could not save note", "error");
+            await noteRes.json().catch(() => ({}));
+            toast("Could not save note.", "error");
           }
         }
       }
       resetForm();
       onSaved();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to create customer");
+      console.error("Could not create customer", e);
+      setErr("Could not create customer. Check the required fields and try again.");
     } finally {
       setBusy(false);
     }

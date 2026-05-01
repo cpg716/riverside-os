@@ -145,7 +145,7 @@ export const REPORTS_CATALOG: ReportDef[] = [
     id: "margin_pivot",
     title: "Margin & Cost Breakdown",
     description:
-      "Admin only. Gross margin and cost-loaded performance by brand, category, salesperson, customer, or day.",
+      "Admin only. Margin, cost, and sales performance by brand, category, salesperson, customer, or day.",
     category: "Finance",
     keywords: ["margin", "cost", "profit", "cogs", "admin", "owner", "gross margin"],
     questions: ["Where are we making the best margin?", "Which brands have weak margin?", "How much profit did we make?"],
@@ -351,7 +351,7 @@ export const REPORTS_CATALOG: ReportDef[] = [
     title: "Saved Wedding Report Views",
     description: "Saved wedding filter bundles for repeat wedding report review.",
     category: "Weddings",
-    keywords: ["wedding", "saved views", "filters", "metabase", "repeat report", "party"],
+    keywords: ["wedding", "saved views", "filters", "advanced reports", "repeat report", "party"],
     questions: ["Where are my saved wedding views?", "Can I reopen a wedding report filter?", "What wedding views did I save?"],
     audience: "Staff",
     sensitivity: "Staff-safe",
@@ -365,9 +365,9 @@ export const REPORTS_CATALOG: ReportDef[] = [
   {
     id: "merchant_activity",
     title: "Card Processing Summary",
-    description: "Daily card volume, processing fees, and net settlement values for bank reconciliation.",
+    description: "Daily card volume, processing fees, and net settlement values for bank review.",
     category: "Finance",
-    keywords: ["merchant", "stripe", "card", "fees", "net", "settlement", "bank", "reconciliation"],
+    keywords: ["merchant", "stripe", "card", "fees", "net", "settlement", "bank", "review"],
     questions: ["What were card processing fees?", "What card volume should settle?", "What net amount should match the bank?"],
     audience: "Owner",
     sensitivity: "Manager",
@@ -455,7 +455,7 @@ export const REPORTS_CATALOG: ReportDef[] = [
     id: "exception_risk",
     title: "Exception & Risk Report",
     description:
-      "Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open sessions, and unclosed tasks.",
+      "Negative stock, stale orders, overdue alterations, high discounts, failed payments, open registers, and unfinished tasks.",
     category: "Operations",
     keywords: ["exception", "risk", "negative stock", "stale orders", "overdue alterations", "high discounts", "failed payments", "open register", "tasks"],
     questions: ["What needs manager attention?", "What operational risks are open?", "Are any registers or tasks still unclosed?"],

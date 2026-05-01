@@ -319,7 +319,7 @@ export default function ReportsWorkspace({
             onClick={onOpenMetabaseExplore}
             className="ui-btn-secondary inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wide"
           >
-            Open Insights (Metabase)
+            Open Advanced Reports
             <ArrowRight className="h-4 w-4" aria-hidden />
           </button>
         </div>
@@ -638,7 +638,7 @@ export default function ReportsWorkspace({
                   "truncated" in payload &&
                   (payload as { truncated: boolean }).truncated ? (
                   <p className="text-xs font-bold text-app-warning">
-                    Results truncated at 200 rows — narrow the range or use Metabase for full exports.
+                    Showing the first 200 rows. Narrow the date range or use Advanced Reports for full exports.
                   </p>
                 ) : null
                 : null}

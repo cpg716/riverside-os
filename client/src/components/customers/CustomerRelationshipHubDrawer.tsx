@@ -622,8 +622,8 @@ export function CustomerRelationshipHubDrawer({
           couple_linked_at: null,
         });
       }
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Load failed");
+    } catch {
+      setErr("Could not load this customer profile.");
       setHub(null);
     } finally {
       setLoading(false);
@@ -916,9 +916,7 @@ export function CustomerRelationshipHubDrawer({
     if (!canHubView) {
       setLoading(false);
       setHub(null);
-      setErr(
-        "You do not have permission to open the customer hub (customers.hub_view).",
-      );
+      setErr("Manager access is needed to open this customer profile.");
       setTimeline([]);
       setTimelineLoading(false);
       setTab("profile");
@@ -1148,9 +1146,9 @@ export function CustomerRelationshipHubDrawer({
           body: JSON.stringify({ subject: sub, html_body: html }),
         },
       );
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        toast(b.error ?? "Could not send email via Podium", "error");
+        await res.json().catch(() => ({}));
+        toast("Could not send email. Try again.", "error");
         return;
       }
       toast("Email sent via Podium", "success");
@@ -1179,9 +1177,9 @@ export function CustomerRelationshipHubDrawer({
           body: JSON.stringify({ channel: "sms", body: t }),
         },
       );
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        toast(b.error ?? "Could not send SMS", "error");
+        await res.json().catch(() => ({}));
+        toast("Could not send SMS. Try again.", "error");
         return;
       }
       toast("SMS sent via Podium", "success");
@@ -1202,8 +1200,8 @@ export function CustomerRelationshipHubDrawer({
       body: JSON.stringify(patch),
     });
     if (!res.ok) {
-      const b = await res.json().catch(() => ({}));
-      toast((b as { error?: string }).error ?? "Update failed", "error");
+      await res.json().catch(() => ({}));
+      toast("Could not save customer changes. Try again.", "error");
       return false;
     }
     await loadHub();
@@ -1256,8 +1254,8 @@ export function CustomerRelationshipHubDrawer({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        toast((b as { error?: string }).error ?? "Update failed", "error");
+        await res.json().catch(() => ({}));
+        toast("Could not save profile details. Try again.", "error");
         return;
       }
       const row = (await res.json()) as {
@@ -1334,8 +1332,8 @@ export function CustomerRelationshipHubDrawer({
         },
       );
       if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        toast((b as { error?: string }).error ?? "Linking failed", "error");
+        await res.json().catch(() => ({}));
+        toast("Could not link these customer profiles.", "error");
         return;
       }
       toast("Joint couple account created", "success");
@@ -1366,8 +1364,8 @@ export function CustomerRelationshipHubDrawer({
         },
       );
       if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        toast((b as { error?: string }).error ?? "Unlinking failed", "error");
+        await res.json().catch(() => ({}));
+        toast("Could not unlink these customer profiles.", "error");
         return;
       }
       toast("Accounts unlinked", "success");
@@ -1397,11 +1395,8 @@ export function CustomerRelationshipHubDrawer({
         },
       );
       if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        toast(
-          (b as { error?: string }).error ?? "Creation and linking failed",
-          "error",
-        );
+        await res.json().catch(() => ({}));
+        toast("Could not create and link this partner profile.", "error");
         return;
       }
       toast("New partner created and linked", "success");
@@ -1434,13 +1429,13 @@ export function CustomerRelationshipHubDrawer({
         },
       );
       if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        toast((b as { error?: string }).error ?? "Enqueue failed", "error");
+        await res.json().catch(() => ({}));
+        toast("Could not add possible duplicate.", "error");
         return;
       }
-      toast("Duplicates enqueued for staff review", "success");
+      toast("Possible duplicate added for review.", "success");
     } catch {
-      toast("Error enqueuing duplicates", "error");
+      toast("Could not add possible duplicate.", "error");
     } finally {
       setDuplicateEnqueueBusy(false);
     }
@@ -1461,11 +1456,8 @@ export function CustomerRelationshipHubDrawer({
         }),
       });
       if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        toast(
-          (b as { error?: string }).error ?? "Could not save note",
-          "error",
-        );
+        await res.json().catch(() => ({}));
+        toast("Could not save note.", "error");
         return;
       }
       toast("Note added to timeline", "success");
@@ -1499,8 +1491,8 @@ export function CustomerRelationshipHubDrawer({
         },
       );
       if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        toast((b as { error?: string }).error ?? "Save failed", "error");
+        await res.json().catch(() => ({}));
+        toast("Could not save measurements. Try again.", "error");
         return;
       }
       toast("Measurements saved", "success");
@@ -1608,8 +1600,8 @@ export function CustomerRelationshipHubDrawer({
             </h3>
             <p className="mb-3 text-xs text-app-text-muted">
               {tab === "transactions"
-                ? "Interactions and purchases for this customer, including imported Counterpoint history when available."
-                : "Open and recent special orders, custom work, and wedding fulfillment for this customer."}{" "}
+                ? "Customer notes, visits, and past purchases when available."
+                : "Open and recent special orders, custom work, and wedding items for this customer."}{" "}
               Showing {customer.first_name} {customer.last_name} ·{" "}
               {customer.customer_code}
             </p>
@@ -1656,7 +1648,7 @@ export function CustomerRelationshipHubDrawer({
               </div>
               {!canTimeline ? (
                 <p className="text-sm text-app-text-muted">
-                  You need permission to view this customer&apos;s notes and interactions.
+                  Manager access is needed to view this customer&apos;s notes and visits.
                 </p>
               ) : timelineLoading ? (
                 <p className="text-sm text-app-text-muted">
@@ -2778,7 +2770,7 @@ export function CustomerRelationshipHubDrawer({
                 </button>
                 {!canHubEdit ? (
                   <p className="mt-2 text-xs text-app-text-muted">
-                    You need permission to send from this customer profile.
+                    Manager access is needed to send from this customer profile.
                   </p>
                 ) : null}
               </section>
@@ -3479,12 +3471,11 @@ export function CustomerRelationshipHubDrawer({
                   data-testid="crm-hub-duplicate-review-enqueue"
                 >
                   <h3 className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-accent">
-                    Duplicate review queue
+                    Possible duplicates
                   </h3>
                   <p className="mb-3 text-xs text-app-text">
-                    Search for the twin record to mark them as a potential
-                    duplicate pair for management review (merge stays a separate
-                    step).
+                    Search for the matching customer so a manager can review the
+                    two records before any merge.
                   </p>
                   <div className="mt-2">
                     <CustomerSearchInput
@@ -3507,7 +3498,7 @@ export function CustomerRelationshipHubDrawer({
                 </button>
               ) : (
                 <p className="text-xs text-app-text-muted">
-                  You need permission to edit this customer profile.
+                  Manager access is needed to edit this customer profile.
                 </p>
               )}
             </div>

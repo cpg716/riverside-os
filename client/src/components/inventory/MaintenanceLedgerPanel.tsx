@@ -203,16 +203,16 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({
                   Timeline
                 </th>
                 <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
-                  Canonical Product
+                  Main Product
                 </th>
                 <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
                   Quantity
                 </th>
                 <th className="px-8 border-b border-app-border/40 text-[10px) font-black uppercase tracking-[0.3em] text-app-text-muted">
-                  Financial Integrity
+                  Value Check
                 </th>
                 <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
-                  Fulfillment Attribution
+                  Pickup Link
                 </th>
               </tr>
             </thead>

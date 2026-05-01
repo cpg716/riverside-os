@@ -125,7 +125,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
 
     await expect(page.getByText("Fulfillment Follow-Up")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(/Layaways stay separate\./i)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Open Fulfillment" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open Orders" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Transaction History" })).toBeVisible();
 
     const orderRow = page.locator("tr", { hasText: order.displayId }).first();
@@ -140,7 +140,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
       "The Transaction Record holds payment, receipt, refund, and balance details.",
     );
     await expect(drawer).toContainText(
-      "Special, Custom, and Wedding lines are fulfillment work; Layaways stay in Layaways.",
+      "Special, Custom, and Wedding lines stay in order pickup work; Layaways stay in Layaways.",
     );
     await expect(drawer).toContainText("Pickup Work");
     await expect(drawer).toContainText("Balance Due Before Release");
