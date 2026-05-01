@@ -481,6 +481,7 @@ pub struct InventoryControlRow {
     pub barcode: Option<String>,
     pub product_name: String,
     pub brand: Option<String>,
+    pub catalog_handle: Option<String>,
     pub variation_label: Option<String>,
     pub category_id: Option<Uuid>,
     pub category_name: Option<String>,
@@ -504,6 +505,7 @@ pub struct InventoryControlRow {
     pub tax_category_override: Option<crate::logic::tax::TaxCategory>,
     pub web_published: bool,
     pub web_price_override: Option<Decimal>,
+    pub web_gallery_order: i32,
     pub available_stock: i32,
     /// Parent-product gross units sold in the trailing search window (all variants of the product); text search only.
     #[serde(skip_serializing)]
@@ -1163,6 +1165,7 @@ pub async fn list_control_board(
             pv.barcode,
             p.name AS product_name,
             p.brand,
+            p.catalog_handle,
             pv.variation_label,
             c.id AS category_id,
             c.name AS category_name,
@@ -1176,6 +1179,7 @@ pub async fn list_control_board(
             pv.shelf_labeled_at,
             COALESCE(pv.web_published, false) AS web_published,
             pv.web_price_override,
+            pv.web_gallery_order,
             p.primary_vendor_id,
             pvendor.name AS primary_vendor_name,
             lv.id AS last_vendor_id,

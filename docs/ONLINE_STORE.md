@@ -18,15 +18,16 @@
 | **Public API** | **`/api/store/*`** — catalog, published pages (HTML sanitized server-side with **ammonia**), coupon preview, tax preview, guest **cart line pricing**, Shippo rates — **`server/src/api/store.rs`**. |
 | **Admin API** | **`/api/admin/store/*`** — pages and coupons — same module; requires **`online_store.manage`** or **`settings.admin`**. |
 | **Inventory** | Web publish flags and bulk actions — see plan §1 and **`InventoryControlBoard`**. |
-| **Back Office** | **Settings → Online store** — **`OnlineStoreSettingsPanel.tsx`**: pages (raw HTML + **GrapesJS Studio SDK** visual editor), coupons. |
+| **Back Office** | **Online Store** main workspace: dashboard, storefront pages (raw HTML + **GrapesJS Studio SDK** visual editor), web product merchandising, promotions/coupons, and operational links. **Settings → Online Store** is configuration/status only. |
 
 ---
 
-## Staff: Settings → Online store
+## Staff: Online Store workspace
 
-- **Pages:** Create slug + title; **Edit page** loads **`published_html`** and **`project_json`**.
+- **Storefront pages:** Create slug + title; **Edit page** loads **`published_html`** and **`project_json`**.
   - **Raw HTML:** edit textarea → **Save draft HTML** → **Publish** when ready (public site reads sanitized HTML for **`published = true`** rows).
   - **Visual (Studio):** lazy-loaded **`@grapesjs/studio-sdk`** (**`StorePageStudioEditor.tsx`**). Project data autosaves to **`project_json`** via **`PATCH`**. Image uploads use **`POST /api/admin/store/assets`** (base64 JSON) and resolve to **`GET /api/store/media/{id}`** URLs embedded in the page. Use **Export Studio HTML to raw draft** to generate HTML into the raw editor, then **Save draft HTML** if you want that snapshot in **`published_html`**.
+- **Products:** **Online Store → Products** is the web merchandising surface over Inventory truth. Staff can review live/draft/blocked products, edit storefront slugs, toggle web publish status, set web-only price overrides, set gallery sort order, open public PDP links, and jump to the full Product Hub. Catalog/PDP/cart remain ROS-native; GrapesJS is not used for product or catalog pages.
 - **Coupons:** create, list, activate/deactivate (**`PATCH`**).
 - **Production Studio:** set **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** in the client env for non-localhost deployments (SDK license rules: [GrapesJS Studio licenses](https://app.grapesjs.com/docs-sdk/overview/licenses)). Local dev may use the SDK’s documented dev key pattern.
 

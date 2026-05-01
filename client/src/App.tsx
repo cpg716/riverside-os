@@ -1490,6 +1490,7 @@ function AppShell({
                 procurementDeepLinkPoId={procurementDeepLinkPoId}
                 onProcurementDeepLinkConsumed={() => setProcurementDeepLinkPoId(null)}
                 inventoryProductHubProductId={inventoryProductHubProductId}
+                setInventoryProductHubProductId={setInventoryProductHubProductId}
                 onInventoryProductHubConsumed={() => setInventoryProductHubProductId(null)}
                 qboDeepLinkSyncLogId={qboDeepLinkSyncLogId}
                 onQboDeepLinkConsumed={() => setQboDeepLinkSyncLogId(null)}
@@ -1705,6 +1706,7 @@ type AppMainColumnProps = {
   procurementDeepLinkPoId: string | null;
   onProcurementDeepLinkConsumed: () => void;
   inventoryProductHubProductId: string | null;
+  setInventoryProductHubProductId: (id: string | null) => void;
   onInventoryProductHubConsumed: () => void;
   qboDeepLinkSyncLogId: string | null;
   onQboDeepLinkConsumed: () => void;
@@ -1752,6 +1754,7 @@ function AppMainColumn({
   procurementDeepLinkPoId,
   onProcurementDeepLinkConsumed,
   inventoryProductHubProductId,
+  setInventoryProductHubProductId,
   onInventoryProductHubConsumed,
   qboDeepLinkSyncLogId,
   onQboDeepLinkConsumed,
@@ -1925,6 +1928,11 @@ function AppMainColumn({
                         if (section) {
                           setActiveSubSection(section);
                         }
+                      }}
+                      onOpenInventoryProduct={(productId) => {
+                        setInventoryProductHubProductId(productId);
+                        setActiveTab("inventory");
+                        setActiveSubSection("list");
                       }}
                     />
                   );

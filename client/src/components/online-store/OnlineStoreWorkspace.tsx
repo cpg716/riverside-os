@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   ExternalLink,
-  Package,
   Settings,
   ShoppingBag,
   Truck,
@@ -11,10 +10,11 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { getBaseUrl } from "../../lib/apiConfig";
-import { GRAPESJS_STUDIO_LICENSE_KEY } from "../../lib/grapesjsStudioLicense";
+import { apiUrl } from "../../lib/apiUrl";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import type { SidebarTabId } from "../layout/sidebarSections";
 import OnlineStoreSettingsPanel from "../settings/OnlineStoreSettingsPanel";
+import OnlineStoreProductsPanel from "./OnlineStoreProductsPanel";
 
 type OnlineStoreSection =
   | "dashboard"
@@ -29,6 +29,7 @@ type OnlineStoreSection =
 interface OnlineStoreWorkspaceProps {
   activeSection?: string;
   onNavigateToTab: (tab: SidebarTabId, section?: string) => void;
+  onOpenInventoryProduct: (productId: string) => void;
 }
 
 interface StorePageRow {
@@ -47,6 +48,19 @@ interface StoreCouponRow {
   is_active: boolean;
   uses_count: number;
   max_uses: number | null;
+}
+
+interface StoreMerchRow {
+  product_id: string;
+  catalog_handle?: string | null;
+  stock_on_hand: number;
+  available_stock?: number;
+  web_published?: boolean;
+  web_price_override?: string | null;
+}
+
+interface StoreMerchResponse {
+  rows?: StoreMerchRow[];
 }
 
 const sections: {
@@ -169,6 +183,7 @@ function RoutePanel({
 export default function OnlineStoreWorkspace({
   activeSection,
   onNavigateToTab,
+  onOpenInventoryProduct,
 }: OnlineStoreWorkspaceProps) {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
@@ -178,6 +193,7 @@ export default function OnlineStoreWorkspace({
   const section = resolveSection(activeSection);
   const [pages, setPages] = useState<StorePageRow[]>([]);
   const [coupons, setCoupons] = useState<StoreCouponRow[]>([]);
+  const [merchRows, setMerchRows] = useState<StoreMerchRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const headers = useCallback(
@@ -193,11 +209,14 @@ export default function OnlineStoreWorkspace({
     if (!canManage) return;
     setLoadError(null);
     try {
-      const [pagesRes, couponsRes] = await Promise.all([
+      const [pagesRes, couponsRes, merchRes] = await Promise.all([
         fetch(`${baseUrl}/api/admin/store/pages`, { headers: headers() }),
         fetch(`${baseUrl}/api/admin/store/coupons`, { headers: headers() }),
+        fetch(apiUrl(baseUrl, "/api/inventory/control-board?limit=5000"), {
+          headers: headers(),
+        }),
       ]);
-      if (!pagesRes.ok || !couponsRes.ok) {
+      if (!pagesRes.ok || !couponsRes.ok || !merchRes.ok) {
         setLoadError("Could not load online store status.");
         return;
       }
@@ -205,10 +224,12 @@ export default function OnlineStoreWorkspace({
       const couponsJson = (await couponsRes.json()) as {
         coupons?: StoreCouponRow[];
       };
+      const merchJson = (await merchRes.json()) as StoreMerchResponse;
       setPages(Array.isArray(pagesJson.pages) ? pagesJson.pages : []);
       setCoupons(
         Array.isArray(couponsJson.coupons) ? couponsJson.coupons : [],
       );
+      setMerchRows(Array.isArray(merchJson.rows) ? merchJson.rows : []);
     } catch {
       setLoadError("Could not load online store status.");
     }
@@ -220,6 +241,31 @@ export default function OnlineStoreWorkspace({
 
   const publishedPages = pages.filter((page) => page.published).length;
   const activeCoupons = coupons.filter((coupon) => coupon.is_active).length;
+  const merchProductIds = new Set(merchRows.map((row) => row.product_id));
+  const onWebProductIds = new Set(
+    merchRows
+      .filter((row) => row.web_published)
+      .map((row) => row.product_id),
+  );
+  const needsSlugProductIds = new Set(
+    merchRows
+      .filter((row) => row.web_published && !(row.catalog_handle ?? "").trim())
+      .map((row) => row.product_id),
+  );
+  const zeroStockProductIds = new Set(
+    merchRows
+      .filter(
+        (row) =>
+          row.web_published &&
+          (typeof row.available_stock === "number"
+            ? row.available_stock
+            : row.stock_on_hand) <= 0,
+      )
+      .map((row) => row.product_id),
+  );
+  const webPriceOverrideCount = merchRows.filter((row) =>
+    (row.web_price_override ?? "").trim(),
+  ).length;
 
   const dashboardCards = useMemo(
     () => [
@@ -234,12 +280,24 @@ export default function OnlineStoreWorkspace({
         detail: "Coupon controls moved from Settings into Promotions.",
       },
       {
-        label: "Studio license",
-        value:
-          GRAPESJS_STUDIO_LICENSE_KEY === "DEV_LICENSE_KEY"
-            ? "Dev key"
-            : "Configured",
-        detail: "Studio edits marketing pages only; catalog remains ROS-native.",
+        label: "Products on web",
+        value: `${onWebProductIds.size}/${merchProductIds.size}`,
+        detail: "Product merchandising reads from inventory truth.",
+      },
+      {
+        label: "Needs web setup",
+        value: `${needsSlugProductIds.size}`,
+        detail: "Published products missing a storefront slug.",
+      },
+      {
+        label: "Zero-stock web",
+        value: `${zeroStockProductIds.size}`,
+        detail: "Published products with no available stock.",
+      },
+      {
+        label: "Web price overrides",
+        value: `${webPriceOverrideCount}`,
+        detail: "Variants using web-only pricing.",
       },
       {
         label: "Paid checkout",
@@ -247,7 +305,17 @@ export default function OnlineStoreWorkspace({
         detail: "Phase 1 keeps checkout implementation out of scope.",
       },
     ],
-    [activeCoupons, coupons.length, pages.length, publishedPages],
+    [
+      activeCoupons,
+      coupons.length,
+      merchProductIds.size,
+      needsSlugProductIds.size,
+      onWebProductIds.size,
+      pages.length,
+      publishedPages,
+      webPriceOverrideCount,
+      zeroStockProductIds.size,
+    ],
   );
 
   if (!canManage) {
@@ -378,12 +446,10 @@ export default function OnlineStoreWorkspace({
       ) : null}
 
       {section === "products" ? (
-        <RoutePanel
-          icon={Package}
-          title="Products stay tied to inventory truth"
-          body="Phase 1 does not duplicate catalog management. Use the Inventory workspace for web publish flags, web pricing, gallery order, and product data until Online Store gets a dedicated merchandising surface."
-          buttonLabel="Open inventory"
-          onClick={() => onNavigateToTab("inventory", "list")}
+        <OnlineStoreProductsPanel
+          baseUrl={baseUrl}
+          onOpenInventoryProduct={onOpenInventoryProduct}
+          onRefreshSummary={loadOverview}
         />
       ) : null}
 
