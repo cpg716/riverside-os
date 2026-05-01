@@ -99,6 +99,14 @@ struct AidocsCoverageBody {
     json: bool,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct CaptureHelpScreenshotsBody {
+    base_url: Option<String>,
+    api_base: Option<String>,
+    target: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct AdminOpsStatusOut {
     meilisearch_configured: bool,
@@ -106,6 +114,7 @@ struct AdminOpsStatusOut {
     node_available: bool,
     uv_available: bool,
     script_exists: bool,
+    screenshot_script_exists: bool,
     aidocs_config_exists: bool,
     help_docs_dir_exists: bool,
 }
@@ -1421,6 +1430,13 @@ fn help_manifest_script_path() -> PathBuf {
         .join("generate-help-manifest.mjs")
 }
 
+fn help_screenshot_script_path() -> PathBuf {
+    repo_root()
+        .join("client")
+        .join("scripts")
+        .join("capture-help-screenshots.mjs")
+}
+
 async fn rosie_intelligence_status(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1676,6 +1692,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/ops/aidocs-coverage",
             post(admin_ops_aidocs_coverage),
+        )
+        .route(
+            "/admin/ops/capture-screenshots",
+            post(admin_ops_capture_screenshots),
         )
         .route("/admin/ops/reindex-search", post(admin_ops_reindex_search))
 }
@@ -2603,6 +2623,7 @@ async fn admin_ops_status(
     };
 
     let script_path = help_manifest_script_path();
+    let screenshot_script = help_screenshot_script_path();
     let docs_dir = repo_root()
         .join("client")
         .join("src")
@@ -2616,6 +2637,7 @@ async fn admin_ops_status(
         node_available,
         uv_available,
         script_exists: script_path.exists(),
+        screenshot_script_exists: screenshot_script.exists(),
         aidocs_config_exists: aidocs_config.exists(),
         help_docs_dir_exists: docs_dir.exists(),
     }))
@@ -2713,6 +2735,89 @@ async fn admin_ops_aidocs_coverage(
     if body.include_all {
         cmd.arg("--all");
     }
+    cmd.current_dir(repo_root());
+
+    let out = run_command_capture(cmd).await?;
+    Ok(Json(serde_json::json!({
+        "status": if out.ok { "ok" } else { "error" },
+        "result": out
+    })))
+}
+
+async fn admin_ops_capture_screenshots(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CaptureHelpScreenshotsBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let _staff = middleware::require_staff_with_permission(&state, &headers, HELP_MANAGE)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    let script = help_screenshot_script_path();
+    if !script.exists() {
+        return Err((
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("screenshot script not found: {}", script.display())
+            })),
+        )
+            .into_response());
+    }
+
+    let base_url = match body.base_url.as_deref().map(str::trim) {
+        Some(value) if value.is_empty() => None,
+        Some(value) if value.starts_with("http://") || value.starts_with("https://") => {
+            Some(value.trim_end_matches('/').to_string())
+        }
+        Some(_) => {
+            return Err((
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "base_url must be an HTTP or HTTPS URL"
+                })),
+            )
+                .into_response());
+        }
+        None => None,
+    }
+    .or_else(|| std::env::var("RIVERSIDE_HELP_SCREENSHOT_BASE_URL").ok())
+    .unwrap_or_else(|| "http://127.0.0.1:3000".to_string());
+
+    let api_base = match body.api_base.as_deref().map(str::trim) {
+        Some(value) if value.is_empty() => None,
+        Some(value) if value.starts_with("http://") || value.starts_with("https://") => {
+            Some(value.trim_end_matches('/').to_string())
+        }
+        Some(_) => {
+            return Err((
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "api_base must be an HTTP or HTTPS URL"
+                })),
+            )
+                .into_response());
+        }
+        None => None,
+    }
+    .or_else(|| std::env::var("RIVERSIDE_HELP_SCREENSHOT_API_BASE").ok())
+    .unwrap_or_else(|| base_url.clone());
+
+    let mut cmd = Command::new("node");
+    cmd.arg(script.as_os_str())
+        .arg("--base-url")
+        .arg(base_url)
+        .arg("--api-base")
+        .arg(api_base);
+
+    if let Some(target) = body
+        .target
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        cmd.arg("--target").arg(target);
+    }
+
     cmd.current_dir(repo_root());
 
     let out = run_command_capture(cmd).await?;

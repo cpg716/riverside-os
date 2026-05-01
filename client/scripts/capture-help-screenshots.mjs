@@ -280,7 +280,7 @@ async function waitForOverlayBackdropsHidden(page, timeout = 15000) {
 
 async function openPosRegisterTabIfNeeded(page) {
   const productSearch = page.getByTestId("pos-product-search");
-  const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
+  const cashierDialog = page.getByTestId("pos-sale-cashier-overlay");
   if (
     (await productSearch.isVisible().catch(() => false)) ||
     (await cashierDialog.isVisible().catch(() => false))
@@ -326,20 +326,103 @@ async function ensurePosRegisterSessionOpen(page, { staffCode }) {
   await waitForOverlayBackdropsHidden(page);
 }
 
+async function waitForRegisterCartMounted(page) {
+  const cartShell = page.getByTestId("pos-register-cart-shell");
+  await cartShell.waitFor({ state: "visible", timeout: 25000 });
+
+  const deadline = Date.now() + 25000;
+  while (Date.now() < deadline) {
+    if ((await cartShell.getAttribute("data-sale-hydrated").catch(() => null)) === "true") {
+      return;
+    }
+    await page.waitForTimeout(250);
+  }
+  throw new Error("POS register cart did not finish hydrating");
+}
+
+async function waitForRegisterReady(page) {
+  const cartShell = page.getByTestId("pos-register-cart-shell");
+  const deadline = Date.now() + 25000;
+  while (Date.now() < deadline) {
+    if (
+      (await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true" &&
+      (await page.getByTestId("pos-product-search").isVisible().catch(() => false)) &&
+      (await page.getByTestId("pos-action-gift-card").isVisible().catch(() => false))
+    ) {
+      return;
+    }
+    await page.waitForTimeout(250);
+  }
+  throw new Error("POS register did not become ready after sale cashier sign-in");
+}
+
+async function waitForOverlayAttribute(page, locator, name, value, timeout, message) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if ((await locator.getAttribute(name).catch(() => null)) === value) {
+      return;
+    }
+    await page.waitForTimeout(250);
+  }
+  throw new Error(message);
+}
+
+async function selectFirstSaleStaffMember(cashierDialog) {
+  const page = cashierDialog.page();
+  const preferredName = process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
+  const selectorButton = cashierDialog.getByTestId("staff-selector-button");
+
+  await selectorButton.waitFor({ state: "visible", timeout: 15000 });
+  await selectorButton.scrollIntoViewIfNeeded().catch(() => {});
+
+  const currentLabel = ((await selectorButton.textContent().catch(() => "")) ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const selectionRequired =
+    /select staff member|select\.\.\.|select your name/i.test(currentLabel) ||
+    (await cashierDialog.getByText(/please select a staff member first/i).isVisible().catch(() => false));
+
+  if (!selectionRequired || currentLabel.match(new RegExp(preferredName, "i"))) {
+    return;
+  }
+
+  await selectorButton.click();
+  const dropdown = page.getByTestId("staff-selector-dropdown");
+  await dropdown.waitFor({ state: "visible", timeout: 10000 });
+
+  const preferredOption = dropdown.getByRole("button", {
+    name: new RegExp(preferredName, "i"),
+  });
+  if (await preferredOption.isVisible().catch(() => false)) {
+    await preferredOption.click();
+  } else {
+    const firstIdentity = dropdown.getByTestId("staff-identity-selector-1");
+    await firstIdentity.waitFor({ state: "visible", timeout: 5000 });
+    await firstIdentity.click();
+  }
+
+  await dropdown.waitFor({ state: "hidden", timeout: 10000 });
+}
+
 async function ensurePosSaleCashierSignedIn(page, { staffCode }) {
-  const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
+  await waitForRegisterCartMounted(page);
+
+  const cashierDialog = page.getByTestId("pos-sale-cashier-overlay");
+  const cartShell = page.getByTestId("pos-register-cart-shell");
   const productSearch = page.getByTestId("pos-product-search");
-  const giftCardAction = page.getByTestId("pos-action-gift-card");
-  const continueButton = cashierDialog.getByRole("button", { name: /^continue$/i });
+  const continueButton = cashierDialog.getByTestId("pos-sale-cashier-continue");
 
   for (let i = 0; i < 40; i += 1) {
-    const productSearchVisible = await productSearch.isVisible().catch(() => false);
+    const registerReady = (await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true";
     const cashierDialogVisible = await cashierDialog.isVisible().catch(() => false);
-    const continueVisible = await continueButton.isVisible().catch(() => false);
-    if ((productSearchVisible && !cashierDialogVisible) || (cashierDialogVisible && continueVisible)) {
+    if (registerReady || cashierDialogVisible) {
       break;
     }
     await page.waitForTimeout(500);
+  }
+
+  if ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true") {
+    return;
   }
 
   if (
@@ -349,46 +432,23 @@ async function ensurePosSaleCashierSignedIn(page, { staffCode }) {
     return;
   }
 
-  const preferredName = process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
-  const chevronSelectorButton = cashierDialog
-    .locator("button")
-    .filter({ has: cashierDialog.locator("svg.lucide-chevron-down") })
-    .first();
-  const fallbackSelectorButton = cashierDialog.getByRole("button", {
-    name: /select staff member|select\.\.\.|select your name/i,
-  });
-  const selectedButton = cashierDialog
-    .getByRole("button", { name: new RegExp(preferredName, "i") })
-    .first();
-  const selectorButton = (await chevronSelectorButton.isVisible().catch(() => false))
-    ? chevronSelectorButton
-    : (await fallbackSelectorButton.isVisible().catch(() => false))
-      ? fallbackSelectorButton
-      : selectedButton;
-
-  const currentLabel = ((await selectorButton.textContent().catch(() => "")) ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const selectionRequired = /select staff member/i.test(currentLabel);
-
-  if ((await selectorButton.isVisible().catch(() => false)) && selectionRequired) {
-    await selectorButton.click();
-    const preferredOption = cashierDialog.getByRole("button", {
-      name: new RegExp(preferredName, "i"),
-    }).last();
-    if (await preferredOption.isVisible().catch(() => false)) {
-      await preferredOption.click();
-    } else {
-      const fallbackOption = cashierDialog
-        .locator("button")
-        .filter({ has: cashierDialog.locator("img") })
-        .filter({ hasNotText: /select staff member/i })
-        .first();
-      if (await fallbackOption.isVisible().catch(() => false)) {
-        await fallbackOption.click();
-      }
-    }
-  }
+  await waitForOverlayAttribute(
+    page,
+    cashierDialog,
+    "data-roster-ready",
+    "true",
+    15000,
+    "Sale cashier staff roster did not load",
+  );
+  await selectFirstSaleStaffMember(cashierDialog);
+  await waitForOverlayAttribute(
+    page,
+    cashierDialog,
+    "data-pin-entry-ready",
+    "true",
+    10000,
+    "Sale cashier PIN entry did not become ready",
+  );
 
   const firstPinKey = cashierDialog.getByTestId(`pin-key-${staffCode[0]}`);
   await firstPinKey.waitFor({ state: "visible", timeout: 15000 });
@@ -399,15 +459,7 @@ async function ensurePosSaleCashierSignedIn(page, { staffCode }) {
   await continueButton.waitFor({ state: "visible", timeout: 15000 });
   await continueButton.click();
   await cashierDialog.waitFor({ state: "hidden", timeout: 20000 });
-  for (let i = 0; i < 40; i += 1) {
-    if (
-      (await giftCardAction.isVisible().catch(() => false)) ||
-      (await productSearch.isVisible().catch(() => false))
-    ) {
-      return;
-    }
-    await page.waitForTimeout(500);
-  }
+  await waitForRegisterReady(page);
 }
 
 async function seedRmsFixture(api, body) {

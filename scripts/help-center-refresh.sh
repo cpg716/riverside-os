@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 AUTO_BOOT=1
-RUN_AIDOCS_CHECK=1
+RUN_AIDOCS_CHECK=0
 RUN_SCREENSHOTS=1
 RUN_GENERATE_HELP=1
 RUN_REINDEX=0
@@ -14,6 +14,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-auto-boot)
       AUTO_BOOT=0
+      ;;
+    --run-aidocs-check)
+      RUN_AIDOCS_CHECK=1
       ;;
     --skip-aidocs-check)
       RUN_AIDOCS_CHECK=0

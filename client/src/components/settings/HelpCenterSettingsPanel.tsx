@@ -12,6 +12,7 @@ import {
   TerminalSquare,
   Sparkles,
   Bot,
+  Camera,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
@@ -67,6 +68,7 @@ type OpsStatus = {
   node_available: boolean;
   uv_available: boolean;
   script_exists: boolean;
+  screenshot_script_exists: boolean;
   aidocs_config_exists: boolean;
   help_docs_dir_exists: boolean;
 };
@@ -158,6 +160,7 @@ export default function HelpCenterSettingsPanel() {
   const [opsCleanupOrphans, setOpsCleanupOrphans] = useState(false);
   const [opsFullReindexFallback, setOpsFullReindexFallback] = useState(true);
   const [opsLastResult, setOpsLastResult] = useState<OpsResult | null>(null);
+  const [opsScreenshotTarget, setOpsScreenshotTarget] = useState("");
   const [aidocsCoverageAll, setAidocsCoverageAll] = useState(false);
   const [aidocsCoverageJson, setAidocsCoverageJson] = useState(false);
   const [aiAuthoringInstructions, setAiAuthoringInstructions] = useState(
@@ -660,6 +663,68 @@ export default function HelpCenterSettingsPanel() {
       const msg = e instanceof Error ? e.message : "AIDocs coverage failed";
       toast(msg, "error");
       pushLog("ops.aidocs-coverage", false, msg);
+    } finally {
+      setOpsBusy(false);
+      void loadOpsStatus();
+    }
+  };
+
+  const runCaptureScreenshots = async () => {
+    if (!canManage) return;
+    const appOrigin =
+      typeof window !== "undefined" && window.location.origin.startsWith("http")
+        ? window.location.origin
+        : undefined;
+    setOpsBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/help/admin/ops/capture-screenshots`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify({
+            base_url: appOrigin,
+            api_base: baseUrl,
+            target: opsScreenshotTarget.trim() || undefined,
+          }),
+        },
+      );
+      const j = (await res.json().catch(() => ({}))) as {
+        status?: string;
+        result?: OpsResult;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(j.error ?? `HTTP ${res.status}`);
+      }
+      const result = j.result ?? {
+        ok: false,
+        exit_code: null,
+        stdout: "",
+        stderr: "",
+      };
+      setOpsLastResult(result);
+      pushLog(
+        "ops.capture-screenshots",
+        result.ok,
+        result.ok
+          ? "Help screenshots refreshed"
+          : `Help screenshot capture exited ${result.exit_code ?? "unknown"}`,
+      );
+      toast(
+        result.ok
+          ? "Help screenshots refreshed"
+          : "Help screenshot capture reported errors",
+        result.ok ? "success" : "error",
+      );
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : "Help screenshot capture failed";
+      toast(msg, "error");
+      pushLog("ops.capture-screenshots", false, msg);
     } finally {
       setOpsBusy(false);
       void loadOpsStatus();
@@ -1637,7 +1702,7 @@ export default function HelpCenterSettingsPanel() {
               <TerminalSquare size={16} /> Automation controls
             </h3>
             <p className="mt-1 text-xs text-app-text-muted">
-              Run MANUAL_CREATION workflows directly from Settings.
+              Refresh Help manuals, screenshots, and search support from Settings.
             </p>
 
             <div className="mt-4 space-y-2">
@@ -1678,6 +1743,17 @@ export default function HelpCenterSettingsPanel() {
                 />
                 Cleanup orphaned auto-scaffold manuals (requires rescan)
               </label>
+              <label className="block text-sm">
+                <span className="mb-1 block font-bold text-app-text">
+                  Screenshot target
+                </span>
+                <input
+                  value={opsScreenshotTarget}
+                  onChange={(e) => setOpsScreenshotTarget(e.target.value)}
+                  placeholder="Leave blank for all Help screenshots"
+                  className="w-full rounded border border-app-border bg-app-bg px-3 py-2 text-sm text-app-text"
+                />
+              </label>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
@@ -1688,6 +1764,14 @@ export default function HelpCenterSettingsPanel() {
                 className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2 text-sm font-bold"
               >
                 <Wand2 size={16} /> Run help manifest workflow
+              </button>
+              <button
+                type="button"
+                onClick={() => void runCaptureScreenshots()}
+                disabled={opsBusy || !opsStatus?.screenshot_script_exists}
+                className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-sm font-bold"
+              >
+                <Camera size={16} /> Refresh Help screenshots
               </button>
               <button
                 type="button"
@@ -1816,6 +1900,16 @@ export default function HelpCenterSettingsPanel() {
                 Manifest script found:{" "}
                 <span className="font-bold">
                   {opsStatus ? (opsStatus.script_exists ? "yes" : "no") : "…"}
+                </span>
+              </div>
+              <div className="rounded border border-app-border bg-app-surface-2/40 p-2">
+                Screenshot script found:{" "}
+                <span className="font-bold">
+                  {opsStatus
+                    ? opsStatus.screenshot_script_exists
+                      ? "yes"
+                      : "no"
+                    : "…"}
                 </span>
               </div>
               <div className="rounded border border-app-border bg-app-surface-2/40 p-2">
