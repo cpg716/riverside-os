@@ -113,7 +113,7 @@ Use this checklist for the Windows PC that owns the store database and API:
 8. Configure the final run method:
    - Windows service or scheduled task is acceptable, but store-specific and not shipped by this repo.
    - Record the exact start/stop command in the store deployment log.
-9. Open the app from the server PC browser and confirm staff sign-in, **Settings → General → About this build**, and **Settings → Remote Access**.
+9. Open the app from the server PC browser and confirm staff sign-in, **Settings → General → About this build**, **Settings → Updates**, and **Settings → Remote Access**.
 10. If this PC is also the **Shop Host**, start **Shop Host** from **Settings → Remote Access** and smoke-test a second device on the same network before opening.
 
 #### 3.1.2 Minimum server acceptance checks
@@ -144,6 +144,8 @@ Use one of these paths:
 3. **Local build path:** on a Windows build machine with Rust/Node prerequisites, build from `client/` with `npm ci` then `npm run tauri:build`.
 
 Record the installer version, GitHub run URL or release URL, and target API base in the deployment log. Do not reuse an older installer just because it is the latest release asset; confirm **About this build** matches the software version you intend to deploy.
+
+After first install, normal desktop app updates are handled in ROS from **Settings → Updates → Windows app**. That panel checks the signed updater release and installs the update on the current Windows station. It does not replace the store server or run database migrations.
 
 #### 3.2.1 Tauri station install checklist (per Windows station)
 
@@ -182,7 +184,7 @@ Record the installer version, GitHub run URL or release URL, and target API base
 3. From **`client/`**: `npm run build:pwa`.
 4. Deploy the resulting assets so they are served with the API (Axum static) or from your CDN, consistently with your TLS strategy.
 
-**Version visibility:** Settings → General → **About this build** (semver, git SHA, Tauri version on desktop, API base).
+**Version visibility:** Settings → General → **About this build** (semver, git SHA, Tauri version on desktop, API base). **Update controls:** Settings → **Updates**.
 
 **Quality gates:** See section G in [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) (Playwright, soak, backup drill).
 

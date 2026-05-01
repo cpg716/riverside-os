@@ -174,7 +174,7 @@ Use the desktop updater release pipeline (`.github/workflows/tauri-register-upda
    - GitHub variable: `RIVERSIDE_UPDATER_PUBLIC_KEY` (from `~/.tauri/riverside-updater.key.pub`)
    - GitHub secret: `TAURI_SIGNING_PRIVATE_KEY` (+ optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`)
 2. The workflow publishes `updater-dist/latest.json`, updater artifact, and `.sig` file to the GitHub release tag for that version.
-3. On stations, use **Settings → General → About this build → Check for updates / Install update**.
+3. On stations, use **Settings → Updates → Windows app → Check for update / Install update**.
 4. Keep the previous installer available for rollback.
 
 If you need a manual fallback, install/replace with the latest MSI/NSIS build.
@@ -185,7 +185,7 @@ If you need a manual fallback, install/replace with the latest MSI/NSIS build.
 
 ## 7. PWA / tablets / phones
 
-1. Open the app; if Riverside shows the **PWA update prompt**, use **Reload now** when staff can afford a quick refresh.
+1. Open **Settings → Updates** and use **Check app files**. If Riverside shows the **PWA update prompt**, use **Reload now** when staff can afford a quick refresh.
 2. If the device is still using a browser tab instead of an installed PWA, follow the install guidance first: **Install app** where supported, or **Add to Home Screen** on iPad / iPhone.
 3. If the UI is wrong or stale: close and reopen the installed icon, then hard refresh, clear site data, or remove and **Add to Home Screen** again if needed — see troubleshooting in [`PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) section H and [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 7.1.
 

@@ -114,6 +114,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "settings-group-maintenance", label: "Maintenance", kind: "group" },
     { id: "backups", label: "Data & Backups" },
     { id: "remote-access", label: "Remote Access" },
+    { id: "updates", label: "Updates" },
     { id: "settings-group-integrations", label: "Integrations", kind: "group" },
     { id: "integrations", label: "Integrations Overview" },
     { id: "podium", label: "Podium" },

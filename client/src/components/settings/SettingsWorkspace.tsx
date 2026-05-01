@@ -31,11 +31,6 @@ import {
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
-import {
-  checkForAppUpdate,
-  installAppUpdate,
-  type UpdateCheckResult,
-} from "../../lib/appUpdater";
 
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
@@ -59,6 +54,7 @@ import RegisterSettings from "../pos/RegisterSettings";
 import StaffProfilePanel from "./StaffProfilePanel";
 import RosDevCenterPanel from "./RosDevCenterPanel";
 import RosieSettingsPanel from "./RosieSettingsPanel";
+import UpdateManagerPanel from "./UpdateManagerPanel";
 import { SIDEBAR_SUB_SECTIONS } from "../layout/sidebarSections";
 
 
@@ -144,6 +140,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   register: "Terminal overrides, register feedback, and lane device preferences.",
   backups: "Local snapshots, backup retention, restore tools, and maintenance tasks.",
   "remote-access": "Remote support access and workstation connectivity.",
+  updates: "App updates, PWA refresh, and server update steps.",
   integrations: "Overview cards for connected services and integration setup.",
   podium: "Podium messaging, review invites, and communication readiness.",
   shippo: "Shipping account setup, carrier rates, and label configuration.",
@@ -561,10 +558,6 @@ export default function SettingsWorkspace({
   const [tauriShellVersion, setTauriShellVersion] = useState<string | null>(
     null,
   );
-  const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(
-    null,
-  );
-  const [updateBusy, setUpdateBusy] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -577,51 +570,6 @@ export default function SettingsWorkspace({
       }
     })();
   }, []);
-
-  const handleCheckForUpdates = async () => {
-    setUpdateBusy(true);
-    try {
-      const result = await checkForAppUpdate();
-      setUpdateCheck(result);
-      if (!result.enabled && result.message) {
-        toast(result.message, "error");
-        return;
-      }
-      if (result.available) {
-        toast(`Update ${result.version ?? ""} is available`, "success");
-      } else {
-        toast(result.message ?? "No update available", "success");
-      }
-    } catch {
-      toast("Failed to check for updates", "error");
-    } finally {
-      setUpdateBusy(false);
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    setUpdateBusy(true);
-    try {
-      const result = await installAppUpdate();
-      if (!result.enabled && result.message) {
-        toast(result.message, "error");
-        return;
-      }
-      if (result.installed) {
-        toast(
-          result.message ??
-            "Update installed. Relaunch the desktop app when prompted.",
-          "success",
-        );
-      } else {
-        toast(result.message ?? "No update available", "success");
-      }
-    } catch {
-      toast("Failed to install update", "error");
-    } finally {
-      setUpdateBusy(false);
-    }
-  };
 
   const saveStaffSop = async () => {
     if (staffSopBusy) return;
@@ -1262,6 +1210,8 @@ export default function SettingsWorkspace({
               </div>
             )}
 
+            {activeTab === "updates" && <UpdateManagerPanel />}
+
             {activeTab === "online-store" && (
               <OnlineStoreConfigPanel onOpenOnlineStore={onOpenOnlineStore} />
             )}
@@ -1526,8 +1476,7 @@ export default function SettingsWorkspace({
                       </h3>
                       <p className="text-xs text-app-text-muted mt-1 font-medium">
                         Share these details with support when reporting an
-                        issue. PWA users may need a hard refresh after deploy if
-                        the shell looks outdated.
+                        issue. Use Settings → Updates for app update checks.
                       </p>
                     </div>
                   </div>
@@ -1567,35 +1516,6 @@ export default function SettingsWorkspace({
                       </dd>
                     </div>
                   </dl>
-                  {tauriShellVersion != null ? (
-                    <div className="mt-6 border-t border-app-border/60 pt-4 space-y-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={updateBusy}
-                          onClick={() => void handleCheckForUpdates()}
-                          className="ui-btn-primary h-10 px-4 text-xs font-black disabled:opacity-50"
-                        >
-                          {updateBusy ? "Checking..." : "Check for updates"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={updateBusy}
-                          onClick={() => void handleInstallUpdate()}
-                          className="h-10 px-4 rounded-xl border border-app-border bg-app-surface text-xs font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 disabled:opacity-50"
-                        >
-                          {updateBusy ? "Installing..." : "Install update"}
-                        </button>
-                      </div>
-                      {updateCheck != null ? (
-                        <p className="text-xs text-app-text-muted font-medium">
-                          {updateCheck.available
-                            ? `Update ${updateCheck.version ?? ""} available.`
-                            : updateCheck.message ?? "No update available."}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </section>
               </div>
             )}
