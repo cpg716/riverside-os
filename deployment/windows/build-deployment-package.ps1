@@ -70,7 +70,7 @@ if (Test-Path $UpdaterDistPath) {
 $readme = @"
 # RiversideOS $Version Windows Deployment Package
 
-1. Copy `riverside-deployment.config.example.json` to `riverside-deployment.config.json`.
+1. Copy riverside-deployment.config.example.json to riverside-deployment.config.json.
 2. Fill in the Server PC, database, secret, Register #1, and printer values.
 3. On the Backoffice / Server PC, open PowerShell as Administrator and run:
 
@@ -80,14 +80,14 @@ $readme = @"
 
    .\install-register.ps1
 
-The Register installer writes `C:\ProgramData\RiversideOS\station-config.json`.
+The Register installer writes C:\ProgramData\RiversideOS\station-config.json.
 The desktop app imports that file on first launch and saves the API/printer settings for the station.
 
-If the `updater` folder is present, keep those files with the release:
+If the updater folder is present, keep those files with the release:
 
-- `latest.json`
+- latest.json
 - the Windows updater installer or archive
-- the matching `.sig` signature file
+- the matching .sig signature file
 "@
 Set-Content -Path "$packageRoot\README.md" -Value $readme -Encoding UTF8
 
