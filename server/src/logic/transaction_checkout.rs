@@ -1294,6 +1294,19 @@ fn resolve_payment_splits(
                     .map(|s| s.to_string())
                     .or_else(|| stripe_intent_id.clone());
                 let provider_status = metadata_optional_text(&normalized_meta, "provider_status");
+                if payment_provider.as_deref() == Some("helcim") {
+                    let status = provider_status
+                        .as_deref()
+                        .unwrap_or("")
+                        .trim()
+                        .to_ascii_lowercase();
+                    if !matches!(status.as_str(), "approved" | "approval" | "captured") {
+                        return Err(CheckoutError::InvalidPayload(
+                            "Helcim card payment must be approved before checkout can be completed"
+                                .to_string(),
+                        ));
+                    }
+                }
                 let provider_terminal_id =
                     metadata_optional_text(&normalized_meta, "provider_terminal_id");
                 let provider_transaction_id =

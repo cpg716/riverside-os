@@ -2,13 +2,13 @@
 
 This plan outlines the process for decommissioning a BBPOS WisePOS E from a third-party POS environment and re-integrating it into a custom, server-driven workflow using the Stripe Terminal API.
 
-Stripe remains the current/default integrated card provider in Riverside OS. The payment ledger now includes additive provider-neutral metadata for future processors, and provider-neutral attempt records exist for future terminal-provider control flow. WisePOS E setup and Stripe vaulting remain Stripe-specific. No Helcim purchase, refund, settings, or webhook behavior exists in this setup path.
+Stripe remains the default compatibility card provider in Riverside OS, and Settings > Payment Processing now selects the active card terminal provider before go-live. WisePOS E setup and Stripe vaulting remain Stripe-specific. Helcim is an alternate terminal provider path, not an automatic fallback.
 
 Provider attempt records are audit/control rows only. They are intended for future pending/approved/canceled terminal flows and do not replace `payment_transactions`, receipt payment summaries, Stripe PaymentIntents, or refund handling.
 
-The server can also detect Helcim backend configuration through `HELCIM_API_TOKEN`, `HELCIM_DEVICE_CODE`, and optional `HELCIM_API_BASE_URL`. This is status-only groundwork: Stripe remains the active/default provider, the Helcim token stays server-side only, and no Helcim checkout, purchase, refund, or webhook flow is enabled from this WisePOS E setup path.
+The server can also detect Helcim backend configuration through `HELCIM_API_TOKEN`, `HELCIM_DEVICE_CODE`, and optional `HELCIM_API_BASE_URL`. The Helcim token stays server-side only. When Helcim is selected, POS card reader payments create a Helcim provider attempt and remain pending until terminal approval is confirmed. Refunds, saved-card behavior, and webhooks are future provider-specific work.
 
-Settings > Payment Processing includes a read-only Helcim status card for configured/missing backend values, masked device-code visibility, and API host visibility. This does not change WisePOS E setup or Stripe checkout behavior.
+Settings > Payment Processing shows Stripe status, Helcim status, the selected active provider, masked Helcim device-code visibility, API host visibility, and warnings when the selected provider is not fully configured. This does not change WisePOS E setup or the Stripe PaymentIntent path when Stripe is active.
 
 ### Phase 1: De-provisioning & Device Reset
 Before the reader can be added to a new account, it must be cleared of its previous configuration.

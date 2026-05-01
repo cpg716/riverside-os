@@ -68,7 +68,7 @@ ROS supports issuing credits directly to a customer's card via the Stripe termin
 
 ## Provider-Neutral Payment Metadata
 
-Stripe remains the current/default processor for integrated card workflows. ROS also stores additive provider-neutral metadata on `payment_transactions` so future processors can be represented without removing or repurposing the existing Stripe fields.
+Stripe remains the default compatibility processor for integrated card workflows, but Settings > Payment Processing now selects the active card terminal provider before go-live. Valid active providers are `stripe` and `helcim`. Neither provider should be assumed live until its environment values, terminal/device setup, and supervised store test are complete.
 
 Provider-neutral fields include:
 - `payment_provider`
@@ -81,7 +81,7 @@ Provider-neutral fields include:
 
 For existing Stripe payments, `payment_provider` is `stripe` and `provider_payment_id` mirrors `stripe_intent_id`. The original `stripe_intent_id`, `stripe_customer_id`, and `stripe_payment_method_id` fields remain the Stripe compatibility source of truth.
 
-No Helcim purchase, refund, settings, or webhook behavior is implemented by this metadata foundation. Helcim, if added later, must use its own server-side provider adapter and must not change the existing Stripe/WisePOS E behavior.
+Refunds and saved-card/vaulting remain future provider-specific work. Existing Stripe fields are preserved and are not removed or repurposed by the provider-neutral metadata foundation.
 
 ### Provider Attempt Records
 
@@ -95,22 +95,30 @@ Attempt records capture:
 - provider/idempotency references
 - redacted error/audit references
 
-Stripe checkout behavior is unchanged and continues to use the existing Stripe PaymentIntent path. Helcim, if implemented later, should use attempt rows to track pending, approved, canceled, failed, and completed terminal states before any approved payment is recorded in `payment_transactions`.
+Stripe checkout behavior is unchanged and continues to use the existing Stripe PaymentIntent path when Stripe is the active provider. Helcim uses attempt rows to track pending, approved, canceled, failed, and completed terminal states before any approved payment is recorded in `payment_transactions`.
 
-### Helcim Backend Configuration Skeleton
+### Active Card Provider Setting
 
-The backend can now detect Helcim configuration without enabling Helcim checkout. `GET /api/payments/providers/helcim/status` is a `settings.admin` read-only status endpoint that reports whether the server has the required Helcim environment values. It returns only enabled/configured booleans, a masked device-code suffix, the API base host, and missing-config notes.
+`store_settings.active_card_provider` controls which provider the POS card reader tender uses:
+- `stripe` is the default for compatibility.
+- `helcim` sends card reader purchases through the Helcim device provider path.
 
-Settings > Payment Processing now shows this as a read-only Helcim status card next to the active Stripe reporting surface. The card is visibility only: Stripe remains the active/default card provider, and Helcim checkout is not enabled yet.
+`GET /api/payments/providers/active` returns the selected provider plus Stripe and Helcim configuration status. `PATCH /api/payments/providers/active` is `settings.admin` gated and changes the selected provider. POS reads the same setting before starting a card reader payment and never falls back to the other provider after a payment starts.
+
+### Helcim Backend Configuration And Attempts
+
+The backend can detect Helcim configuration and start a terminal purchase attempt when Helcim is selected. `GET /api/payments/providers/helcim/status` is a `settings.admin` read-only status endpoint that reports whether the server has the required Helcim environment values. It returns only enabled/configured booleans, a masked device-code suffix, the API base host, and missing-config notes.
+
+Settings > Payment Processing shows Stripe status, Helcim status, the active provider, and warnings when the selected provider is not fully configured.
 
 Server-side Helcim environment variables:
 - `HELCIM_API_TOKEN`
 - `HELCIM_DEVICE_CODE`
 - `HELCIM_API_BASE_URL` (optional; defaults to `https://api.helcim.com/v2`)
 
-`HELCIM_API_TOKEN` must remain server-side only. It is never returned by the status endpoint and must not be placed in client env files or browser-visible settings.
+`HELCIM_API_TOKEN` must remain server-side only. It is never returned by status or purchase endpoints and must not be placed in client env files or browser-visible settings.
 
-No Helcim purchase endpoint, POS tender option, payment finalization, refund behavior, or webhook handling is enabled yet. The next phase is a purchase-attempt endpoint with device locking and provider-attempt lifecycle writes.
+`POST /api/payments/providers/helcim/purchase` creates a `payment_provider_attempts` row, enforces one pending Helcim attempt per configured device, sends the purchase request to Helcim, and treats Helcim `202 Accepted` as `pending`. POS shows the pending state and does not add a completed tender or finalize checkout until approval is confirmed through `GET /api/payments/providers/helcim/attempts/{id}`. Webhook confirmation, refunds, and saved-card/vaulting are not implemented in this phase.
 
 ---
 

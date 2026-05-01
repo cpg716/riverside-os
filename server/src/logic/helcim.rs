@@ -21,9 +21,9 @@ pub struct HelcimConfigStatus {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HelcimPurchaseRequest {
-    pub amount: String,
     pub currency: String,
-    pub idempotency_key: String,
+    #[serde(rename = "transactionAmount")]
+    pub transaction_amount: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -72,6 +72,10 @@ impl HelcimConfig {
         self.device_code.as_deref()
     }
 
+    pub fn api_token(&self) -> Option<&str> {
+        self.api_token.as_deref()
+    }
+
     pub fn api_base_url(&self) -> &str {
         &self.api_base_url
     }
@@ -98,12 +102,10 @@ impl HelcimConfig {
 pub fn build_purchase_request_payload(
     amount_cents: i64,
     currency: impl Into<String>,
-    idempotency_key: impl Into<String>,
 ) -> HelcimPurchaseRequest {
     HelcimPurchaseRequest {
-        amount: cents_to_decimal_string(amount_cents),
         currency: currency.into().to_uppercase(),
-        idempotency_key: idempotency_key.into(),
+        transaction_amount: cents_to_decimal_string(amount_cents),
     }
 }
 

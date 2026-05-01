@@ -48,6 +48,19 @@ interface HelcimProviderStatus {
   missing_config: string[];
 }
 
+interface StripeProviderStatus {
+  enabled: boolean;
+  secret_configured: boolean;
+  public_key_configured: boolean;
+  missing_config: string[];
+}
+
+interface PaymentProviderSettings {
+  active_provider: "stripe" | "helcim";
+  stripe: StripeProviderStatus;
+  helcim: HelcimProviderStatus;
+}
+
 const StripeSettingsPanel: React.FC = () => {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
@@ -59,6 +72,9 @@ const StripeSettingsPanel: React.FC = () => {
     useState<HelcimProviderStatus | null>(null);
   const [helcimLoading, setHelcimLoading] = useState(true);
   const [helcimError, setHelcimError] = useState<string | null>(null);
+  const [providerSettings, setProviderSettings] =
+    useState<PaymentProviderSettings | null>(null);
+  const [providerSaving, setProviderSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -81,23 +97,61 @@ const StripeSettingsPanel: React.FC = () => {
     }
 
     try {
-      const res = await fetch(`${baseUrl}/api/payments/providers/helcim/status`, {
+      const res = await fetch(`${baseUrl}/api/payments/providers/active`, {
         headers: backofficeHeaders() as Record<string, string>,
       });
       if (res.ok) {
-        const status = (await res.json()) as HelcimProviderStatus;
-        setHelcimStatus(status);
+        const settings = (await res.json()) as PaymentProviderSettings;
+        setProviderSettings(settings);
+        setHelcimStatus(settings.helcim);
       } else {
+        setProviderSettings(null);
         setHelcimStatus(null);
-        setHelcimError("Helcim status is unavailable.");
+        setHelcimError("Payment provider status is unavailable.");
       }
     } catch {
+      setProviderSettings(null);
       setHelcimStatus(null);
-      setHelcimError("Helcim status is unavailable.");
+      setHelcimError("Payment provider status is unavailable.");
     } finally {
       setHelcimLoading(false);
     }
   }, [baseUrl, backofficeHeaders]);
+
+  const saveActiveProvider = useCallback(
+    async (activeProvider: "stripe" | "helcim") => {
+      setProviderSaving(true);
+      setHelcimError(null);
+      try {
+        const res = await fetch(`${baseUrl}/api/payments/providers/active`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify({ active_provider: activeProvider }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(body.error ?? "Could not save active provider.");
+        }
+        const settings = (await res.json()) as PaymentProviderSettings;
+        setProviderSettings(settings);
+        setHelcimStatus(settings.helcim);
+      } catch (error) {
+        setHelcimError(
+          error instanceof Error
+            ? error.message
+            : "Could not save active provider.",
+        );
+      } finally {
+        setProviderSaving(false);
+      }
+    },
+    [backofficeHeaders, baseUrl],
+  );
 
   useEffect(() => {
     void fetchData();
@@ -145,6 +199,84 @@ const StripeSettingsPanel: React.FC = () => {
       </header>
 
       <section className="ui-card ui-tint-neutral overflow-hidden">
+        <div className="border-b border-app-border bg-app-surface-2 px-6 py-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Active Card Provider
+              </h3>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Choose the terminal provider before go-live. POS card reader
+                payments use this setting.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(["stripe", "helcim"] as const).map((provider) => {
+                const active = providerSettings?.active_provider === provider;
+                const configured =
+                  provider === "stripe"
+                    ? providerSettings?.stripe.enabled
+                    : providerSettings?.helcim.enabled;
+                return (
+                  <button
+                    key={provider}
+                    type="button"
+                    disabled={providerSaving || helcimLoading}
+                    onClick={() => void saveActiveProvider(provider)}
+                    className={`min-h-11 rounded-xl px-4 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 ${
+                      active
+                        ? "bg-app-accent text-white shadow-lg shadow-app-accent/20"
+                        : "border border-app-border bg-app-surface text-app-text-muted hover:text-app-text"
+                    }`}
+                  >
+                    {provider === "stripe" ? "Stripe" : "Helcim"}
+                    {!configured ? " needs setup" : active ? " active" : ""}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {providerSettings &&
+            !(
+              providerSettings.active_provider === "stripe"
+                ? providerSettings.stripe.enabled
+                : providerSettings.helcim.enabled
+            ) && (
+              <p className="mt-3 text-xs font-bold text-app-warning">
+                Selected provider is not fully configured. POS will block card
+                reader payments until setup is complete.
+              </p>
+            )}
+          {providerSettings && (
+            <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text-muted md:grid-cols-2">
+              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                <span className="font-black uppercase tracking-widest text-app-text">
+                  Stripe status:{" "}
+                  {providerSettings.stripe.enabled ? "Configured" : "Needs setup"}
+                </span>
+                {providerSettings.stripe.missing_config.length ? (
+                  <p className="mt-1">
+                    Missing: {providerSettings.stripe.missing_config.join(", ")}
+                  </p>
+                ) : (
+                  <p className="mt-1">Ready if Stripe is selected.</p>
+                )}
+              </div>
+              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                <span className="font-black uppercase tracking-widest text-app-text">
+                  Active provider:{" "}
+                  {providerSettings.active_provider === "helcim"
+                    ? "Helcim"
+                    : "Stripe"}
+                </span>
+                <p className="mt-1">
+                  POS card reader payments use the selected provider only.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-col gap-5 p-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-4">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-border bg-white shadow-sm">
@@ -170,8 +302,8 @@ const StripeSettingsPanel: React.FC = () => {
                 Helcim Status
               </h3>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                Stripe remains the active payment provider. Helcim checkout is
-                not enabled yet.
+                Helcim terminal checkout starts as pending and cannot complete
+                until provider approval is confirmed.
               </p>
             </div>
           </div>
@@ -231,7 +363,9 @@ const StripeSettingsPanel: React.FC = () => {
               ? helcimError
               : helcimStatus?.missing_config.length
                 ? `Missing configuration: ${helcimStatus.missing_config.join(", ")}`
-                : "Helcim backend configuration detected for future provider setup."}
+                : providerSettings?.active_provider === "helcim"
+                  ? "Helcim is selected for card reader payments."
+                  : "Helcim backend configuration detected. Stripe remains active until Helcim is selected."}
           </p>
         </div>
       </section>
