@@ -326,6 +326,30 @@ Core table:
 
 ---
 
+## API-backed Reports to promote next
+
+These insights are already available through Back Office → Reports and **`/api/insights/*`**. Build them in Metabase only after the matching readable **`reporting.*`** views exist.
+
+| Operational dashboard idea | Current API source | Needed Metabase source |
+|----------------------------|--------------------|------------------------|
+| Appointments & No-Show | `GET /api/insights/appointments-no-show` | `reporting.appointments_no_show` |
+| Wedding Event Readiness | `GET /api/insights/wedding-event-readiness` | `reporting.wedding_event_readiness` |
+| Staff Schedule Coverage vs Sales | `GET /api/insights/staff-schedule-coverage-sales` | `reporting.staff_schedule_coverage_vs_sales` |
+| Customer Follow-Up | `GET /api/insights/customer-follow-up` | `reporting.customer_follow_up` |
+| Exception & Risk | `GET /api/insights/exception-risk` | `reporting.exception_risk` |
+
+Suggested placement once views exist:
+
+- **Weddings Overview:** add Wedding Event Readiness cards and appointment/no-show filters.
+- **Staff Performance:** add schedule coverage vs sales volume only for managers/admins.
+- **Executive Sales Overview:** add Exception & Risk count cards for leadership.
+- **New Customer Follow-Up dashboard:** keep staff-safe by default; avoid margin/cost fields.
+- **Operations dashboard:** combine appointments, pickup risk, overdue alterations, negative stock, open registers, and failed-payment counts.
+
+The existing **Merchant Activity** Reports tile should map to the **Payments and Merchant Reconciliation** dashboard through **`reporting.payment_ledger`** and **`reporting.merchant_reconciliation`**. The existing **Loyalty Velocity** API can support future curated reporting, but Metabase should continue to use the loyalty **`reporting.*`** views.
+
+---
+
 ## Collections recommendation
 
 Create these first:

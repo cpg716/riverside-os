@@ -51,18 +51,19 @@ import manual_46_raw from "../../assets/docs/pos-register-overlay-manual.md?raw"
 import manual_47_raw from "../../assets/docs/pos-register-reports-manual.md?raw";
 import manual_48_raw from "../../assets/docs/qbo-mapping-matrix-manual.md?raw";
 import manual_49_raw from "../../assets/docs/qbo-workspace-manual.md?raw";
-import manual_50_raw from "../../assets/docs/scheduler-workspace-manual.md?raw";
-import manual_51_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
-import manual_52_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
-import manual_53_raw from "../../assets/docs/settings-receipt-builder-panel-manual.md?raw";
-import manual_54_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
-import manual_55_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
-import manual_56_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
-import manual_57_raw from "../../assets/docs/staff-schedule-panel-manual.md?raw";
-import manual_58_raw from "../../assets/docs/settings-printers-and-scanners-panel-manual.md?raw";
-import manual_59_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
-import manual_60_raw from "../../assets/docs/staff-workspace-manual.md?raw";
-import manual_61_raw from "../../assets/docs/staff-weekly-grid-view-manual.md?raw";
+import manual_50_raw from "../../assets/docs/reports-workspace-manual.md?raw";
+import manual_51_raw from "../../assets/docs/scheduler-workspace-manual.md?raw";
+import manual_52_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
+import manual_53_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
+import manual_54_raw from "../../assets/docs/settings-receipt-builder-panel-manual.md?raw";
+import manual_55_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
+import manual_56_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
+import manual_57_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
+import manual_58_raw from "../../assets/docs/staff-schedule-panel-manual.md?raw";
+import manual_59_raw from "../../assets/docs/settings-printers-and-scanners-panel-manual.md?raw";
+import manual_60_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
+import manual_61_raw from "../../assets/docs/staff-workspace-manual.md?raw";
+import manual_62_raw from "../../assets/docs/staff-weekly-grid-view-manual.md?raw";
 
 export const HELP_MANUALS: HelpManual[] = [
   {
@@ -75,9 +76,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "reports",
     title: "Reports (curated)",
-    summary: "Back Office Reports library: fixed tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase).",
+    summary: "Back Office Reports library: searchable curated report tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase).",
     markdown: manual_1_raw,
-    tags: ["reports","analytics","insights","pivot","margin","rbac"],
+    tags: ["reports","analytics","insights","pivot","margin","rbac","search"],
   },
   {
     id: "insights",
@@ -416,87 +417,94 @@ export const HELP_MANUALS: HelpManual[] = [
     tags: ["qbo","quickbooks","accounting","journal","staging","finance"],
   },
   {
+    id: "reports-workspace",
+    title: "Reports Workspace (reports)",
+    summary: "Find curated store reports by task, question, keyword, audience, or sensitivity.",
+    markdown: manual_50_raw,
+    tags: ["reports-workspace","reports","search","reporting","staff"],
+  },
+  {
     id: "scheduler-workspace",
     title: "Scheduler Workspace",
     summary: "Store-wide appointment scheduler: viewing calendar, booking fittings/consultations, and managing staff availability.",
-    markdown: manual_50_raw,
+    markdown: manual_51_raw,
     tags: ["scheduler","appointments","calendar","booking"],
   },
   {
     id: "settings-counterpoint-sync-settings-panel",
     title: "Counterpoint Sync Settings Panel (settings)",
     summary: "Monitor the Counterpoint bridge, review staged batches, and maintain Counterpoint-to-ROS mapping tables.",
-    markdown: manual_51_raw,
+    markdown: manual_52_raw,
     tags: ["settings-counterpoint-sync-settings-panel","component","counterpoint","bridge","sync"],
   },
   {
     id: "settings-meilisearch-settings-panel",
     title: "Meilisearch Settings",
     summary: "Check Meilisearch sync health, distinguish Refresh from Rebuild, and understand which search indices ROS keeps current.",
-    markdown: manual_52_raw,
+    markdown: manual_53_raw,
     tags: ["settings","meilisearch","search","reindex"],
   },
   {
     id: "settings-receipt-builder-panel",
     title: "Receipt Settings Panel (settings)",
     summary: "Adjust standard Epson receipt content for receipt printing and delivery.",
-    markdown: manual_53_raw,
+    markdown: manual_54_raw,
     tags: ["settings-receipt-builder-panel","settings","receipt","printing"],
   },
   {
     id: "settings-remote-access-panel",
     title: "Remote Access Panel",
     summary: "Use this panel on the dedicated Windows host machine to start Shop Host for local satellites and connect Tailscale for separate remote access.",
-    markdown: manual_54_raw,
+    markdown: manual_55_raw,
     tags: ["settings-remote-access-panel","remote-access","tailscale","host-mode"],
   },
   {
     id: "settings-stripe-settings-panel",
     title: "Stripe & Merchant Hub (settings)",
     summary: "High-level integration manual for card processing, fee reconciliation, and QBO clearing account workflows.",
-    markdown: manual_55_raw,
+    markdown: manual_56_raw,
     tags: ["settings-stripe-settings-panel","merchant-processing","reconciliation","stripe","qbo"],
   },
   {
     id: "staff-commission-payouts-panel",
     title: "Commission Reports Panel (staff)",
     summary: "Review fulfillment-based commission reporting by staff and period.",
-    markdown: manual_56_raw,
+    markdown: manual_57_raw,
     tags: ["staff-commission-payouts-panel","component","commission","reporting"],
   },
   {
     id: "staff-schedule-panel",
     title: "Staff Schedule",
     summary: "Manage the store-wide schedule, individual staff availability, and per-week planning overrides.",
-    markdown: manual_57_raw,
+    markdown: manual_58_raw,
     tags: ["staff","schedule","availability","shifts","team"],
   },
   {
     id: "settings-printers-and-scanners-panel",
     title: "Printers And Scanners Panel (settings)",
     summary: "Configure workstation receipt, tag, report printer targets and verify scanner input.",
-    markdown: manual_58_raw,
+    markdown: manual_59_raw,
     tags: ["settings-printers-and-scanners-panel","settings","printers","scanners","hardware"],
   },
   {
     id: "staff-commission-manager-workspace",
     title: "Commission Manager Workspace (staff)",
     summary: "Use Staff → Commissions for commission reports, fixed SPIFFs, and combo incentives.",
-    markdown: manual_59_raw,
+    markdown: manual_60_raw,
     tags: ["staff-commission-manager-workspace","component","commission","reporting","incentives"],
   },
   {
     id: "staff-workspace",
     title: "Staff Workspace (Team)",
     summary: "Manage the store roster, staff PINs, commission rates, and access permissions.",
-    markdown: manual_60_raw,
+    markdown: manual_61_raw,
     tags: ["staff","roster","permissions","rbac","commissions"],
   },
   {
     id: "staff-weekly-grid-view",
     title: "Staff Weekly Grid View",
     summary: "Professional printing, store event management, and unified badge reference for the weekly schedule.",
-    markdown: manual_61_raw,
+    markdown: manual_62_raw,
     tags: ["staff","schedule","grid","printing","events"],
   },
 ];

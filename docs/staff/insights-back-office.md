@@ -34,6 +34,23 @@ Give **staff-class** Metabase credentials to floor teams; reserve **admin-class*
 
 ---
 
+## Reports API vs Metabase access
+
+Some operational insights are available immediately in **Back Office → Reports** because Riverside serves them through **`/api/insights/*`**. Metabase can only slice those topics freely after IT adds readable **`reporting.*`** views and models them in Metabase.
+
+Current Reports-first topics:
+
+- Appointments & No-Show
+- Wedding Event Readiness
+- Staff Schedule Coverage vs Sales
+- Customer Follow-Up
+- Exception & Risk
+- Register Day Activity when staff need broad ad-hoc slicing
+
+Use **Reports** for those until the matching Metabase views are added. Merchant Activity should use payment/merchant reconciliation views in Metabase; loyalty dashboards should use the loyalty reporting views.
+
+---
+
 ## How to use Insights (Metabase)
 
 **Purpose:** Deep analytics — questions, dashboards, and (when enabled) SQL — using **Metabase’s** interface inside Riverside.

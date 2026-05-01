@@ -33,6 +33,29 @@ This note ties **Back Office Insights** (Metabase in an iframe) to **data govern
 
 Track architecture and checklist in **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`** §13.
 
+## Reports API vs Metabase view gaps
+
+Back Office → Reports can answer several operational questions through existing **`GET /api/insights/*`** endpoints before those answers exist as Metabase-friendly tables. That is acceptable for curated tiles, CSV, print, and governed natural-language routing. It is **not** the same as Metabase ad-hoc access.
+
+Before building broad Metabase dashboards for these topics, add and model readable **`reporting.*`** views:
+
+| Current Reports/API insight | Existing API | Metabase-ready view still needed |
+|-----------------------------|--------------|----------------------------------|
+| Appointments & No-Show Report | `GET /api/insights/appointments-no-show` | `reporting.appointments_no_show` |
+| Wedding Event Readiness Report | `GET /api/insights/wedding-event-readiness` | `reporting.wedding_event_readiness` |
+| Staff Schedule Coverage vs Sales Report | `GET /api/insights/staff-schedule-coverage-sales` | `reporting.staff_schedule_coverage_vs_sales` |
+| Customer Follow-Up Report | `GET /api/insights/customer-follow-up` | `reporting.customer_follow_up` |
+| Exception & Risk Report | `GET /api/insights/exception-risk` | `reporting.exception_risk` |
+| Register day activity | `GET /api/insights/register-day-activity` | `reporting.register_day_activity` if it needs Metabase slicing |
+
+Existing API surfaces that already align with Metabase reporting views:
+
+- **Merchant activity:** use **`GET /api/insights/merchant-activity`** for the curated Reports tile; use **`reporting.payment_ledger`** and **`reporting.merchant_reconciliation`** for Metabase.
+- **Loyalty velocity:** use **`GET /api/insights/loyalty-velocity`** for API/NL routing; use **`reporting.loyalty_customer_snapshot`**, **`reporting.loyalty_point_ledger`**, and **`reporting.loyalty_daily_velocity`** where available for Metabase.
+- **Sales, margin, best sellers, dead stock:** use Reports for governed operational answers; use **`reporting.transactions_core`** / **`reporting.order_lines`** for Metabase dashboards, with admin collection controls for margin/cost.
+
+Do not point Metabase staff dashboards at raw **`public.*`** tables just because a Reports endpoint exists. Add a readable, permission-appropriate **`reporting.*`** view first, then rescan and model it in Metabase.
+
 ---
 
 ## Operational standard: Staff Metabase login vs Admin Metabase login

@@ -2,8 +2,8 @@
 id: reports
 title: "Reports (curated)"
 order: 14
-summary: "Back Office Reports library: fixed tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase)."
-tags: reports, analytics, insights, pivot, margin, rbac
+summary: "Back Office Reports library: searchable curated report tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase)."
+tags: reports, analytics, insights, pivot, margin, rbac, search
 ---
 
 # Reports (curated) — in-app guide
@@ -19,13 +19,24 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 ## Quick steps
 
 1. Open **Reports** in the left rail.
-2. Tap a **report card** (e.g., Daily Sales, Merchant Activity) to load the table.
-3. Set **From** / **To** date filters.
-4. Select the **Basis** (booked sale date vs completed / recognition) if available.
-5. Use **Refresh** after changes to pull the latest data.
-6. Use **CSV** (spreadsheet) or **Print Report** (Professional Audit Layout) for your records.
+2. Use **Search reports by task, question, or keyword** when you know the job but not the report name.
+3. Tap a **report card** (e.g., Daily Sales, Merchant Activity) to load the table.
+4. Set **From** / **To** date filters.
+5. Select the **Basis** (booked sale date vs completed / recognition) if available.
+6. Use **Refresh** after changes to pull the latest data.
+7. Use **CSV** (spreadsheet) or **Print Report** (Professional Audit Layout) for your records.
 
 **Booked** = when the sale was rung. **Completed** = recognition-style timing for fulfilled lines (see store policy). Ask a lead if you are unsure which to use for payroll or tax questions.
+
+## Finding the right report
+
+Search understands report titles, descriptions, categories, keywords, and common staff questions. Try task words like **pickup**, **balance**, **tax**, **drawer**, **cash**, **appointments**, **no-show**, **slow stock**, **open orders**, or **failed payments**.
+
+Reports are grouped by store category: **Sales**, **Inventory**, **Register**, **Weddings**, **Customers**, **Finance**, **Staff**, and **Operations**. Cards also show the intended audience and sensitivity:
+
+- **Staff-safe**: suitable for normal floor operations.
+- **Manager**: operational leadership or sensitive follow-up.
+- **Admin-only**: private financial/cost/margin content.
 
 ## What to watch for
 
@@ -45,6 +56,11 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 - **NYS tax audit**: Drill-down into clothing vs non-clothing sales for audit.
 - **Merchant activity**: Daily Stripe volume, fees, and net settlement values matched to business days.
 - **RMS charges**: Export of store-account charges vs payments.
+- **Appointments & No-Show**: Appointment count, completed visits, cancellations/no-shows, appointment type, assigned salesperson, and wedding-linked vs walk-in context.
+- **Wedding Event Readiness**: Upcoming wedding risk by event date, including missing measurements, balances, fulfillment, alterations, shipments, and pickup risk.
+- **Staff Schedule Coverage vs Sales**: Staffing coverage compared with sales volume, appointments, pickups, and register activity.
+- **Customer Follow-Up**: Customers needing action because of balances, pickups, recent quotes/orders, wedding dates, stale RMS charges, or missing recent contact.
+- **Exception & Risk**: Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks.
 
 ## What happens next
 

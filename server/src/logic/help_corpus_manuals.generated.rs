@@ -52,6 +52,7 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("pos-register-reports", "client/src/assets/docs/pos-register-reports-manual.md"),
     ("qbo-mapping-matrix", "client/src/assets/docs/qbo-mapping-matrix-manual.md"),
     ("qbo-workspace", "client/src/assets/docs/qbo-workspace-manual.md"),
+    ("reports-workspace", "client/src/assets/docs/reports-workspace-manual.md"),
     ("scheduler-workspace", "client/src/assets/docs/scheduler-workspace-manual.md"),
     ("settings-counterpoint-sync-settings-panel", "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md"),
     ("settings-meilisearch-settings-panel", "client/src/assets/docs/settings-meilisearch-settings-panel-manual.md"),

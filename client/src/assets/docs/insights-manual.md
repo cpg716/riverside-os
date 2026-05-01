@@ -42,12 +42,6 @@ Use **Insights** when you need:
 - **Data Freshness**: Insights data is pulled from the live PostgreSQL database but may have a slight caching delay depending on the Metabase configuration.
 - **Permissions**: Your Metabase role (Staff vs Admin) determines which dashboards and collections you can see.
 
-## What to watch for
-
-- **PIN Security**: PINs are 4 digits. Avoid using simple sequences (1234, 1111).
-- **Role Sync**: Changing a staff member's Role will reset their permissions to the role's default baseline.
-- **Employment Dates**: Staff members with a future 'Start Date' or a past 'End Date' will not be able to sign in to the register.
-
 - You can stay in Metabase to perform ad-hoc "Questions" if your role allows.
 - Navigate back to **Operations** or **Reports** for standard store management tasks.
 
@@ -88,6 +82,19 @@ The first time (or after a logout or browser data clear), Metabase may show its 
 - Build or open **questions** and **dashboards** the way Metabase documents describe (filters, time ranges, exports — depending on what your admins enabled).
 - Use **Back to Back Office** in the Riverside header when you are done; you return to the normal sidebar layout.
 - The **notification bell** in the Insights header is still Riverside’s inbox (same as elsewhere).
+
+---
+
+## Reports API vs Metabase
+
+**Reports** and **Insights** answer different needs:
+
+- **Reports** uses Riverside APIs for curated operational answers, CSV, and print.
+- **Insights** uses Metabase on readable **reporting** views for dashboards and ad-hoc questions.
+
+Some Reports are available now in Riverside but need a future **reporting** view before Metabase can slice them freely: Appointments & No-Show, Wedding Event Readiness, Staff Schedule Coverage vs Sales, Customer Follow-Up, Exception & Risk, and broad Register Day Activity. Until those views are added, use **Back Office → Reports** for those answers.
+
+Merchant Activity already maps to Metabase payment views. Loyalty reporting should use the loyalty reporting views when building dashboards.
 
 ---
 

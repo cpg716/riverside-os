@@ -132,7 +132,29 @@ Use [METABASE_FIELD_MODELING_CHECKLIST.md](./METABASE_FIELD_MODELING_CHECKLIST.m
 
 ---
 
-## 6. Field naming recommendations
+## 6. Check API-backed report gaps
+
+Back Office → Reports includes operational insights that are available through **`/api/insights/*`** before they exist as Metabase-modeled tables. Do not build staff Metabase dashboards from raw app tables to fill those gaps.
+
+Before promising a dashboard, confirm whether a readable **`reporting.*`** view exists for:
+
+- Appointments & No-Show: `reporting.appointments_no_show`
+- Wedding Event Readiness: `reporting.wedding_event_readiness`
+- Staff Schedule Coverage vs Sales: `reporting.staff_schedule_coverage_vs_sales`
+- Customer Follow-Up: `reporting.customer_follow_up`
+- Exception & Risk: `reporting.exception_risk`
+- Register day activity: `reporting.register_day_activity` if register-day detail needs ad-hoc Metabase slicing
+
+If the view is missing:
+
+1. Keep the topic in **Back Office → Reports** for now.
+2. Add or request the **`reporting.*`** view through a migration.
+3. Rescan metadata after the migration.
+4. Model readable fields before moving cards into staff collections.
+
+---
+
+## 7. Field naming recommendations
 
 Use these visible labels in Metabase where possible:
 
@@ -159,7 +181,7 @@ unless they are intentionally needed for admin debugging.
 
 ---
 
-## 7. Semantic types to set
+## 8. Semantic types to set
 
 Where available in Metabase metadata, set:
 
@@ -175,7 +197,7 @@ This helps filters, formatting, and exports feel more polished.
 
 ---
 
-## 8. Build the first dashboards
+## 9. Build the first dashboards
 
 Use [METABASE_DASHBOARD_STARTER_PLAN.md](./METABASE_DASHBOARD_STARTER_PLAN.md).
 
@@ -199,7 +221,7 @@ Leave unfinished work in:
 
 ---
 
-## 9. Set a clean homepage
+## 10. Set a clean homepage
 
 In Metabase:
 
@@ -217,7 +239,7 @@ Goal:
 
 ---
 
-## 10. Hide raw clutter aggressively
+## 11. Hide raw clutter aggressively
 
 If you want Riverside reporting to feel premium, do not be shy about hiding technical fields.
 
