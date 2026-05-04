@@ -23,7 +23,14 @@ if (-not (Test-Admin)) {
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-$packageRoot = $PSScriptRoot
+if ($PSScriptRoot) {
+  $packageRoot = $PSScriptRoot
+} else {
+  $packageRoot = Split-Path -Parent $PSCommandPath
+}
+if (-not $packageRoot) {
+  $packageRoot = (Get-Location).Path
+}
 $configExamplePath = Join-Path $packageRoot "riverside-deployment.config.example.json"
 $configPath = Join-Path $packageRoot "riverside-deployment.config.json"
 $managerLogPath = Join-Path $packageRoot "deployment-manager.log"
@@ -174,7 +181,9 @@ function Invoke-Installer($ScriptName, [string[]]$ExtraArgs = @()) {
     "-ExecutionPolicy",
     "Bypass",
     "-File",
-    "`"$scriptPath`""
+    $scriptPath,
+    "-ConfigPath",
+    $configPath
   )
   $installerArgs += $ExtraArgs
 
@@ -627,8 +636,11 @@ $checkButton.Add_Click({
     $logBox.Clear()
     Add-Log "Checking package..."
 
-    if (-not (Test-PackageFile "riverside-deployment.config.example.json")) {
-      throw "Missing config template."
+    if (-not (Test-Path $configPath) -and -not (Test-Path $configExamplePath)) {
+      throw "Missing config file. The package needs riverside-deployment.config.json or riverside-deployment.config.example.json."
+    }
+    if (-not (Test-Path $configPath)) {
+      Add-Log "Config file will be created from the package template during install."
     }
     if ($serverRadio.Checked) {
       foreach ($required in @("install-server.ps1", "server\riverside-server.exe", "client-dist", "migrations")) {
