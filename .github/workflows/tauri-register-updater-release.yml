@@ -106,6 +106,7 @@ jobs:
           $pkg = Get-Content "package.json" | ConvertFrom-Json
           $version = $pkg.version
           $tag = "v$version"
+          $gitShort = $env:GITHUB_SHA.Substring(0, 8)
           $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           $artifactName = [System.IO.Path]::GetFileName($artifactPath)
           $releaseAssetName = $artifactName -replace ' ', '.'
@@ -128,6 +129,13 @@ jobs:
           Copy-Item -Path $artifactPath -Destination "updater-dist/$releaseAssetName" -Force
           Copy-Item -Path $sig.FullName -Destination "updater-dist/$($sig.Name)" -Force
           Set-Content -Path "updater-dist/latest.json" -Value $manifest -NoNewline
+          @{
+            version = $version
+            sourceGitSha = $env:GITHUB_SHA
+            sourceGitShort = $gitShort
+            asset = $releaseAssetName
+            builtAt = $pubDate
+          } | ConvertTo-Json -Depth 4 | Set-Content -Path "updater-dist/riverside-updater-build-manifest.json" -NoNewline
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - uses: actions/upload-artifact@v4

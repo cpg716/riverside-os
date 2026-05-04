@@ -30,6 +30,7 @@ import {
   resolvePrinterTarget,
 } from "../../lib/printerBridge";
 import RiversideJustLogo from "../../assets/images/logo1.png";
+import { CLIENT_SEMVER } from "../../clientBuildMeta";
 
 export interface SessionOpenedPayload {
   cashierName: string;
@@ -947,7 +948,7 @@ export default function RegisterOverlay({
 
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
               <span className="h-1.5 w-1.5 rounded-full bg-current" />
-              v0.3.3 Production Build
+              v{CLIENT_SEMVER} Production Build
             </div>
           </div>
 

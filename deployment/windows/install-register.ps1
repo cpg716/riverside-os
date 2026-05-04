@@ -90,6 +90,24 @@ function Uninstall-ExistingRiversideApp {
   }
 }
 
+function Clear-RiversideClientCaches {
+  $paths = @(
+    (Join-Path $env:LOCALAPPDATA "Riverside POS"),
+    (Join-Path $env:APPDATA "Riverside POS"),
+    (Join-Path $env:LOCALAPPDATA "RiversideOS"),
+    (Join-Path $env:APPDATA "RiversideOS"),
+    (Join-Path $env:LOCALAPPDATA "com.riverside.pos"),
+    (Join-Path $env:APPDATA "com.riverside.pos")
+  )
+
+  foreach ($path in $paths) {
+    if ($path -and (Test-Path $path)) {
+      Write-Host "Clearing Riverside client cache $path"
+      Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
 function Install-RegisterApp($InstallerPath) {
   $extension = [IO.Path]::GetExtension($InstallerPath).ToLowerInvariant()
   if ($extension -eq ".msi") {
@@ -133,6 +151,7 @@ Write-Host "Station setup written to $stationConfigPath"
 if (-not $SkipAppInstall) {
   $installer = Find-RegisterInstaller
   Uninstall-ExistingRiversideApp
+  Clear-RiversideClientCaches
   Write-Host "Installing Riverside desktop app from $installer"
   Install-RegisterApp $installer
 }

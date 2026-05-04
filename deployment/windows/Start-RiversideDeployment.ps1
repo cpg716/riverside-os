@@ -33,6 +33,7 @@ if (-not $packageRoot) {
 }
 $configExamplePath = Join-Path $packageRoot "riverside-deployment.config.example.json"
 $configPath = Join-Path $packageRoot "riverside-deployment.config.json"
+$packageManifestPath = Join-Path $packageRoot "deployment-package.manifest.json"
 $managerLogPath = Join-Path $packageRoot "deployment-manager.log"
 
 function Read-DeploymentConfig {
@@ -49,6 +50,17 @@ function Write-DeploymentConfig($Config) {
   $json = $Config | ConvertTo-Json -Depth 20
   $utf8NoBom = New-Object System.Text.UTF8Encoding $false
   [System.IO.File]::WriteAllText($configPath, $json, $utf8NoBom)
+}
+
+function Read-PackageManifest {
+  if (-not (Test-Path $packageManifestPath)) {
+    return $null
+  }
+  try {
+    return Get-Content $packageManifestPath -Raw | ConvertFrom-Json
+  } catch {
+    throw "Deployment package manifest is invalid. Rebuild the package."
+  }
 }
 
 function New-RiversideSecret([int]$Length = 36) {
@@ -653,6 +665,12 @@ $checkButton.Add_Click({
         if (-not (Test-PackageFile $required)) {
           throw "Missing $required"
         }
+      }
+      $manifest = Read-PackageManifest
+      if ($manifest) {
+        Add-Log "Package build: $($manifest.releaseVersion) / $($manifest.sourceGitShort)"
+      } else {
+        Add-Log "Warning: package build manifest is missing. Use a rebuilt full deployment package."
       }
       $psqlPath = $psqlPathText.Text.Trim()
       if (-not $psqlPath -or -not (Test-Path $psqlPath)) {

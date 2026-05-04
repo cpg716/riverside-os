@@ -183,6 +183,101 @@ function Stop-RiversideServer {
   }
 }
 
+function Stop-PortListeners([int]$Port) {
+  $listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique
+
+  foreach ($processId in $listeners) {
+    if (-not $processId -or $processId -eq $PID) {
+      continue
+    }
+
+    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+    if (-not $process) {
+      continue
+    }
+
+    Write-Host "Stopping process using Riverside port $Port: $($process.ProcessName) ($processId)"
+    try {
+      Stop-Process -Id $processId -Force -ErrorAction Stop
+    } catch {
+      throw "Could not stop process using Riverside port $Port: $($process.ProcessName) ($processId). Close it and run install again."
+    }
+  }
+}
+
+function Confirm-InstalledClientVersion($ClientDistPath, [string]$ExpectedVersion, [string]$ExpectedGitShort) {
+  if (-not $ExpectedVersion -and -not $ExpectedGitShort) {
+    return
+  }
+
+  $assetDir = Join-Path $ClientDistPath "assets"
+  if (-not (Test-Path $assetDir)) {
+    Write-Warning "Client asset folder was not found after install: $assetDir"
+    return
+  }
+
+  $scripts = Get-ChildItem $assetDir -Filter "*.js" -ErrorAction SilentlyContinue
+
+  if ($ExpectedVersion) {
+    $versionMatches = $scripts |
+      Select-String -Pattern $ExpectedVersion -SimpleMatch -List -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+
+    if ($versionMatches) {
+      Write-Host "Installed client bundle version marker found: $ExpectedVersion"
+    } else {
+      throw "Installed client bundle does not contain expected version marker $ExpectedVersion. Rebuild the full deployment package before deployment."
+    }
+  }
+
+  if ($ExpectedGitShort) {
+    $gitMatches = $scripts |
+      Select-String -Pattern $ExpectedGitShort -SimpleMatch -List -ErrorAction SilentlyContinue |
+      Select-Object -First 1
+
+    if ($gitMatches) {
+      Write-Host "Installed client bundle git marker found: $ExpectedGitShort"
+    } else {
+      throw "Installed client bundle does not contain expected git marker $ExpectedGitShort. Rebuild the full deployment package before deployment."
+    }
+  }
+}
+
+function Test-RiversideApiReady([string]$BaseUrl, [int]$Port) {
+  $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if (-not $listener) {
+    return $false
+  }
+
+  $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+  if (-not $process -or $process.ProcessName -ne "riverside-server") {
+    $owner = if ($process) { "$($process.ProcessName) ($($process.Id))" } else { "process $($listener.OwningProcess)" }
+    throw "Port $Port is being used by $owner instead of Riverside OS Server."
+  }
+
+  try {
+    $response = Invoke-WebRequest -Uri "$BaseUrl/api/staff/list-for-pos" -UseBasicParsing -TimeoutSec 3
+    $content = "$($response.Content)".TrimStart()
+    return $response.StatusCode -eq 200 -and ($content.StartsWith("[") -or $content.StartsWith("{"))
+  } catch {
+    return $false
+  }
+}
+
+function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
+  $deadline = (Get-Date).AddSeconds(30)
+  do {
+    if (Test-RiversideApiReady $BaseUrl $Port) {
+      return
+    }
+    Start-Sleep -Milliseconds 500
+  } while ((Get-Date) -lt $deadline)
+
+  throw "Riverside OS Server did not pass the API check at $BaseUrl/api/staff/list-for-pos."
+}
+
 function Escape-SqlLiteral([string]$Value) {
   return $Value.Replace("'", "''")
 }
@@ -252,6 +347,11 @@ if (-not (Test-Path $ConfigPath)) {
 }
 
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+$packageManifestPath = Join-Path $PSScriptRoot "deployment-package.manifest.json"
+$packageManifest = $null
+if (Test-Path $packageManifestPath) {
+  $packageManifest = Get-Content $packageManifestPath -Raw | ConvertFrom-Json
+}
 $server = $config.server
 $db = $server.database
 $installRoot = $server.installRoot
@@ -280,11 +380,14 @@ if (-not (Test-Path $packageMigrations)) {
 }
 
 $taskName = "Riverside OS Server"
+$serverPort = [int](($server.httpBind -split ":")[-1])
 Stop-RiversideServer
+Stop-PortListeners $serverPort
 
 Copy-Item $packageServerExe (Join-Path $serverDir "riverside-server.exe") -Force
 Remove-Item "$clientDist\*" -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item "$packageDist\*" $clientDist -Recurse -Force
+Confirm-InstalledClientVersion $clientDist $config.releaseVersion $packageManifest.sourceGitShort
 Remove-Item "$releaseDir\migrations" -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item $packageMigrations (Join-Path $releaseDir "migrations") -Recurse -Force
 if (Test-Path $packageReleaseDocs) {
@@ -348,8 +451,7 @@ $envPath = Join-Path $serverDir ".env"
 Write-ServerEnv $envPath $config $databaseUrl $clientDist
 
 if (-not $SkipFirewall) {
-  $port = ($server.httpBind -split ":")[-1]
-  New-NetFirewallRule -DisplayName $server.firewallRuleName -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -Profile Private -ErrorAction SilentlyContinue | Out-Null
+  New-NetFirewallRule -DisplayName $server.firewallRuleName -Direction Inbound -Protocol TCP -LocalPort $serverPort -Action Allow -Profile Private -ErrorAction SilentlyContinue | Out-Null
 }
 
 $serverExe = Join-Path $serverDir "riverside-server.exe"
@@ -362,14 +464,9 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Pr
 
 if (-not $NoStart) {
   Start-ScheduledTask -TaskName $taskName
-  Start-Sleep -Seconds 3
-  $localUrl = "http://127.0.0.1:$(($server.httpBind -split ':')[-1])"
-  try {
-    Invoke-WebRequest -Uri $localUrl -UseBasicParsing -TimeoutSec 10 | Out-Null
-    Write-Host "Riverside OS server responded at $localUrl"
-  } catch {
-    Write-Warning "Server task started, but $localUrl did not respond yet. Check $logDir and Windows Task Scheduler."
-  }
+  $localUrl = "http://127.0.0.1:$serverPort"
+  Wait-RiversideApiReady $localUrl $serverPort
+  Write-Host "Riverside OS server API responded at $localUrl"
 }
 
 $summary = @"
