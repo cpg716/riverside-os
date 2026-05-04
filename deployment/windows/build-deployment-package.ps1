@@ -79,6 +79,11 @@ $readme = @"
 The Deployment Manager writes riverside-deployment.config.json for you and runs
 the correct installer for the selected station type.
 
+Backoffice / Server installs both:
+
+- The Riverside OS server, database setup, firewall rule, and startup task.
+- The Riverside Windows desktop app configured to use the local server.
+
 Password handling:
 
 - If PostgreSQL is missing, the manager can offer to install PostgreSQL 18 through Windows Package Manager.
@@ -100,6 +105,10 @@ Manual fallback:
 3. On the Backoffice / Server PC, open PowerShell as Administrator and run:
 
    .\install-server.ps1
+
+   Then install/configure the desktop app on the same PC:
+
+   .\install-register.ps1
 
 4. On Register #1, copy this package or the same config file, open PowerShell as Administrator, and run:
 

@@ -38,7 +38,12 @@ COMMENT ON FUNCTION reporting.order_recognition_at(uuid, text, text, timestamptz
     'Completed-revenue clock: pickup mode uses fulfilled_at; ship mode uses shipment events (label purchased or manual in_transit/delivered). Pair with order status and line fulfillment for commission rules.';
 
 REVOKE ALL ON FUNCTION reporting.order_recognition_at(uuid, text, text, timestamptz) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION reporting.order_recognition_at(uuid, text, text, timestamptz) TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT EXECUTE ON FUNCTION reporting.order_recognition_at(uuid, text, text, timestamptz) TO metabase_ro;';
+    END IF;
+END$$;
 
 DROP VIEW IF EXISTS reporting.daily_order_totals CASCADE;
 DROP VIEW IF EXISTS reporting.order_lines CASCADE;
@@ -154,7 +159,12 @@ GROUP BY 1;
 COMMENT ON VIEW reporting.daily_order_totals_recognized IS
     'COMPLETED-revenue aggregates by store-local recognition day (pickup = fulfilled_at; ship = shipment label / in_transit / delivered events).';
 
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('106_reporting_order_recognition.sql')
 ON CONFLICT (version) DO NOTHING;

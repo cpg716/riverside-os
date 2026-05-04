@@ -126,7 +126,12 @@ LEFT JOIN wedding_parties wp ON wp.id = fo.wedding_id;
 COMMENT ON VIEW reporting.fulfillment_orders_core IS
     'Fulfillment-order grain with readable customer identity and party labels. Use fulfillment_order_display_id for staff-facing order numbers.';
 
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('157_reporting_readability_contract.sql')
 ON CONFLICT (version) DO NOTHING;

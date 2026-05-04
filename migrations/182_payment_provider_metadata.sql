@@ -86,5 +86,15 @@ LEFT JOIN customers c ON c.id = pt.payer_id;
 COMMENT ON VIEW reporting.payment_ledger IS
     'Detailed payment audit log including provider metadata, card metadata, fees, and customer attribution.';
 
-GRANT SELECT ON reporting.merchant_reconciliation TO metabase_ro;
-GRANT SELECT ON reporting.payment_ledger TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON reporting.merchant_reconciliation TO metabase_ro;';
+    END IF;
+END$$;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON reporting.payment_ledger TO metabase_ro;';
+    END IF;
+END$$;

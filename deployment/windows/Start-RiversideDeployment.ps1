@@ -360,9 +360,15 @@ function Save-FormToConfig {
   $config.server.database.appPassword = $appPasswordText.Text
   $config.server.storeCustomerJwtSecret = $secretText.Text
 
-  $config.register.apiBase = $apiBaseText.Text.Trim()
-  $config.register.stationLabel = $stationLabelText.Text.Trim()
-  $config.register.cashDrawerEnabled = [bool]$cashDrawerCheck.Checked
+  if ($serverRadio.Checked) {
+    $config.register.apiBase = "http://127.0.0.1:3000"
+    $config.register.stationLabel = "Backoffice / Server"
+    $config.register.cashDrawerEnabled = $false
+  } else {
+    $config.register.apiBase = $apiBaseText.Text.Trim()
+    $config.register.stationLabel = $stationLabelText.Text.Trim()
+    $config.register.cashDrawerEnabled = [bool]$cashDrawerCheck.Checked
+  }
 
   if ($receiptModeCombo.SelectedItem -eq "Installed printer") {
     $config.register.receiptPrinter.mode = "system"
@@ -643,7 +649,7 @@ $checkButton.Add_Click({
       Add-Log "Config file will be created from the package template during install."
     }
     if ($serverRadio.Checked) {
-      foreach ($required in @("install-server.ps1", "server\riverside-server.exe", "client-dist", "migrations")) {
+      foreach ($required in @("install-server.ps1", "install-register.ps1", "server\riverside-server.exe", "client-dist", "migrations", "register")) {
         if (-not (Test-PackageFile $required)) {
           throw "Missing $required"
         }
@@ -659,7 +665,7 @@ $checkButton.Add_Click({
       if (Test-PlaceholderSecret $postgresPasswordText.Text) {
         Add-Log "PostgreSQL admin password is blank or placeholder. If PostgreSQL is installed by this manager, one will be generated."
       }
-      Add-Log "Server package files found."
+      Add-Log "Server and desktop app package files found."
       if ($psqlPath -and (Test-Path $psqlPath)) {
         Add-Log "PostgreSQL command found."
       }
@@ -697,6 +703,9 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
       Add-Log "$Action Backoffice / Server..."
       Invoke-Installer "install-server.ps1"
       Add-Log "Server $($Action.ToLowerInvariant()) complete."
+      Add-Log "$Action Backoffice desktop app..."
+      Invoke-Installer "install-register.ps1"
+      Add-Log "Backoffice desktop app $($Action.ToLowerInvariant()) complete."
     } elseif ($registerRadio.Checked) {
       Add-Log "$Action Register #1..."
       Invoke-Installer "install-register.ps1"
@@ -713,7 +722,9 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
     if ($serverRadio.Checked) {
       Add-Log "Repairing Backoffice / Server..."
       Invoke-Installer "install-server.ps1"
-      Add-Log "Server repair complete."
+      Add-Log "Repairing Backoffice desktop app..."
+      Invoke-Installer "install-register.ps1"
+      Add-Log "Backoffice / Server repair complete."
     } else {
       Add-Log "Repairing workstation settings..."
       Invoke-Installer "install-register.ps1" @("-SkipAppInstall", "-NoLaunch")

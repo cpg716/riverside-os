@@ -47,7 +47,12 @@ COMMENT ON VIEW reporting.payment_ledger IS
     'Detailed payment audit log including card metadata, fees, and customer attribution.';
 
 -- 4. Re-grant Metabase permissions
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('130_stripe_reporting_reconciliation.sql')
 ON CONFLICT (version) DO NOTHING;

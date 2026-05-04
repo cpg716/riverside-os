@@ -45,7 +45,12 @@ LEFT JOIN product_variants pv ON pv.id = oi.variant_id;
 COMMENT ON VIEW reporting.order_lines IS
     'Line grain: recognition dates + unit_cost / line_extended_cost / line_gross_margin_pre_tax (matches margin-pivot; cost frozen at checkout).';
 
-GRANT SELECT ON reporting.order_lines TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON reporting.order_lines TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('107_reporting_order_lines_margin.sql')
 ON CONFLICT (version) DO NOTHING;

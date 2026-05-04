@@ -1,5 +1,6 @@
 -- Metabase reporting: store-local business day, customer geo + display fields, staff names,
 -- and loyalty views. Uses SECURITY DEFINER timezone helper so metabase_ro never reads store_settings.
+-- metabase_ro grants are skipped when the role has not been provisioned by a PostgreSQL admin.
 -- Depends on: 90_reporting_insights.sql, 08_customer_profile_marketing.sql, 23_gift_cards_and_loyalty.sql, 28_customer_profile_and_code.sql.
 
 CREATE OR REPLACE FUNCTION reporting.effective_store_timezone()
@@ -32,7 +33,12 @@ COMMENT ON FUNCTION reporting.effective_store_timezone() IS
     'IANA timezone from store_settings.receipt_config (Receipt settings). SECURITY DEFINER for reporting views.';
 
 REVOKE ALL ON FUNCTION reporting.effective_store_timezone() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION reporting.effective_store_timezone() TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT EXECUTE ON FUNCTION reporting.effective_store_timezone() TO metabase_ro';
+    END IF;
+END$$;
 
 -- Replace views with a new column layout (Postgres OR REPLACE disallows incompatible column renames).
 DROP VIEW IF EXISTS reporting.order_lines CASCADE;
@@ -197,7 +203,12 @@ LEFT JOIN staff s ON s.id = lri.issued_by_staff_id;
 COMMENT ON VIEW reporting.loyalty_reward_issuances IS
     'Loyalty threshold rewards (points deducted, gift card / sale application).';
 
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('96_reporting_business_day_geo_loyalty.sql')
 ON CONFLICT (version) DO NOTHING;

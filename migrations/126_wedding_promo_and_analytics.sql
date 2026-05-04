@@ -22,7 +22,12 @@ LEFT JOIN orders o ON o.wedding_member_id = wm.id AND o.status <> 'cancelled'
 LEFT JOIN order_items oi ON oi.order_id = o.id
 GROUP BY wm.wedding_party_id;
 
-GRANT SELECT ON reporting.wedding_party_economics TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON reporting.wedding_party_economics TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('126_wedding_promo_and_analytics.sql')
 ON CONFLICT (version) DO NOTHING;

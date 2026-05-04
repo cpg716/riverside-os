@@ -302,7 +302,12 @@ GROUP BY c.id, c.customer_code, c.first_name, c.last_name, c.phone, c.email, c.l
 COMMENT ON VIEW reporting.loyalty_customer_snapshot IS
     'Customer loyalty snapshot with a unified customer_display_name for easy reporting.';
 
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('156_reporting_human_readability_refresh.sql')
 ON CONFLICT (version) DO NOTHING;

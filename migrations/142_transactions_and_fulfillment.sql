@@ -147,8 +147,18 @@ AS $$
 $$;
 
 -- Grant permissions to Metabase
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
-GRANT SELECT ON fulfillment_orders TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;';
+    END IF;
+END$$;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON fulfillment_orders TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('142_transactions_and_fulfillment.sql')
 ON CONFLICT (version) DO NOTHING;

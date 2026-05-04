@@ -94,7 +94,12 @@ END $$;
 COMMENT ON VIEW reporting.order_lines IS
     'Line grain with frozen unit_cost, line_extended_cost, and line_gross_margin_pre_tax for booked/fulfilled reporting.';
 
-GRANT SELECT ON reporting.order_lines TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON reporting.order_lines TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('150_reporting_order_lines_margin_restore.sql')
 ON CONFLICT (version) DO NOTHING;

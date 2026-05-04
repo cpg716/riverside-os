@@ -50,7 +50,12 @@ ORDER BY s.created_at DESC;
 COMMENT ON VIEW reporting.shipments_active IS 'Detailed shipment history with joined customer identifiers and financial quotes.';
 
 -- Re-grant access after potential drops or new creations
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('124_reporting_readability_ext.sql')
 ON CONFLICT (version) DO NOTHING;

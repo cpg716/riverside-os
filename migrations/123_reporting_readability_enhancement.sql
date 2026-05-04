@@ -174,7 +174,12 @@ LEFT JOIN daily_burn db ON ad.event_date = db.event_date
 ORDER BY ad.event_date DESC;
 
 -- Re-grant access after drops
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('123_reporting_readability_enhancement.sql')
 ON CONFLICT (version) DO NOTHING;

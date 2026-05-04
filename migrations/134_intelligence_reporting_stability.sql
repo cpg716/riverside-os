@@ -149,7 +149,12 @@ COMMENT ON VIEW reporting.daily_order_totals_recognized IS
     'COMPLETED-revenue aggregates by store-local recognition day (fulfilled_at or ship events).';
 
 -- Re-grant access
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;';
+    END IF;
+END$$;
 
 INSERT INTO ros_schema_migrations (version) VALUES ('134_intelligence_reporting_stability.sql')
 ON CONFLICT (version) DO NOTHING;

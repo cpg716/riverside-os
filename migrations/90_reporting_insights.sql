@@ -66,26 +66,42 @@ COMMENT ON VIEW reporting.daily_order_totals IS
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
-        CREATE ROLE metabase_ro WITH LOGIN;
+        BEGIN
+            CREATE ROLE metabase_ro WITH LOGIN;
+        EXCEPTION
+            WHEN insufficient_privilege THEN
+                RAISE NOTICE 'Skipping metabase_ro role creation; run as a PostgreSQL admin if Metabase reporting is needed.';
+        END;
     END IF;
 END$$;
 
-COMMENT ON ROLE metabase_ro IS
-    'Metabase read-only: GRANT SELECT on reporting.* only. Set password with ALTER ROLE after migration.';
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'COMMENT ON ROLE metabase_ro IS ''Metabase read-only: GRANT SELECT on reporting.* only. Set password with ALTER ROLE after migration.''';
+    END IF;
+END$$;
 
 DO $$
 DECLARE
     dbname text := current_database();
 BEGIN
-    EXECUTE format('GRANT CONNECT ON DATABASE %I TO metabase_ro', dbname);
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE format('GRANT CONNECT ON DATABASE %I TO metabase_ro', dbname);
+    END IF;
 EXCEPTION
     WHEN insufficient_privilege THEN
         RAISE NOTICE 'Skipping GRANT CONNECT for metabase_ro (run as superuser if needed).';
 END$$;
 
-GRANT USAGE ON SCHEMA reporting TO metabase_ro;
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
-ALTER DEFAULT PRIVILEGES IN SCHEMA reporting GRANT SELECT ON TABLES TO metabase_ro;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT USAGE ON SCHEMA reporting TO metabase_ro';
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro';
+        EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA reporting GRANT SELECT ON TABLES TO metabase_ro';
+    END IF;
+END$$;
 
 -- Persisted Insights / Metabase policy for Settings UI + API.
 ALTER TABLE store_settings

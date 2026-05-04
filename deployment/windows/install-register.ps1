@@ -55,12 +55,47 @@ function Write-StationConfig($Config) {
   return $path
 }
 
+function Stop-RiversideDesktopApp {
+  foreach ($name in @("Riverside POS", "Riverside.POS", "RiversideOS", "riverside-pos")) {
+    Stop-Process -Name $name -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Uninstall-ExistingRiversideApp {
+  Stop-RiversideDesktopApp
+  $registryPaths = @(
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+  )
+
+  $apps = foreach ($path in $registryPaths) {
+    Get-ItemProperty $path -ErrorAction SilentlyContinue |
+      Where-Object { $_.DisplayName -match "Riverside" -and ($_.DisplayName -match "POS|OS") }
+  }
+
+  foreach ($app in $apps) {
+    Write-Host "Removing existing Riverside desktop app $($app.DisplayName) $($app.DisplayVersion)"
+    if ($app.PSChildName -match "^\{.*\}$") {
+      $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/x", $app.PSChildName, "/qn", "/norestart") -Wait -PassThru
+      if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+        throw "Existing Riverside desktop uninstall failed with exit code $($proc.ExitCode)."
+      }
+    } elseif ($app.UninstallString) {
+      $proc = Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", $app.UninstallString) -Wait -PassThru
+      if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+        throw "Existing Riverside desktop uninstall failed with exit code $($proc.ExitCode)."
+      }
+    }
+  }
+}
+
 function Install-RegisterApp($InstallerPath) {
   $extension = [IO.Path]::GetExtension($InstallerPath).ToLowerInvariant()
   if ($extension -eq ".msi") {
     $args = @("/i", "`"$InstallerPath`"", "/qn", "/norestart")
     $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList $args -Wait -PassThru
-    if ($proc.ExitCode -ne 0) {
+    if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
       throw "MSI install failed with exit code $($proc.ExitCode)"
     }
     return
@@ -97,6 +132,7 @@ Write-Host "Station setup written to $stationConfigPath"
 
 if (-not $SkipAppInstall) {
   $installer = Find-RegisterInstaller
+  Uninstall-ExistingRiversideApp
   Write-Host "Installing Riverside desktop app from $installer"
   Install-RegisterApp $installer
 }

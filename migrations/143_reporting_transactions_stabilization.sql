@@ -152,8 +152,18 @@ WHERE status <> 'cancelled' AND recognition_at IS NOT NULL
 GROUP BY 1;
 
 -- Finalize Permissions
-GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO metabase_ro; -- Ensure base table access
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO metabase_ro;';
+    END IF;
+END$$;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'metabase_ro') THEN
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO metabase_ro;';
+    END IF;
+END$$; -- Ensure base table access
 
 INSERT INTO ros_schema_migrations (version) VALUES ('143_reporting_transactions_stabilization.sql')
 ON CONFLICT (version) DO NOTHING;

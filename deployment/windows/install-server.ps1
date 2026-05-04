@@ -8,6 +8,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:lastNativeCommandOutput = ""
 
 function Assert-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -73,6 +74,7 @@ function Invoke-NativeCommand([string]$FilePath, [string[]]$Arguments) {
   $stdout = $process.StandardOutput.ReadToEnd()
   $stderr = $process.StandardError.ReadToEnd()
   $process.WaitForExit()
+  $script:lastNativeCommandOutput = (($stdout, $stderr) | Where-Object { $_ } | ForEach-Object { $_.TrimEnd() }) -join "`n"
 
   if ($stdout) {
     Write-Host $stdout.TrimEnd()
@@ -90,7 +92,7 @@ function Invoke-Psql($PsqlPath, $DatabaseUrl, $Sql) {
     [System.IO.File]::WriteAllText($temp.FullName, $Sql, $utf8NoBom)
     $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-f", $temp.FullName)
     if ($exitCode -ne 0) {
-      throw "psql failed with exit code $exitCode"
+      throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
     }
   } finally {
     Remove-Item $temp -Force -ErrorAction SilentlyContinue
@@ -100,7 +102,7 @@ function Invoke-Psql($PsqlPath, $DatabaseUrl, $Sql) {
 function Invoke-PsqlFile($PsqlPath, $DatabaseUrl, $FilePath) {
   $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-f", $FilePath)
   if ($exitCode -ne 0) {
-    throw "psql failed with exit code $exitCode"
+    throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
   }
 }
 
@@ -121,6 +123,63 @@ function Invoke-PsqlAdminDatabase($PsqlPath, $Db, $DatabaseName, $Sql) {
     Invoke-Psql $PsqlPath $adminUrl $Sql
   } finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+  }
+}
+
+function Ensure-OptionalReportingRole($PsqlPath, $Db) {
+  try {
+    Invoke-PsqlAdmin $PsqlPath $Db "DO `$`$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'metabase_ro') THEN CREATE ROLE metabase_ro NOLOGIN; END IF; END `$`$;"
+  } catch {
+    Write-Warning "Could not create optional reporting role metabase_ro. Reporting grants will be skipped where supported."
+  }
+}
+
+function Ensure-DatabaseExtension($PsqlPath, $Db, [string]$DatabaseName, [string]$ExtensionName) {
+  try {
+    Invoke-PsqlAdminDatabase $PsqlPath $Db $DatabaseName "CREATE EXTENSION IF NOT EXISTS ""$ExtensionName"";"
+  } catch {
+    Write-Warning "Could not preinstall PostgreSQL extension $ExtensionName. The matching migration will report details if it is required."
+  }
+}
+
+function Ensure-BootstrapAdmin($PsqlPath, $DatabaseUrl) {
+  $bootstrapPinHash = '$argon2id$v=19$m=19456,t=2,p=1$KWJoKjtQYNuPjRIyKL2M9g$FBpoET53ejevTU5LrsLTzQMrgXpV5NavqruJmerdPsc'
+  Invoke-Psql $PsqlPath $DatabaseUrl @"
+INSERT INTO staff (
+  full_name,
+  cashier_code,
+  pin_hash,
+  role,
+  is_active,
+  avatar_key
+)
+VALUES (
+  'Chris G',
+  '1234',
+  '$bootstrapPinHash',
+  'admin',
+  TRUE,
+  'ros_default'
+)
+ON CONFLICT (cashier_code) DO UPDATE
+SET
+  full_name = EXCLUDED.full_name,
+  pin_hash = EXCLUDED.pin_hash,
+  role = EXCLUDED.role,
+  is_active = TRUE,
+  avatar_key = COALESCE(staff.avatar_key, EXCLUDED.avatar_key);
+"@
+}
+
+function Stop-RiversideServer {
+  Stop-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 1
+  foreach ($process in Get-Process -Name "riverside-server" -ErrorAction SilentlyContinue) {
+    try {
+      Stop-Process -Id $process.Id -Force -ErrorAction Stop
+    } catch {
+      Write-Warning "Could not stop Riverside server process $($process.Id): $($_.Exception.Message)"
+    }
   }
 }
 
@@ -181,7 +240,7 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
     try {
       Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
     } catch {
-      throw "Migration failed: $($file.Name)"
+      throw "Migration failed: $($file.Name). $($_.Exception.Message)"
     }
     Invoke-Psql $PsqlPath $DatabaseUrl "INSERT INTO ros_schema_migrations (version) VALUES ('$($file.Name)') ON CONFLICT (version) DO NOTHING;"
   }
@@ -219,6 +278,9 @@ if (-not (Test-Path $packageDist)) {
 if (-not (Test-Path $packageMigrations)) {
   throw "Missing migrations folder in package: $packageMigrations"
 }
+
+$taskName = "Riverside OS Server"
+Stop-RiversideServer
 
 Copy-Item $packageServerExe (Join-Path $serverDir "riverside-server.exe") -Force
 Remove-Item "$clientDist\*" -Recurse -Force -ErrorAction SilentlyContinue
@@ -260,6 +322,9 @@ END
   }
   Invoke-PsqlAdmin $psql $db "ALTER DATABASE ""$databaseName"" OWNER TO ""$appUser""; GRANT CREATE ON DATABASE ""$databaseName"" TO ""$appUser"";"
   Invoke-PsqlAdminDatabase $psql $db $databaseName "ALTER SCHEMA public OWNER TO ""$appUser""; GRANT ALL ON SCHEMA public TO ""$appUser"";"
+  Ensure-OptionalReportingRole $psql $db
+  Ensure-DatabaseExtension $psql $db $databaseName "uuid-ossp"
+  Ensure-DatabaseExtension $psql $db $databaseName "pg_trgm"
 }
 
 if (-not $SkipMigrations) {
@@ -271,6 +336,14 @@ if (-not $SkipMigrations) {
   }
 }
 
+$env:PGPASSWORD = $db.appPassword
+try {
+  Ensure-BootstrapAdmin $psql $databaseUrl
+  Write-Host "Bootstrap admin ready: Chris G / Access PIN 1234"
+} finally {
+  Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+}
+
 $envPath = Join-Path $serverDir ".env"
 Write-ServerEnv $envPath $config $databaseUrl $clientDist
 
@@ -279,7 +352,6 @@ if (-not $SkipFirewall) {
   New-NetFirewallRule -DisplayName $server.firewallRuleName -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -Profile Private -ErrorAction SilentlyContinue | Out-Null
 }
 
-$taskName = "Riverside OS Server"
 $serverExe = Join-Path $serverDir "riverside-server.exe"
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 $action = New-ScheduledTaskAction -Execute $serverExe -WorkingDirectory $serverDir
