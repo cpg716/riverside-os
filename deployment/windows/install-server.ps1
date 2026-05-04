@@ -52,17 +52,55 @@ function Ensure-PostgresServiceRunning {
   Set-Service -Name $service.Name -StartupType Automatic
 }
 
+function ConvertTo-NativeArgument([string]$Argument) {
+  if ($Argument -notmatch '[\s"]') {
+    return $Argument
+  }
+  return '"' + ($Argument -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+}
+
+function Invoke-NativeCommand([string]$FilePath, [string[]]$Arguments) {
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $FilePath
+  $psi.Arguments = ($Arguments | ForEach-Object { ConvertTo-NativeArgument $_ }) -join " "
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $psi
+  [void]$process.Start()
+  $stdout = $process.StandardOutput.ReadToEnd()
+  $stderr = $process.StandardError.ReadToEnd()
+  $process.WaitForExit()
+
+  if ($stdout) {
+    Write-Host $stdout.TrimEnd()
+  }
+  if ($stderr) {
+    Write-Host $stderr.TrimEnd()
+  }
+  return $process.ExitCode
+}
+
 function Invoke-Psql($PsqlPath, $DatabaseUrl, $Sql) {
   $temp = New-TemporaryFile
   try {
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText($temp.FullName, $Sql, $utf8NoBom)
-    & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -f $temp
-    if ($LASTEXITCODE -ne 0) {
-      throw "psql failed with exit code $LASTEXITCODE"
+    $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-f", $temp.FullName)
+    if ($exitCode -ne 0) {
+      throw "psql failed with exit code $exitCode"
     }
   } finally {
     Remove-Item $temp -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Invoke-PsqlFile($PsqlPath, $DatabaseUrl, $FilePath) {
+  $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-f", $FilePath)
+  if ($exitCode -ne 0) {
+    throw "psql failed with exit code $exitCode"
   }
 }
 
@@ -140,8 +178,9 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
       continue
     }
     Write-Host "Apply migration $($file.Name)"
-    & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -f $file.FullName
-    if ($LASTEXITCODE -ne 0) {
+    try {
+      Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
+    } catch {
       throw "Migration failed: $($file.Name)"
     }
     Invoke-Psql $PsqlPath $DatabaseUrl "INSERT INTO ros_schema_migrations (version) VALUES ('$($file.Name)') ON CONFLICT (version) DO NOTHING;"
