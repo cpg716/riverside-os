@@ -170,8 +170,6 @@ pub struct CheckoutRequest {
     /// carries the matching authoritative address snapshot.
     #[serde(default)]
     pub ship_to: Option<Value>,
-    #[serde(default)]
-    pub stripe_payment_method_id: Option<String>,
     /// Legacy field is not safe for mixed current-sale + existing-order allocations.
     /// Use `order_payments[]`.
     #[serde(default)]
@@ -221,7 +219,6 @@ pub struct ResolvedPaymentSplit {
     pub amount: Decimal,
     pub gift_card_code: Option<String>,
     pub metadata: serde_json::Value,
-    pub stripe_intent_id: Option<String>,
     pub payment_provider: Option<String>,
     pub provider_payment_id: Option<String>,
     pub provider_status: Option<String>,
@@ -1273,27 +1270,19 @@ fn resolve_payment_splits(
                     }
                     normalized_meta = Value::Object(object);
                 }
-                let stripe_intent_id = normalized_meta
-                    .get("stripe_intent_id")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string());
                 let payment_provider = normalized_meta
                     .get("payment_provider")
                     .or_else(|| normalized_meta.get("provider"))
                     .and_then(|v| v.as_str())
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
-                    .map(str::to_ascii_lowercase)
-                    .or_else(|| stripe_intent_id.as_ref().map(|_| "stripe".to_string()));
+                    .map(str::to_ascii_lowercase);
                 let provider_payment_id = normalized_meta
                     .get("provider_payment_id")
                     .and_then(|v| v.as_str())
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .or_else(|| stripe_intent_id.clone());
+                    .map(|s| s.to_string());
                 let provider_status = metadata_optional_text(&normalized_meta, "provider_status");
                 if payment_provider.as_deref() == Some("helcim") {
                     let status = provider_status
@@ -1342,22 +1331,13 @@ fn resolve_payment_splits(
                     ));
                 }
 
-                let fee = if stripe_intent_id.is_some() {
-                    estimate_stripe_fee(
-                        a,
-                        m.to_lowercase().contains("terminal")
-                            || m.to_lowercase().contains("present"),
-                    )
-                } else {
-                    Decimal::ZERO
-                };
+                let fee = Decimal::ZERO;
 
                 out.push(ResolvedPaymentSplit {
                     method: m.to_string(),
                     amount: a,
                     gift_card_code: gift_card_code.clone(),
                     metadata: normalized_meta,
-                    stripe_intent_id,
                     payment_provider,
                     provider_payment_id,
                     provider_status,
@@ -1412,7 +1392,6 @@ fn resolve_payment_splits(
             amount: amount_paid,
             gift_card_code: None,
             metadata: json!({}),
-            stripe_intent_id: None,
             payment_provider: None,
             provider_payment_id: None,
             provider_status: None,
@@ -3485,14 +3464,14 @@ pub async fn execute_checkout(
                 r#"
                 INSERT INTO payment_transactions (
                     session_id, wedding_member_id, category, payment_method, amount, metadata,
-                    stripe_intent_id, payment_provider, provider_payment_id, provider_status,
+                    payment_provider, provider_payment_id, provider_status,
                     provider_terminal_id, provider_transaction_id, provider_auth_code,
                     provider_card_type, merchant_fee, net_amount, card_brand, card_last4,
                     check_number
                 )
                 VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                    $11, $12, $13, $14, $15, $16, $17, $18, $19
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18
                 )
                 RETURNING id
                 "#,
@@ -3503,7 +3482,6 @@ pub async fn execute_checkout(
             .bind(method)
             .bind(split.amount)
             .bind(&split.metadata)
-            .bind(&split.stripe_intent_id)
             .bind(&split.payment_provider)
             .bind(&split.provider_payment_id)
             .bind(&split.provider_status)
@@ -4088,22 +4066,6 @@ pub async fn evaluate_combo_incentives(
     Ok(rewards)
 }
 
-/// Estimates Stripe processing fees to provide immediate net financial reporting.
-/// In-person (Terminal) defaults to 2.7% + $0.05. Online / Manual Entry defaults to 2.9% + $0.30.
-fn estimate_stripe_fee(amount: Decimal, is_terminal: bool) -> Decimal {
-    if is_terminal {
-        // 2.7% + 5 cents
-        let pct = amount * Decimal::new(27, 3); // 0.027
-        let fixed = Decimal::new(5, 2); // 0.05
-        (pct + fixed).round_dp(2)
-    } else {
-        // 2.9% + 30 cents
-        let pct = amount * Decimal::new(29, 3); // 0.029
-        let fixed = Decimal::new(30, 2); // 0.30
-        (pct + fixed).round_dp(2)
-    }
-}
-
 async fn fetch_variant_pos_line_kind<'e, E>(
     conn: E,
     variant_id: Uuid,
@@ -4398,7 +4360,6 @@ mod tests {
             amount,
             gift_card_code: None,
             metadata: json!({}),
-            stripe_intent_id: None,
             payment_provider: None,
             provider_payment_id: None,
             provider_status: None,
@@ -4945,7 +4906,6 @@ mod tests {
             shipping_rate_quote_id: None,
             fulfillment_mode: None,
             ship_to: None,
-            stripe_payment_method_id: None,
             target_transaction_id: None,
             is_rush: false,
             need_by_date: None,

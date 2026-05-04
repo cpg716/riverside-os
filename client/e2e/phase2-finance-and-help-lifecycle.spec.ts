@@ -363,8 +363,8 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
   test("payments/session endpoints remain auth-gated and contract-safe", async ({
     request,
   }) => {
-    const anonIntent = await request.post(`${apiBase()}/api/payments/intent`, {
-      data: { amount_due: "1.00" },
+    const anonIntent = await request.post(`${apiBase()}/api/payments/providers/helcim/purchase`, {
+      data: { amount_cents: 100, currency: "usd" },
       failOnStatusCode: false,
     });
     expect(anonIntent.status()).toBe(401);

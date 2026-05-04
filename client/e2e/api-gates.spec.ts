@@ -65,14 +65,79 @@ test.describe("API auth gates", () => {
     expect(res.status(), `body: ${(await res.text()).slice(0, 200)}`).toBe(401);
   });
 
-  test("POST /api/payments/intent without auth returns 401", async ({
+  test("POST /api/payments/providers/helcim/purchase without auth returns 401", async ({
     request,
   }) => {
     /** Playwright `APIRequestContext` ignores `json`; use `data` so `Content-Type: application/json` is set. */
-    const res = await request.post(`${apiBase()}/api/payments/intent`, {
-      data: { amount_due: "1.00" },
+    const res = await request.post(`${apiBase()}/api/payments/providers/helcim/purchase`, {
+      data: { amount_cents: 100, currency: "usd" },
     });
     expect(res.status()).toBe(401);
+  });
+
+  test("expanded Helcim provider endpoints reject anonymous callers", async ({
+    request,
+  }) => {
+    const postCases: Array<{ path: string; data: unknown }> = [
+      {
+        path: "/api/payments/providers/helcim/terminal/refund",
+        data: { amount_cents: 100, original_transaction_id: 123 },
+      },
+      {
+        path: "/api/payments/providers/helcim/card-token/purchase",
+        data: { amount_cents: 100, card_token: "tok_test", currency: "usd" },
+      },
+      {
+        path: "/api/payments/providers/helcim/card/refund",
+        data: { amount_cents: 100, original_transaction_id: 123 },
+      },
+      {
+        path: "/api/payments/providers/helcim/card/reverse",
+        data: { original_transaction_id: 123 },
+      },
+      {
+        path: "/api/payments/providers/helcim/helcim-pay/initialize",
+        data: { amount_cents: 100, currency: "usd" },
+      },
+      {
+        path: "/api/payments/providers/helcim/helcim-pay/confirm",
+        data: {
+          attempt_id: "00000000-0000-0000-0000-000000000000",
+          checkout_token: "checkout",
+          data: {},
+          hash: "hash",
+        },
+      },
+      {
+        path: "/api/payments/providers/helcim/customers/1/cards/1/default",
+        data: {},
+      },
+    ];
+
+    for (const { path, data } of postCases) {
+      const res = await request.post(`${apiBase()}${path}`, {
+        data,
+        failOnStatusCode: false,
+      });
+      expect(res.status(), `${path} should require auth`).toBe(401);
+    }
+
+    const getCases = [
+      "/api/payments/providers/helcim/customers",
+      "/api/payments/providers/helcim/customers/1/cards",
+    ];
+    for (const path of getCases) {
+      const res = await request.get(`${apiBase()}${path}`, {
+        failOnStatusCode: false,
+      });
+      expect(res.status(), `${path} should require auth`).toBe(401);
+    }
+
+    const deleteRes = await request.delete(
+      `${apiBase()}/api/payments/providers/helcim/customers/1/cards/1`,
+      { failOnStatusCode: false },
+    );
+    expect(deleteRes.status()).toBe(401);
   });
 
   test("GET /api/settings/receipt without staff returns 401 or 403", async ({

@@ -1,8 +1,8 @@
 # Plan: Online Store module (ROS-native, deeply integrated)
 
-> **FUTURE ADDITION (product lock):** **Paid web checkout** (`POST /api/store/checkout`, Stripe), **binding `rate_quote_id` into paid totals**, **post-payment Shippo label purchase**, and **Shippo tracking webhooks for guest orders** are **explicitly out of scope** until this module ships checkout. **`/shop`** may show **shipping rate estimates** for UX only; **POS, Orders, and Shipments hub** are the supported Shippo/label flows today — see **[`PLAN_SHIPPO_SHIPPING.md`](./PLAN_SHIPPO_SHIPPING.md)**.
+> **FUTURE ADDITION (product lock):** **Paid web checkout** (`POST /api/store/checkout`, Helcim), **binding `rate_quote_id` into paid totals**, **post-payment Shippo label purchase**, and **Shippo tracking webhooks for guest orders** are **explicitly out of scope** until this module ships checkout. **`/shop`** may show **shipping rate estimates** for UX only; **POS, Orders, and Shipments hub** are the supported Shippo/label flows today — see **[`PLAN_SHIPPO_SHIPPING.md`](./PLAN_SHIPPO_SHIPPING.md)**.
 
-**Status:** **Partially implemented** — migrations **73**–**77** are shipped; public **`/shop`** supports catalog, CMS pages, guest + server cart, tax/shipping **estimates**, coupons **preview**, and **customer accounts** (JWT). **Paid web checkout** (**Stripe** + **`POST /api/store/checkout`**) is **not** built; neither is **Insights** reporting by **`sale_channel`**. Canonical operator/dev detail: **[`docs/ONLINE_STORE.md`](./ONLINE_STORE.md)**.
+**Status:** **Partially implemented** — migrations **73**–**77** are shipped; public **`/shop`** supports catalog, CMS pages, guest + server cart, tax/shipping **estimates**, coupons **preview**, customer accounts (JWT), and HelcimPay.js payment finalization through **`POST /api/store/checkout`**. Live Helcim certification and first-class **Insights** reporting by **`sale_channel`** remain open. Canonical operator/dev detail: **[`docs/ONLINE_STORE.md`](./ONLINE_STORE.md)**.
 
 **Product posture (2026):** Full **ecommerce checkout** and broad online-store expansion are **paused**; Riverside is prioritizing other work (e.g. **Podium reviews** — **[`docs/PLAN_PODIUM_REVIEWS.md`](./PLAN_PODIUM_REVIEWS.md)**). **Deferred goals** for a future **loyalty-oriented web account** (single **`customers`** base, identity match at sign-up, unified in-store + online purchase history — **not** a monolithic “one box” for staff) live in **[`docs/PLAN_ONLINE_STORE_UNIFIED_CUSTOMER.md`](./PLAN_ONLINE_STORE_UNIFIED_CUSTOMER.md)**.
 
@@ -14,10 +14,10 @@ Implementation plan for a **first-party e-commerce surface** that is **not a bol
 
 | **Shipped today** | **Still open (priority roughly top → bottom)** |
 |-------------------|-----------------------------------------------|
-| **Schema 73–77:** `orders.sale_channel`, web variant flags, `store_pages` / coupons / tax rate table, Shippo columns + `store_shipping_rate_quote`, **`shipment`** hub (**75**), **`store_guest_cart`** + **`store_media_asset`** (**76**), **`customer_created_source`** + **`customer_online_credential`** + JWT store accounts (**77**). | **Web checkout (Phase C):** **`POST /api/store/checkout`**, Stripe (Payment Element or Checkout Session), webhook, create **`orders`** with `sale_channel = web`, persist cart address/tax/coupon snapshot, increment coupon **`uses_count`**, **stock lock at payment**. |
+| **Schema 73–77:** `orders.sale_channel`, web variant flags, `store_pages` / coupons / tax rate table, Shippo columns + `store_shipping_rate_quote`, **`shipment`** hub (**75**), **`store_guest_cart`** + **`store_media_asset`** (**76**), **`customer_created_source`** + **`customer_online_credential`** + JWT store accounts (**77**). | **Web checkout hardening (Phase C):** HelcimPay.js certification, webhook/finality drills, create **`orders`** with `sale_channel = web`, persist cart address/tax/coupon snapshot, increment coupon **`uses_count`**, **stock lock at payment**. |
 | **Public API:** catalog, pages (sanitized HTML), **`POST /cart/lines`**, **`/cart/session`**, coupon preview, **`GET /tax/preview`**, **`POST /shipping/rates`** (stub or live Shippo), **`GET /media/{id}`**; **`/api/store/account/*`** (register, login, activate, me, password, orders). Rate limits: **`store_account_rate`**. | **Shippo after rates (Phase C2):** bind **`rate_quote_id`** into paid checkout, buy label, tracking webhooks; POS/order flows per **[`PLAN_SHIPPO_SHIPPING.md`](./PLAN_SHIPPO_SHIPPING.md)**. Optional: variant **weight/dimensions** for better quotes (**§9**). |
 | **Admin API:** pages CRUD/publish, coupons, Studio **asset** upload. **`online_store.manage`** (+ **`settings.admin`** where coded). | **Reporting (Phase E):** Orders UI + **Insights** pivot/filter on **`sale_channel`** (column exists; no first-class reporting yet). |
-| **Public UI:** **`PublicStorefront`** — PLP, faceted PDP, cart (localStorage + server session), pickup vs ship + rate picker, tax/coupon **estimate**, **`?promo=`**; **`/shop/account`** profile + order list/detail. | **Tax v2:** persist **`tax_breakdown`** on web orders (needs checkout); nexus flags in Settings; optional **Stripe Tax** or external rate API (**§6**). |
+| **Public UI:** **`PublicStorefront`** — PLP, faceted PDP, cart (localStorage + server session), pickup vs ship + rate picker, tax/coupon **estimate**, **`?promo=`**; **`/shop/account`** profile + order list/detail. | **Tax v2:** persist **`tax_breakdown`** on web orders (needs checkout); nexus flags in Settings; optional **Helcim Tax** or external rate API (**§6**). |
 | **Inventory / BO:** web column, filters, bulk publish, matrix **web $** / gallery / **publish new variants to web**; **Settings → Online store** (raw HTML + **GrapesJS Studio** lazy chunk, coupons). | **On-site integrations (Phase D):** Podium **widget** in storefront shell; **transactional email** after payment (extend **[`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md)**); **Constant Contact** embed + optional checkout marketing opt-in (**§7**, **[`PLAN_CONSTANT_CONTACT_INTEGRATION.md`](./PLAN_CONSTANT_CONTACT_INTEGRATION.md)**). |
 | | **Coupons (beyond preview):** per-customer limits, stacking rules, category/SKU scope; richer staff edit + usage analytics (**§4**). |
 | | **Studio ops:** production **SDK license** + **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** / domain allowlist (**Phase A**); CSP + optional **custom blocks** for featured products (**§5**). |
@@ -44,7 +44,7 @@ Implementation plan for a **first-party e-commerce surface** that is **not a bol
 
 **CMS / visual builder:** **[GrapesJS Studio SDK](https://app.grapesjs.com/docs-sdk/overview/getting-started)** is **wired** in **Settings → Online store** (**self** storage → **`PATCH project_json`**; export HTML to raw draft). **`store_pages.project_json`** + **`published_html`**; public **`GET /api/store/pages/{slug}`** serves **sanitized** **`published_html`**. See **§5** and **`docs/ONLINE_STORE.md`**.
 
-**Public shop UI:** **`/shop`** uses **shadcn-style** owned components under **`client/src/components/ui-shadcn/`** with **`components.json`**, **`cn()`** (**`client/src/lib/utils.ts`**), Radix primitives, and **TanStack Query** — aligned with the **[shadcn/ui](https://ui.shadcn.com/)** approach without duplicating the Back Office **`ui-*`** system. **Stripe checkout** — Phase C. Details: **`docs/ONLINE_STORE.md`**, **§5** subsection **Public shop UI**.
+**Public shop UI:** **`/shop`** uses **shadcn-style** owned components under **`client/src/components/ui-shadcn/`** with **`components.json`**, **`cn()`** (**`client/src/lib/utils.ts`**), Radix primitives, and **TanStack Query** — aligned with the **[shadcn/ui](https://ui.shadcn.com/)** approach without duplicating the Back Office **`ui-*`** system. **Helcim checkout** — Phase C. Details: **`docs/ONLINE_STORE.md`**, **§5** subsection **Public shop UI**.
 
 ---
 
@@ -73,7 +73,7 @@ Implementation plan for a **first-party e-commerce surface** that is **not a bol
 | “Apps” | **CC embed** (marketing); **Podium** — storefront **widget** + **transactional email** (and existing **SMS**) per Settings / Podium plan |
 | Shipping | **Shippo** — rates + labels; shared `logic/shippo.rs` for **web + POS** |
 
-**Money:** `rust_decimal::Decimal` everywhere except Stripe cent boundaries.
+**Money:** `rust_decimal::Decimal` everywhere except Helcim cent boundaries.
 
 ---
 
@@ -113,7 +113,7 @@ Implementation plan for a **first-party e-commerce surface** that is **not a bol
 
 ### Requirements
 
-- Codes are **entered at cart** (and pre-applied via **`?promo=`** when the cart URL includes it). **Shipped:** **`POST /api/store/cart/coupon`** preview; **`?promo=`** on **`/shop/cart`**. Full checkout application — **pending** Stripe Phase C.
+- Codes are **entered at cart** (and pre-applied via **`?promo=`** when the cart URL includes it). **Shipped:** **`POST /api/store/cart/coupon`** preview; **`?promo=`** on **`/shop/cart`**. Full checkout application — **pending** Helcim Phase C.
 - **Validation only on server**: existence, date window, **min subtotal**, **max redemptions** (global; **per-customer email** not yet), **stacking rules** (e.g. one code per order unless flagged). **Shipped:** global window, min subtotal, max uses, kinds **percent** / **fixed_amount** / **free_shipping**. **`uses_count`** is **not** incremented on cart preview (increment on paid web order — **pending**).
 - **Types**: **percent off** (cap max discount $ optional), **fixed amount off**, **free shipping** (if shipping module exists).
 - **Scope** (MVP → full): **entire cart** first; later **include/exclude category or product IDs**.
@@ -132,9 +132,9 @@ Implementation plan for a **first-party e-commerce surface** that is **not a bol
 
 - **Settings → Online store → Coupons** — **shipped:** list, create, activate/deactivate (**`PATCH`**). Full edit UI / usage analytics — **lightweight** (see `OnlineStoreSettingsPanel.tsx`).
 
-### Stripe
+### Helcim
 
-- Pass **final** discounted line totals into Checkout Session / PaymentIntent metadata; persisted on **`order_items`** consistent with POS discount lines.
+- Pass **final** discounted line totals into Helcim checkout metadata / invoice context where supported; persist on **`order_items`** consistent with POS discount lines.
 
 ---
 
@@ -184,11 +184,11 @@ Deliver a **professional, modern** catalog and checkout experience: grids, galle
 
 | Area | Implication |
 |------|-------------|
-| **Scope** | Use shadcn for **transactional shop routes** (`/products`, `/products/:slug`, `/cart`, `/checkout`, etc.) and shared **storefront chrome** (header/footer) where those are **React-rendered**. **Studio** remains for **editorial** pages served as published HTML or hybrid shell — reserve **`/cart` / `/checkout`** (and API-driven PLP/PDP) for the React app so state and Stripe stay coherent. |
+| **Scope** | Use shadcn for **transactional shop routes** (`/products`, `/products/:slug`, `/cart`, `/checkout`, etc.) and shared **storefront chrome** (header/footer) where those are **React-rendered**. **Studio** remains for **editorial** pages served as published HTML or hybrid shell — reserve **`/cart` / `/checkout`** (and API-driven PLP/PDP) for the React app so state and Helcim stay coherent. |
 | **Tailwind** | Storefront uses **scoped** **`storefront.*`** variables on **`[data-storefront]`** (see **`docs/ONLINE_STORE.md`**) so BO **`ui-*`** / **`app`** tokens stay unchanged for staff surfaces. |
 | **Accessibility** | Prefer **Radix**-backed primitives for focus, dialogs, and sheets; align with [`useDialogAccessibility`](../client/src/hooks/useDialogAccessibility.ts) expectations where patterns overlap. |
 | **Data fetching** | **TanStack Query** — **shipped** for **`/shop`**; extend the same pattern for future checkout routes. |
-| **Payments** | Integrate **Stripe** via **`@stripe/react-stripe-js`** and **`@stripe/stripe-js`** (Payment Element or Checkout redirect) inside shadcn-styled **Card** / **Form** layouts — see §4 Stripe notes and Phase C. |
+| **Payments** | Integrate **Helcim** through HelcimPay.js hosted payment sessions inside shadcn-styled **Card** / **Form** layouts — see §4 Helcim notes and Phase C. |
 | **Optional add-ons** | **Embla Carousel** (often paired with shadcn carousel) for PDP **image galleries**. **PLP text search** is **shipped**: **`GET /api/store/products?search=`** with optional self-hosted **Meilisearch** + SQL hydration when **`RIVERSIDE_MEILISEARCH_URL`** is set — see **`docs/ONLINE_STORE.md`**, **`docs/SEARCH_AND_PAGINATION.md`**. |
 | **Maintenance** | Components are **owned code**; upstream shadcn updates are **manual merges** — pin patterns in **`docs/ONLINE_STORE.md`** or **`DEVELOPER.md`**. |
 
@@ -214,13 +214,13 @@ In-store ROS today centers on **NYS Publication 718-C / Erie** ([`logic/tax.rs`]
 | Approach | Cost | Notes |
 |----------|------|--------|
 | **Manual admin table** | Free | `tax_jurisdiction` → combined rate; rough for local home-rule states — **disclaimer** in UI |
-| **Stripe Tax** | Per transaction | Accurate, low engineering; **not** “hosting-only” cost |
+| **Helcim Tax** | Per transaction | Accurate, low engineering; **not** “hosting-only” cost |
 | **TaxJar / similar API** | Often has **free dev / low-volume** tier | Verify current pricing; good middle ground |
 | **CSV import** of rate tables | Free labor | Periodic updates |
 
 ### Implementation phases
 
-- **Phase 1**: **Fulfillment + ship-to** for shipped orders; **flat NY rate** from DB for NY-sourced previews; disclosure JSON. **Shipped:** **`store_tax_state_rate`** + **`GET /api/store/tax/preview`** (**`fulfillment`**, **`state`**, **`subtotal`**) + **Web tax policy** in **`ONLINE_STORE.md`**; **no Stripe checkout gate** yet.
+- **Phase 1**: **Fulfillment + ship-to** for shipped orders; **flat NY rate** from DB for NY-sourced previews; disclosure JSON. **Shipped:** **`store_tax_state_rate`** + **`GET /api/store/tax/preview`** (**`fulfillment`**, **`state`**, **`subtotal`**) + **Web tax policy** in **`ONLINE_STORE.md`**; **no Helcim checkout gate** yet.
 - **Phase 2**: ZIP+4 or API integration for accuracy; **nexus flags** in Settings (“we collect in: …”).
 - **Always**: Persist **`tax_breakdown`** JSON on web orders for audit; use **`Decimal`** for all calculations. **Preview path uses `Decimal`**; **order persistence** — **pending** web orders.
 
@@ -239,7 +239,7 @@ Keep **ROS as consent source of truth**; CC is **lists + campaigns**.
 | **Embedded signup form** | CC provides **embed HTML/JS** for a list — inject via **Settings → Integrations → Constant Contact** → `signup_embed_html` (sanitized allowlist) rendered in storefront footer or **/newsletter** page block. |
 | **Web-only opt-in checkbox** at checkout | “Email me offers” → if checked, **server** calls CC API (async) to **add/update contact** on **Web Buyers** list (after [`PLAN_CONSTANT_CONTACT_INTEGRATION.md`](./PLAN_CONSTANT_CONTACT_INTEGRATION.md) exists). |
 | **Double opt-in** | Prefer CC’s **confirmed opt-in** flow for list signups from embed. |
-| **Transactional vs marketing** | **Podium** is the intended channel for **transactional email** tied to web (and shared) order lifecycle (see **§8**). **Transactional** messages do **not** require an **opt-in** (they follow the **email provided at checkout** for the transaction). **Constant Contact** remains **marketing / newsletters** and **does** require explicit consent (embed + checkout checkbox per rows above). Do **not** duplicate order confirmations or fulfillment mail in CC unless product explicitly wants a second copy. **Stripe** may still send **payment/receipt** artifacts per Stripe settings; align copy so customers are not confused by multiple senders. |
+| **Transactional vs marketing** | **Podium** is the intended channel for **transactional email** tied to web (and shared) order lifecycle (see **§8**). **Transactional** messages do **not** require an **opt-in** (they follow the **email provided at checkout** for the transaction). **Constant Contact** remains **marketing / newsletters** and **does** require explicit consent (embed + checkout checkbox per rows above). Do **not** duplicate order confirmations or fulfillment mail in CC unless product explicitly wants a second copy. **Helcim** may still send **payment/receipt** artifacts per Helcim settings; align copy so customers are not confused by multiple senders. |
 
 Update **`PLAN_CONSTANT_CONTACT_INTEGRATION.md`** with this storefront section (see that file).
 
@@ -252,9 +252,9 @@ Update **`PLAN_CONSTANT_CONTACT_INTEGRATION.md`** with this storefront section (
 | Integration | Purpose |
 |-------------|---------|
 | **Podium Web Chat / widget** | Podium provides a **snippet** (script + key) placed in storefront **layout** (footer or `index.html` for SPA). Customers text/chat from **every page**; conversations land in **Podium Inbox** (staff already use Podium). |
-| **Transactional email (web orders)** | After **Stripe** (or equivalent) confirms payment, ROS triggers **Podium email** for **web `sale_channel`** orders — e.g. **order confirmation** (summary, order ref, pickup/shipping expectation), and later **fulfillment / shipped** notices if product wants parity with SMS. Use **email collected at checkout** for these messages. **No marketing-style opt-in** is required for **transactional** mail (order/fulfillment-related); **Constant Contact** / **marketing_email_opt_in** (§7) applies only to **promotional** lists and campaigns — keep the two channels separate in copy and implementation. |
+| **Transactional email (web orders)** | After **Helcim** (or equivalent) confirms payment, ROS triggers **Podium email** for **web `sale_channel`** orders — e.g. **order confirmation** (summary, order ref, pickup/shipping expectation), and later **fulfillment / shipped** notices if product wants parity with SMS. Use **email collected at checkout** for these messages. **No marketing-style opt-in** is required for **transactional** mail (order/fulfillment-related); **Constant Contact** / **marketing_email_opt_in** (§7) applies only to **promotional** lists and campaigns — keep the two channels separate in copy and implementation. |
 | **Template ownership** | **Editable templates** (subject/body, placeholders `{order_ref}`, line summary hooks) live under **Settings → Integrations → Podium** (or split **Email** subsection) alongside SMS templates — same RBAC pattern as today (**`settings.admin`** until a finer key ships). |
-| **Graceful degradation** | If Podium email is **disabled** or misconfigured, log + optional **Stripe**-only receipt behavior; never block checkout solely because email send failed (async retry / dead-letter policy — product choice). |
+| **Graceful degradation** | If Podium email is **disabled** or misconfigured, log + optional **Helcim**-only receipt behavior; never block checkout solely because email send failed (async retry / dead-letter policy — product choice). |
 | **Configuration** | **Settings → Integrations → Podium**: widget flags/snippet (existing), plus **email send enabled**, **from** identity per Podium account, and any **template IDs** or body fields Podium’s API requires. **Do not** commit secrets; env or DB **settings.admin** only. |
 | **Relation to API SMS** | Widget = **inbound + outbound UI**; [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md) covers **server-triggered SMS** and should be extended for **email** send path, payloads, and logging/redaction. **Widget + SMS + email** can coexist. |
 
@@ -268,7 +268,7 @@ Shipping is **not** online-store-only: the same **Shippo** integration serves **
 
 | Channel | Highlights |
 |---------|------------|
-| **Online Store** | Ship-to address → **rate quotes** → verified quote id on Stripe checkout → **label + tracking** after payment (or staff queue). Works with **§6 destination tax** (same address). |
+| **Online Store** | Ship-to address → **rate quotes** → verified quote id on Helcim checkout → **label + tracking** after payment (or staff queue). Works with **§6 destination tax** (same address). |
 | **POS** | **“Ship order”** flow: address + rate picker → **shipping line** added to **`CheckoutRequest` / order totals** → optional **buy label** after tender. **Late $:** if shipping is unknown at sale time, staff add the same **rates → line** from **Orders** or when marking **ready / pickup / delivery** (see **Late-bound shipping** in [`PLAN_SHIPPO_SHIPPING.md`](./PLAN_SHIPPO_SHIPPING.md)). |
 
 **Catalog prerequisite:** **weight** (and ideally dimensions) per variant or product for accurate Shippo rates — may require migration + Inventory UI fields.
@@ -279,7 +279,7 @@ Shipping is **not** online-store-only: the same **Shippo** integration serves **
 
 ## Architecture diagram (updated)
 
-**As implemented today:** public pages = **sanitized `published_html`** (from raw HTML and/or Studio export); shop UI = **`PublicStorefront`** + **`ui-shadcn`** + Query (**PLP / PDP / cart / account** — no **checkout** route yet); **Studio** editor = **Back Office**; diagram edges to **Stripe** / **webhook** / **CC** / **Podium** on product = **target** after Phase **C** / **D**.
+**As implemented today:** public pages = **sanitized `published_html`** (from raw HTML and/or Studio export); shop UI = **`PublicStorefront`** + **`ui-shadcn`** + Query (**PLP / PDP / cart / account** — no **checkout** route yet); **Studio** editor = **Back Office**; diagram edges to **Helcim** / **webhook** / **CC** / **Podium** on product = **target** after Phase **C** / **D**.
 
 ```mermaid
 flowchart TB
@@ -297,12 +297,12 @@ flowchart TB
     PagesAPI[store_pages + assets]
     Tax[store_tax destination]
     Promo[coupon validate]
-    WH[Stripe webhook]
+    WH[Helcim webhook]
   end
   subgraph ext [External]
     CC[Constant Contact API]
     Pod[Podium]
-    Stripe[Stripe]
+    Helcim[Helcim]
     Shippo[Shippo]
     CustEmail[Customer email inbox]
   end
@@ -312,7 +312,7 @@ flowchart TB
   Studio --> PagesAPI
   ShopUI --> Promo
   ShopUI --> Tax
-  ShopUI --> Stripe
+  ShopUI --> Helcim
   ShopUI --> Shippo
   CCForm --> CC
   PodWidget --> Pod
@@ -352,7 +352,7 @@ flowchart TB
 | GET, PATCH | `/api/store/account/me` | **Shipped** — profile + address fields (**`Bearer`**); **PATCH** partial update. |
 | POST | `/api/store/account/password` | **Shipped** — change password (**`Bearer`** + current password). |
 | GET | `/api/store/account/orders`, `/api/store/account/orders/{order_id}` | **Shipped** — web-channel orders for linked customer; store-safe detail payload. |
-| POST | `/api/store/checkout` | **Not implemented** — Phase C (Stripe + order create). |
+| POST | `/api/store/checkout` | **Not implemented** — Phase C (Helcim + order create). |
 | POST | `/api/store/shipping/rates` | **Shipped** — body per [`store.rs`](../server/src/api/store.rs) / **`logic/shippo.rs`** (stub vs live per config; see [`PLAN_SHIPPO_SHIPPING.md`](./PLAN_SHIPPO_SHIPPING.md)). |
 | POST | `/api/products/variants/bulk-web-publish` | **Shipped** — `{ variant_ids, web_published }` (**`catalog.edit`**). |
 
@@ -372,17 +372,17 @@ flowchart TB
 - **Done (MVP+):** **`GET /api/store/products`**, **`GET /api/store/products/{slug}`**; **`PublicStorefront`** PLP/**faceted PDP**/cart (**localStorage** + **`POST /api/store/cart/lines`** + **guest cart session** API); **customer accounts** (**`/api/store/account/*`**, **`/shop/account`**, migration **77**); **in-store pickup** vs **ship** fulfillment + **`GET /api/store/tax/preview`** aligned with **Web tax policy**; **`POST /api/store/shipping/rates`** when shipping (Shippo); **`POST /api/store/cart/coupon`**; **landing marketing pages**; **`?promo=`**; **TanStack Query**; **`ui-shadcn`** + scoped storefront tokens.
 - **Not implemented:** **ship-to** as part of **paid** checkout (Phase C); full **shadcn** parity (additional components only as needed).
 
-### Phase C — Stripe + webhook
+### Phase C — Helcim + webhook
 
 - **Blocks most “remaining” rows** in **Current state vs what is left** (paid **`web`** orders, coupon redemption, tax snapshot on order, stock lock).
-- **`POST /api/store/checkout`** (or equivalent) + **`@stripe/react-stripe-js`** / **`@stripe/stripe-js`** in a **`/shop/checkout`** route (shadcn **Form** / **Card** patterns).
-- Discounted totals; persist tax + coupon snapshot on **`orders`** / line items; Stripe **webhook** for finality.
+- **`POST /api/store/checkout`** + HelcimPay.js hosted payment session in a **`/shop/checkout`** route (shadcn **Form** / **Card** patterns).
+- Discounted totals; persist tax + coupon snapshot on **`orders`** / line items; Helcim **webhook** for finality.
 - **Podium transactional email** for **web** orders (confirmation after successful payment / webhook), per **§8**; extend [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md) with email templates and send path.
 
 ### Phase C2 — Shippo (parallel or after C)
 
 - **Shipped (foundation):** migrations **74**–**75**, **`POST /api/store/shipping/rates`** on **`/api/store`** (and POS paths per **`PLAN_SHIPPO_SHIPPING.md`**), `logic/shippo.rs`, staff **`shipment`** hub.
-- **Open:** Attach **verified** **`rate_quote_id`** to **Stripe** checkout / order create; post-payment **label purchase** + **tracking** sync/webhooks; remaining POS/order-detail flows in **`PLAN_SHIPPO_SHIPPING.md`**.
+- **Open:** Attach **verified** **`rate_quote_id`** to **Helcim** checkout / order create; post-payment **label purchase** + **tracking** sync/webhooks; remaining POS/order-detail flows in **`PLAN_SHIPPO_SHIPPING.md`**.
 
 ### Phase D — Integrations on site
 
@@ -392,7 +392,7 @@ flowchart TB
 
 ### Phase E — Reporting + tax v2
 
-- **Open:** Insights / Orders **channel** pivot (or filter) using **`orders.sale_channel`** — meaningful once **Phase C** creates **`web`** rows; optional **Stripe Tax** or external rate API if accuracy required beyond **`store_tax_state_rate`** + **`GET /api/store/tax/preview`**.
+- **Open:** Insights / Orders **channel** pivot (or filter) using **`orders.sale_channel`** — meaningful once **Phase C** creates **`web`** rows; optional **Helcim Tax** or external rate API if accuracy required beyond **`store_tax_state_rate`** + **`GET /api/store/tax/preview`**.
 
 ---
 
@@ -414,7 +414,7 @@ flowchart TB
 | Podium script CSP | Configure **Content-Security-Policy** for script src allowlist (include **Studio** / CDN script origins if applicable) |
 | **Studio SDK license** / renewal | Track prod deployment checklist; pin SDK version; test upgrades in staging |
 | **Vendor lock-in / upgrade breaks** | Export **project JSON** backups; read SDK changelog before bumping **`@grapesjs/studio-sdk`** |
-| **Transactional email** deliverability / confusion | Use **one** primary transactional sender (**Podium**); document relationship to **Stripe** receipts; handle bounces per Podium/provider docs |
+| **Transactional email** deliverability / confusion | Use **one** primary transactional sender (**Podium**); document relationship to **Helcim** receipts; handle bounces per Podium/provider docs |
 | **Storefront vs BO style drift** | Document **storefront** Tailwind theme / CSS variables; prefer **shared tokens** or a single **accent** source of truth |
 
 ---
@@ -423,7 +423,7 @@ flowchart TB
 
 - [Shopify — APIs](https://shopify.dev/docs/api) — conceptual.
 - [shadcn/ui](https://ui.shadcn.com/) — Tailwind + Radix; [docs](https://ui.shadcn.com/docs) (Vite + React setup).
-- [Stripe React](https://stripe.com/docs/stripe-js/react) — **`@stripe/react-stripe-js`** for checkout UI alongside shadcn.
+- [Helcim API overview](https://devdocs.helcim.com/docs/overview-of-helcim-api) and [HelcimPay.js initialization](https://devdocs.helcim.com/docs/initialize-helcimpayjs) — hosted checkout UI alongside shadcn.
 - [GrapesJS Studio SDK — Getting started](https://app.grapesjs.com/docs-sdk/overview/getting-started) — embed, React **`StudioEditor`**, web/email project types.
 - [GrapesJS Studio SDK — Licenses](https://app.grapesjs.com/docs-sdk/overview/licenses) — production / public domain requirements.
 - [GrapesJS Studio SDK — Configuration overview](https://app.grapesjs.com/docs-sdk/configuration/overview) — storage, assets, projects (verify paths against current docs).

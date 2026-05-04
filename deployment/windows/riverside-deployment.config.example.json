@@ -21,9 +21,9 @@
       "psqlPath": ""
     },
     "environment": {
-      "STRIPE_SECRET_KEY": "",
-      "STRIPE_PUBLIC_KEY": "",
-      "STRIPE_WEBHOOK_SECRET": "",
+      "HELCIM_API_TOKEN": "",
+      "HELCIM_DEVICE_CODE": "",
+      "HELCIM_WEBHOOK_SECRET": "",
       "RIVERSIDE_BACKUP_DIR": "C:\\RiversideOS\\backups",
       "MEILISEARCH_URL": "",
       "MEILISEARCH_API_KEY": "",

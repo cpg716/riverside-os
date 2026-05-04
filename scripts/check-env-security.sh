@@ -43,14 +43,12 @@ if [[ "$DB_URL" == *"localhost"* ]]; then
     echo -e "${YELLOW}[INFO] DATABASE_URL points to localhost. Normal for development/OrbStack.${NC}"
 fi
 
-# 4. Stripe Key Audit
-STRIPE=$(grep "STRIPE_SECRET_KEY" "$ENV_FILE" | cut -d'=' -f2)
-if [[ "$STRIPE" == *"sk_test"* ]]; then
-    echo -e "${YELLOW}[INFO] STRIPE_SECRET_KEY is a TEST key.${NC}"
-elif [[ "$STRIPE" == *"sk_live"* ]]; then
-    echo -e "${GREEN}[PASS] STRIPE_SECRET_KEY is a LIVE key.${NC}"
+# 4. Helcim Key Audit
+HELCIM=$(grep "HELCIM_API_TOKEN" "$ENV_FILE" | cut -d'=' -f2)
+if [[ -n "$HELCIM" && "$HELCIM" != "replace_me" && "$HELCIM" != "dummy" ]]; then
+    echo -e "${GREEN}[PASS] HELCIM_API_TOKEN is configured.${NC}"
 else
-    echo -e "${RED}[FAIL] STRIPE_SECRET_KEY appears invalid or missing.${NC}"
+    echo -e "${RED}[FAIL] HELCIM_API_TOKEN appears invalid or missing.${NC}"
 fi
 
 # 5. Meilisearch Audit

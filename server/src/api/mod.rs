@@ -4,7 +4,6 @@ use axum::Router;
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::sync::Mutex;
 
 pub mod alterations;
@@ -47,25 +46,15 @@ pub mod weather;
 pub mod webhooks;
 pub mod weddings;
 
-use meilisearch_sdk::client::Client as MeilisearchClient;
-use stripe::Client as StripeClient;
-
 use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
 use crate::logic::wedding_push::WeddingEventBus;
 use crate::observability::ServerLogRing;
-
-/// Sliding 60s window for `POST /api/payments/intent` (global). `max_per_minute == 0` disables.
-#[derive(Debug)]
-pub struct PaymentIntentMinuteWindow {
-    pub window_start: Instant,
-    pub count: u32,
-}
+use meilisearch_sdk::client::Client as MeilisearchClient;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
     pub global_employee_markup: Decimal,
-    pub stripe_client: StripeClient,
     /// Shared HTTP client (Visual Crossing weather, Podium, etc.).
     pub http_client: reqwest::Client,
     /// Cached Podium OAuth access token (refresh with env credentials).
@@ -75,8 +64,6 @@ pub struct AppState {
     /// When set, `/api/sync/counterpoint/*` accepts `x-ros-sync-token` or `Authorization: Bearer …`.
     pub counterpoint_sync_token: Option<String>,
     pub wedding_events: WeddingEventBus,
-    pub payment_intent_minute: Arc<Mutex<PaymentIntentMinuteWindow>>,
-    pub payment_intent_max_per_minute: u32,
     /// HS256 secret for `POST /api/store/account/login` JWTs (`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`).
     pub store_customer_jwt_secret: std::sync::Arc<[u8]>,
     pub store_account_rate: Arc<Mutex<store_account_rate::StoreAccountRateState>>,

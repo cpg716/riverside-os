@@ -121,7 +121,7 @@ Specialized handling of 3rd-party RMS account finances.
 Mandatory Opening/Closing workflow.
 
 - **Opening:** Cash float verification.
-- **Closing:** System tallies Cash, Stripe (Credit), Gift Cards, and RMS Charges. It calculates *Expected Cash* vs. *Actual Count* for Over/Short auditing.
+- **Closing:** System tallies Cash, Helcim (Credit), Gift Cards, and RMS Charges. It calculates *Expected Cash* vs. *Actual Count* for Over/Short auditing.
 - **Detailed Transaction List:** Granular closing report showing every line item, original vs. sold price, discounts, and payment allocations.
 
 ---

@@ -1505,10 +1505,10 @@ export default function OnlineStoreWorkspace({
           : "Disabled",
         detail:
           enabledPaymentProviders.length > 0
-            ? `Default ${checkoutConfig?.default_provider ?? "stripe"}; enabled: ${enabledPaymentProviders
+            ? `Default ${checkoutConfig?.default_provider ?? "helcim"}; enabled: ${enabledPaymentProviders
                 .map((provider) => provider.label)
                 .join(", ")}.`
-            : "Configure Stripe or Helcim before public checkout is available.",
+            : "Configure Helcim before public checkout is available.",
       },
     ],
     [

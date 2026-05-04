@@ -40,7 +40,7 @@ export function matrixKeyToGranular(
   if (key === "deposit_holding") {
     return { source_type: "liability_deposit", source_id: "default" };
   }
-  if (key === "stripe_fee") {
+  if (key === "merchant_fee") {
     return { source_type: "expense_merchant_fee", source_id: "default" };
   }
   if (key === "tax_sales") {
@@ -91,7 +91,7 @@ export function granularToMatrixKey(
     case "liability_deposit":
       return source_id === "default" ? "deposit_holding" : null;
     case "expense_merchant_fee":
-      return source_id === "default" ? "stripe_fee" : null;
+      return source_id === "default" ? "merchant_fee" : null;
     case "tax":
       return source_id === "SALES_TAX" ? "tax_sales" : null;
     default:

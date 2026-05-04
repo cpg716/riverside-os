@@ -77,10 +77,10 @@ Roadmap UI (orders workspace label buy, fulfillment gates) remains in **`PLAN_SH
 
 ## Related docs
 
-- **[`docs/PLAN_SHIPPO_SHIPPING.md`](PLAN_SHIPPO_SHIPPING.md)** — full product/technical roadmap (labels, webhooks, late-bound shipping).  
-- **[`docs/ONLINE_STORE.md`](ONLINE_STORE.md)** — public **`/shop`**, **`/api/store`**, guest cart + CMS (pairs with **store** rates below).  
-- **[`docs/PLAN_ONLINE_STORE_MODULE.md`](PLAN_ONLINE_STORE_MODULE.md)** — storefront roadmap (Stripe checkout, reporting, assets).  
-- **[`docs/CUSTOMER_HUB_AND_RBAC.md`](CUSTOMER_HUB_AND_RBAC.md)** — hub tabs and CRM permissions.  
+- **[`docs/PLAN_SHIPPO_SHIPPING.md`](PLAN_SHIPPO_SHIPPING.md)** — full product/technical roadmap (labels, webhooks, late-bound shipping).
+- **[`docs/ONLINE_STORE.md`](ONLINE_STORE.md)** — public **`/shop`**, **`/api/store`**, guest cart + CMS (pairs with **store** rates below).
+- **[`docs/PLAN_ONLINE_STORE_MODULE.md`](PLAN_ONLINE_STORE_MODULE.md)** — storefront roadmap (Helcim checkout, reporting, assets).
+- **[`docs/CUSTOMER_HUB_AND_RBAC.md`](CUSTOMER_HUB_AND_RBAC.md)** — hub tabs and CRM permissions.
 - **[`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md)** — effective permissions and overrides.
 
 **Last reviewed:** 2026-04-05

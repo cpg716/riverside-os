@@ -155,31 +155,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-stripe"
-version = "0.37.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2f14b5943a52cf051bbbbb68538e93a69d1e291934174121e769f4b181113f5"
-dependencies = [
- "chrono",
- "futures-util",
- "hex",
- "hmac",
- "http-types",
- "hyper 0.14.32",
- "hyper-tls 0.5.0",
- "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_qs 0.10.1",
- "sha2",
- "smart-default",
- "smol_str",
- "thiserror 1.0.69",
- "tokio",
- "uuid 0.8.2",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4949,7 +4924,6 @@ dependencies = [
  "ammonia",
  "anyhow",
  "argon2",
- "async-stripe",
  "axum 0.8.9",
  "base64 0.22.1",
  "chrono",

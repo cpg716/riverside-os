@@ -241,13 +241,13 @@ Hide by default:
 - `provider_transaction_id`
 - `provider_auth_code`
 - `provider_terminal_id`
-- `stripe_intent_id` for staff-facing models unless explicitly needed
+- `provider_payment_id` for staff-facing models unless explicitly needed
 
 ### 7. `reporting.merchant_reconciliation`
 
 Use for:
 - merchant settlement review
-- Stripe fee / net settlement analysis
+- Helcim fee / net settlement analysis
 
 Visible first:
 - `occurred_at`

@@ -285,7 +285,7 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 | **`RIVERSIDE_VISUAL_CROSSING_API_KEY`** | Optional; server-side Visual Crossing key (overrides DB `weather_config`). See [`WEATHER_VISUAL_CROSSING.md`](WEATHER_VISUAL_CROSSING.md). Never expose to the client. |
 | **`RIVERSIDE_VISUAL_CROSSING_ENABLED`** | Optional; force live weather on/off. See [`WEATHER_VISUAL_CROSSING.md`](WEATHER_VISUAL_CROSSING.md). |
 
-**Secrets** (Stripe, QBO, sync tokens, Visual Crossing key, storefront JWT secret) stay **server-side**. The client bundle only exposes **`VITE_*`**: **`VITE_API_BASE`**. If the UI and API are on the same origin you may intentionally leave `VITE_API_BASE` unset for browser/PWA builds; otherwise set it explicitly per build. Optional: **`VITE_STOREFRONT_EMBEDS`** (Podium widget on public builds — [`PLAN_PODIUM_SMS_INTEGRATION.md`](PLAN_PODIUM_SMS_INTEGRATION.md)), **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** (GrapesJS Studio in **Settings → Online store** on non-localhost — [`ONLINE_STORE.md`](ONLINE_STORE.md)).
+**Secrets** (Helcim, QBO, sync tokens, Visual Crossing key, storefront JWT secret) stay **server-side**. The client bundle only exposes **`VITE_*`**: **`VITE_API_BASE`**. If the UI and API are on the same origin you may intentionally leave `VITE_API_BASE` unset for browser/PWA builds; otherwise set it explicitly per build. Optional: **`VITE_STOREFRONT_EMBEDS`** (Podium widget on public builds — [`PLAN_PODIUM_SMS_INTEGRATION.md`](PLAN_PODIUM_SMS_INTEGRATION.md)), **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** (GrapesJS Studio in **Settings → Online store** on non-localhost — [`ONLINE_STORE.md`](ONLINE_STORE.md)).
 
 **Release posture:** for production browser deployments, pair **`RIVERSIDE_STRICT_PRODUCTION=true`** with an explicit **`FRONTEND_DIST`** and exact **`RIVERSIDE_CORS_ORIGINS`** values before opening the store.
 
@@ -334,7 +334,7 @@ Run this on every station before first customer:
 
 ## 6. Hardware matrix (reference deployment)
 
-This section matches a common Riverside deployment: **Zebra** scanners and label printer, **Epson** receipt printer, **iPad** second register, and Stripe payment hardware.
+This section matches a common Riverside deployment: **Zebra** scanners and label printer, **Epson** receipt printer, **iPad** second register, and Helcim payment hardware.
 
 | Station | Device | Role in Riverside OS |
 |---------|--------|----------------------|
@@ -343,7 +343,7 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 | Back office | **Zebra LP 2844** | **Shelf / inventory labels:** the app opens a **print layout** and uses the **system print dialog** (`labelPrint.ts`, `@page` **4in × 2.5in**). Install the **Zebra Windows driver**, match **label stock** and driver page size to avoid scaling issues. Tauri and Edge use the same OS print path for this feature. |
 | Register 1 | **Epson TM-m30III** (receipts) | Prefer **Network address** with static/DHCP-reserved IP for receipts and cash drawer. Installed-printer mode is available for USB/driver-managed fallback. |
 | Register 2 (iPad) | Receipts | See **subsection 6.2** — current app behavior. |
-| Register lanes using card present | **Stripe Terminal reader(s)** | Used for card-present checkout flow; must be registered to correct location and validated per-lane before go-live. |
+| Register lanes using card present | **Helcim Terminal reader(s)** | Used for card-present checkout flow; must be registered to correct location and validated per-lane before go-live. |
 
 ### 6.0 Hardware commissioning checklist (required before go-live)
 
@@ -366,7 +366,7 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 - [ ] Inventory/search input scan test passed.
 - [ ] Battery/charging and spare unit plan documented.
 
-#### Credit-card hardware (Stripe Terminal)
+#### Credit-card hardware (Helcim Terminal)
 - [ ] Reader firmware and location registration confirmed.
 - [ ] Reader visible/healthy in store payment settings.
 - [ ] Card-present payment intent path validated with supervised test.

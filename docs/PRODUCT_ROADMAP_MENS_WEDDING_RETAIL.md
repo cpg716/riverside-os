@@ -36,7 +36,7 @@ These are **already implemented** in meaningful depth; they differentiate ROS fr
 ### 2.2 Core retail and register
 
 - **Sessions, floats, closeout** — Register session lifecycle; X-report and operational flows in POS components
-- **Multi-tender checkout** — Splits, gift cards (with required `sub_type` for QBO ledger), Stripe integration where used
+- **Multi-tender checkout** — Splits, gift cards (with required `sub_type` for QBO ledger), Helcim integration where used
 - **Tax and pricing** — NYS-oriented logic in server `logic/` / services (handlers stay thin per project rules)
 - **Loyalty** — Program settings, points on checkout, back-office adjustment with permission keys (`loyalty.adjust_points`)
 

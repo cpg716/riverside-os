@@ -157,7 +157,7 @@ Then read the domain doc most relevant to the task.
 - **ROS Dev Center / Ops command center** — `docs/ROS_DEV_CENTER.md`
 - **Appointments / scheduler** — `docs/APPOINTMENTS_AND_CALENDAR.md`
 - **Notification center** — `docs/PLAN_NOTIFICATION_CENTER.md`
-- **Stripe vault / credits** — `docs/STRIPE_POWER_INTEGRATION.md`
+- **Helcim payments / cards / refunds** — `docs/ONLINE_STORE.md`, `docs/TRANSACTION_RETURNS_EXCHANGES.md`
 - **Shipping / Shippo** — `docs/SHIPPING_AND_SHIPMENTS_HUB.md`
 - **Online store** — `docs/ONLINE_STORE.md`
 - **Counterpoint bridge / sync** — `docs/COUNTERPOINT_SYNC_GUIDE.md`, `docs/PLAN_COUNTERPOINT_ROS_SYNC.md`
@@ -439,7 +439,7 @@ Do not decrement `stock_on_hand` at checkout for `DbFulfillmentType::Order` (Spe
 | Podium SMS / inbox / reviews                 | `server/src/logic/podium*.rs`, `messaging.rs`, `api/webhooks.rs`, customer podium routes, Settings + Inbox UI                                                      |
 | Meilisearch                                  | `server/src/logic/meilisearch_*.rs`, `api/help.rs`, settings reindex UI                                                                                            |
 | Online store                                 | `server/src/api/store*.rs`, `server/src/logic/store_*.rs`, `client/src/components/store*`, `PublicStorefront.tsx`                                                  |
-| Stripe vault / credits                       | `server/src/logic/stripe_vault.rs`, `server/src/api/payments.rs`, `StripeVaultCardModal.tsx`, POS checkout UI                                                      |
+| Helcim payments / cards / refunds            | `server/src/logic/helcim.rs`, `server/src/api/payments.rs`, `client/src/components/pos/NexoCheckoutDrawer.tsx`, `client/src/components/settings/HelcimSettingsPanel.tsx` |
 | Tauri / hardware bridge                      | `client/src-tauri/`                                                                                                                                                |
 | Observability / OTLP                         | `server/src/observability/`, `server/src/main.rs`                                                                                                                  |
 
@@ -463,7 +463,7 @@ Any change touching these areas must be treated as high risk:
 - Reporting views
 - Counterpoint sync
 - QBO journal logic
-- Stripe vault / credits
+- Helcim vault / credits
 - Notification deep-link contracts
 
 ---
@@ -952,7 +952,7 @@ Use this section as a repo map and extended reference, not as the primary source
 - Do not pass object payloads to the toast helper if the current implementation expects a string
 - Preserve `RegisterSessionBootstrap` semantics around session-id-based shell reapplication
 - Keep POS and Back Office terminology aligned with the current product language
-- Preserve existing Stripe branding: `STRIPE CARD`, `STRIPE MANUAL`, `STRIPE VAULT`
+- Preserve existing Helcim branding: `HELCIM CARD`, `HELCIM MANUAL`, `HELCIM VAULT`
 
 ---
 

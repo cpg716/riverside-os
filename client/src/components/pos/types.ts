@@ -140,7 +140,6 @@ export interface AppliedPaymentLine {
   amountCents: number;
   label: string;
   metadata?: {
-    stripe_intent_id?: string;
     card_brand?: string | null;
     card_last4?: string | null;
     check_number?: string | null;
@@ -175,7 +174,6 @@ export interface PosOrderOptions {
   need_by_date?: string | null;
   fulfillment_mode?: string | null;
   ship_to?: PosShipToForm | null;
-  stripe_payment_method_id?: string | null;
 }
 
 export type NexoTenderTab =
@@ -235,8 +233,6 @@ export interface CheckoutPayload {
   fulfillment_mode?: string | null;
   /** Order Review flow: ship-to address JSON */
   ship_to?: unknown | null;
-  /** Order Review flow: saved card for balance at pickup */
-  stripe_payment_method_id?: string | null;
   /** Tax Exemption */
   is_tax_exempt?: boolean;
   tax_exempt_reason?: string;

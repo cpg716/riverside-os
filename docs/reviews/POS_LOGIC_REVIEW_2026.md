@@ -5,7 +5,7 @@ This review covers the Point of Sale (POS) subsystem, focusing on checkout logic
 ## 1. Checkout & Payment Ledger
 - **Integer Cent Precision**: All and payment lines in the `NexoCheckoutDrawer` are stored and transmitted as integer cents.
 - **Tender Engine**:
-    - **Card**: Native Stripe reader intent logic with developement-mode simulation.
+    - **Card**: Native Helcim reader intent logic with developement-mode simulation.
     - **Cash/Check**: Manual tender validation with change-due calculation.
     - **RMS Charge**: Store account charging with individual limit verification.
 - **Deposit Management**: Handles mixed carts of takeaway (immediate payment) and special/wedding orders (ledger release).

@@ -151,7 +151,7 @@ To prevent "buried" interactive elements in complex nested workflows (e.g., open
 The POS checkout system is a high-stakes operational environment requiring extreme visual clarity and touch precision.
 
 - **Touch-First Operational Density**: All primary payment and numeric interaction targets MUST be optimized for finger-based usage. Tenders and payment methods MUST utilize large targets (e.g., `h-16` or higher) with clear, high-contrast labels.
-- **Stripe Unified Branding**: To ensure operational clarity, integrated payment methods must be explicitly labeled as **STRIPE CARD**, **STRIPE MANUAL**, or **STRIPE VAULT**. This branding signal prioritizes the processor name as the anchor.
+- **Helcim Unified Branding**: To ensure operational clarity, integrated payment methods must be explicitly labeled as **HELCIM CARD**, **HELCIM MANUAL**, or **HELCIM VAULT**. This branding signal prioritizes the processor name as the anchor.
 - **Zero Redundancy Discipline**: Redundant total displays are prohibited. The checkout footer MUST display only the **Balance Due** as the singular, high-punch financial anchor. Avoid duplicating 'Remaining' or 'Grand Total' labels in the same view.
 - **Tax Exemption UI**: When an order is marked as tax-exempt, the UI MUST strike through tax lines and dynamically update the **Balance Due**. A required reasoning selector must be provided and persisted for the audit trail.
 - **Tax Parity Invariant**: Every line calculation (manual, discount, override) MUST use `calculateNysErieTaxStringsForUnit` on the client. Server-side `checkout_validate.rs` is authoritative. Search results (`InventoryControlRow`) and single-variant hydration (`get_variant`) MUST include the authoritative `tax_category` to prevent divergence.

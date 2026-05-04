@@ -72,7 +72,7 @@ FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 COMMENT ON TABLE payment_provider_attempts IS
     'Provider-neutral terminal/payment attempt audit table. Attempts track pending/approved/canceled provider control flow and are not payment ledger rows.';
 COMMENT ON COLUMN payment_provider_attempts.provider IS
-    'Payment provider key such as stripe or future processor adapters.';
+    'Payment provider key for the processor adapter.';
 COMMENT ON COLUMN payment_provider_attempts.status IS
     'Attempt lifecycle: pending, approved, captured, canceled, failed, or expired.';
 COMMENT ON COLUMN payment_provider_attempts.amount_cents IS

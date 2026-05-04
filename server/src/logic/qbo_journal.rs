@@ -625,10 +625,10 @@ pub async fn propose_daily_journal(
             })],
         });
 
-        // 2b. Stripe Fee Recon: If this is a Stripe transaction with reconciled fees,
+        // 2b. Merchant Fee Recon: If this is a card transaction with reconciled fees,
         // post the fee as an expense and credit the clearing account (leaving the net in clearing).
         let fees = t.total_merchant_fee.unwrap_or(Decimal::ZERO);
-        if sid.to_lowercase().contains("stripe") && !fees.is_zero() {
+        if sid.to_lowercase().contains("card") && !fees.is_zero() {
             if let Some((fee_aid, fee_aname)) = qbo_map_with_misc_fallback(
                 pool,
                 "expense_merchant_fee",

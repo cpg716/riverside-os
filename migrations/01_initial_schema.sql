@@ -185,7 +185,6 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     category transaction_category DEFAULT 'retail_sale',
     payment_method VARCHAR(50) NOT NULL,
     amount DECIMAL(12, 2) NOT NULL,
-    stripe_intent_id VARCHAR(255),
     is_posted_to_rms_portal BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );

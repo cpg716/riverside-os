@@ -682,7 +682,7 @@ Version the spec (`spec_version: 1`) and bump when Insights APIs change. **Add a
 
 | Surface | Why |
 |---------|-----|
-| **`POST /api/payments/intent`** | Stripe client-secret flow — not an analytics read. |
+| **`POST /api/payments/providers/helcim/*`** | Helcim payment initiation, hosted checkout confirmation, customer cards, refunds, and reversals — not analytics reads. |
 | **`POST /api/hardware/print`** | Printer bridge — no business metrics. |
 | **`POST /api/auth/qbo/callback`** | OAuth redirect handler — not reporting data. |
 | **`GET /api/weddings/events` (SSE)** | Real-time stream; use **REST** aggregates (`morning-compass`, `activity-feed`, party list) for batch/NLP. |

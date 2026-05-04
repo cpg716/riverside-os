@@ -38,7 +38,7 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **Manifest + icons:** `client/public/manifest.json` (source); production emits `dist/manifest.json` via `vite-plugin-pwa`. Icons: `client/public/icon-192.png`, `icon-512.png`.
 - [x] **Theme colors:** Manifest + `index.html` `theme-color` meta (`prefers-color-scheme`).
 - [x] **Service worker:** `vite-plugin-pwa` (`generateSW`, `registerType: "prompt"`). **`PwaUpdatePrompt`** (production) offers **Reload now** / **Later** when a new SW is waiting. Workbox `navigateFallbackDenylist` excludes `/api/*`.
-- [x] **iOS Safari:** Automated coverage is limited; **manually** on a physical device: login, Stripe (if used), CSV/import upload, 30+ minute session, and “Add to Home Screen”. Watch for storage eviction if the device is low on space.
+- [x] **iOS Safari:** Automated coverage is limited; **manually** on a physical device: login, Helcim (if used), CSV/import upload, 30+ minute session, and “Add to Home Screen”. Watch for storage eviction if the device is low on space.
 - [x] **Responsive QA:** Playwright `client/e2e/pwa-responsive.spec.ts` (375px + 768px). Run: `E2E_BASE_URL=http://localhost:5173 npm run test:e2e -- e2e/pwa-responsive.spec.ts`.
 - [x] **API gate smoke:** `client/e2e/api-gates.spec.ts` — anonymous **401/403** on sample gated routes when **`E2E_API_BASE`** (default `http://127.0.0.1:3000`) is reachable; skips if API is down. Full Playwright/API smoke inventory: **`docs/E2E_REGRESSION_MATRIX.md`**.
 
@@ -85,7 +85,7 @@ Station role rules:
 - [x] **Admin headers / PIN:** Same code paths for PWA and Tauri; no dev auth bypass in middleware (see project invariants).
 - [x] **Orders / refunds / returns:** Back Office **Orders** and refund/return actions require the `orders.*` permission keys (migration **36**); behavior and endpoints are summarized in `docs/TRANSACTION_RETURNS_EXCHANGES.md` and `docs/STAFF_PERMISSIONS.md`.
 - [x] **POS Dashboard / morning board:** Register opens to **Dashboard** by default (see **`docs/REGISTER_DASHBOARD.md`**). **`GET /api/weddings/morning-compass`** and **`activity-feed`** require staff auth + **`weddings.view`**; floor staff without that key still get tasks/notifications/metrics where permitted. Train stores that **Operations** wedding widgets need **`weddings.view`**.
-- [x] **Secrets:** Client bundle exposes only `VITE_*` (today: `VITE_API_BASE`). Stripe, QBO, DB, and `STRIPE_SECRET_KEY` stay server-side (`server/src/main.rs`).
+- [x] **Secrets:** Client bundle exposes only `VITE_*` (today: `VITE_API_BASE`). Helcim, QBO, and DB secrets stay server-side (`server/src/main.rs` / host environment).
 
 ---
 

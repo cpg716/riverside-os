@@ -35,7 +35,7 @@ For every product category (e.g., Clothing, Accessories), you must map:
 ### 2. Tenders (Payment Methods)
 Map each payment method (Cash, Check, Card) to its respective clearing or asset account.
 - **Standard Tenders**: Map to "Cash on Hand" or your primary bank account.
-- **Stripe/Merchant Tenders**: **IMPORTANT:** We recommend mapping these to a "Stripe Clearing" (Other Current Asset) account rather than your checking account.
+- **Merchant Tenders**: **IMPORTANT:** We recommend mapping these to a "Merchant Clearing" (Other Current Asset) account rather than your checking account.
 
 ### 3. Global Fallbacks
 These are safety accounts used when a specific mapping is missing or for global logic:
@@ -54,7 +54,7 @@ These are safety accounts used when a specific mapping is missing or for global 
 
 - **Balanced Journals**: If you leave a required account unmapped, the daily journal will use a "MISC FALLBACK" account and include a warning in the staging queue.
 - **New Accounts**: If you create a new account in QuickBooks, you must click **"Refresh QBO accounts"** at the top of the matrix to see it in the list.
-- **Clearing Account Reconcile**: Use the "Transfer" feature in QuickBooks to move funds from your "Stripe Clearing" account to your "Checking" account once the daily settlement hits your bank statement.
+- **Clearing Account Reconcile**: Use the "Transfer" feature in QuickBooks to move funds from your "Merchant Clearing" account to your "Checking" account once the daily settlement hits your bank statement.
 
 ## What happens next
 

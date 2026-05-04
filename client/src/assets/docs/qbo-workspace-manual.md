@@ -38,8 +38,8 @@ This is where the daily work happens.
 
 ## Critical reconciliation patterns
 
-### Stripe Clearing Account
-For Stripe transactions, ROS posts a **Clearing Account pattern**. This means the Gross amount is debited to a clearing account, and Fees are recorded separately. This allows you to match bundled bank deposits by "transferring" the net value from the clearing account to your checking account.
+### Merchant Clearing Account
+For Merchant card transactions, ROS posts a **Clearing Account pattern**. This means the Gross amount is debited to a clearing account, and Fees are recorded separately. This allows you to match bundled bank deposits by "transferring" the net value from the clearing account to your checking account.
 
 ### Variance Reporting
 If a proposed journal does not balance (Debits ≠ Credits), it will be flagged as "Faulty." This usually indicates a missing account mapping or a corrupted transaction.

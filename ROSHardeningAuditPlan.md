@@ -134,7 +134,7 @@ Minimum release-blocking scenarios:
 - `Fix Plan`
   - Ordered remediation batches, each with exact target area, risk, tests, and release gate.
 - `Deployment Go/No-Go Checklist`
-  - Hybrid Tauri host environment, hardware, Stripe, QBO, backups, restore drill, E2E, and human operational signoff.
+  - Hybrid Tauri host environment, hardware, Helcim, QBO, backups, restore drill, E2E, and human operational signoff.
 - `Coverage Gap Matrix`
   - Existing automated coverage, remaining skips, missing tests, and required additions before retail use.
 

@@ -2696,7 +2696,6 @@ pub struct MerchantTransaction {
     pub payment_method: String,
     pub card_brand: Option<String>,
     pub card_last4: Option<String>,
-    pub stripe_intent_id: Option<String>,
     pub status: String,
 }
 
@@ -2722,8 +2721,8 @@ async fn get_merchant_activity(
             amount,
             merchant_fee,
             net_amount,
-            COALESCE(payment_provider, CASE WHEN stripe_intent_id IS NOT NULL THEN 'stripe' END) AS payment_provider,
-            COALESCE(provider_payment_id, stripe_intent_id) AS provider_payment_id,
+            payment_provider,
+            provider_payment_id,
             provider_status,
             provider_terminal_id,
             provider_transaction_id,
@@ -2732,11 +2731,10 @@ async fn get_merchant_activity(
             payment_method,
             card_brand,
             card_last4,
-            stripe_intent_id,
             status::text
         FROM payment_transactions
         WHERE created_at >= $1 AND created_at < $2
-          AND COALESCE(payment_provider, CASE WHEN stripe_intent_id IS NOT NULL THEN 'stripe' END) IS NOT NULL
+          AND payment_provider IS NOT NULL
         ORDER BY created_at DESC
         "#,
     )
@@ -2883,7 +2881,7 @@ pub fn router() -> Router<AppState> {
 mod tests {
     use super::*;
     use crate::api::store_account_rate::StoreAccountRateState;
-    use crate::api::{AppState, PaymentIntentMinuteWindow};
+    use crate::api::AppState;
     use crate::auth::permissions::{INSIGHTS_VIEW, REGISTER_REPORTS};
     use crate::auth::pins::hash_pin;
     use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
@@ -2894,7 +2892,6 @@ mod tests {
     use rust_decimal::Decimal;
     use sqlx::PgPool;
     use std::sync::Arc;
-    use std::time::Instant;
     use tokio::sync::Mutex;
 
     async fn connect_test_db() -> PgPool {
@@ -2971,17 +2968,11 @@ mod tests {
         AppState {
             db: pool,
             global_employee_markup: Decimal::new(15, 0),
-            stripe_client: stripe::Client::new("sk_test_rosie_reporting"),
             http_client: reqwest::Client::new(),
             podium_token_cache: Arc::new(Mutex::new(PodiumTokenCache::default())),
             database_url: "postgres://test".to_string(),
             counterpoint_sync_token: None,
             wedding_events: WeddingEventBus::new(),
-            payment_intent_minute: Arc::new(Mutex::new(PaymentIntentMinuteWindow {
-                window_start: Instant::now(),
-                count: 0,
-            })),
-            payment_intent_max_per_minute: 0,
             store_customer_jwt_secret: Arc::<[u8]>::from(b"rosie-reporting-test".as_slice()),
             store_account_rate: Arc::new(Mutex::new(StoreAccountRateState::default())),
             store_account_unauth_post_per_minute_ip: 0,

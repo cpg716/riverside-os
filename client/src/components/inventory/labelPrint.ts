@@ -96,14 +96,14 @@ function getAccentClasses(style: InventoryTagPrintConfig["accentStyle"]) {
       return {
         shell: "border:1px solid #0f172a;background:#ffffff;",
         chip: "background:#ecfeff;color:#0f766e;border:1px solid #99f6e4;",
-        stripe:
+        band:
           "background:linear-gradient(135deg,#0f172a 0%,#334155 100%);",
       };
     case "minimal":
       return {
         shell: "border:1px solid #d4d4d8;background:#ffffff;",
         chip: "background:#f4f4f5;color:#18181b;border:1px solid #e4e4e7;",
-        stripe: "background:#e4e4e7;",
+        band: "background:#e4e4e7;",
       };
     case "bold":
     default:
@@ -111,7 +111,7 @@ function getAccentClasses(style: InventoryTagPrintConfig["accentStyle"]) {
         shell:
           "border:1px solid #d1fae5;background:radial-gradient(circle at top left,#ecfdf5 0%,#ffffff 58%,#f0fdf4 100%);",
         chip: "background:#022c22;color:#ecfdf5;border:1px solid #064e3b;",
-        stripe:
+        band:
           "background:linear-gradient(135deg,#065f46 0%,#10b981 55%,#6ee7b7 100%);",
       };
   }
@@ -129,7 +129,7 @@ function renderTag(
 
   return `<section class="tag-page">
   <div class="tag-shell" style="${accent.shell}">
-    <div class="tag-stripe" style="${accent.stripe}"></div>
+    <div class="tag-band" style="${accent.band}"></div>
     <div class="tag-main">
       ${
         config.showSku
@@ -196,7 +196,7 @@ function buildDocument(
         border-radius: 18px;
         overflow: hidden;
       }
-      .tag-stripe {
+      .tag-band {
         width: 0.28in;
         min-width: 0.28in;
       }

@@ -16,14 +16,14 @@ This makes the dedicated Windows host + local satellite PWA path explicit and te
 
 - It is **not** a public-internet deployment shortcut.
 - It does **not** replace the broader browser-production hardening documented in the store deployment guide.
-- It does **not** ask staff to type Stripe keys into the UI. Host mode uses the environment already provisioned on the host machine.
+- It does **not** ask staff to type Helcim keys into the UI. Host mode uses the environment already provisioned on the host machine.
 
 ## Host-mode setup
 
 1. Install the Riverside desktop app on the Windows machine that should act as the host.
 2. Ensure that machine has:
    - PostgreSQL reachability
-   - the expected Stripe/environment configuration
+   - the expected Helcim/environment configuration
    - the built frontend bundle available for the packaged app
 3. Open **Settings → Remote Access**.
 4. Enter the PostgreSQL URL and the listen port.

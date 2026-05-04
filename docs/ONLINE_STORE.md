@@ -2,7 +2,7 @@
 
 **Audience:** Developers and staff configuring the **first-party storefront** (catalog, marketing pages, coupons).
 
-**Related:** **[`docs/PLAN_ONLINE_STORE_MODULE.md`](PLAN_ONLINE_STORE_MODULE.md)** (roadmap: Stripe checkout, Insights channel pivot, asset pipeline, etc.), **[`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)** (**`POST /api/store/shipping/rates`**), **[`docs/PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`](PODIUM_STOREFRONT_CSP_AND_PRIVACY.md)** (widget on public builds), **[`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md)** (**`online_store.manage`**), **[`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md)** (PLP **`search`**, optional Meilisearch **`ros_store_products`**).
+**Related:** **[`docs/PLAN_ONLINE_STORE_MODULE.md`](PLAN_ONLINE_STORE_MODULE.md)** (roadmap: Helcim checkout, Insights channel pivot, asset pipeline, etc.), **[`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)** (**`POST /api/store/shipping/rates`**), **[`docs/PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`](PODIUM_STOREFRONT_CSP_AND_PRIVACY.md)** (widget on public builds), **[`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md)** (**`online_store.manage`**), **[`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md)** (PLP **`search`**, optional Meilisearch **`ros_store_products`**).
 
 **Identity direction:** Storefront accounts and guest checkout both use the shared **`customers`** table. Guest checkout auto-links to an existing customer when the submitted email matches a ROS customer; account login/activation controls password-backed access.
 
@@ -152,7 +152,7 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 ## Money and security
 
 - Server totals use **`rust_decimal::Decimal`** (cart lines, tax preview, coupons).
-- Paid web checkout uses **`store_checkout_session`** + **`store_checkout_payment_attempt`** before finalization. Stripe uses PaymentIntent + Stripe Elements; Helcim uses HelcimPay.js initialization and validates the returned response hash server-side before ROS creates a **`sale_channel = web`** transaction.
+- Paid web checkout uses **`store_checkout_session`** + **`store_checkout_payment_attempt`** before finalization. Helcim uses HelcimPay.js initialization and validates the returned response hash server-side before ROS creates a **`sale_channel = web`** transaction.
 - Storefront **account** passwords are **Argon2** (min **8** characters); protect **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** like any session signing key. **Trust `X-Forwarded-For` only** from your own edge/proxy; otherwise clients can spoof IPs and shift rate-limit buckets.
 - Treat **published HTML** and **embed snippets** (Podium, Constant Contact) as **untrusted** until sanitized / CSP allowlisted — see **`PLAN_ONLINE_STORE_MODULE.md`** §5 and **`PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`**.
 
@@ -160,7 +160,7 @@ Staff headers + **`online_store.manage`** or **`settings.admin`**.
 
 ## Still planned (see **`PLAN_ONLINE_STORE_MODULE.md`**)
 
-- Provider sandbox/live transaction certification for Stripe and Helcim in the deployment environment.
+- Helcim sandbox/live transaction certification in the deployment environment.
 - Deeper **cart** outreach workflows after marketing consent and messaging rules are approved.
 
 **Last reviewed:** 2026-05-01

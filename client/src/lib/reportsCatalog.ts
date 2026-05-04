@@ -367,7 +367,7 @@ export const REPORTS_CATALOG: ReportDef[] = [
     title: "Card Processing Summary",
     description: "Daily card volume, processing fees, and net settlement values for bank review.",
     category: "Finance",
-    keywords: ["merchant", "stripe", "card", "fees", "net", "settlement", "bank", "review"],
+    keywords: ["merchant", "card", "card", "fees", "net", "settlement", "bank", "review"],
     questions: ["What were card processing fees?", "What card volume should settle?", "What net amount should match the bank?"],
     audience: "Owner",
     sensitivity: "Manager",

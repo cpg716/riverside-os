@@ -10,7 +10,7 @@
 
 | # | Area | Posture | Notes |
 |---|------|---------|--------|
-| 1 | **Stripe** | **In use** | Payments: in-repo Terminal / intents and refund paths; extend for web checkout as the storefront ships. |
+| 1 | **Helcim** | **In use** | Payments: in-repo Terminal / intents and refund paths; extend for web checkout as the storefront ships. |
 | 2 | **ROS-native online store** | **In progress** | First-party `/shop` + `/api/store`; not a separate e-commerce platform. |
 | 3 | **Podium** | **Sole customer messaging + email** | SMS, web chat/widget, and **transactional email** stay on Podium — **no parallel ESP** for that role. |
 | 4 | **Calendar federation** (e.g. Google / Microsoft) | **Out of scope** | Internal scheduler and appointments remain ROS-native. |

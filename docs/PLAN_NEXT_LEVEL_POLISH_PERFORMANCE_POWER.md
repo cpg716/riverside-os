@@ -36,7 +36,7 @@ ROS already has strong foundations:
 - Robust retail domain coverage: POS, inventory, weddings, customers, sessions, deposits, returns.
 - Financial rigor: booked vs fulfilled semantics, fulfillment-based recognition, role-based reporting.
 - Security model: staff auth, PIN/RBAC, POS session gates.
-- Operational infrastructure: notifications, backups, optional integrations (Stripe, Podium, Shippo, Meilisearch).
+- Operational infrastructure: notifications, backups, optional integrations (Helcim, Podium, Shippo, Meilisearch).
 - Strong docs/runbooks and clear architectural conventions.
 
 This plan assumes those foundations remain intact and emphasizes **execution quality** and **operator speed**.

@@ -49,6 +49,6 @@ Use the URL shown in this panel for iPads and other satellite browsers that are 
 
 ## Important notes
 
-- Do not use this panel to enter Stripe keys or other production secrets.
+- Do not use this panel to enter Helcim keys or other production secrets.
 - Host mode is for the **dedicated Windows host machine**, not for the main register by default and not as a public-web shortcut.
 - If you disconnect Tailscale during a remote session, connected off-site devices will lose access.

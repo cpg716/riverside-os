@@ -237,7 +237,7 @@ export function openProfessionalDailySalesPrint(opts: {
     appointment_count: number;
     online_order_count: number;
     new_wedding_parties_count: number;
-    stripe_fees_total: string;
+    merchant_fees_total: string;
     cash_collected: string;
     deposits_collected: string;
   };
@@ -379,8 +379,8 @@ export function openProfessionalDailySalesPrint(opts: {
       <p class="stat-value">${summary.new_wedding_parties_count}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">Stripe Fees</p>
-      <p class="stat-value" style="color:#dc2626">-$${centsToFixed2(parseMoneyToCents(summary.stripe_fees_total))}</p>
+      <p class="stat-label">Merchant Fees</p>
+      <p class="stat-value" style="color:#dc2626">-$${centsToFixed2(parseMoneyToCents(summary.merchant_fees_total))}</p>
     </div>
     <div class="stat-card" style="border-color:#0f172a; background: #f8fafc;">
       <p class="stat-label" style="color:#0f172a">Net Daily Shift</p>

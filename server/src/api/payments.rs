@@ -1,20 +1,17 @@
-//! Stripe Terminal handshake: create a `card_present` PaymentIntent for the physical reader.
+//! Helcim payment provider endpoints.
 
-use crate::auth::permissions::SETTINGS_ADMIN;
-use crate::logic::{helcim, stripe_vault};
+use crate::auth::permissions::{CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, SETTINGS_ADMIN};
+use crate::logic::helcim;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::time::Duration;
-use stripe::{CancelPaymentIntent, CreatePaymentIntent, Currency, PaymentIntent, PaymentIntentId};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -23,8 +20,6 @@ use crate::middleware;
 
 #[derive(Debug, Error)]
 pub enum PaymentError {
-    #[error("Stripe API error: {0}")]
-    StripeError(String),
     #[error("Invalid payload: {0}")]
     InvalidPayload(String),
     #[error("{0}")]
@@ -35,8 +30,6 @@ pub enum PaymentError {
     Conflict(String),
     #[error("Provider API error: {0}")]
     ProviderError(String),
-    #[error("Too many payment intent requests; try again shortly")]
-    RateLimited,
 }
 
 fn map_pay_session(e: (StatusCode, axum::Json<serde_json::Value>)) -> PaymentError {
@@ -60,10 +53,6 @@ impl IntoResponse for PaymentError {
             PaymentError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
             PaymentError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             PaymentError::Conflict(m) => (StatusCode::CONFLICT, m),
-            PaymentError::RateLimited => (
-                StatusCode::TOO_MANY_REQUESTS,
-                "Too many payment intent requests; try again shortly".to_string(),
-            ),
             PaymentError::ProviderError(e) => {
                 tracing::error!(error = %e, "Provider error in payments");
                 (
@@ -71,42 +60,13 @@ impl IntoResponse for PaymentError {
                     "Failed to communicate with payment provider".to_string(),
                 )
             }
-            PaymentError::StripeError(e) => {
-                tracing::error!(error = %e, "Stripe error in payments");
-                (
-                    StatusCode::BAD_GATEWAY,
-                    "Failed to communicate with payment processor".to_string(),
-                )
-            }
         };
         (status, Json(json!({ "error": msg }))).into_response()
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct CreateIntentRequest {
-    pub amount_due: Decimal,
-    /// If true, uses 'card' instead of 'card_present' for MOTO / phone orders.
-    pub moto: Option<bool>,
-    /// Link to a ROS customer for card vaulting / retrieval.
-    pub customer_id: Option<Uuid>,
-    /// Securely use a vaulted card for off-session / quick-pay.
-    pub payment_method_id: Option<String>,
-    /// Attempt an unlinked credit (negative intent).
-    pub is_credit: Option<bool>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CreateIntentResponse {
-    pub intent_id: String,
-    pub client_secret: String,
-    pub amount_cents: i64,
-}
-
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/intent", post(create_payment_intent))
-        .route("/intent/cancel", post(cancel_payment_intent))
         .route("/config", get(get_payments_config))
         .route(
             "/providers/active",
@@ -114,38 +74,53 @@ pub fn router() -> Router<AppState> {
         )
         .route("/providers/helcim/status", get(get_helcim_provider_status))
         .route("/providers/helcim/purchase", post(start_helcim_purchase))
+        .route(
+            "/providers/helcim/terminal/refund",
+            post(start_helcim_terminal_refund),
+        )
+        .route(
+            "/providers/helcim/card-token/purchase",
+            post(process_helcim_card_token_purchase),
+        )
+        .route(
+            "/providers/helcim/card/refund",
+            post(process_helcim_card_refund),
+        )
+        .route(
+            "/providers/helcim/card/reverse",
+            post(process_helcim_card_reverse),
+        )
+        .route(
+            "/providers/helcim/helcim-pay/initialize",
+            post(initialize_helcim_pay),
+        )
+        .route(
+            "/providers/helcim/helcim-pay/confirm",
+            post(confirm_helcim_pay),
+        )
+        .route("/providers/helcim/customers", get(list_helcim_customers))
+        .route(
+            "/providers/helcim/customers/{customer_id}/cards",
+            get(list_helcim_customer_cards),
+        )
+        .route(
+            "/providers/helcim/customers/{customer_id}/cards/{card_id}",
+            delete(delete_helcim_customer_card),
+        )
+        .route(
+            "/providers/helcim/customers/{customer_id}/cards/{card_id}/default",
+            patch(set_helcim_customer_card_default).post(set_helcim_customer_card_default),
+        )
         .route("/providers/helcim/attempts/{id}", get(get_helcim_attempt))
         .route(
             "/providers/helcim/attempts/{id}/simulate",
             post(simulate_helcim_attempt),
         )
-        .route("/customers/{id}/payment-methods", get(get_vaulted_methods))
-        .route(
-            "/customers/{id}/setup-intent",
-            post(create_vault_setup_intent),
-        )
-        .route(
-            "/customers/{id}/payment-methods/{pm_id}",
-            delete(delete_vaulted_method),
-        )
-        .route(
-            "/customers/{id}/payment-methods/record",
-            post(record_vaulted_method),
-        )
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct StripeProviderStatus {
-    pub enabled: bool,
-    pub secret_configured: bool,
-    pub public_key_configured: bool,
-    pub missing_config: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ActiveCardProviderResponse {
     pub active_provider: String,
-    pub stripe: StripeProviderStatus,
     pub helcim: helcim::HelcimConfigStatus,
 }
 
@@ -161,6 +136,88 @@ pub struct HelcimPurchaseRequestBody {
     pub currency: Option<String>,
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimTerminalRefundRequestBody {
+    pub amount_cents: i64,
+    pub original_transaction_id: i64,
+    #[serde(default)]
+    pub currency: Option<String>,
+    #[serde(default)]
+    pub register_session_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimCardTokenPurchaseRequestBody {
+    pub amount_cents: i64,
+    pub card_token: String,
+    #[serde(default)]
+    pub currency: Option<String>,
+    #[serde(default)]
+    pub register_session_id: Option<Uuid>,
+    #[serde(default)]
+    pub customer_code: Option<String>,
+    #[serde(default)]
+    pub invoice_number: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimCardRefundRequestBody {
+    pub amount_cents: i64,
+    pub original_transaction_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimCardReverseRequestBody {
+    pub original_transaction_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimPayInitializeRequestBody {
+    pub amount_cents: i64,
+    #[serde(default)]
+    pub currency: Option<String>,
+    #[serde(default)]
+    pub register_session_id: Option<Uuid>,
+    #[serde(default)]
+    pub customer_code: Option<String>,
+    #[serde(default)]
+    pub invoice_number: Option<String>,
+    #[serde(default)]
+    pub save_as_default: Option<bool>,
+    #[serde(default)]
+    pub hide_existing_payment_details: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimPayInitializeResponseBody {
+    pub attempt: HelcimAttemptResponse,
+    pub checkout_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimPayConfirmRequestBody {
+    pub attempt_id: Uuid,
+    pub checkout_token: String,
+    pub data: Value,
+    pub hash: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimCustomersQuery {
+    #[serde(default)]
+    pub customer_code: Option<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+    #[serde(default)]
+    pub include_cards: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimCustomerCardsQuery {
+    #[serde(default)]
+    pub card_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -255,35 +312,6 @@ impl HelcimAttemptResponse {
     }
 }
 
-fn looks_placeholder(value: &str) -> bool {
-    let lower = value.trim().to_ascii_lowercase();
-    lower.is_empty()
-        || lower.contains("dummy")
-        || lower.contains("placeholder")
-        || lower.contains("replace_me")
-}
-
-fn stripe_provider_status() -> StripeProviderStatus {
-    let secret = std::env::var("STRIPE_SECRET_KEY").unwrap_or_default();
-    let public = std::env::var("STRIPE_PUBLIC_KEY").unwrap_or_default();
-    let secret_configured = secret.trim().starts_with("sk_") && !looks_placeholder(&secret);
-    let public_key_configured = public.trim().starts_with("pk_") && !looks_placeholder(&public);
-    let mut missing_config = Vec::new();
-    if !secret_configured {
-        missing_config.push("STRIPE_SECRET_KEY is not configured".to_string());
-    }
-    if !public_key_configured {
-        missing_config.push("STRIPE_PUBLIC_KEY is not configured".to_string());
-    }
-
-    StripeProviderStatus {
-        enabled: secret_configured && public_key_configured,
-        secret_configured,
-        public_key_configured,
-        missing_config,
-    }
-}
-
 async fn load_active_card_provider(state: &AppState) -> Result<String, PaymentError> {
     let provider: Option<String> =
         sqlx::query_scalar("SELECT active_card_provider FROM store_settings WHERE id = 1")
@@ -291,7 +319,9 @@ async fn load_active_card_provider(state: &AppState) -> Result<String, PaymentEr
             .await
             .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
-    Ok(provider.unwrap_or_else(|| "stripe".to_string()))
+    Ok(provider
+        .filter(|provider| provider == helcim::HELCIM_PROVIDER_KEY)
+        .unwrap_or_else(|| helcim::HELCIM_PROVIDER_KEY.to_string()))
 }
 
 async fn active_card_provider_response(
@@ -299,7 +329,6 @@ async fn active_card_provider_response(
 ) -> Result<ActiveCardProviderResponse, PaymentError> {
     Ok(ActiveCardProviderResponse {
         active_provider: load_active_card_provider(state).await?,
-        stripe: stripe_provider_status(),
         helcim: helcim::HelcimConfig::from_env().status(),
     })
 }
@@ -308,8 +337,7 @@ async fn get_payments_config(
     State(_state): State<AppState>,
     _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, PaymentError> {
-    let public_key = std::env::var("STRIPE_PUBLIC_KEY").unwrap_or_default();
-    Ok(Json(json!({ "stripe_public_key": public_key })))
+    Ok(Json(json!({ "provider": helcim::HELCIM_PROVIDER_KEY })))
 }
 
 async fn get_active_card_provider(
@@ -333,9 +361,9 @@ async fn patch_active_card_provider(
         .map_err(map_pay_session)?;
 
     let provider = payload.active_provider.trim().to_ascii_lowercase();
-    if provider != "stripe" && provider != helcim::HELCIM_PROVIDER_KEY {
+    if provider != helcim::HELCIM_PROVIDER_KEY {
         return Err(PaymentError::InvalidPayload(
-            "active_provider must be stripe or helcim".to_string(),
+            "active_provider must be helcim".to_string(),
         ));
     }
 
@@ -389,11 +417,7 @@ async fn start_helcim_purchase(
         .unwrap_or("usd")
         .trim()
         .to_ascii_lowercase();
-    if currency.len() != 3 || !currency.chars().all(|c| c.is_ascii_lowercase()) {
-        return Err(PaymentError::InvalidPayload(
-            "currency must be a 3-letter code".to_string(),
-        ));
-    }
+    validate_currency(&currency)?;
 
     let attempt_id = Uuid::new_v4();
     let idempotency_key = format!("helcim-{attempt_id}");
@@ -543,6 +567,626 @@ async fn start_helcim_purchase(
         .map(Json)
 }
 
+async fn start_helcim_terminal_refund(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<HelcimTerminalRefundRequestBody>,
+) -> Result<Json<HelcimAttemptResponse>, PaymentError> {
+    let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_pay_session)?;
+
+    if payload.amount_cents <= 0 {
+        return Err(PaymentError::InvalidPayload(
+            "Helcim terminal refunds must be greater than zero.".to_string(),
+        ));
+    }
+    if payload.original_transaction_id <= 0 {
+        return Err(PaymentError::InvalidPayload(
+            "original_transaction_id is required".to_string(),
+        ));
+    }
+
+    let config = helcim::HelcimConfig::from_env();
+    let terminal_id = config.device_code().ok_or_else(|| {
+        PaymentError::InvalidPayload("Helcim device code is not configured.".to_string())
+    })?;
+    let currency = payload
+        .currency
+        .as_deref()
+        .unwrap_or("usd")
+        .trim()
+        .to_ascii_lowercase();
+    validate_currency(&currency)?;
+
+    let attempt_id = Uuid::new_v4();
+    let idempotency_key = format!("helcim-refund-{attempt_id}");
+    let (register_session_id, staff_id) = match auth {
+        middleware::StaffOrPosSession::Staff(staff) => {
+            (payload.register_session_id, Some(staff.id))
+        }
+        middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
+    };
+
+    sqlx::query(
+        r#"
+        INSERT INTO payment_provider_attempts (
+            id, provider, status, amount_cents, currency, register_session_id, staff_id,
+            device_id, terminal_id, idempotency_key, provider_transaction_id, raw_audit_reference
+        )
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $6, $7, $8, $9)
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(payload.amount_cents)
+    .bind(&currency)
+    .bind(register_session_id)
+    .bind(staff_id)
+    .bind(terminal_id)
+    .bind(&idempotency_key)
+    .bind(payload.original_transaction_id.to_string())
+    .bind(format!(
+        "helcim:terminalRefund:{}",
+        payload.original_transaction_id
+    ))
+    .execute(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    if config.simulator_enabled() {
+        return load_helcim_attempt(&state, attempt_id, None)
+            .await
+            .map(Json);
+    }
+
+    let request_payload = helcim::build_terminal_refund_request_payload(
+        payload.amount_cents,
+        payload.original_transaction_id,
+    );
+    match helcim::start_terminal_refund(
+        &state.http_client,
+        &config,
+        request_payload,
+        &idempotency_key,
+    )
+    .await
+    {
+        Ok(accepted) => {
+            let provider_payment_id = accepted.payment_id;
+            let provider_transaction_id = accepted
+                .transaction_id
+                .or_else(|| Some(payload.original_transaction_id.to_string()));
+            sqlx::query(
+                r#"
+                UPDATE payment_provider_attempts
+                SET provider_payment_id = $2,
+                    provider_transaction_id = $3,
+                    raw_audit_reference = COALESCE($4, raw_audit_reference)
+                WHERE id = $1
+                "#,
+            )
+            .bind(attempt_id)
+            .bind(provider_payment_id)
+            .bind(provider_transaction_id)
+            .bind(accepted.audit_reference.or(accepted.status))
+            .execute(&state.db)
+            .await
+            .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+        }
+        Err(error) => {
+            sqlx::query(
+                r#"
+                UPDATE payment_provider_attempts
+                SET status = 'failed', error_code = 'request_failed', error_message = $2, completed_at = now()
+                WHERE id = $1
+                "#,
+            )
+            .bind(attempt_id)
+            .bind(error.chars().take(500).collect::<String>())
+            .execute(&state.db)
+            .await
+            .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+            return Err(PaymentError::ProviderError(error));
+        }
+    }
+
+    load_helcim_attempt(&state, attempt_id, None)
+        .await
+        .map(Json)
+}
+
+async fn process_helcim_card_token_purchase(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<HelcimCardTokenPurchaseRequestBody>,
+) -> Result<Json<HelcimAttemptResponse>, PaymentError> {
+    let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_pay_session)?;
+    if load_active_card_provider(&state).await? != helcim::HELCIM_PROVIDER_KEY {
+        return Err(PaymentError::InvalidPayload(
+            "Helcim is not the active card provider.".to_string(),
+        ));
+    }
+    if payload.amount_cents <= 0 {
+        return Err(PaymentError::InvalidPayload(
+            "amount_cents must be greater than zero".to_string(),
+        ));
+    }
+    let card_token = payload.card_token.trim();
+    if card_token.is_empty() {
+        return Err(PaymentError::InvalidPayload(
+            "card_token is required".to_string(),
+        ));
+    }
+    let currency = payload
+        .currency
+        .as_deref()
+        .unwrap_or("usd")
+        .trim()
+        .to_ascii_uppercase();
+    validate_currency(&currency.to_ascii_lowercase())?;
+    let config = helcim::HelcimConfig::from_env();
+    let attempt_id = Uuid::new_v4();
+    let idempotency_key = format!("helcim-token-{attempt_id}");
+    let (register_session_id, staff_id) = match auth {
+        middleware::StaffOrPosSession::Staff(staff) => {
+            (payload.register_session_id, Some(staff.id))
+        }
+        middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
+    };
+    sqlx::query(
+        r#"
+        INSERT INTO payment_provider_attempts (
+            id, provider, status, amount_cents, currency, register_session_id, staff_id,
+            idempotency_key, raw_audit_reference
+        )
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, 'helcim:cardTokenPurchase')
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(payload.amount_cents)
+    .bind(currency.to_ascii_lowercase())
+    .bind(register_session_id)
+    .bind(staff_id)
+    .bind(&idempotency_key)
+    .execute(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    if config.simulator_enabled() {
+        let transaction_id = format!("helcim-sim-{attempt_id}");
+        sqlx::query(
+            r#"
+            UPDATE payment_provider_attempts
+            SET status = 'approved',
+                provider_payment_id = $2,
+                provider_transaction_id = $2,
+                raw_audit_reference = $3,
+                completed_at = now()
+            WHERE id = $1
+            "#,
+        )
+        .bind(attempt_id)
+        .bind(&transaction_id)
+        .bind(format!("helcim-sim:approved:{attempt_id}"))
+        .execute(&state.db)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+        return load_helcim_attempt(&state, attempt_id, None)
+            .await
+            .map(Json);
+    }
+
+    let request = helcim::HelcimCardPurchaseRequest {
+        ip_address: request_ip_address(&headers),
+        ecommerce: false,
+        currency,
+        amount: cents_to_decimal_string(payload.amount_cents),
+        customer_code: payload.customer_code.and_then(non_empty_string),
+        invoice_number: payload.invoice_number.and_then(non_empty_string),
+        card_data: helcim::HelcimCardData {
+            card_token: card_token.to_string(),
+        },
+    };
+    let transaction = match helcim::process_card_token_purchase(
+        &state.http_client,
+        &config,
+        request,
+        &idempotency_key,
+    )
+    .await
+    {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            sqlx::query(
+                r#"
+                UPDATE payment_provider_attempts
+                SET status = 'failed',
+                    error_code = 'request_failed',
+                    error_message = $2,
+                    completed_at = now()
+                WHERE id = $1
+                "#,
+            )
+            .bind(attempt_id)
+            .bind(error.chars().take(500).collect::<String>())
+            .execute(&state.db)
+            .await
+            .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+            return Err(PaymentError::ProviderError(error));
+        }
+    };
+
+    let status = transaction.normalized_status();
+    let provider_transaction_id = transaction.transaction_id_string();
+    let raw_audit_reference = transaction.audit_reference();
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = $2,
+            provider_payment_id = $3,
+            provider_transaction_id = $3,
+            error_code = CASE WHEN $2 = 'failed' THEN 'declined' ELSE NULL END,
+            error_message = CASE WHEN $2 = 'failed' THEN COALESCE($5, 'Helcim payment was declined.') ELSE NULL END,
+            raw_audit_reference = COALESCE($4, raw_audit_reference),
+            completed_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(&status)
+    .bind(provider_transaction_id)
+    .bind(raw_audit_reference)
+    .bind(transaction.warning.clone())
+    .execute(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    load_helcim_attempt(&state, attempt_id, None)
+        .await
+        .map(Json)
+}
+
+async fn process_helcim_card_refund(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<HelcimCardRefundRequestBody>,
+) -> Result<Json<helcim::HelcimCardTransaction>, PaymentError> {
+    middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_pay_session)?;
+    if payload.amount_cents <= 0 || payload.original_transaction_id <= 0 {
+        return Err(PaymentError::InvalidPayload(
+            "amount_cents and original_transaction_id are required".to_string(),
+        ));
+    }
+    let config = helcim::HelcimConfig::from_env();
+    let idempotency_key = Uuid::new_v4().to_string();
+    let request = helcim::HelcimCardRefundRequest {
+        original_transaction_id: payload.original_transaction_id,
+        amount: cents_to_decimal_string(payload.amount_cents),
+        ip_address: request_ip_address(&headers),
+        ecommerce: false,
+    };
+    let transaction =
+        helcim::process_card_refund(&state.http_client, &config, request, &idempotency_key)
+            .await
+            .map_err(PaymentError::ProviderError)?;
+    Ok(Json(transaction))
+}
+
+async fn process_helcim_card_reverse(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<HelcimCardReverseRequestBody>,
+) -> Result<Json<helcim::HelcimCardTransaction>, PaymentError> {
+    middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_pay_session)?;
+    if payload.original_transaction_id <= 0 {
+        return Err(PaymentError::InvalidPayload(
+            "original_transaction_id is required".to_string(),
+        ));
+    }
+    let config = helcim::HelcimConfig::from_env();
+    let idempotency_key = Uuid::new_v4().to_string();
+    let request = helcim::HelcimCardReverseRequest {
+        card_transaction_id: payload.original_transaction_id,
+        ip_address: request_ip_address(&headers),
+        ecommerce: false,
+    };
+    let transaction =
+        helcim::process_card_reverse(&state.http_client, &config, request, &idempotency_key)
+            .await
+            .map_err(PaymentError::ProviderError)?;
+    Ok(Json(transaction))
+}
+
+async fn initialize_helcim_pay(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<HelcimPayInitializeRequestBody>,
+) -> Result<Json<HelcimPayInitializeResponseBody>, PaymentError> {
+    let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_pay_session)?;
+    if load_active_card_provider(&state).await? != helcim::HELCIM_PROVIDER_KEY {
+        return Err(PaymentError::InvalidPayload(
+            "Helcim is not the active card provider.".to_string(),
+        ));
+    }
+    if payload.amount_cents <= 0 {
+        return Err(PaymentError::InvalidPayload(
+            "amount_cents must be greater than zero".to_string(),
+        ));
+    }
+    let currency = payload
+        .currency
+        .as_deref()
+        .unwrap_or("usd")
+        .trim()
+        .to_ascii_uppercase();
+    validate_currency(&currency.to_ascii_lowercase())?;
+
+    let config = helcim::HelcimConfig::from_env();
+    let customer_code = payload.customer_code.and_then(non_empty_string);
+    let invoice_number = payload.invoice_number.and_then(non_empty_string);
+    let request = helcim::HelcimPayInitializeRequest {
+        payment_type: "purchase".to_string(),
+        amount: cents_to_decimal_string(payload.amount_cents),
+        currency: currency.clone(),
+        payment_method: "cc".to_string(),
+        customer_code,
+        invoice_number,
+        hide_existing_payment_details: payload
+            .hide_existing_payment_details
+            .filter(|enabled| *enabled)
+            .map(|_| 1),
+        set_as_default_payment_method: payload
+            .save_as_default
+            .filter(|enabled| *enabled)
+            .map(|_| 1),
+        confirmation_screen: false,
+        display_contact_fields: None,
+    };
+    let initialized = helcim::initialize_helcim_pay(&state.http_client, &config, request)
+        .await
+        .map_err(PaymentError::ProviderError)?;
+
+    let attempt_id = Uuid::new_v4();
+    let idempotency_key = format!("helcim-pay-{attempt_id}");
+    let (register_session_id, staff_id) = match auth {
+        middleware::StaffOrPosSession::Staff(staff) => {
+            (payload.register_session_id, Some(staff.id))
+        }
+        middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
+    };
+    sqlx::query(
+        r#"
+        INSERT INTO payment_provider_attempts (
+            id, provider, status, amount_cents, currency, register_session_id, staff_id,
+            idempotency_key, provider_payment_id, provider_client_secret, raw_audit_reference
+        )
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $7, $8, 'helcim-pay-js')
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(payload.amount_cents)
+    .bind(currency.to_ascii_lowercase())
+    .bind(register_session_id)
+    .bind(staff_id)
+    .bind(&idempotency_key)
+    .bind(&initialized.checkout_token)
+    .bind(&initialized.secret_token)
+    .execute(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    Ok(Json(HelcimPayInitializeResponseBody {
+        attempt: load_helcim_attempt(&state, attempt_id, None).await?,
+        checkout_token: initialized.checkout_token,
+    }))
+}
+
+async fn confirm_helcim_pay(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<HelcimPayConfirmRequestBody>,
+) -> Result<Json<HelcimAttemptResponse>, PaymentError> {
+    let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_pay_session)?;
+    let pos_session_id = match auth {
+        middleware::StaffOrPosSession::PosSession { session_id } => Some(session_id),
+        middleware::StaffOrPosSession::Staff(_) => None,
+    };
+
+    let row: Option<(String, i64, Option<Uuid>, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT status, amount_cents, register_session_id, provider_client_secret
+        FROM payment_provider_attempts
+        WHERE id = $1
+          AND provider = 'helcim'
+          AND provider_payment_id = $2
+        "#,
+    )
+    .bind(payload.attempt_id)
+    .bind(payload.checkout_token.trim())
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let Some((attempt_status, amount_cents, register_session_id, client_secret)) = row else {
+        return Err(PaymentError::InvalidPayload(
+            "HelcimPay.js attempt not found".to_string(),
+        ));
+    };
+    if let Some(session_id) = pos_session_id {
+        if register_session_id != Some(session_id) {
+            return Err(PaymentError::Forbidden(
+                "Helcim attempt does not belong to this register session.".to_string(),
+            ));
+        }
+    }
+    if attempt_status != "pending" {
+        return Err(PaymentError::InvalidPayload(
+            "HelcimPay.js attempt has already been completed".to_string(),
+        ));
+    }
+    let client_secret = client_secret.ok_or_else(|| {
+        PaymentError::InvalidPayload("HelcimPay.js validation secret is missing".to_string())
+    })?;
+
+    let canonical = serde_json::to_string(&payload.data)
+        .map_err(|_| PaymentError::InvalidPayload("invalid Helcim response".to_string()))?;
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_bytes());
+    hasher.update(client_secret.as_bytes());
+    let expected = hex::encode(hasher.finalize());
+    if !expected.eq_ignore_ascii_case(payload.hash.trim()) {
+        return Err(PaymentError::InvalidPayload(
+            "HelcimPay.js response hash did not validate".to_string(),
+        ));
+    }
+
+    let returned_amount = value_decimal_string(&payload.data, "amount")
+        .ok_or_else(|| PaymentError::InvalidPayload("Helcim amount is missing".to_string()))?;
+    if returned_amount != cents_to_decimal_string(amount_cents) {
+        return Err(PaymentError::InvalidPayload(
+            "Helcim amount does not match the approved payment".to_string(),
+        ));
+    }
+
+    let provider_status = value_string(&payload.data, "status").unwrap_or_default();
+    let normalized_status = match provider_status.trim().to_ascii_lowercase().as_str() {
+        "approved" | "approval" | "captured" | "capture" => "approved",
+        "cancelled" | "canceled" => "canceled",
+        _ => "failed",
+    };
+    let provider_transaction_id =
+        value_string(&payload.data, "transactionId").ok_or_else(|| {
+            PaymentError::InvalidPayload("Helcim transaction id is missing".to_string())
+        })?;
+    let warning = value_string(&payload.data, "warning");
+
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = $2,
+            provider_transaction_id = $3,
+            error_code = CASE WHEN $2 = 'failed' THEN 'declined' ELSE NULL END,
+            error_message = CASE WHEN $2 = 'failed' THEN COALESCE($4, 'Helcim payment was declined.') ELSE NULL END,
+            raw_audit_reference = $5,
+            provider_client_secret = NULL,
+            completed_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(payload.attempt_id)
+    .bind(normalized_status)
+    .bind(&provider_transaction_id)
+    .bind(warning)
+    .bind(format!("helcim-pay-js:{provider_transaction_id}"))
+    .execute(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    load_helcim_attempt(&state, payload.attempt_id, pos_session_id)
+        .await
+        .map(Json)
+}
+
+async fn list_helcim_customers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HelcimCustomersQuery>,
+) -> Result<Json<serde_json::Value>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, CUSTOMERS_HUB_VIEW)
+        .await
+        .map_err(map_pay_session)?;
+    let mut params = Vec::new();
+    if let Some(value) = query.customer_code.and_then(non_empty_string) {
+        params.push(("customerCode", value));
+    } else if let Some(value) = query.search.and_then(non_empty_string) {
+        params.push(("search", value));
+    }
+    if query.include_cards.unwrap_or(false) {
+        params.push(("includeCards", "yes".to_string()));
+    }
+    let config = helcim::HelcimConfig::from_env();
+    let body = helcim::get_customers(&state.http_client, &config, &params)
+        .await
+        .map_err(PaymentError::ProviderError)?;
+    Ok(Json(body))
+}
+
+async fn list_helcim_customer_cards(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<i64>,
+    Query(query): Query<HelcimCustomerCardsQuery>,
+) -> Result<Json<serde_json::Value>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, CUSTOMERS_HUB_VIEW)
+        .await
+        .map_err(map_pay_session)?;
+    if customer_id <= 0 {
+        return Err(PaymentError::InvalidPayload(
+            "customer_id must be a Helcim customer id".to_string(),
+        ));
+    }
+    let config = helcim::HelcimConfig::from_env();
+    let body = helcim::get_customer_cards(
+        &state.http_client,
+        &config,
+        customer_id,
+        query.card_token.and_then(non_empty_string),
+    )
+    .await
+    .map_err(PaymentError::ProviderError)?;
+    Ok(Json(body))
+}
+
+async fn delete_helcim_customer_card(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((customer_id, card_id)): Path<(i64, i64)>,
+) -> Result<StatusCode, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, CUSTOMERS_HUB_EDIT)
+        .await
+        .map_err(map_pay_session)?;
+    if customer_id <= 0 || card_id <= 0 {
+        return Err(PaymentError::InvalidPayload(
+            "customer_id and card_id must be Helcim ids".to_string(),
+        ));
+    }
+    let config = helcim::HelcimConfig::from_env();
+    helcim::delete_customer_card(&state.http_client, &config, customer_id, card_id)
+        .await
+        .map_err(PaymentError::ProviderError)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn set_helcim_customer_card_default(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((customer_id, card_id)): Path<(i64, i64)>,
+) -> Result<Json<serde_json::Value>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, CUSTOMERS_HUB_EDIT)
+        .await
+        .map_err(map_pay_session)?;
+    if customer_id <= 0 || card_id <= 0 {
+        return Err(PaymentError::InvalidPayload(
+            "customer_id and card_id must be Helcim ids".to_string(),
+        ));
+    }
+    let config = helcim::HelcimConfig::from_env();
+    let body = helcim::set_customer_card_default(&state.http_client, &config, customer_id, card_id)
+        .await
+        .map_err(PaymentError::ProviderError)?;
+    Ok(Json(body))
+}
+
 async fn simulate_helcim_attempt(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -656,6 +1300,61 @@ async fn get_helcim_attempt(
         .map(Json)
 }
 
+fn validate_currency(currency: &str) -> Result<(), PaymentError> {
+    if currency.len() == 3 && currency.chars().all(|c| c.is_ascii_lowercase()) {
+        Ok(())
+    } else {
+        Err(PaymentError::InvalidPayload(
+            "currency must be a 3-letter code".to_string(),
+        ))
+    }
+}
+
+fn request_ip_address(headers: &HeaderMap) -> String {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or("127.0.0.1")
+        .to_string()
+}
+
+fn non_empty_string(value: String) -> Option<String> {
+    Some(value.trim().to_string()).filter(|value| !value.is_empty())
+}
+
+fn value_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|field| match field {
+            Value::String(value) => Some(value.trim().to_string()),
+            Value::Number(number) => Some(number.to_string()),
+            _ => None,
+        })
+        .filter(|value| !value.is_empty())
+}
+
+fn value_decimal_string(value: &Value, key: &str) -> Option<String> {
+    let raw = value_string(value, key)?;
+    let decimal = rust_decimal::Decimal::from_str_exact(&raw).ok()?;
+    Some(decimal.round_dp(2).to_string())
+}
+
+fn cents_to_decimal_string(amount_cents: i64) -> String {
+    let sign = if amount_cents < 0 { "-" } else { "" };
+    let abs = amount_cents.unsigned_abs();
+    format!("{sign}{}.{:02}", abs / 100, abs % 100)
+}
+
 async fn load_helcim_attempt(
     state: &AppState,
     attempt_id: Uuid,
@@ -731,215 +1430,4 @@ async fn load_helcim_attempt_row(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
     .ok_or_else(|| PaymentError::InvalidPayload("Helcim attempt not found.".to_string()))
-}
-
-async fn get_vaulted_methods(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(customer_id): Path<Uuid>,
-) -> Result<Json<Vec<stripe_vault::VaultedPaymentMethod>>, PaymentError> {
-    middleware::require_staff_or_pos_register_session(&state, &headers)
-        .await
-        .map_err(map_pay_session)?;
-
-    let methods = stripe_vault::list_vaulted_methods(&state.db, &state.stripe_client, customer_id)
-        .await
-        .map_err(|e| PaymentError::StripeError(e.to_string()))?;
-
-    Ok(Json(methods))
-}
-
-async fn create_vault_setup_intent(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(customer_id): Path<Uuid>,
-) -> Result<Json<serde_json::Value>, PaymentError> {
-    middleware::require_staff_or_pos_register_session(&state, &headers)
-        .await
-        .map_err(map_pay_session)?;
-
-    let secret = stripe_vault::create_setup_intent(&state.db, &state.stripe_client, customer_id)
-        .await
-        .map_err(|e| PaymentError::StripeError(e.to_string()))?;
-
-    Ok(Json(json!({ "client_secret": secret })))
-}
-
-async fn delete_vaulted_method(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path((customer_id, pm_id)): Path<(Uuid, String)>,
-) -> Result<StatusCode, PaymentError> {
-    middleware::require_staff_or_pos_register_session(&state, &headers)
-        .await
-        .map_err(map_pay_session)?;
-
-    stripe_vault::delete_vaulted_method(&state.db, &state.stripe_client, customer_id, &pm_id)
-        .await
-        .map_err(|e| PaymentError::StripeError(e.to_string()))?;
-
-    Ok(StatusCode::NO_CONTENT)
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RecordVaultedMethodRequest {
-    pub stripe_payment_method_id: String,
-    pub brand: String,
-    pub last4: String,
-    pub exp_month: i32,
-    pub exp_year: i32,
-}
-
-async fn record_vaulted_method(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(customer_id): Path<Uuid>,
-    Json(payload): Json<RecordVaultedMethodRequest>,
-) -> Result<Json<serde_json::Value>, PaymentError> {
-    middleware::require_staff_or_pos_register_session(&state, &headers)
-        .await
-        .map_err(map_pay_session)?;
-
-    let id = stripe_vault::record_vaulted_method(
-        &state.db,
-        customer_id,
-        &payload.stripe_payment_method_id,
-        &payload.brand,
-        &payload.last4,
-        payload.exp_month,
-        payload.exp_year,
-    )
-    .await
-    .map_err(|e| PaymentError::StripeError(e.to_string()))?;
-
-    Ok(Json(json!({ "id": id })))
-}
-
-async fn create_payment_intent(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<CreateIntentRequest>,
-) -> Result<Json<CreateIntentResponse>, PaymentError> {
-    middleware::require_staff_or_pos_register_session(&state, &headers)
-        .await
-        .map_err(map_pay_session)?;
-
-    if state.payment_intent_max_per_minute > 0 {
-        let mut w = state.payment_intent_minute.lock().await;
-        let now = std::time::Instant::now();
-        if now.duration_since(w.window_start) >= Duration::from_secs(60) {
-            w.window_start = now;
-            w.count = 0;
-        }
-        if w.count >= state.payment_intent_max_per_minute {
-            return Err(PaymentError::RateLimited);
-        }
-        w.count += 1;
-    }
-
-    if payload.amount_due <= Decimal::ZERO && !payload.is_credit.unwrap_or(false) {
-        return Err(PaymentError::InvalidPayload(
-            "Amount must be greater than zero for standard payments".to_string(),
-        ));
-    }
-
-    let cents_decimal = payload.amount_due * Decimal::from(100);
-    let amount_cents = cents_decimal.to_i64().ok_or_else(|| {
-        PaymentError::InvalidPayload("Amount is too large or malformed".to_string())
-    })?;
-
-    let mut create_intent = CreatePaymentIntent::new(amount_cents, Currency::USD);
-
-    if payload.moto.unwrap_or(false) {
-        create_intent.payment_method_types = Some(vec!["card".to_string()]);
-        // For MOTO, we often want to save the card for future use
-        if payload.customer_id.is_some() {
-            create_intent.setup_future_usage =
-                Some(stripe::PaymentIntentSetupFutureUsage::OffSession);
-        }
-    } else if payload.payment_method_id.is_some() {
-        // Saved card: don't restrict to card_present
-        create_intent.payment_method_types = Some(vec!["card".to_string()]);
-    } else {
-        create_intent.payment_method_types = Some(vec!["card_present".to_string()]);
-    }
-
-    if let Some(pm_id) = payload.payment_method_id {
-        create_intent.payment_method = Some(
-            pm_id
-                .parse()
-                .map_err(|_| PaymentError::StripeError("invalid payment method id".into()))?,
-        );
-        // Off-session confirmation if using a saved card directly from POS
-        create_intent.confirm = Some(true);
-        create_intent.off_session = Some(stripe::PaymentIntentOffSession::Exists(true));
-    }
-
-    // Link Stripe customer if we have one for this ROS customer
-    if let Some(cid) = payload.customer_id {
-        let stripe_cust_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
-            "SELECT stripe_customer_id FROM customers WHERE id = $1",
-        )
-        .bind(cid)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| PaymentError::StripeError(e.to_string()))?
-        .flatten();
-
-        if let Some(scid) = stripe_cust_id {
-            create_intent.customer = Some(
-                scid.parse()
-                    .map_err(|_| PaymentError::StripeError("invalid stripe customer id".into()))?,
-            );
-        }
-    }
-
-    let intent = PaymentIntent::create(&state.stripe_client, create_intent)
-        .await
-        .map_err(|e| PaymentError::StripeError(e.to_string()))?;
-
-    Ok(Json(CreateIntentResponse {
-        intent_id: intent.id.to_string(),
-        client_secret: intent.client_secret.unwrap_or_default(),
-        amount_cents,
-    }))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CancelIntentRequest {
-    pub intent_id: String,
-}
-
-/// Voids a **uncaptured** Terminal `PaymentIntent` when staff removes the card tender from the ledger
-/// before completing the sale. Succeeded / canceled intents return an error from Stripe (surfaced as 400).
-async fn cancel_payment_intent(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<CancelIntentRequest>,
-) -> Result<Json<serde_json::Value>, PaymentError> {
-    middleware::require_staff_or_pos_register_session(&state, &headers)
-        .await
-        .map_err(map_pay_session)?;
-
-    let id = payload.intent_id.trim();
-    if id.is_empty() || id == "offline_simulation" {
-        return Ok(Json(json!({ "status": "skipped" })));
-    }
-    if !id.starts_with("pi_") {
-        return Err(PaymentError::InvalidPayload(
-            "intent_id must be a Stripe PaymentIntent id (pi_...)".to_string(),
-        ));
-    }
-
-    let pi_id: PaymentIntentId = id
-        .parse()
-        .map_err(|_| PaymentError::StripeError("invalid intent id".into()))?;
-    PaymentIntent::cancel(&state.stripe_client, &pi_id, CancelPaymentIntent::default())
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, intent_id = %id, "payment intent cancel");
-            PaymentError::InvalidPayload(format!("Could not void authorization: {e}"))
-        })?;
-
-    Ok(Json(json!({ "status": "cancelled" })))
 }

@@ -45,7 +45,7 @@ const ACCENT_OPTIONS: Array<{
   {
     value: "classic",
     label: "Classic",
-    description: "Dark stripe with a more traditional retail feel.",
+    description: "Dark band with a more traditional retail feel.",
   },
   {
     value: "minimal",
@@ -59,14 +59,14 @@ function getAccentTokens(style: InventoryTagPrintConfig["accentStyle"]) {
     case "classic":
       return {
         shell: "border-slate-900/15 bg-white",
-        stripe: "bg-gradient-to-br from-slate-900 via-slate-700 to-slate-500",
+        band: "bg-gradient-to-br from-slate-900 via-slate-700 to-slate-500",
         chip: "border-cyan-200 bg-cyan-50 text-cyan-900",
         meta: "border-slate-200 bg-white/90 text-slate-700",
       };
     case "minimal":
       return {
         shell: "border-zinc-200 bg-white",
-        stripe: "bg-zinc-200",
+        band: "bg-zinc-200",
         chip: "border-zinc-200 bg-zinc-100 text-zinc-900",
         meta: "border-zinc-200 bg-zinc-50 text-zinc-700",
       };
@@ -74,7 +74,7 @@ function getAccentTokens(style: InventoryTagPrintConfig["accentStyle"]) {
     default:
       return {
         shell: "border-emerald-200 bg-[radial-gradient(circle_at_top_left,_rgba(236,253,245,1)_0%,_rgba(255,255,255,1)_60%,_rgba(240,253,244,1)_100%)]",
-        stripe: "bg-gradient-to-br from-emerald-900 via-emerald-600 to-emerald-300",
+        band: "bg-gradient-to-br from-emerald-900 via-emerald-600 to-emerald-300",
         chip: "border-emerald-950 bg-emerald-950 text-emerald-50",
         meta: "border-emerald-100 bg-white/90 text-emerald-900",
       };
@@ -336,7 +336,7 @@ export default function TagDesignerPanel() {
                     <div
                       className={`mb-3 flex h-24 overflow-hidden rounded-xl border ${accent.shell}`}
                     >
-                      <div className={`w-5 ${accent.stripe}`} />
+                      <div className={`w-5 ${accent.band}`} />
                       <div className="flex flex-1 flex-col gap-2 p-3">
                         <div
                           className={`w-fit rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] ${accent.chip}`}
@@ -378,7 +378,7 @@ export default function TagDesignerPanel() {
                   key={item.sku}
                   className={`flex min-h-[210px] overflow-hidden rounded-[26px] border ${previewAccent.shell}`}
                 >
-                  <div className={`w-8 shrink-0 ${previewAccent.stripe}`} />
+                  <div className={`w-8 shrink-0 ${previewAccent.band}`} />
                   <div className="flex flex-1 flex-col gap-3 p-4">
                     {normalizedDraft.showSku ? (
                       <div

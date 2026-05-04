@@ -5,13 +5,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  Elements,
-  PaymentElement,
-  useElements,
-  useStripe,
-} from "@stripe/react-stripe-js";
-import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { apiUrl } from "../../lib/apiUrl";
@@ -177,7 +170,7 @@ interface StoreShippingRateRow {
 }
 
 interface CheckoutProviderReadiness {
-  provider: "stripe" | "helcim";
+  provider: "helcim";
   enabled: boolean;
   label: string;
   detail: string;
@@ -186,15 +179,14 @@ interface CheckoutProviderReadiness {
 
 interface CheckoutConfigResponse {
   web_checkout_enabled: boolean;
-  default_provider: "stripe" | "helcim";
+  default_provider: "helcim";
   providers: CheckoutProviderReadiness[];
-  stripe_public_key?: string | null;
 }
 
 interface CheckoutSessionResponse {
   id: string;
   status: string;
-  selected_provider: "stripe" | "helcim";
+  selected_provider: "helcim";
   subtotal_usd: string;
   discount_usd: string;
   tax_usd: string;
@@ -207,7 +199,7 @@ interface CheckoutSessionResponse {
 
 interface CheckoutPaymentResponse {
   checkout_session_id: string;
-  provider: "stripe" | "helcim";
+  provider: "helcim";
   status: string;
   amount_cents: number;
   provider_payment_id?: string | null;
@@ -219,7 +211,7 @@ interface CheckoutPaymentResponse {
 
 interface CheckoutConfirmResponse {
   checkout_session_id: string;
-  provider: "stripe" | "helcim";
+  provider: "helcim";
   status: string;
   transaction_id?: string | null;
   transaction_display_id?: string | null;
@@ -2982,11 +2974,9 @@ function CheckoutPane({
     }
   });
   const [config, setConfig] = useState<CheckoutConfigResponse | null>(null);
-  const [provider, setProvider] = useState<"stripe" | "helcim">("stripe");
+  const [provider, setProvider] = useState<"helcim">("helcim");
   const [session, setSession] = useState<CheckoutSessionResponse | null>(null);
   const [payment, setPayment] = useState<CheckoutPaymentResponse | null>(null);
-  const [stripePromise, setStripePromise] =
-    useState<Promise<Stripe | null> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -3024,11 +3014,8 @@ function CheckoutPane({
             ?.provider ??
           cfg.providers.find((p) => p.enabled)?.provider ??
           cfg.default_provider ??
-          "stripe";
+          "helcim";
         setProvider(defaultProvider);
-        if (cfg.stripe_public_key) {
-          setStripePromise(loadStripe(cfg.stripe_public_key));
-        }
       } catch {
         setError("Checkout configuration is unavailable.");
       }
@@ -3217,7 +3204,7 @@ function CheckoutPane({
         <CardHeader>
           <CardTitle className="text-base">Payment provider</CardTitle>
           <CardDescription>
-            Stripe and Helcim use the same ROS checkout contract.
+            Helcim processes card checkout through the ROS checkout contract.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -3282,32 +3269,6 @@ function CheckoutPane({
         </Card>
       ) : null}
 
-      {payment?.provider === "stripe" &&
-      payment.client_secret &&
-      stripePromise ? (
-        <Elements
-          stripe={stripePromise}
-          options={{ clientSecret: payment.client_secret }}
-        >
-          <CheckoutStripePaymentForm
-            payment={payment}
-            onComplete={(result) => {
-              toast("Payment accepted.", "success");
-              window.localStorage.removeItem("ros.store.cart.v1");
-              window.localStorage.removeItem(CART_SESSION_STORAGE_KEY);
-              window.localStorage.removeItem(SHIPPING_QUOTE_STORAGE_KEY);
-              window.localStorage.removeItem(CHECKOUT_COUPON_STORAGE_KEY);
-              navigate(
-                `/shop/checkout/complete?session=${encodeURIComponent(
-                  result.checkout_session_id,
-                )}`,
-              );
-            }}
-            onError={(message) => setError(message)}
-          />
-        </Elements>
-      ) : null}
-
       {payment?.provider === "helcim" && payment.checkout_token ? (
         <CheckoutHelcimPaymentForm
           payment={payment}
@@ -3327,88 +3288,6 @@ function CheckoutPane({
         />
       ) : null}
     </div>
-  );
-}
-
-function CheckoutStripePaymentForm({
-  payment,
-  onComplete,
-  onError,
-}: {
-  payment: CheckoutPaymentResponse;
-  onComplete: (result: CheckoutConfirmResponse) => void;
-  onError: (message: string) => void;
-}) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [submitting, setSubmitting] = useState(false);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Card payment</CardTitle>
-        <CardDescription>Secure Stripe payment for this ROS checkout.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <PaymentElement />
-        <Button
-          type="button"
-          disabled={!stripe || !elements || submitting}
-          className="w-full"
-          onClick={() => {
-            void (async () => {
-              if (!stripe || !elements || !payment.provider_payment_id) return;
-              setSubmitting(true);
-              try {
-                const result = await stripe.confirmPayment({
-                  elements,
-                  redirect: "if_required",
-                });
-                if (result.error) {
-                  onError(result.error.message ?? "Payment was not accepted.");
-                  return;
-                }
-                const confirmRes = await fetch(
-                  apiUrl(
-                    API_BASE,
-                    `/api/store/checkout/session/${payment.checkout_session_id}/confirm`,
-                  ),
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      provider: "stripe",
-                      provider_payment_id: payment.provider_payment_id,
-                    }),
-                  },
-                );
-                const confirmJson = (await confirmRes.json().catch(() => ({}))) as
-                  | CheckoutConfirmResponse
-                  | { error?: string };
-                if (!confirmRes.ok) {
-                  onError(
-                    "error" in confirmJson
-                      ? confirmJson.error ?? "Payment confirmed, but ROS could not finalize the order."
-                      : "Payment confirmed, but ROS could not finalize the order.",
-                  );
-                  return;
-                }
-                const confirmed = confirmJson as CheckoutConfirmResponse;
-                if (confirmed.status !== "paid") {
-                  onError(`Payment status is ${confirmed.status}.`);
-                  return;
-                }
-                onComplete(confirmed);
-              } finally {
-                setSubmitting(false);
-              }
-            })();
-          }}
-        >
-          {submitting ? "Finalizing..." : "Pay now"}
-        </Button>
-      </CardContent>
-    </Card>
   );
 }
 

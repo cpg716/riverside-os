@@ -88,7 +88,7 @@ interface RegisterDaySummary {
   special_order_sale_count: number;
   appointment_count: number;
   new_wedding_parties_count: number;
-  stripe_fees_total: string;
+  merchant_fees_total: string;
   net_sales: string;
   cash_collected: string;
   deposits_collected: string;
@@ -154,7 +154,7 @@ function kindPill(kind: string): string {
 
 function paymentIcon(method: string) {
   const m = method.toLowerCase();
-  if (m.includes("card") || m.includes("stripe")) return <CreditCard size={12} />;
+  if (m.includes("card") || m.includes("helcim")) return <CreditCard size={12} />;
   if (m.includes("cash")) return <Banknote size={12} />;
   if (m.includes("gift")) return <Package size={12} />;
   return <CreditCard size={12} />;
@@ -412,7 +412,7 @@ export default function RegisterReports({
         appointment_count: summary.appointment_count,
         online_order_count: summary.online_order_count,
         new_wedding_parties_count: summary.new_wedding_parties_count,
-        stripe_fees_total: summary.stripe_fees_total,
+        merchant_fees_total: summary.merchant_fees_total,
         cash_collected: summary.cash_collected,
         deposits_collected: summary.deposits_collected,
       },
@@ -607,7 +607,7 @@ export default function RegisterReports({
                     </div>
                     <div className="ui-metric-cell ui-tint-danger p-2">
 	                      <div className="text-xs font-bold text-app-danger">Fees</div>
-                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.stripe_fees_total))}</p>
+                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.merchant_fees_total))}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">

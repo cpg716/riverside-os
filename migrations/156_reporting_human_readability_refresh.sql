@@ -137,7 +137,6 @@ SELECT
     pt.net_amount,
     pt.card_brand,
     pt.card_last4,
-    pt.stripe_intent_id,
     pt.payer_id,
     TRIM(CONCAT_WS(' ', c.first_name, c.last_name)) AS payer_name,
     c.customer_code AS payer_code,

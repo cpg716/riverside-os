@@ -52,7 +52,7 @@ export default function PosRefundModal({
             Process refund
           </h3>
           <p className="ui-type-instruction-muted mt-1 text-xs">
-            A register session must be open. Card methods trigger Stripe when a payment intent exists on the
+            A register session must be open. Card methods use the configured payment provider on the
             order. Gift card refunds require the card code.
           </p>
         </div>

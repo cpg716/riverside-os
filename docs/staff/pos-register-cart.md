@@ -96,10 +96,9 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
     - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Add Payment**.
     - The **keypad** stays fixed in the payment panel — scroll only affects the tender and balance area above it if the screen is very short.
 4. **Integrated card payments:**
-   - Card methods are labeled **CARD READER**, **MANUAL CARD**, **SAVED CARD**, or **CARD REFUND**.
-   - **Saved Card** charges a card on file without the physical reader.
+   - Card payments use the Helcim terminal flow.
    - **Card Refund** appears on returns to issue a refund back via the terminal.
-   - See **[`stripe-payments-manual.md`](../../client/src/assets/docs/stripe-payments-manual.md)** for full details.
+   - See **[`pos-nexo-checkout-drawer-manual.md`](../../client/src/assets/docs/pos-nexo-checkout-drawer-manual.md)** for full details.
 5. **Audited Tax Exemptions:**
    - For tax-free sales, tap the **Tax Exempt** toggle in the checkout drawer.
    - **Reason Required**: A valid reason (e.g. Resale, Exempt Org) MUST be selected.

@@ -243,9 +243,6 @@ pub async fn start_unified_server(
 
     let config = LauncherConfig {
         database_url,
-        stripe_secret_key: std::env::var("STRIPE_SECRET_KEY").unwrap_or_default(),
-        stripe_public_key: std::env::var("STRIPE_PUBLIC_KEY").unwrap_or_default(),
-        stripe_webhook_secret: std::env::var("STRIPE_WEBHOOK_SECRET").ok(),
         bind_addr: bind_addr.clone(),
         frontend_dist: Some(frontend_dist.clone()),
         cors_origins: vec![],

@@ -59,7 +59,7 @@ Implementation plan for **(A)** **transactional / operational SMS** from Riversi
 
 - **Rebuilding Podium’s full Inbox** (global queue, assignment UX, bulk triage) inside ROS.
 - *(Historical — superseded:)* ~~Inbound CRM before Phase 4+~~ — **inbound threads + notifications shipped** (**71** preview, **99**+ CRM). Remaining scope is **polish** and optional **Settings**-embedded lists, not greenfield build.
-- Podium **Invoices / card reader** flows ([Collect Your First Payment with a Card Reader](https://docs.podium.com/docs)) — Stripe remains in-register for ROS.
+- Podium **Invoices / card reader** flows ([Collect Your First Payment with a Card Reader](https://docs.podium.com/docs)) — Helcim remains in-register for ROS.
 
 ## Non-goals (explicit deferral)
 

@@ -232,16 +232,16 @@ pub fn payment_method_summary(
     }
 
     if trimmed_method.eq_ignore_ascii_case("card_terminal") {
-        return "Stripe Card".to_string();
+        return "Card".to_string();
     }
     if trimmed_method.eq_ignore_ascii_case("card_manual") {
-        return "Stripe Manual".to_string();
+        return "Manual Card".to_string();
     }
     if trimmed_method.eq_ignore_ascii_case("card_saved") {
-        return "Stripe Vault".to_string();
+        return "Saved Card".to_string();
     }
     if trimmed_method.eq_ignore_ascii_case("card_credit") {
-        return "Stripe Credit".to_string();
+        return "Card Credit".to_string();
     }
     if trimmed_method.eq_ignore_ascii_case("gift_card") {
         let mut parts = vec!["Gift Card".to_string()];

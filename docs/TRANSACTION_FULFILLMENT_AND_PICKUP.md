@@ -112,13 +112,13 @@ When a transaction is created with Ship fulfillment, the customer can save a car
 
 ### Storage
 
-- Column: `transactions.stripe_payment_method_id`
+- Column: `transactions.card_payment_method_id`
 - Migration: **142_transactions_and_fulfillment.sql**
 
 ### Checkout Flow
 
 1. **TransactionReviewModal**: Select saved card OR enter new card
-2. **Saved to transaction**: stripe_payment_method_id stored at checkout
+2. **Saved to transaction**: card_payment_method_id stored at checkout
 3. **At pickup**: Charge saved card for remaining balance + shipping
 
 ---
@@ -176,7 +176,7 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 | `server/src/api/transactions.rs` | API: list_transactions, mark_transaction_pickup |
 | `server/src/logic/transaction_recalc.rs` | Balance recalculation |
 | `server/src/logic/transaction_checkout.rs` | Checkout with fulfillment fields |
-| `migrations/142_transactions_and_fulfillment.sql` | stripe_payment_method_id column |
+| `migrations/142_transactions_and_fulfillment.sql` | card_payment_method_id column |
 
 ---
 

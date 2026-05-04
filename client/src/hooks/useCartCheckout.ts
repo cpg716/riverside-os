@@ -264,7 +264,6 @@ export function useCartCheckout({
         fulfillment_mode:
           options?.fulfillment_mode ?? (posShipping ? "ship" : "pickup"),
         ship_to: options?.ship_to ?? (posShipping?.to_address || null),
-        stripe_payment_method_id: options?.stripe_payment_method_id ?? null,
         actor_name: op.fullName.trim() || cashierName?.trim() || null,
         payment_splits,
         is_tax_exempt: ledgerSignals.isTaxExempt,

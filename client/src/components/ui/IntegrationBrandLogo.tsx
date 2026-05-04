@@ -14,8 +14,8 @@ import qboIcon from "../../assets/images/brands/QBO_icon.png";
 import qboWordmark from "../../assets/images/brands/QB_logo.png";
 import shippoIcon from "../../assets/images/brands/Shippo_Icon.png";
 import shippoWordmark from "../../assets/images/brands/Shippo_Logo.png";
-import stripeIcon from "../../assets/images/brands/Stripe_Icon.png";
-import stripeWordmark from "../../assets/images/brands/stripe_logo.png";
+import helcimIcon from "../../assets/images/brands/Helcim_Icon.png";
+import helcimWordmark from "../../assets/images/brands/Helcim_Logo.png";
 import weatherIcon from "../../assets/images/brands/weather_icon.jpeg";
 
 export type IntegrationBrand =
@@ -26,7 +26,7 @@ export type IntegrationBrand =
   | "podium"
   | "qbo"
   | "shippo"
-  | "stripe"
+  | "helcim"
   | "weather";
 type IntegrationBrandKind = "icon" | "wordmark";
 type IntegrationBrandTheme = "light" | "dark";
@@ -39,7 +39,7 @@ const BRAND_LABELS: Record<IntegrationBrand, string> = {
   podium: "Podium",
   qbo: "QuickBooks Online",
   shippo: "Shippo",
-  stripe: "Stripe",
+  helcim: "Helcim",
   weather: "Weather",
 };
 
@@ -48,8 +48,8 @@ function resolveSrc(
   kind: IntegrationBrandKind,
   theme: IntegrationBrandTheme,
 ): string {
-  if (brand === "stripe") {
-    return kind === "icon" ? stripeIcon : stripeWordmark;
+  if (brand === "helcim") {
+    return kind === "icon" ? helcimIcon : helcimWordmark;
   }
   if (brand === "corecredit") {
     return kind === "icon" ? coreCreditIcon : coreCreditWordmark;

@@ -47,7 +47,7 @@ import PodiumSettingsPanel from "./PodiumSettingsPanel";
 import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
 import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
 import ShippoSettingsPanel from "./ShippoSettingsPanel";
-import StripeSettingsPanel from "./StripeSettingsPanel";
+import HelcimSettingsPanel from "./HelcimSettingsPanel";
 import IntegrationBrandLogo, { type IntegrationBrand } from "../ui/IntegrationBrandLogo";
 import RemoteAccessPanel from "./RemoteAccessPanel";
 import RegisterSettings from "../pos/RegisterSettings";
@@ -144,7 +144,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   integrations: "Overview cards for connected services and integration setup.",
   podium: "Podium messaging, review invites, and communication readiness.",
   shippo: "Shipping account setup, carrier rates, and label configuration.",
-  stripe: "Stripe payments, terminal readiness, and card processing setup.",
+  helcim: "Helcim payments, terminal readiness, and card processing setup.",
   quickbooks: "QuickBooks connection settings and accounting bridge controls.",
   counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
   nuorder: "NuORDER catalog and vendor sync configuration.",
@@ -1094,11 +1094,11 @@ export default function SettingsWorkspace({
                       brandKind: "icon" as const,
                     },
                     {
-                      id: "stripe",
-                      label: "Stripe Terminal",
+                      id: "helcim",
+                      label: "Helcim Payments",
                       desc: "Card Processing Hub",
                       color: "bg-white",
-                      brand: "stripe" as IntegrationBrand,
+                      brand: "helcim" as IntegrationBrand,
                       brandKind: "icon" as const,
                     },
                   ] satisfies IntegrationCardItem[]).map((item) => (
@@ -1268,8 +1268,8 @@ export default function SettingsWorkspace({
               />
             )}
 
-            {activeTab === "stripe" && hasPermission("settings.admin") && (
-              <StripeSettingsPanel />
+            {activeTab === "helcim" && hasPermission("settings.admin") && (
+              <HelcimSettingsPanel />
             )}
 
             {activeTab === "receipt-builder" && (

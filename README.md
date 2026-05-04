@@ -88,13 +88,12 @@ Environment variables:
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://postgres:password@localhost:5433/riverside_os` | Must match Docker `db` host port (**5433** avoids conflict with native Postgres on 5432; see `server/.env.example`) |
-| `STRIPE_SECRET_KEY` | dummy | Stripe secret key for server payment calls. Local dev may use the dummy/test fallback; when **`RIVERSIDE_STRICT_PRODUCTION=true`**, startup requires a valid live **`sk_live_...`** key. |
-| `STRIPE_PUBLIC_KEY` | unset | Stripe publishable key served by **`GET /api/payments/config`** for Elements/vaulting flows. Local dev may leave it unset; when **`RIVERSIDE_STRICT_PRODUCTION=true`**, startup requires a valid live **`pk_live_...`** key. |
-| `STRIPE_WEBHOOK_SECRET` | unset | Optional Stripe webhook signing secret for **`POST /api/webhooks/stripe`** fee reconciliation. Startup warns when unset because reconciliation stays disabled; in strict production any configured value must look like **`whsec_...`**. |
+| `HELCIM_API_TOKEN` | unset | Helcim API token for server-side payment calls. Strict production requires a configured non-placeholder token. |
+| `HELCIM_DEVICE_CODE` | unset | Helcim terminal device code for card-present checkout. Strict production requires a configured non-placeholder device code. |
+| `HELCIM_WEBHOOK_SECRET` | unset | Optional Helcim webhook signing secret. When unset, inbound Helcim webhook verification is rejected. |
 | `QBO_TOKEN_ENC_KEY` | unset | Required before QBO credentials can be activated. Must be non-default and at least 32 characters; strict production startup refuses missing/default values. New QBO OAuth tokens are stored with authenticated `v2:` wrapping. |
 | `RIVERSIDE_BACKUP_DIR` | `backups` | Local backup directory. Strict production requires this to be set to an absolute, durable path; Settings and ROS Dev Center show the effective path. |
 | `VITE_API_BASE` | unset → same-origin in browser/PWA, else `http://127.0.0.1:3000` fallback for non-HTTP shells | API origin for client; set explicitly for production when UI and API are on different origins |
-| `VITE_POS_OFFLINE_CARD_SIM` | _(unset)_ | When **`true`**, register **Credit Card** tender can open the **training** reader simulation if **`POST /api/payments/intent`** fails — **`docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`** |
 | `VITE_STOREFRONT_EMBEDS` | _(unset)_ | When **`true`**, loads **`GET /api/public/storefront-embeds`** once (Podium widget when configured) — public storefront builds only — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
 | `VITE_PODIUM_OAUTH_REDIRECT_URI` | _(unset)_ | Optional. Override Podium OAuth callback URL (must match Podium app); default is **`${origin}/callback`** — **`client/.env.example`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
 | `RIVERSIDE_PODIUM_CLIENT_ID` | _(unset)_ | Podium OAuth client id; pair with secret + refresh token — **`DEVELOPER.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
@@ -118,7 +117,7 @@ Environment variables:
 | `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **Planned** (**ROSIE**): Tauri **direct** loopback vs **Axum** fallback — same doc; full table **`DEVELOPER.md`** |
 | `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | `7` | Optional; local hour (0–23) for admin morning notification digest — **`DEVELOPER.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`** |
 
-Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, a live **`STRIPE_SECRET_KEY`**, a live **`STRIPE_PUBLIC_KEY`**, an absolute **`RIVERSIDE_BACKUP_DIR`**, and a non-default **`QBO_TOKEN_ENC_KEY`** before QBO activation. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory. **`STRIPE_WEBHOOK_SECRET`** remains optional unless that deployment expects signed Stripe webhook reconciliation.
+Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, configured **`HELCIM_API_TOKEN`** and **`HELCIM_DEVICE_CODE`**, an absolute **`RIVERSIDE_BACKUP_DIR`**, and a non-default **`QBO_TOKEN_ENC_KEY`** before QBO activation. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory.
 
 ## Quality checks
 
@@ -158,7 +157,7 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm 
 
 Current CI note:
 
-- The POS UI subset (`phase2-tender-ui`, `pos-golden`, `tax-exempt-and-stripe-branding`, and the UI-open path in `exchange-wizard`) is back in the release gate. The old `ROS_QUARANTINE_UNSTABLE_POS_E2E=1` quarantine has been removed after adding explicit POS readiness contracts.
+- The POS UI subset (`phase2-tender-ui`, `pos-golden`, `tax-exempt-and-helcim-branding`, and the UI-open path in `exchange-wizard`) is back in the release gate. The old `ROS_QUARANTINE_UNSTABLE_POS_E2E=1` quarantine has been removed after adding explicit POS readiness contracts.
 - Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, and QBO audit contracts. The latest local full release run on 2026-04-25 reported **181 passed, 7 skipped, 0 failed**.
 - See [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md), [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md), and [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md).
 
@@ -173,7 +172,6 @@ Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_r
 | 28 | `customers.customer_code` (unique, required), profile fields |
 | 117 | Inventory maintenance types |
 | 123 | Reporting: Standardization of IDs and contact fields |
-| 131 | Stripe Power Integration: Terminal, Vaulting, Credits |
 | 135 | Schema Repair Baseline |
 | 143 | **Reporting Stabilization: Transactions & Fulfillment Orders Core Views** |
 | 149 | **ROS Dev Center v1** (ops telemetry, alerts, action audit, bug-incident links) |
@@ -204,7 +202,6 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/RECEIPT_BUILDER_AND_DELIVERY.md`| ZPL / Thermal templates and Podium delivery | Devs / ops |
 | `docs/COMMISSION_AND_SPIFF_OPERATIONS.md` | Commission Manager, SPIFF rules, and combo rewards | Ops / devs |
 | `docs/SHIPPING_AND_SHIPMENTS_HUB.md` | Shippo, Registry, and Hub operations | Devs / ops |
-| `docs/WISEPOS_E_SETUP_STRIPE.md` | Stripe Terminal WisePOS E reset and server-driven flow | Ops / devs |
 | `docs/CLIENT_UI_CONVENTIONS.md` | React primitives, modal a11y, shell wiring | Devs / agents |
 | `docs/CUSTOMER_HUB_AND_RBAC.md` | Joint accounts, financial redirection, CRM RBAC | Devs / ops |
 | `docs/UNIFIED_ENGINE_AND_HOST_MODE.md` | **Unified Hybrid Architecture** (v0.2.1+), Host Mode, and updates | Everyone |

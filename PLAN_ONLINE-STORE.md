@@ -56,7 +56,7 @@ The core product rule remains unchanged: **GrapesJS is only for marketing/CMS pa
 - Guest carts persist server-side and sync with local storefront cart state.
 - Storefront customer accounts use the shared `customers` table with online credentials.
 - Account login, register, activate, profile, password, order list, and order detail routes exist.
-- Web checkout architecture is provider-neutral for **Stripe and Helcim**.
+- Web checkout architecture is Helcim-only.
 - Checkout session/payment-attempt tables exist.
 - Web transactions use `sale_channel = web`.
 - Checkout financial logic stays server-side.
@@ -85,17 +85,16 @@ The skipped tests are the existing visual baseline skips, not Online Store failu
 - Do not let Studio-authored content mutate products, variants, pricing, stock, cart, tax, checkout, transactions, fulfillment, or refunds.
 - Future Studio blocks may read ROS-backed data such as featured products or campaigns, but they must remain read-only presentation blocks over ROS APIs.
 - Do not bypass ROS transaction/refund/payment invariants for web checkout.
-- Do not treat provider-ready checkout code as live-payment certified until Stripe and Helcim sandbox/live flows are tested in the deployment environment.
+- Do not treat provider-ready checkout code as live-payment certified until Helcim sandbox/live flows are tested in the deployment environment.
 
 ## What is still left before real launch
 
 ### Credit-card certification
 
-- Complete Stripe sandbox checkout certification.
 - Complete Helcim sandbox checkout certification.
-- Confirm webhook/finalization behavior for both providers.
+- Confirm webhook/finalization behavior for Helcim.
 - Confirm production credentials and environment variables.
-- Run at least one controlled live low-dollar payment/refund test per provider before public use.
+- Run at least one controlled live low-dollar Helcim payment/refund test before public use.
 
 ### Operational launch checklist
 
@@ -130,4 +129,4 @@ The skipped tests are the existing visual baseline skips, not Online Store failu
 
 ## Status
 
-Online Store is implemented enough for internal ROS operation and continued pre-launch validation. The main remaining blocker is **credit-card provider certification for Stripe and Helcim**, not the Online Store workspace itself.
+Online Store is implemented enough for internal ROS operation and continued pre-launch validation. The main remaining blocker is **credit-card provider certification for Helcim**, not the Online Store workspace itself.

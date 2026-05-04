@@ -12,10 +12,6 @@ export interface OrderOptions {
   needByDate: string | null;
   fulfillment: "pickup";
   shipTo: null;
-  storeCardForBalance: {
-    stripe_payment_method_id: string;
-    last4: string;
-  } | null;
 }
 
 interface CartLineItem {
@@ -76,7 +72,6 @@ export default function OrderReviewModal({
       needByDate,
       fulfillment: "pickup",
       shipTo: null,
-      storeCardForBalance: null,
     });
   };
 

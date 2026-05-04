@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
-use stripe::{CreatePaymentIntent, Currency, PaymentIntent, PaymentIntentId, PaymentIntentStatus};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -34,8 +33,6 @@ pub enum StoreCheckoutError {
     NotReady,
     #[error(transparent)]
     Database(#[from] sqlx::Error),
-    #[error("Stripe API error: {0}")]
-    Stripe(String),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -128,7 +125,6 @@ pub struct CheckoutConfigResponse {
     pub web_checkout_enabled: bool,
     pub default_provider: String,
     pub providers: Vec<ProviderReadiness>,
-    pub stripe_public_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -220,32 +216,6 @@ fn looks_placeholder(value: &str) -> bool {
         || lower.contains("replace_me")
 }
 
-fn stripe_ready() -> ProviderReadiness {
-    let secret = std::env::var("STRIPE_SECRET_KEY").unwrap_or_default();
-    let public = std::env::var("STRIPE_PUBLIC_KEY").unwrap_or_default();
-    let secret_configured = secret.trim().starts_with("sk_") && !looks_placeholder(&secret);
-    let public_configured = public.trim().starts_with("pk_") && !looks_placeholder(&public);
-    let mut missing_config = Vec::new();
-    if !secret_configured {
-        missing_config.push("STRIPE_SECRET_KEY is not configured".to_string());
-    }
-    if !public_configured {
-        missing_config.push("STRIPE_PUBLIC_KEY is not configured".to_string());
-    }
-
-    ProviderReadiness {
-        provider: "stripe".to_string(),
-        enabled: secret_configured && public_configured,
-        label: "Stripe".to_string(),
-        detail: if secret_configured && public_configured {
-            "Stripe web card checkout is ready.".to_string()
-        } else {
-            "Stripe needs public and secret keys before web checkout can accept cards.".to_string()
-        },
-        missing_config,
-    }
-}
-
 fn helcim_ready() -> ProviderReadiness {
     let api_token = std::env::var("HELCIM_API_TOKEN").unwrap_or_default();
     let api_configured = !looks_placeholder(&api_token);
@@ -276,29 +246,26 @@ pub async fn checkout_config(pool: &PgPool) -> Result<CheckoutConfigResponse, St
         sqlx::query_scalar("SELECT active_card_provider FROM store_settings WHERE id = 1")
             .fetch_optional(pool)
             .await?;
-    let stripe = stripe_ready();
     let helcim = helcim_ready();
-    let web_checkout_enabled =
-        env_truthy("RIVERSIDE_STORE_WEB_CHECKOUT_ENABLED") || stripe.enabled || helcim.enabled;
-    let public_key = std::env::var("STRIPE_PUBLIC_KEY")
-        .ok()
-        .filter(|key| key.trim().starts_with("pk_") && !looks_placeholder(key));
+    let web_checkout_enabled = env_truthy("RIVERSIDE_STORE_WEB_CHECKOUT_ENABLED") || helcim.enabled;
+    let default_provider = default_provider
+        .filter(|provider| provider == helcim::HELCIM_PROVIDER_KEY)
+        .unwrap_or_else(|| helcim::HELCIM_PROVIDER_KEY.to_string());
 
     Ok(CheckoutConfigResponse {
         web_checkout_enabled,
-        default_provider: default_provider.unwrap_or_else(|| "stripe".to_string()),
-        providers: vec![stripe, helcim],
-        stripe_public_key: public_key,
+        default_provider,
+        providers: vec![helcim],
     })
 }
 
 fn normalized_provider(provider: &str) -> Result<String, StoreCheckoutError> {
     let provider = provider.trim().to_ascii_lowercase();
-    if provider == "stripe" || provider == "helcim" {
+    if provider == helcim::HELCIM_PROVIDER_KEY {
         Ok(provider)
     } else {
         Err(StoreCheckoutError::Invalid(
-            "payment provider must be stripe or helcim".to_string(),
+            "payment provider must be helcim".to_string(),
         ))
     }
 }
@@ -606,7 +573,7 @@ fn session_response(row: CheckoutSessionRow) -> CheckoutSessionResponse {
         status: row.status,
         selected_provider: row
             .selected_provider
-            .unwrap_or_else(|| "stripe".to_string()),
+            .unwrap_or_else(|| helcim::HELCIM_PROVIDER_KEY.to_string()),
         subtotal_usd: decimal_str(row.subtotal_usd),
         discount_usd: decimal_str(row.discount_usd),
         tax_usd: decimal_str(row.tax_usd),
@@ -682,120 +649,67 @@ pub async fn create_payment(
         return Err(StoreCheckoutError::Provider(provider_ready.detail));
     }
 
-    if provider == "helcim" {
-        let config = helcim::HelcimConfig::from_env();
-        let token = config.api_token().ok_or_else(|| {
-            StoreCheckoutError::Provider("Helcim API token is not configured.".to_string())
-        })?;
-        let url = format!("{}/helcim-pay/initialize", config.api_base_url());
-        let response = state
-            .http_client
-            .post(&url)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .header("api-token", token)
-            .json(&json!({
-                "paymentType": "purchase",
-                "amount": decimal_str(row.total_usd),
-                "currency": "USD",
-                "paymentMethod": "cc",
-                "confirmationScreen": false,
-                "displayContactFields": 1,
-            }))
-            .send()
+    let config = helcim::HelcimConfig::from_env();
+    let token = config.api_token().ok_or_else(|| {
+        StoreCheckoutError::Provider("Helcim API token is not configured.".to_string())
+    })?;
+    let url = format!("{}/helcim-pay/initialize", config.api_base_url());
+    let response = state
+        .http_client
+        .post(&url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("api-token", token)
+        .json(&json!({
+            "paymentType": "purchase",
+            "amount": decimal_str(row.total_usd),
+            "currency": "USD",
+            "paymentMethod": "cc",
+            "confirmationScreen": false,
+            "displayContactFields": 1,
+        }))
+        .send()
+        .await
+        .map_err(|err| StoreCheckoutError::Provider(err.to_string()))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let message = response
+            .text()
             .await
-            .map_err(|err| StoreCheckoutError::Provider(err.to_string()))?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let message = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "HelcimPay.js initialization failed".to_string());
-            return Err(StoreCheckoutError::Provider(format!(
-                "HelcimPay.js returned HTTP {status}: {message}"
-            )));
-        }
-        let init = response
-            .json::<HelcimPayInitializeResponse>()
-            .await
-            .map_err(|err| StoreCheckoutError::Provider(err.to_string()))?;
-        let amount_cents = money_to_cents(row.total_usd)?;
-        sqlx::query(
-            r#"
+            .unwrap_or_else(|_| "HelcimPay.js initialization failed".to_string());
+        return Err(StoreCheckoutError::Provider(format!(
+            "HelcimPay.js returned HTTP {status}: {message}"
+        )));
+    }
+    let init = response
+        .json::<HelcimPayInitializeResponse>()
+        .await
+        .map_err(|err| StoreCheckoutError::Provider(err.to_string()))?;
+    let amount_cents = money_to_cents(row.total_usd)?;
+    sqlx::query(
+        r#"
             INSERT INTO store_checkout_payment_attempt (
                 checkout_session_id, provider, status, amount_cents, currency,
                 provider_payment_id, provider_status, client_secret, raw_audit_reference
             )
             VALUES ($1, 'helcim', 'pending', $2, 'usd', $3, 'initialized', $4, 'helcim-pay-js')
             "#,
-        )
-        .bind(row.id)
-        .bind(amount_cents)
-        .bind(&init.checkout_token)
-        .bind(&init.secret_token)
-        .execute(&state.db)
-        .await?;
-
-        sqlx::query(
-            r#"
-        UPDATE store_checkout_session
-        SET status = 'payment_pending', selected_provider = 'helcim', payment_started_at = COALESCE(payment_started_at, now())
-        WHERE id = $1
-            "#,
-        )
-        .bind(row.id)
-        .execute(&state.db)
-        .await?;
-
-        return Ok(PaymentStartResponse {
-            checkout_session_id: row.id,
-            provider,
-            status: "payment_pending".to_string(),
-            amount_cents,
-            provider_payment_id: Some(init.checkout_token.clone()),
-            client_secret: None,
-            checkout_token: Some(init.checkout_token),
-            hosted_payment_url: None,
-            message: None,
-        });
-    }
-
-    let amount_cents = money_to_cents(row.total_usd)?;
-    let mut intent = CreatePaymentIntent::new(amount_cents, Currency::USD);
-    intent.payment_method_types = Some(vec!["card".to_string()]);
-
-    let stripe_intent = PaymentIntent::create(&state.stripe_client, intent)
-        .await
-        .map_err(|err| StoreCheckoutError::Stripe(err.to_string()))?;
-    let provider_payment_id = stripe_intent.id.to_string();
-    let client_secret = stripe_intent.client_secret.unwrap_or_default();
-
-    sqlx::query(
-        r#"
-        UPDATE store_checkout_session
-        SET status = 'payment_pending', selected_provider = $2, payment_started_at = COALESCE(payment_started_at, now())
-        WHERE id = $1
-        "#,
     )
     .bind(row.id)
-    .bind(&provider)
+    .bind(amount_cents)
+    .bind(&init.checkout_token)
+    .bind(&init.secret_token)
     .execute(&state.db)
     .await?;
 
     sqlx::query(
         r#"
-        INSERT INTO store_checkout_payment_attempt (
-            checkout_session_id, provider, status, amount_cents, currency,
-            provider_payment_id, provider_status, client_secret
-        )
-        VALUES ($1, 'stripe', 'pending', $2, 'usd', $3, $4, $5)
-        "#,
+        UPDATE store_checkout_session
+        SET status = 'payment_pending', selected_provider = 'helcim', payment_started_at = COALESCE(payment_started_at, now())
+        WHERE id = $1
+            "#,
     )
     .bind(row.id)
-    .bind(amount_cents)
-    .bind(&provider_payment_id)
-    .bind(stripe_intent.status.as_str())
-    .bind(&client_secret)
     .execute(&state.db)
     .await?;
 
@@ -804,9 +718,9 @@ pub async fn create_payment(
         provider,
         status: "payment_pending".to_string(),
         amount_cents,
-        provider_payment_id: Some(provider_payment_id),
-        client_secret: Some(client_secret),
-        checkout_token: None,
+        provider_payment_id: Some(init.checkout_token.clone()),
+        client_secret: None,
+        checkout_token: Some(init.checkout_token),
         hosted_payment_url: None,
         message: None,
     })
@@ -837,66 +751,9 @@ pub async fn confirm_payment(
             transaction_display_id: display_id,
         });
     }
-    if provider == "helcim" {
-        let (transaction_id, display_id) = confirm_helcim_payment(&state.db, row, &input).await?;
-        return Ok(PaymentConfirmResponse {
-            checkout_session_id: session_id,
-            provider,
-            status: "paid".to_string(),
-            transaction_id: Some(transaction_id),
-            transaction_display_id: Some(display_id),
-        });
-    }
-
-    let intent_id: PaymentIntentId = input
-        .provider_payment_id
-        .parse()
-        .map_err(|_| StoreCheckoutError::Invalid("invalid Stripe payment id".to_string()))?;
-    let intent = PaymentIntent::retrieve(&state.stripe_client, &intent_id, &[])
-        .await
-        .map_err(|err| StoreCheckoutError::Stripe(err.to_string()))?;
-
-    sqlx::query(
-        r#"
-        UPDATE store_checkout_payment_attempt
-        SET provider_status = $3,
-            status = CASE
-                WHEN $3 = 'succeeded' THEN 'captured'
-                WHEN $3 = 'canceled' THEN 'canceled'
-                WHEN $3 = 'processing' THEN 'pending'
-                ELSE status
-            END,
-            completed_at = CASE WHEN $3 IN ('succeeded', 'canceled') THEN now() ELSE completed_at END
-        WHERE checkout_session_id = $1 AND provider = 'stripe' AND provider_payment_id = $2
-        "#,
-    )
-    .bind(row.id)
-    .bind(&input.provider_payment_id)
-    .bind(intent.status.as_str())
-    .execute(&state.db)
-    .await?;
-
-    if intent.status != PaymentIntentStatus::Succeeded {
-        return Ok(PaymentConfirmResponse {
-            checkout_session_id: row.id,
-            provider,
-            status: intent.status.as_str().to_string(),
-            transaction_id: None,
-            transaction_display_id: None,
-        });
-    }
-
-    let (transaction_id, display_id) = finalize_paid_checkout(
-        &state.db,
-        row.id,
-        "stripe",
-        &input.provider_payment_id,
-        intent.status.as_str(),
-    )
-    .await?;
-
+    let (transaction_id, display_id) = confirm_helcim_payment(&state.db, row, &input).await?;
     Ok(PaymentConfirmResponse {
-        checkout_session_id: row.id,
+        checkout_session_id: session_id,
         provider,
         status: "paid".to_string(),
         transaction_id: Some(transaction_id),
@@ -1208,17 +1065,17 @@ async fn insert_payment_ledger(
     let payment_tx_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO payment_transactions (
-            category, payment_method, amount, metadata, stripe_intent_id,
-            payment_provider, provider_payment_id, provider_status
+            category, payment_method, amount, metadata, payment_provider,
+            provider_payment_id, provider_status
         )
-        VALUES ('retail_sale', 'card', $1, $2, $3, $4, $3, $5)
+        VALUES ('retail_sale', 'card', $1, $2, $3, $4, $5)
         RETURNING id
         "#,
     )
     .bind(amount)
     .bind(metadata.clone())
-    .bind(provider_payment_id)
     .bind(provider)
+    .bind(provider_payment_id)
     .bind(provider_status)
     .fetch_one(&mut **tx)
     .await?;

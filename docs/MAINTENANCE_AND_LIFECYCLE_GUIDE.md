@@ -18,7 +18,7 @@ Dependabot is configured in `.github/dependabot.yml`. It performs:
 
 ### B. Maintenance Engine (Logic Level)
 The Maintenance Engine (`server/src/logic/maintenance.rs`) is a background worker that runs daily at **03:00 AM local time**. Its roles include:
-- **API Version Audits**: Checking if our current target versions for Stripe, Shippo, and Podium are approaching their sunset dates.
+- **API Version Audits**: Checking if our current target versions for Helcim, Shippo, and Podium are approaching their sunset dates.
 - **Database Hygiene**: Running `VACUUM ANALYZE` and checking migration integrity.
 - **Sanity Checks**: Verifying that core integrations (like Meilisearch) are reachable and healthy.
 

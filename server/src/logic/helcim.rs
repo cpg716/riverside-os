@@ -30,6 +30,85 @@ pub struct HelcimPurchaseRequest {
     pub transaction_amount: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimTerminalRefundRequest {
+    #[serde(rename = "transactionAmount")]
+    pub transaction_amount: String,
+    #[serde(rename = "originalTransactionId")]
+    pub original_transaction_id: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimCardData {
+    #[serde(rename = "cardToken")]
+    pub card_token: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimCardPurchaseRequest {
+    #[serde(rename = "ipAddress")]
+    pub ip_address: String,
+    pub ecommerce: bool,
+    pub currency: String,
+    pub amount: String,
+    #[serde(rename = "customerCode", skip_serializing_if = "Option::is_none")]
+    pub customer_code: Option<String>,
+    #[serde(rename = "invoiceNumber", skip_serializing_if = "Option::is_none")]
+    pub invoice_number: Option<String>,
+    #[serde(rename = "cardData")]
+    pub card_data: HelcimCardData,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimCardRefundRequest {
+    #[serde(rename = "originalTransactionId")]
+    pub original_transaction_id: i64,
+    pub amount: String,
+    #[serde(rename = "ipAddress")]
+    pub ip_address: String,
+    pub ecommerce: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimCardReverseRequest {
+    #[serde(rename = "cardTransactionId")]
+    pub card_transaction_id: i64,
+    #[serde(rename = "ipAddress")]
+    pub ip_address: String,
+    pub ecommerce: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimPayInitializeRequest {
+    #[serde(rename = "paymentType")]
+    pub payment_type: String,
+    pub amount: String,
+    pub currency: String,
+    #[serde(rename = "paymentMethod")]
+    pub payment_method: String,
+    #[serde(rename = "customerCode", skip_serializing_if = "Option::is_none")]
+    pub customer_code: Option<String>,
+    #[serde(rename = "invoiceNumber", skip_serializing_if = "Option::is_none")]
+    pub invoice_number: Option<String>,
+    #[serde(
+        rename = "hideExistingPaymentDetails",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub hide_existing_payment_details: Option<i32>,
+    #[serde(
+        rename = "setAsDefaultPaymentMethod",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub set_as_default_payment_method: Option<i32>,
+    #[serde(rename = "confirmationScreen")]
+    pub confirmation_screen: bool,
+    #[serde(
+        rename = "displayContactFields",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub display_contact_fields: Option<i32>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct HelcimAcceptedPurchaseResponse {
     pub status: Option<String>,
@@ -54,7 +133,15 @@ pub struct HelcimPendingAttempt {
     pub raw_audit_reference: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HelcimPayInitializeResponse {
+    #[serde(rename = "checkoutToken")]
+    pub checkout_token: String,
+    #[serde(rename = "secretToken")]
+    pub secret_token: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HelcimCardTransaction {
     #[serde(rename = "transactionId")]
     pub transaction_id: Value,
@@ -236,6 +323,87 @@ pub async fn fetch_card_transaction(
         .map_err(|e| e.to_string())
 }
 
+pub async fn get_customers(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    query: &[(&str, String)],
+) -> Result<Value, String> {
+    send_get_request(http, config, "customers/", query).await
+}
+
+pub async fn get_customer_cards(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    customer_id: i64,
+    card_token: Option<String>,
+) -> Result<Value, String> {
+    let path = format!("customers/{customer_id}/cards");
+    let query = card_token
+        .map(|token| vec![("cardToken", token)])
+        .unwrap_or_default();
+    send_get_request(http, config, &path, &query).await
+}
+
+pub async fn delete_customer_card(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    customer_id: i64,
+    card_id: i64,
+) -> Result<(), String> {
+    let token = config
+        .api_token()
+        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+    let url = format!(
+        "{}/customers/{customer_id}/cards/{card_id}",
+        config.api_base_url()
+    );
+    let response = http
+        .delete(&url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header("api-token", token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let message = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Helcim delete customer card returned HTTP {status}: {message}"
+        ));
+    }
+    Ok(())
+}
+
+pub async fn set_customer_card_default(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    customer_id: i64,
+    card_id: i64,
+) -> Result<Value, String> {
+    let token = config
+        .api_token()
+        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+    let url = format!(
+        "{}/customers/{customer_id}/cards/{card_id}/default",
+        config.api_base_url()
+    );
+    let response = http
+        .patch(&url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header("api-token", token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let message = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Helcim set customer card default returned HTTP {status}: {message}"
+        ));
+    }
+    response.json::<Value>().await.map_err(|e| e.to_string())
+}
+
 pub fn simulated_card_transaction(
     transaction_id: impl Into<String>,
     amount_cents: i64,
@@ -264,6 +432,175 @@ pub fn build_purchase_request_payload(
         currency: currency.into().to_uppercase(),
         transaction_amount: cents_to_decimal_string(amount_cents),
     }
+}
+
+pub fn build_terminal_refund_request_payload(
+    amount_cents: i64,
+    original_transaction_id: i64,
+) -> HelcimTerminalRefundRequest {
+    HelcimTerminalRefundRequest {
+        transaction_amount: cents_to_decimal_string(amount_cents),
+        original_transaction_id,
+    }
+}
+
+pub async fn process_card_token_purchase(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    request: HelcimCardPurchaseRequest,
+    idempotency_key: &str,
+) -> Result<HelcimCardTransaction, String> {
+    send_payment_request(http, config, "payment/purchase", &request, idempotency_key).await
+}
+
+pub async fn process_card_refund(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    request: HelcimCardRefundRequest,
+    idempotency_key: &str,
+) -> Result<HelcimCardTransaction, String> {
+    send_payment_request(http, config, "payment/refund", &request, idempotency_key).await
+}
+
+pub async fn process_card_reverse(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    request: HelcimCardReverseRequest,
+    idempotency_key: &str,
+) -> Result<HelcimCardTransaction, String> {
+    send_payment_request(http, config, "payment/reverse", &request, idempotency_key).await
+}
+
+pub async fn start_terminal_refund(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    request: HelcimTerminalRefundRequest,
+    idempotency_key: &str,
+) -> Result<HelcimAcceptedPurchaseResponse, String> {
+    let token = config
+        .api_token()
+        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+    let device_code = config
+        .device_code()
+        .ok_or_else(|| "HELCIM_DEVICE_CODE is not configured".to_string())?;
+    let url = format!(
+        "{}/devices/{device_code}/payment/refund",
+        config.api_base_url()
+    );
+    let response = http
+        .post(&url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("api-token", token)
+        .header("idempotency-key", idempotency_key)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if response.status() != reqwest::StatusCode::ACCEPTED {
+        let status = response.status();
+        let message = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Helcim terminal refund returned HTTP {status}: {message}"
+        ));
+    }
+    response
+        .json::<HelcimAcceptedPurchaseResponse>()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn initialize_helcim_pay(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    request: HelcimPayInitializeRequest,
+) -> Result<HelcimPayInitializeResponse, String> {
+    let token = config
+        .api_token()
+        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+    let url = format!("{}/helcim-pay/initialize", config.api_base_url());
+    let response = http
+        .post(&url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("api-token", token)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let message = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "HelcimPay.js initialization returned HTTP {status}: {message}"
+        ));
+    }
+    response
+        .json::<HelcimPayInitializeResponse>()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn send_payment_request<T: Serialize + ?Sized>(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    path: &str,
+    request: &T,
+    idempotency_key: &str,
+) -> Result<HelcimCardTransaction, String> {
+    let token = config
+        .api_token()
+        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+    let url = format!("{}/{}", config.api_base_url(), path);
+    let response = http
+        .post(&url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("api-token", token)
+        .header("idempotency-key", idempotency_key)
+        .json(request)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let message = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Helcim payment request returned HTTP {status}: {message}"
+        ));
+    }
+    response
+        .json::<HelcimCardTransaction>()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn send_get_request(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    path: &str,
+    query: &[(&str, String)],
+) -> Result<Value, String> {
+    let token = config
+        .api_token()
+        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+    let url = format!("{}/{}", config.api_base_url(), path);
+    let response = http
+        .get(&url)
+        .query(query)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header("api-token", token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let message = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Helcim GET request returned HTTP {status}: {message}"
+        ));
+    }
+    response.json::<Value>().await.map_err(|e| e.to_string())
 }
 
 pub fn normalize_accepted_purchase(

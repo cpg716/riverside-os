@@ -65,7 +65,7 @@ pub struct RegisterActivityItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<ActivityItemDetail>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stripe_fees_total: Option<String>,
+    pub merchant_fees_total: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub net_amount: Option<String>,
 
@@ -109,7 +109,7 @@ pub struct RegisterDaySummary {
     pub appointment_count: i64,
     pub new_wedding_parties_count: i64,
     /// Sum of all `merchant_fee` in `payment_transactions` for the range/session.
-    pub stripe_fees_total: String,
+    pub merchant_fees_total: String,
     /// subtotal + tax - fees (or similar net definition).
     pub net_sales: String,
     /// Total payments received in cash ($0.00 format)
@@ -463,7 +463,7 @@ pub async fn fetch_register_day_summary(
         .await?;
     let special_order_sale_count = special_row.0;
 
-    // --- Merchant Fees (Stripe) aggregation ---
+    // --- Merchant Fees aggregation ---
     let fee_sql = r#"
         SELECT COALESCE(SUM(pt.merchant_fee), 0)::numeric(14,2)
         FROM payment_transactions pt
@@ -472,13 +472,13 @@ pub async fn fetch_register_day_summary(
           AND ($3::uuid IS NULL OR pt.session_id = $3)
         "#
     .to_string();
-    let stripe_fees_total: (Decimal,) = sqlx::query_as(&fee_sql)
+    let merchant_fees_total: (Decimal,) = sqlx::query_as(&fee_sql)
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
         .fetch_one(pool)
         .await?;
-    let stripe_fees = stripe_fees_total.0;
+    let merchant_fees = merchant_fees_total.0;
 
     let appt_row: (i64,) = sqlx::query_as(
         r#"
@@ -576,7 +576,7 @@ pub async fn fetch_register_day_summary(
         channel: String,
         pay: Option<String>,
         items_json: Option<serde_json::Value>,
-        stripe_fees: Option<Decimal>,
+        merchant_fees: Option<Decimal>,
         net_amount: Option<Decimal>,
         amount_paid_in_window: Option<Decimal>,
         total_paid_ever: Option<Decimal>,
@@ -621,7 +621,7 @@ pub async fn fetch_register_day_summary(
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                 WHERE pa.target_transaction_id = o.id
-            ) AS stripe_fees,
+            ) AS merchant_fees,
             (
                 SELECT SUM(pt.net_amount)
                 FROM payment_allocations pa
@@ -774,7 +774,7 @@ pub async fn fetch_register_day_summary(
             channel: Some(s.channel),
             wedding_party_name: s.party_name,
             items,
-            stripe_fees_total: s.stripe_fees.map(money_label),
+            merchant_fees_total: s.merchant_fees.map(money_label),
             net_amount: s.net_amount.map(money_label),
             customer_name: customer_full,
             customer_code: s.customer_code,
@@ -806,8 +806,8 @@ pub async fn fetch_register_day_summary(
         special_order_sale_count,
         appointment_count,
         new_wedding_parties_count,
-        stripe_fees_total: money_label(stripe_fees),
-        net_sales: money_label(subtotal + tax_total - stripe_fees),
+        merchant_fees_total: money_label(merchant_fees),
+        net_sales: money_label(subtotal + tax_total - merchant_fees),
         cash_collected: money_label(cash_collected),
         deposits_collected: money_label(deposits_collected),
         activities,

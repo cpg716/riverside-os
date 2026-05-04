@@ -119,13 +119,6 @@ fn store_checkout_error_response(e: store_checkout::StoreCheckoutError) -> Respo
                 "database error".to_string(),
             )
         }
-        store_checkout::StoreCheckoutError::Stripe(error) => {
-            tracing::error!(error = %error, "store checkout Stripe error");
-            (
-                StatusCode::BAD_GATEWAY,
-                "payment processor unavailable".to_string(),
-            )
-        }
     };
     (status, Json(json!({ "error": message }))).into_response()
 }

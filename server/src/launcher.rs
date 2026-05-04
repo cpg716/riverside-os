@@ -25,9 +25,6 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 pub struct LauncherConfig {
     pub database_url: String,
-    pub stripe_secret_key: String,
-    pub stripe_public_key: String,
-    pub stripe_webhook_secret: Option<String>,
     pub bind_addr: String,
     pub frontend_dist: Option<PathBuf>,
     pub cors_origins: Vec<String>,
@@ -41,7 +38,7 @@ pub struct LaunchReady {
     pub frontend_dist: PathBuf,
 }
 
-fn stripe_value_looks_placeholder(value: &str) -> bool {
+fn helcim_value_looks_placeholder(value: &str) -> bool {
     value.is_empty()
         || value.contains("dummy")
         || value.contains("replace_me")
@@ -50,107 +47,61 @@ fn stripe_value_looks_placeholder(value: &str) -> bool {
         || value.contains("example")
 }
 
-fn resolve_stripe_secret_key(
-    stripe_secret_key: String,
-    strict_production: bool,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let trimmed = stripe_secret_key.trim();
-    let looks_dummy = stripe_value_looks_placeholder(trimmed);
-    let is_test_key = trimmed.starts_with("sk_test_");
-    let is_live_key = trimmed.starts_with("sk_live_");
-
-    if strict_production {
-        if !is_live_key || looks_dummy {
-            return Err(
-                "Strict production requires STRIPE_SECRET_KEY to be configured with a valid live Stripe secret key (sk_live_...)"
-                    .into(),
-            );
-        }
-        return Ok(trimmed.to_string());
-    }
-
-    if looks_dummy {
-        tracing::warn!(
-            "STRIPE_SECRET_KEY is missing or using the built-in dummy development fallback; live payment flows will fail until a real Stripe key is configured"
-        );
-    } else if !is_test_key && !is_live_key {
-        tracing::warn!(
-            "STRIPE_SECRET_KEY is set but does not look like a standard Stripe secret key (expected sk_test_... or sk_live_...)"
-        );
-    }
-
-    Ok(trimmed.to_string())
-}
-
-fn resolve_stripe_public_key(
-    stripe_public_key: String,
-    strict_production: bool,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let trimmed = stripe_public_key.trim();
-    let looks_placeholder = stripe_value_looks_placeholder(trimmed);
-    let is_test_key = trimmed.starts_with("pk_test_");
-    let is_live_key = trimmed.starts_with("pk_live_");
-
-    if strict_production {
-        if !is_live_key || looks_placeholder {
-            return Err(
-                "Strict production requires STRIPE_PUBLIC_KEY to be configured with a valid live Stripe publishable key (pk_live_...)"
-                    .into(),
-            );
-        }
-        return Ok(trimmed.to_string());
-    }
-
-    if looks_placeholder {
-        tracing::warn!(
-            "STRIPE_PUBLIC_KEY is missing or using a placeholder value; Stripe Elements flows such as card vaulting will be unavailable until a real key is configured"
-        );
-    } else if !is_test_key && !is_live_key {
-        tracing::warn!(
-            "STRIPE_PUBLIC_KEY is set but does not look like a standard Stripe publishable key (expected pk_test_... or pk_live_...)"
-        );
-    }
-
-    Ok(trimmed.to_string())
-}
-
-fn resolve_stripe_webhook_secret(
-    stripe_webhook_secret: Option<String>,
-    strict_production: bool,
-) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let trimmed = stripe_webhook_secret
-        .as_deref()
-        .map(str::trim)
+fn validate_helcim_environment(strict_production: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let api_token = std::env::var("HELCIM_API_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default();
+    let device_code = std::env::var("HELCIM_DEVICE_CODE")
+        .ok()
+        .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
+    let simulator_enabled = std::env::var("HELCIM_SIMULATOR_ENABLED")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
 
-    let Some(trimmed) = trimmed else {
+    if strict_production {
+        if helcim_value_looks_placeholder(&api_token) {
+            return Err("Strict production requires HELCIM_API_TOKEN to be configured".into());
+        }
+        if device_code
+            .as_deref()
+            .map(helcim_value_looks_placeholder)
+            .unwrap_or(true)
+        {
+            return Err("Strict production requires HELCIM_DEVICE_CODE to be configured".into());
+        }
+    } else {
+        if helcim_value_looks_placeholder(&api_token) && !simulator_enabled {
+            tracing::warn!(
+                "HELCIM_API_TOKEN is missing or placeholder; live Helcim payments will be unavailable until configured"
+            );
+        }
+        if device_code.is_none() && !simulator_enabled {
+            tracing::warn!(
+                "HELCIM_DEVICE_CODE is missing; Helcim terminal payments will be unavailable until configured"
+            );
+        }
+    }
+
+    if std::env::var("HELCIM_WEBHOOK_SECRET")
+        .ok()
+        .map(|value| value.trim().is_empty())
+        .unwrap_or(true)
+    {
         tracing::warn!(
-            "STRIPE_WEBHOOK_SECRET is not configured; Stripe webhook reconciliation will stay disabled until a signing secret is provided"
-        );
-        return Ok(None);
-    };
-
-    let looks_placeholder = stripe_value_looks_placeholder(trimmed);
-    let looks_valid = trimmed.starts_with("whsec_");
-
-    if strict_production && (!looks_valid || looks_placeholder) {
-        return Err(
-            "Strict production requires STRIPE_WEBHOOK_SECRET to use a valid Stripe webhook signing secret (whsec_...) when configured"
-                .into(),
+            "HELCIM_WEBHOOK_SECRET is not configured; Helcim terminal webhook verification will reject inbound webhooks"
         );
     }
 
-    if looks_placeholder {
-        tracing::warn!(
-            "STRIPE_WEBHOOK_SECRET is set but still looks like a placeholder; Stripe webhook verification will fail until a real signing secret is configured"
-        );
-    } else if !looks_valid {
-        tracing::warn!(
-            "STRIPE_WEBHOOK_SECRET is set but does not look like a standard Stripe webhook signing secret (expected whsec_...)"
-        );
-    }
-
-    Ok(Some(trimmed.to_string()))
+    Ok(())
 }
 
 fn resolve_store_customer_jwt_secret(
@@ -222,14 +173,7 @@ async fn launch_server_inner(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut ready_tx = ready_tx;
     let result: Result<(), Box<dyn std::error::Error>> = async {
-    let stripe_secret_key =
-        resolve_stripe_secret_key(config.stripe_secret_key.clone(), config.strict_production)?;
-    let _stripe_public_key =
-        resolve_stripe_public_key(config.stripe_public_key.clone(), config.strict_production)?;
-    let _stripe_webhook_secret = resolve_stripe_webhook_secret(
-        config.stripe_webhook_secret.clone(),
-        config.strict_production,
-    )?;
+    validate_helcim_environment(config.strict_production)?;
 
     tracing::info!("Unified Engine: Connecting to PostgreSQL...");
     let pool = PgPoolOptions::new()
@@ -264,11 +208,6 @@ async fn launch_server_inner(
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-
-    let payment_intent_max_per_minute: u32 = std::env::var("RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(120);
 
     let store_account_unauth_post_per_minute_ip: u32 =
         std::env::var("RIVERSIDE_STORE_ACCOUNT_UNAUTH_POST_PER_MINUTE_IP")
@@ -307,7 +246,6 @@ async fn launch_server_inner(
     let state = AppState {
         db: pool,
         global_employee_markup,
-        stripe_client: stripe::Client::new(stripe_secret_key),
         http_client,
         podium_token_cache: std::sync::Arc::new(tokio::sync::Mutex::new(
             crate::logic::podium::PodiumTokenCache::default(),
@@ -315,13 +253,6 @@ async fn launch_server_inner(
         database_url: config.database_url.clone(),
         counterpoint_sync_token,
         wedding_events: WeddingEventBus::new(),
-        payment_intent_minute: std::sync::Arc::new(tokio::sync::Mutex::new(
-            crate::api::PaymentIntentMinuteWindow {
-                window_start: std::time::Instant::now(),
-                count: 0,
-            },
-        )),
-        payment_intent_max_per_minute,
         store_customer_jwt_secret,
         store_account_rate: std::sync::Arc::new(tokio::sync::Mutex::new(
             crate::api::store_account_rate::StoreAccountRateState::default(),
@@ -577,59 +508,13 @@ pub async fn launch_server_with_ready_signal(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        resolve_stripe_public_key, resolve_stripe_secret_key, resolve_stripe_webhook_secret,
-    };
+    use super::helcim_value_looks_placeholder;
 
     #[test]
-    fn strict_production_rejects_dummy_and_test_stripe_keys() {
-        assert!(
-            resolve_stripe_secret_key("sk_test_dummy_replace_me_later".to_string(), true).is_err()
-        );
-        assert!(resolve_stripe_secret_key("sk_test_123".to_string(), true).is_err());
-        assert!(resolve_stripe_secret_key("".to_string(), true).is_err());
-    }
-
-    #[test]
-    fn strict_production_accepts_live_stripe_key() {
-        let key = resolve_stripe_secret_key(" sk_live_123 ".to_string(), true).unwrap();
-        assert_eq!(key, "sk_live_123");
-    }
-
-    #[test]
-    fn non_strict_mode_preserves_dev_fallback_behavior() {
-        let key =
-            resolve_stripe_secret_key("sk_test_dummy_replace_me_later".to_string(), false).unwrap();
-        assert_eq!(key, "sk_test_dummy_replace_me_later");
-    }
-
-    #[test]
-    fn strict_production_rejects_missing_or_test_stripe_public_key() {
-        assert!(resolve_stripe_public_key(String::new(), true).is_err());
-        assert!(resolve_stripe_public_key("pk_test_123".to_string(), true).is_err());
-        assert!(resolve_stripe_public_key("pk_live_placeholder".to_string(), true).is_err());
-    }
-
-    #[test]
-    fn strict_production_accepts_live_stripe_public_key() {
-        let key = resolve_stripe_public_key(" pk_live_123 ".to_string(), true).unwrap();
-        assert_eq!(key, "pk_live_123");
-    }
-
-    #[test]
-    fn strict_production_allows_missing_webhook_secret_but_rejects_invalid_configured_value() {
-        assert!(resolve_stripe_webhook_secret(None, true).unwrap().is_none());
-        assert!(
-            resolve_stripe_webhook_secret(Some("whsec_placeholder".to_string()), true).is_err()
-        );
-        assert!(resolve_stripe_webhook_secret(Some("not-a-secret".to_string()), true).is_err());
-    }
-
-    #[test]
-    fn strict_production_accepts_valid_webhook_secret_when_configured() {
-        let secret =
-            resolve_stripe_webhook_secret(Some(" whsec_live_123 ".to_string()), true).unwrap();
-        assert_eq!(secret.as_deref(), Some("whsec_live_123"));
+    fn helcim_placeholder_detection_catches_dummy_values() {
+        assert!(helcim_value_looks_placeholder(""));
+        assert!(helcim_value_looks_placeholder("replace_me"));
+        assert!(!helcim_value_looks_placeholder("real-token-value"));
     }
 }
 

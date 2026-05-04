@@ -116,7 +116,7 @@ The standard release gate also includes the production hardening audit contracts
 For releases touching checkout, payments, taxes, reports, or Help Center admin flows:
 
 1. **Checkout / payment intent path**
-2. **Saved card / Stripe vault behavior**
+2. **Saved card / Helcim vault behavior**
 3. **Tax edge behavior (line-level where applicable)**
 4. **Booked vs Recognized reporting invariants**
 5. **Help Center Manager admin ops**
@@ -271,7 +271,7 @@ This is a release gate, not optional.
 ## Known limitations / deferred hardening
 
 - **API base centralization:** remaining direct **`VITE_API_BASE ?? "http://127.0.0.1:3000"`** callsites should be consolidated on the shared helper. Deferred from this RC.
-- **POS UI E2E subset:** `phase2-tender-ui`, `pos-golden`, `tax-exempt-and-stripe-branding`, and the UI-open path in `exchange-wizard` are release gates again. The POS shell exposes explicit register-ready and cashier-overlay contracts for deterministic helpers.
+- **POS UI E2E subset:** `phase2-tender-ui`, `pos-golden`, `tax-exempt-and-card-branding`, and the UI-open path in `exchange-wizard` are release gates again. The POS shell exposes explicit register-ready and cashier-overlay contracts for deterministic helpers.
 
 ---
 

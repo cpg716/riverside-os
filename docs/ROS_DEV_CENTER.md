@@ -74,14 +74,14 @@ The Dev Center also includes a read-only **Runtime Diagnostics** section for dev
 Current signals:
 - resolved client API base
 - environment mode (`Development` vs `Strict production`)
-- Stripe config state
+- Helcim config state
 - Shippo mode
 - Metabase auth mode
 - search mode
 - weather mode
 
 Current labels:
-- **Stripe**: `Configured`, `Partial`, `Not configured`
+- **Helcim**: `Configured`, `Partial`, `Not configured`
 - **Shippo**: `Disabled`, `Live rates`, `Stub fallback`, `Stub mode`
 - **Metabase auth**: `JWT SSO`, `Shared auth`, `Fallback login`
 - **Search**: `Live search`, `Bundled fallback`

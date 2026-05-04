@@ -578,7 +578,7 @@ function App() {
           "bug-reports",
           "meilisearch",
           "shippo",
-          "stripe",
+          "helcim",
           "quickbooks",
           "weather",
           "podium",

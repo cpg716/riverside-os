@@ -59,7 +59,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
    - Records negative **`payment_transactions`** + **`payment_allocations`**, updates queue and **`transactions.amount_paid`**, runs **`transaction_recalc`** (totals respect returned qty).
    - **Loyalty:** full accrual clawback when **`amount_paid`** reaches zero after the refund (same transaction).
    - **Gift card:** if `payment_method` indicates a gift-card tender, **`gift_card_code`** is required; balance is credited in the same transaction.
-   - **Stripe:** if the method looks like a card tender and a **`stripe_intent_id`** exists on an original positive allocation, the server attempts a **Stripe Refund** before committing; failures roll back the DB transaction.
+   - **Helcim:** if the method looks like a card tender and a **`provider_payment_id`** exists on an original positive allocation, the server attempts a **Helcim Refund** before committing; failures roll back the DB transaction.
 
 3. **UI**
    - **Transactions** workspace: refunds-due strip, **Process refund** modal (open register **`session_id`** from **`GET /api/sessions/current`** with **`mergedPosStaffHeaders(backofficeHeaders)`** so the call is authorized when the till is closed but Back Office is signed in). If there is **no** open till (**404**), the UI offers **Go to POS** ( **`RegisterGateContext`** ) so staff can enter POS and open or attach to a lane; with **multiple** open lanes, **`GET /current`** may return **409** — pick a session per **`docs/STAFF_PERMISSIONS.md`** / **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**. `backofficeHeaders` on all transaction fetches.

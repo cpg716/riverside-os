@@ -62,7 +62,7 @@ The original findings below were re-checked against the current tree:
 
 - **Scope:** `client/e2e/*.ts`
 - **Result:** **No matches** for `alert(`, `confirm(`, `prompt(`.
-- **`api-gates.spec.ts`:** asserts **401/403** on anonymous **`GET /api/products`**, **`POST /api/payments/intent`**, **`GET /api/settings/receipt`** when API is reachable; **skips** if server is down (start API + DB for full run).
+- **`api-gates.spec.ts`:** asserts **401/403** on anonymous **`GET /api/products`**, expanded **`/api/payments/providers/helcim/*`** routes, **`GET /api/settings/receipt`** when API is reachable; **skips** if server is down (start API + DB for full run).
 
 ### 1.3 Durable storage (`localStorage` / `sessionStorage`)
 
@@ -273,7 +273,7 @@ client/src/components/pos/RegisterOverlay.tsx
 client/src/components/pos/RegisterReports.tsx
 client/src/components/pos/RegisterSettings.tsx
 client/src/components/pos/RegisterXReportModal.tsx
-client/src/components/pos/StripeReaderSimulation.tsx
+client/src/components/pos/NexoCheckoutDrawer.tsx
 client/src/components/pos/VariantSelectionModal.tsx
 client/src/components/pos/WeddingLookupDrawer.tsx
 client/src/components/pos/customerProfileTypes.ts

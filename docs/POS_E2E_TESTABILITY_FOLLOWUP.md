@@ -15,14 +15,14 @@ The POS shell now exposes explicit readiness contracts so browser tests no longe
 
 - `client/e2e/phase2-tender-ui.spec.ts`
 - `client/e2e/pos-golden.spec.ts`
-- `client/e2e/tax-exempt-and-stripe-branding.spec.ts`
+- `client/e2e/tax-exempt-and-helcim-branding.spec.ts`
 - `client/e2e/exchange-wizard.spec.ts`
   UI-open test: `opens from cart when register is open`
 
 Latest local evidence:
 
 ```bash
-E2E_BASE_URL=http://localhost:5173 E2E_API_BASE=http://127.0.0.1:43300 E2E_AUTO_BOOT=0 npm --prefix client run test:e2e -- e2e/pos-golden.spec.ts e2e/phase2-tender-ui.spec.ts e2e/tax-exempt-and-stripe-branding.spec.ts e2e/exchange-wizard.spec.ts --workers=1
+E2E_BASE_URL=http://localhost:5173 E2E_API_BASE=http://127.0.0.1:43300 E2E_AUTO_BOOT=0 npm --prefix client run test:e2e -- e2e/pos-golden.spec.ts e2e/phase2-tender-ui.spec.ts e2e/tax-exempt-and-helcim-branding.spec.ts e2e/exchange-wizard.spec.ts --workers=1
 ```
 
 Result: 6 passed.

@@ -82,7 +82,6 @@ pub mod store_guest_cart;
 pub mod store_media_asset;
 pub mod store_promotions;
 pub mod store_tax;
-pub mod stripe_vault;
 pub mod suit_component_swap;
 pub mod tasks;
 pub mod tax;

@@ -54,7 +54,7 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 ## Payouts and register tools
 
 - **NYS tax audit**: Drill-down into clothing vs non-clothing sales for audit.
-- **Merchant activity**: Daily Stripe volume, fees, and net settlement values matched to business days.
+- **Merchant activity**: Daily Helcim volume, fees, and net settlement values matched to business days.
 - **RMS charges**: Export of store-account charges vs payments.
 - **Appointments & No-Show**: Appointment count, completed visits, cancellations/no-shows, appointment type, assigned salesperson, and wedding-linked vs walk-in context.
 - **Wedding Event Readiness**: Upcoming wedding risk by event date, including missing measurements, balances, fulfillment, alterations, shipments, and pickup risk.

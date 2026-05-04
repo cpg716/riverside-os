@@ -27,6 +27,7 @@ use crate::auth::permissions::{
 use crate::auth::pins::{self, log_staff_access};
 use crate::auth::pos_session;
 use crate::logic::gift_card_ops;
+use crate::logic::helcim;
 use crate::logic::loyalty as loyalty_logic;
 use crate::logic::podium::{self, looks_like_email};
 use crate::logic::podium_reviews;
@@ -895,6 +896,30 @@ async fn register_session_is_open(
     Ok(ok.unwrap_or(false))
 }
 
+fn request_ip_address(headers: &HeaderMap) -> String {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or("127.0.0.1")
+        .to_string()
+}
+
+fn cents_to_decimal_string(amount_cents: i64) -> String {
+    let sign = if amount_cents < 0 { "-" } else { "" };
+    let abs = amount_cents.unsigned_abs();
+    format!("{sign}{}.{:02}", abs / 100, abs % 100)
+}
+
 async fn transaction_has_positive_payment_in_session(
     pool: &sqlx::PgPool,
     transaction_id: Uuid,
@@ -1586,55 +1611,9 @@ async fn process_refund(
         ));
     }
 
-    let stripe_intent: Option<String> = sqlx::query_scalar(
-        r#"
-        SELECT pt.stripe_intent_id
-        FROM payment_allocations pa
-        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-        WHERE pa.target_transaction_id = $1
-          AND pa.amount_allocated > 0::numeric
-          AND pt.stripe_intent_id IS NOT NULL
-          AND btrim(pt.stripe_intent_id) <> ''
-        ORDER BY pt.created_at ASC
-        LIMIT 1
-        "#,
-    )
-    .bind(transaction_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-
-    let mut stripe_refund_id: Option<String> = None;
-    let wants_card_refund =
-        method_l.contains("card") || method_l.contains("stripe") || method_l.contains("present");
-    if wants_card_refund {
-        if let Some(ref iid) = stripe_intent {
-            let pi: stripe::PaymentIntentId = iid.parse().map_err(|_| {
-                TransactionError::InvalidPayload(
-                    "invalid stripe intent id on original payment".to_string(),
-                )
-            })?;
-            let cents = (body.amount * Decimal::from(100)).to_i64().ok_or_else(|| {
-                TransactionError::InvalidPayload(
-                    "refund amount is too large or invalid".to_string(),
-                )
-            })?;
-            let mut cp = stripe::CreateRefund::new();
-            cp.payment_intent = Some(pi);
-            cp.amount = Some(cents);
-            let rf = stripe::Refund::create(&state.stripe_client, cp)
-                .await
-                .map_err(|e| {
-                    TransactionError::InvalidPayload(format!("Stripe refund failed: {e}"))
-                })?;
-            stripe_refund_id = Some(rf.id.to_string());
-        }
-    }
-
     let mut refund_metadata = json!({
         "kind": "order_refund",
         "transaction_id": transaction_id,
-        "stripe_refund_id": stripe_refund_id,
     });
 
     if method_l.contains("gift") {
@@ -1677,10 +1656,94 @@ async fn process_refund(
         }
     }
 
+    let mut provider_payment_id: Option<String> = None;
+    let mut provider_transaction_id: Option<String> = None;
+    let mut provider_status: Option<String> = None;
+    let mut provider_auth_code: Option<String> = None;
+    let mut provider_card_type: Option<String> = None;
+    let mut card_brand: Option<String> = None;
+    let mut card_last4: Option<String> = None;
+
+    if method_l.contains("card") || method_l.contains("helcim") {
+        let original: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT pt.provider_payment_id, pt.provider_transaction_id
+            FROM payment_allocations pa
+            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            WHERE pa.target_transaction_id = $1
+              AND pa.amount_allocated > 0
+              AND pt.payment_provider = 'helcim'
+              AND pt.provider_transaction_id IS NOT NULL
+            ORDER BY pt.created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some((_original_payment_id, Some(original_transaction_id))) = original else {
+            return Err(TransactionError::InvalidPayload(
+                "no original Helcim card payment was found for this refund".to_string(),
+            ));
+        };
+        let original_transaction_id =
+            original_transaction_id.trim().parse::<i64>().map_err(|_| {
+                TransactionError::InvalidPayload(
+                    "original Helcim transaction id is not valid for provider refund".to_string(),
+                )
+            })?;
+        let amount_cents = (body.amount.round_dp(2) * Decimal::from(100))
+            .to_i64()
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload("refund amount is not valid".to_string())
+            })?;
+        let idempotency_key = format!("helcim-refund-{}", Uuid::new_v4());
+        let config = helcim::HelcimConfig::from_env();
+        let refund_request = helcim::HelcimCardRefundRequest {
+            original_transaction_id,
+            amount: cents_to_decimal_string(amount_cents),
+            ip_address: request_ip_address(&headers),
+            ecommerce: false,
+        };
+        let refund_transaction = helcim::process_card_refund(
+            &state.http_client,
+            &config,
+            refund_request,
+            &idempotency_key,
+        )
+        .await
+        .map_err(|error| TransactionError::BadGateway(format!("Helcim refund failed: {error}")))?;
+
+        provider_payment_id = refund_transaction.transaction_id_string();
+        provider_transaction_id = provider_payment_id.clone();
+        provider_status = refund_transaction.provider_status();
+        provider_auth_code = refund_transaction.approval_code.clone();
+        provider_card_type = refund_transaction.card_type.clone();
+        card_brand = refund_transaction.card_brand();
+        card_last4 = refund_transaction.card_last4();
+
+        if let Some(object) = refund_metadata.as_object_mut() {
+            object.insert("payment_provider".to_string(), json!("helcim"));
+            object.insert(
+                "original_provider_transaction_id".to_string(),
+                json!(original_transaction_id),
+            );
+            object.insert(
+                "provider_refund_id".to_string(),
+                json!(provider_payment_id.clone()),
+            );
+        }
+    }
+
     let payment_tx_id: Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO payment_transactions (session_id, payer_id, category, payment_method, amount, metadata)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO payment_transactions (
+            session_id, payer_id, category, payment_method, amount, metadata,
+            payment_provider, provider_payment_id, provider_status, provider_transaction_id,
+            provider_auth_code, provider_card_type, card_brand, card_last4
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING id
         "#,
     )
@@ -1690,6 +1753,18 @@ async fn process_refund(
     .bind(body.payment_method.trim())
     .bind(-body.amount)
     .bind(refund_metadata)
+    .bind(if provider_payment_id.is_some() {
+        Some("helcim")
+    } else {
+        None
+    })
+    .bind(provider_payment_id)
+    .bind(provider_status)
+    .bind(provider_transaction_id)
+    .bind(provider_auth_code)
+    .bind(provider_card_type)
+    .bind(card_brand)
+    .bind(card_last4)
     .fetch_one(&mut *tx)
     .await?;
 

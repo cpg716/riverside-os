@@ -3153,9 +3153,7 @@ mod tests {
         ensure_skus_do_not_exist, patch_product_model, validate_create_product_payload,
         CreateProductRequest, CreateVariantInput, PatchProductModelRequest, ProductError,
     };
-    use crate::api::{
-        store_account_rate::StoreAccountRateState, AppState, PaymentIntentMinuteWindow,
-    };
+    use crate::api::{store_account_rate::StoreAccountRateState, AppState};
     use crate::auth::permissions::CATALOG_EDIT;
     use crate::auth::pins::hash_pin;
     use crate::logic::corecard::auth::CoreCardTokenCache;
@@ -3170,7 +3168,6 @@ mod tests {
     use serde_json::json;
     use sqlx::PgPool;
     use std::sync::Arc;
-    use std::time::Instant;
     use uuid::Uuid;
 
     fn sample_request() -> CreateProductRequest {
@@ -3286,17 +3283,11 @@ mod tests {
         AppState {
             db: pool,
             global_employee_markup: Decimal::new(15, 0),
-            stripe_client: stripe::Client::new("sk_test_products"),
             http_client: reqwest::Client::new(),
             podium_token_cache: Arc::new(tokio::sync::Mutex::new(PodiumTokenCache::default())),
             database_url: "postgres://test".to_string(),
             counterpoint_sync_token: None,
             wedding_events: WeddingEventBus::new(),
-            payment_intent_minute: Arc::new(tokio::sync::Mutex::new(PaymentIntentMinuteWindow {
-                window_start: Instant::now(),
-                count: 0,
-            })),
-            payment_intent_max_per_minute: 0,
             store_customer_jwt_secret: Arc::<[u8]>::from(b"product-test".as_slice()),
             store_account_rate: Arc::new(tokio::sync::Mutex::new(StoreAccountRateState::default())),
             store_account_unauth_post_per_minute_ip: 0,

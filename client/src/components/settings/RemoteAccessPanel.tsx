@@ -482,7 +482,7 @@ export default function RemoteAccessPanel() {
                   />
                 </div>
                 <p className="text-[11px] font-medium text-app-text-muted leading-relaxed">
-                  Stripe keys are no longer entered here. Host mode uses the environment already provisioned on this machine.
+                  Payment provider keys are no longer entered here. Host mode uses the environment already provisioned on this machine.
                 </p>
               </div>
             ) : null}

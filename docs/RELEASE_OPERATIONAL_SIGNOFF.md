@@ -51,7 +51,7 @@ This checklist is for the final human go/no-go review after the code RC gate has
 
 - Confirm hardware/station commissioning is complete for each live terminal.
 - Confirm receipt printer, scanner, and card reader behavior on the live stations.
-- Confirm Stripe and any external payment conditions are acknowledged and verified for the actual deployment topology.
+- Confirm Helcim and any external payment conditions are acknowledged and verified for the actual deployment topology.
 - Confirm any bridge/sync services required by the store are enabled and healthy.
 
 ### Recovery and audit readiness

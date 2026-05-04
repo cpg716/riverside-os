@@ -795,49 +795,49 @@ pub async fn runtime_diagnostics_snapshot(
 ) -> Result<RuntimeDiagnosticsSnapshot, sqlx::Error> {
     let strict_production = env_truthy("RIVERSIDE_STRICT_PRODUCTION");
 
-    let stripe_secret = nonempty_env("STRIPE_SECRET_KEY");
-    let stripe_public = nonempty_env("STRIPE_PUBLIC_KEY");
-    let stripe_webhook = nonempty_env("STRIPE_WEBHOOK_SECRET");
-    let stripe_secret_ok = stripe_secret
+    let helcim_token = nonempty_env("HELCIM_API_TOKEN");
+    let helcim_device = nonempty_env("HELCIM_DEVICE_CODE");
+    let helcim_webhook = nonempty_env("HELCIM_WEBHOOK_SECRET");
+    let helcim_token_ok = helcim_token
         .as_deref()
-        .map(|value| value.starts_with("sk_") && !looks_placeholder(value))
+        .map(|value| !looks_placeholder(value))
         .unwrap_or(false);
-    let stripe_public_ok = stripe_public
+    let helcim_device_ok = helcim_device
         .as_deref()
-        .map(|value| value.starts_with("pk_") && !looks_placeholder(value))
+        .map(|value| !looks_placeholder(value))
         .unwrap_or(false);
-    let stripe_value = if stripe_secret_ok && stripe_public_ok {
+    let helcim_value = if helcim_token_ok && helcim_device_ok {
         "Configured"
-    } else if stripe_secret_ok || stripe_public_ok {
+    } else if helcim_token_ok || helcim_device_ok {
         "Partial"
     } else {
         "Not configured"
     };
-    let stripe_detail = format!(
-        "Secret key {} • public key {} • webhook {}",
-        if stripe_secret_ok {
+    let helcim_detail = format!(
+        "API token {} • device code {} • webhook {}",
+        if helcim_token_ok {
             "present"
         } else {
             "missing"
         },
-        if stripe_public_ok {
+        if helcim_device_ok {
             "present"
         } else {
             "missing"
         },
-        if stripe_webhook
+        if helcim_webhook
             .as_deref()
-            .map(|value| value.starts_with("whsec_") && !looks_placeholder(value))
+            .map(|value| !looks_placeholder(value))
             .unwrap_or(false)
         {
             "signed"
-        } else if stripe_webhook.is_some() {
+        } else if helcim_webhook.is_some() {
             "configured-invalid"
         } else {
             "not configured"
         }
     );
-    let stripe_severity = if stripe_secret_ok && stripe_public_ok {
+    let helcim_severity = if helcim_token_ok && helcim_device_ok {
         "info"
     } else {
         "warning"
@@ -974,11 +974,11 @@ pub async fn runtime_diagnostics_snapshot(
                 },
             },
             RuntimeDiagnosticItem {
-                key: "stripe".to_string(),
-                label: "Stripe".to_string(),
-                value: stripe_value.to_string(),
-                detail: stripe_detail,
-                severity: stripe_severity.to_string(),
+                key: "helcim".to_string(),
+                label: "Helcim".to_string(),
+                value: helcim_value.to_string(),
+                detail: helcim_detail,
+                severity: helcim_severity.to_string(),
             },
             RuntimeDiagnosticItem {
                 key: "shippo".to_string(),

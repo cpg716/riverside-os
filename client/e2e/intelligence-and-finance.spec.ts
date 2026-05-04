@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
  * - Inventory Brain (Stocking Recommendations)
  * - Commission Truth Trace (Transparency Invariant)
  * - Financial Reporting Consistency (Clobber prevention)
- * - Stripe Vaulting & Credit Boundaries (PCI/Compliance)
+ * - Helcim payment configuration boundaries
  *
  * This suite verifies the "Strategic Truth" of the system before launch.
  */
@@ -130,26 +130,14 @@ test.describe("Core Intelligence & Finance Contracts", () => {
     expect(j).toHaveProperty("rows");
   });
 
-  test("Stripe SetupIntent requires authentication", async ({ request }) => {
-    const customerId = "00000000-0000-0000-0000-000000000000";
-
-    const anon = await request.post(
-      `${apiBase()}/api/payments/customers/${customerId}/setup-intent`,
-      {
-        failOnStatusCode: false,
-      },
-    );
-    expect(anon.status()).toBe(401);
-  });
-
-  test("Payment config returns public keys but suppresses secrets", async ({
+    test("Payment config returns Helcim provider without secrets", async ({
     request,
   }) => {
     const res = await request.get(`${apiBase()}/api/payments/config`);
     expect(res.status()).toBe(200);
     const config = await res.json();
-    expect(config).toHaveProperty("stripe_public_key");
-    expect(config.stripe_secret_key).toBeUndefined();
+    expect(config).toHaveProperty("provider", "helcim");
+    expect(config.helcim_api_token).toBeUndefined();
   });
 });
 

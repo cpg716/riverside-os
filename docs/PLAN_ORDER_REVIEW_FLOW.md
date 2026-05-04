@@ -60,16 +60,16 @@ UI Components:
 
 - if orderItems.length > 0 require selectedCustomer
 
-## Phase 6: Stripe Integration for Shipped Orders ✅ DONE
+## Phase 6: Helcim Integration for Shipped Orders ✅ DONE
 
 - When Ship selected: Save card option in OrderReviewModal
-- Store stripe_payment_method_id in order for future charges
+- Store card_payment_method_id in order for future charges
 
 ## Phase 7: Server-Side Updates ✅ DONE (Migration 132)
 
 Add to checkout:
-- fulfillment_mode, ship_to, stripe_payment_method_id columns
-- Migration 132 adds stripe_payment_method_id to orders table
+- fulfillment_mode, ship_to, card_payment_method_id columns
+- Migration 132 adds card_payment_method_id to orders table
 
 ## Testing Checklist
 
@@ -94,7 +94,7 @@ Add to checkout:
 | orders.rs | by-customer endpoint, order-items |
 | order_checkout.rs | New payload fields |
 | order_recalc.rs | Balance recalc logic |
-| migrations/132_*.sql | stripe_payment_method_id column |
+| migrations/132_*.sql | card_payment_method_id column |
 
 ---
 

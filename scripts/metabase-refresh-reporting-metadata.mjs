@@ -74,7 +74,7 @@ const FIELD_MODEL = {
       "provider_transaction_id",
       "provider_auth_code",
       "provider_terminal_id",
-      "stripe_intent_id",
+      "provider_payment_id",
     ],
   },
 };
@@ -201,7 +201,7 @@ async function verifyFieldModel(databaseId, headers) {
     ["order_lines", "product_id", null, "hidden"],
     ["payment_ledger", "primary_transaction_display_id", "Primary Transaction #", "normal"],
     ["payment_ledger", "payer_name", "Payer Name", "normal"],
-    ["payment_ledger", "stripe_intent_id", null, "hidden"],
+    ["payment_ledger", "provider_payment_id", null, "hidden"],
   ];
 
   for (const [tableName, fieldName, displayName, visibilityType] of checks) {

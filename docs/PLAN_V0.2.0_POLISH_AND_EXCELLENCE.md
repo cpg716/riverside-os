@@ -56,7 +56,7 @@ _Goal: Modernize "Sparse" pages and "Just-a-list" layouts. TOUCH EVERY PAGE._
 | **Gift Cards** | 1 (Star) | **COMPLETED** — Card-based high-density overhaul; Cinematic Issuance UI. |
 | **Reports Hub** | 1 (Star) | **COMPLETED** — Card-based Metric groups; Tabular-num precision overhaul. |
 | **Tasks** | 1 (Star) | **COMPLETED** — Cinematic checklist with "Emerald terminal" completion effects. |
-| **POS Checkout** | 1 (Star) | **COMPLETED** — Touch-first h-16 targets; Zero-redundancy financials; Audited Tax Hardening; Deep-link navigation support; Stripe Power branding. |
+| **POS Checkout** | 1 (Star) | **COMPLETED** — Touch-first h-16 targets; Zero-redundancy financials; Audited Tax Hardening; Deep-link navigation support; Helcim Power branding. |
 | **Settings** | 1 (Star) | **COMPLETED** — Convert integration forms to high-fidelity "Productivity Cards." |
 | **Morning Compass** | 2 (Modern) | Add "Shadow Force" priority scoring visuals; Pulse on "Due Soon." |
 | **Wedding Manager** | 2 (Modern) | Sync JSX buttons with POS emerald/noir brand pattern. |

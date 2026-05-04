@@ -11,13 +11,10 @@ import {
   Wallet,
   ScanLine,
   ScrollText,
-  ShieldCheck,
-  RotateCcw,
   Sparkles,
   Layers
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
-import StripeReaderSimulation from "./StripeReaderSimulation";
 import NumericPinKeypad from "../ui/NumericPinKeypad";
 import { centsToFixed2, parseMoneyToCents, calculateSwedishRounding } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -30,25 +27,8 @@ import {
   type NexoTenderTab
 } from "./types";
 
-interface VaultedPaymentMethod {
-  stripe_payment_method_id: string;
-  brand: string;
-  last4: string;
-  exp_month: number;
-  exp_year: number;
-}
-
-interface IntentRequestBody {
-  amount_due: string;
-  moto: boolean;
-  customer_id: string | null;
-  payment_method_id?: string;
-  is_credit?: boolean;
-}
-
 interface PaymentProviderSettings {
-  active_provider: "stripe" | "helcim";
-  stripe: { enabled: boolean; missing_config: string[] };
+  active_provider: "helcim";
   helcim: {
     enabled: boolean;
     device_configured: boolean;
@@ -73,6 +53,76 @@ interface HelcimAttempt {
   card_last4?: string | null;
   error_message?: string | null;
   safe_message?: string | null;
+}
+
+interface HelcimCard {
+  id?: number | string | null;
+  cardToken?: string | null;
+  cardHolderName?: string | null;
+  cardF6L4?: string | null;
+  cardExpiry?: string | null;
+  cardType?: string | null;
+  default?: boolean | number | string | null;
+  isDefault?: boolean | number | string | null;
+}
+
+interface HelcimCustomer {
+  id?: number | string | null;
+  customerCode?: string | null;
+  cards?: HelcimCard[] | null;
+}
+
+interface HelcimPayInitializeResponse {
+  attempt: HelcimAttempt;
+  checkout_token: string;
+}
+
+declare global {
+  interface Window {
+    appendHelcimPayIframe?: (checkoutToken: string, allowExit?: boolean) => void;
+  }
+}
+
+function loadHelcimPayScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (window.appendHelcimPayIframe) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[data-ros-helcim-pay="true"]',
+    );
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("helcim")), {
+        once: true,
+      });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://secure.helcim.app/helcim-pay/services/start.js";
+    script.async = true;
+    script.dataset.rosHelcimPay = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("helcim"));
+    document.body.appendChild(script);
+  });
+}
+
+function firstHelcimCustomers(value: unknown): HelcimCustomer[] {
+  if (Array.isArray(value)) return value as HelcimCustomer[];
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.data)) return record.data as HelcimCustomer[];
+  if (Array.isArray(record.customers)) return record.customers as HelcimCustomer[];
+  return [];
+}
+
+function helcimCardLabel(card: HelcimCard): string {
+  const last = String(card.cardF6L4 ?? "").replace(/\D/g, "").slice(-4);
+  const brand = String(card.cardType ?? "Card").trim() || "Card";
+  const expiry = String(card.cardExpiry ?? "").trim();
+  return `${brand}${last ? ` • ${last}` : ""}${expiry ? ` • ${expiry}` : ""}`;
 }
 
 interface RmsChargeAccountChoice {
@@ -152,7 +202,7 @@ const TAB_META: Record<
   card_saved: {
     label: "SAVED CARD",
     method: "card_saved",
-    icon: ShieldCheck,
+    icon: CreditCard,
     idle: "bg-indigo-500/5 border border-app-border text-app-text-muted hover:border-indigo-500/40",
     active: "bg-indigo-600 border border-transparent text-white shadow-lg",
     accent: "text-indigo-500",
@@ -160,7 +210,7 @@ const TAB_META: Record<
   card_credit: {
     label: "CARD REFUND",
     method: "card_credit",
-    icon: RotateCcw,
+    icon: CreditCard,
     idle: "bg-rose-500/5 border border-app-border text-app-text-muted hover:border-rose-500/40",
     active: "bg-rose-600 border border-transparent text-white shadow-lg",
     accent: "text-rose-500",
@@ -226,6 +276,7 @@ export interface NexoCheckoutDrawerProps {
   weddingLinked: boolean;
   customerId?: string | null;
   customerName?: string | null;
+  customerCode?: string | null;
   customerTaxExempt?: boolean;
   customerTaxExemptId?: string | null;
   authoritativeDepositCents?: number;
@@ -279,6 +330,7 @@ export default function NexoCheckoutDrawer({
   stateTaxCents,
   localTaxCents,
   customerId,
+  customerCode,
   customerTaxExempt = false,
   customerTaxExemptId = null,
   authoritativeDepositCents = 0,
@@ -309,28 +361,19 @@ export default function NexoCheckoutDrawer({
   const [giftCardSubType, setGiftCardSubType] = useState<GiftCardType | null>("paid_liability");
   const [giftCardCode, setGiftCardCode] = useState("");
   const [checkNumber, setCheckNumber] = useState("");
-  const [showStripeSimulation, setShowStripeSimulation] = useState(false);
-  const [stripeIntent, setStripeIntent] = useState<{ intent_id?: string } | null>(null);
   const [providerSettings, setProviderSettings] = useState<PaymentProviderSettings | null>(null);
   const [providerSettingsLoading, setProviderSettingsLoading] = useState(false);
   const [providerSettingsError, setProviderSettingsError] = useState<string | null>(null);
   const [helcimAttempt, setHelcimAttempt] = useState<HelcimAttempt | null>(null);
   const [helcimAttemptLoading, setHelcimAttemptLoading] = useState(false);
+  const [helcimCards, setHelcimCards] = useState<HelcimCard[]>([]);
+  const [selectedHelcimCardToken, setSelectedHelcimCardToken] = useState<string>("");
+  const [helcimCardsLoading, setHelcimCardsLoading] = useState(false);
+  const [helcimPayOpen, setHelcimPayOpen] = useState(false);
 
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [taxExemptReason, setTaxExemptReason] = useState("Out of State");
   
-  type VaultedMethod = {
-    stripe_payment_method_id: string;
-    brand?: string | null;
-    last4?: string | null;
-    exp_month?: number | null;
-    exp_year?: number | null;
-  };
-
-  const [vaultedMethods, setVaultedMethods] = useState<VaultedMethod[]>([]);
-  const [vaultedLoading, setVaultedLoading] = useState(false);
-  const [selectedVaultedPmId, setSelectedVaultedPmId] = useState<string | null>(null);
   const [rmsResolve, setRmsResolve] = useState<RmsChargeResolveResponse | null>(null);
   const [rmsSelectedAccount, setRmsSelectedAccount] = useState<RmsChargeAccountChoice | null>(null);
   const [rmsPrograms, setRmsPrograms] = useState<RmsChargeProgramOption[]>([]);
@@ -338,7 +381,6 @@ export default function NexoCheckoutDrawer({
   const [rmsSummary, setRmsSummary] = useState<RmsChargeAccountSummary | null>(null);
   const [rmsLoading, setRmsLoading] = useState(false);
   const [rmsProgramPickerOpen, setRmsProgramPickerOpen] = useState(false);
-  const pendingStripeCentsRef = useRef<number>(0);
   const pendingHelcimCentsRef = useRef<number>(0);
 
   const tenderTabIds = useMemo(() => {
@@ -347,14 +389,9 @@ export default function NexoCheckoutDrawer({
     if (rmsPaymentCollectionMode) {
       base = base.filter((id) => id === "cash" || id === "check");
     }
-    if (!customerId) {
-      base = base.filter((id) => id !== "card_saved");
-    }
-    if (amountDueCents >= 0) {
-      base = base.filter((id) => id !== "card_credit");
-    }
+    base = base.filter((id) => id !== "card_credit");
     return base;
-  }, [allowStoreCredit, rmsPaymentCollectionMode, customerId, amountDueCents]);
+  }, [allowStoreCredit, rmsPaymentCollectionMode]);
 
   const paidSoFarCents = useMemo(() => applied.reduce((s, p) => s + p.amountCents, 0), [applied]);
   const depositDisplayCents = useMemo(() => Math.max(0, parseMoneyToCents(appliedDepositAmount.trim())), [appliedDepositAmount]);
@@ -413,12 +450,9 @@ export default function NexoCheckoutDrawer({
   useEffect(() => {
     if (isOpen) {
       setKeypad("");
-      setTab(rmsPaymentCollectionMode ? "cash" : (customerId && vaultedMethods.length > 0) ? "card_saved" : "card_terminal");
+      setTab(rmsPaymentCollectionMode ? "cash" : "card_terminal");
       setGiftCardCode("");
       setCheckNumber("");
-      setShowStripeSimulation(false);
-      setStripeIntent(null);
-      pendingStripeCentsRef.current = 0;
       setHelcimAttempt(null);
       pendingHelcimCentsRef.current = 0;
       setIsTaxExempt(customerTaxExempt);
@@ -430,7 +464,7 @@ export default function NexoCheckoutDrawer({
       setRmsSummary(null);
       setRmsProgramPickerOpen(false);
     }
-  }, [isOpen, rmsPaymentCollectionMode, customerId, customerTaxExempt, customerTaxExemptId, vaultedMethods.length]);
+  }, [isOpen, rmsPaymentCollectionMode, customerTaxExempt, customerTaxExemptId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -459,26 +493,6 @@ export default function NexoCheckoutDrawer({
       })
       .finally(() => setProviderSettingsLoading(false));
   }, [backofficeHeaders, baseUrl, isOpen]);
-
-  useEffect(() => {
-    if (isOpen && customerId) {
-      setVaultedLoading(true);
-      fetch(`${baseUrl}/api/payments/customers/${customerId}/payment-methods`, {
-        headers: mergedPosStaffHeaders(backofficeHeaders),
-      })
-        .then((res) => res.json())
-        .then((data: VaultedPaymentMethod[]) => {
-          setVaultedMethods(Array.isArray(data) ? data : []);
-          if (Array.isArray(data) && data.length > 0) {
-            setSelectedVaultedPmId(data[0].stripe_payment_method_id);
-          }
-        })
-        .catch(() => setVaultedMethods([]))
-        .finally(() => setVaultedLoading(false));
-    } else {
-      setVaultedMethods([]);
-    }
-  }, [isOpen, customerId, baseUrl, backofficeHeaders]);
 
   const loadRmsProgramsAndSummary = useCallback(async (account: RmsChargeAccountChoice) => {
     if (!customerId) return;
@@ -629,45 +643,21 @@ export default function NexoCheckoutDrawer({
     toast("Deposit requirement established.", "info");
   }, [allowDepositKeypad, keypad, amountDueCents, paidSoFarCents, setAppliedDepositAmount, toast]);
 
-  const handleStripeSuccess = useCallback((metadata?: { brand?: string; last4?: string }) => {
-    const amtCents = pendingStripeCentsRef.current;
-    if (amtCents <= 0) {
-      setStripeIntent(null);
-      return;
-    }
-    const meta = TAB_META[tab];
-
-    setApplied((prev) => [
-      ...prev,
-      {
-        id: newId(),
-        method: meta.method,
-        amountCents: amtCents,
-        label: meta.label,
-        metadata: {
-          stripe_intent_id: stripeIntent?.intent_id,
-          card_brand: metadata?.brand ?? null,
-          card_last4: metadata?.last4 ?? null,
-        },
-      },
-    ]);
-    setKeypad("");
-    setShowStripeSimulation(false);
-    setStripeIntent(null);
-    pendingStripeCentsRef.current = 0;
-  }, [tab, stripeIntent?.intent_id, setApplied]);
-
   const addApprovedHelcimAttempt = useCallback(
-    (attempt: HelcimAttempt) => {
+    (
+      attempt: HelcimAttempt,
+      method: "card_terminal" | "card_manual" | "card_saved" = "card_terminal",
+      label = "HELCIM CARD",
+    ) => {
       const amtCents = pendingHelcimCentsRef.current || attempt.amount_cents;
       if (amtCents <= 0) return;
       setApplied((prev) => [
         ...prev,
         {
           id: newId(),
-          method: "card_terminal",
+          method,
           amountCents: amtCents,
-          label: "HELCIM CARD",
+          label,
           metadata: {
             payment_provider: "helcim",
             provider_status: attempt.status,
@@ -687,6 +677,52 @@ export default function NexoCheckoutDrawer({
     },
     [setApplied],
   );
+
+  const loadHelcimCards = useCallback(async () => {
+    const code = customerCode?.trim();
+    if (!code) {
+      setHelcimCards([]);
+      setSelectedHelcimCardToken("");
+      return;
+    }
+    setHelcimCardsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        customer_code: code,
+        include_cards: "true",
+      });
+      const res = await fetch(`${baseUrl}/api/payments/providers/helcim/customers?${params}`, {
+        headers: mergedPosStaffHeaders(backofficeHeaders),
+      });
+      const body = (await res.json().catch(() => ({}))) as unknown;
+      if (!res.ok) {
+        const message =
+          body && typeof body === "object" && "error" in body
+            ? String((body as { error?: string }).error ?? "Could not load Helcim cards.")
+            : "Could not load Helcim cards.";
+        throw new Error(message);
+      }
+      const customer = firstHelcimCustomers(body)[0];
+      const cards = Array.isArray(customer?.cards) ? customer.cards : [];
+      setHelcimCards(cards);
+      const defaultCard =
+        cards.find((card) => card.default === true || card.default === 1 || card.isDefault === true || card.isDefault === 1) ??
+        cards[0];
+      setSelectedHelcimCardToken(defaultCard?.cardToken ?? "");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not load Helcim cards.";
+      setHelcimCards([]);
+      setSelectedHelcimCardToken("");
+      toast(message, "error");
+    } finally {
+      setHelcimCardsLoading(false);
+    }
+  }, [backofficeHeaders, baseUrl, customerCode, toast]);
+
+  useEffect(() => {
+    if (!isOpen || tab !== "card_saved") return;
+    void loadHelcimCards();
+  }, [isOpen, loadHelcimCards, tab]);
 
   const refreshHelcimAttempt = useCallback(
     async (attemptId: string) => {
@@ -765,6 +801,168 @@ export default function NexoCheckoutDrawer({
     [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, toast],
   );
 
+  const startHelcimPayPayment = useCallback(
+    async (amtCents: number) => {
+      const code = customerCode?.trim();
+      setHelcimAttemptLoading(true);
+      setHelcimPayOpen(true);
+      try {
+        const res = await fetch(`${baseUrl}/api/payments/providers/helcim/helcim-pay/initialize`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...mergedPosStaffHeaders(backofficeHeaders),
+          },
+          body: JSON.stringify({
+            amount_cents: amtCents,
+            currency: "usd",
+            customer_code: code || undefined,
+            save_as_default: Boolean(code),
+            hide_existing_payment_details: Boolean(code),
+          }),
+        });
+        const init = (await res.json().catch(() => ({}))) as
+          | HelcimPayInitializeResponse
+          | { error?: string };
+        if (!res.ok || !("checkout_token" in init)) {
+          throw new Error(
+            "error" in init ? init.error ?? "Could not initialize HelcimPay." : "Could not initialize HelcimPay.",
+          );
+        }
+
+        await loadHelcimPayScript();
+        if (!window.appendHelcimPayIframe) {
+          throw new Error("HelcimPay.js could not be loaded.");
+        }
+
+        const eventName = `helcim-pay-js-${init.checkout_token}`;
+        const onMessage = async (event: MessageEvent) => {
+          const payload = event.data as {
+            eventName?: string;
+            eventStatus?: string;
+            eventMessage?: string;
+          };
+          if (payload.eventName !== eventName) return;
+          window.removeEventListener("message", onMessage);
+          setHelcimPayOpen(false);
+          if (payload.eventStatus !== "SUCCESS" || !payload.eventMessage) {
+            setHelcimAttemptLoading(false);
+            toast("Helcim payment was not accepted.", "error");
+            return;
+          }
+          try {
+            const parsed = JSON.parse(payload.eventMessage) as {
+              data?: unknown;
+              hash?: unknown;
+            };
+            const confirmRes = await fetch(`${baseUrl}/api/payments/providers/helcim/helcim-pay/confirm`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...mergedPosStaffHeaders(backofficeHeaders),
+              },
+              body: JSON.stringify({
+                attempt_id: init.attempt.id,
+                checkout_token: init.checkout_token,
+                data: parsed.data,
+                hash: parsed.hash,
+              }),
+            });
+            const confirmed = (await confirmRes.json().catch(() => ({}))) as
+              | HelcimAttempt
+              | { error?: string };
+            if (!confirmRes.ok || !("status" in confirmed)) {
+              throw new Error(
+                "error" in confirmed
+                  ? confirmed.error ?? "Helcim payment could not be confirmed."
+                  : "Helcim payment could not be confirmed.",
+              );
+            }
+            setHelcimAttempt(confirmed);
+            if (confirmed.status === "approved" || confirmed.status === "captured") {
+              pendingHelcimCentsRef.current = amtCents;
+              addApprovedHelcimAttempt(confirmed, "card_manual", "HELCIM MANUAL");
+              toast("Helcim payment approved.", "success");
+            } else {
+              toast(confirmed.error_message ?? "Helcim payment was not approved.", "error");
+            }
+          } catch (error) {
+            toast(
+              error instanceof Error ? error.message : "Helcim payment response could not be read.",
+              "error",
+            );
+          } finally {
+            setHelcimAttemptLoading(false);
+          }
+        };
+
+        window.addEventListener("message", onMessage);
+        pendingHelcimCentsRef.current = amtCents;
+        window.appendHelcimPayIframe(init.checkout_token, true);
+      } catch (error) {
+        setHelcimPayOpen(false);
+        setHelcimAttemptLoading(false);
+        toast(error instanceof Error ? error.message : "Could not start HelcimPay.", "error");
+      }
+    },
+    [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, customerCode, toast],
+  );
+
+  const chargeSavedHelcimCard = useCallback(
+    async (amtCents: number) => {
+      const cardToken = selectedHelcimCardToken.trim();
+      const code = customerCode?.trim();
+      if (!cardToken) {
+        toast("Select a Helcim saved card first.", "error");
+        return;
+      }
+      setHelcimAttemptLoading(true);
+      try {
+        const res = await fetch(`${baseUrl}/api/payments/providers/helcim/card-token/purchase`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...mergedPosStaffHeaders(backofficeHeaders),
+          },
+          body: JSON.stringify({
+            amount_cents: amtCents,
+            card_token: cardToken,
+            currency: "usd",
+            customer_code: code || undefined,
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as
+          | HelcimAttempt
+          | { error?: string };
+        if (!res.ok || !("status" in body)) {
+          throw new Error(
+            "error" in body ? body.error ?? "Helcim saved card failed." : "Helcim saved card failed.",
+          );
+        }
+        setHelcimAttempt(body);
+        if (body.status === "approved" || body.status === "captured") {
+          pendingHelcimCentsRef.current = amtCents;
+          addApprovedHelcimAttempt(body, "card_saved", "HELCIM VAULT");
+          toast("Helcim saved card approved.", "success");
+        } else {
+          toast(body.error_message ?? "Helcim saved card was not approved.", "error");
+        }
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Could not charge Helcim saved card.", "error");
+      } finally {
+        setHelcimAttemptLoading(false);
+      }
+    },
+    [
+      addApprovedHelcimAttempt,
+      backofficeHeaders,
+      baseUrl,
+      customerCode,
+      selectedHelcimCardToken,
+      toast,
+    ],
+  );
+
   useEffect(() => {
     if (!isOpen || helcimAttempt?.status !== "pending" || helcimAttemptLoading) {
       return;
@@ -792,120 +990,77 @@ export default function NexoCheckoutDrawer({
     const amtCents = remainingCents < 0 ? -appliedAbs : appliedAbs;
 
     if (amtCents === 0) return;
-    const meta = TAB_META[tab];
 
     if (["card_terminal", "card_manual", "card_saved", "card_credit"].includes(tab)) {
-      if (tab === "card_terminal" && providerSettings?.active_provider === "helcim") {
-        if (providerSettingsLoading || !providerSettings) {
-          toast("Confirm the active card provider before starting card payment.", "error");
-          return;
-        }
-        if (!providerSettings.helcim.enabled) {
-          toast("Helcim is selected but not configured in Settings.", "error");
-          return;
-        }
-        if (amtCents <= 0) {
-          toast("Helcim refunds are not enabled yet.", "error");
-          return;
-        }
-        if (helcimAttempt?.status === "pending") {
-          toast("A Helcim payment is already pending on the terminal.", "error");
-          return;
-        }
-
-        try {
-          const res = await fetch(`${baseUrl}/api/payments/providers/helcim/purchase`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...mergedPosStaffHeaders(backofficeHeaders),
-            },
-            body: JSON.stringify({
-              amount_cents: amtCents,
-              currency: "usd",
-            }),
-          });
-          const body = (await res.json().catch(() => ({}))) as
-            | HelcimAttempt
-            | { error?: string };
-          if (!res.ok) {
-            throw new Error("error" in body ? body.error ?? "Helcim payment failed." : "Helcim payment failed.");
-          }
-          const attempt = body as HelcimAttempt;
-          pendingHelcimCentsRef.current = amtCents;
-          setHelcimAttempt(attempt);
-          setKeypad("");
-          toast("Sent to Helcim terminal. Waiting for approval.", "info");
-        } catch (error) {
-          toast(
-            error instanceof Error ? error.message : "Error initializing Helcim payment",
-            "error",
-          );
-        }
+      if (providerSettingsLoading || !providerSettings) {
+        toast("Confirm Helcim status before starting card payment.", "error");
         return;
       }
-
-      if (tab === "card_terminal" && providerSettingsError) {
+      if (providerSettingsError) {
         toast(providerSettingsError, "error");
         return;
       }
-
-      pendingStripeCentsRef.current = amtCents;
-      const isMoto = tab === "card_manual";
-      const isSaved = tab === "card_saved";
-      const isCredit = tab === "card_credit";
-
-      const allowOfflineCardSim =
-        import.meta.env.DEV || import.meta.env.VITE_POS_OFFLINE_CARD_SIM === "true";
+      if (!providerSettings.helcim.enabled) {
+        toast("Helcim is not configured in Settings.", "error");
+        return;
+      }
+      if (amtCents <= 0) {
+        toast("Helcim refunds are not enabled yet.", "error");
+        return;
+      }
+      if (tab === "card_manual") {
+        await startHelcimPayPayment(amtCents);
+        return;
+      }
+      if (tab === "card_saved") {
+        if (!customerCode?.trim()) {
+          toast("Attach a customer before using Helcim saved cards.", "error");
+          return;
+        }
+        await chargeSavedHelcimCard(amtCents);
+        return;
+      }
+      if (tab !== "card_terminal") {
+        toast("Use Helcim terminal, manual, or saved card.", "error");
+        return;
+      }
+      if (helcimAttempt?.status === "pending") {
+        toast("A Helcim payment is already pending on the terminal.", "error");
+        return;
+      }
 
       try {
-        const body: IntentRequestBody = {
-          amount_due: centsToFixed2(amtCents),
-          moto: isMoto,
-          customer_id: customerId ?? null,
-        };
-        if (isSaved && selectedVaultedPmId) body.payment_method_id = selectedVaultedPmId;
-        if (isCredit) body.is_credit = true;
-
-        const res = await fetch(`${baseUrl}/api/payments/intent`, {
+        const res = await fetch(`${baseUrl}/api/payments/providers/helcim/purchase`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...mergedPosStaffHeaders(backofficeHeaders),
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            amount_cents: amtCents,
+            currency: "usd",
+          }),
         });
-
+        const body = (await res.json().catch(() => ({}))) as
+          | HelcimAttempt
+          | { error?: string };
         if (!res.ok) {
-           if (allowOfflineCardSim && !isSaved) {
-             setStripeIntent({ intent_id: "offline_simulation" });
-             setShowStripeSimulation(true);
-             return;
-           }
-           const j = await res.json().catch(() => ({}));
-           throw new Error(j.error || "Payment authorization failed");
+          throw new Error("error" in body ? body.error ?? "Helcim payment failed." : "Helcim payment failed.");
         }
-
-        const data = await res.json();
-        if (isSaved) {
-          const savedLast4 = vaultedMethods.find((m) => m.stripe_payment_method_id === selectedVaultedPmId)?.last4 ?? undefined;
-          handleStripeSuccess({ last4: savedLast4 });
-          toast("Vaulted card authorized.", "success");
-          return;
-        }
-
-        setStripeIntent(data);
-        setShowStripeSimulation(true);
-      } catch (e) {
-        if (allowOfflineCardSim && !isSaved) {
-           setStripeIntent({ intent_id: "offline_simulation" });
-           setShowStripeSimulation(true);
-           return;
-        }
-        toast(e instanceof Error ? e.message : "Error initializing payment", "error");
+        const attempt = body as HelcimAttempt;
+        pendingHelcimCentsRef.current = amtCents;
+        setHelcimAttempt(attempt);
+        setKeypad("");
+        toast("Sent to Helcim terminal. Waiting for approval.", "info");
+      } catch (error) {
+        toast(
+          error instanceof Error ? error.message : "Error initializing Helcim payment",
+          "error",
+        );
       }
       return;
     }
+    const meta = TAB_META[tab];
 
     if (tab === "rms_charge") {
       if (!customerId) {
@@ -1009,19 +1164,9 @@ export default function NexoCheckoutDrawer({
     setKeypad("");
     setGiftCardCode("");
     setCheckNumber("");
-  }, [giftCardSubType, giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, baseUrl, backofficeHeaders, customerId, selectedVaultedPmId, vaultedMethods, handleStripeSuccess, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsSummary, rmsResolve, rmsPaymentCollectionMode]);
+  }, [giftCardSubType, giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsSummary, rmsResolve, rmsPaymentCollectionMode, startHelcimPayPayment, chargeSavedHelcimCard]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
-    const intentId = line.metadata?.stripe_intent_id?.trim();
-    if (line.method === "card_terminal" && intentId && intentId !== "offline_simulation") {
-      try {
-        await fetch(`${baseUrl}/api/payments/intent/cancel`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...mergedPosStaffHeaders(backofficeHeaders) },
-          body: JSON.stringify({ intent_id: intentId }),
-        });
-      } catch { /* ignore best effort */ }
-    }
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
   };
 
@@ -1335,16 +1480,12 @@ export default function NexoCheckoutDrawer({
                               ? "Checking..."
                               : providerSettings?.active_provider === "helcim"
                                 ? "Helcim"
-                                : providerSettings?.active_provider === "stripe"
-                                  ? "Stripe"
-                                  : "Unavailable"}
+                                : "Unavailable"}
                           </span>
                           <p className="mt-1">
                             {providerSettingsError
                               ? providerSettingsError
-                              : providerSettings?.active_provider === "helcim"
-                                ? "Helcim payments stay pending until terminal approval is confirmed."
-                                : "Stripe reader flow uses the current authorization path."}
+                              : "Helcim payments stay pending until terminal approval is confirmed."}
                           </p>
                           {providerSettings?.active_provider === "helcim" &&
                             !providerSettings.helcim.enabled && (
@@ -1424,6 +1565,67 @@ export default function NexoCheckoutDrawer({
                     </div>
                   )}
 
+                  {tab === "card_manual" && (
+                    <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3 text-xs font-semibold text-app-text-muted">
+                      <span className="font-black uppercase tracking-widest text-app-text">
+                        Helcim manual card
+                      </span>
+                      <p className="mt-1">
+                        {helcimPayOpen
+                          ? "HelcimPay is open. Complete or close the hosted card window."
+                          : customerCode
+                            ? `Card will be linked to customer #${customerCode}.`
+                            : "Attach a customer to save the card for future use."}
+                      </p>
+                    </div>
+                  )}
+
+                  {tab === "card_saved" && (
+                    <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3 text-xs font-semibold text-app-text-muted">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <span className="font-black uppercase tracking-widest text-app-text">
+                            Helcim saved card
+                          </span>
+                          <p className="mt-1">
+                            {customerCode
+                              ? `Customer #${customerCode}`
+                              : "Attach a customer before using saved cards."}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!customerCode || helcimCardsLoading}
+                          onClick={() => void loadHelcimCards()}
+                          className="min-h-10 rounded-xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-surface-2 disabled:opacity-50"
+                        >
+                          {helcimCardsLoading ? "Loading..." : "Refresh"}
+                        </button>
+                      </div>
+                      {customerCode && !helcimCardsLoading && helcimCards.length === 0 && (
+                        <p className="mt-2 rounded-lg bg-app-warning/10 px-3 py-2 text-app-warning">
+                          No Helcim saved cards were found for this customer.
+                        </p>
+                      )}
+                      {helcimCards.length > 0 && (
+                        <select
+                          value={selectedHelcimCardToken}
+                          onChange={(event) => setSelectedHelcimCardToken(event.target.value)}
+                          className="mt-3 min-h-11 w-full rounded-xl border border-app-border bg-app-surface px-3 text-sm font-bold text-app-text outline-none transition-colors focus:border-app-accent"
+                        >
+                          {helcimCards.map((card) => (
+                            <option
+                              key={String(card.id ?? card.cardToken)}
+                              value={card.cardToken ?? ""}
+                            >
+                              {helcimCardLabel(card)}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex justify-center">
                     <div className="w-full max-w-md">
                       <NumericPinKeypad
@@ -1460,6 +1662,21 @@ export default function NexoCheckoutDrawer({
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
                                   helcimAttempt?.status === "pending")))) ||
+                          (tab === "card_manual" &&
+                            (providerSettingsLoading ||
+                              providerSettingsError !== null ||
+                              helcimPayOpen ||
+                              helcimAttemptLoading ||
+                              (providerSettings?.active_provider === "helcim" &&
+                                !providerSettings.helcim.enabled))) ||
+                          (tab === "card_saved" &&
+                            (providerSettingsLoading ||
+                              providerSettingsError !== null ||
+                              helcimCardsLoading ||
+                              helcimAttemptLoading ||
+                              !selectedHelcimCardToken ||
+                              (providerSettings?.active_provider === "helcim" &&
+                                !providerSettings.helcim.enabled))) ||
                           busy
                         }
                         onClick={() => void applyAmountToTab(keypadCents)}
@@ -1487,7 +1704,6 @@ export default function NexoCheckoutDrawer({
                 </div>
 
                 {(tab === "gift_card" ||
-                  tab === "card_saved" ||
                   tab === "check" ||
                   tab === "rms_charge" ||
                   (rmsPaymentCollectionMode && ["cash", "check"].includes(tab))) && (
@@ -1750,20 +1966,6 @@ export default function NexoCheckoutDrawer({
                       </div>
                     )}
 
-                    {tab === "card_saved" && (
-                      <div className="grid grid-cols-2 gap-3 max-h-48 overflow-y-auto no-scrollbar">
-                        {vaultedMethods.map(m => (
-                          <button key={m.stripe_payment_method_id} onClick={() => setSelectedVaultedPmId(m.stripe_payment_method_id)} className={`flex items-center justify-between p-4 rounded-xl border transition-all ${selectedVaultedPmId === m.stripe_payment_method_id ? 'bg-indigo-600 border-transparent text-white' : 'bg-app-bg border-app-border hover:border-indigo-400'}`}>
-                             <div className="flex flex-col text-left">
-                               <span className="text-xs font-black uppercase italic leading-none">{m.brand} • {m.last4}</span>
-                               <span className="text-[9px] font-bold opacity-60 mt-1 uppercase">Expires {m.exp_month}/{m.exp_year}</span>
-                             </div>
-                             {selectedVaultedPmId === m.stripe_payment_method_id && <CheckCircle2 size={18} />}
-                          </button>
-                        ))}
-                        {vaultedMethods.length === 0 && !vaultedLoading && <p className="text-[10px] italic text-app-text-muted">No vaulted cards found.</p>}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -1882,19 +2084,6 @@ export default function NexoCheckoutDrawer({
 
           </div>
         </div>
-
-        {showStripeSimulation && (
-          <StripeReaderSimulation
-            amountCents={pendingStripeCentsRef.current}
-            moto={tab === "card_manual"}
-            onSuccess={handleStripeSuccess}
-            onCancel={() => {
-              setShowStripeSimulation(false);
-              setStripeIntent(null);
-              pendingStripeCentsRef.current = 0;
-            }}
-          />
-        )}
       </div>
     </DetailDrawer>
   );

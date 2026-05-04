@@ -2173,6 +2173,7 @@ export default function Cart({
         weddingLinked={!!activeWeddingMember}
         customerId={selectedCustomer?.id}
         customerName={selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}` : undefined}
+        customerCode={selectedCustomer?.customer_code ?? null}
         customerTaxExempt={selectedCustomer?.tax_exempt ?? false}
         customerTaxExemptId={selectedCustomer?.tax_exempt_id ?? null}
         authoritativeDepositCents={0}
@@ -3012,7 +3013,6 @@ export default function Cart({
                 need_by_date: options.needByDate,
                 fulfillment_mode: options.fulfillment,
                 ship_to: null,
-                stripe_payment_method_id: options.storeCardForBalance?.stripe_payment_method_id || null,
               });
               setOrderReviewOpen(false);
               setCheckoutDrawerOpen(true);

@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS store_checkout_session (
     CONSTRAINT store_checkout_session_status_chk
         CHECK (status IN ('draft', 'payment_pending', 'paid', 'failed', 'expired', 'cancelled')),
     CONSTRAINT store_checkout_session_provider_chk
-        CHECK (selected_provider IS NULL OR selected_provider IN ('stripe', 'helcim')),
+        CHECK (selected_provider IS NULL OR selected_provider = 'helcim'),
     CONSTRAINT store_checkout_session_totals_chk
         CHECK (subtotal_usd >= 0 AND discount_usd >= 0 AND tax_usd >= 0 AND shipping_usd >= 0 AND total_usd >= 0),
     CONSTRAINT store_checkout_session_idempotency_key_chk
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS store_checkout_payment_attempt (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at TIMESTAMPTZ,
     CONSTRAINT store_checkout_payment_attempt_provider_chk
-        CHECK (provider IN ('stripe', 'helcim')),
+        CHECK (provider = 'helcim'),
     CONSTRAINT store_checkout_payment_attempt_status_chk
         CHECK (status IN ('pending', 'requires_action', 'approved', 'captured', 'canceled', 'failed', 'expired')),
     CONSTRAINT store_checkout_payment_attempt_amount_chk
@@ -94,4 +94,4 @@ FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 COMMENT ON TABLE store_checkout_session IS
     'Public storefront checkout session. ROS owns pricing, tax, shipping, coupon snapshots, provider choice, and finalization.';
 COMMENT ON TABLE store_checkout_payment_attempt IS
-    'Provider-neutral web checkout payment attempt table for Stripe and Helcim adapters.';
+    'Provider-neutral web checkout payment attempt table for Helcim adapters.';

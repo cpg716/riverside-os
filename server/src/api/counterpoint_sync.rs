@@ -1369,7 +1369,6 @@ pub fn settings_router() -> Router<AppState> {
 mod tests {
     use super::*;
     use crate::api::store_account_rate::StoreAccountRateState;
-    use crate::api::PaymentIntentMinuteWindow;
     use crate::auth::pins::hash_pin;
     use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
     use crate::logic::podium::PodiumTokenCache;
@@ -1380,7 +1379,6 @@ mod tests {
     use rust_decimal::Decimal;
     use sqlx::PgPool;
     use std::sync::Arc;
-    use std::time::Instant;
     use tokio::sync::Mutex;
     use uuid::Uuid;
 
@@ -1436,17 +1434,11 @@ mod tests {
         AppState {
             db: pool,
             global_employee_markup: Decimal::new(15, 0),
-            stripe_client: stripe::Client::new("sk_test_counterpoint_reset"),
             http_client: reqwest::Client::new(),
             podium_token_cache: Arc::new(Mutex::new(PodiumTokenCache::default())),
             database_url: "postgres://test".to_string(),
             counterpoint_sync_token: None,
             wedding_events: WeddingEventBus::new(),
-            payment_intent_minute: Arc::new(Mutex::new(PaymentIntentMinuteWindow {
-                window_start: Instant::now(),
-                count: 0,
-            })),
-            payment_intent_max_per_minute: 0,
             store_customer_jwt_secret: Arc::<[u8]>::from(b"counterpoint-reset-test".as_slice()),
             store_account_rate: Arc::new(Mutex::new(StoreAccountRateState::default())),
             store_account_unauth_post_per_minute_ip: 0,

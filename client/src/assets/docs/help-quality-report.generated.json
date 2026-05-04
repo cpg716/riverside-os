@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-05-01T03:15:21.612Z",
+  "generated_at": "2026-05-04T23:55:47.491Z",
   "standard_version": "help-manual-standard-v1",
-  "published_manual_count": 63,
-  "draft_manual_count": 108,
+  "published_manual_count": 61,
+  "draft_manual_count": 106,
   "manuals": [
     {
       "id": "pos",
@@ -266,50 +266,6 @@
         }
       ],
       "numbered_steps": 7,
-      "placeholder_hits": [],
-      "errors": [],
-      "warnings": []
-    },
-    {
-      "id": "stripe-payments",
-      "title": "Stripe Payments & Vault",
-      "status": "approved",
-      "source_path": "client/src/assets/docs/stripe-payments-manual.md",
-      "required_buckets": [
-        {
-          "key": "purpose",
-          "label": "Purpose / what this is",
-          "present": true
-        },
-        {
-          "key": "steps",
-          "label": "Numbered steps / how to use it",
-          "present": true
-        },
-        {
-          "key": "guardrails",
-          "label": "What to watch for / common mistakes / tips",
-          "present": true
-        }
-      ],
-      "optional_buckets": [
-        {
-          "key": "when",
-          "label": "When to use it / prerequisites / permissions",
-          "present": false
-        },
-        {
-          "key": "outcome",
-          "label": "What happens next / expected result",
-          "present": true
-        },
-        {
-          "key": "related",
-          "label": "Related workflows",
-          "present": false
-        }
-      ],
-      "numbered_steps": 19,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -759,52 +715,6 @@
       ],
       "numbered_steps": 4,
       "placeholder_hits": [],
-      "errors": [],
-      "warnings": []
-    },
-    {
-      "id": "customers-stripe-vault-card-modal",
-      "title": "Stripe Vault Card Modal (customers)",
-      "status": "draft",
-      "source_path": "client/src/assets/docs/customers-stripe-vault-card-modal-manual.md",
-      "required_buckets": [
-        {
-          "key": "purpose",
-          "label": "Purpose / what this is",
-          "present": true
-        },
-        {
-          "key": "steps",
-          "label": "Numbered steps / how to use it",
-          "present": true
-        },
-        {
-          "key": "guardrails",
-          "label": "What to watch for / common mistakes / tips",
-          "present": true
-        }
-      ],
-      "optional_buckets": [
-        {
-          "key": "when",
-          "label": "When to use it / prerequisites / permissions",
-          "present": true
-        },
-        {
-          "key": "outcome",
-          "label": "What happens next / expected result",
-          "present": true
-        },
-        {
-          "key": "related",
-          "label": "Related workflows",
-          "present": true
-        }
-      ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
       "errors": [],
       "warnings": []
     },
@@ -4725,52 +4635,6 @@
       "warnings": []
     },
     {
-      "id": "pos-stripe-reader-simulation",
-      "title": "Stripe Reader Simulation (pos)",
-      "status": "draft",
-      "source_path": "client/src/assets/docs/pos-stripe-reader-simulation-manual.md",
-      "required_buckets": [
-        {
-          "key": "purpose",
-          "label": "Purpose / what this is",
-          "present": true
-        },
-        {
-          "key": "steps",
-          "label": "Numbered steps / how to use it",
-          "present": true
-        },
-        {
-          "key": "guardrails",
-          "label": "What to watch for / common mistakes / tips",
-          "present": true
-        }
-      ],
-      "optional_buckets": [
-        {
-          "key": "when",
-          "label": "When to use it / prerequisites / permissions",
-          "present": true
-        },
-        {
-          "key": "outcome",
-          "label": "What happens next / expected result",
-          "present": true
-        },
-        {
-          "key": "related",
-          "label": "Related workflows",
-          "present": true
-        }
-      ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
-      "errors": [],
-      "warnings": []
-    },
-    {
       "id": "pos-variant-selection-modal",
       "title": "Variant Selection Modal (pos)",
       "status": "draft",
@@ -5771,52 +5635,6 @@
       ],
       "errors": [],
       "warnings": []
-    },
-    {
-      "id": "settings-stripe-settings-panel",
-      "title": "Stripe & Merchant Hub (settings)",
-      "status": "approved",
-      "source_path": "client/src/assets/docs/settings-stripe-settings-panel-manual.md",
-      "required_buckets": [
-        {
-          "key": "purpose",
-          "label": "Purpose / what this is",
-          "present": true
-        },
-        {
-          "key": "steps",
-          "label": "Numbered steps / how to use it",
-          "present": true
-        },
-        {
-          "key": "guardrails",
-          "label": "What to watch for / common mistakes / tips",
-          "present": true
-        }
-      ],
-      "optional_buckets": [
-        {
-          "key": "when",
-          "label": "When to use it / prerequisites / permissions",
-          "present": false
-        },
-        {
-          "key": "outcome",
-          "label": "What happens next / expected result",
-          "present": false
-        },
-        {
-          "key": "related",
-          "label": "Related workflows",
-          "present": false
-        }
-      ],
-      "numbered_steps": 3,
-      "placeholder_hits": [],
-      "errors": [],
-      "warnings": [
-        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
-      ]
     },
     {
       "id": "settings-weather-settings-panel",

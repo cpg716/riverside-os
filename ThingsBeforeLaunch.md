@@ -18,14 +18,14 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 ## Server environment and security
 
-- [ ] **Secrets** set on the server only (DB, Stripe if used, QBO if used, integration tokens). Nothing sensitive in client env except allowed **`VITE_*`** (see **`DEVELOPER.md`** env table).
+- [ ] **Secrets** set on the server only (DB, Helcim if used, QBO if used, integration tokens). Nothing sensitive in client env except allowed **`VITE_*`** (see **`DEVELOPER.md`** env table).
 - [ ] **`RIVERSIDE_CORS_ORIGINS`** set to the exact production browser origins (HTTPS hostname, Tailscale hostname, etc.). Do not rely on permissive CORS for launch.
 - [ ] **`RIVERSIDE_STRICT_PRODUCTION=true`** on browser-facing production hosts so startup refuses missing CORS allowlists, missing storefront JWT secret, and missing static bundle paths.
 - [ ] **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** set to a long random value on any host exposing `/api/store/account/*`; no insecure dev fallback at launch.
 - [ ] **`FRONTEND_DIST`** explicitly points to the deployed static bundle on the production host; do not rely on `../client/dist` relative-CWD assumptions in service installs.
 - [ ] **`RIVERSIDE_HTTP_BIND`** aligned with your TLS/reverse-proxy plan (**`docs/STORE_DEPLOYMENT_GUIDE.md`**, **`REMOTE_ACCESS_GUIDE.md`**).
 - [ ] **Staff auth:** No dev bypasses; PINs and RBAC match store policy (**`docs/STAFF_PERMISSIONS.md`**).
-- [ ] **Stripe PCI safeguards enforced:** ROS never stores raw PAN/CVC; Stripe Elements + SetupIntents only; only non-sensitive metadata persisted (brand/last4/expiry/intents).
+- [ ] **Helcim PCI safeguards enforced:** ROS never stores raw PAN/CVC; HelcimPay.js + payment session only; only non-sensitive metadata persisted (brand/last4/expiry/transaction references).
 
 ---
 
@@ -163,8 +163,8 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 ## Integrations (only if you use them)
 
 - [ ] **QuickBooks Online:** OAuth, mappings, staging rules — ops runbook in **`DEVELOPER.md`** / QBO docs as you use them.
-- [ ] **Stripe:** **`STRIPE_SECRET_KEY`** and live vs test; terminal behavior — see server env docs.
-- [ ] **Stripe cutover controls:** Verify reader locations, connection tokens, webhook secret, and refund/credit reconciliation paths before opening day.
+- [ ] **Helcim:** **`HELCIM_API_TOKEN`**, **`HELCIM_DEVICE_CODE`**, **`HELCIM_WEBHOOK_SECRET`**, and live vs test behavior — see server env docs.
+- [ ] **Helcim cutover controls:** Verify reader locations, terminal device code, webhook secret, HelcimPay.js checkout, and refund/credit reconciliation paths before opening day.
 - [ ] **Podium SMS / storefront embed / CRM threads:** **`RIVERSIDE_PODIUM_*`**, webhook secret — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, completion matrix **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`**.
 - [ ] **Shippo / shipments:** **`SHIPPO_API_TOKEN`**, rates and hub — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**.
 - [ ] **Meilisearch (optional):** **`RIVERSIDE_MEILISEARCH_*`**; **rebuild index** after major catalog deploy — **`docs/SEARCH_AND_PAGINATION.md`**.
@@ -276,7 +276,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] **Staging Verification:** Confirm all QBO "Draft" entries require manager approval before final ledger impact.
 - [ ] **Z-Close Balance:** Confirm the POS Z-Report totals match the QBO Journal Entry daily summary to the penny.
 - [ ] **Fulfillment Urgency Audit:** Manually verify that "Rush" and "Due Soon" tags in the Fulfillment Command Center correctly trigger based on `is_rush` flags and `wedding_parties.event_date` to prevent missed deadlines.
-- [ ] **Merchant Activity Mapping:** Confirm that the insights dashboard correctly maps `created_at` from `payment_transactions` for Stripe reconciliation drills.
+- [ ] **Merchant Activity Mapping:** Confirm that the insights dashboard correctly maps `created_at` from `payment_transactions` for Helcim reconciliation drills.
 - [ ] **Discount Event Visibility:** Verify that active promotions populate the POS Cart and apply correctly to subtotals, ensuring no manual price overrides are required for standard sales.
 - [ ] **Zero-Dash-Error Baseline:** Confirm that the Insights, Register Activity, and Fulfillment Queue dashboards return 200 OK without console errors on every load.
 ---
@@ -369,7 +369,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
   - [ ] `DATABASE_URL`
   - [ ] `RIVERSIDE_CORS_ORIGINS`
   - [ ] `RIVERSIDE_HTTP_BIND`
-  - [ ] Integration secrets used by this store (Stripe/Podium/Shippo/QBO/Meilisearch)
+  - [ ] Integration secrets used by this store (Helcim/Podium/Shippo/QBO/Meilisearch)
 - [ ] Verify TLS/reverse proxy route and LAN/Tailscale access from at least 2 staff devices.
 - [ ] Verify firewall and remote-access policy for Metabase and Back Office endpoints.
 

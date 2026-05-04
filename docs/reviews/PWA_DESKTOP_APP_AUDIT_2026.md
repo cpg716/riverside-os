@@ -10,7 +10,7 @@ The original audit correctly identified the Tauri host-mode path as the highest-
 - the Tauri host wrapper resolves and reports an explicit frontend bundle path for satellite clients
 - host startup no longer reports success before readiness
 - host startup failures are surfaced directly in the Remote Access panel
-- operator-facing host flow no longer relies on placeholder Stripe input in the UI
+- operator-facing host flow no longer relies on placeholder Helcim input in the UI
 
 ## Important correction to the earlier audit
 

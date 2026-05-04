@@ -15,7 +15,7 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 | **Bag Tag** | A 2x1 thermal label generated for individual items in an order (?mode=bag-tag). |
 | **Balance due** | Amount still owed on an order after payments and credits. |
 | **Business date** | The store’s calendar day for reporting, driven by **timezone** in receipt/settings — may differ from UTC midnight. |
-| **Card Vaulting** | Securely saving a customer's credit card in the Relationship Hub for future use (PCI-compliant via Stripe SetupIntents). |
+| **Card Vaulting** | Securely saving a customer's credit card for future use through Helcim tokenization. Riverside OS stores only provider-safe card metadata and references. |
 | **Catalog handle** | The primary identifier used to match Counterpoint items (`ITEM#`). |
 | **Checkout / Complete Sale** | Finalizing tenders so the order is paid (or partially paid per policy). |
 | **Control board** | Paged product list API used for large catalogs (Back Office **Inventory List** and POS **Inventory** browse). |
@@ -57,7 +57,7 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 | **Satellite Lane** | A secondary register lane (iPad/BO) that attaches to Register #1 for a shared till session. |
 | **Shippo** | The carrier integration used for quoting shipping rates and generating tracking numbers. |
 | **Store Credit** | A balance held by a customer that can be used as a tender at checkout. |
-| **Stripe Credit** | Issuing a payment return directly back to a customer's physical card via the terminal (unlinked credit). |
+| **Helcim Credit** | Issuing a payment return directly back to a customer's physical card via the terminal (unlinked credit). |
 | **Till Group** | A collection of register lanes that share a physical cash drawer and a single **Z-Report**. |
 | **Toast** | Small non-blocking success/error message at the edge of the UI (ROS does **not** use browser `alert` / `confirm`). |
 | **Truth Trace** | A user-visible "explainer" that breaks down the math behind complex features like commissions or inventory reorders. |

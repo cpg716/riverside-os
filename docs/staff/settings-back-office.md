@@ -37,7 +37,7 @@ Settings appears in these sidebar groups:
 1. **Integrations Overview**
 2. **Podium**
 3. **Shippo**
-4. **Stripe**
+4. **Helcim**
 5. **QuickBooks**
 6. **Counterpoint**
 7. **NuORDER**
@@ -167,7 +167,7 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 
 1. **Ops Health Board**: Confirm DB/API/integrations are healthy from one status panel.
 2. **Station Fleet Board**: Verify each Register station heartbeat, version, and online/offline transitions.
-3. **Runtime Diagnostics**: Confirm the station's resolved API base, strict-production status, Stripe readiness, Shippo mode, Metabase auth mode, help-search mode, and weather mode without exposing any secrets.
+3. **Runtime Diagnostics**: Confirm the station's resolved API base, strict-production status, Helcim readiness, Shippo mode, Metabase auth mode, help-search mode, and weather mode without exposing any secrets.
 4. **Alert Center**: Acknowledge active incidents and verify suppression/recurrence behavior.
 5. **Guarded Actions**: Run maintenance actions only with explicit reason + dual confirmation.
 6. **Bug Manager Overlay**: Keep ROS bug reports as source-of-truth and attach bugs to active incidents for triage context.

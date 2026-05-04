@@ -15,7 +15,7 @@ The Payments subsystem is a multi-tender transactional engine that powers the PO
 
 ### 2.2 Supported Tender Types
 - **Cash**: Standard till tender.
-- **Card**: Integrated Stripe (via `STRIPE_INTEGRATION_AUDIT`).
+- **Card**: Integrated Helcim (via `HELCIM_INTEGRATION_AUDIT`).
 - **Gift Card**: Integrated with the `gift_card` table, allowing for `paid_liability` (standard) or `loyalty_giveaway` (promotional) splits.
 - **Store Credit**: Debits the customer's `store_credit_balance` directly.
 - **RMS/Deposit Ledger**: Allows a customer to pay for a new order using funds they previously "deposited" on their account.

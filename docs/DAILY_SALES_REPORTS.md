@@ -29,7 +29,7 @@ The default view showing high-level metrics for the selected period.
   - Sales # (number of transactions)
   - Sales $ (total sales amount)
   - Tax collected
-  - Merchant fees (Stripe)
+  - Merchant fees (Helcim)
 
 - **Additional Metrics**:
   - Appointments

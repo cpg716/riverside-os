@@ -1,6 +1,6 @@
 # Plan: Shipping via Shippo (Online Store + POS)
 
-> **FUTURE ADDITION:** **Online Store** channel items below **rate estimates** on **`/shop`** — i.e. **Stripe checkout + `rate_quote_id` binding**, **guest-initiated label purchase**, and **web-specific post-payment automation** — stay **deferred** until **[`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md)** Phase C checkout exists. Implement and test **POS**, **Back Office Orders**, and **Shipments hub** first.
+> **FUTURE ADDITION:** **Online Store** channel items below **rate estimates** on **`/shop`** — i.e. **Helcim checkout + `rate_quote_id` binding**, **guest-initiated label purchase**, and **web-specific post-payment automation** — stay **deferred** until **[`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md)** Phase C checkout exists. Implement and test **POS**, **Back Office Orders**, and **Shipments hub** first.
 
 **Status:** **Partially implemented.** Foundation + unified registry are documented in **[`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)** (migrations **74**–**75**, rate quotes, **`/api/shipments`**, POS/store rate endpoints). This document remains the **roadmap** for labels, webhooks, late-bound fulfillment gates, and deeper order/workspace UX. **Cross-cutting tracker** (Podium + notifications + reviews): **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**.
 
@@ -9,7 +9,7 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 1. **Online Store** (**FUTURE** for label + paid-checkout binding) — Customer sees **real-time or cached rates** at cart (**estimate only** until checkout ships); **label purchase** and **tracking** after payment remain **roadmap**.
 2. **POS / Register** (**supported path**) — Staff attach **ship-to** orders with **quoted shipping** and **buy label** from register/orders/shipments.
 
-**Related:** [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md) (web cart, Stripe, ship-to tax). **Shipped reference:** [`SHIPPING_AND_SHIPMENTS_HUB.md`](./SHIPPING_AND_SHIPMENTS_HUB.md). **Money:** `rust_decimal::Decimal` in ROS; Shippo returns string decimals — parse carefully at boundaries.
+**Related:** [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md) (web cart, Helcim, ship-to tax). **Shipped reference:** [`SHIPPING_AND_SHIPMENTS_HUB.md`](./SHIPPING_AND_SHIPMENTS_HUB.md). **Money:** `rust_decimal::Decimal` in ROS; Shippo returns string decimals — parse carefully at boundaries.
 
 ---
 
@@ -73,7 +73,7 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 - Client must not invent shipping prices. Flow:
   1. `POST /api/store/shipping/rates` with **cart id** + **ship-to** → server builds parcel(s) from variant **weights** (require **weight on variant or product** — migration if missing).
   2. Response includes **opaque `rate_quote_id`** (server-stored, short TTL) bound to **amount + carrier + service level**.
-  3. `POST /api/store/checkout` includes **`rate_quote_id`**; server verifies and locks shipping into order totals before Stripe session.
+  3. `POST /api/store/checkout` includes **`rate_quote_id`**; server verifies and locks shipping into order totals before Helcim session.
 
 ### POS flow
 
@@ -106,7 +106,7 @@ Retail reality: staff often sell the order **before** they know **package weight
 |------|----------|
 | Cart | Collect **ship-to** (validates with Shippo **address validation** if enabled — optional API). |
 | Rates | Show 3–5 options; display **delivery estimate** from Shippo. |
-| Checkout | Stripe total = merchandise + tax + **selected shipping** (from verified quote). |
+| Checkout | Helcim total = merchandise + tax + **selected shipping** (from verified quote). |
 | After pay | Webhook creates order → **auto-purchase label** OR task queue **“pending label”** for Back Office batch print. |
 | Email | Include **tracking link** from Shippo/ carrier. |
 
@@ -145,7 +145,7 @@ Tie-in with **§6 destination tax** in [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ON
 
 ### Phase 2 — Web store
 
-- Store **rate_quote** cache table; integrate with Stripe Checkout totals.
+- Store **rate_quote** cache table; integrate with Helcim Checkout totals.
 - Webhook completes order + label purchase path.
 
 ### Phase 3 — Labels + tracking

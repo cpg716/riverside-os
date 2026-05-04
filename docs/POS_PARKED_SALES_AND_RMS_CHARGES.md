@@ -144,12 +144,12 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 
 ---
 
-## Card terminal simulation (client)
+## Helcim terminal simulation
 
-If **`POST /api/payments/intent`** fails (no Stripe key, rate limit, network), the register can still open **`StripeReaderSimulation`** when:
+Helcim terminal payments use **`POST /api/payments/providers/helcim/purchase`** and remain pending until provider approval. In local/e2e development, the built-in Helcim simulator can approve, decline, or cancel pending attempts when:
 
-- **`import.meta.env.DEV`** is true, or
-- **`VITE_POS_OFFLINE_CARD_SIM=true`** in the Vite env (build-time).
+- **`HELCIM_SIMULATOR_ENABLED=true`**, and
+- **`RIVERSIDE_STRICT_PRODUCTION`** is not enabled.
 
 See **`client/src/components/pos/NexoCheckoutDrawer.tsx`**.
 

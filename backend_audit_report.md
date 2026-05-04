@@ -12,7 +12,7 @@ The **route-level gaps** called out in §2 and Appendix B have been **addressed 
 
 - **Inventory:** `GET /scan-resolve` and `POST /batch-scan` use **`require_staff_perm_or_pos_session`** with **`catalog.view`** / **`catalog.edit`** (POS token or staff permission).
 - **Products / categories / vendors / purchase-orders / settings / gift-cards (mutations):** handlers call **`require_staff_with_permission`** with **`catalog.*`**, **`procurement.*`**, **`settings.admin`**, **`gift_cards.manage`** as appropriate; **`list_control_board`** remains **staff or POS session**.
-- **Payments / hardware:** **`require_staff_or_pos_register_session`** on **`POST /intent`** and **`POST /print`**; **`POST /intent`** also has a **global rolling-minute rate limit** (**`RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE`**, default **120**).
+- **Payments / hardware:** **`require_staff_or_pos_register_session`** on Helcim payment initiation/confirmation routes and **`POST /print`**.
 - **Loyalty:** settings + monthly eligible → **`loyalty.program_settings`**; redeem + ledger → **staff or POS session**; adjust-points unchanged (PIN + permission).
 - **Weddings:** **`weddings.view`** / **`weddings.mutate`** on read vs write handlers.
 - **Sessions:** **`GET /current`** → staff or POS session; close / cash adjust / reconciliation / X-report → **`require_pos_session_secret_or_permission`** (path session + POS token, or BO **`register.reports`**).
@@ -32,7 +32,7 @@ Remaining **optional** hardening: Playwright / E2E refresh (**Appendix B.4**); p
 |----------|--------|------------|
 | `server/src/services/vendor_hub.rs` | `f64` for `avg_lead_time_days` | **OK** — operational lead time, not currency. |
 | `server/src/logic/weather.rs` | `f32` for temperature / precipitation | **OK** — environmental simulation, not money. |
-| `server/src/api/payments.rs` | `ToPrimitive::to_i64()` on `Decimal` | **OK** — converts USD `Decimal` to whole cents for Stripe `i64`; arithmetic stays in `Decimal` until conversion. |
+| `server/src/api/payments.rs` | `ToPrimitive::to_i64()` on `Decimal` | **OK** — converts USD `Decimal` to whole cents for Helcim `i64`; arithmetic stays in `Decimal` until conversion. |
 | `server/src/api/orders.rs` | `ToPrimitive::to_i64()` for refund cents | **OK** — same pattern as payments. |
 | `server/src/logic/loyalty.rs` | `to_i64()` | **OK** — points / ledger integer paths, not currency floats. |
 | `server/src/logic/importer.rs` | `ToPrimitive` import + `to_i32()` on rounded `Decimal` | **OK** — quantity-like integers from `Decimal`, not `f64` money math. |
@@ -43,7 +43,7 @@ No `f32`/`f64` usage was found for **currency** in `server/`. Financial fields i
 
 ### Recommendations
 
-- Keep `ToPrimitive` conversions **only** at boundaries (Stripe cents, integer points) and document that they are not intermediate float money math.
+- Keep `ToPrimitive` conversions **only** at boundaries (Helcim cents, integer points) and document that they are not intermediate float money math.
 - **`logic/importer.rs`:** keep **`ToPrimitive`** for **`to_i32()`** on quantity-like fields.
 
 ---
@@ -82,12 +82,12 @@ The table below recorded the **pre-remediation** risk surface. **Current code** 
 
 ### Verdict
 
-**Mutation and sensitive read routes** use **staff permissions** and/or **POS register session** (and **session secret** where required). **`POST /api/payments/intent`** adds **global rate limiting** (env-tunable).
+**Mutation and sensitive read routes** use **staff permissions** and/or **POS register session** (and **session secret** where required). Helcim payment initiation, hosted checkout confirmation, customer-card management, refunds, and reversals are gated through staff/POS session or customer-hub permissions.
 
 ### Recommendations
 
 1. Keep **`docs/STAFF_PERMISSIONS.md`** in sync when adding permission keys.
-2. Tune **`RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE`** for your traffic; use **`0`** only in controlled dev environments.
+2. Keep Helcim credential readiness and webhook validation checks in deployment smoke tests.
 
 ---
 
@@ -231,7 +231,7 @@ Matches documented lifecycle: reserved units leave both on hand and reserved whe
 | `unsafe` | **None**. |
 | `todo!` / `unimplemented!` | **None**. |
 | `pool.begin()` / `db.begin()` | See §3; files: `api/inventory`, `api/orders`, `api/products`, `api/loyalty`, `api/staff`, `api/purchase_orders`, `api/categories`, `logic/loyalty`, `logic/importer`, `logic/order_returns`, `logic/counterpoint_sync`, `logic/lightspeed_customers`, `logic/physical_inventory` (two paths). |
-| `std::env::var` | `main.rs` (DB, Stripe, Counterpoint, CORS, dist, body limit, bind), `api/orders.rs` (optional webhook URL), `logic/backups.rs` (S3 keys). |
+| `std::env::var` | `main.rs` (DB, Helcim, Counterpoint, CORS, dist, body limit, bind), `api/orders.rs` (optional webhook URL), `logic/backups.rs` (S3 keys). |
 
 ### A.2 `server/src` file map (every file, one line each)
 
@@ -265,7 +265,7 @@ Matches documented lifecycle: reserved units leave both on hand and reserved whe
 | `purchase_orders.rs` | PO draft, lines, submit, receive, direct invoice. |
 | `counterpoint_sync.rs` | Token-gated bridge ingest. |
 | `hardware.rs` | Print proxy hook. |
-| `payments.rs` | Stripe PaymentIntent create. |
+| `payments.rs` | Helcim payment attempt create. |
 | `categories.rs` | Category tree, CRUD, audit, tax resolution. |
 
 **`middleware/`**
@@ -389,7 +389,7 @@ Many unauthenticated routes below need **`require_staff_with_permission`**. The 
 
 ### B.2 Route-by-route RBAC / auth (exhaustive for `build_router` nests)
 
-**Note:** The **Status** column is **kept in sync with the repo** as of the last audit pass (RBAC + hygiene). **`RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE`** (default **120**, **`0`** = unlimited) gates **`POST /api/payments/intent`** volume per rolling minute.
+**Note:** The **Status** column is **kept in sync with the repo** as of the last audit pass (RBAC + hygiene). Helcim payment routes are gated by staff/POS session or customer-hub permissions depending on route purpose.
 
 Base URL prefix omitted; all paths are under **`/api/...`** as registered in `server/src/api/mod.rs`.
 
@@ -484,7 +484,10 @@ Base URL prefix omitted; all paths are under **`/api/...`** as registered in `se
 
 | Method | Path | Status | Remediation |
 |--------|------|--------|-------------|
-| POST | `/intent` | ✅ | **`require_staff_or_pos_register_session`** + global rolling-minute **rate limit** (`RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE`). |
+| POST | `/providers/helcim/purchase` | ✅ | **`require_staff_or_pos_register_session`**; card checkout must be approved by Helcim before sale finalization. |
+| POST | `/providers/helcim/helcim-pay/initialize` / `/confirm` | ✅ | **`require_staff_or_pos_register_session`**; hosted payment response hash validates server-side. |
+| POST | `/providers/helcim/card-token/purchase` / `/card/refund` / `/card/reverse` | ✅ | **`require_staff_or_pos_register_session`**. |
+| GET/POST/DELETE | `/providers/helcim/customers/*` | ✅ | Customer-hub view/edit permissions. |
 
 #### `/api/hardware`
 
@@ -581,7 +584,7 @@ Base URL prefix omitted; all paths are under **`/api/...`** as registered in `se
 1. **403** from API when staff lacks the new key; **401** when headers/session missing — covered by **`client/e2e/api-gates.spec.ts`** (runs when API is up; **skipped** if `E2E_API_BASE` unreachable).
 2. **Client:** every touched workspace passes **`backofficeHeaders()`**; sidebar hides routes without permission.
 3. **Playwright / E2E:** **`E2E_BASE_URL=http://localhost:5173`** (default in **`playwright.config.ts`**); full suite: `npm run test:e2e` from **`client/`** with dev server + API for non-skipped gates.
-4. **`cargo check`** + smoke: register open → batch scan / payments intent only with session or staff as designed; **`429`** from **`POST /api/payments/intent`** when over **`RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE`**.
+4. **`cargo check`** + smoke: register open → batch scan / Helcim payment routes only with session or staff as designed; no card tender finalizes until an approved Helcim attempt exists.
 
 ---
 

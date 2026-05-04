@@ -17,7 +17,7 @@
 | CORS Hardening | 🟢 PASS | `RIVERSIDE_CORS_ORIGINS` locked to specific origins in `.env`. |
 | Interface Binding | 🟢 PASS | Binding configured to `0.0.0.0` with OrbStack firewall mediation. |
 | RBAC Boundary Audit | 🟢 PASS | Checked `staff.view` and `orders.view` gates; no permission leakage. |
-| Secret Masking | 🟢 PASS | Logs verified to show zero sensitive keys (Stripe/Podium) in plaintext. |
+| Secret Masking | 🟢 PASS | Logs verified to show zero sensitive keys (Helcim/Podium) in plaintext. |
 
 ## 3. Staff Throughput & UX
 | Check | Result | Evidence |

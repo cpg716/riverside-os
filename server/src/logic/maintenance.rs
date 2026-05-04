@@ -14,7 +14,7 @@ pub async fn run_system_health_audit(db: &PgPool) -> Result<(), anyhow::Error> {
     info!("Starting daily system health audit...");
 
     // Stub 1: API Version Monitor
-    // In the future, this will check Stripe/Podium/Shippo targeted versions
+    // In the future, this will check payment/Podium/Shippo targeted versions.
     // against known deprecation dates.
     if let Err(e) = check_integration_versions(db).await {
         error!(error = %e, "API version check failed");
