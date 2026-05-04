@@ -93,6 +93,7 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\release-docs" | Out-Null
 
 Copy-Item "$PSScriptRoot\install-server.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\repair-bootstrap-admin.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\riverside-deployment.config.example.json" $packageRoot -Force

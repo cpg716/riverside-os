@@ -661,7 +661,7 @@ $checkButton.Add_Click({
       Add-Log "Config file will be created from the package template during install."
     }
     if ($serverRadio.Checked) {
-      foreach ($required in @("install-server.ps1", "install-register.ps1", "server\riverside-server.exe", "client-dist", "migrations", "register")) {
+      foreach ($required in @("install-server.ps1", "install-register.ps1", "repair-bootstrap-admin.ps1", "server\riverside-server.exe", "client-dist", "migrations", "register")) {
         if (-not (Test-PackageFile $required)) {
           throw "Missing $required"
         }
@@ -720,6 +720,7 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
     if ($serverRadio.Checked) {
       Add-Log "$Action Backoffice / Server..."
       Invoke-Installer "install-server.ps1"
+      Invoke-Installer "repair-bootstrap-admin.ps1"
       Add-Log "Server $($Action.ToLowerInvariant()) complete."
       Add-Log "$Action Backoffice desktop app..."
       Invoke-Installer "install-register.ps1"
@@ -740,6 +741,7 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
     if ($serverRadio.Checked) {
       Add-Log "Repairing Backoffice / Server..."
       Invoke-Installer "install-server.ps1"
+      Invoke-Installer "repair-bootstrap-admin.ps1"
       Add-Log "Repairing Backoffice desktop app..."
       Invoke-Installer "install-register.ps1"
       Add-Log "Backoffice / Server repair complete."

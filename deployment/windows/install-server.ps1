@@ -168,6 +168,21 @@ SET
   role = EXCLUDED.role,
   is_active = TRUE,
   avatar_key = COALESCE(staff.avatar_key, EXCLUDED.avatar_key);
+
+DO `$`$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM staff
+    WHERE cashier_code = '1234'
+      AND role = 'admin'::staff_role
+      AND is_active = TRUE
+      AND pin_hash IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'Bootstrap admin was not created.';
+  END IF;
+END
+`$`$;
 "@
 }
 
@@ -197,11 +212,11 @@ function Stop-PortListeners([int]$Port) {
       continue
     }
 
-    Write-Host "Stopping process using Riverside port $Port: $($process.ProcessName) ($processId)"
+    Write-Host "Stopping process using Riverside port ${Port}: $($process.ProcessName) ($processId)"
     try {
       Stop-Process -Id $processId -Force -ErrorAction Stop
     } catch {
-      throw "Could not stop process using Riverside port $Port: $($process.ProcessName) ($processId). Close it and run install again."
+      throw "Could not stop process using Riverside port ${Port}: $($process.ProcessName) ($processId). Close it and run install again."
     }
   }
 }

@@ -26,6 +26,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate deployment PowerShell scripts
+        shell: pwsh
+        run: |
+          $hasErrors = $false
+          Get-ChildItem -Path "deployment/windows" -Filter "*.ps1" | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $hasErrors = $true
+              foreach ($parseError in $parseErrors) {
+                Write-Host "::error file=$($_.FullName),line=$($parseError.Extent.StartLineNumber),col=$($parseError.Extent.StartColumnNumber)::$($parseError.Message)"
+              }
+            }
+          }
+          if ($hasErrors) {
+            throw "Deployment PowerShell parse validation failed."
+          }
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
