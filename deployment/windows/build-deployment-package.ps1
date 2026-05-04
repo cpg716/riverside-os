@@ -40,6 +40,8 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\release-docs" | Out-Null
 
 Copy-Item "$PSScriptRoot\install-server.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Start-RiversideDeployment.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Start-RiversideDeployment.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\riverside-deployment.config.example.json" $packageRoot -Force
 Copy-Item $ServerBinaryPath "$packageRoot\server\riverside-server.exe" -Force
 Copy-Item "$ClientDistPath\*" "$packageRoot\client-dist" -Recurse -Force
@@ -69,6 +71,29 @@ if (Test-Path $UpdaterDistPath) {
 
 $readme = @"
 # RiversideOS $Version Windows Deployment Package
+
+1. Double-click Start-RiversideDeployment.cmd.
+2. Choose Backoffice / Server, Register #1, or Back Office Workstation.
+3. Click Check, then Install, Update, Repair, or Uninstall.
+
+The Deployment Manager writes riverside-deployment.config.json for you and runs
+the correct installer for the selected station type.
+
+Password handling:
+
+- If PostgreSQL is missing, the manager can offer to install PostgreSQL 18 through Windows Package Manager.
+- Enter the existing PostgreSQL admin password when PostgreSQL is already installed.
+- Riverside database and app secrets are generated automatically when left blank or placeholder.
+- Station settings are written automatically for Register and Back Office workstation installs.
+- A deployment-manager.log file is written next to the installer for support.
+
+Uninstall behavior:
+
+- Workstation uninstall removes the Riverside desktop app and station settings.
+- Server uninstall removes the Riverside server service, firewall rule, and app files.
+- Server uninstall keeps the database, backups, and logs by default.
+
+Manual fallback:
 
 1. Copy riverside-deployment.config.example.json to riverside-deployment.config.json.
 2. Fill in the Server PC, database, secret, Register #1, and printer values.

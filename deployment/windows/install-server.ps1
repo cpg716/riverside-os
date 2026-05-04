@@ -30,13 +30,33 @@ function Resolve-PsqlPath($dbConfig) {
   if ($matches) {
     return $matches[0].FullName
   }
-  throw "psql.exe was not found. Install PostgreSQL 16 first, or set server.database.psqlPath in the config."
+  throw "psql.exe was not found. Install PostgreSQL first, or set server.database.psqlPath in the config."
+}
+
+function Ensure-PostgresServiceRunning {
+  $services = Get-Service -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like "postgresql*" -or $_.DisplayName -like "PostgreSQL*" } |
+    Sort-Object Name -Descending
+
+  if (-not $services) {
+    Write-Warning "No PostgreSQL Windows service was found. Continuing because psql.exe exists, but database connection may fail if PostgreSQL is not running."
+    return
+  }
+
+  $service = $services[0]
+  if ($service.Status -ne "Running") {
+    Write-Host "Starting PostgreSQL service $($service.Name)"
+    Start-Service -Name $service.Name
+    $service.WaitForStatus("Running", (New-TimeSpan -Seconds 30))
+  }
+  Set-Service -Name $service.Name -StartupType Automatic
 }
 
 function Invoke-Psql($PsqlPath, $DatabaseUrl, $Sql) {
   $temp = New-TemporaryFile
   try {
-    Set-Content -Path $temp -Value $Sql -Encoding UTF8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($temp.FullName, $Sql, $utf8NoBom)
     & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -f $temp
     if ($LASTEXITCODE -ne 0) {
       throw "psql failed with exit code $LASTEXITCODE"
@@ -50,6 +70,16 @@ function Invoke-PsqlAdmin($PsqlPath, $Db, $Sql) {
   $env:PGPASSWORD = $Db.adminPassword
   try {
     $adminUrl = "postgresql://$($Db.adminUser)@$($Db.host):$($Db.port)/postgres"
+    Invoke-Psql $PsqlPath $adminUrl $Sql
+  } finally {
+    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+  }
+}
+
+function Invoke-PsqlAdminDatabase($PsqlPath, $Db, $DatabaseName, $Sql) {
+  $env:PGPASSWORD = $Db.adminPassword
+  try {
+    $adminUrl = "postgresql://$($Db.adminUser)@$($Db.host):$($Db.port)/$DatabaseName"
     Invoke-Psql $PsqlPath $adminUrl $Sql
   } finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
@@ -162,6 +192,7 @@ if (Test-Path $packageReleaseDocs) {
 }
 
 $psql = Resolve-PsqlPath $db
+Ensure-PostgresServiceRunning
 $databaseUrl = "postgresql://$($db.appUser):$($db.appPassword)@$($db.host):$($db.port)/$($db.databaseName)"
 
 if (-not $SkipDatabaseCreate) {
@@ -188,6 +219,8 @@ END
   } finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
   }
+  Invoke-PsqlAdmin $psql $db "ALTER DATABASE ""$databaseName"" OWNER TO ""$appUser""; GRANT CREATE ON DATABASE ""$databaseName"" TO ""$appUser"";"
+  Invoke-PsqlAdminDatabase $psql $db $databaseName "ALTER SCHEMA public OWNER TO ""$appUser""; GRANT ALL ON SCHEMA public TO ""$appUser"";"
 }
 
 if (-not $SkipMigrations) {

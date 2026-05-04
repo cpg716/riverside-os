@@ -1,6 +1,6 @@
--- AI platform: pgvector (forward-compat embeddings), staff doc chunks (FTS + optional vector), saved NL report specs, duplicate review queue, RBAC.
-
-CREATE EXTENSION IF NOT EXISTS vector;
+-- AI platform: staff doc chunks (FTS), saved NL report specs, duplicate review queue, RBAC.
+-- This legacy table is retired by migration 78. Keep fresh installs independent
+-- from pgvector so store deployments do not require the unused vector extension.
 
 CREATE TABLE IF NOT EXISTS ai_doc_chunk (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS ai_doc_chunk (
     chunk_index INT NOT NULL,
     content TEXT NOT NULL,
     content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(content, ''))) STORED,
-    embedding vector(384),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (source_path, chunk_index)
 );

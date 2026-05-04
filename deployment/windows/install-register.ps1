@@ -111,7 +111,7 @@ if (-not $NoLaunch) {
 }
 
 $summary = @"
-Riverside OS Register install complete.
+Riverside OS workstation install complete.
 Station setup: $stationConfigPath
 API base: $($config.register.apiBase)
 Station label: $($config.register.stationLabel)

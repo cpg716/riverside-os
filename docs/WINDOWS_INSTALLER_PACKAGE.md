@@ -1,11 +1,12 @@
 # Riverside OS Windows installer package
 
-This package is the near-turnkey deployment path for the in-store Windows machines:
+This package is the guided deployment path for the in-store Windows machines:
 
 - **Backoffice / Server PC**: PostgreSQL database, Riverside server, web bundle, migrations, firewall rule, and startup task.
 - **Register #1**: Riverside desktop app, station API base, printer target, and cash drawer setting.
+- **Back Office Workstation**: Riverside desktop app, station API base, and optional printer targets without server/database setup.
 
-The package intentionally keeps a readable JSON config next to the installers so the store-specific values are visible before install.
+The primary entry point is **`Start-RiversideDeployment.cmd`**. It opens the Riverside OS Deployment Manager so the installer can be run by choosing the station type, checking readiness, and clicking install. The package still keeps a readable JSON config next to the installers for support fallback.
 
 ## Package layout
 
@@ -13,6 +14,8 @@ Build output:
 
 ```text
 RiversideOS-v0.4.0-Windows-Deployment/
+  Start-RiversideDeployment.cmd
+  Start-RiversideDeployment.ps1
   install-server.ps1
   install-register.ps1
   riverside-deployment.config.example.json
@@ -36,7 +39,54 @@ If the Tauri register bundle is coming from GitHub Actions instead of the local 
 
 ## Configure the package
 
-Copy:
+Normal path:
+
+```text
+Double-click Start-RiversideDeployment.cmd.
+```
+
+Then choose:
+
+- **Backoffice / Server** for the server PC.
+- **Register #1** for the register lane.
+- **Back Office Workstation** for a non-server PC that runs Riverside against the server.
+
+Click **Check**, then choose the action:
+
+- **Install** for a new station.
+- **Update** to apply a newer package, copy new files, run migrations where needed, and reinstall/update the workstation app.
+- **Repair** to rewrite station/server settings and fix service/firewall/printer/API setup without a destructive reset.
+- **Uninstall** to remove Riverside from that station.
+
+The Deployment Manager writes `riverside-deployment.config.json` for the selected station type and runs the correct installer.
+
+The manager also writes `deployment-manager.log` next to the installer so support can review exactly what was checked or installed.
+
+## Passwords and secrets
+
+The Deployment Manager keeps the password work inside the installer flow:
+
+- **PostgreSQL install**: if PostgreSQL is missing, the manager can offer to install PostgreSQL 18 through Windows Package Manager. This needs internet access and the normal Windows Package Manager service.
+- **PostgreSQL admin password**: enter the existing PostgreSQL `postgres` password when installing, updating, or repairing the Server. The installer needs it to create/update the Riverside database user, fix permissions, and run migrations.
+- **New PostgreSQL admin password**: if PostgreSQL is installed by the manager and the field is blank or placeholder, the manager generates a password and writes it to `riverside-deployment.config.json`.
+- **Riverside database password**: generated automatically if left blank or still set to a placeholder. It is saved to `riverside-deployment.config.json` and written to `C:\RiversideOS\server\.env`.
+- **Riverside app secret**: generated automatically if left blank, too short, or still set to a placeholder.
+- **Register and Back Office station settings**: written automatically to `C:\ProgramData\RiversideOS\station-config.json`.
+
+Generated Riverside passwords intentionally use URL-safe letters and numbers so PostgreSQL connection strings do not break on characters like `#`, `@`, or `%`.
+
+## Update, repair, and uninstall
+
+The same Deployment Manager handles later maintenance:
+
+- **Server update**: copies the new server and web files, applies pending migrations, refreshes the firewall/task setup, and restarts Riverside.
+- **Workstation update**: rewrites station settings and installs the included Riverside desktop app package.
+- **Server repair**: reruns the server setup in an idempotent way to restore service, firewall, env, and migration state.
+- **Workstation repair**: rewrites station settings without reinstalling the app.
+- **Workstation uninstall**: removes the Riverside desktop app and station settings.
+- **Server uninstall**: removes the server scheduled task, firewall rule, and app files. It keeps the database, backups, and logs by default.
+
+Manual fallback:
 
 ```powershell
 Copy-Item .\riverside-deployment.config.example.json .\riverside-deployment.config.json
@@ -54,7 +104,13 @@ Credentials may be included in this private in-store package. Do not commit the 
 
 ## Backoffice / Server PC install
 
-Run PowerShell as Administrator:
+Preferred path:
+
+```text
+Double-click Start-RiversideDeployment.cmd and choose Backoffice / Server.
+```
+
+Manual fallback:
 
 ```powershell
 .\install-server.ps1
@@ -63,6 +119,7 @@ Run PowerShell as Administrator:
 The script:
 
 - Creates `C:\RiversideOS` folders.
+- Starts the PostgreSQL Windows service when it is installed but stopped.
 - Copies `riverside-server.exe`.
 - Copies `client-dist`.
 - Copies migrations.
@@ -74,11 +131,17 @@ The script:
 - Creates a startup scheduled task named `Riverside OS Server`.
 - Starts the server and checks the local app URL.
 
-PostgreSQL 16 and `psql.exe` must be installed or referenced by `server.database.psqlPath`.
+PostgreSQL and `psql.exe` must be installed or referenced by `server.database.psqlPath`. The Deployment Manager can find common PostgreSQL installs and write the path into the config.
 
 ## Register #1 install
 
-Run PowerShell as Administrator:
+Preferred path:
+
+```text
+Double-click Start-RiversideDeployment.cmd and choose Register #1.
+```
+
+Manual fallback:
 
 ```powershell
 .\install-register.ps1
@@ -99,6 +162,16 @@ On first launch, the Tauri app imports `station-config.json` and saves:
 - Cash drawer setting
 
 If settings changed, the app reloads once so early API calls use the installed API base.
+
+## Back Office Workstation install
+
+Preferred path:
+
+```text
+Double-click Start-RiversideDeployment.cmd and choose Back Office Workstation.
+```
+
+This uses the workstation installer path, writes the server API base, disables cash drawer by default, and installs the Riverside desktop app without setting up PostgreSQL or the server task.
 
 ## Printer recommendation
 
