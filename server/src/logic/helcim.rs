@@ -202,6 +202,22 @@ pub struct HelcimBatchTransactionSnapshot {
     pub raw_payload: Value,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct HelcimCardBatchesQuery {
+    pub batch_number: Option<i64>,
+    pub terminal_id: Option<i64>,
+    pub collect_stats: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct HelcimCardTransactionsQuery {
+    pub date_from: Option<NaiveDate>,
+    pub date_to: Option<NaiveDate>,
+    pub card_batch_id: Option<String>,
+    pub limit: Option<i32>,
+    pub page: Option<i32>,
+}
+
 impl HelcimConfig {
     pub fn from_env() -> Self {
         let api_token = non_empty_env("HELCIM_API_TOKEN");
@@ -345,6 +361,49 @@ impl HelcimFeeDetails {
     }
 }
 
+impl HelcimCardBatchesQuery {
+    fn query_params(&self) -> Vec<(&str, String)> {
+        let mut query = Vec::new();
+        if let Some(batch_number) = self.batch_number {
+            query.push(("batchNumber", batch_number.to_string()));
+        }
+        if let Some(terminal_id) = self.terminal_id {
+            query.push(("terminalId", terminal_id.to_string()));
+        }
+        if self.collect_stats {
+            query.push(("collect-stats", "true".to_string()));
+        }
+        query
+    }
+}
+
+impl HelcimCardTransactionsQuery {
+    fn query_params(&self) -> Vec<(&str, String)> {
+        let mut query = Vec::new();
+        if let Some(date_from) = self.date_from {
+            query.push(("dateFrom", date_from.format("%Y-%m-%d").to_string()));
+        }
+        if let Some(date_to) = self.date_to {
+            query.push(("dateTo", date_to.format("%Y-%m-%d").to_string()));
+        }
+        if let Some(batch_id) = self
+            .card_batch_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            query.push(("cardBatchId", batch_id.to_string()));
+        }
+        if let Some(limit) = self.limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(page) = self.page {
+            query.push(("page", page.to_string()));
+        }
+        query
+    }
+}
+
 pub fn extract_fee_details(payload: &Value) -> HelcimFeeDetails {
     const FEE_FIELDS: &[&str] = &[
         "merchantFee",
@@ -381,27 +440,72 @@ pub fn parse_card_batch_snapshot(payload: &Value) -> Option<HelcimCardBatchSnaps
     )?;
     Some(HelcimCardBatchSnapshot {
         provider_batch_id,
-        status: first_string_field(payload, &["status", "batchStatus", "batch_status"]),
+        status: first_string_field(payload, &["status", "batchStatus", "batch_status"]).or_else(
+            || {
+                first_bool_field(payload, &["closed"]).map(|closed| {
+                    if closed {
+                        "closed".to_string()
+                    } else {
+                        "open".to_string()
+                    }
+                })
+            },
+        ),
         currency: first_string_field(payload, &["currency"]),
-        opened_at: first_timestamp_field(payload, &["openedAt", "opened_at", "openDate"]),
-        closed_at: first_timestamp_field(payload, &["closedAt", "closed_at", "closedDate"]),
+        opened_at: first_timestamp_field(
+            payload,
+            &["openedAt", "opened_at", "openDate", "dateCreated"],
+        ),
+        closed_at: first_timestamp_field(
+            payload,
+            &["closedAt", "closed_at", "closedDate", "dateClosed"],
+        ),
         settled_at: first_timestamp_field(payload, &["settledAt", "settled_at", "settlementDate"]),
         expected_deposit_at: first_timestamp_field(
             payload,
             &["expectedDepositAt", "expected_deposit_at", "depositDate"],
         ),
-        gross_amount: first_decimal_field(payload, &["grossAmount", "gross_amount", "totalAmount"])
-            .map(|(_, amount)| amount),
+        gross_amount: first_decimal_field(
+            payload,
+            &["grossAmount", "gross_amount", "totalAmount", "totalSales"],
+        )
+        .map(|(_, amount)| amount),
         fee_amount: first_decimal_field(payload, &["feeAmount", "fee_amount", "merchantFee"])
             .map(|(_, amount)| amount),
         net_amount: first_decimal_field(payload, &["netAmount", "net_amount"])
             .map(|(_, amount)| amount),
         transaction_count: first_i32_field(
             payload,
-            &["transactionCount", "transaction_count", "count"],
+            &[
+                "transactionCount",
+                "transaction_count",
+                "count",
+                "countTotal",
+            ],
         ),
         raw_payload: payload.clone(),
     })
+}
+
+pub fn parse_card_batch_snapshots(payload: &Value) -> Vec<HelcimCardBatchSnapshot> {
+    match payload {
+        Value::Array(values) => values
+            .iter()
+            .filter_map(parse_card_batch_snapshot)
+            .collect(),
+        Value::Object(map) => {
+            for key in ["cardBatches", "batches", "data", "items", "results"] {
+                if let Some(Value::Array(values)) = map.get(key) {
+                    return values
+                        .iter()
+                        .filter_map(parse_card_batch_snapshot)
+                        .collect();
+                }
+            }
+            parse_card_batch_snapshot(payload).into_iter().collect()
+        }
+        _ => Vec::new(),
+    }
 }
 
 pub fn parse_batch_transaction_snapshot(
@@ -560,6 +664,28 @@ fn first_i32_field(payload: &Value, fields: &[&str]) -> Option<i32> {
     }
 }
 
+fn first_bool_field(payload: &Value, fields: &[&str]) -> Option<bool> {
+    match payload {
+        Value::Object(map) => {
+            for field in fields {
+                if let Some(value) = map.get(*field).and_then(bool_from_value) {
+                    return Some(value);
+                }
+            }
+            for value in map.values() {
+                if let Some(found) = first_bool_field(value, fields) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| first_bool_field(value, fields)),
+        _ => None,
+    }
+}
+
 fn first_timestamp_field(payload: &Value, fields: &[&str]) -> Option<DateTime<Utc>> {
     match payload {
         Value::Object(map) => {
@@ -599,8 +725,24 @@ fn i32_from_value(value: &Value) -> Option<i32> {
     }
 }
 
+fn bool_from_value(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(value) => Some(*value),
+        Value::Number(number) => number.as_i64().map(|value| value != 0),
+        Value::String(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" => Some(true),
+            "false" | "0" | "no" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn timestamp_from_value(value: &Value) -> Option<DateTime<Utc>> {
     let raw = value_to_string(value)?;
+    if raw.starts_with("0000-00-00") {
+        return None;
+    }
     DateTime::parse_from_rfc3339(&raw)
         .map(|value| value.with_timezone(&Utc))
         .ok()
@@ -667,6 +809,69 @@ pub async fn get_customer_cards(
         .map(|token| vec![("cardToken", token)])
         .unwrap_or_default();
     send_get_request(http, config, &path, &query).await
+}
+
+pub async fn list_card_batches(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    query: &HelcimCardBatchesQuery,
+) -> Result<Vec<HelcimCardBatchSnapshot>, String> {
+    let body = send_get_request(http, config, "card-batches/", &query.query_params()).await?;
+    Ok(parse_card_batch_snapshots(&body))
+}
+
+pub async fn fetch_card_batch(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    card_batch_id: &str,
+) -> Result<HelcimCardBatchSnapshot, String> {
+    let batch_id = card_batch_id.trim();
+    if batch_id.is_empty() {
+        return Err("cardBatchId is required".to_string());
+    }
+    let path = format!("card-batches/{batch_id}");
+    let body = send_get_request(
+        http,
+        config,
+        &path,
+        &[("collect-stats", "true".to_string())],
+    )
+    .await?;
+    parse_card_batch_snapshot(&body)
+        .ok_or_else(|| format!("Helcim card batch {batch_id} response did not include a batch id"))
+}
+
+pub async fn list_card_transactions(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    query: &HelcimCardTransactionsQuery,
+) -> Result<Vec<HelcimBatchTransactionSnapshot>, String> {
+    let body = send_get_request(http, config, "card-transactions/", &query.query_params()).await?;
+    Ok(parse_batch_transaction_snapshots(
+        &body,
+        query.card_batch_id.as_deref(),
+    ))
+}
+
+pub async fn list_card_transactions_for_batch(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    card_batch_id: &str,
+    limit: Option<i32>,
+    page: Option<i32>,
+) -> Result<Vec<HelcimBatchTransactionSnapshot>, String> {
+    list_card_transactions(
+        http,
+        config,
+        &HelcimCardTransactionsQuery {
+            date_from: None,
+            date_to: None,
+            card_batch_id: Some(card_batch_id.to_string()),
+            limit,
+            page,
+        },
+    )
+    .await
 }
 
 pub async fn delete_customer_card(
@@ -1042,14 +1247,14 @@ mod tests {
     #[test]
     fn parses_batch_snapshot_from_known_fields() {
         let batch = parse_card_batch_snapshot(&json!({
-            "cardBatchId": 456,
-            "status": "closed",
-            "currency": "CAD",
-            "closedAt": "2026-05-01T22:00:00Z",
-            "grossAmount": "100.00",
+            "id": 456,
+            "closed": true,
+            "dateCreated": "2026-05-01 12:00:00",
+            "dateClosed": "2026-05-01T22:00:00Z",
+            "totalSales": "100.00",
             "feeAmount": "2.91",
             "netAmount": "97.09",
-            "transactionCount": 2
+            "countTotal": 2
         }))
         .expect("batch should parse");
 
@@ -1059,6 +1264,7 @@ mod tests {
         assert_eq!(batch.fee_amount, Some(Decimal::new(291, 2)));
         assert_eq!(batch.net_amount, Some(Decimal::new(9709, 2)));
         assert_eq!(batch.transaction_count, Some(2));
+        assert!(batch.opened_at.is_some());
         assert!(batch.closed_at.is_some());
     }
 
