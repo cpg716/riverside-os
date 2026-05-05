@@ -87,6 +87,36 @@ pub fn router() -> Router<AppState> {
             "/providers/helcim/settlements/sync",
             post(sync_helcim_settlements),
         )
+        .route(
+            "/providers/helcim/operations/overview",
+            get(get_helcim_operations_overview),
+        )
+        .route("/providers/helcim/batches", get(list_helcim_batches))
+        .route(
+            "/providers/helcim/batches/{id}",
+            get(get_helcim_batch_detail),
+        )
+        .route(
+            "/providers/helcim/batches/{id}/transactions",
+            get(list_helcim_batch_transactions),
+        )
+        .route(
+            "/providers/helcim/reconciliation/items",
+            get(list_helcim_reconciliation_items),
+        )
+        .route(
+            "/providers/helcim/transactions",
+            get(list_helcim_operations_transactions),
+        )
+        .route(
+            "/providers/helcim/transactions/{id}",
+            get(get_helcim_operations_transaction_detail),
+        )
+        .route("/providers/helcim/sync/runs", get(list_helcim_sync_runs))
+        .route(
+            "/providers/helcim/events/health",
+            get(get_helcim_events_health),
+        )
         .route("/providers/helcim/purchase", post(start_helcim_purchase))
         .route(
             "/providers/helcim/terminal/refund",
@@ -309,6 +339,154 @@ pub struct HelcimSettlementSyncResponse {
     pub helcim_batches_fetched: i64,
     pub helcim_batch_transactions_fetched: i64,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimOperationsDateQuery {
+    #[serde(default)]
+    pub date_from: Option<NaiveDate>,
+    #[serde(default)]
+    pub date_to: Option<NaiveDate>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct HelcimOperationsListQuery {
+    #[serde(default)]
+    pub date_from: Option<NaiveDate>,
+    #[serde(default)]
+    pub date_to: Option<NaiveDate>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub severity: Option<String>,
+    #[serde(default)]
+    pub item_type: Option<String>,
+    #[serde(default)]
+    pub batch_id: Option<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+    #[serde(default)]
+    pub match_status: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimOperationsOverviewResponse {
+    pub card_sales_gross: String,
+    pub known_fees: Option<String>,
+    pub known_net: Option<String>,
+    pub fee_not_ready_count: i64,
+    pub net_not_ready_count: i64,
+    pub expected_deposit_from_batches: Option<String>,
+    pub open_issue_count: i64,
+    pub critical_issue_count: i64,
+    pub last_settlement_sync: Option<HelcimSettlementRunSummary>,
+    pub last_fee_sync: Option<DateTime<Utc>>,
+    pub helcim_api_active: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimBatchListRow {
+    pub id: Uuid,
+    pub provider_batch_id: String,
+    pub status: Option<String>,
+    pub closed_at: Option<DateTime<Utc>>,
+    pub settled_at: Option<DateTime<Utc>>,
+    pub expected_deposit_at: Option<DateTime<Utc>>,
+    pub gross_amount: Option<String>,
+    pub fee_amount: Option<String>,
+    pub net_amount: Option<String>,
+    pub transaction_count: Option<i32>,
+    pub issue_count: i64,
+    pub fee_not_ready_count: i64,
+    pub net_not_ready_count: i64,
+    pub last_synced_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimBatchDetailResponse {
+    pub batch: HelcimBatchListRow,
+    pub critical_issue_count: i64,
+    pub warning_issue_count: i64,
+    pub info_issue_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimBatchTransactionRow {
+    pub id: Uuid,
+    pub provider_transaction_id: String,
+    pub payment_transaction_id: Option<Uuid>,
+    pub amount: Option<String>,
+    pub status: Option<String>,
+    pub fee_amount: Option<String>,
+    pub net_amount: Option<String>,
+    pub match_status: String,
+    pub match_type: Option<String>,
+    pub occurred_at: Option<DateTime<Utc>>,
+    pub settled_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimReconciliationItemRow {
+    pub id: Uuid,
+    pub item_type: String,
+    pub issue_label: String,
+    pub severity: String,
+    pub status: String,
+    pub amount: Option<String>,
+    pub reference: Option<String>,
+    pub provider_batch_id: Option<String>,
+    pub provider_transaction_id: Option<String>,
+    pub payment_transaction_id: Option<Uuid>,
+    pub payment_provider_batch_id: Option<Uuid>,
+    pub message: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimOperationsTransactionRow {
+    pub payment_transaction_id: Uuid,
+    pub provider_transaction_id: Option<String>,
+    pub amount: String,
+    pub payment_date: DateTime<Utc>,
+    pub payment_status: String,
+    pub provider_status: Option<String>,
+    pub batch_id: Option<Uuid>,
+    pub provider_batch_id: Option<String>,
+    pub batch_status: Option<String>,
+    pub fee_amount: Option<String>,
+    pub net_amount: Option<String>,
+    pub fee_status: String,
+    pub net_status: String,
+    pub match_status: Option<String>,
+    pub issue_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimOperationsTransactionDetailResponse {
+    pub riverside_payment: Value,
+    pub processor_payment: Option<Value>,
+    pub batch: Option<Value>,
+    pub fee_details: Value,
+    pub issues: Vec<HelcimReconciliationItemRow>,
+    pub timeline: Vec<HelcimPaymentTimelineRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimPaymentTimelineRow {
+    pub occurred_at: DateTime<Utc>,
+    pub label: String,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimEventsHealthResponse {
+    pub recent_event_count: i64,
+    pub failed_event_count: i64,
+    pub ignored_event_count: i64,
+    pub last_event_at: Option<DateTime<Utc>>,
+    pub last_failed_message: Option<String>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -989,6 +1167,540 @@ async fn sync_helcim_settlements(
             Err(error)
         }
     }
+}
+
+async fn get_helcim_operations_overview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HelcimOperationsDateQuery>,
+) -> Result<Json<HelcimOperationsOverviewResponse>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+
+    #[derive(sqlx::FromRow)]
+    struct OverviewRow {
+        card_sales_gross: Decimal,
+        known_fees: Option<Decimal>,
+        known_net: Option<Decimal>,
+        fee_not_ready_count: i64,
+        net_not_ready_count: i64,
+        expected_deposit_from_batches: Option<Decimal>,
+        open_issue_count: i64,
+        critical_issue_count: i64,
+        last_fee_sync: Option<DateTime<Utc>>,
+    }
+
+    let row: OverviewRow = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE((
+                SELECT SUM(amount)
+                FROM payment_transactions
+                WHERE payment_provider = 'helcim'
+                  AND status = 'success'
+                  AND ($1::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date >= $1)
+                  AND ($2::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date <= $2)
+            ), 0)::numeric(14,2) AS card_sales_gross,
+            (
+                SELECT SUM(merchant_fee)
+                FROM payment_transactions
+                WHERE payment_provider = 'helcim'
+                  AND metadata->>'helcim_fee_sync_status' = 'applied'
+                  AND ($1::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date >= $1)
+                  AND ($2::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date <= $2)
+            )::numeric(14,2) AS known_fees,
+            (
+                SELECT SUM(net_amount)
+                FROM payment_transactions
+                WHERE payment_provider = 'helcim'
+                  AND metadata->>'helcim_net_sync_status' = 'applied'
+                  AND ($1::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date >= $1)
+                  AND ($2::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date <= $2)
+            )::numeric(14,2) AS known_net,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_transactions
+                WHERE payment_provider = 'helcim'
+                  AND COALESCE(metadata->>'helcim_fee_sync_status', '') <> 'applied'
+                  AND ($1::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date >= $1)
+                  AND ($2::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date <= $2)
+            ) AS fee_not_ready_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_transactions
+                WHERE payment_provider = 'helcim'
+                  AND COALESCE(metadata->>'helcim_net_sync_status', '') <> 'applied'
+                  AND ($1::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date >= $1)
+                  AND ($2::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date <= $2)
+            ) AS net_not_ready_count,
+            (
+                SELECT SUM(net_amount)
+                FROM payment_provider_batches
+                WHERE provider = 'helcim'
+                  AND net_amount IS NOT NULL
+                  AND ($1::date IS NULL OR (COALESCE(expected_deposit_at, settled_at, closed_at, last_synced_at) AT TIME ZONE 'America/New_York')::date >= $1)
+                  AND ($2::date IS NULL OR (COALESCE(expected_deposit_at, settled_at, closed_at, last_synced_at) AT TIME ZONE 'America/New_York')::date <= $2)
+            )::numeric(14,2) AS expected_deposit_from_batches,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_settlement_items
+                WHERE provider = 'helcim'
+                  AND status = 'open'
+            ) AS open_issue_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_settlement_items
+                WHERE provider = 'helcim'
+                  AND status = 'open'
+                  AND severity = 'critical'
+            ) AS critical_issue_count,
+            (
+                SELECT MAX(NULLIF(metadata->>'helcim_fee_sync_at', '')::timestamptz)
+                FROM payment_transactions
+                WHERE payment_provider = 'helcim'
+                  AND metadata ? 'helcim_fee_sync_at'
+            ) AS last_fee_sync
+        "#,
+    )
+    .bind(query.date_from)
+    .bind(query.date_to)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let last_settlement_sync = load_last_helcim_settlement_run(&state).await?;
+    let config = helcim::HelcimConfig::from_env();
+
+    Ok(Json(HelcimOperationsOverviewResponse {
+        card_sales_gross: money_string(row.card_sales_gross),
+        known_fees: money_option(row.known_fees),
+        known_net: money_option(row.known_net),
+        fee_not_ready_count: row.fee_not_ready_count,
+        net_not_ready_count: row.net_not_ready_count,
+        expected_deposit_from_batches: money_option(row.expected_deposit_from_batches),
+        open_issue_count: row.open_issue_count,
+        critical_issue_count: row.critical_issue_count,
+        last_settlement_sync,
+        last_fee_sync: row.last_fee_sync,
+        helcim_api_active: config.enabled() && !config.simulator_enabled(),
+    }))
+}
+
+async fn list_helcim_batches(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HelcimOperationsListQuery>,
+) -> Result<Json<Vec<HelcimBatchListRow>>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let rows = load_helcim_batch_rows(&state, None, &query).await?;
+    Ok(Json(rows))
+}
+
+async fn get_helcim_batch_detail(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<HelcimBatchDetailResponse>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let query = HelcimOperationsListQuery {
+        limit: Some(1),
+        ..Default::default()
+    };
+    let mut rows = load_helcim_batch_rows(&state, Some(&id), &query).await?;
+    let Some(batch) = rows.pop() else {
+        return Err(PaymentError::InvalidPayload("Batch not found.".to_string()));
+    };
+    #[derive(sqlx::FromRow)]
+    struct IssueCounts {
+        critical_issue_count: i64,
+        warning_issue_count: i64,
+        info_issue_count: i64,
+    }
+    let counts: IssueCounts = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*) FILTER (WHERE severity = 'critical')::bigint AS critical_issue_count,
+            COUNT(*) FILTER (WHERE severity = 'warning')::bigint AS warning_issue_count,
+            COUNT(*) FILTER (WHERE severity = 'info')::bigint AS info_issue_count
+        FROM payment_settlement_items
+        WHERE provider = 'helcim'
+          AND status = 'open'
+          AND (payment_provider_batch_id = $1 OR provider_batch_id = $2)
+        "#,
+    )
+    .bind(batch.id)
+    .bind(&batch.provider_batch_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimBatchDetailResponse {
+        batch,
+        critical_issue_count: counts.critical_issue_count,
+        warning_issue_count: counts.warning_issue_count,
+        info_issue_count: counts.info_issue_count,
+    }))
+}
+
+async fn list_helcim_batch_transactions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<HelcimBatchTransactionRow>>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let (batch_uuid, provider_batch_id) = parse_batch_identifier(&id);
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            btx.id,
+            btx.provider_transaction_id,
+            btx.payment_transaction_id,
+            btx.gross_amount,
+            btx.status,
+            btx.fee_amount,
+            btx.net_amount,
+            btx.match_status,
+            btx.match_type,
+            btx.occurred_at,
+            btx.settled_at
+        FROM payment_provider_batch_transactions btx
+        LEFT JOIN payment_provider_batches batch ON batch.id = btx.payment_provider_batch_id
+        WHERE btx.provider = 'helcim'
+          AND (($1::uuid IS NOT NULL AND btx.payment_provider_batch_id = $1)
+            OR ($2::text IS NOT NULL AND (btx.provider_batch_id = $2 OR batch.provider_batch_id = $2)))
+        ORDER BY COALESCE(btx.occurred_at, btx.last_synced_at) DESC
+        LIMIT 500
+        "#,
+    )
+    .bind(batch_uuid)
+    .bind(provider_batch_id.as_deref())
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(|row| HelcimBatchTransactionRow {
+        id: row.get("id"),
+        provider_transaction_id: row.get("provider_transaction_id"),
+        payment_transaction_id: row.get("payment_transaction_id"),
+        amount: money_option(row.get("gross_amount")),
+        status: row.get("status"),
+        fee_amount: money_option(row.get("fee_amount")),
+        net_amount: money_option(row.get("net_amount")),
+        match_status: row.get("match_status"),
+        match_type: row.get("match_type"),
+        occurred_at: row.get("occurred_at"),
+        settled_at: row.get("settled_at"),
+    })
+    .collect();
+    Ok(Json(rows))
+}
+
+async fn list_helcim_reconciliation_items(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HelcimOperationsListQuery>,
+) -> Result<Json<Vec<HelcimReconciliationItemRow>>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let rows = load_helcim_reconciliation_items(&state, &query, None).await?;
+    Ok(Json(rows))
+}
+
+async fn list_helcim_operations_transactions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HelcimOperationsListQuery>,
+) -> Result<Json<Vec<HelcimOperationsTransactionRow>>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let rows = load_helcim_transaction_rows(&state, &query, None).await?;
+    Ok(Json(rows))
+}
+
+async fn get_helcim_operations_transaction_detail(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<HelcimOperationsTransactionDetailResponse>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let payment_uuid = Uuid::parse_str(id.trim()).ok();
+    let provider_transaction_id = payment_uuid
+        .is_none()
+        .then(|| id.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let payment = sqlx::query(
+        r#"
+        SELECT
+            pt.id,
+            pt.created_at,
+            pt.amount,
+            pt.status,
+            pt.payment_method,
+            pt.payment_provider,
+            pt.provider_payment_id,
+            pt.provider_transaction_id,
+            pt.provider_status,
+            pt.provider_auth_code,
+            pt.provider_card_type,
+            pt.merchant_fee,
+            pt.net_amount,
+            pt.metadata,
+            pt.session_id
+        FROM payment_transactions pt
+        WHERE pt.payment_provider = 'helcim'
+          AND (($1::uuid IS NOT NULL AND pt.id = $1)
+            OR ($2::text IS NOT NULL AND pt.provider_transaction_id = $2))
+        LIMIT 1
+        "#,
+    )
+    .bind(payment_uuid)
+    .bind(provider_transaction_id.as_deref())
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let Some(payment) = payment else {
+        return Err(PaymentError::InvalidPayload(
+            "Payment not found.".to_string(),
+        ));
+    };
+    let payment_id: Uuid = payment.get("id");
+    let provider_tx: Option<String> = payment.get("provider_transaction_id");
+    let fee_status = payment
+        .get::<Value, _>("metadata")
+        .get("helcim_fee_sync_status")
+        .and_then(Value::as_str)
+        .unwrap_or("not_ready")
+        .to_string();
+    let net_status = payment
+        .get::<Value, _>("metadata")
+        .get("helcim_net_sync_status")
+        .and_then(Value::as_str)
+        .unwrap_or("not_ready")
+        .to_string();
+
+    let processor = sqlx::query(
+        r#"
+        SELECT
+            btx.id,
+            btx.provider_batch_id,
+            btx.provider_transaction_id,
+            btx.transaction_type,
+            btx.status,
+            btx.currency,
+            btx.occurred_at,
+            btx.settled_at,
+            btx.gross_amount,
+            btx.fee_amount,
+            btx.net_amount,
+            btx.match_status,
+            btx.match_type,
+            btx.payment_provider_batch_id
+        FROM payment_provider_batch_transactions btx
+        WHERE btx.provider = 'helcim'
+          AND (btx.payment_transaction_id = $1
+            OR ($2::text IS NOT NULL AND btx.provider_transaction_id = $2))
+        LIMIT 1
+        "#,
+    )
+    .bind(payment_id)
+    .bind(provider_tx.as_deref())
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let batch_id = processor
+        .as_ref()
+        .and_then(|row| row.get::<Option<Uuid>, _>("payment_provider_batch_id"));
+    let batch = if let Some(batch_id) = batch_id {
+        sqlx::query(
+            r#"
+            SELECT id, provider_batch_id, status, closed_at, settled_at, expected_deposit_at,
+                   gross_amount, fee_amount, net_amount, transaction_count, last_synced_at
+            FROM payment_provider_batches
+            WHERE id = $1
+            "#,
+        )
+        .bind(batch_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+        .map(|row| {
+            json!({
+                "id": row.get::<Uuid, _>("id"),
+                "provider_batch_id": row.get::<String, _>("provider_batch_id"),
+                "status": row.get::<Option<String>, _>("status"),
+                "closed_at": row.get::<Option<DateTime<Utc>>, _>("closed_at"),
+                "settled_at": row.get::<Option<DateTime<Utc>>, _>("settled_at"),
+                "expected_deposit_at": row.get::<Option<DateTime<Utc>>, _>("expected_deposit_at"),
+                "gross_amount": money_option(row.get("gross_amount")),
+                "fee_amount": money_option(row.get("fee_amount")),
+                "net_amount": money_option(row.get("net_amount")),
+                "transaction_count": row.get::<Option<i32>, _>("transaction_count"),
+                "last_synced_at": row.get::<DateTime<Utc>, _>("last_synced_at"),
+            })
+        })
+    } else {
+        None
+    };
+
+    let issues = load_helcim_reconciliation_items(
+        &state,
+        &HelcimOperationsListQuery {
+            limit: Some(100),
+            ..Default::default()
+        },
+        Some(payment_id),
+    )
+    .await?;
+    let timeline = load_helcim_payment_timeline(&state, payment_id, provider_tx.as_deref()).await?;
+
+    Ok(Json(HelcimOperationsTransactionDetailResponse {
+        riverside_payment: json!({
+            "id": payment_id,
+            "created_at": payment.get::<DateTime<Utc>, _>("created_at"),
+            "amount": money_string(payment.get("amount")),
+            "status": payment.get::<String, _>("status"),
+            "payment_method": payment.get::<String, _>("payment_method"),
+            "payment_provider": payment.get::<Option<String>, _>("payment_provider"),
+            "provider_payment_id": payment.get::<Option<String>, _>("provider_payment_id"),
+            "provider_transaction_id": provider_tx,
+            "provider_status": payment.get::<Option<String>, _>("provider_status"),
+            "provider_auth_code": payment.get::<Option<String>, _>("provider_auth_code"),
+            "provider_card_type": payment.get::<Option<String>, _>("provider_card_type"),
+            "session_id": payment.get::<Option<Uuid>, _>("session_id"),
+        }),
+        processor_payment: processor.map(|row| {
+            json!({
+                "id": row.get::<Uuid, _>("id"),
+                "provider_batch_id": row.get::<String, _>("provider_batch_id"),
+                "provider_transaction_id": row.get::<String, _>("provider_transaction_id"),
+                "transaction_type": row.get::<Option<String>, _>("transaction_type"),
+                "status": row.get::<Option<String>, _>("status"),
+                "currency": row.get::<Option<String>, _>("currency"),
+                "occurred_at": row.get::<Option<DateTime<Utc>>, _>("occurred_at"),
+                "settled_at": row.get::<Option<DateTime<Utc>>, _>("settled_at"),
+                "amount": money_option(row.get("gross_amount")),
+                "fee_amount": money_option(row.get("fee_amount")),
+                "net_amount": money_option(row.get("net_amount")),
+                "match_status": row.get::<String, _>("match_status"),
+                "match_type": row.get::<Option<String>, _>("match_type"),
+            })
+        }),
+        batch,
+        fee_details: json!({
+            "fee_status": fee_status,
+            "net_status": net_status,
+            "fee_amount": if fee_status == "applied" { money_option(payment.get::<Option<Decimal>, _>("merchant_fee")) } else { None },
+            "net_amount": if net_status == "applied" { money_option(payment.get::<Option<Decimal>, _>("net_amount")) } else { None },
+        }),
+        issues,
+        timeline,
+    }))
+}
+
+async fn list_helcim_sync_runs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HelcimOperationsListQuery>,
+) -> Result<Json<Vec<HelcimSettlementRunSummary>>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            DateTime<Utc>,
+            Option<DateTime<Utc>>,
+            Value,
+            Option<String>,
+        ),
+    >(
+        r#"
+        SELECT id, status, started_at, completed_at, summary, error_message
+        FROM payment_settlement_runs
+        WHERE provider = 'helcim'
+        ORDER BY started_at DESC
+        LIMIT $1
+        "#,
+    )
+    .bind(clamp_limit(query.limit, 50, 200))
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(
+        |(id, status, started_at, completed_at, summary, error_message)| {
+            HelcimSettlementRunSummary {
+                id,
+                status,
+                started_at,
+                completed_at,
+                summary,
+                error_message,
+            }
+        },
+    )
+    .collect();
+    Ok(Json(rows))
+}
+
+async fn get_helcim_events_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<HelcimEventsHealthResponse>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    #[derive(sqlx::FromRow)]
+    struct HealthRow {
+        recent_event_count: i64,
+        failed_event_count: i64,
+        ignored_event_count: i64,
+        last_event_at: Option<DateTime<Utc>>,
+        last_failed_message: Option<String>,
+    }
+    let row: HealthRow = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*) FILTER (WHERE received_at >= now() - interval '24 hours')::bigint AS recent_event_count,
+            COUNT(*) FILTER (WHERE processing_status = 'failed')::bigint AS failed_event_count,
+            COUNT(*) FILTER (WHERE processing_status = 'ignored')::bigint AS ignored_event_count,
+            MAX(received_at) AS last_event_at,
+            (
+                SELECT error_message
+                FROM helcim_event_log
+                WHERE processing_status = 'failed'
+                  AND error_message IS NOT NULL
+                ORDER BY received_at DESC
+                LIMIT 1
+            ) AS last_failed_message
+        FROM helcim_event_log
+        WHERE provider = 'helcim'
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimEventsHealthResponse {
+        recent_event_count: row.recent_event_count,
+        failed_event_count: row.failed_event_count,
+        ignored_event_count: row.ignored_event_count,
+        last_event_at: row.last_event_at,
+        last_failed_message: row.last_failed_message,
+    }))
 }
 
 #[derive(Debug, Default)]
@@ -1844,6 +2556,486 @@ fn settlement_status_family(status: Option<&str>) -> Option<&'static str> {
         "cancelled" | "canceled" | "voided" | "reversed" => Some("canceled"),
         "refunded" | "refund" => Some("refunded"),
         _ => None,
+    }
+}
+
+async fn load_last_helcim_settlement_run(
+    state: &AppState,
+) -> Result<Option<HelcimSettlementRunSummary>, PaymentError> {
+    Ok(sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            DateTime<Utc>,
+            Option<DateTime<Utc>>,
+            Value,
+            Option<String>,
+        ),
+    >(
+        r#"
+        SELECT id, status, started_at, completed_at, summary, error_message
+        FROM payment_settlement_runs
+        WHERE provider = 'helcim'
+        ORDER BY started_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .map(
+        |(id, status, started_at, completed_at, summary, error_message)| {
+            HelcimSettlementRunSummary {
+                id,
+                status,
+                started_at,
+                completed_at,
+                summary,
+                error_message,
+            }
+        },
+    ))
+}
+
+async fn load_helcim_batch_rows(
+    state: &AppState,
+    id: Option<&str>,
+    query: &HelcimOperationsListQuery,
+) -> Result<Vec<HelcimBatchListRow>, PaymentError> {
+    let (batch_uuid, provider_batch_id) = id
+        .map(parse_batch_identifier)
+        .or_else(|| query.batch_id.as_deref().map(parse_batch_identifier))
+        .unwrap_or((None, None));
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            batch.id,
+            batch.provider_batch_id,
+            batch.status,
+            batch.closed_at,
+            batch.settled_at,
+            batch.expected_deposit_at,
+            batch.gross_amount,
+            batch.fee_amount,
+            batch.net_amount,
+            batch.transaction_count,
+            batch.last_synced_at,
+            COALESCE(issues.issue_count, 0)::bigint AS issue_count,
+            COALESCE(completeness.fee_not_ready_count, 0)::bigint AS fee_not_ready_count,
+            COALESCE(completeness.net_not_ready_count, 0)::bigint AS net_not_ready_count
+        FROM payment_provider_batches batch
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS issue_count
+            FROM payment_settlement_items item
+            WHERE item.provider = 'helcim'
+              AND item.status = 'open'
+              AND (item.payment_provider_batch_id = batch.id OR item.provider_batch_id = batch.provider_batch_id)
+        ) issues ON true
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*) FILTER (WHERE btx.fee_amount IS NULL)::bigint AS fee_not_ready_count,
+                COUNT(*) FILTER (WHERE btx.net_amount IS NULL)::bigint AS net_not_ready_count
+            FROM payment_provider_batch_transactions btx
+            WHERE btx.provider = 'helcim'
+              AND btx.payment_provider_batch_id = batch.id
+        ) completeness ON true
+        WHERE batch.provider = 'helcim'
+          AND ($1::uuid IS NULL OR batch.id = $1)
+          AND ($2::text IS NULL OR batch.provider_batch_id = $2)
+          AND ($3::text IS NULL OR batch.status = $3)
+          AND ($4::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date >= $4)
+          AND ($5::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date <= $5)
+        ORDER BY COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) DESC
+        LIMIT $6
+        "#,
+    )
+    .bind(batch_uuid)
+    .bind(provider_batch_id.as_deref())
+    .bind(clean_filter(query.status.as_deref()))
+    .bind(query.date_from)
+    .bind(query.date_to)
+    .bind(clamp_limit(query.limit, 100, 500))
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(|row| HelcimBatchListRow {
+        id: row.get("id"),
+        provider_batch_id: row.get("provider_batch_id"),
+        status: row.get("status"),
+        closed_at: row.get("closed_at"),
+        settled_at: row.get("settled_at"),
+        expected_deposit_at: row.get("expected_deposit_at"),
+        gross_amount: money_option(row.get::<Option<Decimal>, _>("gross_amount")),
+        fee_amount: money_option(row.get::<Option<Decimal>, _>("fee_amount")),
+        net_amount: money_option(row.get::<Option<Decimal>, _>("net_amount")),
+        transaction_count: row.get("transaction_count"),
+        issue_count: row.get("issue_count"),
+        fee_not_ready_count: row.get("fee_not_ready_count"),
+        net_not_ready_count: row.get("net_not_ready_count"),
+        last_synced_at: row.get("last_synced_at"),
+    })
+    .collect();
+    Ok(rows)
+}
+
+async fn load_helcim_transaction_rows(
+    state: &AppState,
+    query: &HelcimOperationsListQuery,
+    payment_id: Option<Uuid>,
+) -> Result<Vec<HelcimOperationsTransactionRow>, PaymentError> {
+    let (batch_uuid, provider_batch_id) = query
+        .batch_id
+        .as_deref()
+        .map(parse_batch_identifier)
+        .unwrap_or((None, None));
+    let search = clean_filter(query.search.as_deref()).map(|value| format!("%{value}%"));
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            pt.id,
+            pt.provider_transaction_id,
+            pt.amount,
+            pt.created_at,
+            pt.status,
+            pt.provider_status,
+            pt.metadata,
+            btx.match_status,
+            CASE
+                WHEN pt.metadata->>'helcim_fee_sync_status' = 'applied' THEN pt.merchant_fee
+                ELSE btx.fee_amount
+            END AS fee_amount,
+            CASE
+                WHEN pt.metadata->>'helcim_net_sync_status' = 'applied' THEN pt.net_amount
+                ELSE btx.net_amount
+            END AS net_amount,
+            batch.id AS batch_id,
+            batch.provider_batch_id,
+            batch.status AS batch_status,
+            COALESCE(issues.issue_count, 0)::bigint AS issue_count
+        FROM payment_transactions pt
+        LEFT JOIN payment_provider_batch_transactions btx
+          ON btx.provider = 'helcim'
+         AND (btx.payment_transaction_id = pt.id OR btx.provider_transaction_id = pt.provider_transaction_id)
+        LEFT JOIN payment_provider_batches batch ON batch.id = btx.payment_provider_batch_id
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS issue_count
+            FROM payment_settlement_items item
+            WHERE item.provider = 'helcim'
+              AND item.status = 'open'
+              AND (item.payment_transaction_id = pt.id
+                OR (pt.provider_transaction_id IS NOT NULL AND item.provider_transaction_id = pt.provider_transaction_id))
+        ) issues ON true
+        WHERE pt.payment_provider = 'helcim'
+          AND ($1::uuid IS NULL OR pt.id = $1)
+          AND ($2::date IS NULL OR (pt.created_at AT TIME ZONE 'America/New_York')::date >= $2)
+          AND ($3::date IS NULL OR (pt.created_at AT TIME ZONE 'America/New_York')::date <= $3)
+          AND ($4::text IS NULL OR pt.status = $4 OR pt.provider_status = $4)
+          AND ($5::uuid IS NULL OR batch.id = $5)
+          AND ($6::text IS NULL OR batch.provider_batch_id = $6 OR btx.provider_batch_id = $6)
+          AND ($7::text IS NULL OR btx.match_status = $7)
+          AND ($8::text IS NULL OR pt.provider_transaction_id ILIKE $8 OR pt.provider_payment_id ILIKE $8 OR pt.payment_method ILIKE $8)
+        ORDER BY pt.created_at DESC
+        LIMIT $9
+        "#,
+    )
+    .bind(payment_id)
+    .bind(query.date_from)
+    .bind(query.date_to)
+    .bind(clean_filter(query.status.as_deref()))
+    .bind(batch_uuid)
+    .bind(provider_batch_id.as_deref())
+    .bind(clean_filter(query.match_status.as_deref()))
+    .bind(search.as_deref())
+    .bind(clamp_limit(query.limit, 100, 500))
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(|row| {
+        let metadata: Value = row.get("metadata");
+        let fee_status = metadata
+            .get("helcim_fee_sync_status")
+            .and_then(Value::as_str)
+            .unwrap_or("not_ready")
+            .to_string();
+        let net_status = metadata
+            .get("helcim_net_sync_status")
+            .and_then(Value::as_str)
+            .unwrap_or("not_ready")
+            .to_string();
+        HelcimOperationsTransactionRow {
+            payment_transaction_id: row.get("id"),
+            provider_transaction_id: row.get("provider_transaction_id"),
+            amount: money_string(row.get("amount")),
+            payment_date: row.get("created_at"),
+            payment_status: row.get("status"),
+            provider_status: row.get("provider_status"),
+            batch_id: row.get("batch_id"),
+            provider_batch_id: row.get("provider_batch_id"),
+            batch_status: row.get("batch_status"),
+            fee_amount: money_option(row.get::<Option<Decimal>, _>("fee_amount")),
+            net_amount: money_option(row.get::<Option<Decimal>, _>("net_amount")),
+            fee_status,
+            net_status,
+            match_status: row.get("match_status"),
+            issue_count: row.get("issue_count"),
+        }
+    })
+    .collect();
+    Ok(rows)
+}
+
+async fn load_helcim_reconciliation_items(
+    state: &AppState,
+    query: &HelcimOperationsListQuery,
+    payment_id: Option<Uuid>,
+) -> Result<Vec<HelcimReconciliationItemRow>, PaymentError> {
+    let (batch_uuid, provider_batch_id) = query
+        .batch_id
+        .as_deref()
+        .map(parse_batch_identifier)
+        .unwrap_or((None, None));
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            id,
+            item_type,
+            severity,
+            status,
+            provider_batch_id,
+            provider_transaction_id,
+            payment_transaction_id,
+            payment_provider_batch_id,
+            processor_values,
+            ros_values,
+            message,
+            created_at
+        FROM payment_settlement_items
+        WHERE provider = 'helcim'
+          AND ($1::text IS NULL OR status = $1)
+          AND ($2::text IS NULL OR severity = $2)
+          AND ($3::text IS NULL OR item_type = $3)
+          AND ($4::uuid IS NULL OR payment_provider_batch_id = $4)
+          AND ($5::text IS NULL OR provider_batch_id = $5)
+          AND ($6::uuid IS NULL OR payment_transaction_id = $6)
+          AND ($7::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date >= $7)
+          AND ($8::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date <= $8)
+        ORDER BY
+            CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
+            created_at DESC
+        LIMIT $9
+        "#,
+    )
+    .bind(clean_filter(query.status.as_deref()))
+    .bind(clean_filter(query.severity.as_deref()))
+    .bind(clean_filter(query.item_type.as_deref()))
+    .bind(batch_uuid)
+    .bind(provider_batch_id.as_deref())
+    .bind(payment_id)
+    .bind(query.date_from)
+    .bind(query.date_to)
+    .bind(clamp_limit(query.limit, 100, 500))
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(reconciliation_item_from_row)
+    .collect();
+    Ok(rows)
+}
+
+async fn load_helcim_payment_timeline(
+    state: &AppState,
+    payment_id: Uuid,
+    provider_transaction_id: Option<&str>,
+) -> Result<Vec<HelcimPaymentTimelineRow>, PaymentError> {
+    let mut timeline = Vec::new();
+    if let Some(created_at) = sqlx::query_scalar::<_, DateTime<Utc>>(
+        "SELECT created_at FROM payment_transactions WHERE id = $1",
+    )
+    .bind(payment_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    {
+        timeline.push(HelcimPaymentTimelineRow {
+            occurred_at: created_at,
+            label: "Payment recorded".to_string(),
+            status: "recorded".to_string(),
+        });
+    }
+
+    let events = sqlx::query(
+        r#"
+        SELECT event_type, received_at, processing_status
+        FROM helcim_event_log
+        WHERE provider = 'helcim'
+          AND (payment_transaction_id = $1
+            OR ($2::text IS NOT NULL AND provider_transaction_id = $2))
+        ORDER BY received_at ASC
+        LIMIT 25
+        "#,
+    )
+    .bind(payment_id)
+    .bind(provider_transaction_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    for event in events {
+        timeline.push(HelcimPaymentTimelineRow {
+            occurred_at: event.get("received_at"),
+            label: payment_event_label(event.get::<String, _>("event_type").as_str()),
+            status: staff_safe_status(event.get::<String, _>("processing_status").as_str()),
+        });
+    }
+
+    timeline.sort_by_key(|row| row.occurred_at);
+    Ok(timeline)
+}
+
+fn reconciliation_item_from_row(row: sqlx::postgres::PgRow) -> HelcimReconciliationItemRow {
+    let processor_values: Value = row.get("processor_values");
+    let ros_values: Value = row.get("ros_values");
+    let provider_transaction_id: Option<String> = row.get("provider_transaction_id");
+    let provider_batch_id: Option<String> = row.get("provider_batch_id");
+    HelcimReconciliationItemRow {
+        id: row.get("id"),
+        item_type: row.get::<String, _>("item_type").clone(),
+        issue_label: issue_label(row.get::<String, _>("item_type").as_str()).to_string(),
+        severity: staff_safe_severity(row.get::<String, _>("severity").as_str()),
+        status: row.get("status"),
+        amount: value_amount(&processor_values).or_else(|| value_amount(&ros_values)),
+        reference: provider_transaction_id
+            .clone()
+            .or_else(|| provider_batch_id.clone())
+            .or_else(|| value_reference(&processor_values))
+            .or_else(|| value_reference(&ros_values)),
+        provider_batch_id,
+        provider_transaction_id,
+        payment_transaction_id: row.get("payment_transaction_id"),
+        payment_provider_batch_id: row.get("payment_provider_batch_id"),
+        message: row.get("message"),
+        created_at: row.get("created_at"),
+    }
+}
+
+fn parse_batch_identifier(value: &str) -> (Option<Uuid>, Option<String>) {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return (None, None);
+    }
+    if let Ok(id) = Uuid::parse_str(trimmed) {
+        (Some(id), None)
+    } else {
+        (None, Some(trimmed.to_string()))
+    }
+}
+
+fn clean_filter(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn clamp_limit(value: Option<i64>, default: i64, max: i64) -> i64 {
+    value.unwrap_or(default).clamp(1, max)
+}
+
+fn money_string(value: Decimal) -> String {
+    value.round_dp(2).to_string()
+}
+
+fn money_option(value: Option<Decimal>) -> Option<String> {
+    value.map(money_string)
+}
+
+fn value_amount(value: &Value) -> Option<String> {
+    for key in [
+        "gross_amount",
+        "amount",
+        "fee_amount",
+        "merchant_fee",
+        "net_amount",
+    ] {
+        if let Some(amount) = value.get(key).and_then(value_to_money_string) {
+            return Some(amount);
+        }
+    }
+    None
+}
+
+fn value_reference(value: &Value) -> Option<String> {
+    for key in [
+        "provider_transaction_id",
+        "payment_transaction_id",
+        "provider_batch_id",
+        "local_batch_id",
+    ] {
+        if let Some(reference) = value.get(key).and_then(value_to_staff_string) {
+            return Some(reference);
+        }
+    }
+    None
+}
+
+fn value_to_money_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => value.parse::<Decimal>().ok().map(money_string),
+        Value::Number(number) => number.to_string().parse::<Decimal>().ok().map(money_string),
+        _ => None,
+    }
+}
+
+fn value_to_staff_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
+fn issue_label(item_type: &str) -> &'static str {
+    match item_type {
+        "processor_transaction_missing_ros_payment" => "Missing Payment",
+        "ros_payment_missing_processor_batch" | "missing_processor_batch_row" => "Not in Deposit",
+        "missing_provider_transaction_id" => "Processor Data Missing",
+        "amount_mismatch" => "Amount Difference",
+        "status_mismatch" => "Status Difference",
+        "fee_mismatch" => "Fee Difference",
+        "net_mismatch" => "Net Difference",
+        _ => "Needs Review",
+    }
+}
+
+fn staff_safe_severity(severity: &str) -> String {
+    match severity {
+        "critical" => "Critical",
+        "warning" => "Warning",
+        "info" => "Info",
+        _ => "Warning",
+    }
+    .to_string()
+}
+
+fn staff_safe_status(status: &str) -> String {
+    match status {
+        "processed" => "complete",
+        "failed" => "needs_review",
+        "ignored" => "not_needed",
+        _ => "received",
+    }
+    .to_string()
+}
+
+fn payment_event_label(event_type: &str) -> String {
+    match event_type {
+        "cardTransaction" => "Payment update".to_string(),
+        "terminalCancel" => "Payment canceled".to_string(),
+        "batchSettled" => "Batch update".to_string(),
+        _ => "Payment update".to_string(),
     }
 }
 
