@@ -184,10 +184,10 @@ async fn launch_server_inner(
     crate::db_startup_diag::log_postgres_startup_context(&pool).await;
 
     if let Err(e) = crate::schema_bootstrap::ensure_core_schema(&pool).await {
-        tracing::error!(error = %e, "Unified Engine: Schema bootstrap failed");
+        tracing::error!(error = %e, "Unified Engine: Schema contract validation failed");
         return Err(e.into());
     }
-    tracing::info!("Unified Engine: Core database schema OK.");
+    tracing::info!("Unified Engine: Database schema contract OK.");
 
     // Environmental Safety Interlock
     let target_mode = std::env::var("RIVERSIDE_MODE").unwrap_or_else(|_| "development".to_string());

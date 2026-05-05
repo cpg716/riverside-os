@@ -91,9 +91,9 @@ docker compose exec -T db psql -U postgres -c "CREATE DATABASE $E2E_DB_NAME"
 export RIVERSIDE_DB_NAME="$E2E_DB_NAME"
 "$ROOT/scripts/apply-migrations-docker.sh"
 
-docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_staff_register_test.sql"
-docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_e2e_non_admin_staff.sql"
-docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_e2e_rms_staff.sql"
+docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seeds/seed_core_required.sql"
+docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seeds/seed_rbac.sql"
+docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seeds/seed_e2e.sql"
 
 exec npx concurrently -k -s first -n api,ui,corecard -c blue,magenta,cyan \
   "npm run dev:server" \
