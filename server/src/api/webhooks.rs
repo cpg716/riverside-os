@@ -9,10 +9,13 @@ use axum::{
     Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use hmac::{Hmac, Mac};
-use serde_json::Value;
-use sha2::Sha256;
+use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
+use sqlx::{PgPool, Postgres, Transaction};
 use subtle::ConstantTimeEq;
+use uuid::Uuid;
 
 use std::sync::Arc;
 
@@ -77,14 +80,58 @@ async fn post_podium_webhook(
     }
 }
 
-fn verify_helcim_webhook(headers: &HeaderMap, body: &[u8]) -> Result<(), StatusCode> {
+const HELCIM_WEBHOOK_FRESHNESS_WINDOW: Duration = Duration::minutes(10);
+
+#[derive(Debug, Clone)]
+struct HelcimWebhookVerification {
+    webhook_id: String,
+    webhook_timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HelcimWebhookAction {
+    CardTransaction,
+    TerminalCancel,
+    Ignore,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct HelcimEventLogRow {
+    id: Uuid,
+    processing_status: String,
+    created: bool,
+}
+
+#[derive(Debug, Clone)]
+struct HelcimProcessingOutcome {
+    updated: u64,
+    provider_transaction_id: Option<String>,
+    payment_provider_attempt_id: Option<Uuid>,
+    payment_transaction_id: Option<Uuid>,
+    match_type: String,
+}
+
+fn verify_helcim_webhook(
+    headers: &HeaderMap,
+    body: &[u8],
+    now: DateTime<Utc>,
+) -> Result<HelcimWebhookVerification, StatusCode> {
     let verifier_token = std::env::var("HELCIM_WEBHOOK_SECRET")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    verify_helcim_webhook_with_token(headers, body, now, &verifier_token)
+}
+
+fn verify_helcim_webhook_with_token(
+    headers: &HeaderMap,
+    body: &[u8],
+    now: DateTime<Utc>,
+    verifier_token: &str,
+) -> Result<HelcimWebhookVerification, StatusCode> {
     let token_bytes = BASE64_STANDARD
-        .decode(verifier_token)
+        .decode(verifier_token.trim())
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let webhook_id = headers
         .get("webhook-id")
@@ -98,6 +145,12 @@ fn verify_helcim_webhook(headers: &HeaderMap, body: &[u8]) -> Result<(), StatusC
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::BAD_REQUEST)?;
+    let parsed_timestamp =
+        parse_helcim_webhook_timestamp(webhook_timestamp).ok_or(StatusCode::BAD_REQUEST)?;
+    let age = now.signed_duration_since(parsed_timestamp);
+    if age > HELCIM_WEBHOOK_FRESHNESS_WINDOW || age < -HELCIM_WEBHOOK_FRESHNESS_WINDOW {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let signature_header = headers
         .get("webhook-signature")
         .and_then(|value| value.to_str().ok())
@@ -120,10 +173,82 @@ fn verify_helcim_webhook(headers: &HeaderMap, body: &[u8]) -> Result<(), StatusC
     });
 
     if matched {
-        Ok(())
+        Ok(HelcimWebhookVerification {
+            webhook_id: webhook_id.to_string(),
+            webhook_timestamp: parsed_timestamp,
+        })
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
+}
+
+fn parse_helcim_webhook_timestamp(value: &str) -> Option<DateTime<Utc>> {
+    let trimmed = value.trim();
+    if let Ok(epoch) = trimmed.parse::<i64>() {
+        let (seconds, nanos) = if epoch.abs() >= 1_000_000_000_000 {
+            (epoch / 1000, ((epoch % 1000).abs() as u32) * 1_000_000)
+        } else {
+            (epoch, 0)
+        };
+        return Utc.timestamp_opt(seconds, nanos).single();
+    }
+    DateTime::parse_from_rfc3339(trimmed)
+        .ok()
+        .map(|value| value.with_timezone(&Utc))
+}
+
+fn helcim_payload_hash(body: &[u8]) -> String {
+    hex::encode(Sha256::digest(body))
+}
+
+fn redact_helcim_payload(value: &Value) -> Value {
+    match value {
+        Value::Object(object) => {
+            let mut redacted = Map::new();
+            for (key, value) in object {
+                let normalized = key.to_ascii_lowercase();
+                if matches!(
+                    normalized.as_str(),
+                    "cardnumber"
+                        | "carddata"
+                        | "cardtoken"
+                        | "cvv"
+                        | "cvc"
+                        | "pan"
+                        | "expiry"
+                        | "expirydate"
+                        | "secrettoken"
+                        | "checkouttoken"
+                ) || normalized.contains("card_number")
+                    || normalized.contains("card_token")
+                    || normalized.contains("secret")
+                {
+                    redacted.insert(key.clone(), Value::String("[REDACTED]".to_string()));
+                } else {
+                    redacted.insert(key.clone(), redact_helcim_payload(value));
+                }
+            }
+            Value::Object(redacted)
+        }
+        Value::Array(values) => Value::Array(values.iter().map(redact_helcim_payload).collect()),
+        _ => value.clone(),
+    }
+}
+
+fn helcim_webhook_action(event_type: &str) -> HelcimWebhookAction {
+    match event_type {
+        "cardTransaction" => HelcimWebhookAction::CardTransaction,
+        "terminalCancel" => HelcimWebhookAction::TerminalCancel,
+        _ => HelcimWebhookAction::Ignore,
+    }
+}
+
+fn helcim_event_is_final(status: &str) -> bool {
+    matches!(status, "processed" | "ignored")
+}
+
+fn helcim_event_should_process(event: &HelcimEventLogRow) -> bool {
+    event.created
 }
 
 fn helcim_webhook_event_id(value: &Value) -> Option<String> {
@@ -171,15 +296,95 @@ fn helcim_webhook_currency(value: &Value) -> Option<String> {
         .map(str::to_ascii_lowercase)
 }
 
+async fn record_helcim_event(
+    db: &PgPool,
+    verification: &HelcimWebhookVerification,
+    event_type: &str,
+    body: &[u8],
+    payload: &Value,
+) -> Result<HelcimEventLogRow, sqlx::Error> {
+    // xmax = 0 identifies the inserted row; conflict returns the existing row
+    // so duplicate deliveries do not enter the mutation path.
+    sqlx::query_as::<_, HelcimEventLogRow>(
+        r#"
+        INSERT INTO helcim_event_log (
+            provider,
+            webhook_id,
+            event_type,
+            webhook_timestamp,
+            signature_valid,
+            payload_hash,
+            payload_json,
+            processing_status
+        )
+        VALUES ('helcim', $1, $2, $3, TRUE, $4, $5, 'received')
+        ON CONFLICT (webhook_id) WHERE webhook_id IS NOT NULL DO UPDATE
+        SET webhook_id = helcim_event_log.webhook_id
+        RETURNING id, processing_status, (xmax = 0) AS created
+        "#,
+    )
+    .bind(&verification.webhook_id)
+    .bind(event_type)
+    .bind(verification.webhook_timestamp)
+    .bind(helcim_payload_hash(body))
+    .bind(redact_helcim_payload(payload))
+    .fetch_one(db)
+    .await
+}
+
+async fn mark_helcim_event_failed(
+    db: &PgPool,
+    event_id: Uuid,
+    error_message: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE helcim_event_log
+        SET processing_status = 'failed',
+            error_message = $2
+        WHERE id = $1
+        "#,
+    )
+    .bind(event_id)
+    .bind(error_message)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+async fn mark_helcim_event_ignored(
+    db: &PgPool,
+    event_id: Uuid,
+    event_type: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE helcim_event_log
+        SET processing_status = 'ignored',
+            error_message = NULL,
+            match_type = 'none'
+        WHERE id = $1
+        "#,
+    )
+    .bind(event_id)
+    .execute(db)
+    .await?;
+    tracing::debug!(target = "helcim_webhook", event_type = %event_type, "stored unhandled Helcim event");
+    Ok(())
+}
+
 async fn post_helcim_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    if let Err(status) = verify_helcim_webhook(&headers, body.as_ref()) {
-        tracing::warn!(target = "helcim_webhook", status = ?status, "verification failed");
-        return status.into_response();
-    }
+    let verification = match verify_helcim_webhook(&headers, body.as_ref(), Utc::now()) {
+        Ok(verification) => verification,
+        Err(status) => {
+            tracing::warn!(target = "helcim_webhook", status = ?status, "verification failed");
+            return status.into_response();
+        }
+    };
 
     let value: Value = match serde_json::from_slice(body.as_ref()) {
         Ok(value) => value,
@@ -191,44 +396,110 @@ async fn post_helcim_webhook(
     let event_type = value
         .get("type")
         .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim();
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown");
 
-    match event_type {
-        "cardTransaction" => {
+    let event = match record_helcim_event(
+        &state.db,
+        &verification,
+        event_type,
+        body.as_ref(),
+        &value,
+    )
+    .await
+    {
+        Ok(event) => event,
+        Err(error) => {
+            tracing::error!(target = "helcim_webhook", error = %error, "event persistence failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if !helcim_event_should_process(&event) || helcim_event_is_final(&event.processing_status) {
+        return Json(json!({
+            "ok": true,
+            "duplicate": true,
+            "processing_status": event.processing_status,
+        }))
+        .into_response();
+    }
+
+    match helcim_webhook_action(event_type) {
+        HelcimWebhookAction::CardTransaction => {
             let Some(transaction_id) = helcim_webhook_event_id(&value) else {
+                let _ =
+                    mark_helcim_event_failed(&state.db, event.id, "missing Helcim transaction id")
+                        .await;
                 return StatusCode::BAD_REQUEST.into_response();
             };
-            match handle_helcim_card_transaction(&state, &transaction_id).await {
-                Ok(updated) => {
-                    Json(serde_json::json!({ "ok": true, "updated": updated })).into_response()
-                }
+            match handle_helcim_card_transaction(&state, event.id, &transaction_id).await {
+                Ok(outcome) => Json(json!({
+                    "ok": true,
+                    "updated": outcome.updated,
+                    "processing_status": "processed",
+                    "provider_transaction_id": outcome.provider_transaction_id,
+                    "payment_provider_attempt_id": outcome.payment_provider_attempt_id,
+                    "payment_transaction_id": outcome.payment_transaction_id,
+                    "match_type": outcome.match_type,
+                }))
+                .into_response(),
                 Err(error) => {
+                    let error_message = error.to_string();
+                    if let Err(mark_error) =
+                        mark_helcim_event_failed(&state.db, event.id, &error_message).await
+                    {
+                        tracing::error!(target = "helcim_webhook", error = %mark_error, event_id = %event.id, "failed to mark Helcim event failed");
+                    }
                     tracing::error!(target = "helcim_webhook", error = %error, transaction_id = %transaction_id, "card transaction handling failed");
                     StatusCode::INTERNAL_SERVER_ERROR.into_response()
                 }
             }
         }
-        "terminalCancel" => match handle_helcim_terminal_cancel(&state, &value).await {
-            Ok(updated) => {
-                Json(serde_json::json!({ "ok": true, "updated": updated })).into_response()
+        HelcimWebhookAction::TerminalCancel => {
+            match handle_helcim_terminal_cancel(&state, event.id, &value).await {
+                Ok(outcome) => Json(json!({
+                    "ok": true,
+                    "updated": outcome.updated,
+                    "processing_status": "processed",
+                    "payment_provider_attempt_id": outcome.payment_provider_attempt_id,
+                    "match_type": outcome.match_type,
+                }))
+                .into_response(),
+                Err(error) => {
+                    let error_message = error.to_string();
+                    if let Err(mark_error) =
+                        mark_helcim_event_failed(&state.db, event.id, &error_message).await
+                    {
+                        tracing::error!(target = "helcim_webhook", error = %mark_error, event_id = %event.id, "failed to mark Helcim event failed");
+                    }
+                    tracing::error!(target = "helcim_webhook", error = %error, "terminal cancel handling failed");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
             }
-            Err(error) => {
-                tracing::error!(target = "helcim_webhook", error = %error, "terminal cancel handling failed");
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        HelcimWebhookAction::Ignore => {
+            match mark_helcim_event_ignored(&state.db, event.id, event_type).await {
+                Ok(()) => Json(json!({
+                    "ok": true,
+                    "ignored": true,
+                    "processing_status": "ignored",
+                }))
+                .into_response(),
+                Err(error) => {
+                    tracing::error!(target = "helcim_webhook", error = %error, event_id = %event.id, "failed to mark Helcim event ignored");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                }
             }
-        },
-        _ => {
-            tracing::debug!(target = "helcim_webhook", event_type = %event_type, "unhandled event type");
-            Json(serde_json::json!({ "ok": true, "ignored": true })).into_response()
         }
     }
 }
 
 async fn handle_helcim_card_transaction(
     state: &AppState,
+    event_id: Uuid,
     transaction_id: &str,
-) -> Result<u64, sqlx::Error> {
+) -> Result<HelcimProcessingOutcome, sqlx::Error> {
     let config = helcim::HelcimConfig::from_env();
     let transaction = helcim::fetch_card_transaction(&state.http_client, &config, transaction_id)
         .await
@@ -259,7 +530,10 @@ async fn handle_helcim_card_transaction(
         .audit_reference()
         .unwrap_or_else(|| format!("helcim:cardTransaction:{provider_transaction_id}"));
     let terminal_id = config.device_code().unwrap_or_default().to_string();
-    let result = sqlx::query(
+
+    let mut tx = state.db.begin().await?;
+    let mut match_type = "provider_transaction_id";
+    let mut attempt_id: Option<Uuid> = sqlx::query_scalar(
         r#"
         UPDATE payment_provider_attempts
         SET status = $1,
@@ -274,12 +548,11 @@ async fn handle_helcim_card_transaction(
             FROM payment_provider_attempts
             WHERE provider = 'helcim'
               AND status = 'pending'
-              AND terminal_id = $7
-              AND amount_cents = $8
-              AND currency = $9
+              AND provider_transaction_id = $2
             ORDER BY created_at ASC
             LIMIT 1
         )
+        RETURNING id
         "#
     )
         .bind(&normalized_status)
@@ -287,19 +560,92 @@ async fn handle_helcim_card_transaction(
         .bind(&provider_payment_id)
         .bind(&audit_reference)
         .bind(transaction.provider_status())
-        .bind(transaction.warning)
-        .bind(terminal_id)
-        .bind(amount_cents)
-        .bind(currency)
-        .execute(&state.db)
+        .bind(transaction.warning.clone())
+        .fetch_optional(&mut *tx)
         .await?;
-    Ok(result.rows_affected())
+
+    if attempt_id.is_none() {
+        match_type = "terminal_amount";
+        attempt_id = sqlx::query_scalar(
+            r#"
+            UPDATE payment_provider_attempts
+            SET status = $1,
+                provider_transaction_id = $2,
+                provider_payment_id = $3,
+                raw_audit_reference = $4,
+                error_code = CASE WHEN $1 = 'failed' THEN COALESCE($5, 'declined') ELSE error_code END,
+                error_message = CASE WHEN $1 = 'failed' THEN COALESCE($6, 'Helcim payment was declined.') ELSE error_message END,
+                completed_at = now()
+            WHERE id = (
+                SELECT id
+                FROM payment_provider_attempts
+                WHERE provider = 'helcim'
+                  AND status = 'pending'
+                  AND terminal_id = $7
+                  AND amount_cents = $8
+                  AND currency = $9
+                ORDER BY created_at ASC
+                LIMIT 1
+            )
+            RETURNING id
+            "#
+        )
+            .bind(&normalized_status)
+            .bind(&provider_transaction_id)
+            .bind(&provider_payment_id)
+            .bind(&audit_reference)
+            .bind(transaction.provider_status())
+            .bind(transaction.warning)
+            .bind(terminal_id)
+            .bind(amount_cents)
+            .bind(currency)
+            .fetch_optional(&mut *tx)
+            .await?;
+    }
+
+    if attempt_id.is_none() {
+        match_type = "none";
+    }
+
+    let payment_transaction_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM payment_transactions
+        WHERE payment_provider = 'helcim'
+          AND provider_transaction_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(&provider_transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    mark_helcim_event_processed(
+        &mut tx,
+        event_id,
+        Some(&provider_transaction_id),
+        attempt_id,
+        payment_transaction_id,
+        match_type,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(HelcimProcessingOutcome {
+        updated: u64::from(attempt_id.is_some()),
+        provider_transaction_id: Some(provider_transaction_id),
+        payment_provider_attempt_id: attempt_id,
+        payment_transaction_id,
+        match_type: match_type.to_string(),
+    })
 }
 
 async fn handle_helcim_terminal_cancel(
     state: &AppState,
+    event_id: Uuid,
     value: &Value,
-) -> Result<u64, sqlx::Error> {
+) -> Result<HelcimProcessingOutcome, sqlx::Error> {
     let device_code = helcim_webhook_device_code(value)
         .or_else(|| {
             helcim::HelcimConfig::from_env()
@@ -327,6 +673,7 @@ async fn handle_helcim_terminal_cancel(
             ORDER BY created_at ASC
             LIMIT 1
         )
+        RETURNING id
         "#;
     let audit = value
         .get("data")
@@ -334,13 +681,60 @@ async fn handle_helcim_terminal_cancel(
         .and_then(Value::as_str)
         .map(|cancelled_at| format!("helcim:terminalCancel:{device_code}:{cancelled_at}"))
         .unwrap_or_else(|| format!("helcim:terminalCancel:{device_code}"));
-    let query = sqlx::query(query)
+    let mut tx = state.db.begin().await?;
+    let attempt_id: Option<Uuid> = sqlx::query_scalar(query)
         .bind(audit)
         .bind(device_code)
         .bind(amount_cents)
-        .bind(currency);
-    let result = query.execute(&state.db).await?;
-    Ok(result.rows_affected())
+        .bind(currency.as_deref())
+        .fetch_optional(&mut *tx)
+        .await?;
+    let match_type = if attempt_id.is_none() {
+        "none"
+    } else if amount_cents.is_some() {
+        "terminal_amount"
+    } else {
+        "terminal"
+    };
+    mark_helcim_event_processed(&mut tx, event_id, None, attempt_id, None, match_type).await?;
+    tx.commit().await?;
+    Ok(HelcimProcessingOutcome {
+        updated: u64::from(attempt_id.is_some()),
+        provider_transaction_id: None,
+        payment_provider_attempt_id: attempt_id,
+        payment_transaction_id: None,
+        match_type: match_type.to_string(),
+    })
+}
+
+async fn mark_helcim_event_processed(
+    tx: &mut Transaction<'_, Postgres>,
+    event_id: Uuid,
+    provider_transaction_id: Option<&str>,
+    payment_provider_attempt_id: Option<Uuid>,
+    payment_transaction_id: Option<Uuid>,
+    match_type: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE helcim_event_log
+        SET processing_status = 'processed',
+            error_message = NULL,
+            provider_transaction_id = COALESCE($2, provider_transaction_id),
+            payment_provider_attempt_id = $3,
+            payment_transaction_id = $4,
+            match_type = $5
+        WHERE id = $1
+        "#,
+    )
+    .bind(event_id)
+    .bind(provider_transaction_id)
+    .bind(payment_provider_attempt_id)
+    .bind(payment_transaction_id)
+    .bind(match_type)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 fn verify_corecard_webhook_headers(
@@ -424,4 +818,142 @@ pub fn router() -> Router<AppState> {
 
 pub fn integrations_router() -> Router<AppState> {
     Router::new().route("/corecard/webhooks", post(post_corecard_webhook))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn signed_helcim_headers(
+        webhook_id: &str,
+        timestamp: DateTime<Utc>,
+        body: &[u8],
+        token: &[u8],
+    ) -> HeaderMap {
+        let token_b64 = BASE64_STANDARD.encode(token);
+        let timestamp_text = timestamp.timestamp().to_string();
+        let body_text = std::str::from_utf8(body).expect("test body is utf8");
+        let signed_content = format!("{webhook_id}.{timestamp_text}.{body_text}");
+        let mut mac = Hmac::<Sha256>::new_from_slice(token).expect("hmac key");
+        mac.update(signed_content.as_bytes());
+        let signature = BASE64_STANDARD.encode(mac.finalize().into_bytes());
+
+        let mut headers = HeaderMap::new();
+        headers.insert("webhook-id", HeaderValue::from_str(webhook_id).unwrap());
+        headers.insert(
+            "webhook-timestamp",
+            HeaderValue::from_str(&timestamp_text).unwrap(),
+        );
+        headers.insert(
+            "webhook-signature",
+            HeaderValue::from_str(&format!("v1,{signature}")).unwrap(),
+        );
+        headers.insert("x-test-token", HeaderValue::from_str(&token_b64).unwrap());
+        headers
+    }
+
+    #[test]
+    fn helcim_signature_accepts_valid_recent_event() {
+        let body = br#"{"type":"cardTransaction","id":"123"}"#;
+        let now = Utc::now();
+        let headers = signed_helcim_headers("evt-1", now, body, b"secret");
+        let token = BASE64_STANDARD.encode(b"secret");
+
+        let verified =
+            verify_helcim_webhook_with_token(&headers, body, now, &token).expect("valid webhook");
+
+        assert_eq!(verified.webhook_id, "evt-1");
+    }
+
+    #[test]
+    fn helcim_signature_rejects_invalid_signature() {
+        let body = br#"{"type":"cardTransaction","id":"123"}"#;
+        let now = Utc::now();
+        let mut headers = signed_helcim_headers("evt-1", now, body, b"secret");
+        headers.insert(
+            "webhook-signature",
+            HeaderValue::from_static("v1,not-a-valid-signature"),
+        );
+        let token = BASE64_STANDARD.encode(b"secret");
+
+        let err = verify_helcim_webhook_with_token(&headers, body, now, &token).unwrap_err();
+
+        assert_eq!(err, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn helcim_signature_rejects_stale_timestamp() {
+        let body = br#"{"type":"cardTransaction","id":"123"}"#;
+        let now = Utc::now();
+        let headers = signed_helcim_headers("evt-1", now - Duration::minutes(30), body, b"secret");
+        let token = BASE64_STANDARD.encode(b"secret");
+
+        let err = verify_helcim_webhook_with_token(&headers, body, now, &token).unwrap_err();
+
+        assert_eq!(err, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn helcim_unknown_event_is_ignored_action() {
+        assert_eq!(
+            helcim_webhook_action("batchSettled"),
+            HelcimWebhookAction::Ignore
+        );
+    }
+
+    #[test]
+    fn helcim_final_statuses_are_idempotent_skip_states() {
+        assert!(helcim_event_is_final("processed"));
+        assert!(helcim_event_is_final("ignored"));
+        assert!(!helcim_event_is_final("failed"));
+        assert!(!helcim_event_is_final("received"));
+    }
+
+    #[test]
+    fn helcim_only_newly_created_event_enters_processing_path() {
+        let new_event = HelcimEventLogRow {
+            id: Uuid::new_v4(),
+            processing_status: "received".to_string(),
+            created: true,
+        };
+        let duplicate_in_flight = HelcimEventLogRow {
+            id: Uuid::new_v4(),
+            processing_status: "received".to_string(),
+            created: false,
+        };
+        let duplicate_failed = HelcimEventLogRow {
+            id: Uuid::new_v4(),
+            processing_status: "failed".to_string(),
+            created: false,
+        };
+
+        assert!(helcim_event_should_process(&new_event));
+        assert!(!helcim_event_should_process(&duplicate_in_flight));
+        assert!(!helcim_event_should_process(&duplicate_failed));
+    }
+
+    #[test]
+    fn helcim_payload_redaction_removes_card_data() {
+        let payload = json!({
+            "type": "cardTransaction",
+            "data": {
+                "cardNumber": "4111111111111111",
+                "cardToken": "tok_123",
+                "transactionAmount": "10.00"
+            }
+        });
+
+        let redacted = redact_helcim_payload(&payload);
+
+        assert_eq!(redacted["data"]["cardNumber"], "[REDACTED]");
+        assert_eq!(redacted["data"]["cardToken"], "[REDACTED]");
+        assert_eq!(redacted["data"]["transactionAmount"], "10.00");
+    }
+
+    #[test]
+    fn helcim_payload_hash_is_stable() {
+        let body = br#"{"type":"terminalCancel"}"#;
+        assert_eq!(helcim_payload_hash(body), helcim_payload_hash(body));
+    }
 }

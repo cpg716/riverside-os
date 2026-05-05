@@ -107,6 +107,18 @@ COMMENT ON COLUMN public.corecard_posting_event.operation_type IS 'purchase, pay
 COMMENT ON TABLE public.corecredit_event_log IS 'Immutable inbound CoreCard webhook event log with redacted payload snapshots and idempotent processing markers.';
 
 --
+-- Name: TABLE helcim_event_log; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.helcim_event_log IS 'Durable inbound Helcim webhook event log with redacted payload snapshots, replay protection, and processing markers.';
+
+--
+-- Name: COLUMN helcim_event_log.match_type; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.helcim_event_log.match_type IS 'How the event was attached to local payment state: provider_transaction_id, terminal_amount, terminal, or none.';
+
+--
 -- Name: TABLE corecredit_exception_queue; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -1470,6 +1482,30 @@ CREATE INDEX idx_corecredit_event_log_related_record ON public.corecredit_event_
 CREATE INDEX idx_corecredit_event_log_status_received ON public.corecredit_event_log USING btree (processing_status, received_at DESC);
 
 --
+-- Name: idx_helcim_event_log_provider_event; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_helcim_event_log_provider_event ON public.helcim_event_log USING btree (provider, event_type, received_at DESC);
+
+--
+-- Name: idx_helcim_event_log_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_helcim_event_log_status ON public.helcim_event_log USING btree (processing_status, received_at DESC);
+
+--
+-- Name: idx_helcim_event_log_attempt; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_helcim_event_log_attempt ON public.helcim_event_log USING btree (payment_provider_attempt_id, received_at DESC) WHERE (payment_provider_attempt_id IS NOT NULL);
+
+--
+-- Name: idx_helcim_event_log_payment_transaction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_helcim_event_log_payment_transaction ON public.helcim_event_log USING btree (payment_transaction_id, received_at DESC) WHERE (payment_transaction_id IS NOT NULL);
+
+--
 -- Name: idx_corecredit_exception_queue_rms_record; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2728,6 +2764,12 @@ CREATE UNIQUE INDEX uq_corecard_posting_event_idempotency_key ON public.corecard
 --
 
 CREATE UNIQUE INDEX uq_corecredit_event_log_external_event_key ON public.corecredit_event_log USING btree (external_event_key);
+
+--
+-- Name: uq_helcim_event_log_webhook_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_helcim_event_log_webhook_id ON public.helcim_event_log USING btree (webhook_id) WHERE (webhook_id IS NOT NULL);
 
 --
 -- Name: uq_corecredit_exception_queue_active_key; Type: INDEX; Schema: public; Owner: -

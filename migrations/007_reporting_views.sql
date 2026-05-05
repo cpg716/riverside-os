@@ -249,6 +249,13 @@ ALTER TABLE ONLY public.corecredit_event_log
     ADD CONSTRAINT corecredit_event_log_pkey PRIMARY KEY (id);
 
 --
+-- Name: helcim_event_log helcim_event_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helcim_event_log
+    ADD CONSTRAINT helcim_event_log_pkey PRIMARY KEY (id);
+
+--
 -- Name: corecredit_exception_queue corecredit_exception_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 

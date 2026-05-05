@@ -88,6 +88,33 @@ CREATE TABLE public.corecredit_event_log (
 );
 
 --
+-- Name: helcim_event_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helcim_event_log (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    provider text DEFAULT 'helcim'::text NOT NULL,
+    webhook_id text,
+    event_type text NOT NULL,
+    received_at timestamp with time zone DEFAULT now() NOT NULL,
+    webhook_timestamp timestamp with time zone,
+    signature_valid boolean DEFAULT false NOT NULL,
+    payload_hash text NOT NULL,
+    payload_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    processing_status text DEFAULT 'received'::text NOT NULL,
+    error_message text,
+    provider_transaction_id text,
+    payment_provider_attempt_id uuid,
+    payment_transaction_id uuid,
+    match_type text,
+    CONSTRAINT helcim_event_log_event_type_chk CHECK ((btrim(event_type) <> ''::text)),
+    CONSTRAINT helcim_event_log_payload_hash_chk CHECK ((btrim(payload_hash) <> ''::text)),
+    CONSTRAINT helcim_event_log_processing_status_chk CHECK ((processing_status = ANY (ARRAY['received'::text, 'processed'::text, 'failed'::text, 'ignored'::text]))),
+    CONSTRAINT helcim_event_log_provider_chk CHECK ((provider = 'helcim'::text)),
+    CONSTRAINT helcim_event_log_webhook_id_chk CHECK (((webhook_id IS NULL) OR (btrim(webhook_id) <> ''::text)))
+);
+
+--
 -- Name: corecredit_exception_queue; Type: TABLE; Schema: public; Owner: -
 --
 
