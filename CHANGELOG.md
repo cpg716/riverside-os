@@ -6,9 +6,14 @@ The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Added
+- Added Helcim-focused Payments Operations documentation for event logging, fee sync, batch/settlement reconciliation, issue resolution, actual bank deposit matching, automation alerts, and test coverage.
+- Added staff-facing Payments Operations guidance covering Overview, Batches, Reconciliation, Transactions, Deposits, Health, permission-gated actions, and expected-vs-actual deposit language.
+
 ### Changed
 - Documented the schema-contract reset: active baseline migrations `001` through `008`, legacy pre-launch migration archive, separated seed phases, validation-only runtime startup, and schema guardrail scripts.
 - Updated developer, local setup, E2E, and deployment docs to use baseline migrations plus `scripts/seeds/` instead of seed-like historical migrations.
+- Updated developer, permissions, integration-scope, Settings, and E2E docs to reflect ROS-owned Helcim payment operations and the new `payments.*` permission boundaries.
 
 ## [0.4.0] — 2026-05-01
 ### Added

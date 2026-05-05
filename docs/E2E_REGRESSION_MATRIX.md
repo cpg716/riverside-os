@@ -27,6 +27,7 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 - Added **`staff-audit-labels.spec.ts`** for staff-facing readable/non-technical label coverage.
 - Added **`settings-deeplink-contract.spec.ts`** for Settings direct-route/fallback/normalization coverage.
 - Added **`runtime-console-cleanliness.spec.ts`** to catch unexpected console/API noise in POS search, Customers browse loading, and Wedding dashboard date handling.
+- Added **Payments Operations** hardening coverage: API gates for Helcim operations endpoints/permissions, contract coverage for reconciliation/deposit mutation safety, UI smoke for Payments tabs/drawers/empty states, and pure Helcim parser edge cases.
 - Recent staff-facing copy and responsive layout sweeps are covered by the staff-label, settings-mobile, reports-mobile, loyalty-mobile, inventory-physical-mobile, and POS dropdown suites.
 
 ### Blocking core suite (release gate)
@@ -54,6 +55,8 @@ Keep these **blocking**. They protect financial/tax/register/audit correctness a
 - `notification-deep-link-contract.spec.ts`
 - `staff-audit-labels.spec.ts`
 - `api-gates.spec.ts`
+- `payments-operations-contract.spec.ts`
+- `payments-operations-ui.spec.ts`
 - `phase2-finance-and-help-lifecycle.spec.ts`
 
 ### Non-blocking / nightly candidates
@@ -163,6 +166,8 @@ How to verify in ROS Dev Center:
 | **`visual-baselines.spec.ts`** | Full-page screenshots: register closed, QBO, dark inventory, customers, operations | **Opt-in only**: runs only when **`E2E_RUN_VISUAL=1`** (local or CI). By default this suite is skipped to avoid release-blocking snapshot drift (fonts/layout/render differences). Visual stability is improved via Playwright defaults (`animation: "disabled"`, `timezoneId: "UTC"`, `locale: "en-US"`); canonical screenshot updates should run in a pinned environment. |
 | **`ui-portaling-stacking.spec.ts`** | Refund modal over Transaction Detail drawer, receipt action availability, exchange confirmation modal stacking, and stock adjustment modal over Product Hub | Overlay/portal stacking contract |
 | **`api-gates.spec.ts`** | **HTTP:** anonymous 401/403 on sample routes; staff probes | API only (no browser base URL) |
+| **`payments-operations-contract.spec.ts`** | Payments Operations API contracts: read shapes, reconciliation status/notes/linking, deposit creation/link/review/reopen/notes, mismatch protection, and money-field immutability | API + deterministic local DB seed. Requires current baseline schema and `psql` against the configured test DB; no live Helcim calls. |
+| **`payments-operations-ui.spec.ts`** | Payments workspace navigation, Overview/Batches/Reconciliation/Transactions/Deposits/Health tabs, drawers, empty states, fee/net missing wording, and no technical staff-facing terms | Browser E2E + deterministic seeded data where available; no live Helcim calls. |
 | **`high-risk-regressions.spec.ts`** | High-risk API regressions: route mount smoke (non-404), NYS tax audit auth/shape, sales-pivot basis alias stability (`booked`/`sale`/`completed`/`pickup`), Help Manager admin-op RBAC + payload shape, session endpoint auth behavior, non-admin permission boundaries | API-focused release hardening; seeded Admin (`1234`) and non-Admin (`5678`) recommended |
 | **`phase2-finance-and-help-lifecycle.spec.ts`** | Phase 2 release checks: Help manual policy lifecycle persistence/revert, Help admin policy RBAC boundaries, NYS tax + sales-pivot contract stability, payments/session auth-gate safety, non-admin boundary checks on sensitive analytics/help-admin routes | API-centric deterministic suite for finance/help lifecycle hardening; requires seeded Admin (`1234`) and recommended non-Admin (`5678`) |
 | **`tender-matrix-contract.spec.ts`** | Deterministic tender contract checks for checkout-critical payment intent modes (manual/MOTO, reader, saved-card failure behavior, credit-negative rejection), cancel-intent error contract, and session-safe auth expectations | API-centric tender hardening without hardware dependency; validates contract stability and guardrails while UI tender smoke remains in POS workflows |
@@ -208,6 +213,10 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 | `GET /api/help/admin/ops/status` (seeded **Admin** staff) | **200**, boolean status shape (`meilisearch_configured`, `meilisearch_indexing`, `node_available`, `script_exists`, `help_docs_dir_exists`) |
 | `POST /api/help/admin/ops/generate-manifest` (seeded **Admin** staff) | **200**, terminal result shape (`ok`, `exit_code`, `stdout`, `stderr`) |
 | `POST /api/help/admin/ops/reindex-search` (seeded **Admin** staff) | **200**, status payload shape (`status`, optional `mode`) |
+| Payments Operations read endpoints (overview, batches, reconciliation items, transactions, sync runs, events health, deposits, unmatched deposit lists) | No staff: **401**; seeded staff/Admin: expected JSON shapes. |
+| Payments manual sync endpoints (`/fees/sync`, `/settlements/sync`) | Require **`payments.sync`**. |
+| Payments reconciliation mutation endpoints (`/reconciliation/items/{id}/*`) | Require **`payments.reconcile`**. |
+| Payments deposit mutation endpoints (`POST /deposits`, `/link-batches`, `/review`, `/reopen`, `/notes`) | Require the matching **`payments.deposit.adjust`**, **`payments.deposit.link`**, or **`payments.deposit.review`** permission. |
 
 **Not covered here (add spec or expand gates intentionally):** granular **`insights.view`** vs other keys on every **`/api/insights/*`** route, **`POST`** mutations, Counterpoint M2M, webhooks.
 
@@ -224,6 +233,7 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 | Weddings (embedded WM) | **`alterations-smart-scheduler.spec.ts`**, **`morning-compass-coach.spec.ts`** | Full party pipeline |
 | Staff / schedule / commission / audit | **`staff-tasks.spec.ts`**, **`staff-scheduler.spec.ts`**, **`staff-audit-labels.spec.ts`**, **`commission-audit-contract.spec.ts`** | PIN/admin profile edge cases, payout UI breadth |
 | QBO | **`qbo-staging.spec.ts`**, **`qbo-audit-contract.spec.ts`**, visual baseline | Live sync, production mappings |
+| Payments Operations | **`api-gates.spec.ts`**, **`payments-operations-contract.spec.ts`**, **`payments-operations-ui.spec.ts`**, Helcim Rust parser tests | Live Helcim smoke, browser smoke against production-like data, DB integration tests beyond Playwright seeds |
 | **Reports** (curated insights library) | **`reports-workspace.spec.ts`**, **`reports-mobile-cards.spec.ts`** | Extra report tiles, CSV export |
 | Insights / Metabase shell | **`pwa-responsive.spec.ts`**, **`intelligence-and-finance.spec.ts`** | iframe embed, Metabase auth |
 | Settings / backups / integrations | **`settings-mobile.spec.ts`**, **`settings-mobile-sections.spec.ts`**, **`settings-deeplink-contract.spec.ts`**, **`podium-settings.spec.ts`**, visual paths | Full backup flow, every integration card |
@@ -262,6 +272,7 @@ Local release gate remains the Vite path, but use **`E2E_BASE_URL=http://localho
 
 | Date | Change |
 |------|--------|
+| 2026-05-05 | Added Payments Operations contract/UI coverage and API gate notes for Helcim operations endpoints, reconciliation/deposit permissions, deterministic seed requirements, and no-live-Helcim boundaries. |
 | 2026-05-01 | Reconciled the matrix against all 64 top-level `client/e2e/*.spec.ts` files; added runtime console/API cleanliness coverage and updated ROS Dev Center E2E health buckets plus blocking-lane failure labels for recent staff-facing wording/layout and responsive checks. |
 | 2026-04-30 | Documented current suite hardening status (deterministic POS bootstrap waits, QBO readiness waits, hardened overlay stacking), added explicit staff-audit/settings-deeplink coverage notes, and recorded consolidation candidates (plan-only; no removals yet). |
 | 2026-04-30 | Reconciled the matrix against the full `client/e2e/*.spec.ts` inventory; added hardening contracts for Settings grouped navigation/deep links, Orders Transaction Record/Fulfillment/Layaway wording, and expanded checkout cash-rounding coverage. |

@@ -130,6 +130,18 @@ flowchart LR
 
 Handlers for QBO, Insights, physical inventory, staff hub, order attribution, loyalty adjust, inventory cost, etc., should call **`require_staff_with_permission`** with the **specific key** for that action (split read vs write where the UX requires it).
 
+### Payments Operations keys
+
+The **Payments** workspace is read-oriented by default, but operational mutations are separated from general Settings access.
+
+| Key | Typical use |
+|-----|-------------|
+| `payments.sync` | Run Helcim fee and batch/settlement syncs from Payments. |
+| `payments.reconcile` | Review, resolve, ignore/mark expected, reopen, note, and manually link reconciliation issues to existing Riverside payments. |
+| `payments.deposit.review` | Review, reopen, and note actual bank deposits. |
+| `payments.deposit.link` | Link actual bank deposits to expected Helcim batches. |
+| `payments.deposit.adjust` | Create manual actual deposits and accept variances with notes. Does not create QBO deposits or mutate payment/batch money fields. |
+
 ---
 
 ## Permission catalog (v1)
@@ -148,6 +160,11 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `qbo.mapping_edit` | Save ledger / granular mappings. |
 | `qbo.staging_approve` | Approve staging. |
 | `qbo.sync` | Trigger sync. |
+| `payments.sync` | Run Helcim fee and batch/settlement syncs from Payments. |
+| `payments.reconcile` | Review/resolve payment reconciliation issues, add notes, and guarded-link processor activity to existing Riverside payments. |
+| `payments.deposit.review` | Review, reopen, and note actual bank deposit records. |
+| `payments.deposit.link` | Link actual bank deposits to expected Helcim batches. |
+| `payments.deposit.adjust` | Create manual actual deposits and accept noted variances. |
 | `insights.view` | **Insights** tab (Metabase in **`InsightsShell`**) and **Staff → Commissions → Reports**. |
 | `insights.commission_finalize` | Legacy commission finalize API permission. The visible Staff commission workflow is now reporting-only. |
 | `physical_inventory.view` | List/read physical inventory sessions. |

@@ -16,7 +16,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 
 **Canonical machine list:** [`CORPUS.manifest.json`](CORPUS.manifest.json) — single source of truth for embed/index jobs (`docs/staff/**` plus cross-linked first-party docs such as **`TILL_GROUP_AND_REGISTER_OPEN`**, **`REGISTER_DASHBOARD`**, runbooks at repo root).
 
-**After you change the manifest or staff Markdown:** run **`npm run verify:ai-docs`** (drift check), then have an admin call **`POST /api/ai/admin/reindex-docs`** or run **`npm run reindex:staff-docs`** from the repo root while the API is up — see **[`../ROS_AI_HELP_CORPUS.md`](../ROS_AI_HELP_CORPUS.md)** (hybrid FTS + trigram + vector embeddings, env **`AI_EMBEDDINGS_ENABLED`**, **`RIVERSIDE_REPO_ROOT`**).
+**After you change the manifest or staff Markdown:** run **`npm run help:aidocs:check`** (environment/drift check), then have an admin call **`POST /api/ai/admin/reindex-docs`** or run the repo's help reindex workflow while the API is up — see **[`../ROS_AI_HELP_CORPUS.md`](../ROS_AI_HELP_CORPUS.md)** (hybrid FTS + trigram + vector embeddings, env **`AI_EMBEDDINGS_ENABLED`**, **`RIVERSIDE_REPO_ROOT`**).
 
 **Completeness:** Every Back Office subsection in `SIDEBAR_SUB_SECTIONS` and every POS rail tab in `PosTabId` maps to exactly one staff article (or a clearly labeled subsection within it). When you add a sidebar item in code, add a row to the checklists below and extend the linked guide the same day.
 
@@ -60,6 +60,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Gift Cards & Loyalty (BO) | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Staff admin | [staff-administration.md](staff-administration.md) |
 | QBO bridge | [qbo-bridge.md](qbo-bridge.md) |
+| Payments Operations | [payments-operations.md](payments-operations.md) |
 | Insights (Metabase) + commission reports | [insights-back-office.md](insights-back-office.md) |
 | Reports (curated library) | [reports-curated-manual.md](reports-curated-manual.md) (staff); [reports-curated-admin.md](reports-curated-admin.md) (admins / policy) |
 | In-app Help: Reports + Insights manuals | [`../../client/src/assets/docs/reports-manual.md`](../../client/src/assets/docs/reports-manual.md), [`../../client/src/assets/docs/insights-manual.md`](../../client/src/assets/docs/insights-manual.md) (Help Center; see [../MANUAL_CREATION.md](../MANUAL_CREATION.md)) |
@@ -130,6 +131,12 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | QBO bridge | Mappings | [qbo-bridge.md](qbo-bridge.md) |
 | QBO bridge | Staging | [qbo-bridge.md](qbo-bridge.md) |
 | QBO bridge | History | [qbo-bridge.md](qbo-bridge.md) |
+| Payments | Overview | [payments-operations.md](payments-operations.md) |
+| Payments | Batches | [payments-operations.md](payments-operations.md) |
+| Payments | Reconciliation | [payments-operations.md](payments-operations.md) |
+| Payments | Transactions | [payments-operations.md](payments-operations.md) |
+| Payments | Deposits | [payments-operations.md](payments-operations.md) |
+| Payments | Health | [payments-operations.md](payments-operations.md) |
 | Reports | _(no subsections)_ | [reports-curated-manual.md](reports-curated-manual.md), [reports-curated-admin.md](reports-curated-admin.md) |
 | Insights | _(no subsections; full-screen Metabase)_ | [insights-back-office.md](insights-back-office.md) |
 | Staff | Commission reports | [insights-back-office.md](insights-back-office.md) |

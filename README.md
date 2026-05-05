@@ -162,7 +162,7 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm 
 Current CI note:
 
 - The POS UI subset (`phase2-tender-ui`, `pos-golden`, `tax-exempt-and-helcim-branding`, and the UI-open path in `exchange-wizard`) is back in the release gate. The old `ROS_QUARANTINE_UNSTABLE_POS_E2E=1` quarantine has been removed after adding explicit POS readiness contracts.
-- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, and QBO audit contracts. The latest local full release run on 2026-04-25 reported **181 passed, 7 skipped, 0 failed**.
+- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, QBO, and Payments Operations audit contracts. The latest local full release run on 2026-04-25 reported **181 passed, 7 skipped, 0 failed**; newer Payments Operations specs are documented in the E2E matrix.
 - See [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md), [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md), and [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md).
 
 For complete pre-release validation (service boot order, lint/build gates, and E2E checklist), see **`docs/RELEASE_QA_CHECKLIST.md`**.
@@ -206,6 +206,7 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md` | Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival. | Developers / ops |
 | `docs/ORBSTACK_GUIDE.md` | Local Docker management, context switch, VirtioFS | Devs |
 | `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
+| `docs/staff/payments-operations.md` | Staff guide for Helcim payment operations, reconciliation, deposits, sync health, and alerts | Ops / devs |
 | `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
 | `docs/SEARCH_AND_PAGINATION.md` | Search semantics, optional Meilisearch | Devs |
 | `docs/COUNTERPOINT_SYNC_GUIDE.md` | Counterpoint one-time migration bridge, mapping, heartbeats, retirement path | Ops / devs |

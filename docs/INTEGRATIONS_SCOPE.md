@@ -10,7 +10,7 @@
 
 | # | Area | Posture | Notes |
 |---|------|---------|--------|
-| 1 | **Helcim** | **In use** | Payments: in-repo Terminal / intents and refund paths; extend for web checkout as the storefront ships. |
+| 1 | **Helcim** | **In use** | Primary card rail for POS and web checkout. ROS owns daily payment operations: event log, fee sync, batch/settlement sync, reconciliation, dashboard, issue resolution, actual bank deposit matching, and alerts. Helcim remains the processor; ROS does not create QBO deposits or automate bank-feed matching. Staff guide: [`staff/payments-operations.md`](./staff/payments-operations.md). |
 | 2 | **ROS-native online store** | **In progress** | First-party `/shop` + `/api/store`; not a separate e-commerce platform. |
 | 3 | **Podium** | **Sole customer messaging + email** | SMS, web chat/widget, and **transactional email** stay on Podium — **no parallel ESP** for that role. |
 | 4 | **Calendar federation** (e.g. Google / Microsoft) | **Out of scope** | Internal scheduler and appointments remain ROS-native. |
@@ -31,6 +31,7 @@
 
 | Topic | Document |
 |-------|----------|
+| Helcim Payments Operations | [`staff/payments-operations.md`](./staff/payments-operations.md), [`SCHEMA_CONTRACT_AND_MIGRATIONS.md`](./SCHEMA_CONTRACT_AND_MIGRATIONS.md) |
 | NuORDER (wholesale catalog, media, and order sync) | [`NUORDER_INTEGRATION.md`](./NUORDER_INTEGRATION.md) |
 | Optional Meilisearch (reindex) | [`SEARCH_AND_PAGINATION.md`](./SEARCH_AND_PAGINATION.md), [`STORE_DEPLOYMENT_GUIDE.md`](./STORE_DEPLOYMENT_GUIDE.md) |
 | Podium SMS, widget, webhook, transactional paths | [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md) |
@@ -48,5 +49,6 @@
 
 | Date | Change |
 |------|--------|
+| 2026-05-05 | Updated Helcim posture to reflect ROS-owned Payments Operations, settlement/reconciliation, actual deposit matching, and alerting boundaries. |
 | 2026-04-05 | Initial **final list** captured as standalone doc. |
 | 2026-04-06 | Added **Meilisearch** as optional self-hosted search (shipped in-repo). |
