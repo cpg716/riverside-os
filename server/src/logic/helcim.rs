@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::str::FromStr;
@@ -157,6 +158,16 @@ pub struct HelcimCardTransaction {
     #[serde(rename = "invoiceNumber")]
     pub invoice_number: Option<String>,
     pub warning: Option<String>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimFeeDetails {
+    pub merchant_fee: Option<Decimal>,
+    pub net_amount: Option<Decimal>,
+    pub card_batch_id: Option<String>,
+    pub source_field: Option<String>,
 }
 
 impl HelcimConfig {
@@ -292,6 +303,98 @@ impl HelcimCardTransaction {
     }
 }
 
+impl HelcimFeeDetails {
+    pub fn from_card_transaction(transaction: &HelcimCardTransaction) -> Self {
+        let mut root = serde_json::Map::new();
+        if let Ok(Value::Object(serialized)) = serde_json::to_value(transaction) {
+            root = serialized;
+        }
+        extract_fee_details(&Value::Object(root))
+    }
+}
+
+pub fn extract_fee_details(payload: &Value) -> HelcimFeeDetails {
+    const FEE_FIELDS: &[&str] = &[
+        "merchantFee",
+        "merchant_fee",
+        "processingFee",
+        "processing_fee",
+        "transactionFee",
+        "transaction_fee",
+        "feeAmount",
+        "fee_amount",
+        "fee",
+        "fees",
+    ];
+    const NET_FIELDS: &[&str] = &["netAmount", "net_amount", "net"];
+
+    let fee = first_decimal_field(payload, FEE_FIELDS);
+    let net_amount = first_decimal_field(payload, NET_FIELDS).map(|(_, amount)| amount);
+    let merchant_fee = fee.as_ref().map(|(_, amount)| *amount);
+    let source_field = fee.map(|(field, _)| field);
+    let card_batch_id = first_string_field(payload, &["cardBatchId", "card_batch_id"]);
+
+    HelcimFeeDetails {
+        merchant_fee,
+        net_amount,
+        card_batch_id,
+        source_field,
+    }
+}
+
+fn first_decimal_field(payload: &Value, fields: &[&str]) -> Option<(String, Decimal)> {
+    match payload {
+        Value::Object(map) => {
+            for field in fields {
+                if let Some(value) = map.get(*field).and_then(decimal_from_value) {
+                    return Some(((*field).to_string(), value.round_dp(2)));
+                }
+            }
+            for value in map.values() {
+                if let Some(found) = first_decimal_field(value, fields) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| first_decimal_field(value, fields)),
+        _ => None,
+    }
+}
+
+fn first_string_field(payload: &Value, fields: &[&str]) -> Option<String> {
+    match payload {
+        Value::Object(map) => {
+            for field in fields {
+                if let Some(value) = map.get(*field).and_then(value_to_string) {
+                    return Some(value);
+                }
+            }
+            for value in map.values() {
+                if let Some(found) = first_string_field(value, fields) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| first_string_field(value, fields)),
+        _ => None,
+    }
+}
+
+fn decimal_from_value(value: &Value) -> Option<Decimal> {
+    let raw = match value {
+        Value::Number(number) => number.to_string(),
+        Value::String(value) => value.trim().trim_start_matches('$').to_string(),
+        _ => return None,
+    };
+    Decimal::from_str_exact(&raw).ok()
+}
+
 pub async fn fetch_card_transaction(
     http: &reqwest::Client,
     config: &HelcimConfig,
@@ -421,6 +524,7 @@ pub fn simulated_card_transaction(
         card_number: Some("4242424242424242".to_string()),
         invoice_number: Some(transaction_id),
         warning: None,
+        extra: serde_json::Map::new(),
     }
 }
 
@@ -676,5 +780,40 @@ fn value_to_string(value: &Value) -> Option<String> {
         Value::String(value) => Some(value.trim().to_string()).filter(|value| !value.is_empty()),
         Value::Number(number) => Some(number.to_string()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_explicit_fee_and_net_fields_from_helcim_payload() {
+        let details = extract_fee_details(&json!({
+            "transactionId": 123,
+            "amount": "100.00",
+            "cardBatchId": 456,
+            "processingFee": "2.91",
+            "netAmount": "97.09"
+        }));
+
+        assert_eq!(details.merchant_fee, Some(Decimal::new(291, 2)));
+        assert_eq!(details.net_amount, Some(Decimal::new(9709, 2)));
+        assert_eq!(details.card_batch_id.as_deref(), Some("456"));
+        assert_eq!(details.source_field.as_deref(), Some("processingFee"));
+    }
+
+    #[test]
+    fn does_not_estimate_fee_when_api_payload_has_no_fee_field() {
+        let details = extract_fee_details(&json!({
+            "transactionId": 123,
+            "amount": "100.00",
+            "cardBatchId": 456
+        }));
+
+        assert_eq!(details.merchant_fee, None);
+        assert_eq!(details.net_amount, None);
+        assert_eq!(details.card_batch_id.as_deref(), Some("456"));
     }
 }

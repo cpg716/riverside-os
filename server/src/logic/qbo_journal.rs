@@ -208,6 +208,7 @@ pub async fn propose_daily_journal(
     #[derive(sqlx::FromRow)]
     struct TenderAgg {
         payment_method: String,
+        source_payment_methods: Option<String>,
         sub_type: Option<String>,
         tender_family: Option<String>,
         rms_charge_collection: Option<bool>,
@@ -218,7 +219,13 @@ pub async fn propose_daily_journal(
     let tender_rows: Vec<TenderAgg> = sqlx::query_as(
         r#"
         SELECT
-            payment_method,
+            CASE
+                WHEN LOWER(COALESCE(payment_provider, '')) = 'helcim'
+                 AND LOWER(payment_method) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
+                THEN 'helcim_card'
+                ELSE payment_method
+            END AS payment_method,
+            STRING_AGG(DISTINCT payment_method, ', ' ORDER BY payment_method) AS source_payment_methods,
             NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), '') AS sub_type,
             NULLIF(TRIM(COALESCE(metadata->>'tender_family', '')), '') AS tender_family,
             BOOL_OR(COALESCE((metadata->>'rms_charge_collection')::boolean, FALSE)) AS rms_charge_collection,
@@ -227,7 +234,12 @@ pub async fn propose_daily_journal(
         FROM payment_transactions
         WHERE (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         GROUP BY
-            payment_method,
+            CASE
+                WHEN LOWER(COALESCE(payment_provider, '')) = 'helcim'
+                 AND LOWER(payment_method) IN ('card', 'card_terminal', 'card_manual', 'card_saved', 'card_credit')
+                THEN 'helcim_card'
+                ELSE payment_method
+            END,
             NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), ''),
             NULLIF(TRIM(COALESCE(metadata->>'tender_family', '')), '')
         "#,
@@ -618,6 +630,7 @@ pub async fn propose_daily_journal(
             memo: memo.clone(),
             detail: vec![serde_json::json!({
                 "payment_method": sid,
+                "source_payment_methods": t.source_payment_methods,
                 "sub_type": t.sub_type,
                 "tender_family": t.tender_family,
                 "rms_charge_collection": t.rms_charge_collection,

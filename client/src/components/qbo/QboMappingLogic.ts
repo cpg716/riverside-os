@@ -10,7 +10,8 @@ export interface QboMatrixAccount {
 }
 
 export const QBO_MATRIX_TENDERS = [
-  { id: "card_terminal", label: "Card terminal" },
+  { id: "helcim_card", label: "Helcim card clearing" },
+  { id: "card_terminal", label: "Legacy card terminal" },
   { id: "cash", label: "Cash" },
   { id: "check", label: "Check" },
   { id: "on_account", label: "On account (AR)" },

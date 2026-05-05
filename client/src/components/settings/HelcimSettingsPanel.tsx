@@ -53,6 +53,25 @@ interface PaymentProviderSettings {
   helcim: HelcimProviderStatus;
 }
 
+interface HelcimFeeStatus {
+  total_helcim_payments: number;
+  fees_synced: number;
+  ready_to_sync: number;
+  missing_transaction_id: number;
+  total_fees: string;
+  net_amount: string;
+}
+
+interface HelcimFeeSyncResult {
+  scanned: number;
+  updated: number;
+  fees_unavailable: number;
+  skipped_missing_transaction_id: number;
+  errors: number;
+  total_fee_synced: string;
+  total_net_synced: string;
+}
+
 const HelcimSettingsPanel: React.FC = () => {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
@@ -67,6 +86,10 @@ const HelcimSettingsPanel: React.FC = () => {
   const [providerSettings, setProviderSettings] =
     useState<PaymentProviderSettings | null>(null);
   const [providerSaving, setProviderSaving] = useState(false);
+  const [feeStatus, setFeeStatus] = useState<HelcimFeeStatus | null>(null);
+  const [feeSyncing, setFeeSyncing] = useState(false);
+  const [feeSyncResult, setFeeSyncResult] =
+    useState<HelcimFeeSyncResult | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -108,6 +131,22 @@ const HelcimSettingsPanel: React.FC = () => {
     } finally {
       setHelcimLoading(false);
     }
+
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/payments/providers/helcim/fees/status`,
+        {
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
+      if (res.ok) {
+        setFeeStatus((await res.json()) as HelcimFeeStatus);
+      } else {
+        setFeeStatus(null);
+      }
+    } catch {
+      setFeeStatus(null);
+    }
   }, [baseUrl, backofficeHeaders]);
 
   const saveActiveProvider = useCallback(
@@ -144,6 +183,39 @@ const HelcimSettingsPanel: React.FC = () => {
     },
     [backofficeHeaders, baseUrl],
   );
+
+  const syncHelcimFees = useCallback(async () => {
+    setFeeSyncing(true);
+    setHelcimError(null);
+    setFeeSyncResult(null);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/payments/providers/helcim/fees/sync`,
+        {
+          method: "POST",
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as
+        | HelcimFeeSyncResult
+        | { error?: string };
+      if (!res.ok) {
+        throw new Error(
+          "error" in body && body.error
+            ? body.error
+            : "Could not sync Helcim fees.",
+        );
+      }
+      setFeeSyncResult(body as HelcimFeeSyncResult);
+      await fetchData();
+    } catch (error) {
+      setHelcimError(
+        error instanceof Error ? error.message : "Could not sync Helcim fees.",
+      );
+    } finally {
+      setFeeSyncing(false);
+    }
+  }, [backofficeHeaders, baseUrl, fetchData]);
 
   useEffect(() => {
     void fetchData();
@@ -323,6 +395,77 @@ const HelcimSettingsPanel: React.FC = () => {
               : helcimStatus?.missing_config.length
                 ? `Missing configuration: ${helcimStatus.missing_config.join(", ")}`
                 : "Helcim is selected for card reader payments."}
+          </p>
+        </div>
+      </section>
+
+      <section className="ui-card ui-tint-info overflow-hidden">
+        <div className="border-b border-app-border bg-app-surface-2 px-6 py-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Helcim Fee Sync
+              </h3>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Pulls explicit Helcim fee and net fields into ROS for QBO
+                merchant-fee journals.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={feeSyncing || helcimLoading}
+              onClick={() => void syncHelcimFees()}
+              className="flex min-h-11 items-center gap-2 rounded-xl bg-app-accent px-4 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/20 transition-all disabled:opacity-50"
+            >
+              <RefreshCw
+                size={14}
+                className={feeSyncing ? "animate-spin" : undefined}
+              />
+              Sync Helcim Fees
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-3 p-6 text-xs font-semibold text-app-text-muted sm:grid-cols-4">
+          <div className="rounded-xl border border-app-border bg-app-surface p-3">
+            <div className="mb-2 text-[10px] font-black uppercase tracking-widest">
+              Ready
+            </div>
+            <p className="text-xl font-black tabular-nums text-app-text">
+              {feeStatus?.ready_to_sync ?? 0}
+            </p>
+          </div>
+          <div className="rounded-xl border border-app-border bg-app-surface p-3">
+            <div className="mb-2 text-[10px] font-black uppercase tracking-widest">
+              Synced
+            </div>
+            <p className="text-xl font-black tabular-nums text-app-text">
+              {feeStatus?.fees_synced ?? 0}
+            </p>
+          </div>
+          <div className="rounded-xl border border-app-border bg-app-surface p-3">
+            <div className="mb-2 text-[10px] font-black uppercase tracking-widest">
+              Missing IDs
+            </div>
+            <p className="text-xl font-black tabular-nums text-app-text">
+              {feeStatus?.missing_transaction_id ?? 0}
+            </p>
+          </div>
+          <div className="rounded-xl border border-app-border bg-app-surface p-3">
+            <div className="mb-2 text-[10px] font-black uppercase tracking-widest">
+              API Fees
+            </div>
+            <p className="text-xl font-black tabular-nums text-app-text">
+              ${feeStatus?.total_fees ?? "0.00"}
+            </p>
+          </div>
+        </div>
+
+        <div className="border-t border-app-border bg-app-surface-2 px-6 py-4">
+          <p className="text-xs font-semibold text-app-text-muted">
+            {feeSyncResult
+              ? `Updated ${feeSyncResult.updated} of ${feeSyncResult.scanned}; unavailable ${feeSyncResult.fees_unavailable}; errors ${feeSyncResult.errors}.`
+              : "Helcim fee values are only recorded when the API returns explicit fee data."}
           </p>
         </div>
       </section>

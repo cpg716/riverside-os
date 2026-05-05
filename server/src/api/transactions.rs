@@ -1698,7 +1698,15 @@ async fn process_refund(
             .ok_or_else(|| {
                 TransactionError::InvalidPayload("refund amount is not valid".to_string())
             })?;
-        let idempotency_key = format!("helcim-refund-{}", Uuid::new_v4());
+        let already_refunded_cents = (refund.amount_refunded.round_dp(2) * Decimal::from(100))
+            .to_i64()
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload("refund state is not valid".to_string())
+            })?;
+        let idempotency_key = format!(
+            "helcim-refund-{}-{original_transaction_id}-{already_refunded_cents}-{amount_cents}",
+            refund.id
+        );
         let config = helcim::HelcimConfig::from_env();
         let refund_request = helcim::HelcimCardRefundRequest {
             original_transaction_id,
@@ -1732,6 +1740,10 @@ async fn process_refund(
             object.insert(
                 "provider_refund_id".to_string(),
                 json!(provider_payment_id.clone()),
+            );
+            object.insert(
+                "provider_idempotency_key".to_string(),
+                json!(idempotency_key.clone()),
             );
         }
     }

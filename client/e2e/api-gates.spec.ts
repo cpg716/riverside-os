@@ -2,13 +2,13 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Verifies gated APIs reject anonymous callers (Appendix B.4 backend checklist).
- * Requires `riverside-server` listening on E2E_API_BASE (default http://127.0.0.1:3000).
+ * Requires `riverside-server` listening on E2E_API_BASE (default http://127.0.0.1:43300).
  */
 function apiBase(): string {
   const raw =
     process.env.E2E_API_BASE?.trim() ||
     process.env.VITE_API_BASE?.trim() ||
-    "http://127.0.0.1:3000";
+    "http://127.0.0.1:43300";
   return raw.replace(/\/$/, "");
 }
 
@@ -109,6 +109,10 @@ test.describe("API auth gates", () => {
         },
       },
       {
+        path: "/api/payments/providers/helcim/fees/sync",
+        data: {},
+      },
+      {
         path: "/api/payments/providers/helcim/customers/1/cards/1/default",
         data: {},
       },
@@ -125,6 +129,7 @@ test.describe("API auth gates", () => {
     const getCases = [
       "/api/payments/providers/helcim/customers",
       "/api/payments/providers/helcim/customers/1/cards",
+      "/api/payments/providers/helcim/fees/status",
     ];
     for (const path of getCases) {
       const res = await request.get(`${apiBase()}${path}`, {

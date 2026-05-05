@@ -1938,6 +1938,12 @@ CREATE INDEX idx_payment_transactions_payer_created ON public.payment_transactio
 CREATE INDEX idx_payment_transactions_provider_payment_id ON public.payment_transactions USING btree (payment_provider, provider_payment_id) WHERE (provider_payment_id IS NOT NULL);
 
 --
+-- Name: uq_payment_transactions_provider_transaction_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_payment_transactions_provider_transaction_id ON public.payment_transactions USING btree (payment_provider, provider_transaction_id) WHERE ((payment_provider IS NOT NULL) AND (NULLIF(TRIM(BOTH FROM provider_transaction_id), ''::text) IS NOT NULL));
+
+--
 -- Name: idx_payment_transactions_session; Type: INDEX; Schema: public; Owner: -
 --
 

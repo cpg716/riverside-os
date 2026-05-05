@@ -831,11 +831,9 @@ async fn confirm_helcim_payment(
         ));
     }
 
-    let provider_transaction_id = raw_data
-        .get("transactionId")
-        .and_then(Value::as_str)
-        .unwrap_or(&input.provider_payment_id)
-        .to_string();
+    let provider_transaction_id = value_string(raw_data, "transactionId").ok_or_else(|| {
+        StoreCheckoutError::Invalid("Helcim transaction id is missing".to_string())
+    })?;
     sqlx::query(
         r#"
         UPDATE store_checkout_payment_attempt
@@ -857,7 +855,15 @@ async fn confirm_helcim_payment(
     .execute(pool)
     .await?;
 
-    finalize_paid_checkout(pool, row.id, "helcim", &provider_transaction_id, "approved").await
+    finalize_paid_checkout(
+        pool,
+        row.id,
+        "helcim",
+        &input.provider_payment_id,
+        &provider_transaction_id,
+        "approved",
+    )
+    .await
 }
 
 async fn finalize_paid_checkout(
@@ -865,6 +871,7 @@ async fn finalize_paid_checkout(
     session_id: Uuid,
     provider: &str,
     provider_payment_id: &str,
+    provider_transaction_id: &str,
     provider_status: &str,
 ) -> Result<(Uuid, String), StoreCheckoutError> {
     let mut tx = pool.begin().await?;
@@ -935,6 +942,7 @@ async fn finalize_paid_checkout(
         row.total_usd,
         provider,
         provider_payment_id,
+        provider_transaction_id,
         provider_status,
         row.id,
     )
@@ -1055,6 +1063,7 @@ async fn insert_payment_ledger(
     amount: Decimal,
     provider: &str,
     provider_payment_id: &str,
+    provider_transaction_id: &str,
     provider_status: &str,
     checkout_session_id: Uuid,
 ) -> Result<(), StoreCheckoutError> {
@@ -1066,9 +1075,9 @@ async fn insert_payment_ledger(
         r#"
         INSERT INTO payment_transactions (
             category, payment_method, amount, metadata, payment_provider,
-            provider_payment_id, provider_status
+            provider_payment_id, provider_transaction_id, provider_status
         )
-        VALUES ('retail_sale', 'card', $1, $2, $3, $4, $5)
+        VALUES ('retail_sale', 'card', $1, $2, $3, $4, $5, $6)
         RETURNING id
         "#,
     )
@@ -1076,6 +1085,7 @@ async fn insert_payment_ledger(
     .bind(metadata.clone())
     .bind(provider)
     .bind(provider_payment_id)
+    .bind(provider_transaction_id)
     .bind(provider_status)
     .fetch_one(&mut **tx)
     .await?;
@@ -1096,6 +1106,17 @@ async fn insert_payment_ledger(
     .await?;
 
     Ok(())
+}
+
+fn value_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|field| match field {
+            Value::String(value) => Some(value.trim().to_string()),
+            Value::Number(number) => Some(number.to_string()),
+            _ => None,
+        })
+        .filter(|value| !value.is_empty())
 }
 
 fn value_uuid(value: &Value, key: &str) -> Result<Uuid, StoreCheckoutError> {

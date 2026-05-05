@@ -9,6 +9,7 @@ use axum::{
     routing::{delete, get, patch, post},
     Json, Router,
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -73,6 +74,8 @@ pub fn router() -> Router<AppState> {
             get(get_active_card_provider).patch(patch_active_card_provider),
         )
         .route("/providers/helcim/status", get(get_helcim_provider_status))
+        .route("/providers/helcim/fees/status", get(get_helcim_fee_status))
+        .route("/providers/helcim/fees/sync", post(sync_helcim_fees))
         .route("/providers/helcim/purchase", post(start_helcim_purchase))
         .route(
             "/providers/helcim/terminal/refund",
@@ -223,6 +226,27 @@ pub struct HelcimCustomerCardsQuery {
 #[derive(Debug, Deserialize)]
 pub struct HelcimSimulateAttemptRequest {
     pub outcome: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimFeeStatusResponse {
+    pub total_helcim_payments: i64,
+    pub fees_synced: i64,
+    pub ready_to_sync: i64,
+    pub missing_transaction_id: i64,
+    pub total_fees: String,
+    pub net_amount: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimFeeSyncResponse {
+    pub scanned: i64,
+    pub updated: i64,
+    pub fees_unavailable: i64,
+    pub skipped_missing_transaction_id: i64,
+    pub errors: i64,
+    pub total_fee_synced: String,
+    pub total_net_synced: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -385,6 +409,259 @@ async fn get_helcim_provider_status(
         .map_err(map_pay_session)?;
 
     Ok(Json(helcim::HelcimConfig::from_env().status()))
+}
+
+async fn get_helcim_fee_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<HelcimFeeStatusResponse>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        total_helcim_payments: i64,
+        fees_synced: i64,
+        ready_to_sync: i64,
+        missing_transaction_id: i64,
+        total_fees: Decimal,
+        net_amount: Decimal,
+    }
+
+    let row: Row = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*)::bigint AS total_helcim_payments,
+            COUNT(*) FILTER (
+                WHERE COALESCE(merchant_fee, 0) <> 0
+                   OR metadata->>'helcim_fee_sync_status' = 'applied'
+            )::bigint AS fees_synced,
+            COUNT(*) FILTER (
+                WHERE NULLIF(TRIM(COALESCE(provider_transaction_id, '')), '') IS NOT NULL
+                  AND (
+                      COALESCE(metadata->>'helcim_fee_sync_status', '') <> 'applied'
+                      OR COALESCE(metadata->>'helcim_net_sync_status', '') <> 'applied'
+                  )
+            )::bigint AS ready_to_sync,
+            COUNT(*) FILTER (
+                WHERE NULLIF(TRIM(COALESCE(provider_transaction_id, '')), '') IS NULL
+            )::bigint AS missing_transaction_id,
+            COALESCE(SUM(merchant_fee), 0)::numeric(14, 2) AS total_fees,
+            COALESCE(SUM(net_amount), 0)::numeric(14, 2) AS net_amount
+        FROM payment_transactions
+        WHERE payment_provider = 'helcim'
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    Ok(Json(HelcimFeeStatusResponse {
+        total_helcim_payments: row.total_helcim_payments,
+        fees_synced: row.fees_synced,
+        ready_to_sync: row.ready_to_sync,
+        missing_transaction_id: row.missing_transaction_id,
+        total_fees: row.total_fees.round_dp(2).to_string(),
+        net_amount: row.net_amount.round_dp(2).to_string(),
+    }))
+}
+
+async fn sync_helcim_fees(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<HelcimFeeSyncResponse>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+
+    let config = helcim::HelcimConfig::from_env();
+    if !config.enabled() {
+        return Err(PaymentError::InvalidPayload(
+            "Helcim is not fully configured.".to_string(),
+        ));
+    }
+    if config.simulator_enabled() {
+        return Ok(Json(HelcimFeeSyncResponse {
+            scanned: 0,
+            updated: 0,
+            fees_unavailable: 0,
+            skipped_missing_transaction_id: 0,
+            errors: 0,
+            total_fee_synced: "0.00".to_string(),
+            total_net_synced: "0.00".to_string(),
+        }));
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct PaymentRow {
+        id: Uuid,
+        provider_transaction_id: Option<String>,
+        fee_sync_status: Option<String>,
+        net_sync_status: Option<String>,
+    }
+
+    let rows: Vec<PaymentRow> = sqlx::query_as(
+        r#"
+        SELECT
+            id,
+            provider_transaction_id,
+            metadata->>'helcim_fee_sync_status' AS fee_sync_status,
+            metadata->>'helcim_net_sync_status' AS net_sync_status
+        FROM payment_transactions
+        WHERE payment_provider = 'helcim'
+          AND (
+              COALESCE(metadata->>'helcim_fee_sync_status', '') <> 'applied'
+              OR COALESCE(metadata->>'helcim_net_sync_status', '') <> 'applied'
+          )
+          AND COALESCE(provider_status, status, '') NOT IN ('failed', 'canceled', 'cancelled', 'declined')
+        ORDER BY created_at ASC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let mut scanned = 0_i64;
+    let mut updated = 0_i64;
+    let mut fees_unavailable = 0_i64;
+    let mut skipped_missing_transaction_id = 0_i64;
+    let mut errors = 0_i64;
+    let mut total_fee_synced = Decimal::ZERO;
+    let mut total_net_synced = Decimal::ZERO;
+
+    for row in rows {
+        scanned += 1;
+        let Some(transaction_id) = row
+            .provider_transaction_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+        else {
+            skipped_missing_transaction_id += 1;
+            continue;
+        };
+        if transaction_id.starts_with("helcim-sim-") {
+            skipped_missing_transaction_id += 1;
+            continue;
+        }
+
+        let transaction = match helcim::fetch_card_transaction(
+            &state.http_client,
+            &config,
+            &transaction_id,
+        )
+        .await
+        {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                errors += 1;
+                tracing::warn!(
+                    target = "helcim",
+                    payment_transaction_id = %row.id,
+                    provider_transaction_id = %transaction_id,
+                    error = %error,
+                    "could not sync Helcim merchant fee"
+                );
+                continue;
+            }
+        };
+
+        let fee_details = helcim::HelcimFeeDetails::from_card_transaction(&transaction);
+        if fee_details.merchant_fee.is_none() && fee_details.net_amount.is_none() {
+            fees_unavailable += 1;
+            let mut metadata = json!({
+                "helcim_fee_sync_at": chrono::Utc::now().to_rfc3339(),
+                "helcim_card_batch_id": fee_details.card_batch_id,
+            });
+            if let Some(object) = metadata.as_object_mut() {
+                if row.fee_sync_status.as_deref() != Some("applied") {
+                    object.insert("helcim_fee_sync_status".to_string(), json!("unavailable"));
+                }
+                if row.net_sync_status.as_deref() != Some("applied") {
+                    object.insert("helcim_net_sync_status".to_string(), json!("unavailable"));
+                }
+            }
+            sqlx::query(
+                r#"
+                UPDATE payment_transactions
+                SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                WHERE id = $1
+                "#,
+            )
+            .bind(row.id)
+            .bind(metadata)
+            .execute(&state.db)
+            .await
+            .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+            continue;
+        }
+
+        let fee = if row.fee_sync_status.as_deref() == Some("applied") {
+            None
+        } else {
+            fee_details.merchant_fee.map(|fee| fee.round_dp(2))
+        };
+        let net_amount = fee_details
+            .net_amount
+            .filter(|_| row.net_sync_status.as_deref() != Some("applied"))
+            .map(|net_amount| net_amount.round_dp(2));
+        let mut metadata = json!({
+            "helcim_fee_sync_at": chrono::Utc::now().to_rfc3339(),
+            "helcim_card_batch_id": fee_details.card_batch_id,
+        });
+        if let Some(object) = metadata.as_object_mut() {
+            if fee.is_some() {
+                object.insert("helcim_fee_sync_status".to_string(), json!("applied"));
+                object.insert(
+                    "helcim_fee_source_field".to_string(),
+                    json!(fee_details.source_field),
+                );
+            }
+            if net_amount.is_some() {
+                object.insert("helcim_net_sync_status".to_string(), json!("applied"));
+            } else {
+                object.insert("helcim_net_sync_status".to_string(), json!("unavailable"));
+            }
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE payment_transactions
+            SET merchant_fee = COALESCE($2, merchant_fee),
+                net_amount = COALESCE($3, net_amount),
+                metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb
+            WHERE id = $1
+            "#,
+        )
+        .bind(row.id)
+        .bind(fee)
+        .bind(net_amount)
+        .bind(metadata)
+        .execute(&state.db)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+        updated += 1;
+        if let Some(fee) = fee {
+            total_fee_synced += fee;
+        }
+        if let Some(net_amount) = net_amount {
+            total_net_synced += net_amount;
+        }
+    }
+
+    Ok(Json(HelcimFeeSyncResponse {
+        scanned,
+        updated,
+        fees_unavailable,
+        skipped_missing_transaction_id,
+        errors,
+        total_fee_synced: total_fee_synced.round_dp(2).to_string(),
+        total_net_synced: total_net_synced.round_dp(2).to_string(),
+    }))
 }
 
 async fn start_helcim_purchase(

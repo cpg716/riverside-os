@@ -1332,6 +1332,11 @@ fn resolve_payment_splits(
                 }
 
                 let fee = Decimal::ZERO;
+                let net_amount = if payment_provider.as_deref() == Some("helcim") {
+                    Decimal::ZERO
+                } else {
+                    a - fee
+                };
 
                 out.push(ResolvedPaymentSplit {
                     method: m.to_string(),
@@ -1347,7 +1352,7 @@ fn resolve_payment_splits(
                     provider_card_type,
                     check_number,
                     merchant_fee: fee,
-                    net_amount: a - fee,
+                    net_amount,
                     card_brand,
                     card_last4,
                 });

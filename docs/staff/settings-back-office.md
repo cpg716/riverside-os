@@ -51,6 +51,15 @@ Settings appears in these sidebar groups:
 3. **Bug Reports**
 4. **ROS Dev Center**
 
+## Helcim
+
+**Purpose:** Confirm Helcim readiness, review card activity, and sync processor fee data into ROS.
+
+1. **Settings** → **Helcim**.
+2. Confirm **Configuration**, **Device**, and **API host** are healthy before processing live card payments.
+3. Use **Sync Helcim Fees** after settlement review or month-end prep. ROS pulls fee/net fields from the Helcim API when Helcim exposes them and leaves unavailable rows clearly counted.
+4. QBO uses one **Helcim card clearing** tender mapping for Helcim card, manual, saved-card, and web checkout payments.
+
 ## Staff access defaults
 
 **Purpose:** **Template** permission matrix and **template** max-discount-% rows per **`salesperson`** / **`sales_support`** / **`admin`**. Used when onboarding staff and when someone clicks **Apply role defaults** on **Staff → Team → Edit staff**.

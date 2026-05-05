@@ -26,6 +26,8 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 | Positive `payment_transactions` | Debit to mapped tender (cash in) |
 | Negative amounts (refunds) | Credit to same tender account (cash out); memo includes `refund/outflow` |
 | Gift card paid liability | Same sign rules; liability / expense mappings unchanged |
+| Helcim card / manual / vault / web checkout payments | All Helcim card methods aggregate to the **`helcim_card`** tender mapping so QBO needs one card-clearing account |
+| Helcim merchant fees synced from API | Debit **merchant fee** expense and credit the same Helcim clearing account, leaving clearing at net |
 
 ## Deposits
 

@@ -25,7 +25,7 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 **Purpose:** Map ROS **accounts**, **products**, **tenders**, and **expense** paths to QBO entities.
 
-1. **Mappings** → work tab by tab (**Sales**, **Inventory**, **Expenses** if present). If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+1. **Mappings** → work tab by tab (**Sales**, **Inventory**, **Expenses** if present). Map **Helcim card clearing** once for Helcim card, manual, vault, and web checkout tenders. If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
 2. **Save** after each section; screenshot or export **before** large changes.
 3. After mapping change, expect **new** staging rows to reflect the new chart.
 
@@ -36,8 +36,9 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 1. **Staging** → sort by **date** or **status**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
 3. Open a row → **drilldown** to lines; fix **unmapped** SKUs or accounts **before** approve.
-4. **Approve** only when totals match **ROS** expectations for that close.
-5. **Sync** after approve; watch **History** for success/fail.
+4. Before approving card-heavy days, run **Settings → Helcim → Sync Helcim Fees** so the merchant-fee expense and clearing offset use API-returned fee data.
+5. **Approve** only when totals match **ROS** expectations for that close.
+6. **Sync** after approve; watch **History** for success/fail.
 
 ## History
 
