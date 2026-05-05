@@ -256,6 +256,34 @@ ALTER TABLE ONLY public.helcim_event_log
     ADD CONSTRAINT helcim_event_log_pkey PRIMARY KEY (id);
 
 --
+-- Name: payment_provider_batches payment_provider_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_provider_batches
+    ADD CONSTRAINT payment_provider_batches_pkey PRIMARY KEY (id);
+
+--
+-- Name: payment_provider_batch_transactions payment_provider_batch_transactions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_provider_batch_transactions
+    ADD CONSTRAINT payment_provider_batch_transactions_pkey PRIMARY KEY (id);
+
+--
+-- Name: payment_settlement_runs payment_settlement_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_runs
+    ADD CONSTRAINT payment_settlement_runs_pkey PRIMARY KEY (id);
+
+--
+-- Name: payment_settlement_items payment_settlement_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_items
+    ADD CONSTRAINT payment_settlement_items_pkey PRIMARY KEY (id);
+
+--
 -- Name: corecredit_exception_queue corecredit_exception_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2445,6 +2473,62 @@ ALTER TABLE ONLY public.payment_provider_attempts
 
 ALTER TABLE ONLY public.payment_provider_attempts
     ADD CONSTRAINT payment_provider_attempts_staff_id_fkey FOREIGN KEY (staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_provider_batches payment_provider_batches_source_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_provider_batches
+    ADD CONSTRAINT payment_provider_batches_source_event_id_fkey FOREIGN KEY (source_event_id) REFERENCES public.helcim_event_log(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_provider_batch_transactions payment_provider_batch_transactions_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_provider_batch_transactions
+    ADD CONSTRAINT payment_provider_batch_transactions_batch_id_fkey FOREIGN KEY (payment_provider_batch_id) REFERENCES public.payment_provider_batches(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_provider_batch_transactions payment_provider_batch_transactions_payment_transaction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_provider_batch_transactions
+    ADD CONSTRAINT payment_provider_batch_transactions_payment_transaction_id_fkey FOREIGN KEY (payment_transaction_id) REFERENCES public.payment_transactions(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_provider_batch_transactions payment_provider_batch_transactions_source_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_provider_batch_transactions
+    ADD CONSTRAINT payment_provider_batch_transactions_source_event_id_fkey FOREIGN KEY (source_event_id) REFERENCES public.helcim_event_log(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_settlement_runs payment_settlement_runs_requested_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_runs
+    ADD CONSTRAINT payment_settlement_runs_requested_by_staff_id_fkey FOREIGN KEY (requested_by_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_settlement_items payment_settlement_items_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_items
+    ADD CONSTRAINT payment_settlement_items_run_id_fkey FOREIGN KEY (run_id) REFERENCES public.payment_settlement_runs(id) ON DELETE CASCADE;
+
+--
+-- Name: payment_settlement_items payment_settlement_items_payment_transaction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_items
+    ADD CONSTRAINT payment_settlement_items_payment_transaction_id_fkey FOREIGN KEY (payment_transaction_id) REFERENCES public.payment_transactions(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_settlement_items payment_settlement_items_provider_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_items
+    ADD CONSTRAINT payment_settlement_items_provider_batch_id_fkey FOREIGN KEY (payment_provider_batch_id) REFERENCES public.payment_provider_batches(id) ON DELETE SET NULL;
 
 --
 -- Name: payment_transactions payment_transactions_payer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

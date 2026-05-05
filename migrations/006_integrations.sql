@@ -115,6 +115,113 @@ CREATE TABLE public.helcim_event_log (
 );
 
 --
+-- Name: payment_provider_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_provider_batches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    provider text NOT NULL,
+    provider_batch_id text NOT NULL,
+    status text,
+    currency text,
+    opened_at timestamp with time zone,
+    closed_at timestamp with time zone,
+    settled_at timestamp with time zone,
+    expected_deposit_at timestamp with time zone,
+    gross_amount numeric(12,2),
+    fee_amount numeric(12,2),
+    net_amount numeric(12,2),
+    transaction_count integer,
+    raw_payload jsonb,
+    source_event_id uuid,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payment_provider_batches_provider_batch_id_chk CHECK ((btrim(provider_batch_id) <> ''::text)),
+    CONSTRAINT payment_provider_batches_provider_chk CHECK ((btrim(provider) <> ''::text))
+);
+
+--
+-- Name: payment_provider_batch_transactions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_provider_batch_transactions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    provider text NOT NULL,
+    provider_batch_id text NOT NULL,
+    provider_transaction_id text NOT NULL,
+    payment_provider_batch_id uuid,
+    payment_transaction_id uuid,
+    source_event_id uuid,
+    transaction_type text,
+    status text,
+    currency text,
+    occurred_at timestamp with time zone,
+    settled_at timestamp with time zone,
+    gross_amount numeric(12,2),
+    fee_amount numeric(12,2),
+    net_amount numeric(12,2),
+    match_status text DEFAULT 'unmatched'::text NOT NULL,
+    match_type text,
+    raw_payload jsonb,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payment_provider_batch_transactions_batch_id_chk CHECK ((btrim(provider_batch_id) <> ''::text)),
+    CONSTRAINT payment_provider_batch_transactions_match_status_chk CHECK ((match_status = ANY (ARRAY['matched'::text, 'unmatched'::text, 'mismatch'::text]))),
+    CONSTRAINT payment_provider_batch_transactions_provider_chk CHECK ((btrim(provider) <> ''::text)),
+    CONSTRAINT payment_provider_batch_transactions_transaction_id_chk CHECK ((btrim(provider_transaction_id) <> ''::text))
+);
+
+--
+-- Name: payment_settlement_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_settlement_runs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    provider text NOT NULL,
+    scope text DEFAULT 'batch_sync'::text NOT NULL,
+    status text DEFAULT 'running'::text NOT NULL,
+    date_from date,
+    date_to date,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    requested_by_staff_id uuid,
+    summary jsonb DEFAULT '{}'::jsonb NOT NULL,
+    error_message text,
+    CONSTRAINT payment_settlement_runs_provider_chk CHECK ((btrim(provider) <> ''::text)),
+    CONSTRAINT payment_settlement_runs_scope_chk CHECK ((btrim(scope) <> ''::text)),
+    CONSTRAINT payment_settlement_runs_status_chk CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text]))),
+    CONSTRAINT payment_settlement_runs_window_chk CHECK (((date_from IS NULL) OR (date_to IS NULL) OR (date_from <= date_to)))
+);
+
+--
+-- Name: payment_settlement_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_settlement_items (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    run_id uuid NOT NULL,
+    provider text NOT NULL,
+    item_type text NOT NULL,
+    severity text DEFAULT 'warning'::text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    provider_batch_id text,
+    provider_transaction_id text,
+    payment_transaction_id uuid,
+    payment_provider_batch_id uuid,
+    processor_values jsonb DEFAULT '{}'::jsonb NOT NULL,
+    ros_values jsonb DEFAULT '{}'::jsonb NOT NULL,
+    message text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolved_at timestamp with time zone,
+    CONSTRAINT payment_settlement_items_item_type_chk CHECK ((btrim(item_type) <> ''::text)),
+    CONSTRAINT payment_settlement_items_provider_chk CHECK ((btrim(provider) <> ''::text)),
+    CONSTRAINT payment_settlement_items_severity_chk CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'critical'::text]))),
+    CONSTRAINT payment_settlement_items_status_chk CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'ignored'::text])))
+);
+
+--
 -- Name: corecredit_exception_queue; Type: TABLE; Schema: public; Owner: -
 --
 

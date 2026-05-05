@@ -1,3 +1,4 @@
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -168,6 +169,37 @@ pub struct HelcimFeeDetails {
     pub net_amount: Option<Decimal>,
     pub card_batch_id: Option<String>,
     pub source_field: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct HelcimCardBatchSnapshot {
+    pub provider_batch_id: String,
+    pub status: Option<String>,
+    pub currency: Option<String>,
+    pub opened_at: Option<DateTime<Utc>>,
+    pub closed_at: Option<DateTime<Utc>>,
+    pub settled_at: Option<DateTime<Utc>>,
+    pub expected_deposit_at: Option<DateTime<Utc>>,
+    pub gross_amount: Option<Decimal>,
+    pub fee_amount: Option<Decimal>,
+    pub net_amount: Option<Decimal>,
+    pub transaction_count: Option<i32>,
+    pub raw_payload: Value,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct HelcimBatchTransactionSnapshot {
+    pub provider_batch_id: String,
+    pub provider_transaction_id: String,
+    pub transaction_type: Option<String>,
+    pub status: Option<String>,
+    pub currency: Option<String>,
+    pub occurred_at: Option<DateTime<Utc>>,
+    pub settled_at: Option<DateTime<Utc>>,
+    pub gross_amount: Option<Decimal>,
+    pub fee_amount: Option<Decimal>,
+    pub net_amount: Option<Decimal>,
+    pub raw_payload: Value,
 }
 
 impl HelcimConfig {
@@ -342,6 +374,126 @@ pub fn extract_fee_details(payload: &Value) -> HelcimFeeDetails {
     }
 }
 
+pub fn parse_card_batch_snapshot(payload: &Value) -> Option<HelcimCardBatchSnapshot> {
+    let provider_batch_id = first_string_field(
+        payload,
+        &["cardBatchId", "card_batch_id", "batchId", "batch_id", "id"],
+    )?;
+    Some(HelcimCardBatchSnapshot {
+        provider_batch_id,
+        status: first_string_field(payload, &["status", "batchStatus", "batch_status"]),
+        currency: first_string_field(payload, &["currency"]),
+        opened_at: first_timestamp_field(payload, &["openedAt", "opened_at", "openDate"]),
+        closed_at: first_timestamp_field(payload, &["closedAt", "closed_at", "closedDate"]),
+        settled_at: first_timestamp_field(payload, &["settledAt", "settled_at", "settlementDate"]),
+        expected_deposit_at: first_timestamp_field(
+            payload,
+            &["expectedDepositAt", "expected_deposit_at", "depositDate"],
+        ),
+        gross_amount: first_decimal_field(payload, &["grossAmount", "gross_amount", "totalAmount"])
+            .map(|(_, amount)| amount),
+        fee_amount: first_decimal_field(payload, &["feeAmount", "fee_amount", "merchantFee"])
+            .map(|(_, amount)| amount),
+        net_amount: first_decimal_field(payload, &["netAmount", "net_amount"])
+            .map(|(_, amount)| amount),
+        transaction_count: first_i32_field(
+            payload,
+            &["transactionCount", "transaction_count", "count"],
+        ),
+        raw_payload: payload.clone(),
+    })
+}
+
+pub fn parse_batch_transaction_snapshot(
+    payload: &Value,
+    fallback_batch_id: Option<&str>,
+) -> Option<HelcimBatchTransactionSnapshot> {
+    let provider_batch_id = first_string_field(
+        payload,
+        &["cardBatchId", "card_batch_id", "batchId", "batch_id"],
+    )
+    .or_else(|| {
+        fallback_batch_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })?;
+    let provider_transaction_id = first_string_field(
+        payload,
+        &[
+            "transactionId",
+            "transaction_id",
+            "cardTransactionId",
+            "card_transaction_id",
+            "id",
+        ],
+    )?;
+    let fee_details = extract_fee_details(payload);
+    Some(HelcimBatchTransactionSnapshot {
+        provider_batch_id,
+        provider_transaction_id,
+        transaction_type: first_string_field(
+            payload,
+            &["transactionType", "transaction_type", "type"],
+        ),
+        status: first_string_field(
+            payload,
+            &["status", "transactionStatus", "transaction_status"],
+        ),
+        currency: first_string_field(payload, &["currency"]),
+        occurred_at: first_timestamp_field(
+            payload,
+            &[
+                "occurredAt",
+                "occurred_at",
+                "createdAt",
+                "created_at",
+                "dateCreated",
+            ],
+        ),
+        settled_at: first_timestamp_field(payload, &["settledAt", "settled_at", "settlementDate"]),
+        gross_amount: first_decimal_field(payload, &["amount", "grossAmount", "gross_amount"])
+            .map(|(_, amount)| amount),
+        fee_amount: fee_details.merchant_fee,
+        net_amount: fee_details.net_amount,
+        raw_payload: payload.clone(),
+    })
+}
+
+pub fn parse_batch_transaction_snapshots(
+    payload: &Value,
+    fallback_batch_id: Option<&str>,
+) -> Vec<HelcimBatchTransactionSnapshot> {
+    match payload {
+        Value::Array(values) => values
+            .iter()
+            .filter_map(|value| parse_batch_transaction_snapshot(value, fallback_batch_id))
+            .collect(),
+        Value::Object(map) => {
+            for key in [
+                "transactions",
+                "cardTransactions",
+                "data",
+                "items",
+                "results",
+            ] {
+                if let Some(Value::Array(values)) = map.get(key) {
+                    return values
+                        .iter()
+                        .filter_map(|value| {
+                            parse_batch_transaction_snapshot(value, fallback_batch_id)
+                        })
+                        .collect();
+                }
+            }
+            parse_batch_transaction_snapshot(payload, fallback_batch_id)
+                .into_iter()
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
 fn first_decimal_field(payload: &Value, fields: &[&str]) -> Option<(String, Decimal)> {
     match payload {
         Value::Object(map) => {
@@ -386,6 +538,50 @@ fn first_string_field(payload: &Value, fields: &[&str]) -> Option<String> {
     }
 }
 
+fn first_i32_field(payload: &Value, fields: &[&str]) -> Option<i32> {
+    match payload {
+        Value::Object(map) => {
+            for field in fields {
+                if let Some(value) = map.get(*field).and_then(i32_from_value) {
+                    return Some(value);
+                }
+            }
+            for value in map.values() {
+                if let Some(found) = first_i32_field(value, fields) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| first_i32_field(value, fields)),
+        _ => None,
+    }
+}
+
+fn first_timestamp_field(payload: &Value, fields: &[&str]) -> Option<DateTime<Utc>> {
+    match payload {
+        Value::Object(map) => {
+            for field in fields {
+                if let Some(value) = map.get(*field).and_then(timestamp_from_value) {
+                    return Some(value);
+                }
+            }
+            for value in map.values() {
+                if let Some(found) = first_timestamp_field(value, fields) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| first_timestamp_field(value, fields)),
+        _ => None,
+    }
+}
+
 fn decimal_from_value(value: &Value) -> Option<Decimal> {
     let raw = match value {
         Value::Number(number) => number.to_string(),
@@ -393,6 +589,32 @@ fn decimal_from_value(value: &Value) -> Option<Decimal> {
         _ => return None,
     };
     Decimal::from_str_exact(&raw).ok()
+}
+
+fn i32_from_value(value: &Value) -> Option<i32> {
+    match value {
+        Value::Number(number) => number.as_i64().and_then(|value| i32::try_from(value).ok()),
+        Value::String(value) => value.trim().parse::<i32>().ok(),
+        _ => None,
+    }
+}
+
+fn timestamp_from_value(value: &Value) -> Option<DateTime<Utc>> {
+    let raw = value_to_string(value)?;
+    DateTime::parse_from_rfc3339(&raw)
+        .map(|value| value.with_timezone(&Utc))
+        .ok()
+        .or_else(|| {
+            NaiveDateTime::parse_from_str(&raw, "%Y-%m-%d %H:%M:%S")
+                .ok()
+                .map(|value| value.and_utc())
+        })
+        .or_else(|| {
+            NaiveDate::parse_from_str(&raw, "%Y-%m-%d")
+                .ok()
+                .and_then(|value| value.and_hms_opt(0, 0, 0))
+                .map(|value| value.and_utc())
+        })
 }
 
 pub async fn fetch_card_transaction(
@@ -815,5 +1037,49 @@ mod tests {
         assert_eq!(details.merchant_fee, None);
         assert_eq!(details.net_amount, None);
         assert_eq!(details.card_batch_id.as_deref(), Some("456"));
+    }
+
+    #[test]
+    fn parses_batch_snapshot_from_known_fields() {
+        let batch = parse_card_batch_snapshot(&json!({
+            "cardBatchId": 456,
+            "status": "closed",
+            "currency": "CAD",
+            "closedAt": "2026-05-01T22:00:00Z",
+            "grossAmount": "100.00",
+            "feeAmount": "2.91",
+            "netAmount": "97.09",
+            "transactionCount": 2
+        }))
+        .expect("batch should parse");
+
+        assert_eq!(batch.provider_batch_id, "456");
+        assert_eq!(batch.status.as_deref(), Some("closed"));
+        assert_eq!(batch.gross_amount, Some(Decimal::new(10000, 2)));
+        assert_eq!(batch.fee_amount, Some(Decimal::new(291, 2)));
+        assert_eq!(batch.net_amount, Some(Decimal::new(9709, 2)));
+        assert_eq!(batch.transaction_count, Some(2));
+        assert!(batch.closed_at.is_some());
+    }
+
+    #[test]
+    fn parses_batch_transaction_without_inferred_fee_or_net() {
+        let transaction = parse_batch_transaction_snapshot(
+            &json!({
+                "transactionId": 123,
+                "amount": "100.00",
+                "status": "approved",
+                "createdAt": "2026-05-01"
+            }),
+            Some("456"),
+        )
+        .expect("transaction should parse");
+
+        assert_eq!(transaction.provider_batch_id, "456");
+        assert_eq!(transaction.provider_transaction_id, "123");
+        assert_eq!(transaction.gross_amount, Some(Decimal::new(10000, 2)));
+        assert_eq!(transaction.fee_amount, None);
+        assert_eq!(transaction.net_amount, None);
+        assert!(transaction.occurred_at.is_some());
     }
 }

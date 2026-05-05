@@ -9,10 +9,12 @@ use axum::{
     routing::{delete, get, patch, post},
     Json, Router,
 };
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -76,6 +78,14 @@ pub fn router() -> Router<AppState> {
         .route("/providers/helcim/status", get(get_helcim_provider_status))
         .route("/providers/helcim/fees/status", get(get_helcim_fee_status))
         .route("/providers/helcim/fees/sync", post(sync_helcim_fees))
+        .route(
+            "/providers/helcim/settlements/status",
+            get(get_helcim_settlement_status),
+        )
+        .route(
+            "/providers/helcim/settlements/sync",
+            post(sync_helcim_settlements),
+        )
         .route("/providers/helcim/purchase", post(start_helcim_purchase))
         .route(
             "/providers/helcim/terminal/refund",
@@ -247,6 +257,52 @@ pub struct HelcimFeeSyncResponse {
     pub errors: i64,
     pub total_fee_synced: String,
     pub total_net_synced: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimSettlementSyncRequest {
+    #[serde(default)]
+    pub date_from: Option<NaiveDate>,
+    #[serde(default)]
+    pub date_to: Option<NaiveDate>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimSettlementStatusResponse {
+    pub batch_count: i64,
+    pub batch_transaction_count: i64,
+    pub matched_transaction_count: i64,
+    pub unmatched_transaction_count: i64,
+    pub open_item_count: i64,
+    pub last_run: Option<HelcimSettlementRunSummary>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimSettlementRunSummary {
+    pub id: Uuid,
+    pub status: String,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub summary: Value,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimSettlementSyncResponse {
+    pub run_id: Uuid,
+    pub status: String,
+    pub payments_scanned: i64,
+    pub batches_upserted: i64,
+    pub batch_transactions_upserted: i64,
+    pub reconciliation_items_opened: i64,
+    pub missing_batch_rows: i64,
+    pub unmatched_processor_rows: i64,
+    pub amount_mismatches: i64,
+    pub status_mismatches: i64,
+    pub fee_mismatches: i64,
+    pub net_mismatches: i64,
+    pub helcim_batch_api_available: bool,
+    pub message: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -662,6 +718,720 @@ async fn sync_helcim_fees(
         total_fee_synced: total_fee_synced.round_dp(2).to_string(),
         total_net_synced: total_net_synced.round_dp(2).to_string(),
     }))
+}
+
+async fn get_helcim_settlement_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<HelcimSettlementStatusResponse>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+
+    #[derive(sqlx::FromRow)]
+    struct CountsRow {
+        batch_count: i64,
+        batch_transaction_count: i64,
+        matched_transaction_count: i64,
+        unmatched_transaction_count: i64,
+        open_item_count: i64,
+    }
+
+    let counts: CountsRow = sqlx::query_as(
+        r#"
+        SELECT
+            (SELECT COUNT(*)::bigint FROM payment_provider_batches WHERE provider = 'helcim') AS batch_count,
+            (SELECT COUNT(*)::bigint FROM payment_provider_batch_transactions WHERE provider = 'helcim') AS batch_transaction_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_provider_batch_transactions
+                WHERE provider = 'helcim' AND match_status = 'matched'
+            ) AS matched_transaction_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_provider_batch_transactions
+                WHERE provider = 'helcim' AND match_status <> 'matched'
+            ) AS unmatched_transaction_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM payment_settlement_items
+                WHERE provider = 'helcim' AND status = 'open'
+            ) AS open_item_count
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let last_run = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            DateTime<Utc>,
+            Option<DateTime<Utc>>,
+            Value,
+            Option<String>,
+        ),
+    >(
+        r#"
+        SELECT id, status, started_at, completed_at, summary, error_message
+        FROM payment_settlement_runs
+        WHERE provider = 'helcim'
+        ORDER BY started_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .map(
+        |(id, status, started_at, completed_at, summary, error_message)| {
+            HelcimSettlementRunSummary {
+                id,
+                status,
+                started_at,
+                completed_at,
+                summary,
+                error_message,
+            }
+        },
+    );
+
+    Ok(Json(HelcimSettlementStatusResponse {
+        batch_count: counts.batch_count,
+        batch_transaction_count: counts.batch_transaction_count,
+        matched_transaction_count: counts.matched_transaction_count,
+        unmatched_transaction_count: counts.unmatched_transaction_count,
+        open_item_count: counts.open_item_count,
+        last_run,
+    }))
+}
+
+async fn sync_helcim_settlements(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: Option<Json<HelcimSettlementSyncRequest>>,
+) -> Result<Json<HelcimSettlementSyncResponse>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let payload = payload
+        .map(|Json(payload)| payload)
+        .unwrap_or(HelcimSettlementSyncRequest {
+            date_from: None,
+            date_to: None,
+        });
+
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let run_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO payment_settlement_runs (
+            provider,
+            scope,
+            status,
+            date_from,
+            date_to,
+            summary
+        )
+        VALUES (
+            'helcim',
+            'batch_sync',
+            'running',
+            $1,
+            $2,
+            jsonb_build_object(
+                'source', 'local_payment_metadata',
+                'helcim_batch_api_available', false
+            )
+        )
+        RETURNING id
+        "#,
+    )
+    .bind(payload.date_from)
+    .bind(payload.date_to)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let result =
+        sync_helcim_settlement_rows(&mut tx, run_id, payload.date_from, payload.date_to).await;
+
+    match result {
+        Ok(summary) => {
+            let summary_json = json!({
+                "payments_scanned": summary.payments_scanned,
+                "batches_upserted": summary.batches_upserted,
+                "batch_transactions_upserted": summary.batch_transactions_upserted,
+                "reconciliation_items_opened": summary.reconciliation_items_opened,
+                "missing_batch_rows": summary.missing_batch_rows,
+                "unmatched_processor_rows": summary.unmatched_processor_rows,
+                "amount_mismatches": summary.amount_mismatches,
+                "status_mismatches": summary.status_mismatches,
+                "fee_mismatches": summary.fee_mismatches,
+                "net_mismatches": summary.net_mismatches,
+                "source": "local_payment_metadata",
+                "helcim_batch_api_available": false,
+            });
+            sqlx::query(
+                r#"
+                UPDATE payment_settlement_runs
+                SET status = 'completed',
+                    completed_at = now(),
+                    summary = $2
+                WHERE id = $1
+                "#,
+            )
+            .bind(run_id)
+            .bind(summary_json)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+            tx.commit()
+                .await
+                .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+            Ok(Json(HelcimSettlementSyncResponse {
+                run_id,
+                status: "completed".to_string(),
+                payments_scanned: summary.payments_scanned,
+                batches_upserted: summary.batches_upserted,
+                batch_transactions_upserted: summary.batch_transactions_upserted,
+                reconciliation_items_opened: summary.reconciliation_items_opened,
+                missing_batch_rows: summary.missing_batch_rows,
+                unmatched_processor_rows: summary.unmatched_processor_rows,
+                amount_mismatches: summary.amount_mismatches,
+                status_mismatches: summary.status_mismatches,
+                fee_mismatches: summary.fee_mismatches,
+                net_mismatches: summary.net_mismatches,
+                helcim_batch_api_available: false,
+                message: "Helcim batch API paths are not present in the repo; sync promoted known local Helcim batch metadata and created reconciliation findings only."
+                    .to_string(),
+            }))
+        }
+        Err(error) => {
+            let _ = sqlx::query(
+                r#"
+                UPDATE payment_settlement_runs
+                SET status = 'failed',
+                    completed_at = now(),
+                    error_message = $2
+                WHERE id = $1
+                "#,
+            )
+            .bind(run_id)
+            .bind(error.to_string())
+            .execute(&mut *tx)
+            .await;
+            let _ = tx.commit().await;
+            Err(error)
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct HelcimSettlementSyncStats {
+    payments_scanned: i64,
+    batches_upserted: i64,
+    batch_transactions_upserted: i64,
+    reconciliation_items_opened: i64,
+    missing_batch_rows: i64,
+    unmatched_processor_rows: i64,
+    amount_mismatches: i64,
+    status_mismatches: i64,
+    fee_mismatches: i64,
+    net_mismatches: i64,
+}
+
+async fn sync_helcim_settlement_rows(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    run_id: Uuid,
+    date_from: Option<NaiveDate>,
+    date_to: Option<NaiveDate>,
+) -> Result<HelcimSettlementSyncStats, PaymentError> {
+    #[derive(sqlx::FromRow)]
+    struct PaymentRow {
+        id: Uuid,
+        provider_transaction_id: Option<String>,
+        provider_status: Option<String>,
+        status: String,
+        amount: Decimal,
+        merchant_fee: Decimal,
+        net_amount: Decimal,
+        fee_sync_status: Option<String>,
+        net_sync_status: Option<String>,
+        batch_id: Option<String>,
+        created_at: DateTime<Utc>,
+    }
+
+    let payments: Vec<PaymentRow> = sqlx::query_as(
+        r#"
+        SELECT
+            id,
+            provider_transaction_id,
+            provider_status,
+            status,
+            amount,
+            merchant_fee,
+            net_amount,
+            metadata->>'helcim_fee_sync_status' AS fee_sync_status,
+            metadata->>'helcim_net_sync_status' AS net_sync_status,
+            metadata->>'helcim_card_batch_id' AS batch_id,
+            created_at
+        FROM payment_transactions
+        WHERE payment_provider = 'helcim'
+          AND ($1::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date >= $1)
+          AND ($2::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date <= $2)
+        ORDER BY created_at ASC, id ASC
+        "#,
+    )
+    .bind(date_from)
+    .bind(date_to)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let mut stats = HelcimSettlementSyncStats {
+        payments_scanned: payments.len() as i64,
+        ..Default::default()
+    };
+
+    for payment in payments {
+        let provider_transaction_id = payment
+            .provider_transaction_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let batch_id = payment
+            .batch_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        let Some(provider_transaction_id) = provider_transaction_id else {
+            stats.reconciliation_items_opened += insert_settlement_item(
+                tx,
+                run_id,
+                "missing_provider_transaction_id",
+                "warning",
+                None,
+                None,
+                Some(payment.id),
+                None,
+                json!({}),
+                json!({
+                    "payment_transaction_id": payment.id,
+                    "amount": payment.amount.to_string(),
+                    "status": payment.status,
+                }),
+                "ROS Helcim payment is missing a provider transaction ID.",
+            )
+            .await?;
+            continue;
+        };
+
+        let Some(batch_id) = batch_id else {
+            stats.missing_batch_rows += 1;
+            stats.reconciliation_items_opened += insert_settlement_item(
+                tx,
+                run_id,
+                "missing_processor_batch_row",
+                "warning",
+                None,
+                Some(&provider_transaction_id),
+                Some(payment.id),
+                None,
+                json!({ "provider_transaction_id": provider_transaction_id }),
+                json!({
+                    "payment_transaction_id": payment.id,
+                    "amount": payment.amount.to_string(),
+                    "provider_status": payment.provider_status,
+                    "status": payment.status,
+                }),
+                "ROS Helcim payment has no first-class processor batch membership yet.",
+            )
+            .await?;
+            continue;
+        };
+
+        let batch_uuid: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO payment_provider_batches (
+                provider,
+                provider_batch_id,
+                status,
+                raw_payload,
+                last_synced_at
+            )
+            VALUES (
+                'helcim',
+                $1,
+                'observed',
+                $2,
+                now()
+            )
+            ON CONFLICT (provider, provider_batch_id)
+            DO UPDATE SET
+                status = COALESCE(payment_provider_batches.status, EXCLUDED.status),
+                raw_payload = COALESCE(payment_provider_batches.raw_payload, '{}'::jsonb) || EXCLUDED.raw_payload,
+                last_synced_at = now()
+            RETURNING id
+            "#,
+        )
+        .bind(&batch_id)
+        .bind(json!({
+            "source": "payment_transactions.metadata.helcim_card_batch_id",
+            "helcim_batch_api_available": false,
+        }))
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+        stats.batches_upserted += 1;
+
+        let explicit_fee = payment
+            .fee_sync_status
+            .as_deref()
+            .filter(|status| *status == "applied")
+            .map(|_| payment.merchant_fee.round_dp(2));
+        let explicit_net = payment
+            .net_sync_status
+            .as_deref()
+            .filter(|status| *status == "applied")
+            .map(|_| payment.net_amount.round_dp(2));
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_provider_batch_transactions (
+                provider,
+                provider_batch_id,
+                provider_transaction_id,
+                payment_provider_batch_id,
+                payment_transaction_id,
+                status,
+                occurred_at,
+                gross_amount,
+                fee_amount,
+                net_amount,
+                match_status,
+                match_type,
+                raw_payload,
+                last_synced_at
+            )
+            VALUES (
+                'helcim',
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+                $9,
+                'matched',
+                'provider_transaction_id',
+                $10,
+                now()
+            )
+            ON CONFLICT (provider, provider_transaction_id)
+            DO UPDATE SET
+                provider_batch_id = EXCLUDED.provider_batch_id,
+                payment_provider_batch_id = EXCLUDED.payment_provider_batch_id,
+                payment_transaction_id = COALESCE(payment_provider_batch_transactions.payment_transaction_id, EXCLUDED.payment_transaction_id),
+                status = COALESCE(EXCLUDED.status, payment_provider_batch_transactions.status),
+                occurred_at = COALESCE(payment_provider_batch_transactions.occurred_at, EXCLUDED.occurred_at),
+                gross_amount = COALESCE(EXCLUDED.gross_amount, payment_provider_batch_transactions.gross_amount),
+                fee_amount = COALESCE(EXCLUDED.fee_amount, payment_provider_batch_transactions.fee_amount),
+                net_amount = COALESCE(EXCLUDED.net_amount, payment_provider_batch_transactions.net_amount),
+                match_status = 'matched',
+                match_type = 'provider_transaction_id',
+                raw_payload = COALESCE(payment_provider_batch_transactions.raw_payload, '{}'::jsonb) || EXCLUDED.raw_payload,
+                last_synced_at = now()
+            "#,
+        )
+        .bind(&batch_id)
+        .bind(&provider_transaction_id)
+        .bind(batch_uuid)
+        .bind(payment.id)
+        .bind(payment.provider_status.as_deref())
+        .bind(payment.created_at)
+        .bind(payment.amount.round_dp(2))
+        .bind(explicit_fee)
+        .bind(explicit_net)
+        .bind(json!({
+            "source": "payment_transactions",
+            "payment_transaction_id": payment.id,
+            "fee_explicit": explicit_fee.is_some(),
+            "net_explicit": explicit_net.is_some(),
+        }))
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+        stats.batch_transactions_upserted += 1;
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_batches batch
+        SET
+            gross_amount = totals.gross_amount,
+            fee_amount = totals.fee_amount,
+            net_amount = totals.net_amount,
+            transaction_count = totals.transaction_count,
+            last_synced_at = now()
+        FROM (
+            SELECT
+                payment_provider_batch_id,
+                COALESCE(SUM(gross_amount), 0)::numeric(12,2) AS gross_amount,
+                SUM(fee_amount)::numeric(12,2) AS fee_amount,
+                SUM(net_amount)::numeric(12,2) AS net_amount,
+                COUNT(*)::integer AS transaction_count
+            FROM payment_provider_batch_transactions
+            WHERE provider = 'helcim'
+              AND payment_provider_batch_id IS NOT NULL
+            GROUP BY payment_provider_batch_id
+        ) totals
+        WHERE batch.id = totals.payment_provider_batch_id
+          AND batch.provider = 'helcim'
+        "#,
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    stats.reconciliation_items_opened +=
+        create_existing_batch_transaction_findings(tx, run_id, &mut stats).await?;
+
+    Ok(stats)
+}
+
+async fn create_existing_batch_transaction_findings(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    run_id: Uuid,
+    stats: &mut HelcimSettlementSyncStats,
+) -> Result<i64, PaymentError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            btx.id AS batch_transaction_id,
+            btx.provider_batch_id,
+            btx.provider_transaction_id,
+            btx.payment_provider_batch_id,
+            btx.payment_transaction_id,
+            btx.status AS processor_status,
+            btx.gross_amount AS processor_amount,
+            btx.fee_amount AS processor_fee,
+            btx.net_amount AS processor_net,
+            pt.status AS ros_status,
+            pt.provider_status AS ros_provider_status,
+            pt.amount AS ros_amount,
+            pt.merchant_fee AS ros_fee,
+            pt.net_amount AS ros_net,
+            pt.metadata->>'helcim_fee_sync_status' AS ros_fee_status,
+            pt.metadata->>'helcim_net_sync_status' AS ros_net_status
+        FROM payment_provider_batch_transactions btx
+        LEFT JOIN payment_transactions pt ON pt.id = btx.payment_transaction_id
+        WHERE btx.provider = 'helcim'
+        "#,
+    )
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let mut opened = 0_i64;
+    for row in rows {
+        let provider_batch_id = row.get::<Option<String>, _>("provider_batch_id");
+        let provider_transaction_id = row.get::<String, _>("provider_transaction_id");
+        let payment_provider_batch_id = row.get::<Option<Uuid>, _>("payment_provider_batch_id");
+        let payment_transaction_id = row.get::<Option<Uuid>, _>("payment_transaction_id");
+        let Some(payment_transaction_id) = payment_transaction_id else {
+            stats.unmatched_processor_rows += 1;
+            opened += insert_settlement_item(
+                tx,
+                run_id,
+                "processor_transaction_missing_ros_payment",
+                "critical",
+                provider_batch_id.as_deref(),
+                Some(&provider_transaction_id),
+                None,
+                payment_provider_batch_id,
+                json!({ "provider_transaction_id": provider_transaction_id }),
+                json!({}),
+                "Processor batch transaction has no matched ROS payment transaction.",
+            )
+            .await?;
+            continue;
+        };
+
+        let processor_amount = row.get::<Option<Decimal>, _>("processor_amount");
+        let ros_amount = row.get::<Option<Decimal>, _>("ros_amount");
+        if let (Some(processor_amount), Some(ros_amount)) = (processor_amount, ros_amount) {
+            if processor_amount.round_dp(2) != ros_amount.round_dp(2) {
+                stats.amount_mismatches += 1;
+                opened += insert_settlement_item(
+                    tx,
+                    run_id,
+                    "amount_mismatch",
+                    "critical",
+                    provider_batch_id.as_deref(),
+                    Some(&provider_transaction_id),
+                    Some(payment_transaction_id),
+                    payment_provider_batch_id,
+                    json!({ "gross_amount": processor_amount.to_string() }),
+                    json!({ "amount": ros_amount.to_string() }),
+                    "Processor gross amount does not match ROS payment amount.",
+                )
+                .await?;
+            }
+        }
+
+        let processor_status = row.get::<Option<String>, _>("processor_status");
+        let ros_status = row
+            .get::<Option<String>, _>("ros_provider_status")
+            .or_else(|| row.get::<Option<String>, _>("ros_status"));
+        if !settlement_statuses_match(processor_status.as_deref(), ros_status.as_deref()) {
+            stats.status_mismatches += 1;
+            opened += insert_settlement_item(
+                tx,
+                run_id,
+                "status_mismatch",
+                "warning",
+                provider_batch_id.as_deref(),
+                Some(&provider_transaction_id),
+                Some(payment_transaction_id),
+                payment_provider_batch_id,
+                json!({ "status": processor_status }),
+                json!({ "status": ros_status }),
+                "Processor status does not match ROS payment status.",
+            )
+            .await?;
+        }
+
+        let ros_fee_status = row.get::<Option<String>, _>("ros_fee_status");
+        if ros_fee_status.as_deref() == Some("applied") {
+            let processor_fee = row.get::<Option<Decimal>, _>("processor_fee");
+            let ros_fee = row.get::<Option<Decimal>, _>("ros_fee");
+            if let (Some(processor_fee), Some(ros_fee)) = (processor_fee, ros_fee) {
+                if processor_fee.round_dp(2) != ros_fee.round_dp(2) {
+                    stats.fee_mismatches += 1;
+                    opened += insert_settlement_item(
+                        tx,
+                        run_id,
+                        "fee_mismatch",
+                        "warning",
+                        provider_batch_id.as_deref(),
+                        Some(&provider_transaction_id),
+                        Some(payment_transaction_id),
+                        payment_provider_batch_id,
+                        json!({ "fee_amount": processor_fee.to_string() }),
+                        json!({ "merchant_fee": ros_fee.to_string() }),
+                        "Explicit processor fee does not match explicit ROS merchant fee.",
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        let ros_net_status = row.get::<Option<String>, _>("ros_net_status");
+        if ros_net_status.as_deref() == Some("applied") {
+            let processor_net = row.get::<Option<Decimal>, _>("processor_net");
+            let ros_net = row.get::<Option<Decimal>, _>("ros_net");
+            if let (Some(processor_net), Some(ros_net)) = (processor_net, ros_net) {
+                if processor_net.round_dp(2) != ros_net.round_dp(2) {
+                    stats.net_mismatches += 1;
+                    opened += insert_settlement_item(
+                        tx,
+                        run_id,
+                        "net_mismatch",
+                        "warning",
+                        provider_batch_id.as_deref(),
+                        Some(&provider_transaction_id),
+                        Some(payment_transaction_id),
+                        payment_provider_batch_id,
+                        json!({ "net_amount": processor_net.to_string() }),
+                        json!({ "net_amount": ros_net.to_string() }),
+                        "Explicit processor net amount does not match explicit ROS net amount.",
+                    )
+                    .await?;
+                }
+            }
+        }
+    }
+
+    Ok(opened)
+}
+
+async fn insert_settlement_item(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    run_id: Uuid,
+    item_type: &str,
+    severity: &str,
+    provider_batch_id: Option<&str>,
+    provider_transaction_id: Option<&str>,
+    payment_transaction_id: Option<Uuid>,
+    payment_provider_batch_id: Option<Uuid>,
+    processor_values: Value,
+    ros_values: Value,
+    message: &str,
+) -> Result<i64, PaymentError> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO payment_settlement_items (
+            run_id,
+            provider,
+            item_type,
+            severity,
+            status,
+            provider_batch_id,
+            provider_transaction_id,
+            payment_transaction_id,
+            payment_provider_batch_id,
+            processor_values,
+            ros_values,
+            message
+        )
+        VALUES ($1, 'helcim', $2, $3, 'open', $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(run_id)
+    .bind(item_type)
+    .bind(severity)
+    .bind(provider_batch_id)
+    .bind(provider_transaction_id)
+    .bind(payment_transaction_id)
+    .bind(payment_provider_batch_id)
+    .bind(processor_values)
+    .bind(ros_values)
+    .bind(message)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(result.rows_affected() as i64)
+}
+
+fn settlement_statuses_match(processor_status: Option<&str>, ros_status: Option<&str>) -> bool {
+    let processor = settlement_status_family(processor_status);
+    let ros = settlement_status_family(ros_status);
+    processor.is_none() || ros.is_none() || processor == ros
+}
+
+fn settlement_status_family(status: Option<&str>) -> Option<&'static str> {
+    match status?.trim().to_ascii_lowercase().as_str() {
+        "approved" | "approval" | "captured" | "capture" | "success" | "succeeded" | "settled" => {
+            Some("success")
+        }
+        "declined" | "decline" | "failed" | "error" => Some("failed"),
+        "cancelled" | "canceled" | "voided" | "reversed" => Some("canceled"),
+        "refunded" | "refund" => Some("refunded"),
+        _ => None,
+    }
 }
 
 async fn start_helcim_purchase(

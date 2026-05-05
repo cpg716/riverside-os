@@ -119,6 +119,30 @@ COMMENT ON TABLE public.helcim_event_log IS 'Durable inbound Helcim webhook even
 COMMENT ON COLUMN public.helcim_event_log.match_type IS 'How the event was attached to local payment state: provider_transaction_id, terminal_amount, terminal, or none.';
 
 --
+-- Name: TABLE payment_provider_batches; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_provider_batches IS 'Provider-neutral processor batch headers used for Helcim settlement reconciliation and expected deposit analysis.';
+
+--
+-- Name: TABLE payment_provider_batch_transactions; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_provider_batch_transactions IS 'Provider transaction membership inside processor batches, linked back to local payment_transactions when matched.';
+
+--
+-- Name: TABLE payment_settlement_runs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_settlement_runs IS 'Durable payment-provider settlement and reconciliation sync run history.';
+
+--
+-- Name: TABLE payment_settlement_items; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_settlement_items IS 'Open and historical settlement reconciliation findings for missing or mismatched provider payment activity.';
+
+--
 -- Name: TABLE corecredit_exception_queue; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -1506,6 +1530,66 @@ CREATE INDEX idx_helcim_event_log_attempt ON public.helcim_event_log USING btree
 CREATE INDEX idx_helcim_event_log_payment_transaction ON public.helcim_event_log USING btree (payment_transaction_id, received_at DESC) WHERE (payment_transaction_id IS NOT NULL);
 
 --
+-- Name: idx_payment_provider_batches_provider_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_provider_batches_provider_status ON public.payment_provider_batches USING btree (provider, status, last_synced_at DESC);
+
+--
+-- Name: idx_payment_provider_batches_closed_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_provider_batches_closed_at ON public.payment_provider_batches USING btree (provider, closed_at DESC) WHERE (closed_at IS NOT NULL);
+
+--
+-- Name: idx_payment_provider_batches_settled_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_provider_batches_settled_at ON public.payment_provider_batches USING btree (provider, settled_at DESC) WHERE (settled_at IS NOT NULL);
+
+--
+-- Name: idx_payment_provider_batch_transactions_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_provider_batch_transactions_batch ON public.payment_provider_batch_transactions USING btree (provider_batch_id, provider_transaction_id);
+
+--
+-- Name: idx_payment_provider_batch_transactions_payment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_provider_batch_transactions_payment ON public.payment_provider_batch_transactions USING btree (payment_transaction_id) WHERE (payment_transaction_id IS NOT NULL);
+
+--
+-- Name: idx_payment_provider_batch_transactions_match; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_provider_batch_transactions_match ON public.payment_provider_batch_transactions USING btree (provider, match_status, last_synced_at DESC);
+
+--
+-- Name: idx_payment_settlement_runs_provider_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_settlement_runs_provider_status ON public.payment_settlement_runs USING btree (provider, status, started_at DESC);
+
+--
+-- Name: idx_payment_settlement_runs_window; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_settlement_runs_window ON public.payment_settlement_runs USING btree (provider, date_from, date_to);
+
+--
+-- Name: idx_payment_settlement_items_run; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_settlement_items_run ON public.payment_settlement_items USING btree (run_id, severity, created_at DESC);
+
+--
+-- Name: idx_payment_settlement_items_provider_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_settlement_items_provider_status ON public.payment_settlement_items USING btree (provider, status, item_type, created_at DESC);
+
+--
 -- Name: idx_corecredit_exception_queue_rms_record; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2772,6 +2856,24 @@ CREATE UNIQUE INDEX uq_corecredit_event_log_external_event_key ON public.corecre
 CREATE UNIQUE INDEX uq_helcim_event_log_webhook_id ON public.helcim_event_log USING btree (webhook_id) WHERE (webhook_id IS NOT NULL);
 
 --
+-- Name: uq_payment_provider_batches_provider_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_payment_provider_batches_provider_batch ON public.payment_provider_batches USING btree (provider, provider_batch_id);
+
+--
+-- Name: uq_payment_provider_batch_transactions_provider_transaction; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_payment_provider_batch_transactions_provider_transaction ON public.payment_provider_batch_transactions USING btree (provider, provider_transaction_id);
+
+--
+-- Name: uq_payment_settlement_items_active_identity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_payment_settlement_items_active_identity ON public.payment_settlement_items USING btree (provider, item_type, COALESCE(provider_transaction_id, ''::text), COALESCE(payment_transaction_id::text, ''::text), COALESCE(provider_batch_id, ''::text)) WHERE (status = 'open'::text);
+
+--
 -- Name: uq_corecredit_exception_queue_active_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2842,6 +2944,18 @@ CREATE TRIGGER trigger_generate_txn_display_id BEFORE INSERT ON public.transacti
 --
 
 CREATE TRIGGER trigger_payment_provider_attempts_updated_at BEFORE UPDATE ON public.payment_provider_attempts FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
+
+--
+-- Name: payment_provider_batches trigger_payment_provider_batches_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trigger_payment_provider_batches_updated_at BEFORE UPDATE ON public.payment_provider_batches FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
+
+--
+-- Name: payment_provider_batch_transactions trigger_payment_provider_batch_transactions_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trigger_payment_provider_batch_transactions_updated_at BEFORE UPDATE ON public.payment_provider_batch_transactions FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
 
 --
 -- Name: store_checkout_payment_attempt trigger_store_checkout_payment_attempt_updated_at; Type: TRIGGER; Schema: public; Owner: -

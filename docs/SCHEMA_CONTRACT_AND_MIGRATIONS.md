@@ -21,7 +21,7 @@ The only active migration files in `migrations/` are:
 | `003_customers_weddings_relationships.sql` | Customers, relationships, weddings, measurements |
 | `004_pos_transactions_payments.sql` | POS transactions, transaction lines, payments, allocations, refunds, fulfillment orders |
 | `005_operations_workflows.sql` | Register sessions, tasks, scheduling, alterations, notifications, backups, operational workflow tables |
-| `006_integrations.sql` | QBO, Counterpoint, Podium, Shippo, NuORDER, online store, payment-provider integration tables |
+| `006_integrations.sql` | QBO, Counterpoint, Podium, Shippo, NuORDER, online store, payment-provider integration tables, Helcim event and settlement foundations |
 | `007_reporting_views.sql` | Reporting schema, reporting functions, Metabase-facing views |
 | `008_indexes_constraints_triggers.sql` | Cross-domain indexes, constraints, triggers, generated IDs |
 
@@ -87,3 +87,15 @@ After launch, migrations are append-only:
 - run layout and schema-contract validation before commit
 
 For pre-launch baseline work, regenerate and validate the baseline as a whole. For post-launch work, add a new numbered migration after the current active baseline.
+
+## Payment Provider Settlement Contract
+
+The Helcim settlement foundation is backend-only and lives in the baseline integration schema:
+
+- `helcim_event_log` stores durable inbound webhook events before any mutation.
+- `payment_provider_batches` stores provider batch headers by `provider` + `provider_batch_id`.
+- `payment_provider_batch_transactions` stores provider transaction membership inside a batch and links to `payment_transactions` when matched.
+- `payment_settlement_runs` stores durable sync/reconciliation run history.
+- `payment_settlement_items` stores open or historical reconciliation findings.
+
+Actual bank deposits are intentionally not modeled in this layer. Phase 2 records expected processor settlement structure and reconciliation findings; bank/QBO deposit matching belongs in a later bank-feed or QBO-deposit layer.
