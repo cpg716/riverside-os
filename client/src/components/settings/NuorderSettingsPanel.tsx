@@ -4,12 +4,12 @@ import {
   RefreshCw,
   Package,
   ArrowRightLeft,
-  ShieldCheck,
   Zap,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 interface NuorderSyncLog {
   id: string;
@@ -30,12 +30,6 @@ export default function NuorderSettingsPanel() {
   const [loading, setLoading] = useState(false);
   const [syncBusy, setSyncBusy] = useState<string | null>(null);
   const [logs, setLogs] = useState<NuorderSyncLog[]>([]);
-  const [creds, setCreds] = useState({
-    consumer_key: "",
-    consumer_secret: "",
-    user_token: "",
-    user_secret: "",
-  });
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -45,7 +39,6 @@ export default function NuorderSettingsPanel() {
       });
       if (res.ok) {
         const data = await res.json();
-        setCreds(data.config || {});
         setLogs(data.recent_logs || []);
       }
     } catch (e) {
@@ -58,27 +51,6 @@ export default function NuorderSettingsPanel() {
   useEffect(() => {
     void fetchConfig();
   }, [fetchConfig]);
-
-  const saveConfig = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/nuorder/config`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify(creds),
-      });
-      if (res.ok) {
-        toast("NuORDER credentials saved.", "success");
-      } else {
-        toast("Failed to save credentials.", "error");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const triggerSync = async (type: "catalog" | "orders" | "inventory") => {
     setSyncBusy(type);
@@ -145,40 +117,32 @@ export default function NuorderSettingsPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* API CONFIG */}
         <div className="space-y-6">
-          <form 
-            onSubmit={(e) => {
-              e.preventDefault();
-              void saveConfig();
-            }}
-            className="rounded-xl border border-app-border bg-app-surface/40 p-5 space-y-4 shadow-sm"
-          >
-            <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300">
-              <ShieldCheck className="h-4 w-4" />
-              <span className="text-[10px] font-black uppercase tracking-widest">API Authentication</span>
-            </div>
-            <div className="grid grid-cols-1 gap-4">
-              {Object.keys(creds).map((k) => (
-                <div key={k}>
-                  <label className="block text-[10px] uppercase font-black tracking-widest text-app-text-muted mb-1.5 ml-1">
-                    {k.replace(/_/g, " ")}
-                  </label>
-                  <input
-                    type="password"
-                    value={creds[k as keyof typeof creds] || ""}
-                    onChange={(e) => setCreds({ ...creds, [k]: e.target.value })}
-                    className="ui-input w-full bg-app-bg/50 focus:bg-app-bg"
-                    placeholder={`Enter ${k.replace(/_/g, " ")}...`}
-                  />
-                </div>
-              ))}
-            </div>
-            <button
-              type="submit"
-              className="ui-btn-primary w-full py-3 text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-500/20"
-            >
-              Save Credentials
-            </button>
-          </form>
+          <IntegrationCredentialsCard
+            baseUrl={baseUrl}
+            integrationKey="nuorder"
+            title="NuORDER Credentials"
+            description="Save OAuth credentials for the NuORDER brand portal here. Values are encrypted and hidden after save."
+            fields={[
+              {
+                key: "consumer_key",
+                label: "Consumer key",
+                type: "text",
+              },
+              {
+                key: "consumer_secret",
+                label: "Consumer secret",
+              },
+              {
+                key: "user_token",
+                label: "User token",
+              },
+              {
+                key: "user_secret",
+                label: "User secret",
+              },
+            ]}
+            onSaved={fetchConfig}
+          />
 
           <div className="rounded-xl border border-app-border bg-app-surface/40 p-5 space-y-4">
             <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">

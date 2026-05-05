@@ -60,15 +60,15 @@ Migrations **84** and **85** create the required tables and columns. Verify:
 ./scripts/migration-status-docker.sh | grep -E "84_|85_"
 ```
 
-### 2b. Set environment variable
+### 2b. Set sync token
 
-Add to `server/.env`:
+Generate a strong random value (for example `openssl rand -hex 32`) and save it in **Settings → Integrations → Counterpoint**. The Windows bridge still needs the same value in its local bridge `.env`:
 
 ```env
 COUNTERPOINT_SYNC_TOKEN=your-long-random-secret-here
 ```
 
-This token authenticates every bridge request. Generate a strong random value (e.g. `openssl rand -hex 32`). **Never log this token.** Restart the Rust server after adding it.
+This token authenticates every bridge request. **Never log this token.** Routine ROS-side token updates belong in Backoffice Settings; the bridge host keeps its own `.env` because it runs outside ROS.
 
 ### 2c. Verify the health endpoint
 
@@ -113,7 +113,7 @@ SQL_CONNECTION_STRING=Server=localhost\RMSSVR;Database=Riverside;User Id=ros_cp_
 
 Key fields:
 - `ROS_BASE_URL` — the ROS server's LAN IP and port (not `localhost` unless they're the same machine)
-- `COUNTERPOINT_SYNC_TOKEN` — must **exactly match** the server `.env` value
+- `COUNTERPOINT_SYNC_TOKEN` — must **exactly match** the token saved in **Settings → Integrations → Counterpoint**
 - `SQL_CONNECTION_STRING` — standard `mssql` connection string; `Database=` must be the Counterpoint **company** database (same one you connect to in SSMS)
 
 ### 3c. Enable entities
@@ -691,7 +691,7 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 ### First-time setup
 
 1. Generate a secure sync token (e.g. `openssl rand -hex 32`)
-2. Set `COUNTERPOINT_SYNC_TOKEN` in both `server/.env` and bridge `.env`
+2. Save `COUNTERPOINT_SYNC_TOKEN` in **Settings → Integrations → Counterpoint** and put the same value in the bridge `.env`
 3. Apply migrations 84–86 (`./scripts/apply-migrations-docker.sh`)
 4. Restart the ROS Rust server
 5. Verify health endpoint from the bridge host
@@ -713,7 +713,7 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 | Symptom | Check |
 |---------|-------|
 | Bridge shows **OFFLINE** in Settings | Is the Node.js process running on the CP host? Is the network path open (firewall on port 3000)? |
-| `invalid or missing sync token` | Token in bridge `.env` must **exactly** match `COUNTERPOINT_SYNC_TOKEN` in `server/.env` |
+| `invalid or missing sync token` | Token in bridge `.env` must **exactly** match the Counterpoint sync token saved in Backoffice Settings |
 | `Connection refused` from bridge | ROS server not running, or firewall blocking port 3000 from the CP host |
 | `invalid object name` on SQL | Check `Database=` in `SQL_CONNECTION_STRING` — must be the Counterpoint company DB, not `master` |
 | Customers sync but email is missing | Email was on another customer in ROS (unique constraint); check `email_conflicts` in the response |

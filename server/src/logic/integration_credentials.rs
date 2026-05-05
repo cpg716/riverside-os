@@ -7,6 +7,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const DEFAULT_DEV_CREDENTIAL_KEY: &str = "riverside-dev-credential-key-change-me";
+const DEFAULT_LEGACY_QBO_CREDENTIAL_KEY: &str = "riverside-dev-token-key-change-me";
 const CREDENTIAL_KEY_MIN_LEN: usize = 32;
 const CREDENTIAL_AEAD_PREFIX: &str = "v1:";
 
@@ -99,6 +100,26 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "RIVERSIDE_METABASE_JWT_SECRET",
     },
     IntegrationCredentialMapping {
+        integration_key: "qbo",
+        credential_key: "client_id",
+        env_key: "RIVERSIDE_QBO_CLIENT_ID",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "qbo",
+        credential_key: "client_secret",
+        env_key: "RIVERSIDE_QBO_CLIENT_SECRET",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "qbo",
+        credential_key: "access_token",
+        env_key: "RIVERSIDE_QBO_ACCESS_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "qbo",
+        credential_key: "refresh_token",
+        env_key: "RIVERSIDE_QBO_REFRESH_TOKEN",
+    },
+    IntegrationCredentialMapping {
         integration_key: "counterpoint",
         credential_key: "sync_token",
         env_key: "COUNTERPOINT_SYNC_TOKEN",
@@ -138,6 +159,26 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         credential_key: "s3_secret_key",
         env_key: "BACKUP_S3_SECRET_KEY",
     },
+    IntegrationCredentialMapping {
+        integration_key: "nuorder",
+        credential_key: "consumer_key",
+        env_key: "RIVERSIDE_NUORDER_CONSUMER_KEY",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "nuorder",
+        credential_key: "consumer_secret",
+        env_key: "RIVERSIDE_NUORDER_CONSUMER_SECRET",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "nuorder",
+        credential_key: "user_token",
+        env_key: "RIVERSIDE_NUORDER_USER_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "nuorder",
+        credential_key: "user_secret",
+        env_key: "RIVERSIDE_NUORDER_USER_SECRET",
+    },
 ];
 
 #[derive(Debug, Error)]
@@ -164,7 +205,10 @@ fn validate_key_material() -> Result<String, IntegrationCredentialError> {
         .or_else(|_| std::env::var("QBO_TOKEN_ENC_KEY"))
         .unwrap_or_default();
     let trimmed = key.trim();
-    if trimmed.len() < CREDENTIAL_KEY_MIN_LEN || trimmed == DEFAULT_DEV_CREDENTIAL_KEY {
+    if trimmed.len() < CREDENTIAL_KEY_MIN_LEN
+        || trimmed == DEFAULT_DEV_CREDENTIAL_KEY
+        || trimmed == DEFAULT_LEGACY_QBO_CREDENTIAL_KEY
+    {
         return Err(IntegrationCredentialError::InvalidPayload(format!(
             "RIVERSIDE_CREDENTIALS_KEY must be set to a non-default secret at least {CREDENTIAL_KEY_MIN_LEN} characters long before integration credentials can be saved."
         )));
@@ -372,6 +416,69 @@ pub fn is_supported_integration_credential(integration_key: &str, credential_key
     INTEGRATION_CREDENTIAL_MAPPINGS.iter().any(|mapping| {
         mapping.integration_key == integration_key && mapping.credential_key == credential_key
     })
+}
+
+fn env_key_for(integration_key: &str, credential_key: &str) -> Option<&'static str> {
+    INTEGRATION_CREDENTIAL_MAPPINGS
+        .iter()
+        .find(|mapping| {
+            mapping.integration_key == integration_key && mapping.credential_key == credential_key
+        })
+        .map(|mapping| mapping.env_key)
+}
+
+pub async fn clear_integration_credential(
+    pool: &PgPool,
+    integration_key: &str,
+    credential_key: &str,
+) -> Result<(), IntegrationCredentialError> {
+    let integration_key = validate_identifier(integration_key, "integration key")?;
+    let credential_key = validate_identifier(credential_key, "credential key")?;
+    if !is_supported_integration_credential(&integration_key, &credential_key) {
+        return Err(IntegrationCredentialError::InvalidPayload(format!(
+            "{credential_key} is not supported for {integration_key}."
+        )));
+    }
+    sqlx::query(
+        r#"
+        DELETE FROM integration_credentials
+        WHERE integration_key = $1
+          AND credential_key = $2
+        "#,
+    )
+    .bind(&integration_key)
+    .bind(&credential_key)
+    .execute(pool)
+    .await?;
+    if integration_key == "qbo" {
+        match credential_key.as_str() {
+            "client_id" => {
+                sqlx::query("UPDATE qbo_integration SET client_id = NULL")
+                    .execute(pool)
+                    .await?;
+            }
+            "client_secret" => {
+                sqlx::query("UPDATE qbo_integration SET client_secret = NULL")
+                    .execute(pool)
+                    .await?;
+            }
+            "access_token" => {
+                sqlx::query("UPDATE qbo_integration SET access_token = NULL")
+                    .execute(pool)
+                    .await?;
+            }
+            "refresh_token" => {
+                sqlx::query("UPDATE qbo_integration SET refresh_token = NULL")
+                    .execute(pool)
+                    .await?;
+            }
+            _ => {}
+        }
+    }
+    if let Some(env_key) = env_key_for(&integration_key, &credential_key) {
+        std::env::remove_var(env_key);
+    }
+    Ok(())
 }
 
 pub async fn apply_integration_credentials_to_env(

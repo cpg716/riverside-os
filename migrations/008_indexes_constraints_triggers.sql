@@ -771,7 +771,7 @@ COMMENT ON COLUMN public.products.tax_category_override IS 'Optional POS tax cla
 -- Name: COLUMN qbo_integration.client_secret; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.qbo_integration.client_secret IS 'Store in vault in production; MVP plaintext for single-tenant dev.';
+COMMENT ON COLUMN public.qbo_integration.client_secret IS 'Legacy nullable column retained for compatibility. New QuickBooks client secrets and OAuth tokens are stored encrypted in integration_credentials.';
 
 --
 -- Name: COLUMN qbo_integration.realm_id; Type: COMMENT; Schema: public; Owner: -

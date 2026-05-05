@@ -18,7 +18,7 @@ When **`PS_SLS_REP`** is not visible and `CP_SALES_REPS_QUERY` is empty, the bri
 ## Preconditions
 
 1. **Apply migrations** through `91_counterpoint_open_docs.sql` (includes `orders.counterpoint_doc_ref` and a partial unique index).
-2. Set **`COUNTERPOINT_SYNC_TOKEN`** on the server and the same value in the bridge `.env` as `COUNTERPOINT_SYNC_TOKEN`.
+2. Save **`COUNTERPOINT_SYNC_TOKEN`** in **Settings → Integrations → Counterpoint** and put the same value in the bridge `.env` as `COUNTERPOINT_SYNC_TOKEN`.
 3. Prefer **`RUN_ONCE=1`** on the bridge for a single pass per launch. Re-launching for validation/cutover rehearsal is fine; leaving the bridge in repeated polling mode is usually not.
 
 ## Preflight: exact facts operators should verify before running

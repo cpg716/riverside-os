@@ -3,6 +3,7 @@ import { RefreshCw, Save } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 interface WeatherConfig {
   enabled: boolean;
@@ -20,7 +21,6 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
   const [weatherCfg, setWeatherCfg] = useState<WeatherConfig | null>(null);
-  const [weatherApiKeyDraft, setWeatherApiKeyDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
   const fetchWeatherConfig = useCallback(async () => {
@@ -56,12 +56,10 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
           location: weatherCfg.location,
           unit_group: weatherCfg.unit_group,
           timezone: weatherCfg.timezone,
-          api_key: weatherApiKeyDraft.trim() || undefined,
         }),
       });
       if (res.ok) {
         toast("Weather configuration updated", "success");
-        setWeatherApiKeyDraft("");
         await fetchWeatherConfig();
       } else {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
@@ -69,32 +67,6 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
       }
     } catch {
       toast("Communication error with server", "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const clearWeatherApiKey = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      // Server logic: PATCH with api_key: null clears the stored key
-      const res = await fetch(`${baseUrl}/api/settings/weather`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify({ api_key: null }),
-      });
-      if (res.ok) {
-        toast("Weather API key removed (reverted to mock mode)", "success");
-        await fetchWeatherConfig();
-      } else {
-        toast("Failed to clear API key", "error");
-      }
-    } catch {
-      toast("Communication error", "error");
     } finally {
       setBusy(false);
     }
@@ -222,20 +194,20 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
           </div>
 
           <div className="sm:col-span-2 pt-4 border-t border-app-border/40 mt-2">
-            <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-2 ml-1">
-              Visual Crossing API Key {weatherCfg.api_key_configured ? "(Encrypted on server)" : ""}
-            </label>
-            <input
-              type="password"
-              className="ui-input w-full px-4 py-3 text-sm font-mono tracking-widest bg-app-bg"
-              value={weatherApiKeyDraft}
-              onChange={(e) => setWeatherApiKeyDraft(e.target.value)}
-              placeholder={weatherCfg.api_key_configured ? "••••••••••••••••" : "Paste your Timeline API key here"}
-              autoComplete="off"
+            <IntegrationCredentialsCard
+              baseUrl={baseUrl}
+              integrationKey="weather"
+              title="Visual Crossing Credentials"
+              description="Save the weather API key here. Riverside uses it only for live weather snapshots and hides it after save."
+              fields={[
+                {
+                  key: "api_key",
+                  label: "Visual Crossing API key",
+                  help: "Without a key, the server uses mock weather data.",
+                },
+              ]}
+              onSaved={fetchWeatherConfig}
             />
-            <p className="text-[9px] text-app-text-muted mt-2 font-bold uppercase tracking-wider italic opacity-60 px-1">
-              Your key is relayed only to Visual Crossing and never exposed via client-side configuration.
-            </p>
           </div>
         </div>
 
@@ -245,19 +217,8 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
             disabled={busy}
             className="ui-btn-primary h-12 px-8 text-[11px] font-black uppercase tracking-[0.2em] shadow-lg shadow-sky-500/20 hover:scale-[1.02] transition-all"
           >
-            {busy ? "Applying..." : "Commite configuration"}
+            {busy ? "Applying..." : "Commit configuration"}
           </button>
-          
-          {weatherCfg.api_key_configured && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void clearWeatherApiKey()}
-              className="h-12 px-6 rounded-2xl border-2 border-rose-500/20 text-rose-600 text-[11px] font-black uppercase tracking-[0.15em] hover:bg-rose-500 hover:text-white hover:border-rose-500 transition-all"
-            >
-              Remove Provisioned Key
-            </button>
-          )}
         </div>
       </form>
     </div>

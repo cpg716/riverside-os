@@ -3,6 +3,7 @@ import { RefreshCw, CheckCircle2, Info } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import { 
   getPodiumOAuthRedirectUri, 
   PODIUM_OAUTH_STATE_STORAGE_KEY, 
@@ -169,10 +170,12 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
           <div className="ui-panel ui-tint-warning mb-8 p-6 text-sm">
             <h4 className="font-black uppercase tracking-widest text-app-warning flex items-center gap-2">
               <Info className="h-4 w-4" />
-              Environment Provisioning Required
+              Podium Credentials Needed
             </h4>
             <p className="mt-3 leading-relaxed text-app-text-muted font-medium">
-              Outbound communication is currently offline. Ensure <code className="bg-app-surface-2 px-1 rounded">RIVERSIDE_PODIUM_CLIENT_ID</code> and <code className="bg-app-surface-2 px-1 rounded">CLIENT_SECRET</code> are provisioned on the host.
+              Outbound communication is currently offline. Save the Podium
+              client credentials below, then authorize the account through
+              Podium.
             </p>
             <button
                onClick={() => void startPodiumOAuthConnect()}
@@ -182,6 +185,51 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
             </button>
           </div>
         )}
+
+        <div className="mb-8">
+          <IntegrationCredentialsCard
+            baseUrl={baseUrl}
+            integrationKey="podium"
+            title="Podium Credentials"
+            description="Save Podium messaging credentials here. The OAuth callback now saves the refresh token back to Riverside instead of asking staff to edit environment files."
+            fields={[
+              {
+                key: "client_id",
+                label: "Client ID",
+                type: "text",
+                help: "Required before starting the Podium authorization flow.",
+              },
+              {
+                key: "client_secret",
+                label: "Client secret",
+                help: "Required before starting the Podium authorization flow.",
+              },
+              {
+                key: "refresh_token",
+                label: "Refresh token",
+                help: "Usually saved automatically after Podium authorization.",
+              },
+              {
+                key: "webhook_secret",
+                label: "Webhook signing secret",
+                help: "Used to verify incoming Podium updates.",
+              },
+              {
+                key: "api_base_url",
+                label: "API host",
+                type: "url",
+                placeholder: "https://api.podium.com",
+              },
+              {
+                key: "oauth_token_url",
+                label: "OAuth token URL",
+                type: "url",
+                placeholder: "https://api.podium.com/oauth/token",
+              },
+            ]}
+            onSaved={fetchPodiumSmsSettings}
+          />
+        </div>
 
         {podiumReadiness && (
            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">

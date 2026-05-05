@@ -1,34 +1,21 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { readPersistedBackofficeSession } from "../../lib/backofficeSessionPersistence";
 import {
   getPodiumOAuthRedirectUri,
   PODIUM_OAUTH_REDIRECT_STORAGE_KEY,
   PODIUM_OAUTH_STATE_STORAGE_KEY,
 } from "../../lib/podiumOAuth";
-import { useToast } from "../ui/ToastProviderLogic";
 
 const apiBase = getBaseUrl();
 
 type ExchangeOk = { refresh_token: string; expires_in?: number | null };
 
 export default function PodiumOAuthCallback() {
-  const { toast } = useToast();
   const [status, setStatus] = useState<
     "working" | "success" | "error"
   >("working");
   const [message, setMessage] = useState("Completing Podium sign-in…");
-  const [envLine, setEnvLine] = useState<string | null>(null);
-
-  const copyLine = useCallback(async () => {
-    if (!envLine) return;
-    try {
-      await navigator.clipboard.writeText(envLine);
-      toast("Copied to clipboard", "success");
-    } catch {
-      toast("Could not copy — select the line and copy manually", "error");
-    }
-  }, [envLine, toast]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -114,7 +101,26 @@ export default function PodiumOAuthCallback() {
         }
         if (!j.refresh_token) {
           setStatus("error");
-          setMessage("Podium connection finished without the setup details support needs.");
+          setMessage("Podium connection finished without a refresh token.");
+          return;
+        }
+        const saveResp = await fetch(
+          `${apiBase}/api/settings/integration-credentials/podium`,
+          {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({
+              credentials: {
+                refresh_token: j.refresh_token,
+              },
+            }),
+          },
+        );
+        if (!saveResp.ok) {
+          setStatus("error");
+          setMessage(
+            "Podium approved the connection, but Riverside could not save it. Return to Settings and try again.",
+          );
           return;
         }
         try {
@@ -123,10 +129,9 @@ export default function PodiumOAuthCallback() {
         } catch {
           /* ignore */
         }
-        setEnvLine(`RIVERSIDE_PODIUM_REFRESH_TOKEN=${j.refresh_token}`);
         setStatus("success");
         setMessage(
-          "Podium approved the connection. Copy the support details and give them to the system administrator.",
+          "Podium approved the connection and Riverside saved it securely.",
         );
       } catch (e) {
         console.error("Podium connection failed", e);
@@ -143,25 +148,6 @@ export default function PodiumOAuthCallback() {
           Podium Connection
         </h1>
         <p className="text-sm text-app-text-muted leading-relaxed">{message}</p>
-        {envLine ? (
-          <div className="space-y-2">
-            <details className="rounded-lg border border-app-border bg-app-surface-2 p-3">
-              <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Support details
-              </summary>
-              <pre className="mt-2 text-[11px] font-mono whitespace-pre-wrap break-all">
-                {envLine}
-              </pre>
-            </details>
-            <button
-              type="button"
-              className="ui-btn-primary px-4 py-2 text-[10px] font-black uppercase tracking-widest"
-              onClick={() => void copyLine()}
-            >
-              Copy support details
-            </button>
-          </div>
-        ) : null}
         {status === "working" ? (
           <p className="text-[10px] font-mono text-app-text-muted">Please wait…</p>
         ) : null}

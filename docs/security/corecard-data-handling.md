@@ -5,7 +5,7 @@ This document describes the current security and data-handling expectations for 
 ## Core rules
 
 - CoreCard authentication stays server-side only.
-- CoreCard secrets and tokens must remain in environment or server configuration only.
+- CoreCard secrets and tokens must be saved in Backoffice Settings through the secure integration credentials store. Deployment-time environment variables are only a fallback for technical validation.
 - No browser, PWA, or Tauri client storage may hold CoreCard credentials or tokens.
 - Raw PAN and CVV must not be stored.
 - UI-facing account values must remain masked.
@@ -87,5 +87,6 @@ The following actions must remain auditable:
 ## Operational reminders
 
 - Do not paste secrets into docs, tickets, or screenshots.
+- CoreCard runtime configuration is currently loaded when the server starts. After saving or changing live CoreCard credentials in Settings, restart the server before validating live CoreCard payment/request paths.
 - Do not enable unsigned webhook handling outside approved validation scenarios.
 - Do not share support screenshots that expose more than masked account values.

@@ -92,7 +92,7 @@ For pre-launch baseline work, regenerate and validate the baseline as a whole. F
 
 The Helcim settlement foundation is backend-only and lives in the baseline integration schema:
 
-- `integration_credentials` stores encrypted server-side integration credentials saved from Backoffice Settings. `RIVERSIDE_CREDENTIALS_KEY` (or the existing `QBO_TOKEN_ENC_KEY`) must be configured on the server before credentials can be saved; API responses expose configured status only, not raw secrets.
+- `integration_credentials` stores encrypted server-side integration credentials saved from Backoffice Settings. `RIVERSIDE_CREDENTIALS_KEY` (or the existing `QBO_TOKEN_ENC_KEY` during transition) must be configured on the server before credentials can be saved; API responses expose configured status only, not raw secrets. QBO client credentials and OAuth tokens now use this shared store, while `qbo_integration` remains the metadata row for company realm, sandbox mode, token expiry, and sync timestamps.
 - `helcim_event_log` stores durable inbound webhook events before any mutation.
 - `payment_provider_batches` stores provider batch headers by `provider` + `provider_batch_id`.
 - `payment_provider_batch_transactions` stores provider transaction membership inside a batch and links to `payment_transactions` when matched.

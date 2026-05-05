@@ -5,6 +5,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 const baseUrl = getBaseUrl();
 
@@ -209,26 +210,32 @@ export default function MeilisearchSettingsPanel() {
             <p className="font-bold text-app-warning uppercase tracking-widest text-[10px] mb-1">
               Search connection needed
             </p>
-            Search rebuild is disabled until support finishes the search
-            connection.
-            <details className="mt-2">
-              <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-app-text">
-                Support details
-              </summary>
-              <p className="mt-2">
-                Required settings:{" "}
-                <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">
-                  RIVERSIDE_MEILISEARCH_URL
-                </code>{" "}
-                and{" "}
-                <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">
-                  RIVERSIDE_MEILISEARCH_API_KEY
-                </code>
-                .
-              </p>
-            </details>
+            Search rebuild is disabled until the search host and API key are
+            saved below.
           </div>
         )}
+
+        <div className="mb-8">
+          <IntegrationCredentialsCard
+            baseUrl={baseUrl}
+            integrationKey="meilisearch"
+            title="Search Credentials"
+            description="Save the Meilisearch host and API key here so staff do not need access to server environment files."
+            fields={[
+              {
+                key: "url",
+                label: "Search host",
+                type: "url",
+                placeholder: "http://127.0.0.1:7700",
+              },
+              {
+                key: "api_key",
+                label: "API key",
+              },
+            ]}
+            onSaved={fetchStatus}
+          />
+        </div>
 
         {meiliConfigured && (
           <div className="mb-8 space-y-8">

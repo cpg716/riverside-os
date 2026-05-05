@@ -38,12 +38,13 @@ Settings appears in these sidebar groups:
 2. **Podium**
 3. **Shippo**
 4. **Helcim**
-5. **QuickBooks**
-6. **Counterpoint**
-7. **NuORDER**
-8. **Weather**
-9. **Insights**
-10. **Meilisearch**
+5. **CoreCard**
+6. **QuickBooks**
+7. **Counterpoint**
+8. **NuORDER**
+9. **Weather**
+10. **Insights**
+11. **Meilisearch**
 
 **System & Support**
 1. **Help Center**
@@ -108,9 +109,10 @@ Typical areas (labels may group differently by build):
 
 - **Visual Crossing (weather):** location, units, enable flag, API key — see [WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md).
 - **Counterpoint bridge:** Status, **Inbound staging** toggle, queue **Apply/Discard**, and **Maps**. To prevent console spam when you are away from the store, the bridge status panel will stop checking automatically after **3 failures**. Use the **[Reconnect]** button to resume monitoring.
-- **Podium (SMS + web chat):** operational SMS templates, whether to send pickup/alteration texts through Podium, **location UID**, optional **storefront widget** snippet, a **readiness** line (env + webhook flags; no live Podium call), and a visible note when **API credentials** are missing on the server. OAuth **client id / secret / refresh token** and **webhook secret** are set only on the **API host** (environment variables), not in this screen. **Staff manuals:** [podium-integration-staff-manual.md](podium-integration-staff-manual.md) (quick tasks), [Podium_Integration_Manual.md](Podium_Integration_Manual.md) (full reference). Engineers: [PLAN_PODIUM_SMS_INTEGRATION.md](../PLAN_PODIUM_SMS_INTEGRATION.md), [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md).
+- **Podium (SMS + web chat):** operational SMS templates, whether to send pickup/alteration texts through Podium, **location UID**, optional **storefront widget** snippet, readiness checks, OAuth **client id / secret / refresh token**, and **webhook secret**. Routine credentials are saved in Settings through encrypted integration credentials. **Staff manuals:** [podium-integration-staff-manual.md](podium-integration-staff-manual.md) (quick tasks), [Podium_Integration_Manual.md](Podium_Integration_Manual.md) (full reference). Engineers: [PLAN_PODIUM_SMS_INTEGRATION.md](../PLAN_PODIUM_SMS_INTEGRATION.md), [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md).
+- **CoreCard:** host credentials for RMS Charge / CoreCredit posting. Credentials are saved securely in Settings; because live CoreCard runtime configuration is loaded when the server starts, a server restart may be required before newly saved credentials are used by live CoreCard requests.
 - **Customers (CRM / hub):** **Operational SMS** (pickup / alterations) can be toggled separately from **marketing SMS** on the relationship hub and add-customer flows after migration **71** (see plan doc).
-- **Never** paste API keys or Podium/NuORDER secrets into chat or screenshots.
+- **Never** paste API keys or integration secrets into chat, notes, customer records, or screenshots. Routine integration credentials belong in Backoffice Settings. The root encryption key (`RIVERSIDE_CREDENTIALS_KEY`, with `QBO_TOKEN_ENC_KEY` only as a transitional fallback) remains a deployment-level secret.
 
 ## Help Center Manager
 

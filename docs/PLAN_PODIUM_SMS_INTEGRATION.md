@@ -11,15 +11,15 @@ Implementation plan for **(A)** **transactional / operational SMS** from Riversi
 | Area | What exists |
 |------|-------------|
 | **Schema** | Migration **`70_podium_sms_config.sql`**: `store_settings.podium_sms_config` JSONB. Migration **`71_podium_webhook_transactional_sms.sql`**: **`customers.transactional_sms_opt_in`**, **`podium_webhook_delivery`**. Migration **`99_podium_messaging_reviews.sql`**: **`podium_conversation`**, **`podium_message`**, **`customer_created_source` `podium`**, review RBAC keys (see **`PLAN_PODIUM_REVIEWS.md`**). Migration **`104_podium_message_sender_name.sql`**: **`podium_message.podium_sender_name`** (Podium-reported sender label for web/app replies without ROS **`staff_id`**). |
-| **Server** | **`server/src/logic/podium.rs`** — refresh-token OAuth (env), cached access token on **`AppState.podium_token_cache`**, E.164 normalization, **`POST {RIVERSIDE_PODIUM_API_BASE}/v4/messages`** (default `https://api.podium.com`), **`POST …/v4/messages/attachment`** (multipart image for SMS/MMS), `podium_send_ok` / `podium_send_err` tracing (no phone/body in those lines). **`wiremock`** unit test exercises token + message POST against a mock base URL. |
-| **Messaging** | **`server/src/logic/messaging.rs`** — pickup + alteration **SMS** from DB templates; Podium when **env credentials** + **`sms_send_enabled`** + **`location_uid`**. SMS allowed when **`customers.transactional_sms_opt_in` OR `customers.marketing_sms_opt_in`** (migration **71**). **Email:** operational **HTML** via Podium when **`email_send_enabled`** + same credential/location gates (pickup, alteration, appointment confirmation, loyalty redeem paths in **`messaging.rs`**); receipts and hub email use **`podium.rs`** from **`orders.rs`** / **`customers.rs`**. Web-order-only marketing boundaries remain in **[`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md)** §8. |
+| **Server** | **`server/src/logic/podium.rs`** — refresh-token OAuth using encrypted integration credentials, cached access token on **`AppState.podium_token_cache`**, E.164 normalization, **`POST {RIVERSIDE_PODIUM_API_BASE}/v4/messages`** (default `https://api.podium.com`), **`POST …/v4/messages/attachment`** (multipart image for SMS/MMS), `podium_send_ok` / `podium_send_err` tracing (no phone/body in those lines). **`wiremock`** unit test exercises token + message POST against a mock base URL. |
+| **Messaging** | **`server/src/logic/messaging.rs`** — pickup + alteration **SMS** from DB templates; Podium when encrypted credentials are configured + **`sms_send_enabled`** + **`location_uid`**. SMS allowed when **`customers.transactional_sms_opt_in` OR `customers.marketing_sms_opt_in`** (migration **71**). **Email:** operational **HTML** via Podium when **`email_send_enabled`** + same credential/location gates (pickup, alteration, appointment confirmation, loyalty redeem paths in **`messaging.rs`**); receipts and hub email use **`podium.rs`** from **`orders.rs`** / **`customers.rs`**. Web-order-only marketing boundaries remain in **[`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md)** §8. |
 | **Settings API** | **`GET` / `PATCH /api/settings/podium-sms`**, **`GET /api/settings/podium-sms/readiness`** (`settings.admin`) — readiness summarizes env flags, webhook secret presence, DB toggles, and **`location_uid`** without calling Podium. |
 | **Webhooks** | **`POST /api/webhooks/podium`** — raw body; verifies **`podium-timestamp`** + **`podium-signature`** when **`RIVERSIDE_PODIUM_WEBHOOK_SECRET`** is set; optional dev escape **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`**. **`podium_webhook_delivery`** (migration **71**) idempotency. On **accept**, **`podium_inbound::ingest_from_webhook`** runs unless **`RIVERSIDE_PODIUM_INBOUND_DISABLED`** is truthy — persists **`podium_message`** (**`inbound`** or **`outbound`**, **`podium_sender_name`** on staff-originated Podium sends when JSON includes a name). **Customer-originated** messages: optional stub customer, welcome/name-capture, **`podium_sms_inbound`** / **`podium_email_inbound`** notifications + fan-out. **Staff-originated** Podium sends (no ROS user row): no new-contact notifications, no stub on unmatched contact — **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**. |
 | **Public API** | **`GET /api/public/storefront-embeds`** — unauthenticated JSON for public builds to inject widget snippet when enabled. |
 | **Client** | **Settings → Integrations → Podium** — credentials-missing callout, parallel **readiness** strip, **`data-testid="podium-sms-settings-section"`** for E2E. Customer hub + add-customer + profile completion: **operational SMS** checkbox. **`StorefrontEmbedHost`** when **`VITE_STOREFRONT_EMBEDS=true`**. Playwright: **`client/e2e/podium-settings.spec.ts`**. |
 | **POS receipts** | After checkout, **`ReceiptSummaryModal`**: **Email receipt** → **`POST /api/orders/{id}/receipt/send-email`** (inline HTML via Podium); **gift** variant + line subset via JSON **`gift`** / **`order_item_ids`**. **Text receipt** → **`POST …/receipt/send-sms`** with optional **PNG** (`png_base64`) for **`/v4/messages/attachment`**, else plain SMS — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**. |
 | **Docs** | **`docs/PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`** — CSP / privacy checklist for the storefront widget. **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`** — Receipt settings + Podium delivery. |
-| **Secrets / env** | **`RIVERSIDE_PODIUM_CLIENT_ID`**, **`RIVERSIDE_PODIUM_CLIENT_SECRET`**, **`RIVERSIDE_PODIUM_REFRESH_TOKEN`**; optional **`RIVERSIDE_PODIUM_OAUTH_TOKEN_URL`**, **`RIVERSIDE_PODIUM_API_BASE`**, **`RIVERSIDE_PODIUM_WEBHOOK_SECRET`**, **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`**, **`RIVERSIDE_PODIUM_INBOUND_DISABLED`**. Client optional **`VITE_PODIUM_OAUTH_REDIRECT_URI`**. See **`server/.env.example`**, **`client/.env.example`**. |
+| **Secrets / Settings** | Routine Podium credentials are saved through **Settings → Integrations → Podium** and stored in encrypted integration credentials. Deployment env is still valid for root encryption key setup and non-secret runtime flags such as **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`** / **`RIVERSIDE_PODIUM_INBOUND_DISABLED`**. Client optional **`VITE_PODIUM_OAUTH_REDIRECT_URI`** remains a build/runtime setting. |
 
 **Polish / gaps:** Optional: persist a **`podium_message`** row for **every** automated send in **`messaging.rs`** (inbound + hub replies already store messages). **`sms.templates`** RBAC split still uses **`settings.admin`**. Dedicated **online store** route in-repo (beyond embed) remains **out of scope** unless **`PLAN_ONLINE_STORE_MODULE.md`** expands storefront SMS.
 
@@ -150,11 +150,11 @@ Per [Get Started](https://docs.podium.com/docs/getting-started):
    - Token URL: `https://api.podium.com/oauth/token`
 5. Obtain **`locationUid`** (or equivalent) for the store — first API call example in docs: `GET https://api.podium.com/v4/locations`.
 
-### Obtaining `RIVERSIDE_PODIUM_REFRESH_TOKEN` (Settings UI)
+### Saving Podium OAuth credentials (Settings UI)
 
 1. In the Podium developer app, register a redirect URI that matches what the client will send — typically **`${staff-app-origin}/callback`** (e.g. **`http://localhost:5173/callback`** in Vite dev, or **`https://<host>/callback`** in production). Podium’s portal may require **HTTPS** for some setups; if it does, use Vite **`server.https`**, a tunnel, and optional **`VITE_PODIUM_OAUTH_REDIRECT_URI`** (see **`client/.env.example`**).
-2. Set **`RIVERSIDE_PODIUM_CLIENT_ID`** and **`RIVERSIDE_PODIUM_CLIENT_SECRET`** on the API host.
-3. **Back Office → Settings → Integrations → Podium → Connect Podium** (or **Connect Podium (refresh token)**). After authorization, the client route **`/callback`** exchanges the code **on the server** (client secret never in the browser) and displays **`RIVERSIDE_PODIUM_REFRESH_TOKEN=…`** to paste into **`server/.env`** and restart the API.
+2. Save the Podium **Client ID** and **Client Secret** in **Back Office → Settings → Integrations → Podium**.
+3. **Back Office → Settings → Integrations → Podium → Connect Podium** (or **Connect Podium (refresh token)**). After authorization, the client route **`/callback`** exchanges the code **on the server** (client secret never in the browser) and saves the refresh token through the encrypted integration credentials endpoint.
 
 The API accepts **`https://…/callback`** and loopback **`http://localhost|127.0.0.1…/callback`** for the authorize + exchange steps (see **`server/src/logic/podium.rs`**).
 
@@ -168,13 +168,13 @@ Store **refresh token** (and access token + expiry) securely server-side; refres
 
 | Layer | Responsibility (as implemented) |
 |--------|-----------------------------------|
-| **`server/src/logic/podium.rs`** | OAuth refresh (env credentials), cached token on **`AppState`**, `try_send_operational_sms` → **`POST {api_base}/v4/messages`**, structured errors / tracing |
+| **`server/src/logic/podium.rs`** | OAuth refresh using encrypted integration credentials, cached token on **`AppState`**, `try_send_operational_sms` → **`POST {api_base}/v4/messages`**, structured errors / tracing |
 | **`server/src/logic/messaging.rs`** | **SMS:** templates + Podium send when enabled (same gates as product). **Email:** operational HTML via Podium when **`email_send_enabled`** + credentials (**pickup, alteration, appointments, loyalty**, etc.). |
 | **`server/src/logic/podium_webhook.rs`** | HMAC verification, idempotent **`podium_webhook_delivery`**; on accept, **`podium_inbound`** unless **`RIVERSIDE_PODIUM_INBOUND_DISABLED`** |
 | **`server/src/api/webhooks.rs`** | **`POST /api/webhooks/podium`** (unsigned public route; verify via headers + secret) |
 | **`AppState` / `main.rs`** | **`podium_token_cache`**; HTTP client shared with other integrations |
 | **Store settings** | **`podium_sms_config`** JSONB: **`sms_send_enabled`**, **`location_uid`**, widget fields, **`templates`** |
-| **`.env` / deployment** | **`RIVERSIDE_PODIUM_*`** + **`RIVERSIDE_PODIUM_INBOUND_DISABLED`** — **`server/.env.example`** |
+| **Settings / deployment** | Routine Podium credentials live in Backoffice Settings. Deployment still owns the root encryption key and non-secret runtime flags such as **`RIVERSIDE_PODIUM_INBOUND_DISABLED`**. |
 
 ### Ingest, storage, CRM UI — **shipped** (**99**+); remaining polish
 
@@ -270,7 +270,7 @@ Podium typically provides a **JavaScript snippet** (or tag manager instructions)
 
 ## Documentation updates
 
-- **`DEVELOPER.md`**: env vars (**`RIVERSIDE_PODIUM_*`**, **`VITE_STOREFRONT_EMBEDS`**), API rows (**`/api/settings`** incl. **`/podium-sms/readiness`**, **`/api/webhooks/podium`**, **`/api/public`**), migrations **70–71**, auth matrix for **`/api/public/storefront-embeds`** (webhooks unsigned + signature verification) — updated.
+- **`DEVELOPER.md`**: Settings-managed Podium credentials, runtime flags (**`VITE_STOREFRONT_EMBEDS`**, webhook/inbound toggles), API rows (**`/api/settings`** incl. **`/podium-sms/readiness`**, **`/api/webhooks/podium`**, **`/api/public`**), migrations **70–71**, auth matrix for **`/api/public/storefront-embeds`** (webhooks unsigned + signature verification) — updated.
 - **`README.md`**, **`AGENTS.md`**, **`server/.env.example`**, **`.cursorrules`**, **`.cursor/cursorinfo.md`**, **`docs/PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`**: migrations **70–71**, env names, file map — updated.
 - **`docs/staff/settings-back-office.md`**: Integrations tab (weather + Podium) — updated.
 - **`docs/PLAN_NOTIFICATION_CENTER.md`**: deferred checkbox clarifies **inbound** vs shipped **outbound** — updated.

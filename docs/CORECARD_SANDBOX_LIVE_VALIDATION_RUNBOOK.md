@@ -36,27 +36,27 @@ What still must be validated against real CoreCard behavior:
 Riverside processes and services:
 
 - PostgreSQL with the current migrations applied
-- `server/` API running with the CoreCard env vars loaded
+- `server/` API running after CoreCard credentials were saved in **Settings → Integrations → CoreCard**
 - `client/` UI running against that API
 - background CoreCard repair polling enabled in the server process
 - webhook delivery route reachable from the CoreCard sandbox/live environment:
   - `POST /api/webhooks/corecard`
   - `POST /api/integrations/corecard/webhooks`
 
-Required CoreCard env vars:
+Required CoreCard credentials in Settings:
 
 - `RIVERSIDE_CORECARD_BASE_URL`
 - `RIVERSIDE_CORECARD_CLIENT_ID`
 - `RIVERSIDE_CORECARD_CLIENT_SECRET`
+- `RIVERSIDE_CORECARD_WEBHOOK_SECRET`
+
+Recommended CoreCard runtime flags to confirm before validation:
+
 - `RIVERSIDE_CORECARD_REGION`
 - `RIVERSIDE_CORECARD_ENVIRONMENT`
-
-Recommended CoreCard env vars to confirm before validation:
-
 - `RIVERSIDE_CORECARD_TIMEOUT_SECS`
 - `RIVERSIDE_CORECARD_REDACTION`
 - `RIVERSIDE_CORECARD_LOG_PAYLOADS`
-- `RIVERSIDE_CORECARD_WEBHOOK_SECRET`
 - `RIVERSIDE_CORECARD_WEBHOOK_ALLOW_UNSIGNED`
 - `RIVERSIDE_CORECARD_REPAIR_POLL_SECS`
 - `RIVERSIDE_CORECARD_SNAPSHOT_RETENTION_DAYS`
@@ -98,9 +98,11 @@ Sample linked-data expectations:
 
 ## Secret handling
 
-Credentials belong only in:
+Routine live/sandbox credentials belong in **Settings → Integrations → CoreCard**, which stores them in encrypted integration credentials. Deployment/runtime secret stores are acceptable for controlled technical validation, but do not use environment files as the routine staff/admin setup path.
 
-- `server/.env` for local operator validation
+Credentials may only appear in:
+
+- Backoffice Settings secure credential fields
 - deployment/runtime secret stores for hosted validation
 - CI/secret-management systems if a controlled remote validation pass is later required
 
@@ -120,7 +122,7 @@ Safe confirmation steps:
 
 Rotation/removal after validation:
 
-- remove sandbox/live credentials from local `server/.env`
+- clear or replace sandbox/live credentials in Backoffice Settings and restart the server
 - rotate test credentials if they were shared with multiple operators
 - rotate webhook secrets if a temporary test secret was created
 - capture who used the credentials and when validation occurred
@@ -151,7 +153,7 @@ Do not run live financial actions out of order.
 
 Preconditions:
 
-- `server/.env` or runtime env is populated
+- CoreCard credentials are saved in Settings and the server has been restarted since the latest credential change
 - operator has shell access to the Riverside host
 
 Action:
@@ -192,7 +194,7 @@ Rollback/recovery:
 
 Preconditions:
 
-- Riverside API running with CoreCard env vars
+- Riverside API running after CoreCard credentials were saved in Settings and the server was restarted
 - one operator with Back Office RMS visibility
 
 Action:
@@ -774,13 +776,12 @@ How to disable webhook processing safely:
 How to revert env changes:
 
 - stop the server
-- restore the prior `server/.env`
-- remove temporary sandbox/live values
+- restore the prior CoreCard credentials in Settings if you changed them for validation
 - restart the server in normal local or fake-host mode
 
 How to switch back to fake-host/local mode:
 
-- unset sandbox/live CoreCard credentials from `server/.env`
+- clear or replace sandbox/live CoreCard credentials in Settings, then restart the server
 - run `npm run dev:e2e`
 - use the fake-host Playwright suite again
 

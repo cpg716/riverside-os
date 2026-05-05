@@ -52,9 +52,9 @@ POS and Back Office may use **merged staff + register** headers on some routes s
 
 ### 3.1 Connect API credentials
 
-Podium needs **OAuth app** credentials and a **refresh token** on the **server** (environment variables). In the UI:
+Podium needs **OAuth app** credentials and a **refresh token** saved securely on the server. Routine credential setup now happens in **Back Office → Settings → Integrations → Podium**. The only credential-related environment setup admins should not manage in the UI is the root encryption key (`RIVERSIDE_CREDENTIALS_KEY`, with `QBO_TOKEN_ENC_KEY` only as a transitional fallback).
 
-1. Confirm **env credentials present** (pill on the card). If missing, an admin must set server env vars (see section 11).
+1. Confirm the credentials card shows the required values as **Saved**. If missing, an admin can enter or update them in this Settings screen.
 2. Register the **redirect URI** from the screen in Podium’s developer app. It must match **exactly** (including `http` vs `https`). For local dev, a tunnel or `VITE_PODIUM_OAUTH_REDIRECT_URI` on the client may be required if Podium only allows HTTPS.
 3. Click **Connect Podium (get refresh token)** (or connect again to refresh). Complete Podium’s login/consent flow; Riverside exchanges the code for tokens server-side.
 
@@ -152,7 +152,7 @@ When Podium is configured and toggles are on, Riverside may send without a secon
 | Appointment confirmation | Email | Triggered from wedding/appointment flows when the server calls the messaging service. |
 | Loyalty reward redeemed | SMS and/or email | Cashier checkboxes on redeem; still require customer opt-in for automated SMS where applicable. |
 
-If something should have sent but did not, verify: **env credentials**, **location UID**, **toggle**, **customer phone/email**, **opt-in**, and server logs (admins).
+If something should have sent but did not, verify: **Settings credentials**, **location UID**, **toggle**, **customer phone/email**, **opt-in**, and server logs (admins).
 
 ---
 
@@ -216,9 +216,9 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 
 ## 11. Environment variables (reference for admins / IT)
 
-Set on the **API server** (never commit secrets):
+Manage routine Podium credentials in **Settings → Integrations → Podium** (never commit secrets):
 
-| Variable | Role |
+| Credential / setting | Role |
 |----------|------|
 | **`RIVERSIDE_PODIUM_CLIENT_ID`** / **`CLIENT_SECRET`** | OAuth app |
 | **`RIVERSIDE_PODIUM_REFRESH_TOKEN`** | Long-lived refresh from Connect flow |

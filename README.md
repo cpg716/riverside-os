@@ -92,37 +92,37 @@ Environment variables:
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://postgres:password@localhost:5433/riverside_os` | Must match Docker `db` host port (**5433** avoids conflict with native Postgres on 5432; see `server/.env.example`) |
-| `HELCIM_API_TOKEN` | unset | Helcim API token for server-side payment calls. Strict production requires a configured non-placeholder token. |
-| `HELCIM_DEVICE_CODE` | unset | Helcim terminal device code for card-present checkout. Strict production requires a configured non-placeholder device code. |
-| `HELCIM_WEBHOOK_SECRET` | unset | Optional Helcim webhook signing secret. When unset, inbound Helcim webhook verification is rejected. |
-| `QBO_TOKEN_ENC_KEY` | unset | Required before QBO credentials can be activated. Must be non-default and at least 32 characters; strict production startup refuses missing/default values. New QBO OAuth tokens are stored with authenticated `v2:` wrapping. |
+| `HELCIM_API_TOKEN` | unset | Deployment fallback for Helcim API token. Routine Helcim credentials should be saved in Backoffice Settings. Strict production requires configured non-placeholder Helcim credentials. |
+| `HELCIM_DEVICE_CODE` | unset | Deployment fallback for Helcim terminal device code. Routine device setup should be saved in Backoffice Settings. Strict production requires a configured non-placeholder device code. |
+| `HELCIM_WEBHOOK_SECRET` | unset | Deployment fallback for Helcim webhook signing secret. Routine webhook secret setup should be saved in Backoffice Settings. When unset, inbound Helcim webhook verification is rejected. |
+| `RIVERSIDE_CREDENTIALS_KEY` | unset | Root encryption key for Backoffice-managed integration credentials, including QBO client credentials and OAuth tokens. Must be non-default and at least 32 characters before credentials can be saved. `QBO_TOKEN_ENC_KEY` remains accepted as a transitional fallback. |
 | `RIVERSIDE_BACKUP_DIR` | `backups` | Local backup directory. Strict production requires this to be set to an absolute, durable path; Settings and ROS Dev Center show the effective path. |
 | `VITE_API_BASE` | unset → same-origin in browser/PWA, else `http://127.0.0.1:3000` fallback for non-HTTP shells | API origin for client; set explicitly for production when UI and API are on different origins |
 | `VITE_STOREFRONT_EMBEDS` | _(unset)_ | When **`true`**, loads **`GET /api/public/storefront-embeds`** once (Podium widget when configured) — public storefront builds only — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
 | `VITE_PODIUM_OAUTH_REDIRECT_URI` | _(unset)_ | Optional. Override Podium OAuth callback URL (must match Podium app); default is **`${origin}/callback`** — **`client/.env.example`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
-| `RIVERSIDE_PODIUM_CLIENT_ID` | _(unset)_ | Podium OAuth client id; pair with secret + refresh token — **`DEVELOPER.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
-| `RIVERSIDE_PODIUM_CLIENT_SECRET` | _(unset)_ | Podium OAuth client secret (never log) |
-| `RIVERSIDE_PODIUM_REFRESH_TOKEN` | _(unset)_ | Podium OAuth refresh token (never log) |
+| `RIVERSIDE_PODIUM_CLIENT_ID` | _(unset)_ | Deployment fallback for Podium OAuth client id; routine setup belongs in Backoffice Settings — **`DEVELOPER.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
+| `RIVERSIDE_PODIUM_CLIENT_SECRET` | _(unset)_ | Deployment fallback for Podium OAuth client secret; never log. |
+| `RIVERSIDE_PODIUM_REFRESH_TOKEN` | _(unset)_ | Deployment fallback for Podium OAuth refresh token; routine OAuth callback saves it through Backoffice Settings. Never log. |
 | `RIVERSIDE_PODIUM_OAUTH_TOKEN_URL` | _(unset)_ | Optional; defaults to **`{RIVERSIDE_PODIUM_API_BASE or https://api.podium.com}/oauth/token`** — **`DEVELOPER.md`**, **`server/.env.example`** |
 | `RIVERSIDE_PODIUM_API_BASE` | _(unset)_ | Optional REST API origin (no trailing slash); default **`https://api.podium.com`** — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
-| `RIVERSIDE_PODIUM_WEBHOOK_SECRET` | _(unset)_ | **`POST /api/webhooks/podium`** HMAC secret when set — **`server/.env.example`** |
+| `RIVERSIDE_PODIUM_WEBHOOK_SECRET` | _(unset)_ | Deployment fallback for **`POST /api/webhooks/podium`** HMAC secret; routine setup belongs in Backoffice Settings. |
 | `RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED` | _(unset)_ | Dev only: accept unsigned webhooks when secret unset — **`server/.env.example`** |
 | `RIVERSIDE_PODIUM_INBOUND_DISABLED` | _(unset)_ | When truthy, **`POST /api/webhooks/podium`** skips CRM ingest (threads + notifications); idempotent webhook ledger still accepts deliveries — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
 | `RUST_LOG` | `riverside_server=info,warn` | Structured log level |
 | `OTEL_*` / `RIVERSIDE_OTEL_ENABLED` | _(unset)_ | Optional **OTLP** distributed traces — [`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md), [`server/.env.example`](server/.env.example) |
 | `RIVERSIDE_MAX_BODY_BYTES` | _(unset)_ | Optional cap override for large **`POST /api/products/import`** bodies (`DEVELOPER.md`, **`docs/CATALOG_IMPORT.md`**) |
 | `RIVERSIDE_DATABASE_MAX_CONNECTIONS` | `20` | Optional PostgreSQL pool cap for API + background jobs. Values outside `5..=100` fall back to `20`. |
-| `RIVERSIDE_VISUAL_CROSSING_API_KEY` | _(unset)_ | Optional; overrides DB weather key — see **`docs/WEATHER_VISUAL_CROSSING.md`**, **`server/.env.example`** |
+| `RIVERSIDE_VISUAL_CROSSING_API_KEY` | _(unset)_ | Optional deployment fallback for the Weather Settings API key — see **`docs/WEATHER_VISUAL_CROSSING.md`** |
 | `RIVERSIDE_VISUAL_CROSSING_ENABLED` | _(unset)_ | Optional; force live weather on/off — see **`docs/WEATHER_VISUAL_CROSSING.md`** |
-| `RIVERSIDE_MEILISEARCH_URL` | _(unset)_ | Optional; e.g. `http://127.0.0.1:7700` when **`docker compose`** **`meilisearch`** is up — enables fuzzy catalog/CRM/inventory/transaction search with SQL hydration + fallback — **`docs/SEARCH_AND_PAGINATION.md`**, **`server/.env.example`** |
-| `RIVERSIDE_MEILISEARCH_API_KEY` | _(unset)_ | Optional; Meilisearch master/API key when the instance requires auth (match **`MEILI_MASTER_KEY`** in Compose for local dev) |
+| `RIVERSIDE_MEILISEARCH_URL` | _(unset)_ | Optional deployment fallback; routine Meilisearch host setup belongs in Backoffice Settings. Enables fuzzy catalog/CRM/inventory/transaction search with SQL hydration + fallback — **`docs/SEARCH_AND_PAGINATION.md`** |
+| `RIVERSIDE_MEILISEARCH_API_KEY` | _(unset)_ | Optional deployment fallback for Meilisearch master/API key when the instance requires auth; routine setup belongs in Backoffice Settings. |
 | `RIVERSIDE_METABASE_ADMIN_EMAIL` / `RIVERSIDE_METABASE_ADMIN_PASSWORD` | _(unset)_ | Optional local shared-auth credentials used by **`/api/insights/metabase-launch`** when JWT SSO is off. Put these in **`server/.env`** if you expect automatic Metabase sign-in for Admin staff in local/RC runs. |
 | `RIVERSIDE_METABASE_STAFF_EMAIL` / `RIVERSIDE_METABASE_STAFF_PASSWORD` | _(unset)_ | Optional local shared-auth credentials used by **`/api/insights/metabase-launch`** when JWT SSO is off. Put these in **`server/.env`** if you expect automatic Metabase sign-in for staff-class Metabase sessions in local/RC runs. |
 | `RIVERSIDE_LLAMA_UPSTREAM` | _(unset)_ | **Planned** (**ROSIE**): Axum BFF upstream for **`POST /api/help/rosie/v1/chat/completions`** — **`docs/PLAN_LOCAL_LLM_HELP.md`** § Ship decision |
 | `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **Planned** (**ROSIE**): Tauri **direct** loopback vs **Axum** fallback — same doc; full table **`DEVELOPER.md`** |
 | `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | `7` | Optional; local hour (0–23) for admin morning notification digest — **`DEVELOPER.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`** |
 
-Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, configured **`HELCIM_API_TOKEN`** and **`HELCIM_DEVICE_CODE`**, an absolute **`RIVERSIDE_BACKUP_DIR`**, and a non-default **`QBO_TOKEN_ENC_KEY`** before QBO activation. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory.
+Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, configured Helcim credentials through Backoffice Settings, an absolute **`RIVERSIDE_BACKUP_DIR`**, and a non-default **`RIVERSIDE_CREDENTIALS_KEY`** before integration credentials can be saved. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory.
 
 ## Quality checks
 

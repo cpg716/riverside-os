@@ -281,7 +281,7 @@ Reconciliation runs and mismatch items are stored in:
 
 CoreCard authentication is token-based and remains server-side only.
 
-Riverside stores and uses CoreCard credentials only from environment or server configuration. Those credentials are never sent to the browser, local storage, or client logs.
+Riverside stores CoreCard credentials in the encrypted integration credentials store managed from Backoffice Settings. Those credentials are never sent to the browser, local storage, or client logs. The live CoreCard runtime configuration is currently loaded at server startup, so newly saved credentials may require a server restart before live CoreCard payment/request paths use them.
 
 ### Sensitive data handling
 

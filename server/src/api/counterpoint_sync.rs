@@ -39,7 +39,15 @@ fn validate_sync_token(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
-    let Some(expected) = state.counterpoint_sync_token.as_deref() else {
+    let env_token = std::env::var("COUNTERPOINT_SYNC_TOKEN")
+        .ok()
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty());
+    let expected = state
+        .counterpoint_sync_token
+        .as_deref()
+        .or(env_token.as_deref());
+    let Some(expected) = expected else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({
@@ -794,7 +802,11 @@ async fn settings_status(
     middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
         .await
         .map_err(map_perm)?;
-    let token_configured = state.counterpoint_sync_token.is_some();
+    let token_configured = state.counterpoint_sync_token.is_some()
+        || std::env::var("COUNTERPOINT_SYNC_TOKEN")
+            .ok()
+            .map(|token| !token.trim().is_empty())
+            .unwrap_or(false);
     match counterpoint_sync::get_sync_status(&state.db, token_configured).await {
         Ok(resp) => Ok(Json(serde_json::to_value(resp).unwrap_or_default())),
         Err(e) => Err((

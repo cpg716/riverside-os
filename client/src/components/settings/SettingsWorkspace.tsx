@@ -45,9 +45,11 @@ import NuorderSettingsPanel from "./NuorderSettingsPanel";
 import WeatherSettingsPanel from "./WeatherSettingsPanel";
 import PodiumSettingsPanel from "./PodiumSettingsPanel";
 import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
 import ShippoSettingsPanel from "./ShippoSettingsPanel";
 import HelcimSettingsPanel from "./HelcimSettingsPanel";
+import CoreCardSettingsPanel from "./CoreCardSettingsPanel";
 import IntegrationBrandLogo, { type IntegrationBrand } from "../ui/IntegrationBrandLogo";
 import RemoteAccessPanel from "./RemoteAccessPanel";
 import RegisterSettings from "../pos/RegisterSettings";
@@ -145,6 +147,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   podium: "Podium messaging, review invites, and communication readiness.",
   shippo: "Shipping account setup, carrier rates, and label configuration.",
   helcim: "Helcim payments, terminal readiness, and card processing setup.",
+  corecard: "CoreCard host credentials for RMS Charge and CoreCredit posting.",
   quickbooks: "QuickBooks connection settings and accounting bridge controls.",
   counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
   nuorder: "NuORDER catalog and vendor sync configuration.",
@@ -846,7 +849,7 @@ export default function SettingsWorkspace({
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                          <div className="space-y-4">
+                            <div className="space-y-4">
                             <label className="block">
                               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                                 Retention Policy (Days)
@@ -960,6 +963,24 @@ export default function SettingsWorkspace({
                                 disabled={!backupCfg.cloud_storage_enabled}
                               />
                             </div>
+                            <IntegrationCredentialsCard
+                              baseUrl={baseUrl}
+                              integrationKey="backups"
+                              title="Cloud Backup Credentials"
+                              description="Save the off-site storage access keys here. Backup jobs use the saved keys without staff editing server environment files."
+                              fields={[
+                                {
+                                  key: "s3_access_key",
+                                  label: "S3 access key",
+                                  help: "Required when off-site storage is enabled.",
+                                },
+                                {
+                                  key: "s3_secret_key",
+                                  label: "S3 secret key",
+                                  help: "Hidden after save.",
+                                },
+                              ]}
+                            />
                           </div>
                         </div>
                       </section>
@@ -1101,6 +1122,14 @@ export default function SettingsWorkspace({
                       brand: "helcim" as IntegrationBrand,
                       brandKind: "icon" as const,
                     },
+                    {
+                      id: "corecard",
+                      label: "CoreCard",
+                      desc: "RMS Charge host credentials",
+                      color: "bg-white",
+                      brand: "corecredit" as IntegrationBrand,
+                      brandKind: "icon" as const,
+                    },
                   ] satisfies IntegrationCardItem[]).map((item) => (
                     <button
                       type="button"
@@ -1179,11 +1208,8 @@ export default function SettingsWorkspace({
                           <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
                             docs/COUNTERPOINT_SYNC_GUIDE.md
                           </code>
-                          . Server token:{" "}
-                          <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                            COUNTERPOINT_SYNC_TOKEN
-                          </code>
-                          .
+                          . Save the bridge token in this workspace so staff do
+                          not need server environment file access.
                         </p>
                       </div>
                     </div>
@@ -1270,6 +1296,10 @@ export default function SettingsWorkspace({
 
             {activeTab === "helcim" && hasPermission("settings.admin") && (
               <HelcimSettingsPanel />
+            )}
+
+            {activeTab === "corecard" && hasPermission("settings.admin") && (
+              <CoreCardSettingsPanel baseUrl={baseUrl} />
             )}
 
             {activeTab === "receipt-builder" && (

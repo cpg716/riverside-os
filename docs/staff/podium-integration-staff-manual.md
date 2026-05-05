@@ -43,7 +43,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 1. Sign in with a role that can open **Settings** → **Integrations**.
 2. Open **Podium (SMS + web chat)**.
 3. Check the **readiness** strip: credentials, webhook (IT), **location UID** filled in, and **Send operational SMS** / **email** toggles as your SOP requires.
-4. If the card says **credentials missing**, you cannot fix that in the UI—**IT** sets server environment variables. Use **Connect Podium** only after IT says the app is registered and secrets are in place.
+4. If the card says **credentials missing**, an admin can save or update the Podium credentials in this Settings screen. Use **Connect Podium** only after the app credentials are saved and the redirect URI is registered in Podium.
 
 ### Admin: change pickup or alteration message wording
 
@@ -137,7 +137,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
 ## See also
 
-- [Podium_Integration_Manual.md](Podium_Integration_Manual.md) — full capability list, env vars, webhook checklist.
+- [Podium_Integration_Manual.md](Podium_Integration_Manual.md) — full capability list, Settings credential flow, webhook checklist.
 - [settings-back-office.md](settings-back-office.md) — Settings tabs overview.
 - [customers-back-office.md](customers-back-office.md) — Customers workspace.
 - [pos-register-cart.md](pos-register-cart.md) — Register and receipt flow.

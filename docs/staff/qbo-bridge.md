@@ -16,10 +16,12 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 **Purpose:** Link the store’s QBO company and confirm **OAuth** health.
 
-1. **QBO bridge** → **Connection**.
-2. Verify **connected** state and **company** name match expectation.
-3. If **token expired**, use **reconnect** / refresh flow per UI (often requires **admin** login to Intuit).
-4. Never share **client secret** in chat; use **Settings** or env per IT.
+1. **Settings** → **QuickBooks Online** → save or update the **Client ID** and **Client Secret** in the secure credentials card.
+2. Save the **Realm ID / company ID** and sandbox setting in the same Settings panel.
+3. **QBO bridge** → **Connection**.
+4. Verify **connected** state and **company** name match expectation.
+5. If **token expired**, use **reconnect** / refresh flow per UI (often requires **admin** login to Intuit).
+6. Never share **client secret** in chat. Routine QBO credential updates belong in Backoffice Settings, not environment files.
 
 ## Mappings
 

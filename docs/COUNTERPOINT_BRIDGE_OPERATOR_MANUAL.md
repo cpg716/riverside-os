@@ -37,13 +37,11 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
 
    Minimum Counterpoint-related chain includes **84** (heartbeat, issues, maps), **85** (provenance), **86+** staff/vendor items as your build ships them, and **95** (`counterpoint_staging_batch`, `store_settings.counterpoint_config`).
 
-2. **Server env** (`server/.env`):
+2. **ROS sync token**:
 
-   ```env
-   COUNTERPOINT_SYNC_TOKEN=<long random secret>
-   ```
+   Generate a long random token and save it in **Settings → Integrations → Counterpoint**. Put the same value in the Counterpoint bridge `.env` as `COUNTERPOINT_SYNC_TOKEN`.
 
-   Restart the API after setting or changing it. Never log the token.
+   Never log the token. Routine ROS-side token updates belong in Backoffice Settings; the bridge `.env` is still required because the bridge runs outside ROS.
 
 3. **Network**: from the Counterpoint PC, `ROS_BASE_URL` must reach the machine **running the HTTP API** (e.g. `http://192.168.x.x:3000`), not the Postgres port.
 
@@ -62,7 +60,7 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
    |----------|---------|
    | `SQL_CONNECTION_STRING` | Counterpoint **company** database (not `master`). |
    | `ROS_BASE_URL` | Base URL of ROS API (no trailing slash). |
-   | `COUNTERPOINT_SYNC_TOKEN` | **Exact match** to server `COUNTERPOINT_SYNC_TOKEN`. |
+   | `COUNTERPOINT_SYNC_TOKEN` | **Exact match** to the token saved in **Settings → Integrations → Counterpoint**. |
 
 5. Run **`START_BRIDGE.cmd`** or `node index.mjs`.
 
@@ -238,7 +236,7 @@ From repo root, pack a fresh zip:
 
    (Or your hosted equivalent: run new `migrations/NN_*.sql` in order and insert ledger rows per your procedure.)
 
-3. Restart the API so `COUNTERPOINT_SYNC_TOKEN` and code match.
+3. Confirm the token saved in **Settings → Integrations → Counterpoint** matches the bridge `.env`.
 4. **Smoke test** (replace token and host):
 
    ```bash

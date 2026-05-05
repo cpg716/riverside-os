@@ -70,7 +70,7 @@ Target: Hybrid Tauri Host retail deployment.
 - [ ] `DATABASE_URL` points to the intended production PostgreSQL.
 - [ ] `RIVERSIDE_STRICT_PRODUCTION=true` where browser/PWA access is enabled.
 - [ ] `RIVERSIDE_CORS_ORIGINS`, `FRONTEND_DIST`, and storefront JWT secret are configured where applicable.
-- [ ] `QBO_TOKEN_ENC_KEY` is configured and non-default before QBO activation.
+- [ ] `RIVERSIDE_CREDENTIALS_KEY` is configured and non-default before saving Backoffice integration credentials, including QBO.
 - [ ] `RIVERSIDE_BACKUP_DIR` is set to an absolute durable path, writable, and visible to operators in Settings and ROS Dev Center.
 
 ## Register Drill

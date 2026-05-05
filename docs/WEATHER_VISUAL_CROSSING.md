@@ -13,10 +13,10 @@ These are read in **`server/src/logic/weather.rs`** via **`merge_weather_env_ove
 
 | Env var | Notes |
 |---------|--------|
-| **`RIVERSIDE_VISUAL_CROSSING_API_KEY`** | When non-empty, **replaces** `weather_config.api_key` for all Timeline calls. Never log this value. Prefer `server/.env` (see **`server/.env.example`**) or a secret manager in production — do not commit real keys. |
+| **`RIVERSIDE_VISUAL_CROSSING_API_KEY`** | Deployment fallback only. Routine Visual Crossing API key setup should be managed in **Settings → Integrations → Weather**, where the key is stored through encrypted integration credentials. Never log this value or commit real keys. |
 | **`RIVERSIDE_VISUAL_CROSSING_ENABLED`** | When set to **`1`**, **`true`**, **`yes`**, or **`on`** (case-insensitive), forces **`enabled: true`** for weather logic regardless of DB. **`0`**, **`false`**, **`no`**, **`off`** force **`enabled: false`**. |
 
-**Precedence:** For API calls, effective settings = DB row + env overrides (env wins for `api_key` and `enabled` when those vars are set). The database row is still updated by **`PATCH /api/settings/weather`**; env does not write back to SQL.
+**Precedence:** For API calls, effective settings = Settings values + env overrides (env wins for `api_key` and `enabled` when those vars are set). The database row is still updated by **`PATCH /api/settings/weather`**; env does not write back to SQL.
 
 **`search_path`:** Weather quota and EOD-finalize SQL use the **`public.`** schema qualifier so tables resolve even when the DB role’s `search_path` omits `public` (which otherwise yields “relation does not exist” despite migrations being applied). Startup logs **`search_path`** in **`PostgreSQL startup context`** (`db_startup_diag`).
 

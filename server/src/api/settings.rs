@@ -661,10 +661,6 @@ async fn get_nuorder_config(
     headers: HeaderMap,
 ) -> Result<Json<Value>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
-    let config: Value =
-        sqlx::query_scalar("SELECT nuorder_config FROM store_settings WHERE id = 1")
-            .fetch_one(&state.db)
-            .await?;
     let logs: Vec<Value> = sqlx::query(
         "SELECT id, sync_type, status, started_at, finished_at, created_count, updated_count, error_message FROM nuorder_sync_logs ORDER BY started_at DESC LIMIT 20"
     )
@@ -686,7 +682,28 @@ async fn get_nuorder_config(
     })
     .collect();
 
-    Ok(Json(json!({ "config": config, "recent_logs": logs })))
+    let credential_status = integration_credentials_status(&state, "nuorder").await?;
+    let credentials_configured = [
+        "consumer_key",
+        "consumer_secret",
+        "user_token",
+        "user_secret",
+    ]
+    .iter()
+    .all(|key| {
+        credential_status
+            .configured
+            .get(*key)
+            .copied()
+            .unwrap_or(false)
+    });
+
+    Ok(Json(json!({
+        "config": {},
+        "credentials_configured": credentials_configured,
+        "credential_status": credential_status,
+        "recent_logs": logs
+    })))
 }
 
 async fn patch_nuorder_config(
@@ -694,39 +711,67 @@ async fn patch_nuorder_config(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, SettingsError> {
-    require_settings_admin(&state, &headers).await?;
-    sqlx::query("UPDATE store_settings SET nuorder_config = $1 WHERE id = 1")
-        .bind(&body)
-        .execute(&state.db)
-        .await?;
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_set_perm)?;
+    let mut values = Vec::new();
+    for key in [
+        "consumer_key",
+        "consumer_secret",
+        "user_token",
+        "user_secret",
+    ] {
+        if let Some(value) = body.get(key).and_then(Value::as_str) {
+            let cleaned = clean_integration_credential_value(key, value.to_string())?;
+            if let Some(cleaned) = cleaned {
+                values.push((key, cleaned));
+            }
+        }
+    }
+    if values.is_empty() {
+        return Err(SettingsError::InvalidPayload(
+            "Enter at least one NuORDER credential to save.".to_string(),
+        ));
+    }
+    integration_credentials::save_integration_credentials(
+        &state.db,
+        "nuorder",
+        values,
+        Some(staff.id),
+    )
+    .await
+    .map_err(map_credential_settings_error)?;
     Ok(Json(json!({ "status": "ok" })))
 }
 
-fn nuorder_client_from_config(config: &Value) -> Result<NuorderClient, SettingsError> {
-    let consumer_key = config
-        .get("consumer_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let consumer_secret = config
-        .get("consumer_secret")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let user_token = config
-        .get("user_token")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let user_secret = config
-        .get("user_secret")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
+async fn nuorder_client_from_credentials(
+    pool: &sqlx::PgPool,
+) -> Result<NuorderClient, SettingsError> {
+    let values = integration_credentials::load_integration_credentials(
+        pool,
+        "nuorder",
+        &[
+            "consumer_key",
+            "consumer_secret",
+            "user_token",
+            "user_secret",
+        ],
+    )
+    .await
+    .map_err(map_credential_settings_error)?;
 
-    if consumer_key.is_empty() || consumer_secret.is_empty() {
+    let consumer_key = values.get("consumer_key").cloned().unwrap_or_default();
+    let consumer_secret = values.get("consumer_secret").cloned().unwrap_or_default();
+    let user_token = values.get("user_token").cloned().unwrap_or_default();
+    let user_secret = values.get("user_secret").cloned().unwrap_or_default();
+
+    if consumer_key.is_empty()
+        || consumer_secret.is_empty()
+        || user_token.is_empty()
+        || user_secret.is_empty()
+    {
         return Err(SettingsError::InvalidPayload(
-            "Missing Nuorder Consumer Key/Secret".into(),
+            "Missing NuORDER credentials".into(),
         ));
     }
 
@@ -749,11 +794,7 @@ async fn trigger_nuorder_catalog_sync(
     )
     .await
     .map_err(map_set_perm)?;
-    let config: Value =
-        sqlx::query_scalar("SELECT nuorder_config FROM store_settings WHERE id = 1")
-            .fetch_one(&state.db)
-            .await?;
-    let client = nuorder_client_from_config(&config)?;
+    let client = nuorder_client_from_credentials(&state.db).await?;
 
     match nuorder_sync::sync_catalog(&state.db, &client, Some(staff.id)).await {
         Ok(stats) => Ok(Json(
@@ -774,11 +815,7 @@ async fn trigger_nuorder_orders_sync(
     )
     .await
     .map_err(map_set_perm)?;
-    let config: Value =
-        sqlx::query_scalar("SELECT nuorder_config FROM store_settings WHERE id = 1")
-            .fetch_one(&state.db)
-            .await?;
-    let client = nuorder_client_from_config(&config)?;
+    let client = nuorder_client_from_credentials(&state.db).await?;
 
     match nuorder_sync::sync_approved_orders(&state.db, &client).await {
         Ok(count) => Ok(Json(
@@ -799,11 +836,7 @@ async fn trigger_nuorder_inventory_sync(
     )
     .await
     .map_err(map_set_perm)?;
-    let config: Value =
-        sqlx::query_scalar("SELECT nuorder_config FROM store_settings WHERE id = 1")
-            .fetch_one(&state.db)
-            .await?;
-    let client = nuorder_client_from_config(&config)?;
+    let client = nuorder_client_from_credentials(&state.db).await?;
 
     match nuorder_sync::sync_inventory_ats(&state.db, &client).await {
         Ok(count) => Ok(Json(
@@ -968,6 +1001,26 @@ async fn patch_integration_credentials(
         .await
         .map_err(map_credential_settings_error)?;
 
+    Ok(Json(
+        integration_credentials_status(&state, &integration_key).await?,
+    ))
+}
+
+async fn delete_integration_credential(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((integration_key, credential_key)): Path<(String, String)>,
+) -> Result<Json<IntegrationCredentialsStatusResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let integration_key = integration_key.trim().to_ascii_lowercase();
+    let credential_key = credential_key.trim().to_ascii_lowercase();
+    integration_credentials::clear_integration_credential(
+        &state.db,
+        &integration_key,
+        &credential_key,
+    )
+    .await
+    .map_err(map_credential_settings_error)?;
     Ok(Json(
         integration_credentials_status(&state, &integration_key).await?,
     ))
@@ -1632,7 +1685,12 @@ async fn get_meilisearch_status(
     let mut latest_by_index: HashMap<String, MeilisearchTaskSummary> = HashMap::new();
     let mut latest_failed_by_index: HashMap<String, MeilisearchTaskSummary> = HashMap::new();
 
-    let is_indexing = if let Some(client) = &state.meilisearch {
+    let meilisearch_client = state
+        .meilisearch
+        .clone()
+        .or_else(crate::logic::meilisearch_client::meilisearch_from_env);
+
+    let is_indexing = if let Some(client) = &meilisearch_client {
         doc_counts = meili_document_counts_from_env().await;
 
         if let Ok(tasks) = client.get_tasks().await {
@@ -1673,7 +1731,7 @@ async fn get_meilisearch_status(
         .collect();
 
     Ok(Json(MeilisearchStatusResponse {
-        configured: state.meilisearch.is_some(),
+        configured: meilisearch_client.is_some(),
         indices,
         is_indexing,
     }))
@@ -1686,9 +1744,13 @@ async fn post_meilisearch_reindex(
     let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
         .await
         .map_err(map_set_perm)?;
-    let Some(c) = state.meilisearch.clone() else {
+    let Some(c) = state
+        .meilisearch
+        .clone()
+        .or_else(crate::logic::meilisearch_client::meilisearch_from_env)
+    else {
         return Err(SettingsError::InvalidPayload(
-            "Meilisearch is not configured (set RIVERSIDE_MEILISEARCH_URL)".to_string(),
+            "Meilisearch is not configured. Save the search host first.".to_string(),
         ));
     };
     crate::logic::meilisearch_sync::reindex_all_meilisearch(&c, &state.db)
@@ -1811,6 +1873,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/integration-credentials/{integration_key}",
             get(get_integration_credentials_status).patch(patch_integration_credentials),
+        )
+        .route(
+            "/integration-credentials/{integration_key}/{credential_key}",
+            delete(delete_integration_credential),
         )
         .route(
             "/weather",

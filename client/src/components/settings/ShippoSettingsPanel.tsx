@@ -3,6 +3,7 @@ import { CheckCircle2, Package, RefreshCw, Save, Truck } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 interface ShippoAddressFields {
   name: string;
@@ -198,6 +199,26 @@ export default function ShippoSettingsPanel({
           </div>
         </div>
 
+        <IntegrationCredentialsCard
+          baseUrl={baseUrl}
+          integrationKey="shippo"
+          title="Shippo Credentials"
+          description="Save the Shippo API token and optional update signing secret here. Staff do not need access to server environment files."
+          fields={[
+            {
+              key: "api_token",
+              label: "API token",
+              help: "Required for live rates and label purchase.",
+            },
+            {
+              key: "webhook_secret",
+              label: "Webhook signing secret",
+              help: "Optional unless Shippo updates are verified by signature.",
+            },
+          ]}
+          onSaved={fetchSettings}
+        />
+
         <div className="grid gap-4 md:grid-cols-2">
           <label className="flex cursor-pointer items-center gap-4 rounded-2xl border border-app-border bg-app-surface-2 p-5 transition-all hover:border-app-success/30">
             <div
@@ -361,8 +382,8 @@ export default function ShippoSettingsPanel({
             <Save className="h-4 w-4" />
             {busy ? "Applying..." : "Save Shippo settings"}
           </button>
-	          <p className="text-xs font-semibold text-app-text-muted">
-	            Support setup still controls the private connection keys.
+          <p className="text-xs font-semibold text-app-text-muted">
+	            Private connection keys are managed above and hidden after save.
           </p>
         </div>
       </form>

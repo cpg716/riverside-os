@@ -4,6 +4,7 @@ import { BarChart3, RefreshCw } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 const baseUrl = getBaseUrl();
 
@@ -175,6 +176,21 @@ const InsightsSettingsPanel: React.FC = () => {
             </label>
           </div>
 
+          <IntegrationCredentialsCard
+            baseUrl={baseUrl}
+            integrationKey="insights"
+            title="Insights Credentials"
+            description="Save the Metabase handoff secret here. Riverside uses it only to create short-lived report access tokens."
+            fields={[
+              {
+                key: "metabase_jwt_secret",
+                label: "Metabase JWT secret",
+                help: "Required when automated Insights SSO is enabled.",
+              },
+            ]}
+            onSaved={load}
+          />
+
           <label className="flex items-start gap-4 rounded-2xl border border-app-border bg-app-surface-2/60 p-5 cursor-pointer hover:border-violet-500/50 transition-all">
             <div className={`mt-1 h-5 w-5 rounded border-2 flex items-center justify-center transition-all ${cfg.metabase_jwt_sso_enabled ? 'bg-violet-600 border-violet-600 text-white' : 'border-app-border'}`}>
                {cfg.metabase_jwt_sso_enabled && <BarChart3 className="h-3 w-3" />}
@@ -196,7 +212,7 @@ const InsightsSettingsPanel: React.FC = () => {
                 {jwtSecretConfigured ? (
                   <span className="text-emerald-600 font-black">ACTIVE</span>
                 ) : (
-                  <span className="text-rose-600 font-black">MISSING ON HOST</span>
+                  <span className="text-rose-600 font-black">NEEDS SETUP</span>
                 )}
               </p>
             </div>

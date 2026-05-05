@@ -30,6 +30,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 type HubTab = "status" | "inbound" | "categories" | "payments" | "gifts" | "staff";
 type CounterpointStatusSection = "connect" | "signoff" | "details" | "advanced";
@@ -2214,6 +2215,26 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
               {/* Server bridge meta */}
               {statusSection === "connect" && (
+                <div className="mb-4">
+                  <IntegrationCredentialsCard
+                    baseUrl={baseUrl}
+                    integrationKey="counterpoint"
+                    title="Counterpoint Bridge Credentials"
+                    description="Save the bridge sync token here. The Windows bridge uses this token when posting Counterpoint updates into Riverside."
+                    fields={[
+                      {
+                        key: "sync_token",
+                        label: "Bridge sync token",
+                        help: "Use the same value in the Counterpoint bridge configuration.",
+                      },
+                    ]}
+                    onSaved={fetchStatus}
+                  />
+                </div>
+              )}
+
+              {/* Server bridge meta */}
+              {statusSection === "connect" && (
               <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4 mb-4 flex flex-wrap items-center gap-4">
                 {stateIcon(status.windows_sync_state)}
                 <div className="min-w-0 flex-1">
@@ -2229,7 +2250,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   </p>
                 </div>
                 {!status.token_configured && (
-                  <span className="ui-pill bg-amber-500/15 text-amber-800 text-[9px]">COUNTERPOINT_SYNC_TOKEN not set</span>
+                  <span className="ui-pill bg-amber-500/15 text-amber-800 text-[9px]">Bridge token needed</span>
                 )}
               </div>
               )}

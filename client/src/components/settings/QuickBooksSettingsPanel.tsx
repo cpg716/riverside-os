@@ -4,6 +4,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { useToast } from "../ui/ToastProviderLogic";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 interface QuickBooksSettingsPanelProps {
   onOpenQbo: () => void;
@@ -32,8 +33,6 @@ export default function QuickBooksSettingsPanel({
     null,
   );
   const [realmId, setRealmId] = useState("");
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
   const [useSandbox, setUseSandbox] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -71,8 +70,6 @@ export default function QuickBooksSettingsPanel({
         },
         body: JSON.stringify({
           realm_id: realmId.trim() || null,
-          client_id: clientId.trim() || null,
-          client_secret: clientSecret.trim() || null,
           use_sandbox: useSandbox,
         }),
       });
@@ -81,10 +78,8 @@ export default function QuickBooksSettingsPanel({
         toast(j.error ?? "Could not save QuickBooks connection", "error");
         return;
       }
-      setClientId("");
-      setClientSecret("");
       await loadCredentials();
-      toast("QuickBooks connection saved", "success");
+      toast("QuickBooks company settings saved", "success");
     } catch {
       toast("Communication error with QuickBooks settings", "error");
     } finally {
@@ -120,10 +115,38 @@ export default function QuickBooksSettingsPanel({
           QuickBooks Online
         </h2>
         <p className="mt-2 text-sm font-medium text-app-text-muted">
-          Enter Intuit developer credentials, authorize the QBO company, then
-          use the bridge for mappings and journal staging.
+          Save Intuit credentials securely, authorize the QBO company, then use
+          the bridge for mappings and journal staging.
         </p>
       </header>
+
+      <IntegrationCredentialsCard
+        baseUrl={baseUrl}
+        integrationKey="qbo"
+        title="QuickBooks credentials"
+        description="Client ID and Client Secret are encrypted on the server. Use update or clear here instead of editing environment files."
+        fields={[
+          {
+            key: "client_id",
+            label: "Client ID",
+            placeholder: credentials.client_id_set
+              ? `Saved (${credentials.client_id_masked ?? "set"})`
+              : "Intuit OAuth Client ID",
+            type: "text",
+            help: "Used for Intuit OAuth authorization and token refresh.",
+          },
+          {
+            key: "client_secret",
+            label: "Client Secret",
+            placeholder: credentials.has_client_secret
+              ? "Saved - enter only to replace"
+              : "Intuit OAuth Client Secret",
+            type: "password",
+            help: "Stored encrypted and never displayed after save.",
+          },
+        ]}
+        onSaved={loadCredentials}
+      />
 
       <form
         onSubmit={(e) => {
@@ -144,12 +167,11 @@ export default function QuickBooksSettingsPanel({
             </div>
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Connection Credentials
+                Company Settings
               </h3>
               <p className="mt-1 max-w-2xl text-xs leading-relaxed text-app-text-muted">
-                Client ID and Client Secret are saved server-side. Leave saved
-                values blank when you only need to update Realm ID or sandbox
-                mode.
+                Realm ID and sandbox mode are company settings. Client
+                credentials are managed in the secure credentials card above.
               </p>
             </div>
           </div>
@@ -164,7 +186,7 @@ export default function QuickBooksSettingsPanel({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             Realm ID / company ID
             <input
@@ -174,33 +196,16 @@ export default function QuickBooksSettingsPanel({
               placeholder="QBO company Realm ID"
             />
           </label>
-          <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Client ID
-            <input
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              className="ui-input mt-1 w-full font-mono text-sm"
-              placeholder={
-                credentials.client_id_set
-                  ? `Saved (${credentials.client_id_masked ?? "set"})`
-                  : "Intuit OAuth Client ID"
-              }
-            />
-          </label>
-          <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Client Secret
-            <input
-              type="password"
-              value={clientSecret}
-              onChange={(e) => setClientSecret(e.target.value)}
-              className="ui-input mt-1 w-full font-mono text-sm"
-              placeholder={
-                credentials.has_client_secret
-                  ? "Saved secret - enter only to replace"
-                  : "Intuit OAuth Client Secret"
-              }
-            />
-          </label>
+          <div className="rounded-xl border border-app-border bg-app-surface-2 p-3 text-xs text-app-text-muted">
+            <p className="font-black uppercase tracking-widest text-app-text">
+              OAuth authorization
+            </p>
+            <p className="mt-1">
+              {credentials.has_refresh_token
+                ? "QuickBooks authorization is saved."
+                : "Authorize QuickBooks after saving Client ID and Client Secret."}
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -224,7 +229,7 @@ export default function QuickBooksSettingsPanel({
               ) : (
                 <Save size={15} aria-hidden />
               )}
-              Save connection
+              Save company settings
             </button>
             <button
               type="button"

@@ -150,7 +150,7 @@ If tests fail:
 
 ## SECTION 5 — SANDBOX TEST (OPTIONAL)
 
-1. Set real CoreCard env vars.
+1. Save real CoreCard credentials in **Settings → Integrations → CoreCard**. Because live CoreCard runtime configuration is currently loaded at server startup, restart the server before running live/sandbox validation against newly saved values.
 2. Run:
 
 ```bash

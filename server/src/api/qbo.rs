@@ -25,13 +25,23 @@ use crate::api::AppState;
 use crate::auth::permissions::{QBO_MAPPING_EDIT, QBO_STAGING_APPROVE, QBO_SYNC, QBO_VIEW};
 use crate::auth::pins::log_staff_access;
 use crate::logic::integration_alerts::{record_integration_failure, record_integration_success};
+use crate::logic::integration_credentials::{
+    load_integration_credentials, save_integration_credentials,
+    validate_credentials_key_for_startup as validate_integration_credentials_key_for_startup,
+    IntegrationCredentialError,
+};
 use crate::logic::qbo_journal;
 use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 use crate::middleware::require_staff_with_permission;
 
 const DEFAULT_QBO_TOKEN_KEY: &str = "riverside-dev-token-key-change-me";
-const QBO_TOKEN_KEY_MIN_LEN: usize = 32;
 const QBO_TOKEN_AEAD_PREFIX: &str = "v2:";
+const QBO_CREDENTIAL_KEYS: &[&str] = &[
+    "client_id",
+    "client_secret",
+    "access_token",
+    "refresh_token",
+];
 
 #[derive(Debug, Error)]
 pub enum QboError {
@@ -45,6 +55,8 @@ pub enum QboError {
     Conflict(String),
     #[error("Forbidden")]
     Forbidden,
+    #[error("Credential error: {0}")]
+    Credential(#[from] IntegrationCredentialError),
 }
 
 impl IntoResponse for QboError {
@@ -61,6 +73,14 @@ impl IntoResponse for QboError {
                     "Failed to process QuickBooks request".to_string(),
                 )
             }
+            QboError::Credential(IntegrationCredentialError::Database(e)) => {
+                tracing::error!(error = %e, "Credential database error in qbo");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to process QuickBooks credentials".to_string(),
+                )
+            }
+            QboError::Credential(e) => (StatusCode::BAD_REQUEST, e.to_string()),
         };
         (status, Json(json!({ "error": msg }))).into_response()
     }
@@ -297,8 +317,8 @@ fn mask_client_id(s: &str) -> String {
     }
 }
 
-async fn integration_row(pool: &PgPool) -> Result<Option<IntegrationSecretsRow>, sqlx::Error> {
-    sqlx::query_as::<_, IntegrationSecretsRow>(
+async fn integration_row(pool: &PgPool) -> Result<Option<IntegrationSecretsRow>, QboError> {
+    let mut row = sqlx::query_as::<_, IntegrationSecretsRow>(
         r#"
         SELECT
             id,
@@ -318,7 +338,51 @@ async fn integration_row(pool: &PgPool) -> Result<Option<IntegrationSecretsRow>,
         "#,
     )
     .fetch_optional(pool)
-    .await
+    .await?;
+
+    if let Some(r) = row.as_mut() {
+        let credentials = load_integration_credentials(pool, "qbo", QBO_CREDENTIAL_KEYS).await?;
+        if let Some(value) = credentials
+            .get("client_id")
+            .filter(|value| !value.trim().is_empty())
+        {
+            r.client_id = Some(value.trim().to_string());
+        }
+        if let Some(value) = credentials
+            .get("client_secret")
+            .filter(|value| !value.trim().is_empty())
+        {
+            r.client_secret = Some(value.trim().to_string());
+        }
+        if let Some(value) = credentials
+            .get("access_token")
+            .filter(|value| !value.trim().is_empty())
+        {
+            r.access_token = Some(value.trim().to_string());
+        } else if let Some(token) = r
+            .access_token
+            .as_deref()
+            .and_then(decrypt_legacy_token)
+            .filter(|value| !value.trim().is_empty())
+        {
+            r.access_token = Some(token);
+        }
+        if let Some(value) = credentials
+            .get("refresh_token")
+            .filter(|value| !value.trim().is_empty())
+        {
+            r.refresh_token = Some(value.trim().to_string());
+        } else if let Some(token) = r
+            .refresh_token
+            .as_deref()
+            .and_then(decrypt_legacy_token)
+            .filter(|value| !value.trim().is_empty())
+        {
+            r.refresh_token = Some(token);
+        }
+    }
+
+    Ok(row)
 }
 
 #[derive(Debug, FromRow)]
@@ -378,44 +442,21 @@ struct OAuthTokenResponse {
     expires_in: i64,
 }
 
-fn env_truthy(key: &str) -> bool {
-    env::var(key)
-        .map(|v| {
-            matches!(
-                v.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
-}
-
-fn validate_qbo_token_key_configured() -> Result<String, QboError> {
-    let key = env::var("QBO_TOKEN_ENC_KEY").unwrap_or_default();
-    let trimmed = key.trim();
-    if trimmed.len() < QBO_TOKEN_KEY_MIN_LEN || trimmed == DEFAULT_QBO_TOKEN_KEY {
-        return Err(QboError::InvalidPayload(format!(
-            "QBO_TOKEN_ENC_KEY must be set to a non-default secret at least {QBO_TOKEN_KEY_MIN_LEN} characters long before QuickBooks credentials can be activated."
-        )));
-    }
-    Ok(trimmed.to_string())
-}
-
 pub fn validate_qbo_token_key_for_startup() -> Result<(), QboError> {
-    if env_truthy("RIVERSIDE_STRICT_PRODUCTION") {
-        validate_qbo_token_key_configured()?;
-    }
-    Ok(())
+    validate_integration_credentials_key_for_startup().map_err(QboError::Credential)
 }
 
-fn qbo_token_key_material(require_configured: bool) -> Result<Vec<u8>, QboError> {
-    let key = if require_configured || env_truthy("RIVERSIDE_STRICT_PRODUCTION") {
-        validate_qbo_token_key_configured()?
-    } else {
-        env::var("QBO_TOKEN_ENC_KEY").unwrap_or_else(|_| DEFAULT_QBO_TOKEN_KEY.to_string())
-    };
+fn qbo_legacy_token_key_material() -> Option<Vec<u8>> {
+    let key = env::var("QBO_TOKEN_ENC_KEY")
+        .or_else(|_| env::var("RIVERSIDE_CREDENTIALS_KEY"))
+        .ok()?;
+    let trimmed = key.trim();
+    if trimmed.len() < 32 || trimmed == DEFAULT_QBO_TOKEN_KEY {
+        return None;
+    }
     let mut hasher = Sha256::new();
-    hasher.update(key.as_bytes());
-    Ok(hasher.finalize().to_vec())
+    hasher.update(trimmed.as_bytes());
+    Some(hasher.finalize().to_vec())
 }
 
 fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
@@ -425,31 +466,10 @@ fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn encrypt_token(plain: &str) -> Result<String, QboError> {
-    let key_material = qbo_token_key_material(true)?;
-    let unbound = UnboundKey::new(&aead::CHACHA20_POLY1305, &key_material).map_err(|_| {
-        QboError::InvalidPayload("failed to initialize QBO token encryption".to_string())
-    })?;
-    let key = LessSafeKey::new(unbound);
-    let nonce_uuid = Uuid::new_v4();
-    let mut nonce_bytes = [0u8; 12];
-    nonce_bytes.copy_from_slice(&nonce_uuid.as_bytes()[..12]);
-    let nonce = aead::Nonce::assume_unique_for_key(nonce_bytes);
-    let mut in_out = plain.as_bytes().to_vec();
-    key.seal_in_place_append_tag(nonce, Aad::from(b"riverside-os-qbo-token-v2"), &mut in_out)
-        .map_err(|_| QboError::InvalidPayload("failed to encrypt QBO token".to_string()))?;
-    let mut packed = nonce_bytes.to_vec();
-    packed.extend_from_slice(&in_out);
-    Ok(format!(
-        "{QBO_TOKEN_AEAD_PREFIX}{}",
-        general_purpose::STANDARD.encode(packed)
-    ))
-}
-
-fn decrypt_token(cipher: &str) -> Option<String> {
+fn decrypt_legacy_token(cipher: &str) -> Option<String> {
     let trimmed = cipher.trim();
     if let Some(encoded) = trimmed.strip_prefix(QBO_TOKEN_AEAD_PREFIX) {
-        let key_material = qbo_token_key_material(true).ok()?;
+        let key_material = qbo_legacy_token_key_material()?;
         let decoded = general_purpose::STANDARD.decode(encoded).ok()?;
         if decoded.len() <= 12 {
             return None;
@@ -469,7 +489,7 @@ fn decrypt_token(cipher: &str) -> Option<String> {
         return String::from_utf8(plain.to_vec()).ok();
     }
 
-    let key = qbo_token_key_material(true).ok()?;
+    let key = qbo_legacy_token_key_material()?;
     let decoded = general_purpose::STANDARD.decode(trimmed).ok()?;
     let raw = xor_crypt(&decoded, &key);
     String::from_utf8(raw).ok()
@@ -506,21 +526,18 @@ async fn refresh_access_token(
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| QboError::InvalidPayload("missing client_secret".to_string()))?;
-    let refresh_enc = row
+    let refresh_token = row
         .refresh_token
         .as_ref()
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| QboError::InvalidPayload("missing refresh_token".to_string()))?;
-    let refresh_token = decrypt_token(refresh_enc).ok_or_else(|| {
-        QboError::InvalidPayload("failed to decrypt stored refresh_token".to_string())
-    })?;
 
     let basic = general_purpose::STANDARD.encode(format!("{client_id}:{client_secret}"));
     let client = Client::new();
     let form = [
         ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token.as_str()),
+        ("refresh_token", refresh_token),
     ];
     let res = client
         .post(QBO_OAUTH_TOKEN_URL)
@@ -544,22 +561,31 @@ async fn refresh_access_token(
         .json()
         .await
         .map_err(|e| QboError::Conflict(format!("invalid refresh response: {e}")))?;
-    let refresh_plain = body.refresh_token.clone().unwrap_or(refresh_token);
-    let enc_access = encrypt_token(&body.access_token)?;
-    let enc_refresh = encrypt_token(&refresh_plain)?;
+    let refresh_plain = body
+        .refresh_token
+        .clone()
+        .unwrap_or(refresh_token.to_string());
+    save_integration_credentials(
+        pool,
+        "qbo",
+        vec![
+            ("access_token", body.access_token.clone()),
+            ("refresh_token", refresh_plain),
+        ],
+        None,
+    )
+    .await?;
     sqlx::query(
         r#"
         UPDATE qbo_integration
         SET
-            access_token = $2,
-            refresh_token = $3,
-            token_expires_at = CURRENT_TIMESTAMP + ($4::text || ' seconds')::interval
+            access_token = NULL,
+            refresh_token = NULL,
+            token_expires_at = CURRENT_TIMESTAMP + ($2::text || ' seconds')::interval
         WHERE id = $1
         "#,
     )
     .bind(row.id)
-    .bind(enc_access)
-    .bind(enc_refresh)
     .bind(body.expires_in)
     .execute(pool)
     .await?;
@@ -656,7 +682,7 @@ async fn put_credentials(
     headers: HeaderMap,
     Json(body): Json<QboCredentialsUpdate>,
 ) -> Result<Json<serde_json::Value>, QboError> {
-    require_staff_with_permission(&state, &headers, QBO_MAPPING_EDIT)
+    let admin = require_staff_with_permission(&state, &headers, QBO_MAPPING_EDIT)
         .await
         .map_err(|_| QboError::Forbidden)?;
     let realm = body
@@ -675,7 +701,18 @@ async fn put_credentials(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let use_sandbox = body.use_sandbox.unwrap_or(true);
-    validate_qbo_token_key_configured()?;
+    let mut credential_updates = Vec::new();
+    if let Some(value) = client_id.as_ref() {
+        credential_updates.push(("client_id", value.clone()));
+    }
+    if let Some(value) = client_secret.as_ref() {
+        credential_updates.push(("client_secret", value.clone()));
+    }
+    if !credential_updates.is_empty() {
+        save_integration_credentials(&state.db, "qbo", credential_updates, Some(admin.id)).await?;
+    }
+    let saved_client_id = client_id.is_some();
+    let saved_client_secret = client_secret.is_some();
 
     let company = realm.clone().unwrap_or_else(|| "pending".to_string());
 
@@ -690,8 +727,8 @@ async fn put_credentials(
             UPDATE qbo_integration SET
                 company_id = $2,
                 realm_id = $3,
-                client_id = COALESCE($4, client_id),
-                client_secret = COALESCE($5, client_secret),
+                client_id = CASE WHEN $4 THEN NULL ELSE client_id END,
+                client_secret = CASE WHEN $5 THEN NULL ELSE client_secret END,
                 use_sandbox = $6,
                 is_active = true
             WHERE id = $1
@@ -700,8 +737,8 @@ async fn put_credentials(
         .bind(r.id)
         .bind(&company_update)
         .bind(&realm_update)
-        .bind(client_id.as_ref())
-        .bind(client_secret.as_ref())
+        .bind(saved_client_id)
+        .bind(saved_client_secret)
         .bind(use_sb)
         .execute(&state.db)
         .await?;
@@ -716,8 +753,8 @@ async fn put_credentials(
         )
         .bind(&company)
         .bind(realm.as_ref().unwrap_or(&company))
-        .bind(client_id.as_ref())
-        .bind(client_secret.as_ref())
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
         .bind(use_sandbox)
         .execute(&state.db)
         .await?;
@@ -792,23 +829,31 @@ async fn oauth_callback(
         .filter(|s| !s.is_empty())
         .or(r.realm_id.clone())
         .unwrap_or_else(|| r.company_id.clone());
+    let mut token_updates = vec![("access_token", body.access_token.clone())];
+    if let Some(refresh_token) = body
+        .refresh_token
+        .as_ref()
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+    {
+        token_updates.push(("refresh_token", refresh_token));
+    }
+    save_integration_credentials(&state.db, "qbo", token_updates, None).await?;
     sqlx::query(
         r#"
         UPDATE qbo_integration
         SET
             realm_id = $2,
             company_id = $2,
-            access_token = $3,
-            refresh_token = $4,
-            token_expires_at = CURRENT_TIMESTAMP + ($5::text || ' seconds')::interval,
+            access_token = NULL,
+            refresh_token = NULL,
+            token_expires_at = CURRENT_TIMESTAMP + ($3::text || ' seconds')::interval,
             is_active = true
         WHERE id = $1
         "#,
     )
     .bind(r.id)
     .bind(realm)
-    .bind(encrypt_token(&body.access_token)?)
-    .bind(encrypt_token(body.refresh_token.as_deref().unwrap_or(""))?)
     .bind(body.expires_in)
     .execute(&state.db)
     .await?;
@@ -913,8 +958,7 @@ async fn refresh_accounts_cache(
     }
     let access_token = match integ
         .access_token
-        .as_ref()
-        .and_then(|s| decrypt_token(s))
+        .as_deref()
         .filter(|s| !s.trim().is_empty())
     {
         Some(token)
@@ -923,7 +967,7 @@ async fn refresh_accounts_cache(
                 .map(|t| t > Utc::now())
                 .unwrap_or(false) =>
         {
-            token
+            token.to_string()
         }
         _ => refresh_access_token(&state.db, &integ).await?,
     };
@@ -1540,11 +1584,10 @@ async fn sync_staging(
 
     let access_token = match integ
         .access_token
-        .as_ref()
-        .and_then(|s| decrypt_token(s))
+        .as_deref()
         .filter(|s| !s.trim().is_empty())
     {
-        Some(t) => t,
+        Some(t) => t.to_string(),
         None => refresh_access_token(&state.db, &integ).await?,
     };
 
@@ -1718,12 +1761,22 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    fn with_qbo_token_env<T>(key: Option<&str>, strict: Option<&str>, f: impl FnOnce() -> T) -> T {
+    fn with_credentials_env<T>(
+        root_key: Option<&str>,
+        legacy_key: Option<&str>,
+        strict: Option<&str>,
+        f: impl FnOnce() -> T,
+    ) -> T {
         let _guard = env_lock().lock().expect("env lock poisoned");
+        let previous_root_key = env::var("RIVERSIDE_CREDENTIALS_KEY").ok();
         let previous_key = env::var("QBO_TOKEN_ENC_KEY").ok();
         let previous_strict = env::var("RIVERSIDE_STRICT_PRODUCTION").ok();
 
-        match key {
+        match root_key {
+            Some(value) => env::set_var("RIVERSIDE_CREDENTIALS_KEY", value),
+            None => env::remove_var("RIVERSIDE_CREDENTIALS_KEY"),
+        }
+        match legacy_key {
             Some(value) => env::set_var("QBO_TOKEN_ENC_KEY", value),
             None => env::remove_var("QBO_TOKEN_ENC_KEY"),
         }
@@ -1734,6 +1787,10 @@ mod tests {
 
         let result = f();
 
+        match previous_root_key {
+            Some(value) => env::set_var("RIVERSIDE_CREDENTIALS_KEY", value),
+            None => env::remove_var("RIVERSIDE_CREDENTIALS_KEY"),
+        }
         match previous_key {
             Some(value) => env::set_var("QBO_TOKEN_ENC_KEY", value),
             None => env::remove_var("QBO_TOKEN_ENC_KEY"),
@@ -1794,37 +1851,44 @@ mod tests {
     }
 
     #[test]
-    fn strict_production_rejects_missing_or_default_qbo_token_key() {
-        with_qbo_token_env(None, Some("true"), || {
+    fn strict_production_rejects_missing_or_default_credentials_key() {
+        with_credentials_env(None, None, Some("true"), || {
             assert!(validate_qbo_token_key_for_startup().is_err());
         });
 
-        with_qbo_token_env(Some(DEFAULT_QBO_TOKEN_KEY), Some("true"), || {
-            assert!(validate_qbo_token_key_for_startup().is_err());
-        });
-    }
-
-    #[test]
-    fn qbo_token_encryption_requires_configured_key_and_round_trips_v2() {
-        with_qbo_token_env(
-            Some("test-qbo-token-key-32-characters-minimum-value"),
+        with_credentials_env(
+            Some("riverside-dev-credential-key-change-me"),
             None,
+            Some("true"),
             || {
-                let encrypted = encrypt_token("refresh-token-secret").expect("encrypt token");
-                assert!(encrypted.starts_with(QBO_TOKEN_AEAD_PREFIX));
-                assert_ne!(encrypted, "refresh-token-secret");
-                assert_eq!(
-                    decrypt_token(&encrypted).as_deref(),
-                    Some("refresh-token-secret")
-                );
+                assert!(validate_qbo_token_key_for_startup().is_err());
+            },
+        );
+
+        with_credentials_env(
+            Some("test-shared-credential-key-32-characters-minimum"),
+            None,
+            Some("true"),
+            || {
+                assert!(validate_qbo_token_key_for_startup().is_ok());
+            },
+        );
+
+        with_credentials_env(
+            None,
+            Some("legacy-qbo-token-key-32-characters-minimum"),
+            Some("true"),
+            || {
+                assert!(validate_qbo_token_key_for_startup().is_ok());
             },
         );
     }
 
     #[test]
-    fn qbo_token_encryption_rejects_default_key_even_outside_strict_mode() {
-        with_qbo_token_env(Some(DEFAULT_QBO_TOKEN_KEY), None, || {
-            assert!(encrypt_token("secret").is_err());
+    fn legacy_qbo_token_decrypt_rejects_default_key() {
+        with_credentials_env(None, Some(DEFAULT_QBO_TOKEN_KEY), Some("true"), || {
+            assert!(validate_qbo_token_key_for_startup().is_err());
+            assert!(decrypt_legacy_token("not-real").is_none());
         });
     }
 }
