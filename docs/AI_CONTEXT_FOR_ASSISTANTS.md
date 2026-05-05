@@ -137,7 +137,7 @@ Do not embed live PINs or session tokens in prompts sent to third-party models.
 |------------------|--------------|
 | New staff-facing workflow / tab | Matching `docs/staff/*.md`, [`staff/CORPUS.manifest.json`](staff/CORPUS.manifest.json), [`staff/README.md`](staff/README.md) checklist |
 | New **GET** API for reporting | [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §0 |
-| New permission key | [`STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md), seeds in `migrations/`, [`staff/permissions-and-access.md`](staff/permissions-and-access.md) if user-visible; hub keys documented in [`CUSTOMER_HUB_AND_RBAC.md`](CUSTOMER_HUB_AND_RBAC.md) |
+| New permission key | [`STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md), `scripts/seeds/seed_rbac.sql`, [`staff/permissions-and-access.md`](staff/permissions-and-access.md) if user-visible; hub keys documented in [`CUSTOMER_HUB_AND_RBAC.md`](CUSTOMER_HUB_AND_RBAC.md) |
 | Customer hub route or tab behavior | [`CUSTOMER_HUB_AND_RBAC.md`](CUSTOMER_HUB_AND_RBAC.md), [`staff/customers-back-office.md`](staff/customers-back-office.md) |
 | Wedding **`GET /actions`** shape / `party_balance_due` | [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §0, [`staff/weddings-back-office.md`](staff/weddings-back-office.md) |
 | AI behavior / pillars | [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md), this file if routing changes |

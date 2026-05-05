@@ -56,6 +56,10 @@ When switching engines, it is best practice to treat it as a fresh install rathe
 3. Initialize the database (fresh volumes will be created):
    ```bash
    ./scripts/apply-migrations-docker.sh
+   docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < scripts/seeds/seed_core_required.sql
+   docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < scripts/seeds/seed_rbac.sql
+   docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < scripts/seeds/seed_dev.sql
+   ./scripts/migration-status-docker.sh
    ```
 
 ## 4. Unified Startup (`START_ON_MAC.sh`)

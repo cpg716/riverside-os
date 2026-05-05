@@ -82,7 +82,7 @@ For a near-turnkey Windows setup package, use [`WINDOWS_INSTALLER_PACKAGE.md`](W
 
 ### Till shift: Register #1 and satellite lanes
 
-The app supports **multiple open register terminals** (migration **66**) sharing one **till close group** (**67**): **Register #1** is the **cash drawer** (opening float, paid in/out, **Z-close**). **Register #2+** link to an open **#1** session (**$0** satellite float); **Z** on **#1** closes **all** lanes in the group. Train staff that **physical cash** for the day lives in the **#1** drawer even when tenders post from **#2**. Full behavior: **[`docs/TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md)**.
+The app supports **multiple open register terminals** sharing one **till close group**: **Register #1** is the **cash drawer** (opening float, paid in/out, **Z-close**). **Register #2+** link to an open **#1** session (**$0** satellite float); **Z** on **#1** closes **all** lanes in the group. Train staff that **physical cash** for the day lives in the **#1** drawer even when tenders post from **#2**. Full behavior: **[`docs/TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md)**.
 
 ---
 
@@ -92,7 +92,7 @@ The app supports **multiple open register terminals** (migration **66**) sharing
 
 - **Rust binary** for the API (`cargo build --release` in `server/`, or your CI artifact). The server pins **Rust 1.88+** in **`server/rust-toolchain.toml`** (**`ort`** / **fastembed** for staff-help embeddings); use that toolchain in CI and release builds.
 - **Production web bundle** `client/dist` copied next to the deployment layout your runbook uses (Axum serves this folder in production).
-- **Database**: PostgreSQL reachable via **`DATABASE_URL`**. Apply all migrations in `migrations/` in order (see [`DEVELOPER.md`](../DEVELOPER.md)). If you ship ROS-AI help, set **`RIVERSIDE_REPO_ROOT`** to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`** and run **`POST /api/ai/admin/reindex-docs`** after upgrades that change staff docs — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
+- **Database**: PostgreSQL reachable via **`DATABASE_URL`**. Apply the active schema-contract baseline and approved seed set (see [`DEVELOPER.md`](../DEVELOPER.md) and [`SCHEMA_CONTRACT_AND_MIGRATIONS.md`](SCHEMA_CONTRACT_AND_MIGRATIONS.md)). If you ship ROS-AI help, set **`RIVERSIDE_REPO_ROOT`** to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`** and run **`POST /api/ai/admin/reindex-docs`** after upgrades that change staff docs — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 
 #### 3.1.1 Backoffice / Server PC first-time setup
 
@@ -111,7 +111,7 @@ Use this checklist for the Windows PC that owns the store database and API:
    - `RIVERSIDE_CORS_ORIGINS=` with every browser/PWA origin staff will use
    - `RIVERSIDE_STORE_CUSTOMER_JWT_SECRET=` with a long random value
    - payment, QBO, backup, Meilisearch, and integration secrets as needed for the store
-5. Apply migrations from the release bundle using `scripts/apply-migrations-psql.sh` or the manual `psql` sequence in [`LOCAL_UPDATE_PROTOCOL.md`](LOCAL_UPDATE_PROTOCOL.md).
+5. Apply the schema-contract baseline from the release bundle using `scripts/apply-migrations-psql.sh` or the manual `psql` sequence in [`LOCAL_UPDATE_PROTOCOL.md`](LOCAL_UPDATE_PROTOCOL.md), then apply the approved production seed set.
 6. Start the API manually once and confirm the log says it is listening on the expected bind address.
 7. Open Windows Firewall inbound **TCP 3000** only for trusted LAN/Tailscale networks.
 8. Configure the final run method:
@@ -123,7 +123,8 @@ Use this checklist for the Windows PC that owns the store database and API:
 #### 3.1.2 Minimum server acceptance checks
 
 - [ ] `DATABASE_URL` points at the intended production database, not dev/staging.
-- [ ] Latest migration filename in `ros_schema_migrations` matches the release bundle.
+- [ ] `ros_schema_migrations` matches the active migration files in the release bundle.
+- [ ] Schema contract validation passes against the production database.
 - [ ] `FRONTEND_DIST` points at the deployed `client/dist` and contains `index.html`.
 - [ ] `RIVERSIDE_STRICT_PRODUCTION=true` starts successfully.
 - [ ] Server URL loads from another machine on the store LAN.

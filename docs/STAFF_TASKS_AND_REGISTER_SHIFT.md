@@ -96,7 +96,7 @@ Hourly generator **`run_task_due_reminders`** in [`server/src/logic/notification
 
 ## E2E
 
-[`client/e2e/staff-tasks.spec.ts`](../client/e2e/staff-tasks.spec.ts) — Back Office **Staff → Tasks** reaches **My tasks** panel (requires API + migration **56** + staff permissions).
+[`client/e2e/staff-tasks.spec.ts`](../client/e2e/staff-tasks.spec.ts) — Back Office **Staff → Tasks** reaches **My tasks** panel (requires API, baseline task schema, and staff permissions).
 
 ---
 

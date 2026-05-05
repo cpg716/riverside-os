@@ -15,7 +15,7 @@ Do not assume the sidebar calendar is “wedding-only”: staff should treat it 
 
 ## Migration 33 — walk-in / general appointments
 
-**`migrations/33_wedding_appointments_walk_in.sql`**:
+**`migrations/legacy_prelaunch_history/33_wedding_appointments_walk_in.sql`**:
 
 - `wedding_party_id` and `wedding_member_id` are **nullable** (previously required).
 - Adds **`customer_id`** → `customers(id)` (nullable) for CRM linkage without a party row.

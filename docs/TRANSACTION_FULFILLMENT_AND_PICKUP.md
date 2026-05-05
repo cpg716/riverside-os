@@ -176,7 +176,7 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 | `server/src/api/transactions.rs` | API: list_transactions, mark_transaction_pickup |
 | `server/src/logic/transaction_recalc.rs` | Balance recalculation |
 | `server/src/logic/transaction_checkout.rs` | Checkout with fulfillment fields |
-| `migrations/142_transactions_and_fulfillment.sql` | card_payment_method_id column |
+| `migrations/legacy_prelaunch_history/142_transactions_and_fulfillment.sql` | card_payment_method_id column |
 
 ---
 

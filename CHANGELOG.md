@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+### Changed
+- Documented the schema-contract reset: active baseline migrations `001` through `008`, legacy pre-launch migration archive, separated seed phases, validation-only runtime startup, and schema guardrail scripts.
+- Updated developer, local setup, E2E, and deployment docs to use baseline migrations plus `scripts/seeds/` instead of seed-like historical migrations.
+
 ## [0.4.0] — 2026-05-01
 ### Added
 - Deployment readiness audit for the production topology: Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and Windows laptop PWA/optional Tauri clients.

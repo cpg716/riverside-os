@@ -41,11 +41,15 @@ The **`db` image** is **`pgvector/pgvector:pg16`** (PostgreSQL 16; image include
 # 0. Install JS dependencies used by root scripts (dev:e2e, test:e2e:*, pack) and client scripts
 npm install
 
-# 1. Start Postgres (and optional Meilisearch sidecar on :7700) and apply migrations (from repo root; skips files already in ros_schema_migrations)
+# 1. Start Postgres (and optional Meilisearch sidecar on :7700), apply the schema-contract baseline, then seed local dev data.
 docker compose up -d
 ./scripts/apply-migrations-docker.sh
-# Optional: ./scripts/migration-status-docker.sh  (ledger vs schema probes)
-# Existing DB without ledger rows: ./scripts/backfill-migration-ledger-docker.sh then apply again
+docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < scripts/seeds/seed_core_required.sql
+docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < scripts/seeds/seed_rbac.sql
+docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < scripts/seeds/seed_dev.sql
+# Optional checks:
+#   ./scripts/migration-status-docker.sh
+#   ./scripts/validate_schema_contract.sh
 
 # 2. Server env: copy server/.env.example -> server/.env for local runs.
 #    DATABASE_URL must point at localhost:5433 (the repo Docker Postgres), not localhost:5432.
@@ -163,19 +167,28 @@ Current CI note:
 
 For complete pre-release validation (service boot order, lint/build gates, and E2E checklist), see **`docs/RELEASE_QA_CHECKLIST.md`**.
 
-## Migrations
+## Schema Contract, Migrations, And Seeds
 
-Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_ros_migration_ledger.sql`). Compare ledger vs schema: **`./scripts/migration-status-docker.sh`** (probes in **`scripts/ros_migration_build_probes.sql`**, maintained through the latest numbered file). Full table: **`DEVELOPER.md`**. Latest numbered files currently extend through **`163_dashboard_read_path_indexes.sql`** (see `migrations/`). Duplicate numeric prefixes exist in this repo, so migration comparisons must use full filenames, not just numeric ceilings. Feature migrations **51–52**: **`docs/PLAN_NOTIFICATION_CENTER.md`**; weather **46–48**: **`docs/WEATHER_VISUAL_CROSSING.md`**; ROS Dev Center v1 core schema: **149–150**.
+Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through **`migrations/008_indexes_constraints_triggers.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
 
-| # | Highlights |
-|---|------------|
-| 28 | `customers.customer_code` (unique, required), profile fields |
-| 117 | Inventory maintenance types |
-| 123 | Reporting: Standardization of IDs and contact fields |
-| 135 | Schema Repair Baseline |
-| 143 | **Reporting Stabilization: Transactions & Fulfillment Orders Core Views** |
-| 149 | **ROS Dev Center v1** (ops telemetry, alerts, action audit, bug-incident links) |
-| 150 | **Reporting order_lines margin restore** (`line_gross_margin_pre_tax`) + drift-safe probes |
+Apply active migrations with **`./scripts/apply-migrations-docker.sh`** or **`./scripts/apply-migrations-psql.sh`**. The ledger is the table **`public.ros_schema_migrations`** and should contain the eight active baseline filenames after a fresh baseline build.
+
+Seed data is separate from schema:
+
+- **`scripts/seeds/seed_core_required.sql`** — required singleton/config rows
+- **`scripts/seeds/seed_rbac.sql`** — role permission templates
+- **`scripts/seeds/seed_dev.sql`** — local development Admin `1234`
+- **`scripts/seeds/seed_e2e.sql`** — deterministic E2E fixtures
+
+Guardrails:
+
+```bash
+bash scripts/validate_migration_layout.sh
+RIVERSIDE_DB_NAME=riverside_os bash scripts/migration-status-docker.sh
+RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh
+```
+
+Full operating rules live in **[`docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`](docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md)**.
 
 ### Data Provenance & Integrity
 Riverside OS maintains a strict **Source of Truth** policy for Counterpoint integrations:
@@ -185,10 +198,11 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 
 | Path | Role | Audience |
 |------|------|----------|
-| `README.md` | Overview, quick start, migrations summary | Everyone |
+| `README.md` | Overview, quick start, schema-contract summary | Everyone |
 | `CHANGELOG.md` | Detailed version history and release notes | Everyone |
-| `DEVELOPER.md` | Architecture, API overview, migrations table, runbooks | Developers |
+| `DEVELOPER.md` | Architecture, API overview, schema-contract workflow, runbooks | Developers |
 | `AGENTS.md` | Invariants, edit map, commands, migration cheat sheet | Agents / devs |
+| `docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md` | Baseline migrations, seed separation, runtime validation, future migration rules | Developers / agents |
 | `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md` | Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival. | Developers / ops |
 | `docs/ORBSTACK_GUIDE.md` | Local Docker management, context switch, VirtioFS | Devs |
 | `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |

@@ -2,11 +2,11 @@
 
 Version-controlled implementation plan for a **PostgreSQL-backed** notification system: per-staff read/completed state, audit logging, **bell + slideout** (`DetailDrawer`) on **Back Office**, **POS (`PosShell`)**, and **Wedding** shells, **admin broadcast** with audience targeting, **retention** (archive after 30 days, browse history up to 1 year), **system event generators** (orders, weddings, pickup, alterations, QBO, procurement/PO), and **shared wiring** with Podium messaging per **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)** ( **`read-all`**, **`messaging_unread_nudge`** ).
 
-**Related:** **Cross-cutting tracker** — [`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md). Podium env + webhook deep spec — [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md). **Ops quick reference** (migrations **60–61**, env vars, code paths, deep links): [`NOTIFICATION_GENERATORS_AND_OPS.md`](./NOTIFICATION_GENERATORS_AND_OPS.md).
+**Related:** **Cross-cutting tracker** — [`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md). Podium env + webhook deep spec — [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md). **Ops quick reference** (baseline schema, env vars, code paths, deep links): [`NOTIFICATION_GENERATORS_AND_OPS.md`](./NOTIFICATION_GENERATORS_AND_OPS.md).
 
 ## Implementation checklist
 
-- [x] **Schema:** `app_notification`, `staff_notification`, `staff_notification_action` (+ indexes, `dedupe_key`, retention columns) — **`migrations/51_app_notifications.sql`**; catalog flags + digest ledger — **`migrations/52_track_low_stock_morning_digest.sql`**
+- [x] **Schema:** `app_notification`, `staff_notification`, `staff_notification_action` (+ indexes, `dedupe_key`, retention columns), catalog flags, and digest ledger are consolidated into the active schema-contract baseline. Historical source files remain archived under **`migrations/legacy_prelaunch_history/`**.
 - [x] **Server:** `server/src/logic/notifications.rs` + `server/src/api/notifications.rs` (list, unread-count, read, complete, **archive** / user dismiss, broadcast, fan-out); register router; permission seeds
 - [x] **Retention job:** archive at 30d (hours via **`RIVERSIDE_NOTIFICATION_ARCHIVE_HOURS`**), history via **`include_archived`**, purge via **`RIVERSIDE_NOTIFICATION_PURGE_HOURS`**
 - [x] **Client:** `NotificationCenterContext` + drawer + bell; mount in `Header`, `PosShell`, `WeddingShell`; deep-link navigation from `App` (**`handleNotificationNavigate`**). **Compact inbox:** list shows kind + title only; **admin broadcast** expands for full body + sender; **`notification_bundle`** rows expand to a scrollable list (each line navigates via its nested `deep_link`); other routable notifications **tap once** to open the target workspace (**`notificationBundle.ts`**, **`notificationDeepLink.ts`**). Task reminders from bundles use **`staff_tasks`** + **`instance_id`** → Staff → Tasks checklist drawer.
@@ -21,8 +21,8 @@ Version-controlled implementation plan for a **PostgreSQL-backed** notification 
 ## Current state
 
 - **Shipped:** bell + [`DetailDrawer`](../client/src/components/layout/DetailDrawer.tsx) on Back Office ([`Header.tsx`](../client/src/components/layout/Header.tsx) in `AppMainColumn`), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx); provider [`NotificationCenterContext.tsx`](../client/src/context/NotificationCenterContext.tsx).
-- **Staff identity**: [`BackofficeAuthContext`](../client/src/context/BackofficeAuthContext.tsx) + headers; POS has `cashierCode` / session; [`staff`](../migrations/01_initial_schema.sql) + [`staff_role`](../migrations/17_staff_authority.sql) (`admin` | `salesperson` | `sales_support`).
-- **Audit precedent**: [`staff_access_log`](../migrations/17_staff_authority.sql) + [`log_staff_access`](../server/src/auth/pins.rs).
+- **Staff identity**: [`BackofficeAuthContext`](../client/src/context/BackofficeAuthContext.tsx) + headers; POS has `cashierCode` / session; [`staff`](../migrations/legacy_prelaunch_history/01_initial_schema.sql) + [`staff_role`](../migrations/legacy_prelaunch_history/17_staff_authority.sql) (`admin` | `salesperson` | `sales_support`).
+- **Audit precedent**: [`staff_access_log`](../migrations/legacy_prelaunch_history/17_staff_authority.sql) + [`log_staff_access`](../server/src/auth/pins.rs).
 - **Deep links precedent**: `ordersDeepLinkOrderId` + `setActiveTab("orders")` in `App.tsx`; `navigateWedding(partyId)` / `pendingWmPartyId`.
 
 ## Architecture (data)
@@ -142,7 +142,7 @@ Event-driven after [`qbo.rs`](../server/src/api/qbo.rs) sets `qbo_sync_logs.stat
 
 ### Procurement / PO (admin-first)
 
-Sources: [`purchase_orders`](../migrations/01_initial_schema.sql), lines, [`receiving_events`](../migrations/01_initial_schema.sql), [`product_variants.shelf_labeled_at`](../migrations/12_shelf_label_tracking.sql), [`inventory_transactions`](../migrations/01_initial_schema.sql).
+Sources: [`purchase_orders`](../migrations/legacy_prelaunch_history/01_initial_schema.sql), lines, [`receiving_events`](../migrations/legacy_prelaunch_history/01_initial_schema.sql), [`product_variants.shelf_labeled_at`](../migrations/legacy_prelaunch_history/12_shelf_label_tracking.sql), [`inventory_transactions`](../migrations/legacy_prelaunch_history/01_initial_schema.sql).
 
 | Bundle kind (per store-local day) | Rule summary |
 |-----------------------------------|--------------|

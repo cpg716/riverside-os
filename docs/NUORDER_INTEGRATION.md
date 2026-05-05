@@ -13,7 +13,7 @@
 | **109** | **`109_nuorder_integration.sql`** | **`store_settings.nuorder_config`** JSONB; **`vendors.nuorder_brand_id`**; **`nuorder_sync_logs`** history table; **`nuorder.manage`**, **`nuorder.sync`** permissions. |
 | **110** | **`110_nuorder_hardening.sql`** | **`product_variants.nuorder_id`**; **`products.nuorder_last_image_sync_at`**; `created_count`/`updated_count` logging; **`nuorder_entity_map_log`** audit table. |
 
-Apply with **`./scripts/apply-migrations-docker.sh`** or **`sqlx migrate run`**.
+These objects are consolidated into the active schema-contract baseline. Apply with **`./scripts/apply-migrations-docker.sh`** and validate with **`./scripts/validate_schema_contract.sh`**.
 
 ---
 

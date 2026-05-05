@@ -35,7 +35,7 @@ Operational and engineering reference for **migration 66** (register lanes) and 
 ## Related files (code)
 
 - `server/src/api/sessions.rs` — `open_session`, `build_reconciliation`, `close_session`, `list_open_sessions`
-- `migrations/66_register_session_lanes.sql`, `migrations/67_register_till_close_group.sql`
+- `migrations/legacy_prelaunch_history/66_register_session_lanes.sql`, `migrations/legacy_prelaunch_history/67_register_till_close_group.sql`
 - `scripts/ros_migration_build_probes.sql` — probes through the **latest** numbered migration (**97** as of this repo; see **`DEVELOPER.md`**)
 
 **Last reviewed:** 2026-04-05

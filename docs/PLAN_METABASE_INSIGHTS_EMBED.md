@@ -20,7 +20,7 @@
 | 1 | Dev: [vite.config.ts](../client/vite.config.ts) **`/metabase`** proxy | Done |
 | 1 | [STAFF_PERMISSIONS.md](./STAFF_PERMISSIONS.md), staff + in-app **insights-manual** | Done |
 | 1 | Retire native Insights workspace (removed: `InsightsWorkspace.tsx`, `HistoricalReporting.tsx` under former `client/src/components/insights/`) | Done |
-| 2 | Reporting views + `metabase_ro` ([`90`](../migrations/90_reporting_insights.sql) + [`96`](../migrations/96_reporting_business_day_geo_loyalty.sql)), Settings `insights_config`, JWT launch ([`insights.rs`](../server/src/api/insights.rs)) | Done (extend views + catalog as needed) |
+| 2 | Reporting views + `metabase_ro` ([`90`](../migrations/legacy_prelaunch_history/90_reporting_insights.sql) + [`96`](../migrations/legacy_prelaunch_history/96_reporting_business_day_geo_loyalty.sql)), Settings `insights_config`, JWT launch ([`insights.rs`](../server/src/api/insights.rs)) | Done (extend views + catalog as needed) |
 | 2 | More `reporting.*` views, [AI_REPORTING_DATA_CATALOG.md](./AI_REPORTING_DATA_CATALOG.md) primary = Metabase on views | Ongoing |
 
 ---

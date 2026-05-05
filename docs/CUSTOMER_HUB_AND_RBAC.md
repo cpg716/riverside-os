@@ -56,10 +56,10 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 
 ## Database seeds
 
-**Migration [`migrations/63_customer_hub_rbac.sql`](../migrations/63_customer_hub_rbac.sql)** inserts the four **`customers.*`** hub keys for **`admin`**, **`salesperson`**, and **`sales_support`** (all **`true`** by default). **`Admin`** role still receives the **full catalog** in application code. Tune per role or use **`staff_permission_override`** as needed.
+**`scripts/seeds/seed_rbac.sql`** inserts the four **`customers.*`** hub keys for **`admin`**, **`salesperson`**, and **`sales_support`** (all **`true`** by default). **`Admin`** role still receives the **full catalog** in application code. Tune per role or use **`staff_permission_override`** as needed.
 (Note: `orders.view` permission key covers Transactions in the Hub).
 
-**Migration [`migrations/64_cashier_customer_duplicate_merge_rbac.sql`](../migrations/64_cashier_customer_duplicate_merge_rbac.sql)** sets **`customers_duplicate_review`** and **`customers.merge`** to **allowed** for **`salesperson`** and **`sales_support`** (duplicate queue APIs, hub **Profile → Queue pair**, and two-customer merge in **Customers**). Migration **62** had denied **`customers_duplicate_review`** for those roles; **64** aligns defaults with cashier/floor CRM practice.
+**`scripts/seeds/seed_rbac.sql`** also sets **`customers_duplicate_review`** and **`customers.merge`** to **allowed** for **`salesperson`** and **`sales_support`** (duplicate queue APIs, hub **Profile → Queue pair**, and two-customer merge in **Customers**).
 
 ---
 

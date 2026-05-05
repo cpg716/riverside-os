@@ -115,7 +115,7 @@ How to verify in ROS Dev Center:
 
 | Spec | What it covers | Prerequisites / notes |
 |------|----------------|------------------------|
-| **`backoffice-signin.spec.ts`** | Back Office keypad gate; wrong code; **Switch staff** | API + migration **53** staff; serial mode |
+| **`backoffice-signin.spec.ts`** | Back Office keypad gate; wrong code; **Switch staff** | API + seeded staff from **`scripts/seeds/seed_e2e.sql`**; serial mode |
 | **`backoffice-mobile-workflow-smoke.spec.ts`** | Mobile/tablet/desktop smoke for scheduler, inventory receiving/order stock, customer shipments, gift cards, and loyalty refresh flows | Responsive workflow smoke across shared Back Office surfaces |
 | **`backoffice-workspace-nav-smoke.spec.ts`** | Back Office navigation smoke for Customers, Orders, Gift Cards, Loyalty, Appointments, Inventory, and Settings across viewports | Catches shell/sidebar regressions and stuck loading states |
 | **`pos-golden.spec.ts`** | POS shell: open till, cashier overlay, product search / checkout drawer path | Same + register session. Uses explicit POS register-ready and cashier-overlay contracts; see [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](POS_E2E_TESTABILITY_FOLLOWUP.md). |
@@ -130,7 +130,7 @@ How to verify in ROS Dev Center:
 | **`data-quality-signals.spec.ts`** | Lightweight completeness/data-quality summaries in workspaces | UI smoke for operator-facing quality indicators |
 | **`runtime-console-cleanliness.spec.ts`** | Runtime console/API noise guard for POS product search, Customers auth-gated browse, and Wedding dashboard month-end stability | Browser E2E; catches unexpected console warnings/errors and API 4xx noise in staff-facing flows |
 | **`notification-deep-link-contract.spec.ts`** | Notification deep-link actionability, bundle preview behavior, severity/recency mapping, and bulk lifecycle helpers | Unit-style Playwright contract without browser navigation |
-| **`staff-tasks.spec.ts`** | **Staff → Tasks** → **My tasks** | Migration **56**, task permissions |
+| **`staff-tasks.spec.ts`** | **Staff → Tasks** → **My tasks** | Baseline task schema and seeded task permissions |
 | **`staff-scheduler.spec.ts`** | Staff public weekly roster, individual availability, master scheduler, store events, and master-template mode | Staff scheduling UI contract |
 | **`staff-audit-labels.spec.ts`** | Staff-facing audit surfaces keep labels readable and non-technical (no raw key/enum leakage) | Operator-language readability contract for audit UI |
 | **`podium-settings.spec.ts`** | **Settings → Integrations** Podium section | **`settings.admin`**-ish paths |
@@ -139,7 +139,7 @@ How to verify in ROS Dev Center:
 | **`settings-deeplink-contract.spec.ts`** | Direct URL settings deep links, invalid-subroute fallback, partial-route normalization, and no dead-shell contract | Route contract for `/settings` and `/settings/*` path behavior |
 | **`qbo-staging.spec.ts`** | QBO workspace staging shell (map / propose / approve / sync flow) | Insights/QBO permissions; may flake if data dependent |
 | **`help-center.spec.ts`** | Help from BO header + POS; search results; **Settings → Help Center Manager** tab visibility; Automation and Search & Index admin-op request wiring | API; Meilisearch optional; manager flows require staff with **`help.manage`** |
-| **`reports-workspace.spec.ts`** | **Reports** curated library (`insights.view`); Admin **Margin pivot** tile + API wait | API + migration **53** admin; nav uses **`data-testid="sidebar-nav-reports"`** |
+| **`reports-workspace.spec.ts`** | **Reports** curated library (`insights.view`); Admin **Margin pivot** tile + API wait | API + seeded Admin from **`scripts/seeds/seed_e2e.sql`**; nav uses **`data-testid="sidebar-nav-reports"`** |
 | **`reports-mobile-cards.spec.ts`** | Reports responsive card/list behavior across mobile/tablet/desktop viewports | Responsive Reports smoke |
 | **`pwa-responsive.spec.ts`** | Narrow + tablet viewports; shell + **Insights** lazy heading | UI only |
 | **`scheduler-mobile-ergonomics.spec.ts`** | Scheduler mobile ergonomics across phone/tablet/iPad/desktop viewports | Responsive Appointments/Scheduler smoke |
@@ -195,7 +195,7 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 | `GET /api/insights/sales-pivot?…` (no staff) | **401** |
 | `GET /api/insights/best-sellers` (no staff) | **401** |
 | `GET /api/insights/margin-pivot` (no staff) | **401** |
-| `GET /api/insights/margin-pivot` (non-Admin staff, e.g. **`5678`**) | **403** — requires **`scripts/seed_e2e_non_admin_staff.sql`** (or **`E2E_NON_ADMIN_CODE`**) |
+| `GET /api/insights/margin-pivot` (non-Admin staff, e.g. **`5678`**) | **403** — requires **`scripts/seeds/seed_e2e.sql`** (or **`E2E_NON_ADMIN_CODE`**) |
 | `GET /api/insights/margin-pivot` (seeded **Admin** staff) | **200**, JSON `rows` + `truncated` |
 | `GET /api/staff/effective-permissions` (seeded code+PIN) | **200**, non-empty `permissions` |
 | `GET /api/sessions/list-open` (staff headers) | **200** array |
@@ -243,7 +243,7 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 
 ## CI
 
-- **`playwright-e2e.yml`:** on **PR** and **push** to **`main`** — Postgres (**`pgvector/pgvector:pg16`**), **`scripts/apply-migrations-psql.sh`**, **`scripts/seed_e2e_non_admin_staff.sql`**, **`scripts/seed_staff_register_test.sql`**, **`cargo build` / `cargo run`** with **`RIVERSIDE_HTTP_BIND=127.0.0.1:3000`**, **`RIVERSIDE_ENABLE_E2E_TEST_SUPPORT=1`**, **`client` `npm ci` + `npm run build`**, Playwright Chromium + **`npx playwright test --workers=1`**. **`E2E_BASE_URL`** targets **`http://localhost:3000`** (browser-safe SPA origin) while **`E2E_API_BASE`** targets **`http://127.0.0.1:3000`**. CI opens a default Register #1 session before the suite so the tender contract coverage cannot silently skip due to missing session state, and it now sanity-checks the test-support routes before the suite starts. Failure uploads **`playwright-output`** artifacts, including Playwright traces and the server/fake-host logs for faster debugging. Visual baselines are **non-blocking by default** because they are opt-in via **`E2E_RUN_VISUAL=1`**; when enabled, use stabilized visual settings (animations disabled, UTC timezone, en-US locale) and a pinned environment for snapshot authority.
+- **`playwright-e2e.yml`:** on **PR** and **push** to **`main`** — Postgres (**`pgvector/pgvector:pg16`**), **`scripts/apply-migrations-psql.sh`**, required/RBAC/E2E seeds from **`scripts/seeds/`**, **`cargo build` / `cargo run`** with **`RIVERSIDE_HTTP_BIND=127.0.0.1:3000`**, **`RIVERSIDE_ENABLE_E2E_TEST_SUPPORT=1`**, **`client` `npm ci` + `npm run build`**, Playwright Chromium + **`npx playwright test --workers=1`**. **`E2E_BASE_URL`** targets **`http://localhost:3000`** (browser-safe SPA origin) while **`E2E_API_BASE`** targets **`http://127.0.0.1:3000`**. CI opens a default Register #1 session before the suite so the tender contract coverage cannot silently skip due to missing session state, and it now sanity-checks the test-support routes before the suite starts. Failure uploads **`playwright-output`** artifacts, including Playwright traces and the server/fake-host logs for faster debugging. Visual baselines are **non-blocking by default** because they are opt-in via **`E2E_RUN_VISUAL=1`**; when enabled, use stabilized visual settings (animations disabled, UTC timezone, en-US locale) and a pinned environment for snapshot authority.
 - **POS UI determinism:** the formerly quarantined POS UI subset now relies on explicit POS testability contracts and runs in CI as part of the release suite.
 - **`tauri-register-build.yml`:** Windows Tauri bundle (**`workflow_dispatch`** only).
 
@@ -254,7 +254,7 @@ Local release gate remains the Vite path, but use **`E2E_BASE_URL=http://localho
 ## Troubleshooting
 
 - **`GET /api/insights/margin-pivot` returns `404` with HTML in `api-gates`:** The running **`riverside-server` binary is older than the route** (or you are not hitting the API port). Run **`npm run check:server`**, then **restart** dev (`npm run dev`) so Axum picks up **`/api/insights/margin-pivot`**. Anonymous callers should get **`401`**; Admin staff gets **`200`** JSON with **`rows`** and **`truncated`**.
-- **Non-Admin margin test skipped (401):** Apply **`scripts/seed_e2e_non_admin_staff.sql`** to your DB, or set **`E2E_NON_ADMIN_CODE`** to match an existing **non-Admin** **`cashier_code`**.
+- **Non-Admin margin test skipped (401):** Apply **`scripts/seeds/seed_e2e.sql`** to your DB after the baseline, required seed, and RBAC seed, or set **`E2E_NON_ADMIN_CODE`** to match an existing **non-Admin** **`cashier_code`**.
 
 ---
 
@@ -266,7 +266,7 @@ Local release gate remains the Vite path, but use **`E2E_BASE_URL=http://localho
 | 2026-04-30 | Documented current suite hardening status (deterministic POS bootstrap waits, QBO readiness waits, hardened overlay stacking), added explicit staff-audit/settings-deeplink coverage notes, and recorded consolidation candidates (plan-only; no removals yet). |
 | 2026-04-30 | Reconciled the matrix against the full `client/e2e/*.spec.ts` inventory; added hardening contracts for Settings grouped navigation/deep links, Orders Transaction Record/Fulfillment/Layaway wording, and expanded checkout cash-rounding coverage. |
 | 2026-04-25 | Added production hardening audit contracts for checkout tender financials, tax, commission, inventory, offline recovery, QBO, and register close; latest local release gate reported **181 passed, 7 skipped, 0 failed**. |
-| 2026-04-08 | Initial matrix + **`playwright-e2e.yml`** CI; **`seed_e2e_non_admin_staff.sql`**; **`api-gates`**: best-sellers 401, margin **403** for non-Admin; visual baselines **skipped** on CI unless **`E2E_RUN_VISUAL=1`** |
+| 2026-04-08 | Initial matrix + **`playwright-e2e.yml`** CI; **`scripts/seeds/seed_e2e.sql`**; **`api-gates`**: best-sellers 401, margin **403** for non-Admin; visual baselines **skipped** on CI unless **`E2E_RUN_VISUAL=1`** |
 | 2026-04-08 | **`reports-workspace.spec.ts`**; matrix rows updated. **Operations** sidebar: **Dashboard** includes the former **Activity** content; deep link **`subsection=activity`** normalizes to **dashboard** (`App.tsx`). |
 | 2026-04-11 | Expanded **Help Center** coverage: `help-center.spec.ts` now includes **Help Center Manager** settings navigation and admin-op request checks (generate-manifest / reindex-search); `api-gates.spec.ts` now includes anonymous/non-admin/admin route gates and payload-shape checks for **`/api/help/admin/ops/*`**. |
 | 2026-04-11 | Added **`high-risk-regressions.spec.ts`** for release-critical API checks: migration route mount smoke, NYS tax audit auth/shape, sales-pivot basis alias stability, help-admin op RBAC/payload checks, session auth behavior, and non-admin boundary assertions. |

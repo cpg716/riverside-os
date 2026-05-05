@@ -32,7 +32,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 ## Store settings (in-app)
 
 - [ ] **Receipt settings:** Store name, **IANA timezone** (drives receipts, register “store day,” and **`reporting`** business dates — Settings → Receipt).
-- [ ] **Staff roster:** Roles and permissions; **change default/bootstrap credentials** if the DB still uses dev seeds (**`docs/STAFF_PERMISSIONS.md`**, migration **53** on greenfield). After migration **97**, effective Back Office keys live in **`staff_permission`**; role-wide templates are under **Settings → Staff access defaults**.
+- [ ] **Staff roster:** Roles and permissions; **change default/bootstrap credentials** if the DB still uses dev seeds (**`docs/STAFF_PERMISSIONS.md`**, **`scripts/seeds/seed_dev.sql`** on greenfield dev databases). Effective Back Office keys live in **`staff_permission`**; role-wide templates are under **Settings → Staff access defaults**.
 - [ ] **Commission Roster (v0.1.8):** Audit Sales Rep base rates in the **Staff -> Commission** ledger and initialize overrides for high-priority products/variants — **`docs/COMMISSION_AND_SPIFF_OPERATIONS.md`**.
 - [ ] **Staff Identity & UI Logic (v0.2.0):**
   - [ ] **Top Bar Resolution:** Confirm `GlobalTopBar` prioritizes the authenticated Back Office staff member (`staffDisplayName` / `staffAvatarKey`) and only falls back to register session identity when no authenticated persona is present.

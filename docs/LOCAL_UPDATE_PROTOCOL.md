@@ -32,7 +32,7 @@ Ship a folder or archive the operator can keep on the server PC (or copy from me
 |------|--------|
 | **Server binary** | From `server/`: `cargo build --release` (artifact name/platform as built, e.g. `riverside-server.exe` or `riverside-server`). |
 | **Web UI static files** | `client/dist/**` from `npm run build` (or `npm run build:pwa` if that is what you serve in production — match how you built last time). |
-| **SQL migrations** | Full `migrations/` tree **or** at least every `NN_*.sql` file **new since** the last production deploy (numbered order must remain intact). |
+| **SQL migrations and seeds** | Full active `migrations/` baseline plus the approved `scripts/seeds/` files for the target environment. |
 | **Release notes** | Short text: version label, **new or changed environment variables** (see [`DEVELOPER.md`](../DEVELOPER.md)), any one-time operator steps. Compare with `server/.env.example` on the release branch. |
 
 **Naming (recommended):** `riverside-os-YYYY-MM-DD-vX.Y.Z.zip` (or folder) so support can match **Settings → General → About this build** with a physical artifact.
@@ -80,7 +80,9 @@ Until the process is stopped, do not replace the binary or the static `dist` tre
 
 ### 5.3 Apply database migrations
 
-Migrations live in `migrations/NN_description.sql` and are tracked in **`public.ros_schema_migrations`** (see `migrations/00_ros_migration_ledger.sql`). **Never** skip the ledger inserts: the apply scripts record each applied filename.
+Fresh installs and pre-launch reset builds use the schema-contract baseline in `migrations/001_core_identity_staff.sql` through `migrations/008_indexes_constraints_triggers.sql`. Migration filenames are tracked in **`public.ros_schema_migrations`**. **Never** skip the ledger inserts: the apply scripts record each applied filename.
+
+Seed data is separate from schema. Apply the release-approved seed set after migrations; for a normal install that means `scripts/seeds/seed_core_required.sql` and `scripts/seeds/seed_rbac.sql`. Local development can additionally apply `scripts/seeds/seed_dev.sql`; E2E uses `scripts/seeds/seed_e2e.sql`.
 
 **Option A — same machine has bash and `psql` (WSL, Git Bash, macOS/Linux build box with VPN to DB):**
 
@@ -93,14 +95,14 @@ export DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE"
 
 **Option B — manual `psql` (mirror of [`scripts/apply-migrations-docker.sh`](../scripts/apply-migrations-docker.sh)):**
 
-1. Ensure the ledger table exists (bootstrap `00_ros_migration_ledger.sql` once if needed; then insert `00_ros_migration_ledger.sql` into `ros_schema_migrations` if not present).
-2. For each `migrations/[0-9][0-9]_*.sql` in **sorted order**, if `version` is not already in `ros_schema_migrations`:
+1. For each active `migrations/[0-9][0-9]*_*.sql` file in **sorted order**, if `version` is not already in `ros_schema_migrations`:
    - `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /path/to/that/file.sql`
    - `INSERT INTO ros_schema_migrations (version) VALUES ('NN_whatever.sql') ON CONFLICT (version) DO NOTHING;`
+2. Apply the release-approved seed files with `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /path/to/seed_file.sql`.
 
 If any file fails, **stop** and restore from backup (section 8) or fix forward with engineering — do not start the new server against a half-applied chain.
 
-**Staff sign-in after updates:** Migration **`53_default_admin_chris_g_pin.sql`** (if included in your chain) sets the bootstrap **Chris G** admin to **four-digit** code **`1234`** with an Argon2 hash of **`1234`**. If you rely on a different staff roster, run your usual seed or adjust **`staff`** rows so at least one user can sign into Back Office (see **`docs/STAFF_PERMISSIONS.md`**). E2E and fresh dev DBs also use **`scripts/seed_staff_register_test.sql`** alongside that migration.
+**Staff sign-in after updates:** Schema migrations no longer create default staff users. Local dev gets Admin **`1234`** from **`scripts/seeds/seed_dev.sql`**. E2E gets Admin **`1234`** and deterministic non-Admin fixtures from **`scripts/seeds/seed_e2e.sql`**. Production installs should use store-approved staff provisioning or a reviewed production seed; do not rely on dev/E2E seed files.
 
 ### 5.4 Deploy binary and static UI
 
@@ -135,7 +137,7 @@ Before announcing “all clear”:
 
 1. Load the app in a browser at your production origin; confirm login.
 2. Open **Register** (or Back Office): one read path (e.g. search) and one low-risk write if policy allows.
-3. Optional: `SELECT version FROM ros_schema_migrations ORDER BY version;` — last row should match the latest `NN_*.sql` you shipped (compare with release notes / repo **`migrations/`**). For deeper drift checks in dev/Docker, see [`scripts/migration-status-docker.sh`](../scripts/migration-status-docker.sh) and [`scripts/ros_migration_build_probes.sql`](../scripts/ros_migration_build_probes.sql) (adapt queries to your prod DB as needed).
+3. Optional: `SELECT version FROM ros_schema_migrations ORDER BY version;` — rows should match the active migration files you shipped. For deeper drift checks in dev/Docker, see [`scripts/migration-status-docker.sh`](../scripts/migration-status-docker.sh), [`scripts/validate_schema_contract.sh`](../scripts/validate_schema_contract.sh), and [`docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`](SCHEMA_CONTRACT_AND_MIGRATIONS.md) (adapt queries to your prod DB as needed).
 4. If you ship **new or changed** `docs/staff/**` or **`CORPUS.manifest.json`**, run a **staff help reindex** once the API is up (**`settings.admin`**) — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 
 ### 5.8 Post-update smoke matrix (required before all-clear)
@@ -209,11 +211,11 @@ If you must revert after a failed or bad update:
 |-----|-----|
 | [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) | First-time production layout, builds, TLS, firewall |
 | [`BACKUP_RESTORE_GUIDE.md`](../BACKUP_RESTORE_GUIDE.md) | Backup API, restore cautions |
-| [`DEVELOPER.md`](../DEVELOPER.md) | Env vars, migration index |
+| [`DEVELOPER.md`](../DEVELOPER.md) | Env vars and schema-contract workflow |
 | [`README.md`](../README.md) | Dev quick start; Docker migration scripts for local dev |
 | [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md) | Staff help RAG reindex after deploy; **`RIVERSIDE_REPO_ROOT`**, embeddings env |
-| [`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`](STAFF_TASKS_AND_REGISTER_SHIFT.md) | Migrations **55–56**: register shift primary, staff recurring tasks, new RBAC keys |
-| [`docs/STAFF_SCHEDULE_AND_CALENDAR.md`](STAFF_SCHEDULE_AND_CALENDAR.md) | Migrations **57–58**: floor staff schedule, **`staff_effective_working_day`**, morning dashboard **`today_floor_staff`** |
+| [`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`](STAFF_TASKS_AND_REGISTER_SHIFT.md) | Register shift primary, staff recurring tasks, RBAC keys |
+| [`docs/STAFF_SCHEDULE_AND_CALENDAR.md`](STAFF_SCHEDULE_AND_CALENDAR.md) | Floor staff schedule, **`staff_effective_working_day`**, morning dashboard **`today_floor_staff`** |
 | [`scripts/apply-migrations-psql.sh`](../scripts/apply-migrations-psql.sh) | Production-friendly migration apply via `psql` + `DATABASE_URL` |
 
 ---

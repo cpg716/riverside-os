@@ -18,7 +18,7 @@ The **route-level gaps** called out in §2 and Appendix B have been **addressed 
 - **Sessions:** **`GET /current`** → staff or POS session; close / cash adjust / reconciliation / X-report → **`require_pos_session_secret_or_permission`** (path session + POS token, or BO **`register.reports`**).
 - **Weather:** **`require_authenticated_staff_headers`** on forecast/history.
 
-Extended permission keys and **`staff_role_permission`** seeds live in **`migrations/39_extended_rbac_catalog.sql`**; Rust constants in **`server/src/auth/permissions.rs`**.
+Extended permission keys and **`staff_role_permission`** seeds live in **`migrations/legacy_prelaunch_history/39_extended_rbac_catalog.sql`**; Rust constants in **`server/src/auth/permissions.rs`**.
 
 Remaining **optional** hardening: Playwright / E2E refresh (**Appendix B.4**); per-IP payment limits if you expose the API beyond trusted networks.
 
@@ -334,7 +334,7 @@ Matches documented lifecycle: reserved units leave both on hand and reserved whe
 
 | File | Role |
 |------|------|
-| `schema_bootstrap.rs` | Ensures RBAC tables from migration 34 at startup. |
+| `schema_bootstrap.rs` | Validates the schema contract at startup; it no longer applies hidden DDL or RBAC compatibility patches. |
 
 ### A.3 API modules: any auth hook present?
 

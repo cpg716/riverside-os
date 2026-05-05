@@ -105,7 +105,7 @@ All five require **insights.view** and accept the standard curated Reports date 
 1. **Grant** **insights.view** to roles that should see **Reports** (and **Insights** tab).
 2. **Grant** **register.reports** if managers need **Register day activity** in Back Office (they may already have it for Z / operations).
 3. **Grant** **customers.rms_charge** for CRM-aligned **RMS charge records** tile (aligns with **Customers → RMS charge**).
-4. **Confirm** E2E / training staff: **Playwright** **`reports-workspace.spec.ts`** expects migration **53** admin **`1234`** for margin visibility in CI; **`api-gates`** uses **`seed_e2e_non_admin_staff.sql`** for **403** on margin — see **`docs/E2E_REGRESSION_MATRIX.md`**.
+4. **Confirm** E2E / training staff: **Playwright** **`reports-workspace.spec.ts`** expects seeded Admin **`1234`** for margin visibility in CI; **`api-gates`** uses **`scripts/seeds/seed_e2e.sql`** for non-Admin **403** on margin — see **`docs/E2E_REGRESSION_MATRIX.md`**.
 
 ---
 

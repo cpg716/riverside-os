@@ -2,7 +2,7 @@
 
 This document describes Riverside OS **Back Office** access control: string permission keys, **per-staff** grants (runtime), **role templates** in the database (edited under **Settings**), staff **phone/email**, **linked employee customer** (employee pricing + zero commission on those sales), and how the client loads **effective permissions** after staff authentication.
 
-**Runtime model (migration 97):** For non-**admin** staff, the effective permission set is **`staff_permission`** only (`allowed = true` rows). **`staff_role_permission`** and **`staff_role_pricing_limits`** are **store default templates** used for onboarding and when applying role defaults. **As of v0.3.2, role updates in a staff profile automatically trigger a synchronization from these templates while preserving existing manual overrides.**
+**Runtime model:** For non-**admin** staff, the effective permission set is **`staff_permission`** only (`allowed = true` rows). **`staff_role_permission`** and **`staff_role_pricing_limits`** are **store default templates** used for onboarding and when applying role defaults. **As of v0.3.2, role updates in a staff profile automatically trigger a synchronization from these templates while preserving existing manual overrides.**
 
 For high-level architecture, see **`DEVELOPER.md`**. For agent-oriented invariants, see **`AGENTS.md`**.
 
@@ -20,31 +20,31 @@ For high-level architecture, see **`DEVELOPER.md`**. For agent-oriented invarian
 
 ---
 
-## Schema (migrations 34 + 40 + 97)
+## Schema
 
-Apply migrations in numeric order. Key objects:
+Apply the schema-contract baseline, then apply **`scripts/seeds/seed_rbac.sql`**. Key objects:
 
 | Object | Purpose |
 |--------|---------|
 | `staff.phone`, `staff.email` | Optional work contact fields (validated in API). |
 | `staff_role_permission` | `(role, permission_key, allowed)` — **template** defaults per `staff_role` (edited in **Settings → Staff access defaults**). **Not** read at auth time for non-admin enforcement. |
 | `staff_permission` | `(staff_id, permission_key, allowed)` — **per-person** grants; PK `(staff_id, permission_key)`. Non-admin effective permissions = keys with `allowed = true`. |
-| `staff_permission_override` | Legacy `(staff_id, permission_key, allow|deny)` — **not** used for enforcement after migration **97** backfill. |
+| `staff_permission_override` | Legacy `(staff_id, permission_key, allow|deny)` — **not** used for runtime enforcement. |
 | `staff.max_discount_percent` | **Per-person** register discount cap (enforced at checkout). Copied from **`staff_role_pricing_limits`** when applying role defaults. **Admin** still treated as **100%** in code if needed. |
 | `staff.employment_start_date`, `staff.employment_end_date` | Optional HR-style dates; archive UX may set **end** when deactivating. |
 | `staff.employee_customer_id` | Optional FK to **`customers`**: links the staff member’s CRM profile for **employee pricing** on the POS and sets **`orders.is_employee_purchase`** at checkout (partial unique: one customer ↔ one staff). |
 
-Migration **34** creates contacts + role/override tables; **36** and **39** seed **`staff_role_permission`**; **40** adds **`staff_role_pricing_limits`**. **Migration `97_staff_profile_permissions_and_employment.sql`** adds **`staff_permission`**, employment + employee-customer columns, **`staff.max_discount_percent`**, and backfills from the pre-97 effective set and role caps. **Admin** is still **full catalog in app code**; template rows for admin are optional for the Settings UI.
+The active schema-contract baseline creates contacts, role/override tables, staff permission tables, pricing limits, employment columns, employee-customer linkage, and **`staff.max_discount_percent`**. Role template rows are seeded by **`scripts/seeds/seed_rbac.sql`**. **Admin** is still **full catalog in app code**; template rows for admin support Settings UI visibility and operational review.
 
-### Orders keys (migration 36)
+### Orders keys
 
-**`migrations/36_orders_rbac_permissions.sql`** adds role defaults for **`orders.view`**, **`orders.modify`**, **`orders.cancel`**, and **`orders.refund_process`** (admin: all true; salesperson: view + refund_process; sales_support: all true). These keys must exist in **`server/src/auth/permissions.rs`** / **`ALL_PERMISSION_KEYS`** before the migration runs.
+**`scripts/seeds/seed_rbac.sql`** adds role defaults for **`orders.view`**, **`orders.modify`**, **`orders.cancel`**, and **`orders.refund_process`** (admin: all true; salesperson: view + refund_process; sales_support: all true). These keys must exist in **`server/src/auth/permissions.rs`** / **`ALL_PERMISSION_KEYS`** before the seed runs.
 
 Operational behavior (refund queue, returns, register session bypass): **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**.
 
-### Extended Back Office keys (migration 39)
+### Extended Back Office keys
 
-**`migrations/39_extended_rbac_catalog.sql`** seeds **`staff_role_permission`** for:
+**`scripts/seeds/seed_rbac.sql`** seeds **`staff_role_permission`** for:
 
 | Key | Typical use |
 |-----|-------------|
@@ -59,16 +59,16 @@ Operational behavior (refund queue, returns, register session bypass): **`docs/T
 | `weddings.mutate` | Create/update/delete parties, members, appointments, restore. |
 | `wedding_manager.open` | Open the Wedding Management Hub from POS (Integrated Hub) or Back Office (Standalone Shell) navigation. In POS mode, this preserves the register context while providing full management access. |
 | `register.reports` | Back Office access to register reconciliation and cash adjustment APIs without a POS session token. |
-| `register.open_drawer` | Back Office **paid-in / paid-out** drawer adjustments (`POST /api/sessions/{id}/adjustments`) **without** matching POS session token; open register devices still use session headers. Seeded in migration **50**. |
-| `register.shift_handoff` | **`POST /api/sessions/{id}/shift-primary`** — set **register shift primary** (`shift_primary_staff_id`) without closing the drawer; valid POS session token for that session **or** this permission from Back Office. Seeded in migration **55**. See **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**. |
-| `register.session_attach` | **`GET /api/sessions/list-open`** and **`POST /api/sessions/{id}/attach`** — pick or join an open lane when several registers are in use (migration **66**). Satellite open UI also calls **list-open** to link lane 2+ to an open **Register #1** in the same **`till_close_group_id`** (migration **67**). |
-| `orders.suit_component_swap` | **`POST /api/transactions/{id}/items/{line}/suit-swap`** — inventory-aware variant replacement on a line. Seeded in migration **50**. |
-| `ops.dev_center.view` | **Settings → ROS Dev Center** read access (health, integrations, stations, alerts, audit, bug overlays). Seeded in migration **149** (admin default only). |
-| `ops.dev_center.actions` | ROS Dev Center guarded mutations (alert ack, guarded action execution, bug↔incident links). Requires explicit reason + dual confirmation and writes immutable action-audit rows. Seeded in migration **149** (admin default only). |
+| `register.open_drawer` | Back Office **paid-in / paid-out** drawer adjustments (`POST /api/sessions/{id}/adjustments`) **without** matching POS session token; open register devices still use session headers. Seeded by **`seed_rbac.sql`**. |
+| `register.shift_handoff` | **`POST /api/sessions/{id}/shift-primary`** — set **register shift primary** (`shift_primary_staff_id`) without closing the drawer; valid POS session token for that session **or** this permission from Back Office. Seeded by **`seed_rbac.sql`**. See **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**. |
+| `register.session_attach` | **`GET /api/sessions/list-open`** and **`POST /api/sessions/{id}/attach`** — pick or join an open lane when several registers are use. Satellite open UI also calls **list-open** to link lane 2+ to an open **Register #1** in the same **`till_close_group_id`**. |
+| `orders.suit_component_swap` | **`POST /api/transactions/{id}/items/{line}/suit-swap`** — inventory-aware variant replacement on a line. Seeded by **`seed_rbac.sql`**. |
+| `ops.dev_center.view` | **Settings → ROS Dev Center** read access (health, integrations, stations, alerts, audit, bug overlays). Seeded by **`seed_rbac.sql`** (admin default only). |
+| `ops.dev_center.actions` | ROS Dev Center guarded mutations (alert ack, guarded action execution, bug↔incident links). Requires explicit reason + dual confirmation and writes immutable action-audit rows. Seeded by **`seed_rbac.sql`** (admin default only). |
 
-**Till close group (migration 67):** Open **Register #1** creates a new **`till_close_group_id`** (one physical drawer: float, paid in/out, expected/actual cash). **Satellite lanes (2+)** must send **`primary_session_id`** of an open **lane 1** session and use **`opening_float` = 0**; cash tenders on satellites roll into the primary’s Z. **Z-close / `close_session`** runs only on **lane 1** and closes **all** open sessions in the group in one transaction with a shared **`z_report_json`**. **Admin** entering POS open flow: if **Register #1** is not open, the UI asks whether **they** open **#1** (opening cashier) or **another terminal** opens **#1** first (**Check again** polls **`list-open`**). With **#1** already open, **admin** defaults to **Register #2** for Back Office-style POS use (no float); they can still pick **#1** from the dropdown. **Lane 2+** has no separate close control in POS. Back Office **Orders → Process refund** shows **Go to POS** when no till is open (**`GET /api/sessions/current`** **404**). Full detail: **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**.
+**Till close group:** Open **Register #1** creates a new **`till_close_group_id`** (one physical drawer: float, paid in/out, expected/actual cash). **Satellite lanes (2+)** must send **`primary_session_id`** of an open **lane 1** session and use **`opening_float` = 0**; cash tenders on satellites roll into the primary’s Z. **Z-close / `close_session`** runs only on **lane 1** and closes **all** open sessions in the group in one transaction with a shared **`z_report_json`**. **Admin** entering POS open flow: if **Register #1** is not open, the UI asks whether **they** open **#1** (opening cashier) or **another terminal** opens **#1** first (**Check again** polls **`list-open`**). With **#1** already open, **admin** defaults to **Register #2** for Back Office-style POS use (no float); they can still pick **#1** from the dropdown. **Lane 2+** has no separate close control in POS. Back Office **Orders → Process refund** shows **Go to POS** when no till is open (**`GET /api/sessions/current`** **404**). Full detail: **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**.
 
-### Staff recurring tasks (migration **56**)
+### Staff recurring tasks
 
 | Key | Typical use |
 |-----|-------------|
@@ -78,16 +78,16 @@ Operational behavior (refund queue, returns, register session bypass): **`docs/T
 
 Lazy materialization and HTTP surface: **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**.
 
-### Notification center (migrations **51–52**; task reminders **56**)
+### Notification center
 
 | Key | Typical use |
 |-----|-------------|
-| `notifications.view` | Bell + **`GET /api/notifications`** / unread / **read** / **complete** / **archive** (Dismiss). Seeded for **admin**, **salesperson**, **sales_support**. POS path uses valid register session headers → staff id **`COALESCE(shift_primary_staff_id, opened_by)`** (migration **55**). Archive appends **`staff_notification_action`** **`archived`**. |
+| `notifications.view` | Bell + **`GET /api/notifications`** / unread / **read** / **complete** / **archive** (Dismiss). Seeded for **admin**, **salesperson**, **sales_support**. POS path uses valid register session headers → staff id **`COALESCE(shift_primary_staff_id, opened_by)`**. Archive appends **`staff_notification_action`** **`archived`**. |
 | `notifications.broadcast` | **`POST /api/notifications/broadcast`** — admin-seeded only; writes **`notification_broadcast`** access log metadata. |
 
-**Morning digest (migration 52 + jobs):** Admin-only fan-out uses **bundled** kinds **`morning_low_stock_bundle`**, **`morning_wedding_today_bundle`**, **`morning_po_expected_bundle`**, **`morning_alteration_due_bundle`** (each one inbox row, **`notification_bundle`** payload with per-item deep links), plus a single **`morning_refund_queue`** row. Catalog opt-in: **`products.track_low_stock`** and **`product_variants.track_low_stock`** (both default false). **Task due reminders (migration 56):** hourly **`task_due_soon_bundle`** (one row per assignee per store-local day; nested links may use **`staff_tasks`** + **`instance_id`**). See **`docs/PLAN_NOTIFICATION_CENTER.md`**.
+**Morning digest:** Admin-only fan-out uses **bundled** kinds **`morning_low_stock_bundle`**, **`morning_wedding_today_bundle`**, **`morning_po_expected_bundle`**, **`morning_alteration_due_bundle`** (each one inbox row, **`notification_bundle`** payload with per-item deep links), plus a single **`morning_refund_queue`** row. Catalog opt-in: **`products.track_low_stock`** and **`product_variants.track_low_stock`** (both default false). **Task due reminders:** hourly **`task_due_soon_bundle`** (one row per assignee per store-local day; nested links may use **`staff_tasks`** + **`instance_id`**). See **`docs/PLAN_NOTIFICATION_CENTER.md`**.
 
-Role defaults: **admin** = all **true**; **salesperson** = narrow (e.g. `catalog.view`, `procurement.view`, `weddings.view`, most admin keys **false**); **sales_support** = broad **true** — see the migration file for the exact matrix.
+Role defaults: **admin** = all **true**; **salesperson** = narrow (e.g. `catalog.view`, `procurement.view`, `weddings.view`, most admin keys **false**); **sales_support** = broad **true** — see **`scripts/seeds/seed_rbac.sql`** for the exact matrix.
 
 ---
 
@@ -165,7 +165,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `procurement.view` | Purchase order list/read. |
 | `procurement.mutate` | PO create/submit/receive, direct invoice. |
 | `settings.admin` | Settings, backups, database maintenance. |
-| `help.manage` | **Settings → Help center**: edit manual visibility, markdown overrides, and permission gates (`help_manual_policy`); migration **79**. |
+| `help.manage` | **Settings → Help center**: edit manual visibility, markdown overrides, and permission gates (`help_manual_policy`). |
 | `gift_cards.manage` | Gift card management. |
 | `customers.couple_manage` | Link/unlink Joint Couple partners and create Joint accounts. |
 | `customers.rms_charge` | Legacy RMS Charge read compatibility key. |
@@ -187,7 +187,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `tasks.manage` | Staff task templates, assignments, admin history / team views; complete others’ instances. |
 | `tasks.view_team` | Open team board of peers’ open task instances. |
 | `tasks.complete` | Own recurring task instances; **Staff → Tasks** / Operations **My tasks** / POS **Tasks** tab. |
-| `online_store.manage` | **Settings → Online store**: CMS pages (raw HTML + GrapesJS Studio), coupons, **`GET`/`PATCH` `/api/admin/store/*`**. **`settings.admin`** also allows the same admin store routes. Seeded in migration **73** — **`docs/ONLINE_STORE.md`**, **`docs/PLAN_ONLINE_STORE_MODULE.md`**. |
+| `online_store.manage` | **Settings → Online store**: CMS pages (raw HTML + GrapesJS Studio), coupons, **`GET`/`PATCH` `/api/admin/store/*`**. **`settings.admin`** also allows the same admin store routes. Seeded by **`seed_rbac.sql`** — **`docs/ONLINE_STORE.md`**, **`docs/PLAN_ONLINE_STORE_MODULE.md`**. |
 | `ops.dev_center.view` | **Settings → ROS Dev Center** read-only operational visibility. |
 | `ops.dev_center.actions` | Run Dev Center guarded actions/mutations with reason + dual confirmation semantics. |
 
@@ -237,7 +237,7 @@ Any `fetch` to a permission-gated API must pass **`...(backofficeHeaders() as Re
 ## Adding a new permission
 
 1. **Rust:** Add a `pub const` in `server/src/auth/permissions.rs` and append it to **`ALL_PERMISSION_KEYS`**.
-2. **Database:** Extend **`staff_role_permission`** seeds in a new migration (or use **Settings → Staff access defaults**) so roles have sensible **templates**. Existing staff keep their **`staff_permission`** rows until an admin edits them or runs **Apply role defaults**.
+2. **Database:** Extend **`scripts/seeds/seed_rbac.sql`** before launch, or add a new append-only migration after launch, so roles have sensible **templates**. Existing staff keep their **`staff_permission`** rows until an admin edits them or runs **Apply role defaults**.
 3. **Handler:** Gate with **`require_staff_with_permission(state, &headers, permissions::YOUR_KEY).await?`** (or equivalent).
 4. **Client:** If the shell should hide UI, add entries to **`SIDEBAR_TAB_PERMISSION`** or **`SIDEBAR_SUB_SECTION_PERMISSION`** in `BackofficeAuthContext.tsx`; mirror labels in **`staffPermissions.ts`**; ensure related `fetch` calls use **`backofficeHeaders()`**.
 5. **Docs:** Update the permission table in this file.
@@ -272,8 +272,8 @@ Lightspeed’s [Setting user roles and permissions](https://x-series-support.lig
 | **Custom roles** (Enterprise) | **`staff_role`** label + **`staff_permission`** per person; **templates** in **`staff_role_permission`** for quick **Apply role defaults**. |
 | **Show product costs** (role toggle) | **`inventory.view_cost`** — unit cost in POS intelligence paths (see catalog table above). |
 | **Discount limits** (% cap) | **Per staff:** **`staff.max_discount_percent`** + checkout validation ([`server/src/logic/pricing_limits.rs`](../server/src/logic/pricing_limits.rs)). **Templates:** **`staff_role_pricing_limits`** under **Settings → Staff access defaults**. |
-| **Sell** permissions (void, edit ledger, returns, store credit, register ops) | **`orders.view` / `modify` / `cancel` / `void_sale` / `suit_component_swap` / `refund_process`** cover **BO** order reads, line edits, cancel vs void-unpaid, suit/component swaps, refunds, and line returns; **checkout** stays POS-authenticated. **Store credit** liability is live (checkout tender + BO adjust via **`store_credit.manage`**). **`orders.void_sale`** is seeded in migration **49**; **`orders.suit_component_swap`** in **50**. |
-| **Customers** (merge, groups, store credit, hub, duplicate queue, RMS charge reporting, shipments hub, export CSV, on-account limits) | **`customers.merge`**, **`customer_groups.manage`**, **`store_credit.manage`**, **`customers_duplicate_review`** (duplicate review queue APIs + hub **Queue pair**) gate merge, group membership, credit adjustments, and queue tools. **RMS Charge** now splits into richer keys: **`customers.rms_charge.view`** (linked accounts + records), **`customers.rms_charge.manage_links`** (link/unlink actions), plus legacy **`customers.rms_charge`** for compatibility. POS-side RMS financing uses **`pos.rms_charge.use`**, **`pos.rms_charge.lookup`**, and **`pos.rms_charge.history_basic`**. **`shipments.view`** / **`shipments.manage`** gate **Customers → Shipments**, hub **Shipments** tab, and **`/api/shipments/*`** (list/read vs create/patch/rates/notes) — migration **75**, **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**. **Relationship Hub–aligned reads/writes** use **`customers.hub_view`** (hub/profile/single customer row/store-credit summary), **`customers.hub_edit`** (**`PATCH /api/customers/{id}`** — contact, marketing, VIP, custom fields), **`customers.timeline`** (**`GET …/timeline`**, **`POST …/notes`**), and **`customers.measurements`** (**`GET`/`PATCH …/measurements`**). Per-customer **order history** in the hub still requires **`orders.view`**. Enforcement uses **`require_staff_perm_or_pos_session`** where documented for hub paths: valid **open register POS session** **or** staff with the key. Merge, queue, groups, and store-credit adjust remain **staff permission** checks on their handlers. Default **`salesperson`** / **`sales_support`** for merge + duplicate review: migration **64**. Dedicated **customer CSV export** and **on-account / AR limit** keys are not split out yet. |
+| **Sell** permissions (void, edit ledger, returns, store credit, register ops) | **`orders.view` / `modify` / `cancel` / `void_sale` / `suit_component_swap` / `refund_process`** cover **BO** order reads, line edits, cancel vs void-unpaid, suit/component swaps, refunds, and line returns; **checkout** stays POS-authenticated. **Store credit** liability is live (checkout tender + BO adjust via **`store_credit.manage`**). **`orders.void_sale`** and **`orders.suit_component_swap`** are seeded by **`seed_rbac.sql`**. |
+| **Customers** (merge, groups, store credit, hub, duplicate queue, RMS charge reporting, shipments hub, export CSV, on-account limits) | **`customers.merge`**, **`customer_groups.manage`**, **`store_credit.manage`**, **`customers_duplicate_review`** (duplicate review queue APIs + hub **Queue pair**) gate merge, group membership, credit adjustments, and queue tools. **RMS Charge** now splits into richer keys: **`customers.rms_charge.view`** (linked accounts + records), **`customers.rms_charge.manage_links`** (link/unlink actions), plus legacy **`customers.rms_charge`** for compatibility. POS-side RMS financing uses **`pos.rms_charge.use`**, **`pos.rms_charge.lookup`**, and **`pos.rms_charge.history_basic`**. **`shipments.view`** / **`shipments.manage`** gate **Customers → Shipments**, hub **Shipments** tab, and **`/api/shipments/*`** (list/read vs create/patch/rates/notes) — baseline shipment schema, **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**. **Relationship Hub–aligned reads/writes** use **`customers.hub_view`** (hub/profile/single customer row/store-credit summary), **`customers.hub_edit`** (**`PATCH /api/customers/{id}`** — contact, marketing, VIP, custom fields), **`customers.timeline`** (**`GET …/timeline`**, **`POST …/notes`**), and **`customers.measurements`** (**`GET`/`PATCH …/measurements`**). Per-customer **order history** in the hub still requires **`orders.view`**. Enforcement uses **`require_staff_perm_or_pos_session`** where documented for hub paths: valid **open register POS session** **or** staff with the key. Merge, queue, groups, and store-credit adjust remain **staff permission** checks on their handlers. Default **`salesperson`** / **`sales_support`** for merge + duplicate review comes from **`seed_rbac.sql`**. Dedicated **customer CSV export** and **on-account / AR limit** keys are not split out yet. |
 | **Self-edit profile** | Profile edits go through **`staff.edit`** (or admin tooling in **Staff → Team**); **self-service** contact update and **employee CRM link** are available to the authenticated user via **Settings → Profile** (**`GET`/`PATCH` `/api/staff/self`**). In **POS mode**, sensitive employment data (Role, Economics, Permissions) is **view-only**, while **Personal Info** (Name, Phone, Email, Icon) and **CRM Linkage** remain editable without broad **`staff.edit`** permission (v0.2.1). |
 | **Identity Prioritization** | **Primary Invariant**: The UI MUST always reflect the persona who explicitly signed in via the PIN gate, overriding workstation register state in the Top Bar and navigation context (v0.2.1). |
 | **POS Settings Gate** | **Strategic Boundary**: POS Settings are restricted to **Staff Profile** and **Printers & Scanners** (Hardware) to maintain operational security at public registers. |
@@ -289,22 +289,8 @@ Lightspeed’s [Setting user roles and permissions](https://x-series-support.lig
 
 ## Operational notes
 
-- **Migration 34** must be applied before relying on RBAC; missing tables or columns will surface as database errors in staff or wedding paths if other features assume newer schema.
-- **Migrations 36–37** are required for **orders** permission seeds and **line returns** / **exchange_group_id**; see **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**.
-- **Migration 39** extends **`staff_role_permission`** with **catalog / procurement / settings / gift cards / loyalty program / weddings / register.reports**; apply after **34**.
-- **Migration 40** adds **`staff_role_pricing_limits`** (template discount caps; copied to **`staff.max_discount_percent`** per person).
-- **Migration 97** adds **`staff_permission`**, per-staff cap, employment + **`employee_customer_id`**, and backfill from legacy effective permissions.
-- **Migrations 42–43** add **customer merge / groups / store credit** schema and seeds for **`customers.merge`**, **`customer_groups.manage`**, **`store_credit.manage`**.
-- **Migration 63** seeds **`customers.hub_view`**, **`customers.hub_edit`**, **`customers.timeline`**, **`customers.measurements`** for **`admin`**, **`salesperson`**, and **`sales_support`** (tune templates and per-staff **`staff_permission`** as needed).
-- **Migration 64** sets **`customers_duplicate_review`** and **`customers.merge`** to **allowed** for **`salesperson`** and **`sales_support`** (duplicate review queue APIs, hub enqueue UI, and two-customer merge in Back Office).
-- **Migration 69** adds **`customers.rms_charge`** (admin + sales_support), **`products.pos_line_kind`**, **`pos_rms_charge_record.record_kind`**, and ledger seed **`RMS_R2S_PAYMENT_CLEARING`** for R2S payment collection checkout and reporting.
-- **Migration 153** adds linked CoreCredit account storage and the initial RMS permission family: **`pos.rms_charge.use`**, **`pos.rms_charge.lookup`**, **`pos.rms_charge.history_basic`**, **`customers.rms_charge.view`**, and **`customers.rms_charge.manage_links`**.
-- Later RMS Charge phases add the operational keys **`pos.rms_charge.payment_collect`**, **`customers.rms_charge.resolve_exceptions`**, **`customers.rms_charge.reconcile`**, **`customers.rms_charge.reverse`**, and **`customers.rms_charge.reporting`**.
-- **Migration 155** completes RMS operational RBAC with **`pos.rms_charge.payment_collect`**, **`customers.rms_charge.resolve_exceptions`**, **`customers.rms_charge.reconcile`**, **`customers.rms_charge.reverse`**, and **`customers.rms_charge.reporting`**.
-- Phase 2 keeps those RMS permissions for everyday use and relies on existing sensitive-action keys such as **`orders.refund_process`** plus Back Office RMS permissions for live host refund/reversal actions.
-- **Migration 75** seeds **`shipments.view`** (admin, sales_support, salesperson) and **`shipments.manage`** (admin, sales_support; salesperson denied by default) for the unified **`shipment`** registry — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**.
-- **Migration 49** seeds **`orders.void_sale`** (void unpaid orders without **`orders.cancel`**).
-- **Migration 50** adds **`suit_component_swap_events`** plus seeds **`orders.suit_component_swap`** and **`register.open_drawer`**.
-- **Migrations 55–56** add **`register_sessions.shift_primary_staff_id`**, **`register.shift_handoff`**, staff **`task_*`** tables, and **`tasks.*`** / **`task_due_soon`** — see **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**.
-- **Migration 38** adds **`register_sessions.pos_api_token`** and **`orders.checkout_client_id`** (POS token checkout + idempotent replays); required for those flows, independent of the permission matrix.
+- The schema-contract baseline must be applied before relying on RBAC, orders, returns, tasks, sessions, RMS Charge, shipping, or customer hub permissions.
+- **`scripts/seeds/seed_rbac.sql`** is the source for role-template defaults. Tune templates and per-staff **`staff_permission`** rows through **Settings → Staff access defaults** and staff profiles.
+- Permission-sensitive flows still depend on their domain schema: orders/returns, customer hub, store credit, RMS Charge, shipment registry, tasks, register lanes, and POS token checkout are all baseline objects.
+- Phase 2 keeps the RMS permission family for everyday use and relies on existing sensitive-action keys such as **`orders.refund_process`** plus Back Office RMS permissions for live host refund/reversal actions.
 - Do not add dev bypasses for staff auth; production and development share the same enforcement story (**`AGENTS.md`**).

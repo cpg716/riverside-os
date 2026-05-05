@@ -7,12 +7,12 @@ Short ops and developer reference for **automated inbox items** beyond the narra
 | Migration | Objects | Role |
 |-----------|---------|------|
 | **51–52**, **56** | `app_notification`, digest ledger, `task_due_soon`, etc. | Core inbox + morning digest + task reminders |
-| **60** [`60_store_backup_health.sql`](../migrations/60_store_backup_health.sql) | `store_backup_health` | Timestamps for local/cloud backup outcomes → admin **`backup_admin_*`** notifications |
-| **61** [`61_notification_integration_extras.sql`](../migrations/61_notification_integration_extras.sql) | `integration_alert_state`, `staff_auth_failure_event` | QBO token refresh + weather finalize health rows; PIN mismatch audit for **`pin_failure_digest`** |
-| **68** [`68_pos_parked_and_rms_charge_audit.sql`](../migrations/68_pos_parked_and_rms_charge_audit.sql) | `pos_parked_sale`, `pos_parked_sale_audit`, `pos_rms_charge_record` | Checkout-driven **`rms_r2s_charge`** fan-out to **sales_support** after RMS / RMS90 tender — **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)** |
-| **69** [`69_rms_charge_payment_line.sql`](../migrations/69_rms_charge_payment_line.sql) | `products.pos_line_kind`, `pos_rms_charge_record.record_kind`, nullable `task_instance.assignment_id` | R2S **payment** checkout creates ad-hoc **Sales Support** **tasks** (not the same as **`rms_r2s_charge`** notifications) — **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)** |
+| **60** `60_store_backup_health.sql` | `store_backup_health` | Historical source for local/cloud backup outcome timestamps → admin **`backup_admin_*`** notifications |
+| **61** `61_notification_integration_extras.sql` | `integration_alert_state`, `staff_auth_failure_event` | Historical source for QBO token refresh + weather finalize health rows; PIN mismatch audit for **`pin_failure_digest`** |
+| **68** `68_pos_parked_and_rms_charge_audit.sql` | `pos_parked_sale`, `pos_parked_sale_audit`, `pos_rms_charge_record` | Historical source for checkout-driven **`rms_r2s_charge`** fan-out to **sales_support** after RMS / RMS90 tender — **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)** |
+| **69** `69_rms_charge_payment_line.sql` | `products.pos_line_kind`, `pos_rms_charge_record.record_kind`, nullable `task_instance.assignment_id` | Historical source for R2S **payment** checkout ad-hoc **Sales Support** **tasks** — **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)** |
 
-Apply with `./scripts/apply-migrations-docker.sh`; drift check with `./scripts/migration-status-docker.sh` (probes in `scripts/ros_migration_build_probes.sql` through the latest numbered migration, currently **97** — see **`DEVELOPER.md`**).
+These objects are now consolidated into the active schema-contract baseline. Apply with `./scripts/apply-migrations-docker.sh`; validate with `./scripts/migration-status-docker.sh` and `./scripts/validate_schema_contract.sh` — see **`DEVELOPER.md`** and **[`SCHEMA_CONTRACT_AND_MIGRATIONS.md`](./SCHEMA_CONTRACT_AND_MIGRATIONS.md)**.
 
 ## Environment variables (server)
 

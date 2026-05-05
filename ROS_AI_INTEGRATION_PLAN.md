@@ -38,7 +38,7 @@ Anything **not** listed in **`PLAN_LOCAL_LLM_HELP.md`** should not be assumed ap
 
 ## What migration 78 removed
 
-From **`migrations/78_retire_ros_ai_tables.sql`**:
+From **`migrations/legacy_prelaunch_history/78_retire_ros_ai_tables.sql`**:
 
 - Tables **`ai_saved_report`**, **`ai_doc_chunk`**
 - RBAC keys **`ai_assist`**, **`ai_reports`** (overrides and role seeds)

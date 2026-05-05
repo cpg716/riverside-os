@@ -16,7 +16,7 @@ Status: **Canonical Shipping / Shippo / Shipments Hub reference**. Cross-cutting
 | **74** | **`74_shippo_shipping_foundation.sql`** | **`orders.fulfillment_method`** (`pickup` \| `ship`), **`ship_to`**, shipping money + Shippo/tracking columns on **`orders`**; **`store_settings.shippo_config`**; **`store_shipping_rate_quote`** (short-lived quotes for checkout binding) |
 | **75** | **`75_unified_shipments_hub.sql`** | **`shipment`**, **`shipment_event`** (append-only log); enums **`shipment_source`** (`pos_order`, `web_order`, `manual_hub`), **`shipment_status`**; RBAC **`shipments.view`**, **`shipments.manage`**; backfill from existing **ship** orders |
 
-Apply with **`./scripts/apply-migrations-docker.sh`** (ledger in **`migrations/00_ros_migration_ledger.sql`**). Status: **`./scripts/migration-status-docker.sh`**.
+These historical objects are now consolidated into the active schema-contract baseline. Apply the baseline with **`./scripts/apply-migrations-docker.sh`** and validate with **`./scripts/migration-status-docker.sh`** plus **`./scripts/validate_schema_contract.sh`**.
 
 ---
 

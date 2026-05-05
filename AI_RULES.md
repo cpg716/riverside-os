@@ -41,7 +41,10 @@ You act as the ultimate gatekeeper of the codebase. You MUST NOT commit broken o
 ## Pillar 2: Database & Migration Rules
 Maintain absolute data integrity and accidental-deletion prevention.
 
-*   **Migration Mandate**: Never modify the database schema directly via a SQL editor. Always generate a numbered migration file in the `migrations/` directory (e.g., `118_add_feature_table.sql`).
+*   **Schema Contract Mandate**: Fresh installs are defined by the active baseline migrations `001` through `008` in `migrations/`. Legacy pre-launch history is archived under `migrations/legacy_prelaunch_history/`.
+*   **Post-Launch Migration Mandate**: Never modify the database schema directly via a SQL editor. After launch, create a new append-only numbered migration in `migrations/` for schema changes; do not edit old baseline files.
+*   **Seed Separation**: Staff defaults, RBAC templates, dev users, E2E users, service products, and fixture data belong in `scripts/seeds/`, not schema migrations.
+*   **Runtime Validation Only**: Startup must validate the schema contract and fail loudly on mismatch. Do not add runtime DDL, hidden compatibility patches, or silent schema repair.
 *   **Destructive Actions**: You are strictly forbidden from executing commands like `DROP TABLE`, `DELETE COLUMN`, or `TRUNCATE` without triple-confirmed approval from the user.
 *   **SQLx Pattern**: Prefer `sqlx::query_as` with `.bind()` for development; follow the `#[sqlx(rename_all = "snake_case")]` pattern for enums.
 

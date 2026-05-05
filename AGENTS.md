@@ -762,6 +762,9 @@ npm run dev
 ```bash
 docker compose up -d
 ./scripts/apply-migrations-docker.sh
+docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < scripts/seeds/seed_core_required.sql
+docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < scripts/seeds/seed_rbac.sql
+docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < scripts/seeds/seed_dev.sql
 ./scripts/migration-status-docker.sh
 ```
 
@@ -795,13 +798,18 @@ E2E_BASE_URL="http://localhost:5173" npm run test:e2e:update-snapshots
 - Local dev uses Docker Compose `db`
 - `DATABASE_URL` should use `localhost:5433`, not `5432`
 - The migration ledger is `public.ros_schema_migrations`
+- Active migrations are the schema-contract baseline `001` through `008`
+- Legacy pre-launch migrations live under `migrations/legacy_prelaunch_history/`
+- Seed data lives in `scripts/seeds/` and must stay out of active migrations
+- Runtime startup validates schema only; do not add hidden DDL or compat patches
 
 - Use the scripts in `scripts/` rather than inventing ad hoc migration workflows
 
 ## Migration numbering safety
 
 - Never rename or renumber existing migrations
-- Always create a new migration for changes
+- Do not edit baseline migrations after launch
+- Always create a new append-only migration for post-launch schema changes
 - Preserve migration order across branches
 - Verify migration sequence before making changes
 
@@ -815,6 +823,7 @@ When you need the latest migration:
 
 - confirm with `DEVELOPER.md`
 - confirm with migration-status scripts
+- confirm with `docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`
 
 If docs disagree, the actual migration files and current code win.
 

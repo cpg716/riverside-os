@@ -1,6 +1,6 @@
 # Transactions: refunds, line returns, exchanges, and post-sale adjustments
 
-Operational reference for **Back Office** and **register** flows after migrations **`36_orders_rbac_permissions.sql`** and **`37_order_returns_and_exchange.sql`**. Optional idempotent replays use **`transactions.checkout_client_id`** from **`38_register_pos_token_and_checkout_idempotency.sql`**. Implementation lives in `server/src/api/transactions.rs`, `server/src/logic/transaction_recalc.rs`, `server/src/logic/transaction_returns.rs`, `server/src/logic/suit_component_swap.rs`, `server/src/logic/gift_card_ops.rs`, and `client/src/components/orders/OrdersWorkspace.tsx`.
+Operational reference for **Back Office** and **register** flows after the schema-contract baseline and RBAC seed are applied. Optional idempotent replays use **`transactions.checkout_client_id`**. Implementation lives in `server/src/api/transactions.rs`, `server/src/logic/transaction_recalc.rs`, `server/src/logic/transaction_returns.rs`, `server/src/logic/suit_component_swap.rs`, `server/src/logic/gift_card_ops.rs`, and `client/src/components/orders/OrdersWorkspace.tsx`.
 
 For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **special-transaction stock** (checkout vs PO vs pickup), see **`INVENTORY_GUIDE.md`** and **`AGENTS.md`**.
 
@@ -12,13 +12,13 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 |-----|-----|
 | `orders.view` | List transactions, read detail, audit trail, receipt ZPL (with BO headers). |
 | `orders.modify` | Edit transaction lines, pickup, returns, exchanges. **(Manager PIN required after 60 days)** |
-| `orders.suit_component_swap` | `POST /api/transactions/{id}/items/{line}/suit-swap` — requires **`orders.modify`** as well; BO staff only (no register_session bypass). Seeded in **`migrations/50_suit_component_swap_register_open_drawer.sql`**. |
+| `orders.suit_component_swap` | `POST /api/transactions/{id}/items/{line}/suit-swap` — requires **`orders.modify`** as well; BO staff only (no register_session bypass). Seeded by **`scripts/seeds/seed_rbac.sql`**. |
 | `orders.cancel` | `PATCH` transaction to `cancelled` when **payment allocations** exist (queues refund). |
-| `orders.void_sale` | `PATCH` to `cancelled` when the transaction has **no** payment allocations (void mistaken / unpaid cart). Either **`orders.cancel`** or **`orders.void_sale`** suffices when there are no allocations. Seeded in **`migrations/49_orders_void_sale_permission.sql`**. |
+| `orders.void_sale` | `PATCH` to `cancelled` when the transaction has **no** payment allocations (void mistaken / unpaid cart). Either **`orders.cancel`** or **`orders.void_sale`** suffices when there are no allocations. Seeded by **`scripts/seeds/seed_rbac.sql`**. |
 | `orders.refund_process` | `GET /api/transactions/refunds/due`, `POST /api/transactions/{id}/refunds/process`. |
 | `orders.edit_attribution` | `PATCH .../attribution` (unchanged). |
 
-**Role defaults** are seeded in **`migrations/36_orders_rbac_permissions.sql`** (admin: all; salesperson: view + refund_process; sales_support: all four) and **`orders.void_sale`** in **`migrations/49_orders_void_sale_permission.sql`** (all three roles). Adjust via Staff → Role matrix or overrides.
+**Role defaults** are seeded in **`scripts/seeds/seed_rbac.sql`**. Adjust via Staff → Role matrix or overrides.
 
 **Checkout** (`POST /api/transactions/checkout`) requires a **POS register session** whose headers match **`session_id`** in the body (not the `orders.*` keys). Operator and line-level staff fields are validated in the payload.
 

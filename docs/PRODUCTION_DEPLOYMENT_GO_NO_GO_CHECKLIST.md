@@ -116,8 +116,8 @@ Target: Hybrid Tauri Host retail deployment.
   - Evidence: temporary API on `127.0.0.1:43310` returned `GET /api/staff/list-for-pos` JSON array length 61.
   - Client/hardware restore rehearsal on the Hybrid Tauri host remains required before go-live.
 - [x] Migration ledger exists after restore.
-  - Evidence: restored database contains `_sqlx_migrations` and `ros_schema_migrations`.
-  - Full repo-file ledger reconciliation remains required during production release cut.
+  - Evidence: restored database contains `ros_schema_migrations`.
+  - Full active-baseline ledger reconciliation and schema-contract validation remain required during production release cut.
 - [ ] Search index rebuild path is verified after restore.
 - [x] Restore preflight rejects open/reconciling register sessions in unit coverage.
 - [ ] Restore is blocked while registers are open on the Hybrid Tauri host during the live recovery rehearsal.

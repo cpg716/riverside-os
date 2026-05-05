@@ -20,7 +20,7 @@
 
 ## Corrections vs informal Counterpoint prompts
 
-- ROS gift cards use PostgreSQL enum **`gift_card_kind`**: `purchased`, `loyalty_reward`, `donated_giveaway` (see [../migrations/23_gift_cards_and_loyalty.sql](../migrations/23_gift_cards_and_loyalty.sql)), not a separate `gift_card_type` name.
+- ROS gift cards use PostgreSQL enum **`gift_card_kind`**: `purchased`, `loyalty_reward`, `donated_giveaway` (see [../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql](../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql)), not a separate `gift_card_type` name.
 - **`is_liability`** on `gift_cards` must stay consistent with kind (purchased = liability; loyalty/donated = typically not, per existing comments).
 
 ## Current baseline in repo
@@ -30,7 +30,7 @@
 - **Bridge:** [counterpoint-bridge/index.mjs](../counterpoint-bridge/index.mjs) polls SQL Server and POSTs batches to ROS with `COUNTERPOINT_SYNC_TOKEN`.
 - **Ingest logic:** [../server/src/logic/counterpoint_sync.rs](../server/src/logic/counterpoint_sync.rs) — among other paths: **customers** (`customer_code` = `CUST_NO`), **catalog** (items + matrix cells), **gift cards**, **tickets** (headers / lines / payments → `orders` + related rows, idempotent on `counterpoint_ticket_ref`), **staff** mapping, inventory upserts, staging batch, and extended entities aligned with migrations **84–96** (vendor items, loyalty hist, open docs, etc. — pair with [`COUNTERPOINT_SYNC_GUIDE.md`](./COUNTERPOINT_SYNC_GUIDE.md)).
 - **M2M API:** [../server/src/api/counterpoint_sync.rs](../server/src/api/counterpoint_sync.rs) — under **`POST /api/sync/counterpoint/`**: e.g. **`health`**, **`heartbeat`**, **`request/ack`**, **`request/complete`**, **`customers`**, **`inventory`**, **`category-masters`**, **`catalog`**, **`gift-cards`**, **`tickets`**, **`staff`**, **`staging`**, plus additional entity routes (store credit opening, open docs, vendors, vendor items, loyalty hist, customer notes, sales-rep stubs — see `router()` in that file). **Staff settings** live under **`/api/settings/counterpoint-sync/*`** (status, request-run, issues, staging, maps).
-- **ROS keys:** `customers.customer_code` ([../migrations/28_customer_profile_and_code.sql](../migrations/28_customer_profile_and_code.sql)); `product_variants.counterpoint_item_key` unique when set ([../migrations/29_counterpoint_sync.sql](../migrations/29_counterpoint_sync.sql)); ticket idempotency **`orders.counterpoint_ticket_ref`** (**84**); loyalty on `customers.loyalty_points` + `loyalty_point_ledger` + `order_loyalty_accrual` ([../migrations/23_gift_cards_and_loyalty.sql](../migrations/23_gift_cards_and_loyalty.sql)) — **ingest-loyalty-policy** for CP history vs ROS accrual remains an open checklist item.
+- **ROS keys:** `customers.customer_code` ([../migrations/legacy_prelaunch_history/28_customer_profile_and_code.sql](../migrations/legacy_prelaunch_history/28_customer_profile_and_code.sql)); `product_variants.counterpoint_item_key` unique when set ([../migrations/legacy_prelaunch_history/29_counterpoint_sync.sql](../migrations/legacy_prelaunch_history/29_counterpoint_sync.sql)); ticket idempotency **`orders.counterpoint_ticket_ref`** (**84**); loyalty on `customers.loyalty_points` + `loyalty_point_ledger` + `order_loyalty_accrual` ([../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql](../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql)) — **ingest-loyalty-policy** for CP history vs ROS accrual remains an open checklist item.
 
 ```mermaid
 flowchart LR

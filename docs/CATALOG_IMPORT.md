@@ -51,7 +51,7 @@ If **`supplier`** is unmapped or the cell is empty, no primary vendor is set for
 
 ## Schema: `vendors.vendor_code`
 
-- **`migrations/35_vendors_vendor_code.sql`** adds **`vendors.vendor_code`** (`TEXT`, nullable).
+- **`migrations/legacy_prelaunch_history/35_vendors_vendor_code.sql`** adds **`vendors.vendor_code`** (`TEXT`, nullable).
 - **`GET /api/vendors`** and vendor create JSON include **`vendor_code`**.
 - **Vendor Hub** (`VendorHub.tsx`) displays **Vendor code** when present (distinct from **Account #** / `account_number`).
 

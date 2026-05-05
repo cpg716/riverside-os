@@ -196,10 +196,11 @@ From `client/` E2E suite (`api-gates.spec.ts`), confirm:
 
 ## 6) Data/migration safety checks
 
-If migrations are included:
-- Verify migration files are numbered and present in `migrations/`.
+If schema changes are included:
+- Verify active migration layout with `bash scripts/validate_migration_layout.sh`.
 - Confirm no destructive SQL (`DROP` / broad `DELETE`) without explicit approval.
-- Validate server boot after migration apply.
+- Validate the schema contract with `bash scripts/validate_schema_contract.sh`.
+- Validate server boot after migration and seed apply.
 
 ---
 

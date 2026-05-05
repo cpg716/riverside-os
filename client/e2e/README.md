@@ -36,9 +36,9 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" E2E_
 
 Normal local app development uses `npm run dev` at the repo root, which serves the UI on `http://localhost:5173` and the API on `http://127.0.0.1:3000`. That is a different stack from the deterministic Playwright default. If you want Playwright to target the normal dev stack instead, you must override both `E2E_BASE_URL` and `E2E_API_BASE` explicitly; otherwise use `npm run dev:e2e` or let Playwright auto-boot the dedicated `43173/43300` stack.
 
-Config: [`playwright.config.ts`](../playwright.config.ts). Staff keypad default: **`E2E_BO_STAFF_CODE`** (default **1234**) — see migration **53** / **`docs/STAFF_PERMISSIONS.md`**.
+Config: [`playwright.config.ts`](../playwright.config.ts). Staff keypad default: **`E2E_BO_STAFF_CODE`** (default **1234**) — provided by **`scripts/seeds/seed_e2e.sql`** in the deterministic E2E stack.
 
-**Important local prerequisite:** Browser-based Playwright specs require a reachable UI at **`E2E_BASE_URL`** (default `http://localhost:43173`) and API at **`E2E_API_BASE`** (default `http://127.0.0.1:43300`). Local Playwright now auto-boots the deterministic stack for that dedicated pair unless **`E2E_AUTO_BOOT=0`** is set. To mirror that stack manually, run **`npm run dev:e2e`** at the repo root; it brings up Docker Postgres, reapplies migrations, seeds the standard E2E staff fixtures, and starts the Rust API plus Vite on the dedicated E2E ports so it does not collide with a normal `npm run dev` session or other local Vite projects. The Vite side uses `--strictPort`, so a port collision fails fast instead of silently serving the wrong app.
+**Important local prerequisite:** Browser-based Playwright specs require a reachable UI at **`E2E_BASE_URL`** (default `http://localhost:43173`) and API at **`E2E_API_BASE`** (default `http://127.0.0.1:43300`). Local Playwright now auto-boots the deterministic stack for that dedicated pair unless **`E2E_AUTO_BOOT=0`** is set. To mirror that stack manually, run **`npm run dev:e2e`** at the repo root; it brings up Docker Postgres, applies the schema-contract baseline, applies `seed_core_required.sql`, `seed_rbac.sql`, and `seed_e2e.sql`, and starts the Rust API plus Vite on the dedicated E2E ports so it does not collide with a normal `npm run dev` session or other local Vite projects. The Vite side uses `--strictPort`, so a port collision fails fast instead of silently serving the wrong app.
 
 **Server env note:** the API still reads **`server/.env`** during local/E2E boot. Keep **`DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os`** there for the repo Docker Postgres. If you expect Metabase inside the local browser stack to auto-log in instead of showing the Metabase login page, populate the local **`RIVERSIDE_METABASE_ADMIN_*`** / **`RIVERSIDE_METABASE_STAFF_*`** shared-auth envs in **`server/.env`** as well.
 **Root dependency note:** `npm run dev:e2e` and the repo-level E2E shortcuts require the root package dependencies in this worktree. Do not rely on a `node_modules` symlink from another checkout for release validation.
@@ -68,7 +68,7 @@ Direct equivalents:
 - `npm run dev` / `npm run dev:stack` → normal local app stack (`5173` UI / `3000` API)
 - `npm run dev:e2e` / `npm run dev:e2e:stack` → deterministic Playwright stack (`43173` UI / `43300` API)
 
-**API gates (margin-pivot 403):** run **`scripts/seed_e2e_non_admin_staff.sql`** against your DB (non-Admin **`5678`**, optional override **`E2E_NON_ADMIN_CODE`**). CI applies this automatically.
+**API gates (margin-pivot 403):** apply **`scripts/seeds/seed_e2e.sql`** after the baseline, required seed, and RBAC seed. It provides non-Admin **`5678`**; **`E2E_NON_ADMIN_CODE`** can still point tests at another existing non-Admin cashier code.
 
 ## RMS / CoreCard E2E mode
 
