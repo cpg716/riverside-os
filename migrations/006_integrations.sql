@@ -214,11 +214,34 @@ CREATE TABLE public.payment_settlement_items (
     ros_values jsonb DEFAULT '{}'::jsonb NOT NULL,
     message text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    reviewed_by_staff_id uuid,
+    reviewed_at timestamp with time zone,
+    resolved_by_staff_id uuid,
     resolved_at timestamp with time zone,
+    resolution_type text,
+    resolution_note text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT payment_settlement_items_item_type_chk CHECK ((btrim(item_type) <> ''::text)),
     CONSTRAINT payment_settlement_items_provider_chk CHECK ((btrim(provider) <> ''::text)),
     CONSTRAINT payment_settlement_items_severity_chk CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'critical'::text]))),
+    CONSTRAINT payment_settlement_items_resolution_type_chk CHECK (((resolution_type IS NULL) OR (btrim(resolution_type) <> ''::text))),
     CONSTRAINT payment_settlement_items_status_chk CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'ignored'::text])))
+);
+
+--
+-- Name: payment_settlement_item_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_settlement_item_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    item_id uuid NOT NULL,
+    actor_staff_id uuid,
+    action text NOT NULL,
+    note text,
+    before_state jsonb DEFAULT '{}'::jsonb NOT NULL,
+    after_state jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payment_settlement_item_events_action_chk CHECK ((action = ANY (ARRAY['reviewed'::text, 'noted'::text, 'resolved'::text, 'ignored'::text, 'reopened'::text, 'linked_payment'::text])))
 );
 
 --

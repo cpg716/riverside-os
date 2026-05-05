@@ -143,6 +143,12 @@ COMMENT ON TABLE public.payment_settlement_runs IS 'Durable payment-provider set
 COMMENT ON TABLE public.payment_settlement_items IS 'Open and historical settlement reconciliation findings for missing or mismatched provider payment activity.';
 
 --
+-- Name: TABLE payment_settlement_item_events; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_settlement_item_events IS 'Append-only audit history for staff review, notes, resolution, reopen, and manual payment-link actions on settlement reconciliation findings.';
+
+--
 -- Name: TABLE corecredit_exception_queue; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -1590,6 +1596,30 @@ CREATE INDEX idx_payment_settlement_items_run ON public.payment_settlement_items
 CREATE INDEX idx_payment_settlement_items_provider_status ON public.payment_settlement_items USING btree (provider, status, item_type, created_at DESC);
 
 --
+-- Name: idx_payment_settlement_item_events_item; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_settlement_item_events_item ON public.payment_settlement_item_events USING btree (item_id, created_at DESC);
+
+--
+-- Name: idx_payment_settlement_item_events_actor; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_settlement_item_events_actor ON public.payment_settlement_item_events USING btree (actor_staff_id, created_at DESC) WHERE (actor_staff_id IS NOT NULL);
+
+--
+-- Name: idx_payment_settlement_item_events_action; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_settlement_item_events_action ON public.payment_settlement_item_events USING btree (action, created_at DESC);
+
+--
+-- Name: idx_payment_settlement_item_events_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_settlement_item_events_created ON public.payment_settlement_item_events USING btree (created_at DESC);
+
+--
 -- Name: idx_corecredit_exception_queue_rms_record; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2956,6 +2986,12 @@ CREATE TRIGGER trigger_payment_provider_batches_updated_at BEFORE UPDATE ON publ
 --
 
 CREATE TRIGGER trigger_payment_provider_batch_transactions_updated_at BEFORE UPDATE ON public.payment_provider_batch_transactions FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
+
+--
+-- Name: payment_settlement_items trigger_payment_settlement_items_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trigger_payment_settlement_items_updated_at BEFORE UPDATE ON public.payment_settlement_items FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
 
 --
 -- Name: store_checkout_payment_attempt trigger_store_checkout_payment_attempt_updated_at; Type: TRIGGER; Schema: public; Owner: -

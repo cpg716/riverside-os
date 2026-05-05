@@ -93,6 +93,30 @@ type ReconciliationItem = {
   payment_provider_batch_id: string | null;
   message: string | null;
   created_at: string;
+  reviewed_at: string | null;
+  resolved_at: string | null;
+  resolution_type: string | null;
+  resolution_note: string | null;
+  events: ReconciliationItemEvent[];
+};
+
+type ReconciliationItemEvent = {
+  id: string;
+  action: string;
+  note: string | null;
+  actor_staff_id: string | null;
+  created_at: string;
+};
+
+type CandidatePayment = {
+  payment_transaction_id: string;
+  provider_transaction_id: string | null;
+  amount: string;
+  payment_date: string;
+  payment_status: string;
+  provider_status: string | null;
+  provider_batch_id: string | null;
+  warning_flags: string[];
 };
 
 type TransactionRow = {
@@ -295,9 +319,13 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
   const [batchIssues, setBatchIssues] = useState<ReconciliationItem[]>([]);
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
   const [transactionDetail, setTransactionDetail] = useState<TransactionDetail | null>(null);
+  const [selectedIssue, setSelectedIssue] = useState<ReconciliationItem | null>(null);
+  const [issueCandidates, setIssueCandidates] = useState<CandidatePayment[]>([]);
+  const [issueBusy, setIssueBusy] = useState(false);
   const [transactionSearch, setTransactionSearch] = useState("");
-  const { backofficeHeaders } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission, permissionsLoaded } = useBackofficeAuth();
   const { toast } = useToast();
+  const canReconcile = permissionsLoaded && hasPermission("payments.reconcile");
 
   useEffect(() => {
     setSection(isSection(activeSection) ? activeSection : "overview");
@@ -401,6 +429,154 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
       }
     },
     [getJson, toast],
+  );
+
+  const openIssue = useCallback(
+    async (issue: ReconciliationItem) => {
+      setSelectedIssue(issue);
+      setIssueCandidates([]);
+      if (!canReconcile || !issue.provider_transaction_id) return;
+      try {
+        const candidates = await getJson<CandidatePayment[]>(
+          `/api/payments/providers/helcim/reconciliation/items/${issue.id}/candidate-payments`,
+        );
+        setIssueCandidates(candidates);
+      } catch {
+        setIssueCandidates([]);
+      }
+    },
+    [canReconcile, getJson],
+  );
+
+  const updateSelectedIssue = useCallback((item: ReconciliationItem) => {
+    setSelectedIssue(item);
+    setData((current) => ({
+      ...current,
+      issues:
+        item.status === "open"
+          ? current.issues.map((issue) => (issue.id === item.id ? item : issue))
+          : current.issues.filter((issue) => issue.id !== item.id),
+    }));
+    setBatchIssues((current) =>
+      item.status === "open"
+        ? current.map((issue) => (issue.id === item.id ? item : issue))
+        : current.filter((issue) => issue.id !== item.id),
+    );
+    setTransactionDetail((current) =>
+      current
+        ? {
+            ...current,
+            issues:
+              item.status === "open"
+                ? current.issues.map((issue) => (issue.id === item.id ? item : issue))
+                : current.issues.filter((issue) => issue.id !== item.id),
+          }
+        : current,
+    );
+  }, []);
+
+  const patchIssueStatus = useCallback(
+    async (
+      issue: ReconciliationItem,
+      action: "reviewed" | "resolved" | "ignored" | "reopened",
+      note: string,
+      resolutionType?: string,
+    ) => {
+      setIssueBusy(true);
+      try {
+        const response = await fetch(
+          `${baseUrl}/api/payments/providers/helcim/reconciliation/items/${issue.id}/status`,
+          {
+            method: "PATCH",
+            headers: {
+              ...apiHeaders,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              action,
+              note: note.trim() || undefined,
+              resolution_type: resolutionType,
+            }),
+          },
+        );
+        const body = (await response.json()) as { item?: ReconciliationItem; error?: string };
+        if (!response.ok || !body.item) {
+          throw new Error(body.error || `Issue update failed (${response.status})`);
+        }
+        updateSelectedIssue(body.item);
+        toast(action === "ignored" ? "Issue marked expected." : "Issue updated.", "success");
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Issue update failed.", "error");
+      } finally {
+        setIssueBusy(false);
+      }
+    },
+    [apiHeaders, refresh, toast, updateSelectedIssue],
+  );
+
+  const addIssueNote = useCallback(
+    async (issue: ReconciliationItem, note: string) => {
+      setIssueBusy(true);
+      try {
+        const response = await fetch(
+          `${baseUrl}/api/payments/providers/helcim/reconciliation/items/${issue.id}/notes`,
+          {
+            method: "POST",
+            headers: {
+              ...apiHeaders,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ note }),
+          },
+        );
+        const body = (await response.json()) as { item?: ReconciliationItem; error?: string };
+        if (!response.ok || !body.item) {
+          throw new Error(body.error || `Note failed (${response.status})`);
+        }
+        updateSelectedIssue(body.item);
+        toast("Note added.", "success");
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Note failed.", "error");
+      } finally {
+        setIssueBusy(false);
+      }
+    },
+    [apiHeaders, toast, updateSelectedIssue],
+  );
+
+  const linkIssuePayment = useCallback(
+    async (issue: ReconciliationItem, paymentTransactionId: string, note: string) => {
+      setIssueBusy(true);
+      try {
+        const response = await fetch(
+          `${baseUrl}/api/payments/providers/helcim/reconciliation/items/${issue.id}/link-payment`,
+          {
+            method: "POST",
+            headers: {
+              ...apiHeaders,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              payment_transaction_id: paymentTransactionId,
+              note,
+            }),
+          },
+        );
+        const body = (await response.json()) as { item?: ReconciliationItem; error?: string };
+        if (!response.ok || !body.item) {
+          throw new Error(body.error || `Link failed (${response.status})`);
+        }
+        updateSelectedIssue(body.item);
+        toast("Payment linked.", "success");
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Link failed.", "error");
+      } finally {
+        setIssueBusy(false);
+      }
+    },
+    [apiHeaders, refresh, toast, updateSelectedIssue],
   );
 
   const runSync = useCallback(
@@ -527,7 +703,11 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
             )}
             {section === "batches" && <BatchesPanel batches={data.batches} onOpenBatch={openBatch} />}
             {section === "reconciliation" && (
-              <ReconciliationPanel groups={groupedIssues} onOpenPayment={openTransaction} />
+              <ReconciliationPanel
+                groups={groupedIssues}
+                onOpenIssue={openIssue}
+                onOpenPayment={openTransaction}
+              />
             )}
             {section === "transactions" && (
               <TransactionsPanel
@@ -559,11 +739,24 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         issues={batchIssues}
         onClose={() => setSelectedBatch(null)}
         onOpenPayment={openTransaction}
+        onOpenIssue={openIssue}
       />
       <TransactionDrawer
         paymentId={selectedPaymentId}
         detail={transactionDetail}
         onClose={() => setSelectedPaymentId(null)}
+        onOpenIssue={openIssue}
+      />
+      <IssueDrawer
+        issue={selectedIssue}
+        candidates={issueCandidates}
+        canReconcile={canReconcile}
+        busy={issueBusy}
+        onClose={() => setSelectedIssue(null)}
+        onOpenPayment={openTransaction}
+        onStatus={patchIssueStatus}
+        onAddNote={addIssueNote}
+        onLinkPayment={linkIssuePayment}
       />
     </div>
   );
@@ -676,9 +869,11 @@ function BatchesPanel({ batches, onOpenBatch }: { batches: BatchRow[]; onOpenBat
 
 function ReconciliationPanel({
   groups,
+  onOpenIssue,
   onOpenPayment,
 }: {
   groups: [string, ReconciliationItem[]][];
+  onOpenIssue: (issue: ReconciliationItem) => void;
   onOpenPayment: (paymentId: string | null) => void;
 }) {
   if (groups.length === 0) {
@@ -697,15 +892,21 @@ function ReconciliationPanel({
             headers={["Issue", "Severity", "Amount", "Reference", "When", "Action"]}
             rows={items.map((issue) => ({
               key: issue.id,
+              onClick: () => onOpenIssue(issue),
               cells: [
                 issue.message || issue.issue_label,
                 <StatusPill value={issue.severity} />,
                 money(issue.amount, "Not ready"),
                 issue.reference ?? "Not ready",
                 shortDate(issue.created_at),
-                <button type="button" className="text-sm font-bold text-app-accent" onClick={() => onOpenPayment(issue.payment_transaction_id)}>
-                  View Payment
-                </button>,
+                <div className="flex flex-wrap gap-3">
+                  <button type="button" className="text-sm font-bold text-app-accent" onClick={(event) => { event.stopPropagation(); onOpenIssue(issue); }}>
+                    Open Issue
+                  </button>
+                  <button type="button" className="text-sm font-bold text-app-text-muted" onClick={(event) => { event.stopPropagation(); onOpenPayment(issue.payment_transaction_id); }}>
+                    View Payment
+                  </button>
+                </div>,
               ],
             }))}
           />
@@ -810,6 +1011,7 @@ function BatchDrawer({
   issues,
   onClose,
   onOpenPayment,
+  onOpenIssue,
 }: {
   batch: BatchRow | null;
   detail: BatchDetail | null;
@@ -817,6 +1019,7 @@ function BatchDrawer({
   issues: ReconciliationItem[];
   onClose: () => void;
   onOpenPayment: (paymentId: string | null) => void;
+  onOpenIssue: (issue: ReconciliationItem) => void;
 }) {
   return (
     <DetailDrawer
@@ -874,6 +1077,7 @@ function BatchDrawer({
                 headers={["Issue", "Severity", "Reference"]}
                 rows={issues.map((issue) => ({
                   key: issue.id,
+                  onClick: () => onOpenIssue(issue),
                   cells: [issue.issue_label, <StatusPill value={issue.severity} />, issue.reference ?? "Not ready"],
                 }))}
               />
@@ -889,10 +1093,12 @@ function TransactionDrawer({
   paymentId,
   detail,
   onClose,
+  onOpenIssue,
 }: {
   paymentId: string | null;
   detail: TransactionDetail | null;
   onClose: () => void;
+  onOpenIssue: (issue: ReconciliationItem) => void;
 }) {
   const payment = detail?.riverside_payment;
   const processor = detail?.processor_payment;
@@ -952,10 +1158,15 @@ function TransactionDrawer({
             ) : (
               <div className="space-y-2">
                 {detail.issues.map((issue) => (
-                  <div key={issue.id} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                  <button
+                    key={issue.id}
+                    type="button"
+                    onClick={() => onOpenIssue(issue)}
+                    className="w-full rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-left"
+                  >
                     <div className="text-sm font-black text-app-text">{issue.issue_label || "Needs Review"}</div>
                     <div className="text-xs font-semibold text-app-text-muted">{issue.message ?? issue.reference ?? "Needs Review"}</div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -963,6 +1174,208 @@ function TransactionDrawer({
         </div>
       )}
     </DetailDrawer>
+  );
+}
+
+function IssueDrawer({
+  issue,
+  candidates,
+  canReconcile,
+  busy,
+  onClose,
+  onOpenPayment,
+  onStatus,
+  onAddNote,
+  onLinkPayment,
+}: {
+  issue: ReconciliationItem | null;
+  candidates: CandidatePayment[];
+  canReconcile: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onOpenPayment: (paymentId: string | null) => void;
+  onStatus: (
+    issue: ReconciliationItem,
+    action: "reviewed" | "resolved" | "ignored" | "reopened",
+    note: string,
+    resolutionType?: string,
+  ) => void;
+  onAddNote: (issue: ReconciliationItem, note: string) => void;
+  onLinkPayment: (issue: ReconciliationItem, paymentTransactionId: string, note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  const [linkNote, setLinkNote] = useState("");
+
+  useEffect(() => {
+    setNote("");
+    setLinkNote("");
+  }, [issue?.id]);
+
+  const noteRequired = issue?.severity === "Critical" || issue?.severity === "Warning";
+  return (
+    <DetailDrawer
+      isOpen={Boolean(issue)}
+      onClose={onClose}
+      title={issue?.issue_label ?? "Issue"}
+      subtitle={issue ? <span>{issue.severity} · {shortDateTime(issue.created_at)}</span> : null}
+      panelMaxClassName="max-w-3xl"
+    >
+      {!issue ? null : (
+        <div className="space-y-6">
+          <section className="rounded-lg border border-app-border bg-app-surface p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-base font-black text-app-text">Issue Summary</h3>
+                <p className="mt-1 text-sm font-semibold text-app-text-muted">
+                  {issue.message ?? "This payment needs review."}
+                </p>
+              </div>
+              <StatusPill value={issue.status} />
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <InfoLine label="Amount" value={money(issue.amount, "Not ready")} />
+              <InfoLine label="Processor Reference" value={issue.provider_transaction_id ?? "Not ready"} />
+              <InfoLine label="Batch" value={issue.provider_batch_id ?? "Not ready"} />
+              <InfoLine label="Reviewed" value={issue.reviewed_at ? shortDateTime(issue.reviewed_at) : "Not yet"} />
+              <InfoLine label="Resolved" value={issue.resolved_at ? shortDateTime(issue.resolved_at) : "Not yet"} />
+              <InfoLine label="Reason" value={staffLabel(issue.resolution_type)} />
+            </div>
+          </section>
+
+          {canReconcile ? (
+            <section className="rounded-lg border border-app-border bg-app-surface p-4">
+              <h3 className="text-base font-black text-app-text">Actions</h3>
+              <textarea
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder={noteRequired ? "Add a note before closing this issue" : "Add a note"}
+                className="mt-3 min-h-24 w-full rounded-lg border border-app-border bg-app-bg p-3 text-sm font-medium text-app-text outline-none focus:border-app-accent"
+              />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <ActionButton disabled={busy} onClick={() => onStatus(issue, "reviewed", note)}>
+                  Mark Reviewed
+                </ActionButton>
+                <ActionButton disabled={busy} onClick={() => onStatus(issue, "resolved", note, "resolved")}>
+                  Resolve
+                </ActionButton>
+                <ActionButton disabled={busy} onClick={() => onStatus(issue, "ignored", note, "expected")}>
+                  Mark Expected
+                </ActionButton>
+                <ActionButton disabled={busy} onClick={() => onStatus(issue, "reopened", note)}>
+                  Reopen
+                </ActionButton>
+                <ActionButton
+                  disabled={busy || note.trim().length === 0}
+                  onClick={() => {
+                    onAddNote(issue, note);
+                    setNote("");
+                  }}
+                >
+                  Add Note
+                </ActionButton>
+              </div>
+            </section>
+          ) : (
+            <div className="rounded-lg border border-app-border bg-app-surface p-4 text-sm font-semibold text-app-text-muted">
+              You can review issue details. Payment linking and closing requires payment reconciliation access.
+            </div>
+          )}
+
+          {canReconcile && issue.provider_transaction_id ? (
+            <section className="rounded-lg border border-app-border bg-app-surface p-4">
+              <h3 className="text-base font-black text-app-text">Link Payment</h3>
+              <p className="mt-1 text-sm font-semibold text-app-text-muted">
+                Link only when the amount and payment direction match.
+              </p>
+              <textarea
+                value={linkNote}
+                onChange={(event) => setLinkNote(event.target.value)}
+                placeholder="Required note for linking"
+                className="mt-3 min-h-20 w-full rounded-lg border border-app-border bg-app-bg p-3 text-sm font-medium text-app-text outline-none focus:border-app-accent"
+              />
+              <div className="mt-3 space-y-2">
+                {candidates.length === 0 ? (
+                  <EmptyState title="No payment candidates" body="No matching Riverside payments are ready to link." compact />
+                ) : (
+                  candidates.map((candidate) => (
+                    <div key={candidate.payment_transaction_id} className="rounded-lg border border-app-border bg-app-surface-2 p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="text-sm font-black text-app-text">{money(candidate.amount, "$0.00")}</div>
+                          <div className="text-xs font-semibold text-app-text-muted">
+                            {shortDateTime(candidate.payment_date)} · {staffLabel(candidate.payment_status)}
+                          </div>
+                          {candidate.warning_flags.length > 0 ? (
+                            <div className="mt-2 text-xs font-bold text-amber-700">
+                              {candidate.warning_flags.join(", ")}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => onOpenPayment(candidate.payment_transaction_id)}
+                            className="text-sm font-bold text-app-text-muted"
+                          >
+                            View Payment
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy || candidate.warning_flags.length > 0 || linkNote.trim().length === 0}
+                            onClick={() => onLinkPayment(issue, candidate.payment_transaction_id, linkNote)}
+                            className="rounded-lg bg-app-accent px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
+                          >
+                            Link Payment
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="rounded-lg border border-app-border bg-app-surface p-4">
+            <h3 className="text-base font-black text-app-text">History</h3>
+            {issue.events.length === 0 ? (
+              <div className="mt-2 text-sm font-semibold text-app-text-muted">No staff notes yet.</div>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {issue.events.map((event) => (
+                  <div key={event.id} className="rounded-lg border border-app-border bg-app-surface-2 p-3">
+                    <div className="text-sm font-bold text-app-text">{staffLabel(event.action)}</div>
+                    <div className="text-xs font-semibold text-app-text-muted">{shortDateTime(event.created_at)}</div>
+                    {event.note ? <div className="mt-2 text-sm font-medium text-app-text">{event.note}</div> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </DetailDrawer>
+  );
+}
+
+function ActionButton({
+  disabled,
+  onClick,
+  children,
+}: {
+  disabled: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-sm font-bold text-app-text transition hover:bg-app-bg disabled:opacity-50"
+    >
+      {children}
+    </button>
   );
 }
 

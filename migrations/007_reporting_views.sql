@@ -284,6 +284,13 @@ ALTER TABLE ONLY public.payment_settlement_items
     ADD CONSTRAINT payment_settlement_items_pkey PRIMARY KEY (id);
 
 --
+-- Name: payment_settlement_item_events payment_settlement_item_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_item_events
+    ADD CONSTRAINT payment_settlement_item_events_pkey PRIMARY KEY (id);
+
+--
 -- Name: corecredit_exception_queue corecredit_exception_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2529,6 +2536,34 @@ ALTER TABLE ONLY public.payment_settlement_items
 
 ALTER TABLE ONLY public.payment_settlement_items
     ADD CONSTRAINT payment_settlement_items_provider_batch_id_fkey FOREIGN KEY (payment_provider_batch_id) REFERENCES public.payment_provider_batches(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_settlement_items payment_settlement_items_reviewed_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_items
+    ADD CONSTRAINT payment_settlement_items_reviewed_by_staff_id_fkey FOREIGN KEY (reviewed_by_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_settlement_items payment_settlement_items_resolved_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_items
+    ADD CONSTRAINT payment_settlement_items_resolved_by_staff_id_fkey FOREIGN KEY (resolved_by_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_settlement_item_events payment_settlement_item_events_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_item_events
+    ADD CONSTRAINT payment_settlement_item_events_item_id_fkey FOREIGN KEY (item_id) REFERENCES public.payment_settlement_items(id) ON DELETE CASCADE;
+
+--
+-- Name: payment_settlement_item_events payment_settlement_item_events_actor_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_settlement_item_events
+    ADD CONSTRAINT payment_settlement_item_events_actor_staff_id_fkey FOREIGN KEY (actor_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
 
 --
 -- Name: payment_transactions payment_transactions_payer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

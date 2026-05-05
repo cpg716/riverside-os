@@ -14,13 +14,15 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::Row;
+use sqlx::{Executor, Postgres, Row};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::middleware;
+
+const PAYMENTS_RECONCILE: &str = "payments.reconcile";
 
 #[derive(Debug, Error)]
 pub enum PaymentError {
@@ -103,6 +105,22 @@ pub fn router() -> Router<AppState> {
         .route(
             "/providers/helcim/reconciliation/items",
             get(list_helcim_reconciliation_items),
+        )
+        .route(
+            "/providers/helcim/reconciliation/items/{id}/status",
+            patch(patch_helcim_reconciliation_item_status),
+        )
+        .route(
+            "/providers/helcim/reconciliation/items/{id}/notes",
+            post(add_helcim_reconciliation_item_note),
+        )
+        .route(
+            "/providers/helcim/reconciliation/items/{id}/candidate-payments",
+            get(list_helcim_reconciliation_candidate_payments),
+        )
+        .route(
+            "/providers/helcim/reconciliation/items/{id}/link-payment",
+            post(link_helcim_reconciliation_payment),
         )
         .route(
             "/providers/helcim/transactions",
@@ -442,6 +460,57 @@ pub struct HelcimReconciliationItemRow {
     pub payment_provider_batch_id: Option<Uuid>,
     pub message: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub reviewed_at: Option<DateTime<Utc>>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub resolution_type: Option<String>,
+    pub resolution_note: Option<String>,
+    pub events: Vec<HelcimReconciliationItemEventRow>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HelcimReconciliationItemEventRow {
+    pub id: Uuid,
+    pub action: String,
+    pub note: Option<String>,
+    pub actor_staff_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimReconciliationStatusRequest {
+    pub action: String,
+    #[serde(default)]
+    pub resolution_type: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimReconciliationNoteRequest {
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimReconciliationLinkRequest {
+    pub payment_transaction_id: Uuid,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimReconciliationActionResponse {
+    pub item: HelcimReconciliationItemRow,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimReconciliationCandidatePaymentRow {
+    pub payment_transaction_id: Uuid,
+    pub provider_transaction_id: Option<String>,
+    pub amount: String,
+    pub payment_date: DateTime<Utc>,
+    pub payment_status: String,
+    pub provider_status: Option<String>,
+    pub provider_batch_id: Option<String>,
+    pub warning_flags: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1411,6 +1480,438 @@ async fn list_helcim_reconciliation_items(
         .map_err(map_pay_session)?;
     let rows = load_helcim_reconciliation_items(&state, &query, None).await?;
     Ok(Json(rows))
+}
+
+async fn patch_helcim_reconciliation_item_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<HelcimReconciliationStatusRequest>,
+) -> Result<Json<HelcimReconciliationActionResponse>, PaymentError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, PAYMENTS_RECONCILE)
+        .await
+        .map_err(map_pay_session)?;
+    let action = normalize_resolution_action(&payload.action)?;
+    let note = clean_required_note(payload.note.as_deref(), false)?;
+    let resolution_type = clean_filter(payload.resolution_type.as_deref());
+
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let before = load_settlement_item_state_for_update(&mut tx, id).await?;
+    let severity = json_string(&before, "severity").unwrap_or_else(|| "warning".to_string());
+
+    if action == "ignored" && note.is_none() {
+        return Err(PaymentError::InvalidPayload(
+            "A note is required to mark an issue expected.".to_string(),
+        ));
+    }
+    if matches!(action.as_str(), "resolved" | "ignored")
+        && matches!(severity.as_str(), "warning" | "critical")
+        && note.is_none()
+    {
+        return Err(PaymentError::InvalidPayload(
+            "A note is required to close a warning or critical issue.".to_string(),
+        ));
+    }
+
+    match action.as_str() {
+        "reviewed" => {
+            sqlx::query(
+                r#"
+                UPDATE payment_settlement_items
+                SET reviewed_by_staff_id = $2,
+                    reviewed_at = now()
+                WHERE id = $1 AND provider = 'helcim'
+                "#,
+            )
+            .bind(id)
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await
+        }
+        "resolved" => {
+            sqlx::query(
+                r#"
+                UPDATE payment_settlement_items
+                SET status = 'resolved',
+                    resolved_by_staff_id = $2,
+                    resolved_at = now(),
+                    resolution_type = COALESCE($3, 'resolved'),
+                    resolution_note = $4
+                WHERE id = $1 AND provider = 'helcim'
+                "#,
+            )
+            .bind(id)
+            .bind(staff.id)
+            .bind(resolution_type.as_deref())
+            .bind(note.as_deref())
+            .execute(&mut *tx)
+            .await
+        }
+        "ignored" => {
+            sqlx::query(
+                r#"
+                UPDATE payment_settlement_items
+                SET status = 'ignored',
+                    resolved_by_staff_id = $2,
+                    resolved_at = now(),
+                    resolution_type = COALESCE($3, 'expected'),
+                    resolution_note = $4
+                WHERE id = $1 AND provider = 'helcim'
+                "#,
+            )
+            .bind(id)
+            .bind(staff.id)
+            .bind(resolution_type.as_deref())
+            .bind(note.as_deref())
+            .execute(&mut *tx)
+            .await
+        }
+        "reopened" => {
+            sqlx::query(
+                r#"
+                UPDATE payment_settlement_items
+                SET status = 'open',
+                    resolved_by_staff_id = NULL,
+                    resolved_at = NULL,
+                    resolution_type = NULL,
+                    resolution_note = NULL
+                WHERE id = $1 AND provider = 'helcim'
+                "#,
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+        }
+        _ => unreachable!(),
+    }
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let after = load_settlement_item_state(&mut *tx, id).await?;
+    insert_settlement_item_event(
+        &mut tx,
+        id,
+        Some(staff.id),
+        &action,
+        note.as_deref(),
+        before,
+        after,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimReconciliationActionResponse {
+        item: load_helcim_reconciliation_item_by_id(&state, id).await?,
+    }))
+}
+
+async fn add_helcim_reconciliation_item_note(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<HelcimReconciliationNoteRequest>,
+) -> Result<Json<HelcimReconciliationActionResponse>, PaymentError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, PAYMENTS_RECONCILE)
+        .await
+        .map_err(map_pay_session)?;
+    let note = clean_required_note(Some(&payload.note), true)?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let before = load_settlement_item_state_for_update(&mut tx, id).await?;
+    insert_settlement_item_event(
+        &mut tx,
+        id,
+        Some(staff.id),
+        "noted",
+        note.as_deref(),
+        before.clone(),
+        before,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimReconciliationActionResponse {
+        item: load_helcim_reconciliation_item_by_id(&state, id).await?,
+    }))
+}
+
+async fn list_helcim_reconciliation_candidate_payments(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<HelcimReconciliationCandidatePaymentRow>>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, PAYMENTS_RECONCILE)
+        .await
+        .map_err(map_pay_session)?;
+    let item = load_settlement_item_state(&state.db, id).await?;
+    let provider_transaction_id =
+        json_string(&item, "provider_transaction_id").ok_or_else(|| {
+            PaymentError::InvalidPayload("Issue has no processor reference to link.".to_string())
+        })?;
+    let processor = load_provider_batch_transaction(&state.db, &provider_transaction_id).await?;
+    let processor_amount = processor
+        .get("gross_amount")
+        .and_then(value_decimal)
+        .ok_or_else(|| {
+            PaymentError::InvalidPayload(
+                "Processor amount is not ready for payment linking.".to_string(),
+            )
+        })?;
+    let occurred_at = processor
+        .get("occurred_at")
+        .and_then(Value::as_str)
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc));
+
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            pt.id,
+            pt.provider_transaction_id,
+            pt.amount,
+            pt.created_at,
+            pt.status,
+            pt.provider_status,
+            btx.provider_batch_id
+        FROM payment_transactions pt
+        LEFT JOIN payment_provider_batch_transactions btx
+          ON btx.provider = 'helcim'
+         AND btx.payment_transaction_id = pt.id
+        WHERE pt.payment_provider = 'helcim'
+          AND (NULLIF(TRIM(pt.provider_transaction_id), '') IS NULL OR pt.provider_transaction_id = $1)
+          AND sign(pt.amount) = sign($2::numeric)
+          AND ($3::timestamptz IS NULL OR pt.created_at BETWEEN ($3::timestamptz - interval '7 days') AND ($3::timestamptz + interval '7 days'))
+        ORDER BY
+            CASE WHEN pt.amount = $2::numeric THEN 0 ELSE 1 END,
+            CASE WHEN NULLIF(TRIM(pt.provider_transaction_id), '') IS NULL THEN 0 ELSE 1 END,
+            ABS(pt.amount - $2::numeric),
+            pt.created_at DESC
+        LIMIT 25
+        "#,
+    )
+    .bind(&provider_transaction_id)
+    .bind(processor_amount.round_dp(2))
+    .bind(occurred_at)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(|row| {
+        let amount = row.get::<Decimal, _>("amount").round_dp(2);
+        let provider_transaction_id_existing: Option<String> = row.get("provider_transaction_id");
+        let mut warning_flags = Vec::new();
+        if amount != processor_amount.round_dp(2) {
+            warning_flags.push("Amount differs".to_string());
+        }
+        if provider_transaction_id_existing
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+        {
+            warning_flags.push("Already has processor reference".to_string());
+        }
+        HelcimReconciliationCandidatePaymentRow {
+            payment_transaction_id: row.get("id"),
+            provider_transaction_id: provider_transaction_id_existing,
+            amount: money_string(amount),
+            payment_date: row.get("created_at"),
+            payment_status: row.get("status"),
+            provider_status: row.get("provider_status"),
+            provider_batch_id: row.get("provider_batch_id"),
+            warning_flags,
+        }
+    })
+    .collect();
+    Ok(Json(rows))
+}
+
+async fn link_helcim_reconciliation_payment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<HelcimReconciliationLinkRequest>,
+) -> Result<Json<HelcimReconciliationActionResponse>, PaymentError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, PAYMENTS_RECONCILE)
+        .await
+        .map_err(map_pay_session)?;
+    let note = clean_required_note(Some(&payload.note), true)?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let before = load_settlement_item_state_for_update(&mut tx, id).await?;
+    let provider_transaction_id =
+        json_string(&before, "provider_transaction_id").ok_or_else(|| {
+            PaymentError::InvalidPayload("Issue has no processor reference to link.".to_string())
+        })?;
+
+    let processor = sqlx::query(
+        r#"
+        SELECT id, payment_transaction_id, gross_amount
+        FROM payment_provider_batch_transactions
+        WHERE provider = 'helcim'
+          AND provider_transaction_id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(&provider_transaction_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| {
+        PaymentError::InvalidPayload("Processor payment is not available to link.".to_string())
+    })?;
+    let existing_payment_id: Option<Uuid> = processor.get("payment_transaction_id");
+    if existing_payment_id
+        .filter(|existing| *existing != payload.payment_transaction_id)
+        .is_some()
+    {
+        return Err(PaymentError::Conflict(
+            "Processor payment is already linked to another Riverside payment.".to_string(),
+        ));
+    }
+    let processor_amount: Decimal = processor
+        .get::<Option<Decimal>, _>("gross_amount")
+        .ok_or_else(|| PaymentError::InvalidPayload("Processor amount is not ready.".to_string()))?
+        .round_dp(2);
+
+    let payment = sqlx::query(
+        r#"
+        SELECT id, amount, payment_provider, provider_transaction_id
+        FROM payment_transactions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(payload.payment_transaction_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Riverside payment was not found.".to_string()))?;
+    let payment_provider: Option<String> = payment.get("payment_provider");
+    if payment_provider.as_deref() != Some("helcim") {
+        return Err(PaymentError::InvalidPayload(
+            "Only Helcim payments can be linked here.".to_string(),
+        ));
+    }
+    let payment_amount = payment.get::<Decimal, _>("amount").round_dp(2);
+    if payment_amount != processor_amount {
+        return Err(PaymentError::InvalidPayload(
+            "Payment amount does not match the processor amount.".to_string(),
+        ));
+    }
+    let existing_provider_transaction_id: Option<String> = payment.get("provider_transaction_id");
+    if existing_provider_transaction_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != provider_transaction_id)
+        .is_some()
+    {
+        return Err(PaymentError::Conflict(
+            "Riverside payment already has a different processor reference.".to_string(),
+        ));
+    }
+
+    let linked_elsewhere: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM payment_provider_batch_transactions
+            WHERE provider = 'helcim'
+              AND payment_transaction_id = $1
+              AND provider_transaction_id <> $2
+        )
+        "#,
+    )
+    .bind(payload.payment_transaction_id)
+    .bind(&provider_transaction_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    if linked_elsewhere {
+        return Err(PaymentError::Conflict(
+            "Riverside payment is already linked to another processor payment.".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_batch_transactions
+        SET payment_transaction_id = $2,
+            match_status = 'matched',
+            match_type = 'manual_staff_link'
+        WHERE provider = 'helcim'
+          AND provider_transaction_id = $1
+        "#,
+    )
+    .bind(&provider_transaction_id)
+    .bind(payload.payment_transaction_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    sqlx::query(
+        r#"
+        UPDATE payment_transactions
+        SET provider_transaction_id = $2
+        WHERE id = $1
+          AND payment_provider = 'helcim'
+          AND NULLIF(TRIM(provider_transaction_id), '') IS NULL
+        "#,
+    )
+    .bind(payload.payment_transaction_id)
+    .bind(&provider_transaction_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    sqlx::query(
+        r#"
+        UPDATE payment_settlement_items
+        SET status = 'resolved',
+            resolved_by_staff_id = $2,
+            resolved_at = now(),
+            resolution_type = 'linked_payment',
+            resolution_note = $3,
+            payment_transaction_id = COALESCE(payment_transaction_id, $4)
+        WHERE id = $1 AND provider = 'helcim'
+        "#,
+    )
+    .bind(id)
+    .bind(staff.id)
+    .bind(note.as_deref())
+    .bind(payload.payment_transaction_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let after = load_settlement_item_state(&mut *tx, id).await?;
+    insert_settlement_item_event(
+        &mut tx,
+        id,
+        Some(staff.id),
+        "linked_payment",
+        note.as_deref(),
+        before,
+        after,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimReconciliationActionResponse {
+        item: load_helcim_reconciliation_item_by_id(&state, id).await?,
+    }))
 }
 
 async fn list_helcim_operations_transactions(
@@ -2811,7 +3312,22 @@ async fn load_helcim_reconciliation_items(
             processor_values,
             ros_values,
             message,
-            created_at
+            created_at,
+            reviewed_at,
+            resolved_at,
+            resolution_type,
+            resolution_note,
+            COALESCE((
+                SELECT jsonb_agg(jsonb_build_object(
+                    'id', event.id,
+                    'action', event.action,
+                    'note', event.note,
+                    'actor_staff_id', event.actor_staff_id,
+                    'created_at', event.created_at
+                ) ORDER BY event.created_at DESC)
+                FROM payment_settlement_item_events event
+                WHERE event.item_id = payment_settlement_items.id
+            ), '[]'::jsonb) AS events
         FROM payment_settlement_items
         WHERE provider = 'helcim'
           AND ($1::text IS NULL OR status = $1)
@@ -2844,6 +3360,54 @@ async fn load_helcim_reconciliation_items(
     .map(reconciliation_item_from_row)
     .collect();
     Ok(rows)
+}
+
+async fn load_helcim_reconciliation_item_by_id(
+    state: &AppState,
+    id: Uuid,
+) -> Result<HelcimReconciliationItemRow, PaymentError> {
+    let row = sqlx::query(
+        r#"
+        SELECT
+            id,
+            item_type,
+            severity,
+            status,
+            provider_batch_id,
+            provider_transaction_id,
+            payment_transaction_id,
+            payment_provider_batch_id,
+            processor_values,
+            ros_values,
+            message,
+            created_at,
+            reviewed_at,
+            resolved_at,
+            resolution_type,
+            resolution_note,
+            COALESCE((
+                SELECT jsonb_agg(jsonb_build_object(
+                    'id', event.id,
+                    'action', event.action,
+                    'note', event.note,
+                    'actor_staff_id', event.actor_staff_id,
+                    'created_at', event.created_at
+                ) ORDER BY event.created_at DESC)
+                FROM payment_settlement_item_events event
+                WHERE event.item_id = payment_settlement_items.id
+            ), '[]'::jsonb) AS events
+        FROM payment_settlement_items
+        WHERE provider = 'helcim'
+          AND id = $1
+        LIMIT 1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Issue was not found.".to_string()))?;
+    Ok(reconciliation_item_from_row(row))
 }
 
 async fn load_helcim_payment_timeline(
@@ -2918,6 +3482,11 @@ fn reconciliation_item_from_row(row: sqlx::postgres::PgRow) -> HelcimReconciliat
         payment_provider_batch_id: row.get("payment_provider_batch_id"),
         message: row.get("message"),
         created_at: row.get("created_at"),
+        reviewed_at: row.get("reviewed_at"),
+        resolved_at: row.get("resolved_at"),
+        resolution_type: row.get("resolution_type"),
+        resolution_note: row.get("resolution_note"),
+        events: serde_json::from_value(row.get::<Value, _>("events")).unwrap_or_default(),
     }
 }
 
@@ -2938,6 +3507,28 @@ fn clean_filter(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn clean_required_note(
+    value: Option<&str>,
+    required: bool,
+) -> Result<Option<String>, PaymentError> {
+    let note = clean_filter(value);
+    if required && note.is_none() {
+        return Err(PaymentError::InvalidPayload(
+            "A note is required for this action.".to_string(),
+        ));
+    }
+    Ok(note)
+}
+
+fn normalize_resolution_action(action: &str) -> Result<String, PaymentError> {
+    match action.trim().to_ascii_lowercase().as_str() {
+        "reviewed" | "resolved" | "ignored" | "reopened" => Ok(action.trim().to_ascii_lowercase()),
+        _ => Err(PaymentError::InvalidPayload(
+            "Unsupported issue action.".to_string(),
+        )),
+    }
 }
 
 fn clamp_limit(value: Option<i64>, default: i64, max: i64) -> i64 {
@@ -2995,6 +3586,118 @@ fn value_to_staff_string(value: &Value) -> Option<String> {
         Value::Number(number) => Some(number.to_string()),
         _ => None,
     }
+}
+
+fn json_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn value_decimal(value: &Value) -> Option<Decimal> {
+    match value {
+        Value::String(value) => value.parse::<Decimal>().ok(),
+        Value::Number(number) => number.to_string().parse::<Decimal>().ok(),
+        _ => None,
+    }
+}
+
+async fn load_settlement_item_state_for_update(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Value, PaymentError> {
+    sqlx::query_scalar::<_, Value>(
+        r#"
+        SELECT to_jsonb(item)
+        FROM payment_settlement_items item
+        WHERE item.id = $1
+          AND item.provider = 'helcim'
+        FOR UPDATE
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Issue was not found.".to_string()))
+}
+
+async fn load_settlement_item_state<'e, E>(executor: E, id: Uuid) -> Result<Value, PaymentError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    sqlx::query_scalar::<_, Value>(
+        r#"
+        SELECT to_jsonb(item)
+        FROM payment_settlement_items item
+        WHERE item.id = $1
+          AND item.provider = 'helcim'
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(executor)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Issue was not found.".to_string()))
+}
+
+async fn load_provider_batch_transaction<'e, E>(
+    executor: E,
+    provider_transaction_id: &str,
+) -> Result<Value, PaymentError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    sqlx::query_scalar::<_, Value>(
+        r#"
+        SELECT to_jsonb(btx)
+        FROM payment_provider_batch_transactions btx
+        WHERE btx.provider = 'helcim'
+          AND btx.provider_transaction_id = $1
+        "#,
+    )
+    .bind(provider_transaction_id)
+    .fetch_optional(executor)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Processor payment was not found.".to_string()))
+}
+
+async fn insert_settlement_item_event(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    item_id: Uuid,
+    actor_staff_id: Option<Uuid>,
+    action: &str,
+    note: Option<&str>,
+    before_state: Value,
+    after_state: Value,
+) -> Result<(), PaymentError> {
+    sqlx::query(
+        r#"
+        INSERT INTO payment_settlement_item_events (
+            item_id,
+            actor_staff_id,
+            action,
+            note,
+            before_state,
+            after_state
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+    )
+    .bind(item_id)
+    .bind(actor_staff_id)
+    .bind(action)
+    .bind(note)
+    .bind(before_state)
+    .bind(after_state)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(())
 }
 
 fn issue_label(item_type: &str) -> &'static str {
