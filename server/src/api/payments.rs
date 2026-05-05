@@ -2,6 +2,7 @@
 
 use crate::auth::permissions::{CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, SETTINGS_ADMIN};
 use crate::logic::helcim;
+use crate::logic::integration_alerts;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -9,12 +10,12 @@ use axum::{
     routing::{delete, get, patch, post},
     Json, Router,
 };
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::{Executor, Postgres, Row};
+use sqlx::{Executor, PgPool, Postgres, Row};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use uuid::Uuid;
@@ -26,6 +27,7 @@ const PAYMENTS_RECONCILE: &str = "payments.reconcile";
 const PAYMENTS_DEPOSIT_REVIEW: &str = "payments.deposit.review";
 const PAYMENTS_DEPOSIT_LINK: &str = "payments.deposit.link";
 const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
+const PAYMENTS_SYNC: &str = "payments.sync";
 
 #[derive(Debug, Error)]
 pub enum PaymentError {
@@ -940,10 +942,42 @@ async fn sync_helcim_fees(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<HelcimFeeSyncResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+    middleware::require_staff_with_permission(&state, &headers, PAYMENTS_SYNC)
         .await
         .map_err(map_pay_session)?;
 
+    Ok(Json(
+        run_helcim_fee_sync(&state.db, &state.http_client, None).await?,
+    ))
+}
+
+pub async fn run_scheduled_helcim_fee_sync(
+    pool: &PgPool,
+    http_client: &reqwest::Client,
+) -> Result<HelcimFeeSyncResponse, String> {
+    let date_from = Some((Utc::now() - ChronoDuration::days(7)).date_naive());
+    match run_helcim_fee_sync(pool, http_client, date_from).await {
+        Ok(response) => {
+            integration_alerts::record_integration_success(pool, "helcim_fee_sync")
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            let _ =
+                integration_alerts::record_integration_failure(pool, "helcim_fee_sync", &message)
+                    .await;
+            Err(message)
+        }
+    }
+}
+
+async fn run_helcim_fee_sync(
+    pool: &PgPool,
+    http_client: &reqwest::Client,
+    date_from: Option<NaiveDate>,
+) -> Result<HelcimFeeSyncResponse, PaymentError> {
     let config = helcim::HelcimConfig::from_env();
     if !config.enabled() {
         return Err(PaymentError::InvalidPayload(
@@ -951,7 +985,7 @@ async fn sync_helcim_fees(
         ));
     }
     if config.simulator_enabled() {
-        return Ok(Json(HelcimFeeSyncResponse {
+        return Ok(HelcimFeeSyncResponse {
             scanned: 0,
             updated: 0,
             fees_unavailable: 0,
@@ -959,7 +993,7 @@ async fn sync_helcim_fees(
             errors: 0,
             total_fee_synced: "0.00".to_string(),
             total_net_synced: "0.00".to_string(),
-        }));
+        });
     }
 
     #[derive(sqlx::FromRow)]
@@ -979,6 +1013,7 @@ async fn sync_helcim_fees(
             metadata->>'helcim_net_sync_status' AS net_sync_status
         FROM payment_transactions
         WHERE payment_provider = 'helcim'
+          AND ($1::date IS NULL OR (created_at AT TIME ZONE 'America/New_York')::date >= $1)
           AND (
               COALESCE(metadata->>'helcim_fee_sync_status', '') <> 'applied'
               OR COALESCE(metadata->>'helcim_net_sync_status', '') <> 'applied'
@@ -988,7 +1023,8 @@ async fn sync_helcim_fees(
         LIMIT 100
         "#,
     )
-    .fetch_all(&state.db)
+    .bind(date_from)
+    .fetch_all(pool)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
@@ -1017,26 +1053,21 @@ async fn sync_helcim_fees(
             continue;
         }
 
-        let transaction = match helcim::fetch_card_transaction(
-            &state.http_client,
-            &config,
-            &transaction_id,
-        )
-        .await
-        {
-            Ok(transaction) => transaction,
-            Err(error) => {
-                errors += 1;
-                tracing::warn!(
-                    target = "helcim",
-                    payment_transaction_id = %row.id,
-                    provider_transaction_id = %transaction_id,
-                    error = %error,
-                    "could not sync Helcim merchant fee"
-                );
-                continue;
-            }
-        };
+        let transaction =
+            match helcim::fetch_card_transaction(http_client, &config, &transaction_id).await {
+                Ok(transaction) => transaction,
+                Err(error) => {
+                    errors += 1;
+                    tracing::warn!(
+                        target = "helcim",
+                        payment_transaction_id = %row.id,
+                        provider_transaction_id = %transaction_id,
+                        error = %error,
+                        "could not sync Helcim merchant fee"
+                    );
+                    continue;
+                }
+            };
 
         let fee_details = helcim::HelcimFeeDetails::from_card_transaction(&transaction);
         if fee_details.merchant_fee.is_none() && fee_details.net_amount.is_none() {
@@ -1062,7 +1093,7 @@ async fn sync_helcim_fees(
             )
             .bind(row.id)
             .bind(metadata)
-            .execute(&state.db)
+            .execute(pool)
             .await
             .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
             continue;
@@ -1109,7 +1140,7 @@ async fn sync_helcim_fees(
         .bind(fee)
         .bind(net_amount)
         .bind(metadata)
-        .execute(&state.db)
+        .execute(pool)
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
@@ -1122,7 +1153,7 @@ async fn sync_helcim_fees(
         }
     }
 
-    Ok(Json(HelcimFeeSyncResponse {
+    Ok(HelcimFeeSyncResponse {
         scanned,
         updated,
         fees_unavailable,
@@ -1130,7 +1161,7 @@ async fn sync_helcim_fees(
         errors,
         total_fee_synced: total_fee_synced.round_dp(2).to_string(),
         total_net_synced: total_net_synced.round_dp(2).to_string(),
-    }))
+    })
 }
 
 async fn get_helcim_settlement_status(
@@ -1241,7 +1272,7 @@ async fn sync_helcim_settlements(
     headers: HeaderMap,
     payload: Option<Json<HelcimSettlementSyncRequest>>,
 ) -> Result<Json<HelcimSettlementSyncResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+    middleware::require_staff_with_permission(&state, &headers, PAYMENTS_SYNC)
         .await
         .map_err(map_pay_session)?;
     let payload = payload
@@ -1250,25 +1281,61 @@ async fn sync_helcim_settlements(
             date_from: None,
             date_to: None,
         });
+    Ok(Json(
+        run_helcim_settlement_sync(
+            &state.db,
+            &state.http_client,
+            payload.date_from,
+            payload.date_to,
+        )
+        .await?,
+    ))
+}
+
+pub async fn run_scheduled_helcim_settlement_sync(
+    pool: &PgPool,
+    http_client: &reqwest::Client,
+) -> Result<HelcimSettlementSyncResponse, String> {
+    let date_from = Some((Utc::now() - ChronoDuration::days(7)).date_naive());
+    match run_helcim_settlement_sync(pool, http_client, date_from, None).await {
+        Ok(response) => {
+            integration_alerts::record_integration_success(pool, "helcim_settlement_sync")
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(response)
+        }
+        Err(error) => {
+            let message = error.to_string();
+            let _ = integration_alerts::record_integration_failure(
+                pool,
+                "helcim_settlement_sync",
+                &message,
+            )
+            .await;
+            Err(message)
+        }
+    }
+}
+
+async fn run_helcim_settlement_sync(
+    pool: &PgPool,
+    http_client: &reqwest::Client,
+    date_from: Option<NaiveDate>,
+    date_to: Option<NaiveDate>,
+) -> Result<HelcimSettlementSyncResponse, PaymentError> {
     let config = helcim::HelcimConfig::from_env();
     let api_integration_active = config.enabled() && !config.simulator_enabled();
     let processor_data = if api_integration_active {
         Some(
-            fetch_helcim_processor_settlement_data(
-                &state.http_client,
-                &config,
-                payload.date_from,
-                payload.date_to,
-            )
-            .await
-            .map_err(PaymentError::ProviderError)?,
+            fetch_helcim_processor_settlement_data(http_client, &config, date_from, date_to)
+                .await
+                .map_err(PaymentError::ProviderError)?,
         )
     } else {
         None
     };
 
-    let mut tx = state
-        .db
+    let mut tx = pool
         .begin()
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -1297,8 +1364,8 @@ async fn sync_helcim_settlements(
         RETURNING id
         "#,
     )
-    .bind(payload.date_from)
-    .bind(payload.date_to)
+    .bind(date_from)
+    .bind(date_to)
     .bind(if api_integration_active {
         "helcim_api"
     } else {
@@ -1309,14 +1376,9 @@ async fn sync_helcim_settlements(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
-    let result = sync_helcim_settlement_rows(
-        &mut tx,
-        run_id,
-        payload.date_from,
-        payload.date_to,
-        processor_data.as_ref(),
-    )
-    .await;
+    let result =
+        sync_helcim_settlement_rows(&mut tx, run_id, date_from, date_to, processor_data.as_ref())
+            .await;
 
     match result {
         Ok(summary) => {
@@ -1353,7 +1415,7 @@ async fn sync_helcim_settlements(
             tx.commit()
                 .await
                 .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
-            Ok(Json(HelcimSettlementSyncResponse {
+            Ok(HelcimSettlementSyncResponse {
                 run_id,
                 status: "completed".to_string(),
                 payments_scanned: summary.payments_scanned,
@@ -1376,7 +1438,7 @@ async fn sync_helcim_settlements(
                     "Helcim API integration is not active; sync promoted known local Helcim batch metadata and created reconciliation findings only."
                         .to_string()
                 },
-            }))
+            })
         }
         Err(error) => {
             let _ = sqlx::query(

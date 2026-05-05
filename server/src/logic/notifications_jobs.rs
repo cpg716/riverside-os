@@ -2,11 +2,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::api::payments;
 use crate::auth::permissions::{
     staff_has_permission, ALTERATIONS_MANAGE, CATALOG_EDIT, GIFT_CARDS_MANAGE, NOTIFICATIONS_VIEW,
     ORDERS_VIEW, PROCUREMENT_VIEW, WEDDINGS_VIEW,
 };
 use crate::logic::backups::BackupSettings;
+use crate::logic::integration_alerts;
 use crate::logic::notifications::{
     admin_staff_ids, archive_stale_staff_notifications, delete_app_notification_by_dedupe,
     emit_qbo_sync_failed, fan_out_notification_to_staff_ids, insert_app_notification_deduped,
@@ -21,6 +23,10 @@ use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
+
+const PAYMENTS_SYNC: &str = "payments.sync";
+const PAYMENTS_RECONCILE: &str = "payments.reconcile";
+const PAYMENTS_DEPOSIT_REVIEW: &str = "payments.deposit.review";
 
 fn env_archive_hours() -> i64 {
     std::env::var("RIVERSIDE_NOTIFICATION_ARCHIVE_HOURS")
@@ -192,6 +198,15 @@ pub async fn run_notification_generators(pool: &PgPool) -> Result<(), sqlx::Erro
     run_generator!(
         "qbo_failed_reminder_sweep",
         run_qbo_failed_reminder_sweep(pool)
+    );
+    run_generator!("helcim_fee_sync", run_scheduled_helcim_fee_sync(pool));
+    run_generator!(
+        "helcim_settlement_sync",
+        run_scheduled_helcim_settlement_sync(pool)
+    );
+    run_generator!(
+        "payment_operations_notifications",
+        run_payment_operations_notifications(pool)
     );
     run_generator!(
         "backup_admin_notifications",
@@ -381,6 +396,353 @@ fn env_backup_overdue_hours() -> i64 {
         .and_then(|s| s.parse().ok())
         .filter(|&h: &i64| h > 0 && h <= 720)
         .unwrap_or(30)
+}
+
+async fn run_scheduled_helcim_fee_sync(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let http = reqwest::Client::new();
+    payments::run_scheduled_helcim_fee_sync(pool, &http)
+        .await
+        .map(|_| ())
+        .map_err(sqlx::Error::Protocol)
+}
+
+async fn run_scheduled_helcim_settlement_sync(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let http = reqwest::Client::new();
+    payments::run_scheduled_helcim_settlement_sync(pool, &http)
+        .await
+        .map(|_| ())
+        .map_err(sqlx::Error::Protocol)
+}
+
+async fn payment_alert_recipients(pool: &PgPool) -> Result<Vec<Uuid>, sqlx::Error> {
+    let mut ids = admin_staff_ids(pool).await?;
+    ids.append(&mut staff_ids_with_permission(pool, PAYMENTS_SYNC).await?);
+    ids.append(&mut staff_ids_with_permission(pool, PAYMENTS_RECONCILE).await?);
+    ids.append(&mut staff_ids_with_permission(pool, PAYMENTS_DEPOSIT_REVIEW).await?);
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
+async fn upsert_payment_alert(
+    pool: &PgPool,
+    staff: &[Uuid],
+    kind: &str,
+    title: &str,
+    body: &str,
+    deep_link: Value,
+    dedupe_key: &str,
+) -> Result<(), sqlx::Error> {
+    if staff.is_empty() {
+        return Ok(());
+    }
+    let audience = morning_audience_json(staff);
+    let nid = upsert_app_notification_by_dedupe(
+        pool,
+        kind,
+        title,
+        body,
+        deep_link,
+        "payment_operations_notifications",
+        audience,
+        dedupe_key,
+    )
+    .await?;
+    fan_out_notification_to_staff_ids(pool, nid, staff).await
+}
+
+async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let staff = payment_alert_recipients(pool).await?;
+    if staff.is_empty() {
+        return Ok(());
+    }
+    let day_key = store_local_day_key(pool).await?;
+
+    let sync_failures: Vec<(String, Option<chrono::DateTime<Utc>>, Option<String>)> =
+        sqlx::query_as(
+            r#"
+            SELECT source, last_failure_at, detail
+            FROM integration_alert_state
+            WHERE source IN ('helcim_fee_sync', 'helcim_settlement_sync')
+              AND last_failure_at IS NOT NULL
+              AND (last_success_at IS NULL OR last_failure_at > last_success_at)
+            ORDER BY last_failure_at DESC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+    for source in ["helcim_fee_sync", "helcim_settlement_sync"] {
+        let dedupe = match source {
+            "helcim_fee_sync" => "payments:sync_failed:helcim:fees",
+            _ => "payments:sync_failed:helcim:settlement",
+        };
+        if let Some((_, failed_at, detail)) = sync_failures.iter().find(|(s, _, _)| s == source) {
+            let label = if source == "helcim_fee_sync" {
+                "Fee sync failed"
+            } else {
+                "Batch sync failed"
+            };
+            let body = detail
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    if s.len() > 220 {
+                        format!("{}...", &s[..220])
+                    } else {
+                        s.to_string()
+                    }
+                })
+                .unwrap_or_else(|| {
+                    failed_at
+                        .map(|ts| format!("Last failed {}", ts.format("%Y-%m-%d %H:%M UTC")))
+                        .unwrap_or_else(|| "The latest payment sync needs review.".to_string())
+                });
+            upsert_payment_alert(
+                pool,
+                &staff,
+                "payment_sync_failed",
+                label,
+                &body,
+                json!({ "type": "payments", "section": "health" }),
+                dedupe,
+            )
+            .await?;
+        } else {
+            let _ = delete_app_notification_by_dedupe(pool, dedupe).await?;
+        }
+    }
+
+    let (fee_not_ready, net_not_ready): (i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*) FILTER (
+                WHERE COALESCE(metadata->>'helcim_fee_sync_status', '') <> 'applied'
+            )::bigint,
+            COUNT(*) FILTER (
+                WHERE COALESCE(metadata->>'helcim_net_sync_status', '') <> 'applied'
+            )::bigint
+        FROM payment_transactions
+        WHERE payment_provider = 'helcim'
+          AND status = 'success'
+          AND created_at >= now() - interval '7 days'
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let fee_dedupe = format!("payments:fee_not_ready:{day_key}");
+    if fee_not_ready > 0 || net_not_ready > 0 {
+        upsert_payment_alert(
+            pool,
+            &staff,
+            "payment_fee_not_ready",
+            "Fee still not ready",
+            &format!(
+                "{fee_not_ready} payment(s) still need fee data and {net_not_ready} payment(s) still need net data."
+            ),
+            json!({ "type": "payments", "section": "overview" }),
+            &fee_dedupe,
+        )
+        .await?;
+    } else {
+        let _ = sqlx::query("DELETE FROM app_notification WHERE kind = 'payment_fee_not_ready'")
+            .execute(pool)
+            .await?;
+    }
+
+    let (failed_events, last_event_error): (i64, Option<String>) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, MAX(error_message)
+        FROM helcim_event_log
+        WHERE processing_status = 'failed'
+          AND received_at >= now() - interval '7 days'
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    if failed_events > 0 {
+        let detail = format!(
+            "{failed_events} payment update(s) need review. {}",
+            last_event_error.unwrap_or_default()
+        );
+        integration_alerts::record_integration_failure(
+            pool,
+            "helcim_event_processing",
+            detail.trim(),
+        )
+        .await?;
+        upsert_payment_alert(
+            pool,
+            &staff,
+            "payment_update_failed",
+            "Payment update failed",
+            detail.trim(),
+            json!({ "type": "payments", "section": "health" }),
+            "payments:event_failed:helcim",
+        )
+        .await?;
+    } else {
+        integration_alerts::record_integration_success(pool, "helcim_event_processing").await?;
+        let _ = delete_app_notification_by_dedupe(pool, "payments:event_failed:helcim").await?;
+    }
+
+    let (open_recon, critical_recon): (i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*)::bigint,
+            COUNT(*) FILTER (WHERE severity = 'critical')::bigint
+        FROM payment_settlement_items
+        WHERE provider = 'helcim'
+          AND status = 'open'
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    if open_recon > 0 {
+        upsert_payment_alert(
+            pool,
+            &staff,
+            "payment_reconciliation_needs_review",
+            "Payment issues need review",
+            &format!("{open_recon} payment issue(s) are open; {critical_recon} critical."),
+            json!({ "type": "payments", "section": "reconciliation" }),
+            "payments:reconciliation_needs_review",
+        )
+        .await?;
+    } else {
+        let _ =
+            delete_app_notification_by_dedupe(pool, "payments:reconciliation_needs_review").await?;
+    }
+
+    let (deposit_items, unmatched_deposits, unmatched_batches): (i64, i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            (SELECT COUNT(*)::bigint
+             FROM payment_deposit_reconciliation_items
+             WHERE provider = 'helcim' AND status = 'open'),
+            (SELECT COUNT(*)::bigint
+             FROM payment_actual_deposits deposit
+             WHERE deposit.provider = 'helcim'
+               AND deposit.status IN ('open', 'needs_review', 'reopened')
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM payment_actual_deposit_batches link
+                   WHERE link.deposit_id = deposit.id
+               )),
+            (SELECT COUNT(*)::bigint
+             FROM payment_provider_batches batch
+             WHERE batch.provider = 'helcim'
+               AND batch.net_amount IS NOT NULL
+               AND COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at) < now() - interval '1 day'
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM payment_actual_deposit_batches link
+                   WHERE link.payment_provider_batch_id = batch.id
+               ))
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    if deposit_items > 0 || unmatched_deposits > 0 || unmatched_batches > 0 {
+        upsert_payment_alert(
+            pool,
+            &staff,
+            "payment_deposit_needs_review",
+            "Deposit needs review",
+            &format!(
+                "{deposit_items} deposit issue(s), {unmatched_deposits} unmatched actual deposit(s), and {unmatched_batches} expected deposit(s) not linked."
+            ),
+            json!({ "type": "payments", "section": "deposits" }),
+            "payments:deposit_needs_review",
+        )
+        .await?;
+    } else {
+        let _ = delete_app_notification_by_dedupe(pool, "payments:deposit_needs_review").await?;
+    }
+
+    let latest_deposit_run: Option<(String, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT status, error_message
+        FROM payment_deposit_reconciliation_runs
+        WHERE provider = 'helcim'
+        ORDER BY started_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+    if let Some((status, error_message)) = latest_deposit_run {
+        if status == "failed" {
+            integration_alerts::record_integration_failure(
+                pool,
+                "helcim_deposit_reconciliation",
+                error_message
+                    .as_deref()
+                    .unwrap_or("Deposit review could not finish."),
+            )
+            .await?;
+        } else if status == "completed" {
+            integration_alerts::record_integration_success(pool, "helcim_deposit_reconciliation")
+                .await?;
+        }
+    }
+
+    let stale_batches: Vec<(Uuid, String, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
+        r#"
+        SELECT id, provider_batch_id, closed_at
+        FROM payment_provider_batches
+        WHERE provider = 'helcim'
+          AND closed_at IS NOT NULL
+          AND closed_at < now() - interval '3 days'
+          AND settled_at IS NULL
+          AND LOWER(COALESCE(status, '')) NOT IN ('settled', 'deposited')
+        ORDER BY closed_at ASC
+        LIMIT 200
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    let active_stale_dedupes: HashSet<String> = stale_batches
+        .iter()
+        .map(|(id, _, _)| format!("payments:batch_not_settled:{id}"))
+        .collect();
+    for (batch_id, provider_batch_id, closed_at) in stale_batches.iter().take(20) {
+        let dedupe = format!("payments:batch_not_settled:{batch_id}");
+        let closed_label = closed_at
+            .map(|ts| ts.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| "recently".to_string());
+        upsert_payment_alert(
+            pool,
+            &staff,
+            "payment_batch_not_settled",
+            "Batch has not settled",
+            &format!("Batch {provider_batch_id} closed {closed_label} and has not settled yet."),
+            json!({
+                "type": "payments",
+                "section": "batches",
+                "batch_id": batch_id.to_string(),
+            }),
+            &dedupe,
+        )
+        .await?;
+    }
+    let existing_stale_dedupes: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT dedupe_key
+        FROM app_notification
+        WHERE kind = 'payment_batch_not_settled'
+          AND dedupe_key IS NOT NULL
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    for dedupe in existing_stale_dedupes {
+        if !active_stale_dedupes.contains(&dedupe) {
+            let _ = delete_app_notification_by_dedupe(pool, &dedupe).await?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Admin-only: failed local backup, failed cloud export, or no successful local backup within threshold.
@@ -1731,6 +2093,12 @@ async fn run_integration_health_admin_notifications(pool: &PgPool) -> Result<(),
         FROM integration_alert_state
         WHERE last_failure_at IS NOT NULL
           AND (last_success_at IS NULL OR last_failure_at > last_success_at)
+          AND source NOT IN (
+              'helcim_fee_sync',
+              'helcim_settlement_sync',
+              'helcim_event_processing',
+              'helcim_deposit_reconciliation'
+          )
         "#,
     )
     .fetch_all(pool)

@@ -122,6 +122,12 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "ops_alert",
     "order_due_stale",
     "order_fully_fulfilled",
+    "payment_batch_not_settled",
+    "payment_deposit_needs_review",
+    "payment_fee_not_ready",
+    "payment_reconciliation_needs_review",
+    "payment_sync_failed",
+    "payment_update_failed",
     "pickup_stale",
     "pin_failure_digest",
     "podium_email_bundle",
@@ -211,6 +217,12 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
         | "integration_health_failed"
         | "nuorder_sync_failed"
         | "ops_alert"
+        | "payment_batch_not_settled"
+        | "payment_deposit_needs_review"
+        | "payment_fee_not_ready"
+        | "payment_reconciliation_needs_review"
+        | "payment_sync_failed"
+        | "payment_update_failed"
         | "pin_failure_digest"
         | "qbo_sync_failed"
         | "register_cash_discrepancy"

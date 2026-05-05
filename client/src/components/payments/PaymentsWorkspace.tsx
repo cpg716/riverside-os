@@ -357,11 +357,13 @@ function MetricCard({
 function SectionButton({
   id,
   label,
+  badge,
   active,
   onClick,
 }: {
   id: SectionId;
   label: string;
+  badge?: number;
   active: boolean;
   onClick: (id: SectionId) => void;
 }) {
@@ -375,7 +377,14 @@ function SectionButton({
           : "border border-app-border bg-app-surface text-app-text hover:bg-app-surface-2"
       }`}
     >
-      {label}
+      <span className="inline-flex items-center gap-2">
+        {label}
+        {badge && badge > 0 ? (
+          <span className={`rounded-full px-2 py-0.5 text-xs font-black ${active ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"}`}>
+            {badge > 99 ? "99+" : badge}
+          </span>
+        ) : null}
+      </span>
     </button>
   );
 }
@@ -413,6 +422,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
   const { backofficeHeaders, hasPermission, permissionsLoaded } = useBackofficeAuth();
   const { toast } = useToast();
   const canReconcile = permissionsLoaded && hasPermission("payments.reconcile");
+  const canSync = permissionsLoaded && hasPermission("payments.sync");
   const canDepositReview = permissionsLoaded && hasPermission("payments.deposit.review");
   const canDepositLink = permissionsLoaded && hasPermission("payments.deposit.link");
   const canDepositAdjust = permissionsLoaded && hasPermission("payments.deposit.adjust");
@@ -848,6 +858,10 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
 
   const runSync = useCallback(
     async (kind: "batches" | "fees") => {
+      if (!canSync) {
+        toast("Payment sync requires payment sync access.", "error");
+        return;
+      }
       setSyncing(kind);
       try {
         const path =
@@ -870,7 +884,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         setSyncing(null);
       }
     },
-    [apiHeaders, refresh, toast],
+    [apiHeaders, canSync, refresh, toast],
   );
 
   const filteredTransactions = useMemo(() => {
@@ -900,6 +914,12 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
 
   const lastSuccess = data.runs.find((run) => run.status === "completed" || run.status === "success");
   const lastError = data.runs.find((run) => run.error_message);
+  const reconciliationBadge = data.overview?.open_issue_count ?? data.issues.length;
+  const depositBadge =
+    data.deposits.reduce((total, deposit) => total + deposit.open_issue_count, 0) +
+    data.unmatchedBatches.length +
+    data.unmatchedDeposits.length;
+  const healthBadge = (lastError ? 1 : 0) + (data.health?.failed_event_count ?? 0);
 
   return (
     <div className="flex flex-1 flex-col bg-app-bg">
@@ -922,7 +942,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
             <button
               type="button"
               onClick={() => void runSync("batches")}
-              disabled={syncing !== null}
+              disabled={syncing !== null || !canSync}
               className="inline-flex items-center gap-2 rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
             >
               <RefreshCw size={16} className={syncing === "batches" ? "animate-spin" : ""} />
@@ -931,7 +951,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
             <button
               type="button"
               onClick={() => void runSync("fees")}
-              disabled={syncing !== null}
+              disabled={syncing !== null || !canSync}
               className="inline-flex items-center gap-2 rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition hover:bg-app-surface-2 disabled:opacity-50"
             >
               <RefreshCw size={16} className={syncing === "fees" ? "animate-spin" : ""} />
@@ -942,10 +962,10 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         <nav className="mt-5 flex gap-2 overflow-x-auto pb-1">
           <SectionButton id="overview" label="Overview" active={section === "overview"} onClick={setSection} />
           <SectionButton id="batches" label="Batches" active={section === "batches"} onClick={setSection} />
-          <SectionButton id="deposits" label="Deposits" active={section === "deposits"} onClick={setSection} />
-          <SectionButton id="reconciliation" label="Reconciliation" active={section === "reconciliation"} onClick={setSection} />
+          <SectionButton id="deposits" label="Deposits" badge={depositBadge} active={section === "deposits"} onClick={setSection} />
+          <SectionButton id="reconciliation" label="Reconciliation" badge={reconciliationBadge} active={section === "reconciliation"} onClick={setSection} />
           <SectionButton id="transactions" label="Transactions" active={section === "transactions"} onClick={setSection} />
-          <SectionButton id="health" label="Health" active={section === "health"} onClick={setSection} />
+          <SectionButton id="health" label="Health" badge={healthBadge} active={section === "health"} onClick={setSection} />
         </nav>
       </header>
 
@@ -964,6 +984,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
               <OverviewPanel
                 overview={data.overview}
                 issues={data.issues}
+                canSync={canSync}
                 onViewIssues={() => setSection("reconciliation")}
                 onSyncBatches={() => void runSync("batches")}
                 onSyncFees={() => void runSync("fees")}
@@ -1005,6 +1026,9 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
                 health={data.health}
                 lastSuccess={lastSuccess}
                 lastError={lastError}
+                depositAlertCount={depositBadge}
+                reconciliationAlertCount={reconciliationBadge}
+                canSync={canSync}
                 onSyncBatches={() => void runSync("batches")}
                 onSyncFees={() => void runSync("fees")}
               />
@@ -1060,12 +1084,14 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
 function OverviewPanel({
   overview,
   issues,
+  canSync,
   onViewIssues,
   onSyncBatches,
   onSyncFees,
 }: {
   overview: OverviewResponse | null;
   issues: ReconciliationItem[];
+  canSync: boolean;
   onViewIssues: () => void;
   onSyncBatches: () => void;
   onSyncFees: () => void;
@@ -1112,10 +1138,10 @@ function OverviewPanel({
         <WarningLine count={overview?.fee_not_ready_count ?? 0} label="Fee not ready" />
       </div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={onSyncBatches} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white">
+        <button type="button" onClick={onSyncBatches} disabled={!canSync} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
           Sync Batches
         </button>
-        <button type="button" onClick={onSyncFees} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text">
+        <button type="button" onClick={onSyncFees} disabled={!canSync} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text disabled:opacity-50">
           Sync Fees
         </button>
         <button type="button" onClick={onViewIssues} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text">
@@ -1423,6 +1449,9 @@ function HealthPanel({
   health,
   lastSuccess,
   lastError,
+  depositAlertCount,
+  reconciliationAlertCount,
+  canSync,
   onSyncBatches,
   onSyncFees,
 }: {
@@ -1431,9 +1460,59 @@ function HealthPanel({
   health: EventsHealth | null;
   lastSuccess: SettlementRun | undefined;
   lastError: SettlementRun | undefined;
+  depositAlertCount: number;
+  reconciliationAlertCount: number;
+  canSync: boolean;
   onSyncBatches: () => void;
   onSyncFees: () => void;
 }) {
+  const paymentAlertCount =
+    (lastError ? 1 : 0) +
+    (health?.failed_event_count ?? 0) +
+    (overview?.fee_not_ready_count ?? 0) +
+    (overview?.net_not_ready_count ?? 0) +
+    depositAlertCount +
+    reconciliationAlertCount;
+  const lastChecked =
+    runs[0]?.completed_at ?? runs[0]?.started_at ?? health?.last_event_at ?? overview?.last_fee_sync;
+  const alertRows = [
+    lastError
+      ? {
+          label: "Sync failed",
+          detail: lastError.error_message ?? "The latest batch sync needs review.",
+          tone: "danger" as const,
+        }
+      : null,
+    (health?.failed_event_count ?? 0) > 0
+      ? {
+          label: "Payment update failed",
+          detail: `${health?.failed_event_count ?? 0} payment update(s) need review.`,
+          tone: "warning" as const,
+        }
+      : null,
+    (overview?.fee_not_ready_count ?? 0) > 0 || (overview?.net_not_ready_count ?? 0) > 0
+      ? {
+          label: "Fee still not ready",
+          detail: `${overview?.fee_not_ready_count ?? 0} fee(s) and ${overview?.net_not_ready_count ?? 0} net amount(s) still waiting on Helcim data.`,
+          tone: "warning" as const,
+        }
+      : null,
+    reconciliationAlertCount > 0
+      ? {
+          label: "Payment issues need review",
+          detail: `${reconciliationAlertCount} payment issue(s) are open.`,
+          tone: "warning" as const,
+        }
+      : null,
+    depositAlertCount > 0
+      ? {
+          label: "Deposit needs review",
+          detail: `${depositAlertCount} deposit item(s) need review.`,
+          tone: "warning" as const,
+        }
+      : null,
+  ].filter(Boolean) as { label: string; detail: string; tone: "warning" | "danger" }[];
+
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1441,6 +1520,36 @@ function HealthPanel({
         <MetricCard label="Last Sync" value={runs[0] ? shortDateTime(runs[0].started_at) : "Not ready"} note={staffLabel(runs[0]?.status)} />
         <MetricCard label="Last Success" value={lastSuccess ? shortDateTime(lastSuccess.completed_at ?? lastSuccess.started_at) : "Not ready"} />
         <MetricCard label="Last Error" value={lastError?.error_message ?? "Clear"} tone={lastError ? "warning" : "good"} />
+      </div>
+      <div className="rounded-lg border border-app-border bg-app-surface p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-black text-app-text">Payment Alerts</h2>
+            <p className="mt-1 text-sm font-semibold text-app-text-muted">
+              Last checked {shortDateTime(lastChecked)}. Alerts do not close issues or change payment totals.
+            </p>
+          </div>
+          <StatusPill value={paymentAlertCount > 0 ? "Needs Review" : "Clear"} />
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {alertRows.length === 0 ? (
+            <EmptyState title="No payment alerts" body="Payments, deposits, and updates are clear right now." compact />
+          ) : (
+            alertRows.map((alert) => (
+              <div
+                key={alert.label}
+                className={`rounded-lg border p-4 ${
+                  alert.tone === "danger"
+                    ? "border-rose-500/30 bg-rose-500/10"
+                    : "border-amber-500/30 bg-amber-500/10"
+                }`}
+              >
+                <div className="text-sm font-black text-app-text">{alert.label}</div>
+                <div className="mt-1 text-sm font-semibold text-app-text-muted">{alert.detail}</div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
       <div className="rounded-lg border border-app-border bg-app-surface p-5">
         <h2 className="text-lg font-black text-app-text">Payment Updates</h2>
@@ -1452,10 +1561,10 @@ function HealthPanel({
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={onSyncBatches} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white">
+        <button type="button" onClick={onSyncBatches} disabled={!canSync} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
           Sync Batches
         </button>
-        <button type="button" onClick={onSyncFees} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text">
+        <button type="button" onClick={onSyncFees} disabled={!canSync} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text disabled:opacity-50">
           Sync Fees
         </button>
       </div>
