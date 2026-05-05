@@ -1,8 +1,12 @@
 //! Helcim payment provider endpoints.
 
-use crate::auth::permissions::{CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, SETTINGS_ADMIN};
+use crate::auth::permissions::{
+    self, staff_has_permission, CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, SETTINGS_ADMIN,
+};
+use crate::auth::pins::AuthenticatedStaff;
 use crate::logic::helcim;
 use crate::logic::integration_alerts;
+use crate::models::DbStaffRole;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -24,6 +28,10 @@ use crate::api::AppState;
 use crate::middleware;
 
 const PAYMENTS_RECONCILE: &str = "payments.reconcile";
+const PAYMENTS_VIEW: &str = "payments.view";
+const PAYMENTS_RECONCILE_REVIEW: &str = "payments.reconcile.review";
+const PAYMENTS_RECONCILE_RESOLVE: &str = "payments.reconcile.resolve";
+const PAYMENTS_RECONCILE_LINK: &str = "payments.reconcile.link";
 const PAYMENTS_DEPOSIT_REVIEW: &str = "payments.deposit.review";
 const PAYMENTS_DEPOSIT_LINK: &str = "payments.deposit.link";
 const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
@@ -55,6 +63,53 @@ fn map_pay_session(e: (StatusCode, axum::Json<serde_json::Value>)) -> PaymentErr
         StatusCode::FORBIDDEN => PaymentError::Forbidden(msg),
         _ => PaymentError::InvalidPayload(msg),
     }
+}
+
+async fn require_payment_permission(
+    state: &AppState,
+    headers: &HeaderMap,
+    permission: &'static str,
+) -> Result<AuthenticatedStaff, PaymentError> {
+    require_payment_permission_any(state, headers, permission, &[]).await
+}
+
+async fn require_payment_permission_any(
+    state: &AppState,
+    headers: &HeaderMap,
+    permission: &'static str,
+    fallback_permissions: &'static [&'static str],
+) -> Result<AuthenticatedStaff, PaymentError> {
+    let staff = middleware::require_authenticated_staff_headers(state, headers)
+        .await
+        .map_err(map_pay_session)?;
+    let effective = permissions::effective_permissions_for_staff(&state.db, staff.id, staff.role)
+        .await
+        .map_err(|error| {
+            tracing::error!(error = %error, "payments permission resolution failed");
+            PaymentError::InvalidPayload("permission resolution failed".to_string())
+        })?;
+    let permitted = staff.role == DbStaffRole::Admin
+        || staff_has_permission(&effective, permission)
+        || fallback_permissions
+            .iter()
+            .any(|fallback| staff_has_permission(&effective, fallback));
+
+    tracing::info!(
+        staff_id = %staff.id,
+        staff_name = %staff.full_name,
+        staff_role = ?staff.role,
+        requested_permission = %permission,
+        fallback_permissions = ?fallback_permissions,
+        permitted = %permitted,
+        "Payments permission check"
+    );
+
+    if !permitted {
+        return Err(PaymentError::Forbidden(format!(
+            "missing permission: {permission}"
+        )));
+    }
+    Ok(staff)
 }
 
 impl IntoResponse for PaymentError {
@@ -886,9 +941,7 @@ async fn get_helcim_fee_status(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<HelcimFeeStatusResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
 
     #[derive(sqlx::FromRow)]
     struct Row {
@@ -942,9 +995,7 @@ async fn sync_helcim_fees(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<HelcimFeeSyncResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, PAYMENTS_SYNC)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_SYNC).await?;
 
     Ok(Json(
         run_helcim_fee_sync(&state.db, &state.http_client, None).await?,
@@ -1168,9 +1219,7 @@ async fn get_helcim_settlement_status(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<HelcimSettlementStatusResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
 
     #[derive(sqlx::FromRow)]
     struct CountsRow {
@@ -1272,9 +1321,7 @@ async fn sync_helcim_settlements(
     headers: HeaderMap,
     payload: Option<Json<HelcimSettlementSyncRequest>>,
 ) -> Result<Json<HelcimSettlementSyncResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, PAYMENTS_SYNC)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_SYNC).await?;
     let payload = payload
         .map(|Json(payload)| payload)
         .unwrap_or(HelcimSettlementSyncRequest {
@@ -1465,9 +1512,7 @@ async fn get_helcim_operations_overview(
     headers: HeaderMap,
     Query(query): Query<HelcimOperationsDateQuery>,
 ) -> Result<Json<HelcimOperationsOverviewResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
 
     #[derive(sqlx::FromRow)]
     struct OverviewRow {
@@ -1583,9 +1628,7 @@ async fn list_helcim_batches(
     headers: HeaderMap,
     Query(query): Query<HelcimOperationsListQuery>,
 ) -> Result<Json<Vec<HelcimBatchListRow>>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     let rows = load_helcim_batch_rows(&state, None, &query).await?;
     Ok(Json(rows))
 }
@@ -1595,9 +1638,7 @@ async fn get_helcim_batch_detail(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<HelcimBatchDetailResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     let query = HelcimOperationsListQuery {
         limit: Some(1),
         ..Default::default()
@@ -1642,9 +1683,7 @@ async fn list_helcim_batch_transactions(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<HelcimBatchTransactionRow>>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     let (batch_uuid, provider_batch_id) = parse_batch_identifier(&id);
     let rows = sqlx::query(
         r#"
@@ -1697,9 +1736,7 @@ async fn list_helcim_reconciliation_items(
     headers: HeaderMap,
     Query(query): Query<HelcimOperationsListQuery>,
 ) -> Result<Json<Vec<HelcimReconciliationItemRow>>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     let rows = load_helcim_reconciliation_items(&state, &query, None).await?;
     Ok(Json(rows))
 }
@@ -1710,10 +1747,28 @@ async fn patch_helcim_reconciliation_item_status(
     Path(id): Path<Uuid>,
     Json(payload): Json<HelcimReconciliationStatusRequest>,
 ) -> Result<Json<HelcimReconciliationActionResponse>, PaymentError> {
-    let staff = middleware::require_staff_with_permission(&state, &headers, PAYMENTS_RECONCILE)
-        .await
-        .map_err(map_pay_session)?;
     let action = normalize_resolution_action(&payload.action)?;
+    let staff = match action.as_str() {
+        "reviewed" => {
+            require_payment_permission_any(
+                &state,
+                &headers,
+                PAYMENTS_RECONCILE_REVIEW,
+                &[PAYMENTS_RECONCILE],
+            )
+            .await?
+        }
+        "resolved" | "ignored" | "reopened" => {
+            require_payment_permission_any(
+                &state,
+                &headers,
+                PAYMENTS_RECONCILE_RESOLVE,
+                &[PAYMENTS_RECONCILE],
+            )
+            .await?
+        }
+        _ => unreachable!(),
+    };
     let note = clean_required_note(payload.note.as_deref(), false)?;
     let resolution_type = clean_filter(payload.resolution_type.as_deref());
 
@@ -1837,9 +1892,13 @@ async fn add_helcim_reconciliation_item_note(
     Path(id): Path<Uuid>,
     Json(payload): Json<HelcimReconciliationNoteRequest>,
 ) -> Result<Json<HelcimReconciliationActionResponse>, PaymentError> {
-    let staff = middleware::require_staff_with_permission(&state, &headers, PAYMENTS_RECONCILE)
-        .await
-        .map_err(map_pay_session)?;
+    let staff = require_payment_permission_any(
+        &state,
+        &headers,
+        PAYMENTS_RECONCILE_REVIEW,
+        &[PAYMENTS_RECONCILE],
+    )
+    .await?;
     let note = clean_required_note(Some(&payload.note), true)?;
     let mut tx = state
         .db
@@ -1870,9 +1929,13 @@ async fn list_helcim_reconciliation_candidate_payments(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<HelcimReconciliationCandidatePaymentRow>>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, PAYMENTS_RECONCILE)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission_any(
+        &state,
+        &headers,
+        PAYMENTS_RECONCILE_LINK,
+        &[PAYMENTS_RECONCILE],
+    )
+    .await?;
     let item = load_settlement_item_state(&state.db, id).await?;
     let provider_transaction_id =
         json_string(&item, "provider_transaction_id").ok_or_else(|| {
@@ -1962,9 +2025,13 @@ async fn link_helcim_reconciliation_payment(
     Path(id): Path<Uuid>,
     Json(payload): Json<HelcimReconciliationLinkRequest>,
 ) -> Result<Json<HelcimReconciliationActionResponse>, PaymentError> {
-    let staff = middleware::require_staff_with_permission(&state, &headers, PAYMENTS_RECONCILE)
-        .await
-        .map_err(map_pay_session)?;
+    let staff = require_payment_permission_any(
+        &state,
+        &headers,
+        PAYMENTS_RECONCILE_LINK,
+        &[PAYMENTS_RECONCILE],
+    )
+    .await?;
     let note = clean_required_note(Some(&payload.note), true)?;
     let mut tx = state
         .db
@@ -2141,9 +2208,7 @@ async fn list_helcim_operations_transactions(
     headers: HeaderMap,
     Query(query): Query<HelcimOperationsListQuery>,
 ) -> Result<Json<Vec<HelcimOperationsTransactionRow>>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     let rows = load_helcim_transaction_rows(&state, &query, None).await?;
     Ok(Json(rows))
 }
@@ -2153,9 +2218,7 @@ async fn get_helcim_operations_transaction_detail(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<HelcimOperationsTransactionDetailResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     let payment_uuid = Uuid::parse_str(id.trim()).ok();
     let provider_transaction_id = payment_uuid
         .is_none()
@@ -2337,9 +2400,7 @@ async fn list_helcim_sync_runs(
     headers: HeaderMap,
     Query(query): Query<HelcimOperationsListQuery>,
 ) -> Result<Json<Vec<HelcimSettlementRunSummary>>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     let rows = sqlx::query_as::<
         _,
         (
@@ -2384,9 +2445,7 @@ async fn get_helcim_events_health(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<HelcimEventsHealthResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     #[derive(sqlx::FromRow)]
     struct HealthRow {
         recent_event_count: i64,
@@ -2431,9 +2490,7 @@ async fn list_helcim_deposits(
     headers: HeaderMap,
     Query(query): Query<HelcimOperationsListQuery>,
 ) -> Result<Json<Vec<HelcimDepositRow>>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     Ok(Json(load_helcim_deposit_rows(&state, None, &query).await?))
 }
 
@@ -2442,10 +2499,7 @@ async fn create_helcim_manual_deposit(
     headers: HeaderMap,
     Json(payload): Json<HelcimManualDepositRequest>,
 ) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
-    let staff =
-        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_ADJUST)
-            .await
-            .map_err(map_pay_session)?;
+    let staff = require_payment_permission(&state, &headers, PAYMENTS_DEPOSIT_ADJUST).await?;
     let amount = parse_money_input(&payload.amount)?;
     let source_system =
         clean_filter(payload.source_system.as_deref()).unwrap_or_else(|| "manual".to_string());
@@ -2525,9 +2579,7 @@ async fn get_helcim_deposit_detail(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<HelcimDepositDetailResponse>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     Ok(Json(load_helcim_deposit_detail(&state, id).await?))
 }
 
@@ -2537,9 +2589,7 @@ async fn link_helcim_deposit_batches(
     Path(id): Path<Uuid>,
     Json(payload): Json<HelcimDepositLinkBatchesRequest>,
 ) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
-    let staff = middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_LINK)
-        .await
-        .map_err(map_pay_session)?;
+    let staff = require_payment_permission(&state, &headers, PAYMENTS_DEPOSIT_LINK).await?;
     let note = clean_required_note(Some(&payload.note), true)?;
     if payload.batch_ids.is_empty() {
         return Err(PaymentError::InvalidPayload(
@@ -2618,10 +2668,7 @@ async fn add_helcim_deposit_note(
     Path(id): Path<Uuid>,
     Json(payload): Json<HelcimDepositNoteRequest>,
 ) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
-    let staff =
-        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW)
-            .await
-            .map_err(map_pay_session)?;
+    let staff = require_payment_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW).await?;
     let note = clean_required_note(Some(&payload.note), true)?;
     let mut tx = state
         .db
@@ -2654,13 +2701,9 @@ async fn review_helcim_deposit(
     Json(payload): Json<HelcimDepositReviewRequest>,
 ) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
     let staff = if payload.accept_variance {
-        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_ADJUST)
-            .await
-            .map_err(map_pay_session)?
+        require_payment_permission(&state, &headers, PAYMENTS_DEPOSIT_ADJUST).await?
     } else {
-        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW)
-            .await
-            .map_err(map_pay_session)?
+        require_payment_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW).await?
     };
     let note = clean_required_note(payload.note.as_deref(), payload.accept_variance)?;
     let mut tx = state
@@ -2738,10 +2781,7 @@ async fn reopen_helcim_deposit(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
-    let staff =
-        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW)
-            .await
-            .map_err(map_pay_session)?;
+    let staff = require_payment_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW).await?;
     let mut tx = state
         .db
         .begin()
@@ -2777,9 +2817,7 @@ async fn list_helcim_unmatched_deposit_batches(
     headers: HeaderMap,
     Query(query): Query<HelcimOperationsListQuery>,
 ) -> Result<Json<Vec<HelcimBatchListRow>>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     let rows = sqlx::query(
         r#"
         SELECT
@@ -2844,9 +2882,7 @@ async fn list_helcim_unmatched_deposits(
     headers: HeaderMap,
     Query(query): Query<HelcimOperationsListQuery>,
 ) -> Result<Json<Vec<HelcimDepositRow>>, PaymentError> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
-        .await
-        .map_err(map_pay_session)?;
+    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
     let rows = load_helcim_deposit_rows(&state, None, &query)
         .await?
         .into_iter()
@@ -2860,10 +2896,7 @@ async fn run_helcim_deposit_reconciliation(
     headers: HeaderMap,
     payload: Option<Json<HelcimSettlementSyncRequest>>,
 ) -> Result<Json<HelcimDepositReconciliationRunResponse>, PaymentError> {
-    let staff =
-        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW)
-            .await
-            .map_err(map_pay_session)?;
+    let staff = require_payment_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW).await?;
     let payload = payload
         .map(|Json(payload)| payload)
         .unwrap_or(HelcimSettlementSyncRequest {

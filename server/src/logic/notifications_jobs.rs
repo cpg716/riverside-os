@@ -24,8 +24,9 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+const PAYMENTS_VIEW: &str = "payments.view";
 const PAYMENTS_SYNC: &str = "payments.sync";
-const PAYMENTS_RECONCILE: &str = "payments.reconcile";
+const PAYMENTS_RECONCILE_REVIEW: &str = "payments.reconcile.review";
 const PAYMENTS_DEPOSIT_REVIEW: &str = "payments.deposit.review";
 
 fn env_archive_hours() -> i64 {
@@ -414,11 +415,12 @@ async fn run_scheduled_helcim_settlement_sync(pool: &PgPool) -> Result<(), sqlx:
         .map_err(sqlx::Error::Protocol)
 }
 
-async fn payment_alert_recipients(pool: &PgPool) -> Result<Vec<Uuid>, sqlx::Error> {
+async fn payment_alert_recipients(
+    pool: &PgPool,
+    permission: &str,
+) -> Result<Vec<Uuid>, sqlx::Error> {
     let mut ids = admin_staff_ids(pool).await?;
-    ids.append(&mut staff_ids_with_permission(pool, PAYMENTS_SYNC).await?);
-    ids.append(&mut staff_ids_with_permission(pool, PAYMENTS_RECONCILE).await?);
-    ids.append(&mut staff_ids_with_permission(pool, PAYMENTS_DEPOSIT_REVIEW).await?);
+    ids.append(&mut staff_ids_with_permission(pool, permission).await?);
     ids.sort_unstable();
     ids.dedup();
     Ok(ids)
@@ -452,10 +454,10 @@ async fn upsert_payment_alert(
 }
 
 async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let staff = payment_alert_recipients(pool).await?;
-    if staff.is_empty() {
-        return Ok(());
-    }
+    let view_staff = payment_alert_recipients(pool, PAYMENTS_VIEW).await?;
+    let sync_staff = payment_alert_recipients(pool, PAYMENTS_SYNC).await?;
+    let reconciliation_staff = payment_alert_recipients(pool, PAYMENTS_RECONCILE_REVIEW).await?;
+    let deposit_staff = payment_alert_recipients(pool, PAYMENTS_DEPOSIT_REVIEW).await?;
     let day_key = store_local_day_key(pool).await?;
 
     let sync_failures: Vec<(String, Option<chrono::DateTime<Utc>>, Option<String>)> =
@@ -500,7 +502,7 @@ async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx:
                 });
             upsert_payment_alert(
                 pool,
-                &staff,
+                &sync_staff,
                 "payment_sync_failed",
                 label,
                 &body,
@@ -534,7 +536,7 @@ async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx:
     if fee_not_ready > 0 || net_not_ready > 0 {
         upsert_payment_alert(
             pool,
-            &staff,
+            &view_staff,
             "payment_fee_not_ready",
             "Fee still not ready",
             &format!(
@@ -573,7 +575,7 @@ async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx:
         .await?;
         upsert_payment_alert(
             pool,
-            &staff,
+            &view_staff,
             "payment_update_failed",
             "Payment update failed",
             detail.trim(),
@@ -601,7 +603,7 @@ async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx:
     if open_recon > 0 {
         upsert_payment_alert(
             pool,
-            &staff,
+            &reconciliation_staff,
             "payment_reconciliation_needs_review",
             "Payment issues need review",
             &format!("{open_recon} payment issue(s) are open; {critical_recon} critical."),
@@ -646,7 +648,7 @@ async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx:
     if deposit_items > 0 || unmatched_deposits > 0 || unmatched_batches > 0 {
         upsert_payment_alert(
             pool,
-            &staff,
+            &deposit_staff,
             "payment_deposit_needs_review",
             "Deposit needs review",
             &format!(
@@ -713,7 +715,7 @@ async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx:
             .unwrap_or_else(|| "recently".to_string());
         upsert_payment_alert(
             pool,
-            &staff,
+            &view_staff,
             "payment_batch_not_settled",
             "Batch has not settled",
             &format!("Batch {provider_batch_id} closed {closed_label} and has not settled yet."),

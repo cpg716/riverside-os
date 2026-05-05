@@ -23,6 +23,8 @@ Sensitive actions require these permissions:
 | Link actual deposits to expected batches | `payments.deposit.link` |
 | Create manual deposits or accept a variance | `payments.deposit.adjust` |
 
+Older staff setups may still include the broad `payments.reconcile` permission. ROS accepts it only as a temporary compatibility fallback for reconciliation review, resolution, and linking actions. New access assignments should use the split permissions above.
+
 ## Overview
 
 The **Overview** tab answers: “Are today’s card payments ready for review?”
@@ -131,6 +133,8 @@ Sync actions:
 - **Sync Fees** pulls explicit Helcim fee/net data.
 
 Payment alerts are reminders, not financial corrections. Alerts may clear when the condition disappears, but reconciliation and deposit issues remain manual until staff act.
+
+Alert recipients follow the Payments permission split: sync failures go to staff who can run payment sync, fee/readiness and health alerts go to staff who can view Payments, reconciliation alerts go to staff who can review payment issues, and deposit alerts go to staff who can review actual deposits.
 
 ## Payments vs. Helcim Settings
 

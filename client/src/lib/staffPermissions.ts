@@ -68,6 +68,38 @@ export const STAFF_PERMISSION_CATALOG: {
   { key: "procurement.view", label: "View purchase orders", group: "Vendor ordering" },
   { key: "procurement.mutate", label: "Create and receive purchase orders", group: "Vendor ordering" },
   { key: "settings.admin", label: "Manage store settings and backups", group: "Settings" },
+  { key: "payments.view", label: "View Payments Operations", group: "Payments" },
+  { key: "payments.sync", label: "Run payment sync actions", group: "Payments" },
+  {
+    key: "payments.reconcile.review",
+    label: "Review payment issues and add notes",
+    group: "Payments",
+  },
+  {
+    key: "payments.reconcile.resolve",
+    label: "Resolve or reopen payment issues",
+    group: "Payments",
+  },
+  {
+    key: "payments.reconcile.link",
+    label: "Link processor payments to Riverside payments",
+    group: "Payments",
+  },
+  {
+    key: "payments.deposit.review",
+    label: "Review actual bank deposits",
+    group: "Payments",
+  },
+  {
+    key: "payments.deposit.link",
+    label: "Link actual deposits to expected batches",
+    group: "Payments",
+  },
+  {
+    key: "payments.deposit.adjust",
+    label: "Create deposits or accept differences",
+    group: "Payments",
+  },
   {
     key: "help.manage",
     label: "Manage help center articles",

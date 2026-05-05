@@ -46,6 +46,14 @@ pub const CATALOG_EDIT: &str = "catalog.edit";
 pub const PROCUREMENT_VIEW: &str = "procurement.view";
 pub const PROCUREMENT_MUTATE: &str = "procurement.mutate";
 pub const SETTINGS_ADMIN: &str = "settings.admin";
+pub const PAYMENTS_VIEW: &str = "payments.view";
+pub const PAYMENTS_SYNC: &str = "payments.sync";
+pub const PAYMENTS_RECONCILE_REVIEW: &str = "payments.reconcile.review";
+pub const PAYMENTS_RECONCILE_RESOLVE: &str = "payments.reconcile.resolve";
+pub const PAYMENTS_RECONCILE_LINK: &str = "payments.reconcile.link";
+pub const PAYMENTS_DEPOSIT_REVIEW: &str = "payments.deposit.review";
+pub const PAYMENTS_DEPOSIT_LINK: &str = "payments.deposit.link";
+pub const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
 /// Online storefront: CMS pages, coupons, and related admin APIs.
 pub const ONLINE_STORE_MANAGE: &str = "online_store.manage";
 pub const GIFT_CARDS_MANAGE: &str = "gift_cards.manage";
@@ -160,6 +168,14 @@ pub static ALL_PERMISSION_KEYS: &[&str] = &[
     PROCUREMENT_VIEW,
     PROCUREMENT_MUTATE,
     SETTINGS_ADMIN,
+    PAYMENTS_VIEW,
+    PAYMENTS_SYNC,
+    PAYMENTS_RECONCILE_REVIEW,
+    PAYMENTS_RECONCILE_RESOLVE,
+    PAYMENTS_RECONCILE_LINK,
+    PAYMENTS_DEPOSIT_REVIEW,
+    PAYMENTS_DEPOSIT_LINK,
+    PAYMENTS_DEPOSIT_ADJUST,
     ONLINE_STORE_MANAGE,
     GIFT_CARDS_MANAGE,
     LOYALTY_PROGRAM_SETTINGS,

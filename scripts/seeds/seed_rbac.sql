@@ -215,6 +215,30 @@ INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES 
 INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'pos.rms_charge.payment_collect', true) ON CONFLICT DO NOTHING;
 INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'customers.rms_charge.resolve_exceptions', true) ON CONFLICT DO NOTHING;
 INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'customers.rms_charge.reporting', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('admin', 'payments.view', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('admin', 'payments.sync', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('admin', 'payments.reconcile.review', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('admin', 'payments.reconcile.resolve', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('admin', 'payments.reconcile.link', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('admin', 'payments.deposit.review', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('admin', 'payments.deposit.link', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('admin', 'payments.deposit.adjust', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'payments.view', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'payments.sync', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'payments.reconcile.review', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'payments.reconcile.resolve', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'payments.reconcile.link', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'payments.deposit.review', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'payments.deposit.link', true) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('sales_support', 'payments.deposit.adjust', false) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('salesperson', 'payments.view', false) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('salesperson', 'payments.sync', false) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('salesperson', 'payments.reconcile.review', false) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('salesperson', 'payments.reconcile.resolve', false) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('salesperson', 'payments.reconcile.link', false) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('salesperson', 'payments.deposit.review', false) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('salesperson', 'payments.deposit.link', false) ON CONFLICT DO NOTHING;
+INSERT INTO public.staff_role_permission (role, permission_key, allowed) VALUES ('salesperson', 'payments.deposit.adjust', false) ON CONFLICT DO NOTHING;
 
 
 --
