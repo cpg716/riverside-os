@@ -326,7 +326,12 @@ export default function PosShell({
                 !isRegisterOpen ? "needs-open" : sessionId ? "mounted" : "missing-session"
               }
             >
-              {!isRegisterOpen ? ( <RegisterOverlay onSessionOpened={handleSessionOpenedWithAuth} /> ) : sessionId ? (
+              {!isRegisterOpen ? (
+                <RegisterOverlay
+                  onSessionOpened={handleSessionOpenedWithAuth}
+                  onCancel={onExitPosMode}
+                />
+              ) : sessionId ? (
                 <Cart
                   sessionId={sessionId}
                   receiptTimezone={receiptTimezone}

@@ -9,10 +9,12 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  ArrowLeft,
   AlertTriangle,
   CheckCircle2,
   RefreshCw,
   Wifi,
+  X,
 } from "lucide-react";
 import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
 import {
@@ -48,6 +50,7 @@ export interface SessionOpenedPayload {
 
 interface RegisterOverlayProps {
   onSessionOpened: (payload: SessionOpenedPayload) => void;
+  onCancel?: () => void;
 }
 
 const BYPASS =
@@ -145,6 +148,7 @@ function payloadFromSessionJson(
 
 export default function RegisterOverlay({
   onSessionOpened,
+  onCancel,
 }: RegisterOverlayProps) {
   const { backofficeHeaders, staffRole, permissionsLoaded } =
     useBackofficeAuth();
@@ -511,7 +515,10 @@ export default function RegisterOverlay({
     [booting, error],
   );
   useShellBackdropLayer(overlayVisible);
-  const { dialogRef, titleId } = useDialogAccessibility(overlayVisible, {});
+  const canCancel = Boolean(onCancel) && !submitting;
+  const { dialogRef, titleId } = useDialogAccessibility(overlayVisible, {
+    onEscape: canCancel ? onCancel : undefined,
+  });
 
   const runReadinessChecks = useCallback(async () => {
     setReadinessBusy(true);
@@ -618,6 +625,17 @@ export default function RegisterOverlay({
   const root = document.getElementById("drawer-root");
   if (!root) return null;
 
+  const cancelControl = canCancel ? (
+    <button
+      type="button"
+      onClick={onCancel}
+      aria-label="Back to Back Office"
+      className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-app-border/50 bg-app-surface/90 text-app-text-muted shadow-sm transition hover:border-app-input-border hover:text-app-text"
+    >
+      <X size={16} aria-hidden />
+    </button>
+  ) : null;
+
   if (BYPASS && booting) {
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
@@ -656,8 +674,9 @@ export default function RegisterOverlay({
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-[420px] sm:rounded-[32px]"
+          className="ui-modal relative w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-[420px] sm:rounded-[32px]"
         >
+          {cancelControl}
           <div className="ui-modal-body space-y-4 p-8 text-center">
             <h2 id={titleId} className="text-lg font-black text-app-text">
               Register error
@@ -714,8 +733,9 @@ export default function RegisterOverlay({
           aria-labelledby={titleId}
           aria-busy="true"
           tabIndex={-1}
-          className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-md sm:rounded-[32px]"
+          className="ui-modal relative w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-md sm:rounded-[32px]"
         >
+          {cancelControl}
           <div className="ui-modal-body flex flex-col items-center gap-4 p-8 text-center">
             <h2 id={titleId} className="sr-only">
               Checking register status
@@ -740,21 +760,21 @@ export default function RegisterOverlay({
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 bg-app-bg-alt/95 shadow-2xl outline-none backdrop-blur-xl sm:max-w-lg sm:rounded-[32px]"
+          className="ui-modal relative w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 bg-app-bg-alt/95 shadow-2xl outline-none backdrop-blur-xl sm:max-w-[460px] sm:rounded-[28px]"
         >
-          <div className="ui-modal-body p-8 sm:p-10 space-y-8">
+          {cancelControl}
+          <div className="ui-modal-body space-y-5 p-6 sm:p-7">
             <div className="text-center">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
                 Terminal Requirement
               </p>
               <h2
                 id={titleId}
-                className="mt-2 text-2xl font-black text-app-text tracking-tight"
+                className="mt-2 text-xl font-black text-app-text tracking-tight"
               >
                 Cash drawer not open yet
               </h2>
-              <div className="mx-auto mt-4 h-1 w-12 rounded-full bg-app-accent/20" />
-              <p className="mt-4 text-xs text-app-text-muted leading-relaxed font-medium">
+              <p className="mx-auto mt-3 max-w-[330px] text-xs font-medium leading-relaxed text-app-text-muted">
                 Registers #2 (iPad) and #3 (Back Office) open automatically once
                 Register #1 is active. Register #1 manages the physical cash
                 drawer and Z-reconciliation for all lanes.
@@ -765,7 +785,7 @@ export default function RegisterOverlay({
                 {adminListOpenError}
               </p>
             ) : null}
-            <div className="grid gap-4 pt-4">
+            <div className="grid gap-3 pt-1">
               <button
                 type="button"
                 onClick={() => {
@@ -773,26 +793,38 @@ export default function RegisterOverlay({
                   setRegisterLane(1);
                   setAdminPrimaryPath("opening_lane1");
                 }}
-                className="ui-btn-primary w-full py-5 text-sm font-black rounded-2xl shadow-lg shadow-app-accent/10 transition-all hover:scale-[1.02]"
+                className="ui-btn-primary w-full rounded-2xl py-4 text-xs font-black shadow-lg shadow-app-accent/10 transition-all hover:scale-[1.01]"
               >
                 Open Register #1 (I am at the main terminal)
               </button>
               <button
                 type="button"
                 onClick={() => setAdminPrimaryPath("waiting_lane1_elsewhere")}
-                className="ui-btn-secondary w-full py-5 text-sm font-bold rounded-2xl border-app-border/40"
+                className="ui-btn-secondary w-full rounded-2xl border-app-border/40 py-4 text-xs font-bold"
               >
                 Someone else is opening Register #1
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void onAdminRecheck()}
-              disabled={adminRecheckBusy}
-              className="w-full py-2 text-[10px] font-black uppercase tracking-widest text-app-accent"
-            >
-              {adminRecheckBusy ? "Checking…" : "Check again"}
-            </button>
+            <div className="flex items-center justify-center gap-5">
+              {canCancel ? (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
+                >
+                  <ArrowLeft size={12} aria-hidden />
+                  Back
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void onAdminRecheck()}
+                disabled={adminRecheckBusy}
+                className="py-2 text-[10px] font-black uppercase tracking-widest text-app-accent"
+              >
+                {adminRecheckBusy ? "Checking…" : "Check again"}
+              </button>
+            </div>
           </div>
         </div>
       </div>,
@@ -809,8 +841,9 @@ export default function RegisterOverlay({
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-md sm:rounded-[32px]"
+          className="ui-modal relative w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-md sm:rounded-[32px]"
         >
+          {cancelControl}
           <div className="ui-modal-body p-8 sm:p-10 text-center space-y-6">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-app-accent/10">
               <Wifi className="h-8 w-8 text-app-accent" />
@@ -848,6 +881,15 @@ export default function RegisterOverlay({
               >
                 Go back
               </button>
+              {canCancel ? (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="w-full py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
+                >
+                  Back to Back Office
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -864,14 +906,15 @@ export default function RegisterOverlay({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 bg-app-bg-alt/95 shadow-2xl outline-none backdrop-blur-xl sm:max-w-5xl sm:rounded-[40px]"
+        className="ui-modal relative w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 bg-app-bg-alt/95 shadow-2xl outline-none backdrop-blur-xl sm:max-w-[980px] sm:rounded-[32px]"
       >
-        <div className="grid h-full grid-cols-1 lg:grid-cols-[1fr_420px]">
+        {cancelControl}
+        <div className="grid h-full grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)]">
           {/* Left Panel: Branding & Diagnostics */}
-          <div className="relative hidden flex-col justify-between border-r border-app-border/40 bg-app-surface/30 p-10 lg:flex">
+          <div className="relative hidden flex-col justify-between border-r border-app-border/40 bg-app-surface/30 p-6 lg:flex">
             <div>
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white p-2 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white p-2 shadow-sm">
                   <img
                     src={RiversideJustLogo}
                     alt="Riverside OS"
@@ -879,7 +922,7 @@ export default function RegisterOverlay({
                   />
                 </div>
                 <div>
-                  <h1 className="text-xl font-black tracking-tight text-app-text">
+                  <h1 className="text-lg font-black tracking-tight text-app-text">
                     Riverside OS
                   </h1>
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
@@ -888,55 +931,55 @@ export default function RegisterOverlay({
                 </div>
               </div>
 
-              <div className="mt-16 space-y-8">
+              <div className="mt-8 space-y-4">
                 <div>
                   <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-                    Station Diagnostics
+                    Diagnostics
                   </h3>
-                  <div className="mt-6 space-y-4">
+                  <div className="mt-3 space-y-2.5">
                     <div
-                      className={`flex items-start gap-4 rounded-2xl border border-app-border/40 p-4 transition-all ${readinessTone(
+                      className={`flex items-start gap-2.5 rounded-xl border border-app-border/40 p-2.5 transition-all ${readinessTone(
                         apiReadiness.status,
                       )}`}
                     >
                       <ReadinessIcon status={apiReadiness.status} />
                       <div className="space-y-1">
-                        <p className="text-[10px] font-black uppercase tracking-widest">
+                        <p className="text-[9px] font-black uppercase tracking-widest">
                           Riverside API
                         </p>
-                        <p className="text-[11px] font-medium leading-relaxed opacity-80">
+                        <p className="text-[10px] font-medium leading-relaxed opacity-80">
                           {apiReadiness.detail}
                         </p>
                       </div>
                     </div>
 
                     <div
-                      className={`flex items-start gap-4 rounded-2xl border border-app-border/40 p-4 transition-all ${readinessTone(
+                      className={`flex items-start gap-2.5 rounded-xl border border-app-border/40 p-2.5 transition-all ${readinessTone(
                         printerReadiness.status,
                       )}`}
                     >
                       <ReadinessIcon status={printerReadiness.status} />
                       <div className="space-y-1">
-                        <p className="text-[10px] font-black uppercase tracking-widest">
+                        <p className="text-[9px] font-black uppercase tracking-widest">
                           Receipt Printer
                         </p>
-                        <p className="text-[11px] font-medium leading-relaxed opacity-80">
+                        <p className="text-[10px] font-medium leading-relaxed opacity-80">
                           {printerReadiness.detail}
                         </p>
                       </div>
                     </div>
 
                     <div
-                      className={`flex items-start gap-4 rounded-2xl border border-app-border/40 p-4 transition-all ${readinessTone(
+                      className={`flex items-start gap-2.5 rounded-xl border border-app-border/40 p-2.5 transition-all ${readinessTone(
                         focusReadiness.status,
                       )}`}
                     >
                       <ReadinessIcon status={focusReadiness.status} />
                       <div className="space-y-1">
-                        <p className="text-[10px] font-black uppercase tracking-widest">
+                        <p className="text-[9px] font-black uppercase tracking-widest">
                           Scanner Focus
                         </p>
-                        <p className="text-[11px] font-medium leading-relaxed opacity-80">
+                        <p className="text-[10px] font-medium leading-relaxed opacity-80">
                           {focusReadiness.detail}
                         </p>
                       </div>
@@ -953,23 +996,22 @@ export default function RegisterOverlay({
           </div>
 
           {/* Right Panel: Keypad & Auth */}
-          <div className="flex flex-col p-8 sm:p-12">
-            <div className="flex-1 space-y-8">
+          <div className="flex flex-col p-7 sm:p-10">
+            <div className="mx-auto flex w-full max-w-[460px] flex-1 flex-col space-y-6">
               <div className="text-center lg:text-left">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
                   Secure Entry
                 </p>
                 <h2
                   id={titleId}
-                  className="mt-2 text-2xl font-black text-app-text tracking-tight"
+                  className="mt-2 text-3xl font-black text-app-text tracking-tight"
                 >
-                  {booting ? "Initializing…" : "Access Register"}
+                  {booting ? "Initializing…" : "Open Register"}
                 </h2>
-                <div className="mx-auto mt-4 h-1 w-12 rounded-full bg-app-accent/20 lg:mx-0" />
               </div>
 
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_150px]">
                   <div className="space-y-2">
                     <label className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Terminal #
@@ -980,12 +1022,12 @@ export default function RegisterOverlay({
                         registerLaneUserChosenRef.current = true;
                         setRegisterLane(Number(e.target.value));
                       }}
-                      className="ui-input h-14 w-full bg-app-surface/50 text-center font-black text-lg"
+                      className="ui-input h-14 w-full bg-app-surface/50 text-center text-base font-black"
                     >
-                      <option value={1}>Register #1 (Main)</option>
-                      <option value={2}>Register #2 (Satellite)</option>
-                      <option value={3}>Register #3 (Back Office)</option>
-                      <option value={4}>Register #4 (Mobile)</option>
+                      <option value={1}>Register #1 - Main</option>
+                      <option value={2}>Register #2 - iPad</option>
+                      <option value={3}>Register #3 - Back Office</option>
+                      <option value={4}>Register #4 - Mobile</option>
                     </select>
                   </div>
                   <div className="space-y-2">
@@ -1002,21 +1044,21 @@ export default function RegisterOverlay({
                         disabled={registerLane > 1}
                         value={openingFloat}
                         onChange={(e) => setOpeningFloat(e.target.value)}
-                        className="ui-input h-14 w-full bg-app-surface/50 pl-8 text-center font-mono text-lg font-black disabled:opacity-50"
+                        className="ui-input h-14 w-full bg-app-surface/50 pl-8 text-center font-mono text-base font-black disabled:opacity-50"
                       />
                     </div>
                   </div>
                 </div>
 
                 {linkStatus ? (
-                  <div className="flex gap-3 rounded-2xl border border-app-border/40 bg-app-surface/30 p-4">
+                  <div className="flex gap-3 rounded-2xl border border-app-border/40 bg-app-surface/30 p-3">
                     <Wifi size={14} className="mt-0.5 text-app-accent" />
                     <p className="text-[10px] font-bold leading-relaxed text-app-text-muted">
                       {linkStatus}
                     </p>
                   </div>
                 ) : (
-                  <div className="flex gap-3 rounded-2xl border border-app-accent/20 bg-app-accent/5 p-4">
+                  <div className="flex gap-3 rounded-2xl border border-app-accent/20 bg-app-accent/5 p-3">
                     <Wifi size={14} className="mt-0.5 text-app-accent" />
                     <p className="text-[10px] font-bold leading-relaxed text-app-text-muted">
                       Register #1 creates the shared cash drawer. All satellite
@@ -1025,9 +1067,10 @@ export default function RegisterOverlay({
                   </div>
                 )}
 
-                <div className="space-y-4 py-4">
+                <div className="space-y-4 py-2">
                   <PinDots
                     length={credential.length}
+                    className="gap-2"
                   />
                   {error && (
                     <p className="text-center text-[10px] font-bold text-app-danger animate-shake">
@@ -1044,7 +1087,7 @@ export default function RegisterOverlay({
                   )}
                 </div>
 
-                <div className="mx-auto max-w-[320px]">
+                <div className="mx-auto w-full max-w-[360px]">
                   <NumericPinKeypad
                     value={credential}
                     onChange={(next) => {
@@ -1064,7 +1107,17 @@ export default function RegisterOverlay({
               </div>
             </div>
 
-            <div className="mt-8 flex items-center justify-center gap-6 lg:justify-start">
+            <div className="mx-auto mt-6 flex w-full max-w-[460px] flex-wrap items-center justify-center gap-5 lg:justify-start">
+              {canCancel ? (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
+                >
+                  <ArrowLeft size={12} aria-hidden />
+                  Back
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void runReadinessChecks()}
