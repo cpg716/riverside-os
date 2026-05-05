@@ -186,7 +186,10 @@ fn parse_helcim_webhook_timestamp(value: &str) -> Option<DateTime<Utc>> {
     let trimmed = value.trim();
     if let Ok(epoch) = trimmed.parse::<i64>() {
         let (seconds, nanos) = if epoch.abs() >= 1_000_000_000_000 {
-            (epoch / 1000, ((epoch % 1000).abs() as u32) * 1_000_000)
+            (
+                epoch / 1000,
+                (epoch % 1000).unsigned_abs() as u32 * 1_000_000,
+            )
         } else {
             (epoch, 0)
         };

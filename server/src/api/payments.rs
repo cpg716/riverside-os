@@ -3893,6 +3893,7 @@ async fn create_existing_batch_transaction_findings(
     Ok(opened)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn insert_settlement_item(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     run_id: Uuid,
@@ -5047,6 +5048,7 @@ async fn create_deposit_amount_item_if_needed(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn insert_deposit_item(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     run_id: Option<Uuid>,

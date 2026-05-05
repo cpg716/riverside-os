@@ -938,13 +938,15 @@ async fn finalize_paid_checkout(
     insert_transaction_lines(&mut tx, transaction_id, &row).await?;
     insert_payment_ledger(
         &mut tx,
-        transaction_id,
-        row.total_usd,
-        provider,
-        provider_payment_id,
-        provider_transaction_id,
-        provider_status,
-        row.id,
+        PaymentLedgerInsert {
+            transaction_id,
+            amount: row.total_usd,
+            provider,
+            provider_payment_id,
+            provider_transaction_id,
+            provider_status,
+            checkout_session_id: row.id,
+        },
     )
     .await?;
 
@@ -1057,19 +1059,23 @@ async fn insert_transaction_lines(
     Ok(())
 }
 
-async fn insert_payment_ledger(
-    tx: &mut Transaction<'_, Postgres>,
+struct PaymentLedgerInsert<'a> {
     transaction_id: Uuid,
     amount: Decimal,
-    provider: &str,
-    provider_payment_id: &str,
-    provider_transaction_id: &str,
-    provider_status: &str,
+    provider: &'a str,
+    provider_payment_id: &'a str,
+    provider_transaction_id: &'a str,
+    provider_status: &'a str,
     checkout_session_id: Uuid,
+}
+
+async fn insert_payment_ledger(
+    tx: &mut Transaction<'_, Postgres>,
+    payment: PaymentLedgerInsert<'_>,
 ) -> Result<(), StoreCheckoutError> {
     let metadata = json!({
         "source": "online_store",
-        "store_checkout_session_id": checkout_session_id,
+        "store_checkout_session_id": payment.checkout_session_id,
     });
     let payment_tx_id: Uuid = sqlx::query_scalar(
         r#"
@@ -1081,12 +1087,12 @@ async fn insert_payment_ledger(
         RETURNING id
         "#,
     )
-    .bind(amount)
+    .bind(payment.amount)
     .bind(metadata.clone())
-    .bind(provider)
-    .bind(provider_payment_id)
-    .bind(provider_transaction_id)
-    .bind(provider_status)
+    .bind(payment.provider)
+    .bind(payment.provider_payment_id)
+    .bind(payment.provider_transaction_id)
+    .bind(payment.provider_status)
     .fetch_one(&mut **tx)
     .await?;
 
@@ -1099,8 +1105,8 @@ async fn insert_payment_ledger(
         "#,
     )
     .bind(payment_tx_id)
-    .bind(transaction_id)
-    .bind(amount)
+    .bind(payment.transaction_id)
+    .bind(payment.amount)
     .bind(metadata)
     .execute(&mut **tx)
     .await?;

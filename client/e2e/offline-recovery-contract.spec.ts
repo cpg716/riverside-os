@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
-import { enterPosShell, ensurePosSaleCashierSignedIn } from "./helpers/openPosRegister";
+import {
+  enterPosShell,
+  ensurePosRegisterSessionOpen,
+  ensurePosSaleCashierSignedIn,
+} from "./helpers/openPosRegister";
 import { ensureSessionAuth } from "./helpers/rmsCharge";
 
 type QueueStatus = "pending" | "blocked";
@@ -147,6 +151,7 @@ test.describe("offline checkout recovery contract", () => {
     await ensureSessionAuth(request);
     await signInToBackOffice(page);
     await enterPosShell(page);
+    await ensurePosRegisterSessionOpen(page);
     await ensurePosSaleCashierSignedIn(page);
     await clearCheckoutQueue(page);
 
