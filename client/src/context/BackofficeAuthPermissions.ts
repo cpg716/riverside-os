@@ -15,7 +15,18 @@ export const SIDEBAR_TAB_PERMISSION: Partial<Record<string, string>> = {
 export const SIDEBAR_TAB_PERMISSIONS_ANY: Record<string, string[]> = {
   loyalty: ["loyalty.program_settings", "loyalty.adjust_points"],
   "online-store": ["online_store.manage", "settings.admin"],
-  payments: ["settings.admin", "payments.sync", "payments.deposit.review", "payments.deposit.link", "payments.deposit.adjust"],
+  payments: [
+    "payments.view",
+    "payments.sync",
+    "payments.reconcile",
+    "payments.reconcile.review",
+    "payments.reconcile.resolve",
+    "payments.reconcile.link",
+    "payments.deposit.review",
+    "payments.deposit.link",
+    "payments.deposit.adjust",
+    "settings.admin",
+  ],
   settings: ["settings.admin", "staff.manage_access"],
 };
 

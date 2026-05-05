@@ -3,6 +3,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
 import DetailDrawer from "../layout/DetailDrawer";
+import ConfirmationModal from "../ui/ConfirmationModal";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -17,6 +18,14 @@ import type { ReactNode } from "react";
 const baseUrl = getBaseUrl();
 
 type SectionId = "overview" | "batches" | "deposits" | "reconciliation" | "transactions" | "health";
+
+type ConfirmRequest = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  variant?: "danger" | "success" | "info";
+  onConfirm: () => void;
+};
 
 type SettlementRun = {
   id: string;
@@ -419,13 +428,29 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
   const [depositDetail, setDepositDetail] = useState<DepositDetail | null>(null);
   const [depositBusy, setDepositBusy] = useState(false);
   const [transactionSearch, setTransactionSearch] = useState("");
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const { backofficeHeaders, hasPermission, permissionsLoaded } = useBackofficeAuth();
   const { toast } = useToast();
-  const canReconcile = permissionsLoaded && hasPermission("payments.reconcile");
-  const canSync = permissionsLoaded && hasPermission("payments.sync");
-  const canDepositReview = permissionsLoaded && hasPermission("payments.deposit.review");
-  const canDepositLink = permissionsLoaded && hasPermission("payments.deposit.link");
-  const canDepositAdjust = permissionsLoaded && hasPermission("payments.deposit.adjust");
+  const hasAnyPermission = useCallback(
+    (keys: string[]) => permissionsLoaded && keys.some((key) => hasPermission(key)),
+    [hasPermission, permissionsLoaded],
+  );
+  const canSync = hasAnyPermission(["payments.sync"]);
+  const canReconcileReview = hasAnyPermission([
+    "payments.reconcile.review",
+    "payments.reconcile",
+  ]);
+  const canReconcileResolve = hasAnyPermission([
+    "payments.reconcile.resolve",
+    "payments.reconcile",
+  ]);
+  const canReconcileLink = hasAnyPermission([
+    "payments.reconcile.link",
+    "payments.reconcile",
+  ]);
+  const canDepositReview = hasAnyPermission(["payments.deposit.review"]);
+  const canDepositLink = hasAnyPermission(["payments.deposit.link"]);
+  const canDepositAdjust = hasAnyPermission(["payments.deposit.adjust"]);
 
   useEffect(() => {
     setSection(isSection(activeSection) ? activeSection : "overview");
@@ -482,6 +507,10 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     },
     [apiHeaders],
   );
+
+  const confirmAction = useCallback((request: ConfirmRequest) => {
+    setConfirmRequest(request);
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -565,7 +594,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     async (issue: ReconciliationItem) => {
       setSelectedIssue(issue);
       setIssueCandidates([]);
-      if (!canReconcile || !issue.provider_transaction_id) return;
+      if (!canReconcileLink || !issue.provider_transaction_id) return;
       try {
         const candidates = await getJson<CandidatePayment[]>(
           `/api/payments/providers/helcim/reconciliation/items/${issue.id}/candidate-payments`,
@@ -575,7 +604,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         setIssueCandidates([]);
       }
     },
-    [canReconcile, getJson],
+    [canReconcileLink, getJson],
   );
 
   const openDeposit = useCallback(
@@ -601,51 +630,71 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
       source_reference?: string;
       note?: string;
     }) => {
-      setDepositBusy(true);
-      try {
-        const body = await sendJson<{ deposit: DepositDetail }>(
-          "/api/payments/providers/helcim/deposits",
-          "POST",
-          {
-            ...payload,
-            source_system: "manual",
-          },
-        );
-        setSelectedDepositId(body.deposit.deposit.id);
-        setDepositDetail(body.deposit);
-        toast("Actual bank deposit added.", "success");
-        await refresh();
-      } catch (err) {
-        toast(err instanceof Error ? err.message : "Deposit could not be added.", "error");
-      } finally {
-        setDepositBusy(false);
-      }
+      confirmAction({
+        title: "Add Actual Bank Deposit?",
+        message:
+          "This records bank activity for matching only. It will not post to QuickBooks or change payment totals.",
+        confirmLabel: "Add Deposit",
+        onConfirm: () => {
+          void (async () => {
+            setDepositBusy(true);
+            try {
+              const body = await sendJson<{ deposit: DepositDetail }>(
+                "/api/payments/providers/helcim/deposits",
+                "POST",
+                {
+                  ...payload,
+                  source_system: "manual",
+                },
+              );
+              setSelectedDepositId(body.deposit.deposit.id);
+              setDepositDetail(body.deposit);
+              toast("Actual bank deposit added.", "success");
+              await refresh();
+            } catch (err) {
+              toast(err instanceof Error ? err.message : "Deposit could not be added.", "error");
+            } finally {
+              setDepositBusy(false);
+            }
+          })();
+        },
+      });
     },
-    [refresh, sendJson, toast],
+    [confirmAction, refresh, sendJson, toast],
   );
 
   const linkDepositBatches = useCallback(
     async (depositId: string, batchIds: string[], note: string) => {
-      setDepositBusy(true);
-      try {
-        const body = await sendJson<{ deposit: DepositDetail }>(
-          `/api/payments/providers/helcim/deposits/${depositId}/link-batches`,
-          "POST",
-          {
-            batch_ids: batchIds,
-            note,
-          },
-        );
-        setDepositDetail(body.deposit);
-        toast("Expected batches linked.", "success");
-        await refresh();
-      } catch (err) {
-        toast(err instanceof Error ? err.message : "Batches could not be linked.", "error");
-      } finally {
-        setDepositBusy(false);
-      }
+      confirmAction({
+        title: "Link Expected Batches?",
+        message:
+          "Link only batches that make up this actual bank deposit. This will not change batch totals, fees, net amounts, or bank records.",
+        confirmLabel: "Link Batches",
+        onConfirm: () => {
+          void (async () => {
+            setDepositBusy(true);
+            try {
+              const body = await sendJson<{ deposit: DepositDetail }>(
+                `/api/payments/providers/helcim/deposits/${depositId}/link-batches`,
+                "POST",
+                {
+                  batch_ids: batchIds,
+                  note,
+                },
+              );
+              setDepositDetail(body.deposit);
+              toast("Expected batches linked.", "success");
+              await refresh();
+            } catch (err) {
+              toast(err instanceof Error ? err.message : "Batches could not be linked.", "error");
+            } finally {
+              setDepositBusy(false);
+            }
+          })();
+        },
+      });
     },
-    [refresh, sendJson, toast],
+    [confirmAction, refresh, sendJson, toast],
   );
 
   const addDepositNote = useCallback(
@@ -670,6 +719,38 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
 
   const reviewDeposit = useCallback(
     async (depositId: string, note: string, acceptVariance: boolean) => {
+      if (acceptVariance) {
+        confirmAction({
+          title: "Accept Difference?",
+          message:
+            "Accepting a difference records staff review only. It does not change QuickBooks, bank deposits, payment totals, fees, or net amounts.",
+          confirmLabel: "Accept Difference",
+          variant: "danger",
+          onConfirm: () => {
+            void (async () => {
+              setDepositBusy(true);
+              try {
+                const body = await sendJson<{ deposit: DepositDetail }>(
+                  `/api/payments/providers/helcim/deposits/${depositId}/review`,
+                  "PATCH",
+                  {
+                    note: note.trim() || undefined,
+                    accept_variance: true,
+                  },
+                );
+                setDepositDetail(body.deposit);
+                toast("Difference accepted.", "success");
+                await refresh();
+              } catch (err) {
+                toast(err instanceof Error ? err.message : "Deposit could not be reviewed.", "error");
+              } finally {
+                setDepositBusy(false);
+              }
+            })();
+          },
+        });
+        return;
+      }
       setDepositBusy(true);
       try {
         const body = await sendJson<{ deposit: DepositDetail }>(
@@ -689,7 +770,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         setDepositBusy(false);
       }
     },
-    [refresh, sendJson, toast],
+    [confirmAction, refresh, sendJson, toast],
   );
 
   const reopenDeposit = useCallback(
@@ -752,7 +833,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     );
   }, []);
 
-  const patchIssueStatus = useCallback(
+  const applyIssueStatus = useCallback(
     async (
       issue: ReconciliationItem,
       action: "reviewed" | "resolved" | "ignored" | "reopened",
@@ -792,6 +873,33 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     [apiHeaders, refresh, toast, updateSelectedIssue],
   );
 
+  const patchIssueStatus = useCallback(
+    async (
+      issue: ReconciliationItem,
+      action: "reviewed" | "resolved" | "ignored" | "reopened",
+      note: string,
+      resolutionType?: string,
+    ) => {
+      if (action === "resolved" || action === "ignored") {
+        confirmAction({
+          title: action === "ignored" ? "Mark Expected?" : "Resolve Issue?",
+          message:
+            action === "ignored"
+              ? "This records that staff accepts the issue as expected. It will not change payment totals, payment records, or bank records."
+              : "This closes the issue for staff review. It will not change payment totals, payment records, or bank records.",
+          confirmLabel: action === "ignored" ? "Mark Expected" : "Resolve",
+          variant: action === "ignored" ? "danger" : "info",
+          onConfirm: () => {
+            void applyIssueStatus(issue, action, note, resolutionType);
+          },
+        });
+        return;
+      }
+      await applyIssueStatus(issue, action, note, resolutionType);
+    },
+    [applyIssueStatus, confirmAction],
+  );
+
   const addIssueNote = useCallback(
     async (issue: ReconciliationItem, note: string) => {
       setIssueBusy(true);
@@ -824,36 +932,47 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
 
   const linkIssuePayment = useCallback(
     async (issue: ReconciliationItem, paymentTransactionId: string, note: string) => {
-      setIssueBusy(true);
-      try {
-        const response = await fetch(
-          `${baseUrl}/api/payments/providers/helcim/reconciliation/items/${issue.id}/link-payment`,
-          {
-            method: "POST",
-            headers: {
-              ...apiHeaders,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              payment_transaction_id: paymentTransactionId,
-              note,
-            }),
-          },
-        );
-        const body = (await response.json()) as { item?: ReconciliationItem; error?: string };
-        if (!response.ok || !body.item) {
-          throw new Error(body.error || `Link failed (${response.status})`);
-        }
-        updateSelectedIssue(body.item);
-        toast("Payment linked.", "success");
-        await refresh();
-      } catch (err) {
-        toast(err instanceof Error ? err.message : "Link failed.", "error");
-      } finally {
-        setIssueBusy(false);
-      }
+      confirmAction({
+        title: "Link Payment?",
+        message:
+          "Link only when the Riverside payment and processor reference are the same payment. This will not create a payment or change the amount.",
+        confirmLabel: "Link Payment",
+        variant: "danger",
+        onConfirm: () => {
+          void (async () => {
+            setIssueBusy(true);
+            try {
+              const response = await fetch(
+                `${baseUrl}/api/payments/providers/helcim/reconciliation/items/${issue.id}/link-payment`,
+                {
+                  method: "POST",
+                  headers: {
+                    ...apiHeaders,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    payment_transaction_id: paymentTransactionId,
+                    note,
+                  }),
+                },
+              );
+              const body = (await response.json()) as { item?: ReconciliationItem; error?: string };
+              if (!response.ok || !body.item) {
+                throw new Error(body.error || `Link failed (${response.status})`);
+              }
+              updateSelectedIssue(body.item);
+              toast("Payment linked.", "success");
+              await refresh();
+            } catch (err) {
+              toast(err instanceof Error ? err.message : "Link failed.", "error");
+            } finally {
+              setIssueBusy(false);
+            }
+          })();
+        },
+      });
     },
-    [apiHeaders, refresh, toast, updateSelectedIssue],
+    [apiHeaders, confirmAction, refresh, toast, updateSelectedIssue],
   );
 
   const runSync = useCallback(
@@ -943,6 +1062,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
               type="button"
               onClick={() => void runSync("batches")}
               disabled={syncing !== null || !canSync}
+              title={!canSync ? "You do not have permission to perform this action" : undefined}
               className="inline-flex items-center gap-2 rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
             >
               <RefreshCw size={16} className={syncing === "batches" ? "animate-spin" : ""} />
@@ -952,6 +1072,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
               type="button"
               onClick={() => void runSync("fees")}
               disabled={syncing !== null || !canSync}
+              title={!canSync ? "You do not have permission to perform this action" : undefined}
               className="inline-flex items-center gap-2 rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition hover:bg-app-surface-2 disabled:opacity-50"
             >
               <RefreshCw size={16} className={syncing === "fees" ? "animate-spin" : ""} />
@@ -1055,7 +1176,9 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
       <IssueDrawer
         issue={selectedIssue}
         candidates={issueCandidates}
-        canReconcile={canReconcile}
+        canReview={canReconcileReview}
+        canResolve={canReconcileResolve}
+        canLink={canReconcileLink}
         busy={issueBusy}
         onClose={() => setSelectedIssue(null)}
         onOpenPayment={openTransaction}
@@ -1076,6 +1199,19 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         onAddNote={addDepositNote}
         onReview={reviewDeposit}
         onReopen={reopenDeposit}
+      />
+      <ConfirmationModal
+        isOpen={Boolean(confirmRequest)}
+        onClose={() => setConfirmRequest(null)}
+        onConfirm={() => {
+          const request = confirmRequest;
+          setConfirmRequest(null);
+          request?.onConfirm();
+        }}
+        title={confirmRequest?.title ?? "Confirm"}
+        message={confirmRequest?.message ?? ""}
+        confirmLabel={confirmRequest?.confirmLabel ?? "Confirm"}
+        variant={confirmRequest?.variant ?? "info"}
       />
     </div>
   );
@@ -1098,8 +1234,16 @@ function OverviewPanel({
 }) {
   const missingPayments = issues.filter((issue) => issue.issue_label === "Missing Payment").length;
   const notInDeposit = issues.filter((issue) => issue.issue_label === "Not in Deposit").length;
+  const noPaymentsToday = Number(overview?.card_sales_gross ?? 0) === 0;
   return (
     <div className="space-y-6">
+      {noPaymentsToday ? (
+        <EmptyState
+          title="No payments yet today"
+          body="Run sync to check for updates when card activity begins."
+          compact
+        />
+      ) : null}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard label="Card Sales Today" value={money(overview?.card_sales_gross, "$0.00")} />
         <MetricCard
@@ -1138,10 +1282,10 @@ function OverviewPanel({
         <WarningLine count={overview?.fee_not_ready_count ?? 0} label="Fee not ready" />
       </div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={onSyncBatches} disabled={!canSync} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+        <button type="button" onClick={onSyncBatches} disabled={!canSync} title={!canSync ? "You do not have permission to perform this action" : undefined} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
           Sync Batches
         </button>
-        <button type="button" onClick={onSyncFees} disabled={!canSync} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text disabled:opacity-50">
+        <button type="button" onClick={onSyncFees} disabled={!canSync} title={!canSync ? "You do not have permission to perform this action" : undefined} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text disabled:opacity-50">
           Sync Fees
         </button>
         <button type="button" onClick={onViewIssues} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text">
@@ -1294,7 +1438,7 @@ function DepositsPanel({
       <section className="space-y-3">
         <h2 className="text-lg font-black text-app-text">Deposits</h2>
         <DataTable
-          empty="No actual bank deposits found."
+          empty="No deposits recorded yet."
           headers={["Posted Date", "Source", "Actual Amount", "Expected Amount", "Difference", "Linked Batches", "Status", "Needs Review"]}
           rows={deposits.map((deposit) => ({
             key: deposit.id,
@@ -1362,7 +1506,7 @@ function ReconciliationPanel({
   onOpenPayment: (paymentId: string | null) => void;
 }) {
   if (groups.length === 0) {
-    return <EmptyState title="No open payment issues" body="Current processor data matches Riverside records." />;
+    return <EmptyState title="No issues — everything matches" body="Review issues before end of day when they appear." />;
   }
   return (
     <div className="space-y-5">
@@ -1533,7 +1677,7 @@ function HealthPanel({
         </div>
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {alertRows.length === 0 ? (
-            <EmptyState title="No payment alerts" body="Payments, deposits, and updates are clear right now." compact />
+            <EmptyState title="No payment alerts right now" body="Payments, deposits, and updates are clear right now." compact />
           ) : (
             alertRows.map((alert) => (
               <div
@@ -1561,10 +1705,10 @@ function HealthPanel({
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={onSyncBatches} disabled={!canSync} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+        <button type="button" onClick={onSyncBatches} disabled={!canSync} title={!canSync ? "You do not have permission to perform this action" : undefined} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
           Sync Batches
         </button>
-        <button type="button" onClick={onSyncFees} disabled={!canSync} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text disabled:opacity-50">
+        <button type="button" onClick={onSyncFees} disabled={!canSync} title={!canSync ? "You do not have permission to perform this action" : undefined} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text disabled:opacity-50">
           Sync Fees
         </button>
       </div>
@@ -1963,7 +2107,9 @@ function DepositDrawer({
 function IssueDrawer({
   issue,
   candidates,
-  canReconcile,
+  canReview,
+  canResolve,
+  canLink,
   busy,
   onClose,
   onOpenPayment,
@@ -1973,7 +2119,9 @@ function IssueDrawer({
 }: {
   issue: ReconciliationItem | null;
   candidates: CandidatePayment[];
-  canReconcile: boolean;
+  canReview: boolean;
+  canResolve: boolean;
+  canLink: boolean;
   busy: boolean;
   onClose: () => void;
   onOpenPayment: (paymentId: string | null) => void;
@@ -1994,7 +2142,7 @@ function IssueDrawer({
     setLinkNote("");
   }, [issue?.id]);
 
-  const noteRequired = issue?.severity === "Critical" || issue?.severity === "Warning";
+  const noteRequired = ["critical", "warning"].includes(issue?.severity?.toLowerCase() ?? "");
   return (
     <DetailDrawer
       isOpen={Boolean(issue)}
@@ -2025,7 +2173,7 @@ function IssueDrawer({
             </div>
           </section>
 
-          {canReconcile ? (
+          {canReview || canResolve ? (
             <section className="rounded-lg border border-app-border bg-app-surface p-4">
               <h3 className="text-base font-black text-app-text">Actions</h3>
               <textarea
@@ -2035,36 +2183,44 @@ function IssueDrawer({
                 className="mt-3 min-h-24 w-full rounded-lg border border-app-border bg-app-bg p-3 text-sm font-medium text-app-text outline-none focus:border-app-accent"
               />
               <div className="mt-3 flex flex-wrap gap-2">
-                <ActionButton disabled={busy} onClick={() => onStatus(issue, "reviewed", note)}>
-                  Mark Reviewed
-                </ActionButton>
-                <ActionButton disabled={busy} onClick={() => onStatus(issue, "resolved", note, "resolved")}>
-                  Resolve
-                </ActionButton>
-                <ActionButton disabled={busy} onClick={() => onStatus(issue, "ignored", note, "expected")}>
-                  Mark Expected
-                </ActionButton>
-                <ActionButton disabled={busy} onClick={() => onStatus(issue, "reopened", note)}>
-                  Reopen
-                </ActionButton>
-                <ActionButton
-                  disabled={busy || note.trim().length === 0}
-                  onClick={() => {
-                    onAddNote(issue, note);
-                    setNote("");
-                  }}
-                >
-                  Add Note
-                </ActionButton>
+                {canReview ? (
+                  <>
+                    <ActionButton disabled={busy} onClick={() => onStatus(issue, "reviewed", note)}>
+                      Mark Reviewed
+                    </ActionButton>
+                    <ActionButton
+                      disabled={busy || note.trim().length === 0}
+                      onClick={() => {
+                        onAddNote(issue, note);
+                        setNote("");
+                      }}
+                    >
+                      Add Note
+                    </ActionButton>
+                  </>
+                ) : null}
+                {canResolve ? (
+                  <>
+                    <ActionButton disabled={busy || (noteRequired && note.trim().length === 0)} onClick={() => onStatus(issue, "resolved", note, "resolved")}>
+                      Resolve
+                    </ActionButton>
+                    <ActionButton disabled={busy || note.trim().length === 0} onClick={() => onStatus(issue, "ignored", note, "expected")}>
+                      Mark Expected
+                    </ActionButton>
+                    <ActionButton disabled={busy} onClick={() => onStatus(issue, "reopened", note)}>
+                      Reopen
+                    </ActionButton>
+                  </>
+                ) : null}
               </div>
             </section>
           ) : (
             <div className="rounded-lg border border-app-border bg-app-surface p-4 text-sm font-semibold text-app-text-muted">
-              You can review issue details. Payment linking and closing requires payment reconciliation access.
+              You do not have permission to perform this action. You can still review issue details.
             </div>
           )}
 
-          {canReconcile && issue.provider_transaction_id ? (
+          {canLink && issue.provider_transaction_id ? (
             <section className="rounded-lg border border-app-border bg-app-surface p-4">
               <h3 className="text-base font-black text-app-text">Link Payment</h3>
               <p className="mt-1 text-sm font-semibold text-app-text-muted">

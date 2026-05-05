@@ -14,8 +14,11 @@ Sensitive actions require these permissions:
 
 | Action | Permission |
 |--------|------------|
+| View Payments Operations | `payments.view` |
 | Run payment sync actions | `payments.sync` |
-| Review, resolve, mark expected, reopen, note, or link payment issues | `payments.reconcile` |
+| Review payment issues and add notes | `payments.reconcile.review` |
+| Resolve, mark expected, or reopen payment issues | `payments.reconcile.resolve` |
+| Link a processor payment to an existing Riverside payment | `payments.reconcile.link` |
 | Review, reopen, or note actual deposits | `payments.deposit.review` |
 | Link actual deposits to expected batches | `payments.deposit.link` |
 | Create manual deposits or accept a variance | `payments.deposit.adjust` |
@@ -34,6 +37,8 @@ Cards show:
 - **Sync Status**: last successful sync and health warnings.
 
 If Helcim has not provided a value, ROS shows **Fee not ready** or **Net not ready**. Do not treat a missing fee or net as `$0.00`.
+
+If there are no card payments yet, the tab shows **No payments yet today**. Run sync later after card activity begins.
 
 ## Batches
 
@@ -126,6 +131,27 @@ Sync actions:
 - **Sync Fees** pulls explicit Helcim fee/net data.
 
 Payment alerts are reminders, not financial corrections. Alerts may clear when the condition disappears, but reconciliation and deposit issues remain manual until staff act.
+
+## Payments vs. Helcim Settings
+
+Use **Payments** for daily operations:
+
+- Card activity and totals.
+- Sync Batches and Sync Fees.
+- Fee/net readiness.
+- Batch review.
+- Reconciliation issues.
+- Actual bank deposit matching.
+- Payment health alerts.
+
+Use **Settings → Helcim** only for configuration:
+
+- API token and server-side Helcim credentials.
+- Terminal/device code setup.
+- Payment update signing secret setup.
+- Connection checks before live card processing.
+
+Do not use Settings for daily payment review.
 
 ## Common issues and fixes
 
