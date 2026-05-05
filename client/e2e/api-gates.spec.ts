@@ -145,6 +145,253 @@ test.describe("API auth gates", () => {
     expect(deleteRes.status()).toBe(401);
   });
 
+  test("Helcim Payments Operations read endpoints reject anonymous callers", async ({
+    request,
+  }) => {
+    const getCases = [
+      "/api/payments/providers/helcim/operations/overview",
+      "/api/payments/providers/helcim/batches",
+      "/api/payments/providers/helcim/batches/00000000-0000-0000-0000-000000000000",
+      "/api/payments/providers/helcim/batches/00000000-0000-0000-0000-000000000000/transactions",
+      "/api/payments/providers/helcim/reconciliation/items",
+      "/api/payments/providers/helcim/reconciliation/items/00000000-0000-0000-0000-000000000000/candidate-payments",
+      "/api/payments/providers/helcim/transactions",
+      "/api/payments/providers/helcim/transactions/00000000-0000-0000-0000-000000000000",
+      "/api/payments/providers/helcim/sync/runs",
+      "/api/payments/providers/helcim/events/health",
+      "/api/payments/providers/helcim/deposits",
+      "/api/payments/providers/helcim/deposits/00000000-0000-0000-0000-000000000000",
+      "/api/payments/providers/helcim/deposits/unmatched-batches",
+      "/api/payments/providers/helcim/deposits/unmatched-deposits",
+    ];
+
+    for (const path of getCases) {
+      const res = await request.get(`${apiBase()}${path}`, {
+        failOnStatusCode: false,
+      });
+      expect(res.status(), `${path} should require auth`).toBe(401);
+    }
+  });
+
+  test("Helcim Payments Operations mutation endpoints reject anonymous callers", async ({
+    request,
+  }) => {
+    const uuid = "00000000-0000-0000-0000-000000000000";
+    const cases: Array<{
+      method: "post" | "patch";
+      path: string;
+      data: Record<string, unknown>;
+    }> = [
+      {
+        method: "post",
+        path: "/api/payments/providers/helcim/settlements/sync",
+        data: {},
+      },
+      {
+        method: "post",
+        path: "/api/payments/providers/helcim/fees/sync",
+        data: {},
+      },
+      {
+        method: "patch",
+        path: `/api/payments/providers/helcim/reconciliation/items/${uuid}/status`,
+        data: { action: "reviewed" },
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/reconciliation/items/${uuid}/notes`,
+        data: { note: "E2E gate" },
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/reconciliation/items/${uuid}/link-payment`,
+        data: { payment_transaction_id: uuid, note: "E2E gate" },
+      },
+      {
+        method: "post",
+        path: "/api/payments/providers/helcim/deposits",
+        data: {
+          posted_at: new Date().toISOString(),
+          amount: "1.00",
+          note: "E2E gate",
+        },
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/deposits/${uuid}/link-batches`,
+        data: { batch_ids: [uuid], note: "E2E gate" },
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/deposits/${uuid}/notes`,
+        data: { note: "E2E gate" },
+      },
+      {
+        method: "patch",
+        path: `/api/payments/providers/helcim/deposits/${uuid}/review`,
+        data: { note: "E2E gate" },
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/deposits/${uuid}/reopen`,
+        data: {},
+      },
+      {
+        method: "post",
+        path: "/api/payments/providers/helcim/deposits/reconciliation/runs",
+        data: {},
+      },
+    ];
+
+    for (const testCase of cases) {
+      const options = {
+        data: testCase.data,
+        failOnStatusCode: false,
+      };
+      const res =
+        testCase.method === "post"
+          ? await request.post(`${apiBase()}${testCase.path}`, options)
+          : await request.patch(`${apiBase()}${testCase.path}`, options);
+      expect(res.status(), `${testCase.path} should require auth`).toBe(401);
+    }
+  });
+
+  test("Helcim manual sync endpoints require payments.sync beyond basic staff auth", async ({
+    request,
+  }) => {
+    const code = e2eNonAdminStaffCode();
+    const cases = [
+      "/api/payments/providers/helcim/fees/sync",
+      "/api/payments/providers/helcim/settlements/sync",
+    ];
+
+    for (const path of cases) {
+      const res = await request.post(`${apiBase()}${path}`, {
+        headers: nonAdminHeaders(),
+        data: {},
+        failOnStatusCode: false,
+      });
+      expect(res.status(), `Seeded non-admin staff ${code} must authenticate`).not.toBe(401);
+      expect(res.status(), `${path} should require payments.sync`).toBe(403);
+    }
+  });
+
+  test("Helcim reconciliation mutations require payments.reconcile beyond basic staff auth", async ({
+    request,
+  }) => {
+    const code = e2eNonAdminStaffCode();
+    const uuid = "00000000-0000-0000-0000-000000000000";
+    const cases: Array<{
+      method: "post" | "patch";
+      path: string;
+      data: Record<string, unknown>;
+    }> = [
+      {
+        method: "patch",
+        path: `/api/payments/providers/helcim/reconciliation/items/${uuid}/status`,
+        data: { action: "reviewed" },
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/reconciliation/items/${uuid}/notes`,
+        data: { note: "E2E gate" },
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/reconciliation/items/${uuid}/link-payment`,
+        data: { payment_transaction_id: uuid, note: "E2E gate" },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const options = {
+        headers: nonAdminHeaders(),
+        data: testCase.data,
+        failOnStatusCode: false,
+      };
+      const res =
+        testCase.method === "post"
+          ? await request.post(`${apiBase()}${testCase.path}`, options)
+          : await request.patch(`${apiBase()}${testCase.path}`, options);
+      expect(res.status(), `Seeded non-admin staff ${code} must authenticate`).not.toBe(401);
+      expect(res.status(), `${testCase.path} should require payments.reconcile`).toBe(403);
+    }
+  });
+
+  test("Helcim deposit mutations require dedicated deposit permissions", async ({
+    request,
+  }) => {
+    const code = e2eNonAdminStaffCode();
+    const uuid = "00000000-0000-0000-0000-000000000000";
+    const cases: Array<{
+      method: "post" | "patch";
+      path: string;
+      data: Record<string, unknown>;
+      permission: string;
+    }> = [
+      {
+        method: "post",
+        path: "/api/payments/providers/helcim/deposits",
+        data: {
+          posted_at: new Date().toISOString(),
+          amount: "1.00",
+          note: "E2E gate",
+        },
+        permission: "payments.deposit.adjust",
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/deposits/${uuid}/link-batches`,
+        data: { batch_ids: [uuid], note: "E2E gate" },
+        permission: "payments.deposit.link",
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/deposits/${uuid}/notes`,
+        data: { note: "E2E gate" },
+        permission: "payments.deposit.review",
+      },
+      {
+        method: "patch",
+        path: `/api/payments/providers/helcim/deposits/${uuid}/review`,
+        data: { note: "E2E gate" },
+        permission: "payments.deposit.review",
+      },
+      {
+        method: "patch",
+        path: `/api/payments/providers/helcim/deposits/${uuid}/review`,
+        data: { accept_variance: true, note: "E2E gate" },
+        permission: "payments.deposit.adjust",
+      },
+      {
+        method: "post",
+        path: `/api/payments/providers/helcim/deposits/${uuid}/reopen`,
+        data: {},
+        permission: "payments.deposit.review",
+      },
+      {
+        method: "post",
+        path: "/api/payments/providers/helcim/deposits/reconciliation/runs",
+        data: {},
+        permission: "payments.deposit.review",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const options = {
+        headers: nonAdminHeaders(),
+        data: testCase.data,
+        failOnStatusCode: false,
+      };
+      const res =
+        testCase.method === "post"
+          ? await request.post(`${apiBase()}${testCase.path}`, options)
+          : await request.patch(`${apiBase()}${testCase.path}`, options);
+      expect(res.status(), `Seeded non-admin staff ${code} must authenticate`).not.toBe(401);
+      expect(res.status(), `${testCase.path} should require ${testCase.permission}`).toBe(403);
+    }
+  });
+
   test("GET /api/settings/receipt without staff returns 401 or 403", async ({
     request,
   }) => {

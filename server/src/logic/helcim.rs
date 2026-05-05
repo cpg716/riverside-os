@@ -1288,4 +1288,36 @@ mod tests {
         assert_eq!(transaction.net_amount, None);
         assert!(transaction.occurred_at.is_some());
     }
+
+    #[test]
+    fn parses_batch_transactions_from_collection_with_mixed_id_types() {
+        let transactions = parse_batch_transaction_snapshots(
+            &json!({
+                "cardTransactions": [
+                    {
+                        "transactionId": 123,
+                        "cardBatchId": 456,
+                        "amount": "100.00",
+                        "feeAmount": "2.50",
+                        "netAmount": "97.50"
+                    },
+                    {
+                        "transactionId": "TX-789",
+                        "amount": "40.00"
+                    }
+                ]
+            }),
+            Some("fallback-batch"),
+        );
+
+        assert_eq!(transactions.len(), 2);
+        assert_eq!(transactions[0].provider_transaction_id, "123");
+        assert_eq!(transactions[0].provider_batch_id, "456");
+        assert_eq!(transactions[0].fee_amount, Some(Decimal::new(250, 2)));
+        assert_eq!(transactions[0].net_amount, Some(Decimal::new(9750, 2)));
+        assert_eq!(transactions[1].provider_transaction_id, "TX-789");
+        assert_eq!(transactions[1].provider_batch_id, "fallback-batch");
+        assert_eq!(transactions[1].fee_amount, None);
+        assert_eq!(transactions[1].net_amount, None);
+    }
 }
