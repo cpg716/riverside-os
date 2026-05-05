@@ -43,6 +43,7 @@ export type AppIconName =
   | "loyalty"
   | "staff"
   | "qbo"
+  | "payments"
   | "reports"
   | "appointments"
   | "settings"
@@ -72,6 +73,7 @@ export const APP_ICONS: Record<AppIconName, LucideIcon> = {
   loyalty: Star,
   staff: Shield,
   qbo: Landmark,
+  payments: CreditCard,
   reports: BarChart3,
   appointments: CalendarClock,
   settings: Settings,
@@ -100,6 +102,7 @@ export const APP_NAV_ICON_NAMES = {
   loyalty: "loyalty",
   staff: "staff",
   qbo: "qbo",
+  payments: "payments",
   appointments: "appointments",
   reports: "reports",
   dashboard: "insights",

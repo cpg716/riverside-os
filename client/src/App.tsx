@@ -69,6 +69,9 @@ const SchedulerWorkspace = lazy(
 const ReportsWorkspace = lazy(
   () => import("./components/reports/ReportsWorkspace"),
 );
+const PaymentsWorkspace = lazy(
+  () => import("./components/payments/PaymentsWorkspace"),
+);
 import {
   ROS_OPEN_REGISTER_FROM_WM,
   type RosOpenRegisterFromWmDetail,
@@ -2051,6 +2054,9 @@ function AppMainColumn({
                       onNavigateCommissionPayouts={onNavigateCommissionPayouts}
                     />
                   );
+                }
+                if (activeTab === "payments") {
+                  return <PaymentsWorkspace activeSection={activeSubSection} />;
                 }
                 if (
                   activeTab === "staff" &&

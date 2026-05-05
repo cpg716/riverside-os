@@ -81,6 +81,7 @@ export default function Sidebar({
         { id: "loyalty", label: "Loyalty", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty) },
         { id: "staff", label: "Staff", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.staff) },
         { id: "qbo", label: "QBO bridge", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.qbo) },
+        { id: "payments", label: "Payments", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.payments) },
         { id: "reports", label: "Reports", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.reports) },
         {
           id: "dashboard",

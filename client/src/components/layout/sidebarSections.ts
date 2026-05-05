@@ -15,6 +15,7 @@ export type SidebarTabId =
   | "loyalty"
   | "staff"
   | "qbo"
+  | "payments"
   | "appointments"
   | "reports"
   | "dashboard"
@@ -91,6 +92,13 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "mappings", label: "Mappings" },
     { id: "staging", label: "Staging" },
     { id: "history", label: "History" },
+  ],
+  payments: [
+    { id: "overview", label: "Overview" },
+    { id: "batches", label: "Batches" },
+    { id: "reconciliation", label: "Reconciliation" },
+    { id: "transactions", label: "Transactions" },
+    { id: "health", label: "Health" },
   ],
   appointments: [
     { id: "scheduler", label: "Scheduler" },

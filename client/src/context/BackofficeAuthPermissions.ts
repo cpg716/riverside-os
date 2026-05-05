@@ -4,6 +4,7 @@ export const SIDEBAR_TAB_PERMISSION: Partial<Record<string, string>> = {
   dashboard: "insights.view",
   staff: "staff.view",
   qbo: "qbo.view",
+  payments: "settings.admin",
   orders: "orders.view",
   weddings: "wedding_manager.open",
   alterations: "alterations.manage",
