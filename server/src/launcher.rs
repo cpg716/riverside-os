@@ -166,6 +166,14 @@ fn resolve_frontend_dist(
     Ok(resolved)
 }
 
+fn database_pool_max_connections() -> u32 {
+    std::env::var("RIVERSIDE_DATABASE_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| (5..=100).contains(value))
+        .unwrap_or(20)
+}
+
 async fn launch_server_inner(
     config: LauncherConfig,
     server_log_ring: ServerLogRing,
@@ -176,10 +184,15 @@ async fn launch_server_inner(
     validate_helcim_environment(config.strict_production)?;
 
     tracing::info!("Unified Engine: Connecting to PostgreSQL...");
+    let db_max_connections = database_pool_max_connections();
     let pool = PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(db_max_connections)
         .connect(&config.database_url)
         .await?;
+    tracing::info!(
+        max_connections = db_max_connections,
+        "Unified Engine: PostgreSQL pool configured"
+    );
 
     crate::db_startup_diag::log_postgres_startup_context(&pool).await;
 
