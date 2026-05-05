@@ -4,7 +4,6 @@ export const SIDEBAR_TAB_PERMISSION: Partial<Record<string, string>> = {
   dashboard: "insights.view",
   staff: "staff.view",
   qbo: "qbo.view",
-  payments: "settings.admin",
   orders: "orders.view",
   weddings: "wedding_manager.open",
   alterations: "alterations.manage",
@@ -16,6 +15,7 @@ export const SIDEBAR_TAB_PERMISSION: Partial<Record<string, string>> = {
 export const SIDEBAR_TAB_PERMISSIONS_ANY: Record<string, string[]> = {
   loyalty: ["loyalty.program_settings", "loyalty.adjust_points"],
   "online-store": ["online_store.manage", "settings.admin"],
+  payments: ["settings.admin", "payments.deposit.review", "payments.deposit.link", "payments.deposit.adjust"],
   settings: ["settings.admin", "staff.manage_access"],
 };
 

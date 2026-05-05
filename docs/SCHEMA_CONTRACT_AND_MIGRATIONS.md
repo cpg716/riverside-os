@@ -98,7 +98,11 @@ The Helcim settlement foundation is backend-only and lives in the baseline integ
 - `payment_settlement_runs` stores durable sync/reconciliation run history.
 - `payment_settlement_items` stores open or historical reconciliation findings.
 - `payment_settlement_item_events` stores append-only staff review, note, resolution, reopen, and manual payment-link history for reconciliation findings.
+- `payment_actual_deposits` stores actual bank, QBO-reference, or manual deposit records.
+- `payment_actual_deposit_batches` links actual deposits to expected provider batches without mutating provider truth.
+- `payment_deposit_reconciliation_runs` and `payment_deposit_reconciliation_items` store actual-vs-expected deposit review runs and findings.
+- `payment_actual_deposit_events` stores append-only staff history for actual deposit creation, notes, review, accepted variance, reopen, and batch-link actions.
 
 Resolving or marking a reconciliation finding expected records staff review history only. It does not delete processor evidence, mutate payment amounts, create payment ledger rows, or create QBO/bank deposits.
 
-Actual bank deposits are intentionally not modeled in this layer. Phase 2 records expected processor settlement structure and reconciliation findings; bank/QBO deposit matching belongs in a later bank-feed or QBO-deposit layer.
+Actual bank deposits are modeled for matching and audit only. The deposit layer does not create QuickBooks deposits, automate bank-feed ingestion, mutate payment ledger amounts, or change expected Helcim batch amounts, fees, or net values.

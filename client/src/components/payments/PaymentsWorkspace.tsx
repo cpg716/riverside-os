@@ -16,7 +16,7 @@ import type { ReactNode } from "react";
 
 const baseUrl = getBaseUrl();
 
-type SectionId = "overview" | "batches" | "reconciliation" | "transactions" | "health";
+type SectionId = "overview" | "batches" | "deposits" | "reconciliation" | "transactions" | "health";
 
 type SettlementRun = {
   id: string;
@@ -160,9 +160,74 @@ type EventsHealth = {
   last_failed_message: string | null;
 };
 
+type DepositRow = {
+  id: string;
+  source_system: string;
+  source_reference: string | null;
+  qbo_deposit_id: string | null;
+  bank_feed_transaction_id: string | null;
+  posted_at: string;
+  amount: string;
+  currency: string;
+  status: string;
+  linked_batch_count: number;
+  expected_amount: string | null;
+  linked_amount: string | null;
+  difference: string | null;
+  open_issue_count: number;
+  reviewed_at: string | null;
+};
+
+type DepositBatchLink = {
+  id: string;
+  payment_provider_batch_id: string;
+  provider_batch_id: string;
+  expected_net_amount: string | null;
+  linked_amount: string | null;
+  match_type: string;
+  status: string;
+  created_at: string;
+  batch_status: string | null;
+  expected_deposit_at: string | null;
+  settled_at: string | null;
+};
+
+type DepositEvent = {
+  id: string;
+  action: string;
+  note: string | null;
+  actor_staff_id: string | null;
+  created_at: string;
+};
+
+type DepositIssue = {
+  id: string;
+  item_type: string;
+  issue_label: string;
+  severity: string;
+  status: string;
+  deposit_id: string | null;
+  payment_provider_batch_id: string | null;
+  provider_batch_id: string | null;
+  amount: string | null;
+  reference: string | null;
+  message: string | null;
+  created_at: string;
+};
+
+type DepositDetail = {
+  deposit: DepositRow;
+  linked_batches: DepositBatchLink[];
+  events: DepositEvent[];
+  issues: DepositIssue[];
+};
+
 type DashboardState = {
   overview: OverviewResponse | null;
   batches: BatchRow[];
+  deposits: DepositRow[];
+  unmatchedBatches: BatchRow[];
+  unmatchedDeposits: DepositRow[];
   issues: ReconciliationItem[];
   transactions: TransactionRow[];
   runs: SettlementRun[];
@@ -188,6 +253,22 @@ function money(value: string | null | undefined, emptyLabel = "Not ready") {
     style: "currency",
     currency: "USD",
   });
+}
+
+function sumMoney(values: (string | null | undefined)[]) {
+  const total = values.reduce((sum, value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? sum + parsed : sum;
+  }, 0);
+  return total.toFixed(2);
+}
+
+function differenceLabel(value: string | null | undefined) {
+  if (!value) return "Not linked";
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  if (Math.abs(parsed) < 0.005) return "Clear";
+  return money(value);
 }
 
 function shortDateTime(value: string | null | undefined) {
@@ -305,6 +386,9 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
   const [data, setData] = useState<DashboardState>({
     overview: null,
     batches: [],
+    deposits: [],
+    unmatchedBatches: [],
+    unmatchedDeposits: [],
     issues: [],
     transactions: [],
     runs: [],
@@ -322,10 +406,16 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
   const [selectedIssue, setSelectedIssue] = useState<ReconciliationItem | null>(null);
   const [issueCandidates, setIssueCandidates] = useState<CandidatePayment[]>([]);
   const [issueBusy, setIssueBusy] = useState(false);
+  const [selectedDepositId, setSelectedDepositId] = useState<string | null>(null);
+  const [depositDetail, setDepositDetail] = useState<DepositDetail | null>(null);
+  const [depositBusy, setDepositBusy] = useState(false);
   const [transactionSearch, setTransactionSearch] = useState("");
   const { backofficeHeaders, hasPermission, permissionsLoaded } = useBackofficeAuth();
   const { toast } = useToast();
   const canReconcile = permissionsLoaded && hasPermission("payments.reconcile");
+  const canDepositReview = permissionsLoaded && hasPermission("payments.deposit.review");
+  const canDepositLink = permissionsLoaded && hasPermission("payments.deposit.link");
+  const canDepositAdjust = permissionsLoaded && hasPermission("payments.deposit.adjust");
 
   useEffect(() => {
     setSection(isSection(activeSection) ? activeSection : "overview");
@@ -356,16 +446,46 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     [apiHeaders],
   );
 
+  const sendJson = useCallback(
+    async <T,>(path: string, method: "POST" | "PATCH", payload?: unknown): Promise<T> => {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers: {
+          ...apiHeaders,
+          "Content-Type": "application/json",
+        },
+        body: payload === undefined ? undefined : JSON.stringify(payload),
+      });
+      const text = await response.text();
+      const body = text ? (JSON.parse(text) as unknown) : null;
+      if (!response.ok) {
+        const message =
+          body &&
+          typeof body === "object" &&
+          "error" in body &&
+          typeof (body as { error: unknown }).error === "string"
+            ? (body as { error: string }).error
+            : `Request failed (${response.status})`;
+        throw new Error(message);
+      }
+      return body as T;
+    },
+    [apiHeaders],
+  );
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     const today = todayYmd();
     try {
-      const [overview, batches, issues, transactions, runs, health] = await Promise.all([
+      const [overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health] = await Promise.all([
         getJson<OverviewResponse>(
           `/api/payments/providers/helcim/operations/overview?date_from=${today}&date_to=${today}`,
         ),
         getJson<BatchRow[]>("/api/payments/providers/helcim/batches?limit=50"),
+        getJson<DepositRow[]>("/api/payments/providers/helcim/deposits?limit=50"),
+        getJson<BatchRow[]>("/api/payments/providers/helcim/deposits/unmatched-batches?limit=25"),
+        getJson<DepositRow[]>("/api/payments/providers/helcim/deposits/unmatched-deposits?limit=25"),
         getJson<ReconciliationItem[]>(
           "/api/payments/providers/helcim/reconciliation/items?status=open&limit=50",
         ),
@@ -373,7 +493,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         getJson<SettlementRun[]>("/api/payments/providers/helcim/sync/runs?limit=10"),
         getJson<EventsHealth>("/api/payments/providers/helcim/events/health"),
       ]);
-      setData({ overview, batches, issues, transactions, runs, health });
+      setData({ overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payments could not load.");
     } finally {
@@ -447,6 +567,153 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     },
     [canReconcile, getJson],
   );
+
+  const openDeposit = useCallback(
+    async (deposit: DepositRow) => {
+      setSelectedDepositId(deposit.id);
+      setDepositDetail(null);
+      try {
+        const detail = await getJson<DepositDetail>(
+          `/api/payments/providers/helcim/deposits/${encodeURIComponent(deposit.id)}`,
+        );
+        setDepositDetail(detail);
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Deposit could not load.", "error");
+      }
+    },
+    [getJson, toast],
+  );
+
+  const createManualDeposit = useCallback(
+    async (payload: {
+      posted_at: string;
+      amount: string;
+      source_reference?: string;
+      note?: string;
+    }) => {
+      setDepositBusy(true);
+      try {
+        const body = await sendJson<{ deposit: DepositDetail }>(
+          "/api/payments/providers/helcim/deposits",
+          "POST",
+          {
+            ...payload,
+            source_system: "manual",
+          },
+        );
+        setSelectedDepositId(body.deposit.deposit.id);
+        setDepositDetail(body.deposit);
+        toast("Actual bank deposit added.", "success");
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Deposit could not be added.", "error");
+      } finally {
+        setDepositBusy(false);
+      }
+    },
+    [refresh, sendJson, toast],
+  );
+
+  const linkDepositBatches = useCallback(
+    async (depositId: string, batchIds: string[], note: string) => {
+      setDepositBusy(true);
+      try {
+        const body = await sendJson<{ deposit: DepositDetail }>(
+          `/api/payments/providers/helcim/deposits/${depositId}/link-batches`,
+          "POST",
+          {
+            batch_ids: batchIds,
+            note,
+          },
+        );
+        setDepositDetail(body.deposit);
+        toast("Expected batches linked.", "success");
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Batches could not be linked.", "error");
+      } finally {
+        setDepositBusy(false);
+      }
+    },
+    [refresh, sendJson, toast],
+  );
+
+  const addDepositNote = useCallback(
+    async (depositId: string, note: string) => {
+      setDepositBusy(true);
+      try {
+        const body = await sendJson<{ deposit: DepositDetail }>(
+          `/api/payments/providers/helcim/deposits/${depositId}/notes`,
+          "POST",
+          { note },
+        );
+        setDepositDetail(body.deposit);
+        toast("Note added.", "success");
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Note could not be added.", "error");
+      } finally {
+        setDepositBusy(false);
+      }
+    },
+    [sendJson, toast],
+  );
+
+  const reviewDeposit = useCallback(
+    async (depositId: string, note: string, acceptVariance: boolean) => {
+      setDepositBusy(true);
+      try {
+        const body = await sendJson<{ deposit: DepositDetail }>(
+          `/api/payments/providers/helcim/deposits/${depositId}/review`,
+          "PATCH",
+          {
+            note: note.trim() || undefined,
+            accept_variance: acceptVariance,
+          },
+        );
+        setDepositDetail(body.deposit);
+        toast(acceptVariance ? "Difference accepted." : "Deposit reviewed.", "success");
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Deposit could not be reviewed.", "error");
+      } finally {
+        setDepositBusy(false);
+      }
+    },
+    [refresh, sendJson, toast],
+  );
+
+  const reopenDeposit = useCallback(
+    async (depositId: string) => {
+      setDepositBusy(true);
+      try {
+        const body = await sendJson<{ deposit: DepositDetail }>(
+          `/api/payments/providers/helcim/deposits/${depositId}/reopen`,
+          "POST",
+        );
+        setDepositDetail(body.deposit);
+        toast("Deposit reopened.", "success");
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Deposit could not be reopened.", "error");
+      } finally {
+        setDepositBusy(false);
+      }
+    },
+    [refresh, sendJson, toast],
+  );
+
+  const runDepositReview = useCallback(async () => {
+    setDepositBusy(true);
+    try {
+      await sendJson<unknown>("/api/payments/providers/helcim/deposits/reconciliation/runs", "POST", {});
+      toast("Deposit review refreshed.", "success");
+      await refresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Deposit review could not run.", "error");
+    } finally {
+      setDepositBusy(false);
+    }
+  }, [refresh, sendJson, toast]);
 
   const updateSelectedIssue = useCallback((item: ReconciliationItem) => {
     setSelectedIssue(item);
@@ -675,6 +942,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         <nav className="mt-5 flex gap-2 overflow-x-auto pb-1">
           <SectionButton id="overview" label="Overview" active={section === "overview"} onClick={setSection} />
           <SectionButton id="batches" label="Batches" active={section === "batches"} onClick={setSection} />
+          <SectionButton id="deposits" label="Deposits" active={section === "deposits"} onClick={setSection} />
           <SectionButton id="reconciliation" label="Reconciliation" active={section === "reconciliation"} onClick={setSection} />
           <SectionButton id="transactions" label="Transactions" active={section === "transactions"} onClick={setSection} />
           <SectionButton id="health" label="Health" active={section === "health"} onClick={setSection} />
@@ -702,6 +970,19 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
               />
             )}
             {section === "batches" && <BatchesPanel batches={data.batches} onOpenBatch={openBatch} />}
+            {section === "deposits" && (
+              <DepositsPanel
+                deposits={data.deposits}
+                unmatchedBatches={data.unmatchedBatches}
+                unmatchedDeposits={data.unmatchedDeposits}
+                canAdjust={canDepositAdjust}
+                canReview={canDepositReview}
+                busy={depositBusy}
+                onCreateDeposit={createManualDeposit}
+                onOpenDeposit={openDeposit}
+                onRunReview={() => void runDepositReview()}
+              />
+            )}
             {section === "reconciliation" && (
               <ReconciliationPanel
                 groups={groupedIssues}
@@ -757,6 +1038,20 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         onStatus={patchIssueStatus}
         onAddNote={addIssueNote}
         onLinkPayment={linkIssuePayment}
+      />
+      <DepositDrawer
+        depositId={selectedDepositId}
+        detail={depositDetail}
+        unmatchedBatches={data.unmatchedBatches}
+        busy={depositBusy}
+        canReview={canDepositReview}
+        canLink={canDepositLink}
+        canAdjust={canDepositAdjust}
+        onClose={() => setSelectedDepositId(null)}
+        onLinkBatches={linkDepositBatches}
+        onAddNote={addDepositNote}
+        onReview={reviewDeposit}
+        onReopen={reopenDeposit}
       />
     </div>
   );
@@ -864,6 +1159,170 @@ function BatchesPanel({ batches, onOpenBatch }: { batches: BatchRow[]; onOpenBat
         ],
       }))}
     />
+  );
+}
+
+function DepositsPanel({
+  deposits,
+  unmatchedBatches,
+  unmatchedDeposits,
+  canAdjust,
+  canReview,
+  busy,
+  onCreateDeposit,
+  onOpenDeposit,
+  onRunReview,
+}: {
+  deposits: DepositRow[];
+  unmatchedBatches: BatchRow[];
+  unmatchedDeposits: DepositRow[];
+  canAdjust: boolean;
+  canReview: boolean;
+  busy: boolean;
+  onCreateDeposit: (payload: {
+    posted_at: string;
+    amount: string;
+    source_reference?: string;
+    note?: string;
+  }) => void;
+  onOpenDeposit: (deposit: DepositRow) => void;
+  onRunReview: () => void;
+}) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [postedDate, setPostedDate] = useState(todayYmd());
+  const [amount, setAmount] = useState("");
+  const [reference, setReference] = useState("");
+  const [note, setNote] = useState("");
+  const expectedTotal = sumMoney(deposits.map((deposit) => deposit.expected_amount));
+  const actualTotal = sumMoney(deposits.map((deposit) => deposit.amount));
+  const openIssues = deposits.reduce((total, deposit) => total + deposit.open_issue_count, 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Actual Bank Deposits" value={money(actualTotal, "$0.00")} />
+        <MetricCard label="Linked Expected Deposits" value={money(expectedTotal, "Deposit not ready")} />
+        <MetricCard label="Unmatched Expected" value={`${unmatchedBatches.length}`} tone={unmatchedBatches.length > 0 ? "warning" : "good"} />
+        <MetricCard label="Needs Review" value={`${openIssues}`} tone={openIssues > 0 ? "warning" : "good"} />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {canAdjust ? (
+          <button type="button" onClick={() => setShowAdd((value) => !value)} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white">
+            Add Manual Deposit
+          </button>
+        ) : null}
+        {canReview ? (
+          <button type="button" onClick={onRunReview} disabled={busy} className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text disabled:opacity-50">
+            Refresh Deposit Review
+          </button>
+        ) : null}
+      </div>
+
+      {showAdd ? (
+        <section className="rounded-lg border border-app-border bg-app-surface p-4">
+          <h2 className="text-base font-black text-app-text">Add Actual Bank Deposit</h2>
+          <p className="mt-1 text-sm font-semibold text-app-text-muted">
+            This records bank-cleared money for matching only. It does not post to QuickBooks or change payment totals.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
+            <label className="text-sm font-semibold text-app-text">
+              Posted Date
+              <input value={postedDate} onChange={(event) => setPostedDate(event.target.value)} type="date" className="mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 outline-none focus:border-app-accent" />
+            </label>
+            <label className="text-sm font-semibold text-app-text">
+              Actual Amount
+              <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" className="mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 outline-none focus:border-app-accent" />
+            </label>
+            <label className="text-sm font-semibold text-app-text">
+              Reference
+              <input value={reference} onChange={(event) => setReference(event.target.value)} className="mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 outline-none focus:border-app-accent" />
+            </label>
+            <label className="text-sm font-semibold text-app-text">
+              Note
+              <input value={note} onChange={(event) => setNote(event.target.value)} className="mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 outline-none focus:border-app-accent" />
+            </label>
+          </div>
+          <button
+            type="button"
+            disabled={busy || !amount.trim()}
+            onClick={() => {
+              onCreateDeposit({
+                posted_at: new Date(`${postedDate}T12:00:00`).toISOString(),
+                amount,
+                source_reference: reference.trim() || undefined,
+                note: note.trim() || undefined,
+              });
+              setAmount("");
+              setReference("");
+              setNote("");
+              setShowAdd(false);
+            }}
+            className="mt-4 rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+          >
+            Save Actual Bank Deposit
+          </button>
+        </section>
+      ) : null}
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-black text-app-text">Deposits</h2>
+        <DataTable
+          empty="No actual bank deposits found."
+          headers={["Posted Date", "Source", "Actual Amount", "Expected Amount", "Difference", "Linked Batches", "Status", "Needs Review"]}
+          rows={deposits.map((deposit) => ({
+            key: deposit.id,
+            onClick: () => onOpenDeposit(deposit),
+            cells: [
+              shortDate(deposit.posted_at),
+              staffLabel(deposit.source_system),
+              money(deposit.amount, "$0.00"),
+              money(deposit.expected_amount, "Not linked"),
+              differenceLabel(deposit.difference),
+              String(deposit.linked_batch_count),
+              <StatusPill value={deposit.status} />,
+              deposit.open_issue_count > 0 ? `${deposit.open_issue_count} needs review` : "Clear",
+            ],
+          }))}
+        />
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <section className="space-y-3">
+          <h2 className="text-lg font-black text-app-text">Unmatched Expected Batches</h2>
+          <DataTable
+            empty="No unmatched expected batches."
+            headers={["Batch #", "Expected Deposit", "Expected Date", "Status"]}
+            rows={unmatchedBatches.map((batch) => ({
+              key: batch.id,
+              cells: [
+                batch.provider_batch_id,
+                money(batch.net_amount, "Deposit not ready"),
+                shortDate(batch.expected_deposit_at ?? batch.settled_at ?? batch.closed_at),
+                <StatusPill value={batch.status} />,
+              ],
+            }))}
+          />
+        </section>
+        <section className="space-y-3">
+          <h2 className="text-lg font-black text-app-text">Unmatched Actual Deposits</h2>
+          <DataTable
+            empty="No unmatched actual deposits."
+            headers={["Posted Date", "Actual Amount", "Reference", "Status"]}
+            rows={unmatchedDeposits.map((deposit) => ({
+              key: deposit.id,
+              onClick: () => onOpenDeposit(deposit),
+              cells: [
+                shortDate(deposit.posted_at),
+                money(deposit.amount, "$0.00"),
+                deposit.source_reference ?? "Manual entry",
+                <StatusPill value={deposit.status} />,
+              ],
+            }))}
+          />
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -1177,6 +1636,221 @@ function TransactionDrawer({
   );
 }
 
+function DepositDrawer({
+  depositId,
+  detail,
+  unmatchedBatches,
+  busy,
+  canReview,
+  canLink,
+  canAdjust,
+  onClose,
+  onLinkBatches,
+  onAddNote,
+  onReview,
+  onReopen,
+}: {
+  depositId: string | null;
+  detail: DepositDetail | null;
+  unmatchedBatches: BatchRow[];
+  busy: boolean;
+  canReview: boolean;
+  canLink: boolean;
+  canAdjust: boolean;
+  onClose: () => void;
+  onLinkBatches: (depositId: string, batchIds: string[], note: string) => void;
+  onAddNote: (depositId: string, note: string) => void;
+  onReview: (depositId: string, note: string, acceptVariance: boolean) => void;
+  onReopen: (depositId: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setNote("");
+    setSelectedBatchIds([]);
+  }, [depositId]);
+
+  const deposit = detail?.deposit;
+  const hasDifference = Boolean(deposit?.difference && Math.abs(Number(deposit.difference)) >= 0.005);
+  return (
+    <DetailDrawer
+      isOpen={Boolean(depositId)}
+      onClose={onClose}
+      title="Actual Bank Deposit"
+      subtitle={deposit ? <span>{shortDate(deposit.posted_at)} · {money(deposit.amount, "$0.00")}</span> : null}
+      panelMaxClassName="max-w-3xl"
+    >
+      {!detail || !deposit ? (
+        <div className="text-sm font-semibold text-app-text-muted">Loading deposit…</div>
+      ) : (
+        <div className="space-y-6">
+          <section className="grid gap-3 sm:grid-cols-3">
+            <MetricCard label="Actual Bank Deposit" value={money(deposit.amount, "$0.00")} />
+            <MetricCard label="Expected Deposit" value={money(deposit.expected_amount, "Not linked")} />
+            <MetricCard label="Difference" value={differenceLabel(deposit.difference)} tone={hasDifference ? "warning" : "good"} />
+          </section>
+
+          <DetailSection title="Deposit Details">
+            <InfoLine label="Posted Date" value={shortDateTime(deposit.posted_at)} />
+            <InfoLine label="Source" value={staffLabel(deposit.source_system)} />
+            <InfoLine label="Reference" value={deposit.source_reference ?? "Manual entry"} />
+            <InfoLine label="Status" value={staffLabel(deposit.status)} />
+            <InfoLine label="Linked Batches" value={String(deposit.linked_batch_count)} />
+            <InfoLine label="Reviewed" value={deposit.reviewed_at ? shortDateTime(deposit.reviewed_at) : "Not yet"} />
+          </DetailSection>
+
+          <section className="space-y-3">
+            <h3 className="text-base font-black text-app-text">Linked Expected Batches</h3>
+            <DataTable
+              empty="No expected batches linked."
+              headers={["Batch #", "Expected Deposit", "Expected Date", "Status"]}
+              rows={detail.linked_batches.map((link) => ({
+                key: link.id,
+                cells: [
+                  link.provider_batch_id,
+                  money(link.expected_net_amount, "Deposit not ready"),
+                  shortDate(link.expected_deposit_at ?? link.settled_at),
+                  <StatusPill value={link.batch_status ?? link.status} />,
+                ],
+              }))}
+            />
+          </section>
+
+          {canLink ? (
+            <section className="rounded-lg border border-app-border bg-app-surface p-4">
+              <h3 className="text-base font-black text-app-text">Link Expected Batches</h3>
+              <p className="mt-1 text-sm font-semibold text-app-text-muted">
+                Link only batches that make up this actual bank deposit.
+              </p>
+              <textarea
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="Required note for matching"
+                className="mt-3 min-h-20 w-full rounded-lg border border-app-border bg-app-bg p-3 text-sm font-medium text-app-text outline-none focus:border-app-accent"
+              />
+              <div className="mt-3 max-h-64 space-y-2 overflow-auto">
+                {unmatchedBatches.length === 0 ? (
+                  <EmptyState title="No expected batches ready" body="All expected batches are already linked or not ready." compact />
+                ) : (
+                  unmatchedBatches.map((batch) => {
+                    const checked = selectedBatchIds.includes(batch.id);
+                    return (
+                      <label key={batch.id} className="flex items-center justify-between gap-3 rounded-lg border border-app-border bg-app-surface-2 p-3 text-sm font-semibold text-app-text">
+                        <span>
+                          <span className="font-black">{batch.provider_batch_id}</span>
+                          <span className="ml-2 text-app-text-muted">{money(batch.net_amount, "Deposit not ready")}</span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            setSelectedBatchIds((current) =>
+                              event.target.checked
+                                ? [...current, batch.id]
+                                : current.filter((id) => id !== batch.id),
+                            );
+                          }}
+                          className="h-4 w-4 accent-app-accent"
+                        />
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={busy || selectedBatchIds.length === 0 || note.trim().length === 0}
+                onClick={() => {
+                  onLinkBatches(deposit.id, selectedBatchIds, note);
+                  setSelectedBatchIds([]);
+                  setNote("");
+                }}
+                className="mt-3 rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+              >
+                Link Expected Batches
+              </button>
+            </section>
+          ) : null}
+
+          {(canReview || canAdjust) ? (
+            <section className="rounded-lg border border-app-border bg-app-surface p-4">
+              <h3 className="text-base font-black text-app-text">Review</h3>
+              <p className="mt-1 text-sm font-semibold text-app-text-muted">
+                Reviewing does not post to QuickBooks, change payment totals, or change bank records.
+              </p>
+              <textarea
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder={hasDifference ? "A note is required to accept a difference" : "Add a note"}
+                className="mt-3 min-h-20 w-full rounded-lg border border-app-border bg-app-bg p-3 text-sm font-medium text-app-text outline-none focus:border-app-accent"
+              />
+              <div className="mt-3 flex flex-wrap gap-2">
+                {canReview ? (
+                  <>
+                    <ActionButton disabled={busy} onClick={() => onReview(deposit.id, note, false)}>
+                      Mark Reviewed
+                    </ActionButton>
+                    <ActionButton disabled={busy} onClick={() => onReopen(deposit.id)}>
+                      Reopen
+                    </ActionButton>
+                    <ActionButton disabled={busy || note.trim().length === 0} onClick={() => onAddNote(deposit.id, note)}>
+                      Add Note
+                    </ActionButton>
+                  </>
+                ) : null}
+                {canAdjust && hasDifference ? (
+                  <ActionButton disabled={busy || note.trim().length === 0} onClick={() => onReview(deposit.id, note, true)}>
+                    Difference Accepted
+                  </ActionButton>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="space-y-3">
+            <h3 className="text-base font-black text-app-text">Issues</h3>
+            {detail.issues.length === 0 ? (
+              <EmptyState title="No open deposit issues" body="This actual deposit is clear." compact />
+            ) : (
+              <DataTable
+                empty="No deposit issues."
+                headers={["Issue", "Severity", "Amount", "Reference"]}
+                rows={detail.issues.map((issue) => ({
+                  key: issue.id,
+                  cells: [
+                    issue.message ?? issue.issue_label,
+                    <StatusPill value={issue.severity} />,
+                    money(issue.amount, "Not ready"),
+                    issue.reference ?? "Not ready",
+                  ],
+                }))}
+              />
+            )}
+          </section>
+
+          <section className="rounded-lg border border-app-border bg-app-surface p-4">
+            <h3 className="text-base font-black text-app-text">History</h3>
+            {detail.events.length === 0 ? (
+              <div className="mt-2 text-sm font-semibold text-app-text-muted">No staff notes yet.</div>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {detail.events.map((event) => (
+                  <div key={event.id} className="rounded-lg border border-app-border bg-app-surface-2 p-3">
+                    <div className="text-sm font-bold text-app-text">{staffLabel(event.action)}</div>
+                    <div className="text-xs font-semibold text-app-text-muted">{shortDateTime(event.created_at)}</div>
+                    {event.note ? <div className="mt-2 text-sm font-medium text-app-text">{event.note}</div> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </DetailDrawer>
+  );
+}
+
 function IssueDrawer({
   issue,
   candidates,
@@ -1451,5 +2125,5 @@ function EmptyState({ title, body, compact = false }: { title: string; body: str
 }
 
 function isSection(value: string): value is SectionId {
-  return ["overview", "batches", "reconciliation", "transactions", "health"].includes(value);
+  return ["overview", "batches", "deposits", "reconciliation", "transactions", "health"].includes(value);
 }

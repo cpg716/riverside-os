@@ -245,6 +245,114 @@ CREATE TABLE public.payment_settlement_item_events (
 );
 
 --
+-- Name: payment_actual_deposits; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_actual_deposits (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    provider text DEFAULT 'helcim'::text NOT NULL,
+    source_system text DEFAULT 'manual'::text NOT NULL,
+    source_reference text,
+    qbo_deposit_id text,
+    bank_feed_transaction_id text,
+    posted_at timestamp with time zone NOT NULL,
+    amount numeric(12,2) NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    reviewed_by_staff_id uuid,
+    reviewed_at timestamp with time zone,
+    raw_payload jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payment_actual_deposits_amount_chk CHECK ((amount <> 0::numeric)),
+    CONSTRAINT payment_actual_deposits_currency_chk CHECK ((btrim(currency) <> ''::text)),
+    CONSTRAINT payment_actual_deposits_provider_chk CHECK ((btrim(provider) <> ''::text)),
+    CONSTRAINT payment_actual_deposits_source_reference_chk CHECK (((source_reference IS NULL) OR (btrim(source_reference) <> ''::text))),
+    CONSTRAINT payment_actual_deposits_source_system_chk CHECK ((btrim(source_system) <> ''::text)),
+    CONSTRAINT payment_actual_deposits_status_chk CHECK ((status = ANY (ARRAY['open'::text, 'reviewed'::text, 'matched'::text, 'needs_review'::text, 'reopened'::text])))
+);
+
+--
+-- Name: payment_actual_deposit_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_actual_deposit_batches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    deposit_id uuid NOT NULL,
+    payment_provider_batch_id uuid NOT NULL,
+    provider_batch_id text NOT NULL,
+    expected_net_amount numeric(12,2),
+    linked_amount numeric(12,2),
+    match_type text DEFAULT 'manual'::text NOT NULL,
+    status text DEFAULT 'linked'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payment_actual_deposit_batches_batch_id_chk CHECK ((btrim(provider_batch_id) <> ''::text)),
+    CONSTRAINT payment_actual_deposit_batches_match_type_chk CHECK ((btrim(match_type) <> ''::text)),
+    CONSTRAINT payment_actual_deposit_batches_status_chk CHECK ((status = ANY (ARRAY['linked'::text, 'unlinked'::text])))
+);
+
+--
+-- Name: payment_deposit_reconciliation_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_deposit_reconciliation_runs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    provider text DEFAULT 'helcim'::text NOT NULL,
+    status text DEFAULT 'running'::text NOT NULL,
+    date_from date,
+    date_to date,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    requested_by_staff_id uuid,
+    summary jsonb DEFAULT '{}'::jsonb NOT NULL,
+    error_message text,
+    CONSTRAINT payment_deposit_reconciliation_runs_provider_chk CHECK ((btrim(provider) <> ''::text)),
+    CONSTRAINT payment_deposit_reconciliation_runs_status_chk CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text]))),
+    CONSTRAINT payment_deposit_reconciliation_runs_window_chk CHECK (((date_from IS NULL) OR (date_to IS NULL) OR (date_from <= date_to)))
+);
+
+--
+-- Name: payment_deposit_reconciliation_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_deposit_reconciliation_items (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    run_id uuid,
+    provider text DEFAULT 'helcim'::text NOT NULL,
+    item_type text NOT NULL,
+    severity text DEFAULT 'warning'::text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    deposit_id uuid,
+    payment_provider_batch_id uuid,
+    provider_batch_id text,
+    processor_values jsonb DEFAULT '{}'::jsonb NOT NULL,
+    ros_values jsonb DEFAULT '{}'::jsonb NOT NULL,
+    message text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolved_at timestamp with time zone,
+    CONSTRAINT payment_deposit_reconciliation_items_item_type_chk CHECK ((item_type = ANY (ARRAY['actual_deposit_missing_expected_batch'::text, 'expected_batch_missing_actual_deposit'::text, 'deposit_amount_mismatch'::text, 'deposit_date_outside_window'::text, 'partial_deposit'::text, 'duplicate_deposit_reference'::text]))),
+    CONSTRAINT payment_deposit_reconciliation_items_provider_chk CHECK ((btrim(provider) <> ''::text)),
+    CONSTRAINT payment_deposit_reconciliation_items_severity_chk CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'critical'::text]))),
+    CONSTRAINT payment_deposit_reconciliation_items_status_chk CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text, 'ignored'::text])))
+);
+
+--
+-- Name: payment_actual_deposit_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.payment_actual_deposit_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    deposit_id uuid NOT NULL,
+    actor_staff_id uuid,
+    action text NOT NULL,
+    note text,
+    before_state jsonb DEFAULT '{}'::jsonb NOT NULL,
+    after_state jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payment_actual_deposit_events_action_chk CHECK ((action = ANY (ARRAY['created'::text, 'linked_batch'::text, 'unlinked_batch'::text, 'reviewed'::text, 'reopened'::text, 'noted'::text, 'accepted_variance'::text])))
+);
+
+--
 -- Name: corecredit_exception_queue; Type: TABLE; Schema: public; Owner: -
 --
 

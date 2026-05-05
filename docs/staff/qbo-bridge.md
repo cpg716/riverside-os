@@ -40,6 +40,8 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 5. **Approve** only when totals match **ROS** expectations for that close.
 6. **Sync** after approve; watch **History** for success/fail.
 
+Payments → Deposits can record actual bank deposits and match them to expected Helcim batches for review. That matching is audit evidence only: it does not create a QuickBooks deposit, post a bank deposit, or change the daily journal bundle.
+
 ## History
 
 **Purpose:** **Audit** of what posted when — troubleshooting and month-end proof.

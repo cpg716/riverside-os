@@ -23,6 +23,9 @@ use crate::api::AppState;
 use crate::middleware;
 
 const PAYMENTS_RECONCILE: &str = "payments.reconcile";
+const PAYMENTS_DEPOSIT_REVIEW: &str = "payments.deposit.review";
+const PAYMENTS_DEPOSIT_LINK: &str = "payments.deposit.link";
+const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
 
 #[derive(Debug, Error)]
 pub enum PaymentError {
@@ -134,6 +137,42 @@ pub fn router() -> Router<AppState> {
         .route(
             "/providers/helcim/events/health",
             get(get_helcim_events_health),
+        )
+        .route(
+            "/providers/helcim/deposits",
+            get(list_helcim_deposits).post(create_helcim_manual_deposit),
+        )
+        .route(
+            "/providers/helcim/deposits/unmatched-batches",
+            get(list_helcim_unmatched_deposit_batches),
+        )
+        .route(
+            "/providers/helcim/deposits/unmatched-deposits",
+            get(list_helcim_unmatched_deposits),
+        )
+        .route(
+            "/providers/helcim/deposits/reconciliation/runs",
+            post(run_helcim_deposit_reconciliation),
+        )
+        .route(
+            "/providers/helcim/deposits/{id}",
+            get(get_helcim_deposit_detail),
+        )
+        .route(
+            "/providers/helcim/deposits/{id}/link-batches",
+            post(link_helcim_deposit_batches),
+        )
+        .route(
+            "/providers/helcim/deposits/{id}/notes",
+            post(add_helcim_deposit_note),
+        )
+        .route(
+            "/providers/helcim/deposits/{id}/review",
+            patch(review_helcim_deposit),
+        )
+        .route(
+            "/providers/helcim/deposits/{id}/reopen",
+            post(reopen_helcim_deposit),
         )
         .route("/providers/helcim/purchase", post(start_helcim_purchase))
         .route(
@@ -556,6 +595,127 @@ pub struct HelcimEventsHealthResponse {
     pub ignored_event_count: i64,
     pub last_event_at: Option<DateTime<Utc>>,
     pub last_failed_message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimDepositRow {
+    pub id: Uuid,
+    pub source_system: String,
+    pub source_reference: Option<String>,
+    pub qbo_deposit_id: Option<String>,
+    pub bank_feed_transaction_id: Option<String>,
+    pub posted_at: DateTime<Utc>,
+    pub amount: String,
+    pub currency: String,
+    pub status: String,
+    pub linked_batch_count: i64,
+    pub expected_amount: Option<String>,
+    pub linked_amount: Option<String>,
+    pub difference: Option<String>,
+    pub open_issue_count: i64,
+    pub reviewed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimDepositBatchLinkRow {
+    pub id: Uuid,
+    pub payment_provider_batch_id: Uuid,
+    pub provider_batch_id: String,
+    pub expected_net_amount: Option<String>,
+    pub linked_amount: Option<String>,
+    pub match_type: String,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub batch_status: Option<String>,
+    pub expected_deposit_at: Option<DateTime<Utc>>,
+    pub settled_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HelcimDepositEventRow {
+    pub id: Uuid,
+    pub action: String,
+    pub note: Option<String>,
+    pub actor_staff_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimDepositIssueRow {
+    pub id: Uuid,
+    pub item_type: String,
+    pub issue_label: String,
+    pub severity: String,
+    pub status: String,
+    pub deposit_id: Option<Uuid>,
+    pub payment_provider_batch_id: Option<Uuid>,
+    pub provider_batch_id: Option<String>,
+    pub amount: Option<String>,
+    pub reference: Option<String>,
+    pub message: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimDepositDetailResponse {
+    pub deposit: HelcimDepositRow,
+    pub linked_batches: Vec<HelcimDepositBatchLinkRow>,
+    pub events: Vec<HelcimDepositEventRow>,
+    pub issues: Vec<HelcimDepositIssueRow>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimManualDepositRequest {
+    pub posted_at: DateTime<Utc>,
+    pub amount: String,
+    #[serde(default)]
+    pub source_system: Option<String>,
+    #[serde(default)]
+    pub source_reference: Option<String>,
+    #[serde(default)]
+    pub qbo_deposit_id: Option<String>,
+    #[serde(default)]
+    pub bank_feed_transaction_id: Option<String>,
+    #[serde(default)]
+    pub currency: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimDepositLinkBatchesRequest {
+    pub batch_ids: Vec<Uuid>,
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimDepositNoteRequest {
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimDepositReviewRequest {
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub accept_variance: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimDepositActionResponse {
+    pub deposit: HelcimDepositDetailResponse,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimDepositReconciliationRunResponse {
+    pub run_id: Uuid,
+    pub status: String,
+    pub expected_batches_missing_actual: i64,
+    pub actual_deposits_missing_expected: i64,
+    pub amount_mismatches: i64,
+    pub date_mismatches: i64,
+    pub duplicate_references: i64,
+    pub items_opened: i64,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -2204,6 +2364,513 @@ async fn get_helcim_events_health(
     }))
 }
 
+async fn list_helcim_deposits(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HelcimOperationsListQuery>,
+) -> Result<Json<Vec<HelcimDepositRow>>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    Ok(Json(load_helcim_deposit_rows(&state, None, &query).await?))
+}
+
+async fn create_helcim_manual_deposit(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<HelcimManualDepositRequest>,
+) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
+    let staff =
+        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_ADJUST)
+            .await
+            .map_err(map_pay_session)?;
+    let amount = parse_money_input(&payload.amount)?;
+    let source_system =
+        clean_filter(payload.source_system.as_deref()).unwrap_or_else(|| "manual".to_string());
+    let source_reference = clean_filter(payload.source_reference.as_deref());
+    let qbo_deposit_id = clean_filter(payload.qbo_deposit_id.as_deref());
+    let bank_feed_transaction_id = clean_filter(payload.bank_feed_transaction_id.as_deref());
+    let currency = clean_filter(payload.currency.as_deref()).unwrap_or_else(|| "USD".to_string());
+    let note = clean_required_note(payload.note.as_deref(), false)?;
+
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let deposit_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO payment_actual_deposits (
+            provider,
+            source_system,
+            source_reference,
+            qbo_deposit_id,
+            bank_feed_transaction_id,
+            posted_at,
+            amount,
+            currency,
+            status,
+            raw_payload
+        )
+        VALUES ('helcim', $1, $2, $3, $4, $5, $6, $7, 'open', $8)
+        RETURNING id
+        "#,
+    )
+    .bind(&source_system)
+    .bind(source_reference.as_deref())
+    .bind(qbo_deposit_id.as_deref())
+    .bind(bank_feed_transaction_id.as_deref())
+    .bind(payload.posted_at)
+    .bind(amount.round_dp(2))
+    .bind(&currency)
+    .bind(json!({
+        "source": "manual_staff_entry",
+        "qbo_deposit_id": qbo_deposit_id,
+        "bank_feed_transaction_id": bank_feed_transaction_id,
+    }))
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| {
+        if is_unique_violation(&e) {
+            PaymentError::Conflict(
+                "A deposit with that source reference already exists.".to_string(),
+            )
+        } else {
+            PaymentError::InvalidPayload(e.to_string())
+        }
+    })?;
+    let after = load_deposit_state(&mut *tx, deposit_id).await?;
+    insert_deposit_event(
+        &mut tx,
+        deposit_id,
+        Some(staff.id),
+        "created",
+        note.as_deref(),
+        json!({}),
+        after,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimDepositActionResponse {
+        deposit: load_helcim_deposit_detail(&state, deposit_id).await?,
+    }))
+}
+
+async fn get_helcim_deposit_detail(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<HelcimDepositDetailResponse>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    Ok(Json(load_helcim_deposit_detail(&state, id).await?))
+}
+
+async fn link_helcim_deposit_batches(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<HelcimDepositLinkBatchesRequest>,
+) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_LINK)
+        .await
+        .map_err(map_pay_session)?;
+    let note = clean_required_note(Some(&payload.note), true)?;
+    if payload.batch_ids.is_empty() {
+        return Err(PaymentError::InvalidPayload(
+            "Select at least one expected batch.".to_string(),
+        ));
+    }
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let before = load_deposit_state_for_update(&mut tx, id).await?;
+    for batch_id in payload.batch_ids {
+        let batch = sqlx::query(
+            r#"
+            SELECT id, provider_batch_id, net_amount
+            FROM payment_provider_batches
+            WHERE provider = 'helcim'
+              AND id = $1
+            "#,
+        )
+        .bind(batch_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+        .ok_or_else(|| PaymentError::InvalidPayload("Expected batch was not found.".to_string()))?;
+        let provider_batch_id: String = batch.get("provider_batch_id");
+        let expected_net_amount: Option<Decimal> = batch.get("net_amount");
+        sqlx::query(
+            r#"
+            INSERT INTO payment_actual_deposit_batches (
+                deposit_id,
+                payment_provider_batch_id,
+                provider_batch_id,
+                expected_net_amount,
+                linked_amount,
+                match_type,
+                status
+            )
+            VALUES ($1, $2, $3, $4, $4, 'manual', 'linked')
+            ON CONFLICT (deposit_id, payment_provider_batch_id) DO NOTHING
+            "#,
+        )
+        .bind(id)
+        .bind(batch_id)
+        .bind(&provider_batch_id)
+        .bind(expected_net_amount.map(|value| value.round_dp(2)))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    }
+    refresh_deposit_match_status(&mut tx, id).await?;
+    create_deposit_amount_item_if_needed(&mut tx, None, id).await?;
+    let after = load_deposit_state(&mut *tx, id).await?;
+    insert_deposit_event(
+        &mut tx,
+        id,
+        Some(staff.id),
+        "linked_batch",
+        note.as_deref(),
+        before,
+        after,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimDepositActionResponse {
+        deposit: load_helcim_deposit_detail(&state, id).await?,
+    }))
+}
+
+async fn add_helcim_deposit_note(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<HelcimDepositNoteRequest>,
+) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
+    let staff =
+        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW)
+            .await
+            .map_err(map_pay_session)?;
+    let note = clean_required_note(Some(&payload.note), true)?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let before = load_deposit_state_for_update(&mut tx, id).await?;
+    insert_deposit_event(
+        &mut tx,
+        id,
+        Some(staff.id),
+        "noted",
+        note.as_deref(),
+        before.clone(),
+        before,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimDepositActionResponse {
+        deposit: load_helcim_deposit_detail(&state, id).await?,
+    }))
+}
+
+async fn review_helcim_deposit(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<HelcimDepositReviewRequest>,
+) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
+    let staff = if payload.accept_variance {
+        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_ADJUST)
+            .await
+            .map_err(map_pay_session)?
+    } else {
+        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW)
+            .await
+            .map_err(map_pay_session)?
+    };
+    let note = clean_required_note(payload.note.as_deref(), payload.accept_variance)?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let before = load_deposit_state_for_update(&mut tx, id).await?;
+    let difference = deposit_difference(&mut *tx, id).await?;
+    let status = if difference == Some(Decimal::ZERO) {
+        "matched"
+    } else if payload.accept_variance {
+        "reviewed"
+    } else {
+        "needs_review"
+    };
+    sqlx::query(
+        r#"
+        UPDATE payment_actual_deposits
+        SET status = $2,
+            reviewed_by_staff_id = $3,
+            reviewed_at = now()
+        WHERE id = $1
+          AND provider = 'helcim'
+        "#,
+    )
+    .bind(id)
+    .bind(status)
+    .bind(staff.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    if payload.accept_variance {
+        sqlx::query(
+            r#"
+            UPDATE payment_deposit_reconciliation_items
+            SET status = 'resolved',
+                resolved_at = now()
+            WHERE provider = 'helcim'
+              AND deposit_id = $1
+              AND status = 'open'
+              AND item_type IN ('deposit_amount_mismatch', 'partial_deposit')
+            "#,
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    }
+    let after = load_deposit_state(&mut *tx, id).await?;
+    insert_deposit_event(
+        &mut tx,
+        id,
+        Some(staff.id),
+        if payload.accept_variance {
+            "accepted_variance"
+        } else {
+            "reviewed"
+        },
+        note.as_deref(),
+        before,
+        after,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimDepositActionResponse {
+        deposit: load_helcim_deposit_detail(&state, id).await?,
+    }))
+}
+
+async fn reopen_helcim_deposit(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<HelcimDepositActionResponse>, PaymentError> {
+    let staff =
+        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW)
+            .await
+            .map_err(map_pay_session)?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let before = load_deposit_state_for_update(&mut tx, id).await?;
+    sqlx::query(
+        r#"
+        UPDATE payment_actual_deposits
+        SET status = 'reopened',
+            reviewed_by_staff_id = NULL,
+            reviewed_at = NULL
+        WHERE id = $1
+          AND provider = 'helcim'
+        "#,
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let after = load_deposit_state(&mut *tx, id).await?;
+    insert_deposit_event(&mut tx, id, Some(staff.id), "reopened", None, before, after).await?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimDepositActionResponse {
+        deposit: load_helcim_deposit_detail(&state, id).await?,
+    }))
+}
+
+async fn list_helcim_unmatched_deposit_batches(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HelcimOperationsListQuery>,
+) -> Result<Json<Vec<HelcimBatchListRow>>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            batch.id,
+            batch.provider_batch_id,
+            batch.status,
+            batch.closed_at,
+            batch.settled_at,
+            batch.expected_deposit_at,
+            batch.gross_amount,
+            batch.fee_amount,
+            batch.net_amount,
+            batch.transaction_count,
+            batch.last_synced_at,
+            COALESCE(issues.issue_count, 0)::bigint AS issue_count,
+            COALESCE(completeness.fee_not_ready_count, 0)::bigint AS fee_not_ready_count,
+            COALESCE(completeness.net_not_ready_count, 0)::bigint AS net_not_ready_count
+        FROM payment_provider_batches batch
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS issue_count
+            FROM payment_deposit_reconciliation_items item
+            WHERE item.provider = 'helcim'
+              AND item.status = 'open'
+              AND item.payment_provider_batch_id = batch.id
+        ) issues ON true
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*) FILTER (WHERE btx.fee_amount IS NULL)::bigint AS fee_not_ready_count,
+                COUNT(*) FILTER (WHERE btx.net_amount IS NULL)::bigint AS net_not_ready_count
+            FROM payment_provider_batch_transactions btx
+            WHERE btx.provider = 'helcim'
+              AND btx.payment_provider_batch_id = batch.id
+        ) completeness ON true
+        WHERE batch.provider = 'helcim'
+          AND batch.net_amount IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM payment_actual_deposit_batches link
+            WHERE link.payment_provider_batch_id = batch.id
+              AND link.status = 'linked'
+          )
+          AND ($1::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date >= $1)
+          AND ($2::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date <= $2)
+        ORDER BY COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) DESC
+        LIMIT $3
+        "#,
+    )
+    .bind(query.date_from)
+    .bind(query.date_to)
+    .bind(clamp_limit(query.limit, 100, 500))
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(batch_row_from_pg)
+    .collect();
+    Ok(Json(rows))
+}
+
+async fn list_helcim_unmatched_deposits(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HelcimOperationsListQuery>,
+) -> Result<Json<Vec<HelcimDepositRow>>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+    let rows = load_helcim_deposit_rows(&state, None, &query)
+        .await?
+        .into_iter()
+        .filter(|row| row.linked_batch_count == 0)
+        .collect();
+    Ok(Json(rows))
+}
+
+async fn run_helcim_deposit_reconciliation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    payload: Option<Json<HelcimSettlementSyncRequest>>,
+) -> Result<Json<HelcimDepositReconciliationRunResponse>, PaymentError> {
+    let staff =
+        middleware::require_staff_with_permission(&state, &headers, PAYMENTS_DEPOSIT_REVIEW)
+            .await
+            .map_err(map_pay_session)?;
+    let payload = payload
+        .map(|Json(payload)| payload)
+        .unwrap_or(HelcimSettlementSyncRequest {
+            date_from: None,
+            date_to: None,
+        });
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let run_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO payment_deposit_reconciliation_runs (
+            provider,
+            status,
+            date_from,
+            date_to,
+            requested_by_staff_id
+        )
+        VALUES ('helcim', 'running', $1, $2, $3)
+        RETURNING id
+        "#,
+    )
+    .bind(payload.date_from)
+    .bind(payload.date_to)
+    .bind(staff.id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let stats =
+        create_deposit_reconciliation_items(&mut tx, run_id, payload.date_from, payload.date_to)
+            .await?;
+    sqlx::query(
+        r#"
+        UPDATE payment_deposit_reconciliation_runs
+        SET status = 'completed',
+            completed_at = now(),
+            summary = $2
+        WHERE id = $1
+        "#,
+    )
+    .bind(run_id)
+    .bind(json!({
+        "expected_batches_missing_actual": stats.expected_batches_missing_actual,
+        "actual_deposits_missing_expected": stats.actual_deposits_missing_expected,
+        "amount_mismatches": stats.amount_mismatches,
+        "date_mismatches": stats.date_mismatches,
+        "duplicate_references": stats.duplicate_references,
+        "items_opened": stats.items_opened,
+    }))
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(Json(HelcimDepositReconciliationRunResponse {
+        run_id,
+        status: "completed".to_string(),
+        expected_batches_missing_actual: stats.expected_batches_missing_actual,
+        actual_deposits_missing_expected: stats.actual_deposits_missing_expected,
+        amount_mismatches: stats.amount_mismatches,
+        date_mismatches: stats.date_mismatches,
+        duplicate_references: stats.duplicate_references,
+        items_opened: stats.items_opened,
+    }))
+}
+
 #[derive(Debug, Default)]
 struct HelcimSettlementSyncStats {
     payments_scanned: i64,
@@ -3181,6 +3848,204 @@ async fn load_helcim_batch_rows(
     Ok(rows)
 }
 
+fn batch_row_from_pg(row: sqlx::postgres::PgRow) -> HelcimBatchListRow {
+    HelcimBatchListRow {
+        id: row.get("id"),
+        provider_batch_id: row.get("provider_batch_id"),
+        status: row.get("status"),
+        closed_at: row.get("closed_at"),
+        settled_at: row.get("settled_at"),
+        expected_deposit_at: row.get("expected_deposit_at"),
+        gross_amount: money_option(row.get::<Option<Decimal>, _>("gross_amount")),
+        fee_amount: money_option(row.get::<Option<Decimal>, _>("fee_amount")),
+        net_amount: money_option(row.get::<Option<Decimal>, _>("net_amount")),
+        transaction_count: row.get("transaction_count"),
+        issue_count: row.get("issue_count"),
+        fee_not_ready_count: row.get("fee_not_ready_count"),
+        net_not_ready_count: row.get("net_not_ready_count"),
+        last_synced_at: row.get("last_synced_at"),
+    }
+}
+
+async fn load_helcim_deposit_rows(
+    state: &AppState,
+    id: Option<Uuid>,
+    query: &HelcimOperationsListQuery,
+) -> Result<Vec<HelcimDepositRow>, PaymentError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            deposit.id,
+            deposit.source_system,
+            deposit.source_reference,
+            deposit.qbo_deposit_id,
+            deposit.bank_feed_transaction_id,
+            deposit.posted_at,
+            deposit.amount,
+            deposit.currency,
+            deposit.status,
+            deposit.reviewed_at,
+            COALESCE(linked.linked_batch_count, 0)::bigint AS linked_batch_count,
+            linked.expected_amount,
+            linked.linked_amount,
+            CASE
+                WHEN linked.expected_amount IS NULL THEN NULL::numeric
+                ELSE (deposit.amount - linked.expected_amount)::numeric(12,2)
+            END AS difference,
+            COALESCE(issues.open_issue_count, 0)::bigint AS open_issue_count
+        FROM payment_actual_deposits deposit
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*)::bigint AS linked_batch_count,
+                SUM(expected_net_amount)::numeric(12,2) AS expected_amount,
+                SUM(COALESCE(linked_amount, expected_net_amount))::numeric(12,2) AS linked_amount
+            FROM payment_actual_deposit_batches link
+            WHERE link.deposit_id = deposit.id
+              AND link.status = 'linked'
+        ) linked ON true
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS open_issue_count
+            FROM payment_deposit_reconciliation_items item
+            WHERE item.provider = 'helcim'
+              AND item.deposit_id = deposit.id
+              AND item.status = 'open'
+        ) issues ON true
+        WHERE deposit.provider = 'helcim'
+          AND ($1::uuid IS NULL OR deposit.id = $1)
+          AND ($2::text IS NULL OR deposit.status = $2)
+          AND ($3::date IS NULL OR (deposit.posted_at AT TIME ZONE 'America/New_York')::date >= $3)
+          AND ($4::date IS NULL OR (deposit.posted_at AT TIME ZONE 'America/New_York')::date <= $4)
+          AND ($5::text IS NULL OR deposit.source_reference ILIKE $5 OR deposit.qbo_deposit_id ILIKE $5 OR deposit.bank_feed_transaction_id ILIKE $5)
+        ORDER BY deposit.posted_at DESC, deposit.created_at DESC
+        LIMIT $6
+        "#,
+    )
+    .bind(id)
+    .bind(clean_filter(query.status.as_deref()))
+    .bind(query.date_from)
+    .bind(query.date_to)
+    .bind(clean_filter(query.search.as_deref()).map(|value| format!("%{value}%")))
+    .bind(clamp_limit(query.limit, 100, 500))
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(deposit_row_from_pg)
+    .collect();
+    Ok(rows)
+}
+
+fn deposit_row_from_pg(row: sqlx::postgres::PgRow) -> HelcimDepositRow {
+    HelcimDepositRow {
+        id: row.get("id"),
+        source_system: row.get("source_system"),
+        source_reference: row.get("source_reference"),
+        qbo_deposit_id: row.get("qbo_deposit_id"),
+        bank_feed_transaction_id: row.get("bank_feed_transaction_id"),
+        posted_at: row.get("posted_at"),
+        amount: money_string(row.get("amount")),
+        currency: row.get("currency"),
+        status: row.get("status"),
+        linked_batch_count: row.get("linked_batch_count"),
+        expected_amount: money_option(row.get::<Option<Decimal>, _>("expected_amount")),
+        linked_amount: money_option(row.get::<Option<Decimal>, _>("linked_amount")),
+        difference: money_option(row.get::<Option<Decimal>, _>("difference")),
+        open_issue_count: row.get("open_issue_count"),
+        reviewed_at: row.get("reviewed_at"),
+    }
+}
+
+async fn load_helcim_deposit_detail(
+    state: &AppState,
+    id: Uuid,
+) -> Result<HelcimDepositDetailResponse, PaymentError> {
+    let mut deposits = load_helcim_deposit_rows(
+        state,
+        Some(id),
+        &HelcimOperationsListQuery {
+            limit: Some(1),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let Some(deposit) = deposits.pop() else {
+        return Err(PaymentError::InvalidPayload(
+            "Deposit was not found.".to_string(),
+        ));
+    };
+    let linked_batches = sqlx::query(
+        r#"
+        SELECT
+            link.id,
+            link.payment_provider_batch_id,
+            link.provider_batch_id,
+            link.expected_net_amount,
+            link.linked_amount,
+            link.match_type,
+            link.status,
+            link.created_at,
+            batch.status AS batch_status,
+            batch.expected_deposit_at,
+            batch.settled_at
+        FROM payment_actual_deposit_batches link
+        INNER JOIN payment_provider_batches batch ON batch.id = link.payment_provider_batch_id
+        WHERE link.deposit_id = $1
+          AND link.status = 'linked'
+        ORDER BY link.created_at DESC
+        "#,
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(|row| HelcimDepositBatchLinkRow {
+        id: row.get("id"),
+        payment_provider_batch_id: row.get("payment_provider_batch_id"),
+        provider_batch_id: row.get("provider_batch_id"),
+        expected_net_amount: money_option(row.get::<Option<Decimal>, _>("expected_net_amount")),
+        linked_amount: money_option(row.get::<Option<Decimal>, _>("linked_amount")),
+        match_type: row.get("match_type"),
+        status: row.get("status"),
+        created_at: row.get("created_at"),
+        batch_status: row.get("batch_status"),
+        expected_deposit_at: row.get("expected_deposit_at"),
+        settled_at: row.get("settled_at"),
+    })
+    .collect();
+    let events = sqlx::query_as::<_, (Uuid, String, Option<String>, Option<Uuid>, DateTime<Utc>)>(
+        r#"
+        SELECT id, action, note, actor_staff_id, created_at
+        FROM payment_actual_deposit_events
+        WHERE deposit_id = $1
+        ORDER BY created_at DESC
+        LIMIT 100
+        "#,
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(
+        |(id, action, note, actor_staff_id, created_at)| HelcimDepositEventRow {
+            id,
+            action,
+            note,
+            actor_staff_id,
+            created_at,
+        },
+    )
+    .collect();
+    let issues = load_deposit_issue_rows(&state.db, Some(id), None, None, Some(100)).await?;
+    Ok(HelcimDepositDetailResponse {
+        deposit,
+        linked_batches,
+        events,
+        issues,
+    })
+}
+
 async fn load_helcim_transaction_rows(
     state: &AppState,
     query: &HelcimOperationsListQuery,
@@ -3522,6 +4387,26 @@ fn clean_required_note(
     Ok(note)
 }
 
+fn parse_money_input(value: &str) -> Result<Decimal, PaymentError> {
+    let amount = value
+        .trim()
+        .trim_start_matches('$')
+        .replace(',', "")
+        .parse::<Decimal>()
+        .map_err(|_| PaymentError::InvalidPayload("Amount must be a valid number.".to_string()))?
+        .round_dp(2);
+    if amount.is_zero() {
+        return Err(PaymentError::InvalidPayload(
+            "Amount must not be zero.".to_string(),
+        ));
+    }
+    Ok(amount)
+}
+
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::Database(db_error) if db_error.code().as_deref() == Some("23505"))
+}
+
 fn normalize_resolution_action(action: &str) -> Result<String, PaymentError> {
     match action.trim().to_ascii_lowercase().as_str() {
         "reviewed" | "resolved" | "ignored" | "reopened" => Ok(action.trim().to_ascii_lowercase()),
@@ -3698,6 +4583,567 @@ async fn insert_settlement_item_event(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
     Ok(())
+}
+
+async fn load_deposit_state_for_update(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Value, PaymentError> {
+    sqlx::query_scalar::<_, Value>(
+        r#"
+        SELECT to_jsonb(deposit)
+        FROM payment_actual_deposits deposit
+        WHERE deposit.id = $1
+          AND deposit.provider = 'helcim'
+        FOR UPDATE
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Deposit was not found.".to_string()))
+}
+
+async fn load_deposit_state<'e, E>(executor: E, id: Uuid) -> Result<Value, PaymentError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    sqlx::query_scalar::<_, Value>(
+        r#"
+        SELECT to_jsonb(deposit)
+        FROM payment_actual_deposits deposit
+        WHERE deposit.id = $1
+          AND deposit.provider = 'helcim'
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(executor)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Deposit was not found.".to_string()))
+}
+
+async fn insert_deposit_event(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    deposit_id: Uuid,
+    actor_staff_id: Option<Uuid>,
+    action: &str,
+    note: Option<&str>,
+    before_state: Value,
+    after_state: Value,
+) -> Result<(), PaymentError> {
+    sqlx::query(
+        r#"
+        INSERT INTO payment_actual_deposit_events (
+            deposit_id,
+            actor_staff_id,
+            action,
+            note,
+            before_state,
+            after_state
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+    )
+    .bind(deposit_id)
+    .bind(actor_staff_id)
+    .bind(action)
+    .bind(note)
+    .bind(before_state)
+    .bind(after_state)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(())
+}
+
+async fn deposit_difference<'e, E>(
+    executor: E,
+    deposit_id: Uuid,
+) -> Result<Option<Decimal>, PaymentError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    sqlx::query_scalar::<_, Option<Decimal>>(
+        r#"
+        SELECT
+            CASE
+                WHEN SUM(link.expected_net_amount) IS NULL THEN NULL::numeric
+                ELSE (MAX(deposit.amount) - SUM(link.expected_net_amount))::numeric(12,2)
+            END
+        FROM payment_actual_deposits deposit
+        LEFT JOIN payment_actual_deposit_batches link
+          ON link.deposit_id = deposit.id
+         AND link.status = 'linked'
+        WHERE deposit.id = $1
+          AND deposit.provider = 'helcim'
+        GROUP BY deposit.id
+        "#,
+    )
+    .bind(deposit_id)
+    .fetch_optional(executor)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))
+    .map(Option::flatten)
+}
+
+async fn refresh_deposit_match_status(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    deposit_id: Uuid,
+) -> Result<(), PaymentError> {
+    let row = sqlx::query(
+        r#"
+        SELECT
+            deposit.amount,
+            COUNT(link.id)::bigint AS linked_count,
+            SUM(link.expected_net_amount)::numeric(12,2) AS expected_amount
+        FROM payment_actual_deposits deposit
+        LEFT JOIN payment_actual_deposit_batches link
+          ON link.deposit_id = deposit.id
+         AND link.status = 'linked'
+        WHERE deposit.id = $1
+          AND deposit.provider = 'helcim'
+        GROUP BY deposit.id
+        "#,
+    )
+    .bind(deposit_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Deposit was not found.".to_string()))?;
+    let linked_count: i64 = row.get("linked_count");
+    let amount: Decimal = row.get("amount");
+    let expected: Option<Decimal> = row.get("expected_amount");
+    let status = if linked_count == 0 {
+        "open"
+    } else if expected.map(|value| value.round_dp(2)) == Some(amount.round_dp(2)) {
+        "matched"
+    } else {
+        "needs_review"
+    };
+    sqlx::query(
+        r#"
+        UPDATE payment_actual_deposits
+        SET status = $2
+        WHERE id = $1
+          AND provider = 'helcim'
+        "#,
+    )
+    .bind(deposit_id)
+    .bind(status)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(())
+}
+
+async fn create_deposit_amount_item_if_needed(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    run_id: Option<Uuid>,
+    deposit_id: Uuid,
+) -> Result<i64, PaymentError> {
+    let row = sqlx::query(
+        r#"
+        SELECT
+            deposit.amount,
+            COUNT(link.id)::bigint AS linked_count,
+            SUM(link.expected_net_amount)::numeric(12,2) AS expected_amount
+        FROM payment_actual_deposits deposit
+        LEFT JOIN payment_actual_deposit_batches link
+          ON link.deposit_id = deposit.id
+         AND link.status = 'linked'
+        WHERE deposit.id = $1
+          AND deposit.provider = 'helcim'
+        GROUP BY deposit.id
+        "#,
+    )
+    .bind(deposit_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Deposit was not found.".to_string()))?;
+    let amount: Decimal = row.get("amount");
+    let linked_count: i64 = row.get("linked_count");
+    let expected_amount: Option<Decimal> = row.get("expected_amount");
+    if linked_count == 0 {
+        return insert_deposit_item(
+            tx,
+            run_id,
+            "actual_deposit_missing_expected_batch",
+            "warning",
+            Some(deposit_id),
+            None,
+            None,
+            json!({ "actual_deposit_amount": amount.to_string() }),
+            json!({}),
+            "Actual bank deposit is not linked to any expected Helcim batch.",
+        )
+        .await;
+    }
+    let Some(expected_amount) = expected_amount.map(|value| value.round_dp(2)) else {
+        return insert_deposit_item(
+            tx,
+            run_id,
+            "partial_deposit",
+            "warning",
+            Some(deposit_id),
+            None,
+            None,
+            json!({ "actual_deposit_amount": amount.to_string() }),
+            json!({ "expected_amount": Value::Null }),
+            "Linked expected batch amount is not ready.",
+        )
+        .await;
+    };
+    if amount.round_dp(2) == expected_amount {
+        return Ok(0);
+    }
+    insert_deposit_item(
+        tx,
+        run_id,
+        "deposit_amount_mismatch",
+        "warning",
+        Some(deposit_id),
+        None,
+        None,
+        json!({ "actual_deposit_amount": amount.to_string() }),
+        json!({ "expected_deposit_amount": expected_amount.to_string() }),
+        "Actual bank deposit amount does not match linked expected deposit total.",
+    )
+    .await
+}
+
+async fn insert_deposit_item(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    run_id: Option<Uuid>,
+    item_type: &str,
+    severity: &str,
+    deposit_id: Option<Uuid>,
+    payment_provider_batch_id: Option<Uuid>,
+    provider_batch_id: Option<&str>,
+    processor_values: Value,
+    ros_values: Value,
+    message: &str,
+) -> Result<i64, PaymentError> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO payment_deposit_reconciliation_items (
+            run_id,
+            provider,
+            item_type,
+            severity,
+            status,
+            deposit_id,
+            payment_provider_batch_id,
+            provider_batch_id,
+            processor_values,
+            ros_values,
+            message
+        )
+        VALUES ($1, 'helcim', $2, $3, 'open', $4, $5, $6, $7, $8, $9)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(run_id)
+    .bind(item_type)
+    .bind(severity)
+    .bind(deposit_id)
+    .bind(payment_provider_batch_id)
+    .bind(provider_batch_id)
+    .bind(processor_values)
+    .bind(ros_values)
+    .bind(message)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(result.rows_affected() as i64)
+}
+
+async fn load_deposit_issue_rows<'e, E>(
+    executor: E,
+    deposit_id: Option<Uuid>,
+    batch_id: Option<Uuid>,
+    status: Option<&str>,
+    limit: Option<i64>,
+) -> Result<Vec<HelcimDepositIssueRow>, PaymentError>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            id,
+            item_type,
+            severity,
+            status,
+            deposit_id,
+            payment_provider_batch_id,
+            provider_batch_id,
+            processor_values,
+            ros_values,
+            message,
+            created_at
+        FROM payment_deposit_reconciliation_items
+        WHERE provider = 'helcim'
+          AND ($1::uuid IS NULL OR deposit_id = $1)
+          AND ($2::uuid IS NULL OR payment_provider_batch_id = $2)
+          AND ($3::text IS NULL OR status = $3)
+        ORDER BY
+            CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
+            created_at DESC
+        LIMIT $4
+        "#,
+    )
+    .bind(deposit_id)
+    .bind(batch_id)
+    .bind(status)
+    .bind(clamp_limit(limit, 100, 500))
+    .fetch_all(executor)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .into_iter()
+    .map(deposit_issue_from_row)
+    .collect();
+    Ok(rows)
+}
+
+fn deposit_issue_from_row(row: sqlx::postgres::PgRow) -> HelcimDepositIssueRow {
+    let processor_values: Value = row.get("processor_values");
+    let ros_values: Value = row.get("ros_values");
+    let provider_batch_id: Option<String> = row.get("provider_batch_id");
+    HelcimDepositIssueRow {
+        id: row.get("id"),
+        item_type: row.get::<String, _>("item_type").clone(),
+        issue_label: deposit_issue_label(row.get::<String, _>("item_type").as_str()).to_string(),
+        severity: staff_safe_severity(row.get::<String, _>("severity").as_str()),
+        status: row.get("status"),
+        deposit_id: row.get("deposit_id"),
+        payment_provider_batch_id: row.get("payment_provider_batch_id"),
+        provider_batch_id: provider_batch_id.clone(),
+        amount: value_amount(&processor_values).or_else(|| value_amount(&ros_values)),
+        reference: provider_batch_id
+            .or_else(|| value_reference(&processor_values))
+            .or_else(|| value_reference(&ros_values)),
+        message: row.get("message"),
+        created_at: row.get("created_at"),
+    }
+}
+
+#[derive(Default)]
+struct DepositReconciliationStats {
+    expected_batches_missing_actual: i64,
+    actual_deposits_missing_expected: i64,
+    amount_mismatches: i64,
+    date_mismatches: i64,
+    duplicate_references: i64,
+    items_opened: i64,
+}
+
+async fn create_deposit_reconciliation_items(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    run_id: Uuid,
+    date_from: Option<NaiveDate>,
+    date_to: Option<NaiveDate>,
+) -> Result<DepositReconciliationStats, PaymentError> {
+    let mut stats = DepositReconciliationStats::default();
+
+    let missing_batches = sqlx::query(
+        r#"
+        SELECT id, provider_batch_id, net_amount, expected_deposit_at, settled_at, closed_at
+        FROM payment_provider_batches batch
+        WHERE provider = 'helcim'
+          AND net_amount IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM payment_actual_deposit_batches link
+            WHERE link.payment_provider_batch_id = batch.id
+              AND link.status = 'linked'
+          )
+          AND ($1::date IS NULL OR (COALESCE(expected_deposit_at, settled_at, closed_at, last_synced_at) AT TIME ZONE 'America/New_York')::date >= $1)
+          AND ($2::date IS NULL OR (COALESCE(expected_deposit_at, settled_at, closed_at, last_synced_at) AT TIME ZONE 'America/New_York')::date <= $2)
+        "#,
+    )
+    .bind(date_from)
+    .bind(date_to)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    for row in missing_batches {
+        stats.expected_batches_missing_actual += 1;
+        let batch_id: Uuid = row.get("id");
+        let provider_batch_id: String = row.get("provider_batch_id");
+        stats.items_opened += insert_deposit_item(
+            tx,
+            Some(run_id),
+            "expected_batch_missing_actual_deposit",
+            "warning",
+            None,
+            Some(batch_id),
+            Some(&provider_batch_id),
+            json!({ "expected_deposit_amount": row.get::<Option<Decimal>, _>("net_amount").map(|value| value.to_string()) }),
+            json!({ "provider_batch_id": provider_batch_id }),
+            "Expected Helcim batch deposit is not linked to an actual bank deposit.",
+        )
+        .await?;
+    }
+
+    let deposits = sqlx::query(
+        r#"
+        SELECT id
+        FROM payment_actual_deposits deposit
+        WHERE provider = 'helcim'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM payment_actual_deposit_batches link
+            WHERE link.deposit_id = deposit.id
+              AND link.status = 'linked'
+          )
+          AND ($1::date IS NULL OR (posted_at AT TIME ZONE 'America/New_York')::date >= $1)
+          AND ($2::date IS NULL OR (posted_at AT TIME ZONE 'America/New_York')::date <= $2)
+        "#,
+    )
+    .bind(date_from)
+    .bind(date_to)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    for row in deposits {
+        stats.actual_deposits_missing_expected += 1;
+        stats.items_opened +=
+            create_deposit_amount_item_if_needed(tx, Some(run_id), row.get("id")).await?;
+    }
+
+    let linked_deposits = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT DISTINCT deposit.id
+        FROM payment_actual_deposits deposit
+        INNER JOIN payment_actual_deposit_batches link ON link.deposit_id = deposit.id
+        WHERE deposit.provider = 'helcim'
+          AND link.status = 'linked'
+          AND ($1::date IS NULL OR (deposit.posted_at AT TIME ZONE 'America/New_York')::date >= $1)
+          AND ($2::date IS NULL OR (deposit.posted_at AT TIME ZONE 'America/New_York')::date <= $2)
+        "#,
+    )
+    .bind(date_from)
+    .bind(date_to)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    for deposit_id in linked_deposits {
+        let opened = create_deposit_amount_item_if_needed(tx, Some(run_id), deposit_id).await?;
+        if opened > 0 {
+            stats.amount_mismatches += 1;
+            stats.items_opened += opened;
+        }
+    }
+
+    let date_mismatches = sqlx::query(
+        r#"
+        SELECT
+            deposit.id AS deposit_id,
+            batch.id AS batch_id,
+            batch.provider_batch_id,
+            deposit.posted_at,
+            COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at) AS expected_at
+        FROM payment_actual_deposits deposit
+        INNER JOIN payment_actual_deposit_batches link ON link.deposit_id = deposit.id
+        INNER JOIN payment_provider_batches batch ON batch.id = link.payment_provider_batch_id
+        WHERE deposit.provider = 'helcim'
+          AND link.status = 'linked'
+          AND COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at) IS NOT NULL
+          AND (
+            deposit.posted_at < COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at) - interval '3 days'
+            OR deposit.posted_at > COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at) + interval '3 days'
+          )
+          AND ($1::date IS NULL OR (deposit.posted_at AT TIME ZONE 'America/New_York')::date >= $1)
+          AND ($2::date IS NULL OR (deposit.posted_at AT TIME ZONE 'America/New_York')::date <= $2)
+        "#,
+    )
+    .bind(date_from)
+    .bind(date_to)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    for row in date_mismatches {
+        stats.date_mismatches += 1;
+        let provider_batch_id: String = row.get("provider_batch_id");
+        stats.items_opened += insert_deposit_item(
+            tx,
+            Some(run_id),
+            "deposit_date_outside_window",
+            "info",
+            Some(row.get("deposit_id")),
+            Some(row.get("batch_id")),
+            Some(&provider_batch_id),
+            json!({ "actual_posted_at": row.get::<DateTime<Utc>, _>("posted_at") }),
+            json!({ "expected_deposit_at": row.get::<Option<DateTime<Utc>>, _>("expected_at") }),
+            "Actual bank deposit posted outside the expected deposit date window.",
+        )
+        .await?;
+    }
+
+    let duplicate_refs = sqlx::query(
+        r#"
+        SELECT id, source_system, source_reference, qbo_deposit_id, bank_feed_transaction_id
+        FROM payment_actual_deposits deposit
+        WHERE provider = 'helcim'
+          AND (
+            (qbo_deposit_id IS NOT NULL AND qbo_deposit_id IN (
+                SELECT qbo_deposit_id
+                FROM payment_actual_deposits
+                WHERE provider = 'helcim' AND qbo_deposit_id IS NOT NULL
+                GROUP BY qbo_deposit_id
+                HAVING COUNT(*) > 1
+            ))
+            OR (bank_feed_transaction_id IS NOT NULL AND bank_feed_transaction_id IN (
+                SELECT bank_feed_transaction_id
+                FROM payment_actual_deposits
+                WHERE provider = 'helcim' AND bank_feed_transaction_id IS NOT NULL
+                GROUP BY bank_feed_transaction_id
+                HAVING COUNT(*) > 1
+            ))
+          )
+        "#,
+    )
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    for row in duplicate_refs {
+        stats.duplicate_references += 1;
+        stats.items_opened += insert_deposit_item(
+            tx,
+            Some(run_id),
+            "duplicate_deposit_reference",
+            "critical",
+            Some(row.get("id")),
+            None,
+            None,
+            json!({
+                "source_system": row.get::<String, _>("source_system"),
+                "source_reference": row.get::<Option<String>, _>("source_reference"),
+                "qbo_deposit_id": row.get::<Option<String>, _>("qbo_deposit_id"),
+                "bank_feed_transaction_id": row.get::<Option<String>, _>("bank_feed_transaction_id"),
+            }),
+            json!({}),
+            "Actual bank deposit shares a QBO or bank-feed reference with another deposit.",
+        )
+        .await?;
+    }
+
+    Ok(stats)
+}
+
+fn deposit_issue_label(item_type: &str) -> &'static str {
+    match item_type {
+        "actual_deposit_missing_expected_batch" => "Unmatched Actual Deposit",
+        "expected_batch_missing_actual_deposit" => "Not Cleared",
+        "deposit_amount_mismatch" => "Amount Difference",
+        "deposit_date_outside_window" => "Date Difference",
+        "partial_deposit" => "Partial Deposit",
+        "duplicate_deposit_reference" => "Duplicate Deposit",
+        _ => "Needs Review",
+    }
 }
 
 fn issue_label(item_type: &str) -> &'static str {

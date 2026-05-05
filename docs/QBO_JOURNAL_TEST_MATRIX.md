@@ -28,7 +28,8 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 | Gift card paid liability | Same sign rules; liability / expense mappings unchanged |
 | Helcim card / manual / vault / web checkout payments | All Helcim card methods aggregate to the **`helcim_card`** tender mapping so QBO needs one card-clearing account |
 | Helcim merchant fees synced from API | Debit **merchant fee** expense and credit the same Helcim clearing account, leaving clearing at net |
-| Helcim reconciliation issue reviewed/resolved/marked expected | No QBO journal change by itself; reconciliation issue workflow is audit history only until a separate bank/QBO deposit layer exists |
+| Helcim reconciliation issue reviewed/resolved/marked expected | No QBO journal change by itself; reconciliation issue workflow is audit history only. Actual bank deposit matching is handled separately in Payments and still does not post to QBO. |
+| Helcim actual bank deposit manually recorded or matched to batches | No QBO journal or deposit is created. Matching records bank-cleared evidence inside ROS only and leaves clearing/deposit posting for a separate reviewed workflow. |
 
 ## Deposits
 

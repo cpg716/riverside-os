@@ -291,6 +291,41 @@ ALTER TABLE ONLY public.payment_settlement_item_events
     ADD CONSTRAINT payment_settlement_item_events_pkey PRIMARY KEY (id);
 
 --
+-- Name: payment_actual_deposits payment_actual_deposits_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_actual_deposits
+    ADD CONSTRAINT payment_actual_deposits_pkey PRIMARY KEY (id);
+
+--
+-- Name: payment_actual_deposit_batches payment_actual_deposit_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_actual_deposit_batches
+    ADD CONSTRAINT payment_actual_deposit_batches_pkey PRIMARY KEY (id);
+
+--
+-- Name: payment_deposit_reconciliation_runs payment_deposit_reconciliation_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_deposit_reconciliation_runs
+    ADD CONSTRAINT payment_deposit_reconciliation_runs_pkey PRIMARY KEY (id);
+
+--
+-- Name: payment_deposit_reconciliation_items payment_deposit_reconciliation_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_deposit_reconciliation_items
+    ADD CONSTRAINT payment_deposit_reconciliation_items_pkey PRIMARY KEY (id);
+
+--
+-- Name: payment_actual_deposit_events payment_actual_deposit_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_actual_deposit_events
+    ADD CONSTRAINT payment_actual_deposit_events_pkey PRIMARY KEY (id);
+
+--
 -- Name: corecredit_exception_queue corecredit_exception_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2564,6 +2599,69 @@ ALTER TABLE ONLY public.payment_settlement_item_events
 
 ALTER TABLE ONLY public.payment_settlement_item_events
     ADD CONSTRAINT payment_settlement_item_events_actor_staff_id_fkey FOREIGN KEY (actor_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_actual_deposits payment_actual_deposits_reviewed_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_actual_deposits
+    ADD CONSTRAINT payment_actual_deposits_reviewed_by_staff_id_fkey FOREIGN KEY (reviewed_by_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_actual_deposit_batches payment_actual_deposit_batches_deposit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_actual_deposit_batches
+    ADD CONSTRAINT payment_actual_deposit_batches_deposit_id_fkey FOREIGN KEY (deposit_id) REFERENCES public.payment_actual_deposits(id) ON DELETE CASCADE;
+
+--
+-- Name: payment_actual_deposit_batches payment_actual_deposit_batches_provider_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_actual_deposit_batches
+    ADD CONSTRAINT payment_actual_deposit_batches_provider_batch_id_fkey FOREIGN KEY (payment_provider_batch_id) REFERENCES public.payment_provider_batches(id) ON DELETE RESTRICT;
+
+--
+-- Name: payment_deposit_reconciliation_runs payment_deposit_reconciliation_runs_requested_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_deposit_reconciliation_runs
+    ADD CONSTRAINT payment_deposit_reconciliation_runs_requested_by_staff_id_fkey FOREIGN KEY (requested_by_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_deposit_reconciliation_items payment_deposit_reconciliation_items_run_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_deposit_reconciliation_items
+    ADD CONSTRAINT payment_deposit_reconciliation_items_run_id_fkey FOREIGN KEY (run_id) REFERENCES public.payment_deposit_reconciliation_runs(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_deposit_reconciliation_items payment_deposit_reconciliation_items_deposit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_deposit_reconciliation_items
+    ADD CONSTRAINT payment_deposit_reconciliation_items_deposit_id_fkey FOREIGN KEY (deposit_id) REFERENCES public.payment_actual_deposits(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_deposit_reconciliation_items payment_deposit_reconciliation_items_provider_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_deposit_reconciliation_items
+    ADD CONSTRAINT payment_deposit_reconciliation_items_provider_batch_id_fkey FOREIGN KEY (payment_provider_batch_id) REFERENCES public.payment_provider_batches(id) ON DELETE SET NULL;
+
+--
+-- Name: payment_actual_deposit_events payment_actual_deposit_events_deposit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_actual_deposit_events
+    ADD CONSTRAINT payment_actual_deposit_events_deposit_id_fkey FOREIGN KEY (deposit_id) REFERENCES public.payment_actual_deposits(id) ON DELETE CASCADE;
+
+--
+-- Name: payment_actual_deposit_events payment_actual_deposit_events_actor_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_actual_deposit_events
+    ADD CONSTRAINT payment_actual_deposit_events_actor_staff_id_fkey FOREIGN KEY (actor_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
 
 --
 -- Name: payment_transactions payment_transactions_payer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

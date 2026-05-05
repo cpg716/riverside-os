@@ -149,6 +149,36 @@ COMMENT ON TABLE public.payment_settlement_items IS 'Open and historical settlem
 COMMENT ON TABLE public.payment_settlement_item_events IS 'Append-only audit history for staff review, notes, resolution, reopen, and manual payment-link actions on settlement reconciliation findings.';
 
 --
+-- Name: TABLE payment_actual_deposits; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_actual_deposits IS 'Actual bank, QBO, or manual deposit records used to match bank-cleared money to expected provider batch deposits.';
+
+--
+-- Name: TABLE payment_actual_deposit_batches; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_actual_deposit_batches IS 'Audit-safe links between actual deposits and expected provider batches without mutating provider batch amounts.';
+
+--
+-- Name: TABLE payment_deposit_reconciliation_runs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_deposit_reconciliation_runs IS 'Durable run history for actual deposit to expected provider batch reconciliation.';
+
+--
+-- Name: TABLE payment_deposit_reconciliation_items; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_deposit_reconciliation_items IS 'Open and historical actual-deposit matching findings for unmatched, mismatched, partial, or duplicate deposit records.';
+
+--
+-- Name: TABLE payment_actual_deposit_events; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.payment_actual_deposit_events IS 'Append-only audit history for actual deposit creation, notes, review, reopen, accepted variance, and batch-link actions.';
+
+--
 -- Name: TABLE corecredit_exception_queue; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -1620,6 +1650,78 @@ CREATE INDEX idx_payment_settlement_item_events_action ON public.payment_settlem
 CREATE INDEX idx_payment_settlement_item_events_created ON public.payment_settlement_item_events USING btree (created_at DESC);
 
 --
+-- Name: idx_payment_actual_deposits_provider_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_actual_deposits_provider_status ON public.payment_actual_deposits USING btree (provider, status, posted_at DESC);
+
+--
+-- Name: idx_payment_actual_deposits_posted_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_actual_deposits_posted_at ON public.payment_actual_deposits USING btree (provider, posted_at DESC);
+
+--
+-- Name: idx_payment_actual_deposit_batches_deposit; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_actual_deposit_batches_deposit ON public.payment_actual_deposit_batches USING btree (deposit_id, created_at DESC);
+
+--
+-- Name: idx_payment_actual_deposit_batches_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_actual_deposit_batches_batch ON public.payment_actual_deposit_batches USING btree (payment_provider_batch_id);
+
+--
+-- Name: idx_payment_deposit_reconciliation_runs_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_deposit_reconciliation_runs_status ON public.payment_deposit_reconciliation_runs USING btree (provider, status, started_at DESC);
+
+--
+-- Name: idx_payment_deposit_reconciliation_runs_window; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_deposit_reconciliation_runs_window ON public.payment_deposit_reconciliation_runs USING btree (provider, date_from, date_to);
+
+--
+-- Name: idx_payment_deposit_reconciliation_items_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_deposit_reconciliation_items_status ON public.payment_deposit_reconciliation_items USING btree (provider, status, item_type, created_at DESC);
+
+--
+-- Name: idx_payment_deposit_reconciliation_items_deposit; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_deposit_reconciliation_items_deposit ON public.payment_deposit_reconciliation_items USING btree (deposit_id) WHERE (deposit_id IS NOT NULL);
+
+--
+-- Name: idx_payment_deposit_reconciliation_items_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_deposit_reconciliation_items_batch ON public.payment_deposit_reconciliation_items USING btree (payment_provider_batch_id) WHERE (payment_provider_batch_id IS NOT NULL);
+
+--
+-- Name: idx_payment_actual_deposit_events_deposit; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_actual_deposit_events_deposit ON public.payment_actual_deposit_events USING btree (deposit_id, created_at DESC);
+
+--
+-- Name: idx_payment_actual_deposit_events_actor; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_actual_deposit_events_actor ON public.payment_actual_deposit_events USING btree (actor_staff_id, created_at DESC) WHERE (actor_staff_id IS NOT NULL);
+
+--
+-- Name: idx_payment_actual_deposit_events_action; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_actual_deposit_events_action ON public.payment_actual_deposit_events USING btree (action, created_at DESC);
+
+--
 -- Name: idx_corecredit_exception_queue_rms_record; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2904,6 +3006,24 @@ CREATE UNIQUE INDEX uq_payment_provider_batch_transactions_provider_transaction 
 CREATE UNIQUE INDEX uq_payment_settlement_items_active_identity ON public.payment_settlement_items USING btree (provider, item_type, COALESCE(provider_transaction_id, ''::text), COALESCE(payment_transaction_id::text, ''::text), COALESCE(provider_batch_id, ''::text)) WHERE (status = 'open'::text);
 
 --
+-- Name: uq_payment_actual_deposits_source_reference; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_payment_actual_deposits_source_reference ON public.payment_actual_deposits USING btree (source_system, source_reference) WHERE ((source_reference IS NOT NULL) AND (btrim(source_reference) <> ''::text));
+
+--
+-- Name: uq_payment_actual_deposit_batches_link; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_payment_actual_deposit_batches_link ON public.payment_actual_deposit_batches USING btree (deposit_id, payment_provider_batch_id);
+
+--
+-- Name: uq_payment_deposit_items_active_identity; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_payment_deposit_items_active_identity ON public.payment_deposit_reconciliation_items USING btree (provider, item_type, COALESCE(deposit_id::text, ''::text), COALESCE(payment_provider_batch_id::text, ''::text), COALESCE(provider_batch_id, ''::text)) WHERE (status = 'open'::text);
+
+--
 -- Name: uq_corecredit_exception_queue_active_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2992,6 +3112,12 @@ CREATE TRIGGER trigger_payment_provider_batch_transactions_updated_at BEFORE UPD
 --
 
 CREATE TRIGGER trigger_payment_settlement_items_updated_at BEFORE UPDATE ON public.payment_settlement_items FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
+
+--
+-- Name: payment_actual_deposits trigger_payment_actual_deposits_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trigger_payment_actual_deposits_updated_at BEFORE UPDATE ON public.payment_actual_deposits FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
 
 --
 -- Name: store_checkout_payment_attempt trigger_store_checkout_payment_attempt_updated_at; Type: TRIGGER; Schema: public; Owner: -
