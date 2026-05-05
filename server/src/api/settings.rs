@@ -4,6 +4,7 @@
 
 use crate::logic::backups::{BackupFile, BackupManager, BackupSettings};
 use crate::logic::insights_config::StoreInsightsConfig;
+use crate::logic::integration_credentials;
 use crate::logic::remote_access::RemoteAccessManager;
 use axum::{
     extract::{ConnectInfo, Path, Query, State},
@@ -56,6 +57,19 @@ pub enum SettingsError {
     Unauthorized(String),
     #[error("{0}")]
     Forbidden(String),
+}
+
+fn map_credential_settings_error(
+    error: integration_credentials::IntegrationCredentialError,
+) -> SettingsError {
+    match error {
+        integration_credentials::IntegrationCredentialError::Database(error) => {
+            SettingsError::Database(error)
+        }
+        integration_credentials::IntegrationCredentialError::InvalidPayload(message) => {
+            SettingsError::InvalidPayload(message)
+        }
+    }
 }
 
 fn map_set_perm(e: (StatusCode, axum::Json<serde_json::Value>)) -> SettingsError {
@@ -818,6 +832,145 @@ async fn optimize_db(
     sqlx::query("VACUUM ANALYZE").execute(&state.db).await?;
 
     Ok(Json(json!({ "status": "optimized" })))
+}
+
+#[derive(Debug, Serialize)]
+struct IntegrationCredentialsStatusResponse {
+    integration_key: String,
+    supported_keys: Vec<String>,
+    configured: HashMap<String, bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PatchIntegrationCredentialsBody {
+    credentials: HashMap<String, String>,
+}
+
+fn clean_integration_credential_value(
+    credential_key: &str,
+    value: String,
+) -> Result<Option<String>, SettingsError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > 4096 {
+        return Err(SettingsError::InvalidPayload(format!(
+            "{credential_key} is too long."
+        )));
+    }
+    if matches!(
+        credential_key,
+        "api_base_url" | "oauth_token_url" | "base_url" | "url"
+    ) {
+        let parsed = reqwest::Url::parse(trimmed).map_err(|_| {
+            SettingsError::InvalidPayload(format!("{credential_key} must be a valid URL."))
+        })?;
+        if !matches!(parsed.scheme(), "https" | "http") {
+            return Err(SettingsError::InvalidPayload(format!(
+                "{credential_key} must use http or https."
+            )));
+        }
+        return Ok(Some(trimmed.trim_end_matches('/').to_string()));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+async fn integration_credentials_status(
+    state: &AppState,
+    integration_key: &str,
+) -> Result<IntegrationCredentialsStatusResponse, SettingsError> {
+    let supported_keys = integration_credentials::credential_keys_for_integration(integration_key);
+    if supported_keys.is_empty() {
+        return Err(SettingsError::InvalidPayload(
+            "Unsupported integration credential group.".to_string(),
+        ));
+    }
+    let configured = integration_credentials::configured_integration_credentials(
+        &state.db,
+        integration_key,
+        &supported_keys,
+    )
+    .await?;
+    Ok(IntegrationCredentialsStatusResponse {
+        integration_key: integration_key.to_string(),
+        supported_keys: supported_keys.iter().map(|key| key.to_string()).collect(),
+        configured: supported_keys
+            .into_iter()
+            .map(|key| (key.to_string(), configured.contains(key)))
+            .collect(),
+    })
+}
+
+async fn get_integration_credentials_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(integration_key): Path<String>,
+) -> Result<Json<IntegrationCredentialsStatusResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    Ok(Json(
+        integration_credentials_status(&state, integration_key.trim()).await?,
+    ))
+}
+
+async fn patch_integration_credentials(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(integration_key): Path<String>,
+    Json(body): Json<PatchIntegrationCredentialsBody>,
+) -> Result<Json<IntegrationCredentialsStatusResponse>, SettingsError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_set_perm)?;
+    let integration_key = integration_key.trim().to_ascii_lowercase();
+    let supported_keys = integration_credentials::credential_keys_for_integration(&integration_key);
+    if supported_keys.is_empty() {
+        return Err(SettingsError::InvalidPayload(
+            "Unsupported integration credential group.".to_string(),
+        ));
+    }
+
+    let mut values = Vec::new();
+    for (credential_key, value) in body.credentials {
+        let credential_key = credential_key.trim().to_ascii_lowercase();
+        if !integration_credentials::is_supported_integration_credential(
+            &integration_key,
+            &credential_key,
+        ) {
+            return Err(SettingsError::InvalidPayload(format!(
+                "{credential_key} is not supported for {integration_key}."
+            )));
+        }
+        if let Some(cleaned) = clean_integration_credential_value(&credential_key, value)? {
+            values.push((credential_key, cleaned));
+        }
+    }
+
+    if values.is_empty() {
+        return Err(SettingsError::InvalidPayload(
+            "Enter at least one credential value to save.".to_string(),
+        ));
+    }
+
+    let save_values = values
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.clone()))
+        .collect();
+    integration_credentials::save_integration_credentials(
+        &state.db,
+        &integration_key,
+        save_values,
+        Some(staff.id),
+    )
+    .await
+    .map_err(map_credential_settings_error)?;
+    integration_credentials::apply_integration_credentials_to_env(&state.db, &integration_key)
+        .await
+        .map_err(map_credential_settings_error)?;
+
+    Ok(Json(
+        integration_credentials_status(&state, &integration_key).await?,
+    ))
 }
 
 async fn get_backup_settings(
@@ -1655,6 +1808,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/database/stats", get(get_db_stats))
         .route("/database/optimize", post(optimize_db))
+        .route(
+            "/integration-credentials/{integration_key}",
+            get(get_integration_credentials_status).patch(patch_integration_credentials),
+        )
         .route(
             "/weather",
             get(get_weather_settings).patch(patch_weather_settings),

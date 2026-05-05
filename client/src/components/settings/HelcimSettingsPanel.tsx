@@ -16,7 +16,10 @@ import helcimLogo from "../../assets/images/brands/Helcim_Logo.png";
 
 interface HelcimProviderStatus {
   enabled: boolean;
+  api_token_configured: boolean;
   device_configured: boolean;
+  simulator_enabled: boolean;
+  webhook_secret_configured: boolean;
   device_code_suffix?: string | null;
   api_base_host: string;
   missing_config: string[];
@@ -38,6 +41,12 @@ const HelcimSettingsPanel: React.FC = () => {
   const [providerSettings, setProviderSettings] =
     useState<PaymentProviderSettings | null>(null);
   const [providerSaving, setProviderSaving] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [apiTokenInput, setApiTokenInput] = useState("");
+  const [deviceCodeInput, setDeviceCodeInput] = useState("");
+  const [webhookSecretInput, setWebhookSecretInput] = useState("");
+  const [apiBaseUrlInput, setApiBaseUrlInput] = useState("");
+  const [simulatorEnabled, setSimulatorEnabled] = useState(false);
 
   const fetchProviderStatus = useCallback(async () => {
     setHelcimLoading(true);
@@ -97,9 +106,75 @@ const HelcimSettingsPanel: React.FC = () => {
     }
   }, [backofficeHeaders, baseUrl]);
 
+  const saveHelcimConfig = useCallback(async () => {
+    setConfigSaving(true);
+    setHelcimError(null);
+    try {
+      const payload: Record<string, string | boolean> = {
+        simulator_enabled: simulatorEnabled,
+      };
+      if (apiTokenInput.trim()) payload.api_token = apiTokenInput.trim();
+      if (deviceCodeInput.trim()) payload.device_code = deviceCodeInput.trim();
+      if (webhookSecretInput.trim())
+        payload.webhook_secret = webhookSecretInput.trim();
+      if (apiBaseUrlInput.trim()) payload.api_base_url = apiBaseUrlInput.trim();
+      const res = await fetch(`${baseUrl}/api/payments/providers/helcim/config`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(backofficeHeaders() as Record<string, string>),
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(body.error ?? "Could not save Helcim configuration.");
+      }
+      const status = (await res.json()) as HelcimProviderStatus;
+      setHelcimStatus(status);
+      setProviderSettings((current) =>
+        current
+          ? {
+              ...current,
+              helcim: status,
+            }
+          : current,
+      );
+      setApiTokenInput("");
+      setDeviceCodeInput("");
+      setWebhookSecretInput("");
+      setApiBaseUrlInput("");
+      setSimulatorEnabled(status.simulator_enabled);
+    } catch (error) {
+      setHelcimError(
+        error instanceof Error
+          ? error.message
+          : "Could not save Helcim configuration.",
+      );
+    } finally {
+      setConfigSaving(false);
+    }
+  }, [
+    apiBaseUrlInput,
+    apiTokenInput,
+    backofficeHeaders,
+    baseUrl,
+    deviceCodeInput,
+    simulatorEnabled,
+    webhookSecretInput,
+  ]);
+
   useEffect(() => {
     void fetchProviderStatus();
   }, [fetchProviderStatus]);
+
+  useEffect(() => {
+    if (helcimStatus) {
+      setSimulatorEnabled(helcimStatus.simulator_enabled);
+    }
+  }, [helcimStatus]);
 
   if (helcimLoading && !helcimStatus) {
     return (
@@ -261,22 +336,149 @@ const HelcimSettingsPanel: React.FC = () => {
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="ui-card ui-tint-info p-6">
           <div className="mb-4 flex items-center gap-3">
             <div className="rounded-xl border border-app-border bg-app-surface p-2 text-app-info">
               <Settings size={18} />
             </div>
             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-              What Belongs Here
+              Helcim Configuration
             </h3>
           </div>
-          <ul className="space-y-3 text-sm font-semibold text-app-text-muted">
-            <li>API token and server-side Helcim credentials.</li>
-            <li>Terminal/device code setup.</li>
-            <li>Payment update signing secret setup.</li>
-            <li>Connection checks before live card processing.</li>
-          </ul>
+          <div className="space-y-3">
+            <ConfigRow
+              label="API token"
+              value={
+                helcimStatus?.api_token_configured
+                  ? "Configured on server"
+                  : "Not configured"
+              }
+              ready={Boolean(helcimStatus?.api_token_configured)}
+              detail="Used for Helcim API and card payment requests. Secret value is not shown."
+            />
+            <ConfigRow
+              label="Terminal device code"
+              value={
+                helcimStatus?.device_configured
+                  ? `Configured •••• ${helcimStatus.device_code_suffix ?? "set"}`
+                  : "Not configured"
+              }
+              ready={Boolean(helcimStatus?.device_configured)}
+              detail="Used for in-store terminal payments."
+            />
+            <ConfigRow
+              label="Payment update signing secret"
+              value={
+                helcimStatus?.webhook_secret_configured
+                  ? "Configured on server"
+                  : "Not configured"
+              }
+              ready={Boolean(helcimStatus?.webhook_secret_configured)}
+              detail="Used to verify Helcim payment updates before ROS records them."
+            />
+            <ConfigRow
+              label="API host"
+              value={helcimStatus?.api_base_host || "Unavailable"}
+              ready={Boolean(helcimStatus?.api_base_host)}
+              detail="Server endpoint used for Helcim API calls."
+            />
+            <ConfigRow
+              label="Test mode"
+              value={helcimStatus?.simulator_enabled ? "Enabled" : "Off"}
+              ready={!helcimStatus?.simulator_enabled}
+              detail={
+                helcimStatus?.simulator_enabled
+                  ? "Simulator mode is active. Live Helcim payments are not being used."
+                  : "Live configuration is expected."
+              }
+              warnWhenNotReady={false}
+            />
+          </div>
+          <div className="mt-5 rounded-2xl border border-app-border bg-app-surface p-4">
+            <h4 className="mb-3 text-xs font-black uppercase tracking-widest text-app-text">
+              Update Credentials
+            </h4>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <SecretInput
+                label="API token"
+                value={apiTokenInput}
+                onChange={setApiTokenInput}
+                placeholder={
+                  helcimStatus?.api_token_configured
+                    ? "Saved - enter only to replace"
+                    : "Enter Helcim API token"
+                }
+              />
+              <SecretInput
+                label="Terminal device code"
+                value={deviceCodeInput}
+                onChange={setDeviceCodeInput}
+                placeholder={
+                  helcimStatus?.device_configured
+                    ? "Saved - enter only to replace"
+                    : "Enter Helcim device code"
+                }
+              />
+              <SecretInput
+                label="Payment update signing secret"
+                value={webhookSecretInput}
+                onChange={setWebhookSecretInput}
+                placeholder={
+                  helcimStatus?.webhook_secret_configured
+                    ? "Saved - enter only to replace"
+                    : "Enter signing secret"
+                }
+              />
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  API host
+                </span>
+                <input
+                  type="url"
+                  value={apiBaseUrlInput}
+                  onChange={(event) => setApiBaseUrlInput(event.target.value)}
+                  placeholder="https://api.helcim.com/v2"
+                  className="min-h-11 w-full rounded-xl border border-app-border bg-app-surface-2 px-3 text-sm font-semibold text-app-text outline-none transition focus:border-app-accent"
+                />
+              </label>
+            </div>
+            <label className="mt-4 flex items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 p-3">
+              <input
+                type="checkbox"
+                checked={simulatorEnabled}
+                onChange={(event) => setSimulatorEnabled(event.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-app-border text-app-accent"
+              />
+              <span>
+                <span className="block text-xs font-black uppercase tracking-widest text-app-text">
+                  Test mode
+                </span>
+                <span className="block text-xs font-semibold leading-5 text-app-text-muted">
+                  Use only for local testing. Turn off for live Helcim payments.
+                </span>
+              </span>
+            </label>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs font-semibold leading-5 text-app-text-muted">
+                Saved secrets are never displayed again. Leave a field blank to
+                keep the current saved value.
+              </p>
+              <button
+                type="button"
+                disabled={configSaving}
+                onClick={() => void saveHelcimConfig()}
+                className="min-h-11 rounded-xl bg-app-accent px-5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/20 transition-all disabled:opacity-50"
+              >
+                {configSaving ? "Saving..." : "Save Helcim Config"}
+              </button>
+            </div>
+          </div>
+          <p className="mt-5 rounded-xl border border-app-border bg-app-surface px-4 py-3 text-xs font-semibold leading-5 text-app-text-muted">
+            Credential values are encrypted server-side and are intentionally
+            hidden after save. Use{" "}
+            <span className="font-black text-app-text">Check Connection</span>.
+          </p>
         </div>
 
         <div className="ui-card ui-tint-success p-6">
@@ -316,6 +518,83 @@ function StatusTile({
       </div>
       <p className="truncate font-black text-app-text">{value}</p>
     </div>
+  );
+}
+
+function ConfigRow({
+  label,
+  value,
+  ready,
+  detail,
+  warnWhenNotReady = true,
+}: {
+  label: string;
+  value: string;
+  ready: boolean;
+  detail: string;
+  warnWhenNotReady?: boolean;
+}) {
+  const icon = ready ? (
+    <CheckCircle2 size={14} className="text-app-success" />
+  ) : warnWhenNotReady ? (
+    <AlertTriangle size={14} className="text-app-warning" />
+  ) : (
+    <CheckCircle2 size={14} className="text-app-text-muted" />
+  );
+
+  return (
+    <div className="rounded-xl border border-app-border bg-app-surface p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="mb-1 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-app-text">
+            {icon}
+            {label}
+          </div>
+          <p className="text-xs font-semibold leading-5 text-app-text-muted">
+            {detail}
+          </p>
+        </div>
+        <span
+          className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ring-1 ${
+            ready
+              ? "bg-app-success/10 text-app-success ring-app-success/20"
+              : warnWhenNotReady
+                ? "bg-app-warning/10 text-app-warning ring-app-warning/20"
+                : "bg-app-surface-2 text-app-text-muted ring-app-border"
+          }`}
+        >
+          {value}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SecretInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+        {label}
+      </span>
+      <input
+        type="password"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        className="min-h-11 w-full rounded-xl border border-app-border bg-app-surface-2 px-3 text-sm font-semibold text-app-text outline-none transition focus:border-app-accent"
+      />
+    </label>
   );
 }
 

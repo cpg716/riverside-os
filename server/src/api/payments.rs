@@ -6,6 +6,7 @@ use crate::auth::permissions::{
 use crate::auth::pins::AuthenticatedStaff;
 use crate::logic::helcim;
 use crate::logic::integration_alerts;
+use crate::logic::integration_credentials;
 use crate::models::DbStaffRole;
 use axum::{
     extract::{Path, Query, State},
@@ -62,6 +63,17 @@ fn map_pay_session(e: (StatusCode, axum::Json<serde_json::Value>)) -> PaymentErr
         StatusCode::UNAUTHORIZED => PaymentError::Unauthorized(msg),
         StatusCode::FORBIDDEN => PaymentError::Forbidden(msg),
         _ => PaymentError::InvalidPayload(msg),
+    }
+}
+
+fn map_credential_error(e: integration_credentials::IntegrationCredentialError) -> PaymentError {
+    match e {
+        integration_credentials::IntegrationCredentialError::Database(e) => {
+            PaymentError::InvalidPayload(e.to_string())
+        }
+        integration_credentials::IntegrationCredentialError::InvalidPayload(message) => {
+            PaymentError::InvalidPayload(message)
+        }
     }
 }
 
@@ -139,6 +151,7 @@ pub fn router() -> Router<AppState> {
             get(get_active_card_provider).patch(patch_active_card_provider),
         )
         .route("/providers/helcim/status", get(get_helcim_provider_status))
+        .route("/providers/helcim/config", patch(patch_helcim_config))
         .route("/providers/helcim/fees/status", get(get_helcim_fee_status))
         .route("/providers/helcim/fees/sync", post(sync_helcim_fees))
         .route(
@@ -285,6 +298,15 @@ pub struct ActiveCardProviderResponse {
 #[derive(Debug, Deserialize)]
 pub struct PatchActiveCardProviderRequest {
     pub active_provider: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchHelcimConfigRequest {
+    pub api_token: Option<String>,
+    pub device_code: Option<String>,
+    pub webhook_secret: Option<String>,
+    pub api_base_url: Option<String>,
+    pub simulator_enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -877,10 +899,123 @@ async fn load_active_card_provider(state: &AppState) -> Result<String, PaymentEr
 async fn active_card_provider_response(
     state: &AppState,
 ) -> Result<ActiveCardProviderResponse, PaymentError> {
+    helcim::apply_persisted_helcim_config_to_env(&state.db)
+        .await
+        .map_err(map_credential_error)?;
     Ok(ActiveCardProviderResponse {
         active_provider: load_active_card_provider(state).await?,
         helcim: helcim::HelcimConfig::from_env().status(),
     })
+}
+
+fn clean_optional_secret(
+    value: Option<String>,
+    label: &str,
+) -> Result<Option<String>, PaymentError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > 4096 {
+        return Err(PaymentError::InvalidPayload(format!(
+            "{label} is too long."
+        )));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+fn clean_optional_device_code(value: Option<String>) -> Result<Option<String>, PaymentError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > 255 {
+        return Err(PaymentError::InvalidPayload(
+            "Device code is too long.".to_string(),
+        ));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+fn clean_optional_api_base_url(value: Option<String>) -> Result<Option<String>, PaymentError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let parsed = reqwest::Url::parse(trimmed)
+        .map_err(|_| PaymentError::InvalidPayload("API host must be a valid URL.".to_string()))?;
+    if !matches!(parsed.scheme(), "https" | "http") {
+        return Err(PaymentError::InvalidPayload(
+            "API host must use http or https.".to_string(),
+        ));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+async fn patch_helcim_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<PatchHelcimConfigRequest>,
+) -> Result<Json<helcim::HelcimConfigStatus>, PaymentError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+
+    let api_token = clean_optional_secret(payload.api_token, "API token")?;
+    let device_code = clean_optional_device_code(payload.device_code)?;
+    let webhook_secret = clean_optional_secret(payload.webhook_secret, "Signing secret")?;
+    let api_base_url = clean_optional_api_base_url(payload.api_base_url)?;
+
+    if api_token.is_none()
+        && device_code.is_none()
+        && webhook_secret.is_none()
+        && api_base_url.is_none()
+        && payload.simulator_enabled.is_none()
+    {
+        return Err(PaymentError::InvalidPayload(
+            "Enter at least one Helcim setting to save.".to_string(),
+        ));
+    }
+
+    let mut values = Vec::new();
+    if let Some(value) = api_token {
+        values.push(("api_token", value));
+    }
+    if let Some(value) = device_code {
+        values.push(("device_code", value));
+    }
+    if let Some(value) = webhook_secret {
+        values.push(("webhook_secret", value));
+    }
+    if let Some(value) = api_base_url {
+        values.push(("api_base_url", value));
+    }
+    if let Some(value) = payload.simulator_enabled {
+        values.push(("simulator_enabled", value.to_string()));
+    }
+
+    integration_credentials::save_integration_credentials(
+        &state.db,
+        helcim::HELCIM_PROVIDER_KEY,
+        values,
+        Some(staff.id),
+    )
+    .await
+    .map_err(map_credential_error)?;
+
+    helcim::apply_persisted_helcim_config_to_env(&state.db)
+        .await
+        .map_err(map_credential_error)?;
+    Ok(Json(helcim::HelcimConfig::from_env().status()))
 }
 
 async fn get_payments_config(
@@ -934,6 +1069,9 @@ async fn get_helcim_provider_status(
         .await
         .map_err(map_pay_session)?;
 
+    helcim::apply_persisted_helcim_config_to_env(&state.db)
+        .await
+        .map_err(map_credential_error)?;
     Ok(Json(helcim::HelcimConfig::from_env().status()))
 }
 

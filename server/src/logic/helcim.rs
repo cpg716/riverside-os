@@ -2,7 +2,10 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::PgPool;
 use std::str::FromStr;
+
+use crate::logic::integration_credentials::{self, IntegrationCredentialError};
 
 pub const HELCIM_PROVIDER_KEY: &str = "helcim";
 pub const DEFAULT_HELCIM_API_BASE_URL: &str = "https://api.helcim.com/v2";
@@ -18,8 +21,10 @@ pub struct HelcimConfig {
 #[derive(Debug, Clone, Serialize)]
 pub struct HelcimConfigStatus {
     pub enabled: bool,
+    pub api_token_configured: bool,
     pub device_configured: bool,
     pub simulator_enabled: bool,
+    pub webhook_secret_configured: bool,
     pub device_code_suffix: Option<String>,
     pub api_base_host: String,
     pub missing_config: Vec<String>,
@@ -268,17 +273,28 @@ impl HelcimConfig {
             if self.device_code.is_none() {
                 missing_config.push("HELCIM_DEVICE_CODE is not configured".to_string());
             }
+            if non_empty_env("HELCIM_WEBHOOK_SECRET").is_none() {
+                missing_config.push("HELCIM_WEBHOOK_SECRET is not configured".to_string());
+            }
         }
 
         HelcimConfigStatus {
             enabled: self.enabled(),
+            api_token_configured: self.api_token.is_some(),
             device_configured: self.device_code().is_some(),
             simulator_enabled,
+            webhook_secret_configured: non_empty_env("HELCIM_WEBHOOK_SECRET").is_some(),
             device_code_suffix: self.device_code().map(mask_suffix),
             api_base_host: api_base_host(&self.api_base_url),
             missing_config,
         }
     }
+}
+
+pub async fn apply_persisted_helcim_config_to_env(
+    pool: &PgPool,
+) -> Result<(), IntegrationCredentialError> {
+    integration_credentials::apply_integration_credentials_to_env(pool, HELCIM_PROVIDER_KEY).await
 }
 
 impl HelcimCardTransaction {

@@ -150,10 +150,12 @@ Use **Payments** for daily operations:
 
 Use **Settings → Helcim** only for configuration:
 
-- API token and server-side Helcim credentials.
-- Terminal/device code setup.
-- Payment update signing secret setup.
+- API token and Helcim credential entry.
+- Terminal/device code entry.
+- Payment update signing secret entry.
 - Connection checks before live card processing.
+
+Saved integration credentials are encrypted server-side. Staff should enter them in Backoffice Settings instead of editing environment files. The server still needs its credential encryption key configured by an administrator before Settings can save new secrets.
 
 Do not use Settings for daily payment review.
 

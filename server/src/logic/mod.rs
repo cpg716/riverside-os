@@ -26,6 +26,7 @@ pub mod help_manual_policy;
 pub mod importer;
 pub mod insights_config;
 pub mod integration_alerts;
+pub mod integration_credentials;
 pub mod inventory;
 pub mod inventory_velocity;
 pub mod lightspeed_customers;

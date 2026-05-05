@@ -256,6 +256,13 @@ ALTER TABLE ONLY public.helcim_event_log
     ADD CONSTRAINT helcim_event_log_pkey PRIMARY KEY (id);
 
 --
+-- Name: integration_credentials integration_credentials_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.integration_credentials
+    ADD CONSTRAINT integration_credentials_pkey PRIMARY KEY (id);
+
+--
 -- Name: payment_provider_batches payment_provider_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1794,6 +1801,13 @@ ALTER TABLE ONLY public.corecredit_reconciliation_item
 
 ALTER TABLE ONLY public.corecredit_reconciliation_run
     ADD CONSTRAINT corecredit_reconciliation_run_requested_by_staff_id_fkey FOREIGN KEY (requested_by_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: integration_credentials integration_credentials_updated_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.integration_credentials
+    ADD CONSTRAINT integration_credentials_updated_by_staff_id_fkey FOREIGN KEY (updated_by_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
 
 --
 -- Name: counterpoint_category_map counterpoint_category_map_ros_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

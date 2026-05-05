@@ -181,8 +181,6 @@ async fn launch_server_inner(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut ready_tx = ready_tx;
     let result: Result<(), Box<dyn std::error::Error>> = async {
-    validate_helcim_environment(config.strict_production)?;
-
     tracing::info!("Unified Engine: Connecting to PostgreSQL...");
     let db_max_connections = database_pool_max_connections();
     let pool = PgPoolOptions::new()
@@ -201,6 +199,13 @@ async fn launch_server_inner(
         return Err(e.into());
     }
     tracing::info!("Unified Engine: Database schema contract OK.");
+
+    if let Err(e) =
+        crate::logic::integration_credentials::apply_all_integration_credentials_to_env(&pool).await
+    {
+        tracing::warn!(error = %e, "could not apply saved integration credentials; environment values remain active");
+    }
+    validate_helcim_environment(config.strict_production)?;
 
     // Environmental Safety Interlock
     let target_mode = std::env::var("RIVERSIDE_MODE").unwrap_or_else(|_| "development".to_string());
@@ -419,6 +424,9 @@ async fn launch_server_inner(
     }
 
     if config.strict_production {
+        crate::logic::integration_credentials::validate_credentials_key_for_startup().map_err(
+            |e| format!("Strict production integration credential configuration failed: {e}"),
+        )?;
         crate::api::qbo::validate_qbo_token_key_for_startup()
             .map_err(|e| format!("Strict production QBO token configuration failed: {e}"))?;
         crate::logic::backups::validate_backup_dir_for_startup(config.strict_production)

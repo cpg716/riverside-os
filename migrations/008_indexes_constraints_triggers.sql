@@ -113,6 +113,12 @@ COMMENT ON TABLE public.corecredit_event_log IS 'Immutable inbound CoreCard webh
 COMMENT ON TABLE public.helcim_event_log IS 'Durable inbound Helcim webhook event log with redacted payload snapshots, replay protection, and processing markers.';
 
 --
+-- Name: TABLE integration_credentials; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.integration_credentials IS 'Encrypted server-side credential store for Backoffice-managed integration credentials. API responses expose configured status only, never encrypted_value or raw secrets.';
+
+--
 -- Name: COLUMN helcim_event_log.match_type; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -1566,6 +1572,12 @@ CREATE INDEX idx_helcim_event_log_attempt ON public.helcim_event_log USING btree
 CREATE INDEX idx_helcim_event_log_payment_transaction ON public.helcim_event_log USING btree (payment_transaction_id, received_at DESC) WHERE (payment_transaction_id IS NOT NULL);
 
 --
+-- Name: idx_integration_credentials_integration; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_integration_credentials_integration ON public.integration_credentials USING btree (integration_key, updated_at DESC);
+
+--
 -- Name: idx_payment_provider_batches_provider_status; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2988,6 +3000,12 @@ CREATE UNIQUE INDEX uq_corecredit_event_log_external_event_key ON public.corecre
 CREATE UNIQUE INDEX uq_helcim_event_log_webhook_id ON public.helcim_event_log USING btree (webhook_id) WHERE (webhook_id IS NOT NULL);
 
 --
+-- Name: uq_integration_credentials_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_integration_credentials_key ON public.integration_credentials USING btree (integration_key, credential_key);
+
+--
 -- Name: uq_payment_provider_batches_provider_batch; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3106,6 +3124,12 @@ CREATE TRIGGER trigger_payment_provider_batches_updated_at BEFORE UPDATE ON publ
 --
 
 CREATE TRIGGER trigger_payment_provider_batch_transactions_updated_at BEFORE UPDATE ON public.payment_provider_batch_transactions FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
+
+--
+-- Name: integration_credentials trigger_integration_credentials_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trigger_integration_credentials_updated_at BEFORE UPDATE ON public.integration_credentials FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
 
 --
 -- Name: payment_settlement_items trigger_payment_settlement_items_updated_at; Type: TRIGGER; Schema: public; Owner: -

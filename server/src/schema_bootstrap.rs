@@ -33,6 +33,7 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'transaction_return_lines'),
                 ('public', 'register_sessions'),
                 ('public', 'qbo_mappings'),
+                ('public', 'integration_credentials'),
                 ('public', 'counterpoint_sync_runs'),
                 ('public', 'shipment'),
                 ('public', 'ros_schema_migrations')
@@ -43,6 +44,7 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'staff', 'max_discount_percent'),
                 ('public', 'store_settings', 'environment_mode'),
                 ('public', 'store_settings', 'active_card_provider'),
+                ('public', 'integration_credentials', 'encrypted_value'),
                 ('public', 'products', 'tax_category'),
                 ('public', 'products', 'tax_category_override'),
                 ('public', 'product_variants', 'reserved_stock'),

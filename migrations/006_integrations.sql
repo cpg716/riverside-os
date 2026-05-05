@@ -115,6 +115,24 @@ CREATE TABLE public.helcim_event_log (
 );
 
 --
+-- Name: integration_credentials; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.integration_credentials (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    integration_key text NOT NULL,
+    credential_key text NOT NULL,
+    encrypted_value text NOT NULL,
+    value_hint text,
+    updated_by_staff_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT integration_credentials_credential_key_chk CHECK ((btrim(credential_key) <> ''::text)),
+    CONSTRAINT integration_credentials_encrypted_value_chk CHECK ((btrim(encrypted_value) <> ''::text)),
+    CONSTRAINT integration_credentials_integration_key_chk CHECK ((btrim(integration_key) <> ''::text))
+);
+
+--
 -- Name: payment_provider_batches; Type: TABLE; Schema: public; Owner: -
 --
 
