@@ -27,9 +27,9 @@ use crate::logic::counterpoint_sync::{
     CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
     CounterpointCustomersPayload, CounterpointGiftCardsPayload, CounterpointInventoryPayload,
     CounterpointLoyaltyHistPayload, CounterpointOpenDocsPayload, CounterpointSlsRepStubPayload,
-    CounterpointStaffPayload, CounterpointStoreCreditOpeningPayload, CounterpointSyncError,
-    CounterpointTicketsPayload, CounterpointVendorItemsPayload, CounterpointVendorsPayload,
-    HeartbeatPayload,
+    CounterpointSnapshotSourceMetricsPayload, CounterpointStaffPayload,
+    CounterpointStoreCreditOpeningPayload, CounterpointSyncError, CounterpointTicketsPayload,
+    CounterpointVendorItemsPayload, CounterpointVendorsPayload, HeartbeatPayload,
 };
 use crate::middleware;
 
@@ -221,6 +221,18 @@ async fn cp_run_start(
                 Json(json!({ "error": e.to_string() })),
             )
         })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn cp_snapshot_reconciliation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CounterpointSnapshotSourceMetricsPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    counterpoint_sync::record_counterpoint_snapshot_source_metrics(&state.db, payload)
+        .await
+        .map_err(cp_err)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1310,6 +1322,7 @@ pub fn router() -> Router<AppState> {
             .route("/health", get(cp_health))
             .route("/heartbeat", post(cp_heartbeat))
             .route("/run-start", post(cp_run_start))
+            .route("/snapshot-reconciliation", post(cp_snapshot_reconciliation))
             .route("/request/ack", post(cp_ack_request))
             .route("/ack-request", post(cp_ack_request))
             .route("/request/complete", post(cp_complete_request))

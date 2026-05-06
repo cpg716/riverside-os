@@ -29,6 +29,7 @@ Run order is **fixed in code** each pass: **staff → (optional sales-rep stubs 
 - Prefer **`RUN_ONCE=1`**. This means a single pass per launch, not “you may only ever run the migration once.”
 - Treat the bridge `.env` as the authoritative definition of import scope.
 - Gift cards and loyalty are cutover snapshots. Use `SYNC_GIFT_CARDS=1` only for current issued card balances, leave `CP_GFC_HIST_QUERY` and `CP_TICKET_GIFT_QUERY` empty, keep `SYNC_LOYALTY_HIST=0`, and make sure `CP_CUSTOMERS_QUERY` aliases the current Counterpoint loyalty balance as `pts_bal`.
+- After customer and gift-card syncs, the bridge posts source count/sum proof to ROS. In **Settings → Counterpoint → Status → Landing Verification**, gift-card current balances and loyalty current points should show **Pass** before cutover sign-off.
 - The migration floor is expected to stay at **`CP_IMPORT_SINCE=2018-01-01`** unless you are deliberately running a narrower test cut. The bridge status feed now warns when the live process is using a different date.
 - Review the ROS **Settings → Counterpoint → Status** panel before running. It now shows the active import floor, enabled entities, landing mode, and rerun warnings based on the bridge process that is actually running.
 - If **`receiving_history`** is enabled, assume that entity is **not safe to rerun blindly**. Gift-card current balance snapshots upsert, but historical gift-card activity should stay disabled for cutover.

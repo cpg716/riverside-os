@@ -233,6 +233,8 @@ Idempotent: notes with the same `[CP:NOTE_ID]` prefix for a customer are skipped
 
 **Historical loyalty activity is not imported for cutover.** Keep `SYNC_LOYALTY_HIST=0` unless a separate historical replay is explicitly requested later.
 
+**Cutover proof:** After customer sync posts `AR_CUST` rows, the bridge sends the Counterpoint source customer count and current point sum to ROS. **Landing Verification** compares those source values to Counterpoint-created ROS customer count and `customers.loyalty_points` sum and shows pass/fail.
+
 **Optional history target:** `loyalty_point_ledger` (`reason = 'cp_loy_pts_hist'`, dedupe `metadata.cp_ref`).
 
 **Order if explicitly enabled later:** Runs **after** customer sync so `customers.loyalty_points` reflects Counterpoint’s current balance (`LOY_PTS_BAL` / `PTS_BAL` on `AR_CUST`). Only history rows on or after **`CP_IMPORT_SINCE`** are sent (`CP_LOYALTY_HIST_QUERY`).
@@ -321,6 +323,8 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
 **Gift card history:** Historical gift card activity is not imported for cutover. Leave `CP_GFC_HIST_QUERY` empty. Leave `CP_TICKET_GIFT_QUERY` empty. If ticket gift rows are separately enabled later for tender visibility, ROS still treats gift cards as current balance snapshots and does not decrement `gift_cards.current_balance`.
 
+**Cutover proof:** After `SYNC_GIFT_CARDS=1` posts card masters, the bridge sends the Counterpoint source card count and current-balance sum to ROS. **Landing Verification** compares those source values to `gift_cards` count and `gift_cards.current_balance` sum and shows pass/fail.
+
 ### 4f. Ticket history (orders)
 
 **Source:** `dbo.PS_TKT_HIST` + `PS_TKT_HIST_LIN` + `PS_TKT_HIST_PMT`
@@ -341,7 +345,6 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `PS_TKT_HIST_GFT` | Optional `payment_transactions` (`gift_card`) tender visibility only; does not decrement `gift_cards.current_balance` |
 | `PS_LOY_PTS_HIST` | Optional historical replay only; not required for current loyalty balances |
 | `PO_VEND_ITEM` | `vendor_supplier_item` (links `vendors.vendor_code` + CP `ITEM_NO` to `product_variants` when resolvable) |
-| — | `orders.counterpoint_customer_code` | Original CP customer code preserved for audit fallback |
 
 **Idempotency:** If an order with the same `counterpoint_ticket_ref` already exists, the entire ticket is **skipped** (no duplicates).
 
@@ -372,7 +375,7 @@ To handle mixed Counterpoint ID formats (legacy integers vs. newer `C-` prefixed
 1. **Exact Match**: Checks `customer_code` in the local DB.
 2. **Prefix fallback**: High-performance query checks for both `code` and `'C-' + code`.
 3. **Stripped fallback**: Checks the raw integer if the ticket provides a `C-` prefixed string but the DB lacks it.
-4. **Audit Fallback**: Every imported transaction stores the original code in `counterpoint_customer_code`. If a match fails, the UI displays `CP: [CODE]` instead of "Walk-in" to maintain logistical clarity.
+4. **Visibility fallback**: If a ticket or open doc carries a `CUST_NO` that cannot resolve to `customers.customer_code`, ROS still imports the transaction when the item lines resolve, but records an **Open sync issue** for that ticket/doc reference so the missing customer link is visible before cutover sign-off.
 
 ### 4g. API endpoints reference
 
@@ -385,7 +388,8 @@ To handle mixed Counterpoint ID formats (legacy integers vs. newer `C-` prefixed
 | `POST /api/sync/counterpoint/customer-notes` | Customer notes | M2M |
 | `POST /api/sync/counterpoint/inventory` | Stock update | M2M |
 | `POST /api/sync/counterpoint/catalog` | Products + variants | M2M |
-| `POST /api/sync/counterpoint/gift-cards` | Gift cards + events | M2M |
+| `POST /api/sync/counterpoint/gift-cards` | Gift card current balance snapshots | M2M |
+| `POST /api/sync/counterpoint/snapshot-reconciliation` | Gift-card and loyalty source count/sum proof | M2M |
 | `POST /api/sync/counterpoint/tickets` | Orders + payments (+ optional gift applications in payload) | M2M |
 | `POST /api/sync/counterpoint/vendor-items` | `PO_VEND_ITEM` → `vendor_supplier_item` | M2M |
 | `POST /api/sync/counterpoint/loyalty-hist` | `PS_LOY_PTS_HIST` → `loyalty_point_ledger` | M2M |
@@ -514,8 +518,12 @@ Use it after each repeatable pre-go-live import pass to confirm that the expecte
 
 The counts do **not** prove full business reconciliation. They do not compare financial totals to Counterpoint, prove tender/tax correctness, prove every historical row was imported, or replace staff review of edge cases. Treat them as landed-row proof only.
 
+Customers, catalog products, catalog variants/SKUs, inventory quantity rows, gift-card balances, and loyalty current points have added proof rows. The bridge sends the Counterpoint source count (and source sum where balances/points apply); ROS compares those values to landed ROS values and shows **Pass**, **Fail**, or **No source proof**.
+
+Operational cutover visibility rows also call out unresolved ticket customer links, open-doc customer links, and unmatched inventory quantity rows. These rows are backed by **Open sync issues**, so staff can review the exact Counterpoint ticket/doc/SKU key before sign-off.
+
 Weak or approximate domains are explicitly marked in the section:
-- **Gift cards** are approximate because the `gift_cards` table does not have a dedicated Counterpoint provenance marker.
+- **Gift cards** are approximate only until source count/sum proof has been received and the snapshot reconciliation row passes.
 - **Closed ticket payments** are approximate because the count reflects payment transactions allocated to Counterpoint ticket transactions, not full tender reconciliation.
 
 Use Landing Verification with the other proof surfaces:

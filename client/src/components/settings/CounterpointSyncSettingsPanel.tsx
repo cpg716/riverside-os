@@ -159,10 +159,36 @@ interface CounterpointLandingVerificationRow {
   note: string;
 }
 
+interface CounterpointSnapshotReconciliationRow {
+  key: string;
+  label: string;
+  status: "pass" | "fail" | "missing_source" | string;
+  passed: boolean;
+  source_count: number | null;
+  landed_count: number;
+  count_difference: number | null;
+  source_sum: string | null;
+  landed_sum: string;
+  sum_difference: string | null;
+  note: string;
+  source_updated_at: string | null;
+}
+
+interface CounterpointCutoverVisibilityRow {
+  key: string;
+  label: string;
+  status: "pass" | "fail" | string;
+  passed: boolean;
+  count: number;
+  note: string;
+}
+
 interface CounterpointLandingVerificationSummary {
   generated_at: string;
   disclaimer: string;
   rows: CounterpointLandingVerificationRow[];
+  snapshot_reconciliation: CounterpointSnapshotReconciliationRow[];
+  cutover_visibility: CounterpointCutoverVisibilityRow[];
 }
 
 interface CounterpointTransactionReconciliationTotals {
@@ -1182,6 +1208,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const inventoryVerificationExtraRows = inventoryVerification?.extra_rows ?? [];
   const inventoryVerificationIssues = inventoryVerification?.critical_issues ?? [];
   const landingVerificationRows = landingVerification?.rows ?? [];
+  const snapshotReconciliationRows = landingVerification?.snapshot_reconciliation ?? [];
+  const cutoverVisibilityRows = landingVerification?.cutover_visibility ?? [];
   const landingApproximateCount = landingVerificationRows.filter(
     (row) => row.confidence !== "direct",
   ).length;
@@ -2801,6 +2829,107 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
                 {landingVerificationLoading && !landingVerification ? (
                   <p className="mt-4 text-xs text-app-text-muted">Loading landed counts…</p>
+                ) : null}
+
+                {snapshotReconciliationRows.length > 0 ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-4">
+                    {snapshotReconciliationRows.map((row) => {
+                      const isPass = row.passed;
+                      const isMissing = row.status === "missing_source";
+                      return (
+                        <div
+                          key={row.key}
+                          className={`rounded-lg border p-3 ${
+                            isPass
+                              ? "border-emerald-500/25 bg-emerald-500/5"
+                              : "border-red-500/25 bg-red-500/5"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                {row.label}
+                              </p>
+                              <p className="mt-1 text-xs text-app-text-muted">{row.note}</p>
+                            </div>
+                            <span
+                              className={`ui-pill text-[8px] ${
+                                isPass
+                                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                                  : "bg-red-500/10 text-red-600"
+                              }`}
+                            >
+                              {isPass ? "Pass" : isMissing ? "No source proof" : "Fail"}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mt-3 text-[10px]">
+                            <div className="rounded-md bg-app-bg/60 border border-app-border p-2">
+                              <p className="font-black uppercase tracking-widest text-app-text-muted">
+                                Source
+                              </p>
+                              <p className="mt-1 font-bold text-app-text tabular-nums">
+                                {row.source_count == null ? "—" : fmtNum(row.source_count)}
+                              </p>
+                              <p className="text-app-text-muted tabular-nums">{row.source_sum ?? "—"}</p>
+                            </div>
+                            <div className="rounded-md bg-app-bg/60 border border-app-border p-2">
+                              <p className="font-black uppercase tracking-widest text-app-text-muted">
+                                ROS Landed
+                              </p>
+                              <p className="mt-1 font-bold text-app-text tabular-nums">
+                                {fmtNum(row.landed_count)}
+                              </p>
+                              <p className="text-app-text-muted tabular-nums">{row.landed_sum}</p>
+                            </div>
+                          </div>
+                          {row.source_updated_at ? (
+                            <p className="mt-2 text-[10px] text-app-text-muted">
+                              Source proof received {formatDate(row.source_updated_at)}
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {cutoverVisibilityRows.length > 0 ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
+                    {cutoverVisibilityRows.map((row) => {
+                      const isPass = row.passed;
+                      return (
+                        <div
+                          key={row.key}
+                          className={`rounded-lg border p-3 ${
+                            isPass
+                              ? "border-emerald-500/25 bg-emerald-500/5"
+                              : "border-red-500/25 bg-red-500/5"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                {row.label}
+                              </p>
+                              <p className="mt-1 text-xs text-app-text-muted">{row.note}</p>
+                            </div>
+                            <span
+                              className={`ui-pill text-[8px] ${
+                                isPass
+                                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                                  : "bg-red-500/10 text-red-600"
+                              }`}
+                            >
+                              {isPass ? "Clear" : "Review"}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-lg font-black text-app-text tabular-nums">
+                            {fmtNum(row.count)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : null}
 
                 {landingVerificationRows.length > 0 ? (

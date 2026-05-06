@@ -37,6 +37,14 @@ pub struct SyncCursorIn {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct CounterpointSnapshotSourceMetricsPayload {
+    pub snapshot: String,
+    pub source_count: i64,
+    #[serde(default)]
+    pub source_sum: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CounterpointCustomerRow {
     /// Becomes `customers.customer_code` (Counterpoint `CUST_NO`).
     pub cust_no: String,
@@ -555,8 +563,6 @@ pub async fn execute_counterpoint_inventory_batch(
         ));
     }
 
-    let mut updated = 0i32;
-
     let mut tx = pool.begin().await?;
 
     // 1. Separate items by how we resolve them (key vs sku)
@@ -568,16 +574,24 @@ pub async fn execute_counterpoint_inventory_batch(
     let mut sku_keys = Vec::new();
     let mut sku_soh = Vec::new();
     let mut sku_cost = Vec::new();
+    let mut requested_keys = Vec::new();
+    let mut requested_skus = Vec::new();
 
     for row in &payload.rows {
         let sku = row.sku.trim();
         if sku.is_empty() {
             continue;
         }
+        requested_skus.push(sku.to_lowercase());
         if let Some(ref key) = trim_opt(&row.counterpoint_item_key) {
+            requested_keys.push(key.clone());
             keyed_keys.push(key.clone());
             keyed_soh.push(row.stock_on_hand);
             keyed_cost.push(row.unit_cost);
+            sku_skus.push(sku.to_string());
+            sku_keys.push(Some(key.clone()));
+            sku_soh.push(row.stock_on_hand);
+            sku_cost.push(row.unit_cost);
         } else {
             sku_skus.push(sku.to_string());
             sku_keys.push(None::<String>);
@@ -588,7 +602,7 @@ pub async fn execute_counterpoint_inventory_batch(
 
     // Bulk Update By Key
     if !keyed_keys.is_empty() {
-        let r = sqlx::query(
+        sqlx::query(
             r#"
             UPDATE product_variants AS v
             SET 
@@ -603,16 +617,12 @@ pub async fn execute_counterpoint_inventory_batch(
         .bind(&keyed_cost)
         .execute(&mut *tx)
         .await?;
-        updated += r.rows_affected() as i32;
-
-        // Find which ones didn't match by key to retry by SKU
-        // In a real high-perf sync, the bridge should send keys for everything.
-        // For now, we'll do a second pass for the rest.
     }
 
-    // Bulk Update By SKU
+    // Bulk Update By SKU. This also retries keyed rows whose Counterpoint key has not
+    // landed yet but whose barcode/SKU already exists in ROS.
     if !sku_skus.is_empty() {
-        let r = sqlx::query(
+        sqlx::query(
             r#"
             UPDATE product_variants AS v
             SET 
@@ -629,12 +639,68 @@ pub async fn execute_counterpoint_inventory_batch(
         .bind(&sku_cost)
         .execute(&mut *tx)
         .await?;
-        updated += r.rows_affected() as i32;
     }
 
+    let matched_keys: HashSet<String> = if requested_keys.is_empty() {
+        HashSet::new()
+    } else {
+        sqlx::query_scalar::<_, String>(
+            "SELECT counterpoint_item_key FROM product_variants WHERE counterpoint_item_key = ANY($1)",
+        )
+        .bind(&requested_keys)
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect()
+    };
+    let matched_skus: HashSet<String> = if requested_skus.is_empty() {
+        HashSet::new()
+    } else {
+        sqlx::query_scalar::<_, String>(
+            "SELECT lower(trim(sku)) FROM product_variants WHERE lower(trim(sku)) = ANY($1)",
+        )
+        .bind(&requested_skus)
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect()
+    };
+
+    let mut matched_issue_keys = Vec::new();
+    let mut unmatched_issues = Vec::new();
+    for row in &payload.rows {
+        let sku = row.sku.trim();
+        if sku.is_empty() {
+            continue;
+        }
+        let key = trim_opt(&row.counterpoint_item_key);
+        let matched = key.as_ref().is_some_and(|k| matched_keys.contains(k))
+            || matched_skus.contains(&sku.to_lowercase());
+        let external_key = key.clone().unwrap_or_else(|| sku.to_string());
+        if matched {
+            matched_issue_keys.push(external_key);
+        } else {
+            unmatched_issues.push((
+                external_key,
+                format!(
+                    "Inventory quantity row unresolved: sku={sku:?} counterpoint_item_key={:?}",
+                    key.as_deref().unwrap_or("")
+                ),
+            ));
+        }
+    }
+
+    let updated = matched_issue_keys.len() as i32;
     let skipped = (payload.rows.len() as i32) - updated;
 
     tx.commit().await?;
+
+    for external_key in matched_issue_keys {
+        resolve_sync_issue_by_key(pool, "inventory", &external_key).await;
+    }
+    for (external_key, message) in unmatched_issues {
+        record_sync_issue(pool, "inventory", Some(&external_key), "error", &message).await;
+    }
 
     if let Some(ref s) = payload.sync {
         if s.entity == "inventory" {
@@ -936,10 +1002,38 @@ pub struct CounterpointLandingVerificationRow {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CounterpointSnapshotReconciliationRow {
+    pub key: String,
+    pub label: String,
+    pub status: String,
+    pub passed: bool,
+    pub source_count: Option<i64>,
+    pub landed_count: i64,
+    pub count_difference: Option<i64>,
+    pub source_sum: Option<String>,
+    pub landed_sum: String,
+    pub sum_difference: Option<String>,
+    pub note: String,
+    pub source_updated_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointCutoverVisibilityRow {
+    pub key: String,
+    pub label: String,
+    pub status: String,
+    pub passed: bool,
+    pub count: i64,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct CounterpointLandingVerificationSummary {
     pub generated_at: DateTime<Utc>,
     pub disclaimer: String,
     pub rows: Vec<CounterpointLandingVerificationRow>,
+    pub snapshot_reconciliation: Vec<CounterpointSnapshotReconciliationRow>,
+    pub cutover_visibility: Vec<CounterpointCutoverVisibilityRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1168,12 +1262,361 @@ fn landing_row(
     }
 }
 
+fn supported_snapshot_key(snapshot: &str) -> Option<&'static str> {
+    match snapshot.trim() {
+        "customers" => Some("customers"),
+        "catalog_products" => Some("catalog_products"),
+        "catalog_variants" => Some("catalog_variants"),
+        "inventory_quantity_rows" => Some("inventory_quantity_rows"),
+        "gift_cards" => Some("gift_cards"),
+        "loyalty_points" => Some("loyalty_points"),
+        _ => None,
+    }
+}
+
+pub async fn record_counterpoint_snapshot_source_metrics(
+    pool: &PgPool,
+    payload: CounterpointSnapshotSourceMetricsPayload,
+) -> Result<(), CounterpointSyncError> {
+    let Some(snapshot) = supported_snapshot_key(&payload.snapshot) else {
+        return Err(CounterpointSyncError::InvalidPayload(format!(
+            "unsupported snapshot reconciliation key: {}",
+            payload.snapshot
+        )));
+    };
+    if payload.source_count < 0 {
+        return Err(CounterpointSyncError::InvalidPayload(
+            "source_count cannot be negative".into(),
+        ));
+    }
+
+    let body = serde_json::json!({
+        "source_count": payload.source_count,
+        "source_sum": payload.source_sum.to_string(),
+        "updated_at": Utc::now(),
+    });
+
+    sqlx::query(
+        r#"
+        UPDATE store_settings
+        SET counterpoint_config = COALESCE(counterpoint_config, '{}'::jsonb)
+            || jsonb_build_object(
+                'snapshot_reconciliation',
+                COALESCE(counterpoint_config->'snapshot_reconciliation', '{}'::jsonb)
+                    || jsonb_build_object($1::text, $2::jsonb)
+            )
+        WHERE id = 1
+        "#,
+    )
+    .bind(snapshot)
+    .bind(body)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct SnapshotSourceMetric {
+    source_count: i64,
+    source_sum: Decimal,
+    updated_at: Option<DateTime<Utc>>,
+}
+
+async fn load_snapshot_source_metric(
+    pool: &PgPool,
+    snapshot: &str,
+) -> Result<Option<SnapshotSourceMetric>, CounterpointSyncError> {
+    let raw: Option<serde_json::Value> = sqlx::query_scalar(
+        r#"
+        SELECT counterpoint_config->'snapshot_reconciliation'->$1
+        FROM store_settings
+        WHERE id = 1
+        "#,
+    )
+    .bind(snapshot)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let source_count = raw
+        .get("source_count")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| CounterpointSyncError::InvalidPayload("invalid source_count".into()))?;
+    let source_sum_raw = raw
+        .get("source_sum")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CounterpointSyncError::InvalidPayload("invalid source_sum".into()))?;
+    let source_sum = source_sum_raw
+        .parse::<Decimal>()
+        .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+    let updated_at = raw
+        .get("updated_at")
+        .and_then(|v| v.as_str())
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&Utc));
+
+    Ok(Some(SnapshotSourceMetric {
+        source_count,
+        source_sum,
+        updated_at,
+    }))
+}
+
+fn build_snapshot_reconciliation_row(
+    key: &str,
+    label: &str,
+    metric: Option<SnapshotSourceMetric>,
+    landed_count: i64,
+    landed_sum: Decimal,
+) -> CounterpointSnapshotReconciliationRow {
+    let Some(metric) = metric else {
+        return CounterpointSnapshotReconciliationRow {
+            key: key.into(),
+            label: label.into(),
+            status: "missing_source".into(),
+            passed: false,
+            source_count: None,
+            landed_count,
+            count_difference: None,
+            source_sum: None,
+            landed_sum: landed_sum.to_string(),
+            sum_difference: None,
+            note: "No Counterpoint source snapshot metrics have been received for this domain."
+                .into(),
+            source_updated_at: None,
+        };
+    };
+
+    let count_difference = landed_count - metric.source_count;
+    let sum_difference = landed_sum - metric.source_sum;
+    let passed = count_difference == 0 && sum_difference == Decimal::ZERO;
+    CounterpointSnapshotReconciliationRow {
+        key: key.into(),
+        label: label.into(),
+        status: if passed { "pass" } else { "fail" }.into(),
+        passed,
+        source_count: Some(metric.source_count),
+        landed_count,
+        count_difference: Some(count_difference),
+        source_sum: Some(metric.source_sum.to_string()),
+        landed_sum: landed_sum.to_string(),
+        sum_difference: Some(sum_difference.to_string()),
+        note: if passed {
+            "Counterpoint source count and sum match landed ROS snapshot values.".into()
+        } else {
+            "Counterpoint source count or sum does not match landed ROS snapshot values.".into()
+        },
+        source_updated_at: metric.updated_at,
+    }
+}
+
+async fn build_snapshot_reconciliation_rows(
+    pool: &PgPool,
+) -> Result<Vec<CounterpointSnapshotReconciliationRow>, CounterpointSyncError> {
+    let (customer_count, _customer_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM customers
+        WHERE customer_created_source = 'counterpoint'
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let (product_count, _product_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM products
+        WHERE data_source = 'counterpoint'
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let (variant_count, _variant_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM product_variants
+        WHERE NULLIF(TRIM(counterpoint_item_key), '') IS NOT NULL
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let (gift_count, gift_sum): (i64, Decimal) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint, COALESCE(SUM(current_balance), 0)::numeric FROM gift_cards",
+    )
+    .fetch_one(pool)
+    .await?;
+    let (loyalty_count, loyalty_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, COALESCE(SUM(COALESCE(loyalty_points, 0)), 0)::numeric
+        FROM customers
+        WHERE customer_created_source = 'counterpoint'
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let inventory_metric = load_snapshot_source_metric(pool, "inventory_quantity_rows").await?;
+    let unresolved_inventory = unresolved_sync_issue_count(pool, "inventory", None).await?;
+    let inventory_landed = inventory_metric
+        .as_ref()
+        .map(|metric| (metric.source_count - unresolved_inventory).max(0))
+        .unwrap_or(0);
+
+    Ok(vec![
+        build_snapshot_reconciliation_row(
+            "customers",
+            "Counterpoint customers",
+            load_snapshot_source_metric(pool, "customers").await?,
+            customer_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "catalog_products",
+            "Catalog products",
+            load_snapshot_source_metric(pool, "catalog_products").await?,
+            product_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "catalog_variants",
+            "Catalog variants/SKUs",
+            load_snapshot_source_metric(pool, "catalog_variants").await?,
+            variant_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "inventory_quantity_rows",
+            "Inventory quantity rows matched",
+            inventory_metric,
+            inventory_landed,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "gift_cards",
+            "Gift card current balances",
+            load_snapshot_source_metric(pool, "gift_cards").await?,
+            gift_count,
+            gift_sum,
+        ),
+        build_snapshot_reconciliation_row(
+            "loyalty_points",
+            "Customer loyalty points",
+            load_snapshot_source_metric(pool, "loyalty_points").await?,
+            loyalty_count,
+            loyalty_sum,
+        ),
+    ])
+}
+
+async fn unresolved_sync_issue_count(
+    pool: &PgPool,
+    entity: &str,
+    message_prefix: Option<&str>,
+) -> Result<i64, CounterpointSyncError> {
+    let count = if let Some(prefix) = message_prefix {
+        sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_sync_issue
+            WHERE entity = $1 AND NOT resolved AND message LIKE ($2 || '%')
+            "#,
+        )
+        .bind(entity)
+        .bind(prefix)
+        .fetch_one(pool)
+        .await?
+    } else {
+        sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_sync_issue
+            WHERE entity = $1 AND NOT resolved
+            "#,
+        )
+        .bind(entity)
+        .fetch_one(pool)
+        .await?
+    };
+    Ok(count)
+}
+
+fn cutover_visibility_row(
+    key: &str,
+    label: &str,
+    count: i64,
+    zero_note: &str,
+    nonzero_note: &str,
+) -> CounterpointCutoverVisibilityRow {
+    let passed = count == 0;
+    CounterpointCutoverVisibilityRow {
+        key: key.into(),
+        label: label.into(),
+        status: if passed { "pass" } else { "fail" }.into(),
+        passed,
+        count,
+        note: if passed { zero_note } else { nonzero_note }.into(),
+    }
+}
+
+async fn build_cutover_visibility_rows(
+    pool: &PgPool,
+) -> Result<Vec<CounterpointCutoverVisibilityRow>, CounterpointSyncError> {
+    let ticket_customer_links =
+        unresolved_sync_issue_count(pool, "tickets", Some("Customer unresolved")).await?;
+    let open_doc_customer_links =
+        unresolved_sync_issue_count(pool, "open_docs", Some("Customer unresolved")).await?;
+    let inventory_rows = unresolved_sync_issue_count(pool, "inventory", None).await?;
+
+    Ok(vec![
+        cutover_visibility_row(
+            "ticket_customer_links",
+            "Ticket customer links",
+            ticket_customer_links,
+            "No unresolved Counterpoint ticket customer links are open.",
+            "Counterpoint tickets imported with unresolved customer codes. Review Open sync issues.",
+        ),
+        cutover_visibility_row(
+            "open_doc_customer_links",
+            "Open-doc customer links",
+            open_doc_customer_links,
+            "No unresolved Counterpoint open-doc customer links are open.",
+            "Counterpoint open docs imported with unresolved customer codes. Review Open sync issues.",
+        ),
+        cutover_visibility_row(
+            "inventory_unmatched_rows",
+            "Inventory unmatched rows",
+            inventory_rows,
+            "No unresolved Counterpoint inventory quantity rows are open.",
+            "Counterpoint inventory rows could not match a ROS variant by item key or SKU. Review Open sync issues.",
+        ),
+    ])
+}
+
 pub async fn build_counterpoint_landing_verification_summary(
     pool: &PgPool,
 ) -> Result<CounterpointLandingVerificationSummary, CounterpointSyncError> {
     let customers = counterpoint_landing_count(
         pool,
         "SELECT COUNT(*)::bigint FROM customers WHERE customer_created_source = 'counterpoint'",
+    )
+    .await?;
+    let customer_emails = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM customers WHERE customer_created_source = 'counterpoint' AND NULLIF(TRIM(email), '') IS NOT NULL",
+    )
+    .await?;
+    let customer_phones = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM customers WHERE customer_created_source = 'counterpoint' AND NULLIF(TRIM(phone), '') IS NOT NULL",
+    )
+    .await?;
+    let customer_addresses = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM customers WHERE customer_created_source = 'counterpoint' AND NULLIF(TRIM(address_line1), '') IS NOT NULL",
     )
     .await?;
     let staff_records = counterpoint_landing_count(
@@ -1202,6 +1645,16 @@ pub async fn build_counterpoint_landing_verification_summary(
     let variants = counterpoint_landing_count(
         pool,
         "SELECT COUNT(*)::bigint FROM product_variants WHERE NULLIF(TRIM(counterpoint_item_key), '') IS NOT NULL",
+    )
+    .await?;
+    let variant_skus = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM product_variants WHERE NULLIF(TRIM(counterpoint_item_key), '') IS NOT NULL AND NULLIF(TRIM(sku), '') IS NOT NULL",
+    )
+    .await?;
+    let variant_barcodes = counterpoint_landing_count(
+        pool,
+        "SELECT COUNT(*)::bigint FROM product_variants WHERE NULLIF(TRIM(counterpoint_item_key), '') IS NOT NULL AND NULLIF(TRIM(barcode), '') IS NOT NULL",
     )
     .await?;
     let vendor_supplier_items =
@@ -1267,15 +1720,20 @@ pub async fn build_counterpoint_landing_verification_summary(
 
     Ok(CounterpointLandingVerificationSummary {
         generated_at: Utc::now(),
-        disclaimer: "Read-only landed-row counts from ROS tables. This is import proof for repeatable pre-go-live review, not full financial reconciliation.".into(),
+        disclaimer: "Read-only landed-row counts from ROS tables. Gift-card and loyalty snapshots compare Counterpoint source metrics to landed ROS totals.".into(),
         rows: vec![
             landing_row("customers", "Counterpoint customers", customers, "direct", "customers.customer_created_source = 'counterpoint'"),
+            landing_row("customer_emails", "Customer emails", customer_emails, "direct", "Counterpoint-created customers with an email address"),
+            landing_row("customer_phones", "Customer phones", customer_phones, "direct", "Counterpoint-created customers with a phone number"),
+            landing_row("customer_addresses", "Customer addresses", customer_addresses, "direct", "Counterpoint-created customers with address line 1"),
             landing_row("staff_records", "Counterpoint staff records", staff_records, "direct", "staff.data_source = 'counterpoint'"),
             landing_row("staff_map_rows", "Staff map rows", staff_map_rows, "direct", "counterpoint_staff_map rows"),
             landing_row("vendors", "Vendors with CP codes", vendors, "direct", "vendors.vendor_code present"),
             landing_row("category_maps", "Category map rows", category_maps, "direct", "counterpoint_category_map rows"),
             landing_row("products", "Counterpoint products", products, "direct", "products.data_source = 'counterpoint'"),
             landing_row("variants", "Variants with CP item keys", variants, "direct", "product_variants.counterpoint_item_key present"),
+            landing_row("variant_skus", "Variant SKUs", variant_skus, "direct", "Counterpoint variants with ROS SKU values"),
+            landing_row("variant_barcodes", "Variant barcodes", variant_barcodes, "direct", "Counterpoint variants with ROS barcode values"),
             landing_row("vendor_supplier_items", "Vendor supplier items", vendor_supplier_items, "direct", "vendor_supplier_item rows"),
             landing_row("gift_cards", "Gift cards", gift_cards, "approximate", "gift_cards has no Counterpoint provenance marker; count is the current pre-go-live gift-card dataset"),
             landing_row("store_credit_openings", "Store credit openings", store_credit_openings, "direct", "store_credit_ledger.reason = 'counterpoint_opening_balance'"),
@@ -1287,6 +1745,8 @@ pub async fn build_counterpoint_landing_verification_summary(
             landing_row("open_doc_lines", "Open-doc lines", open_doc_lines, "direct", "transaction_lines attached to CP open-doc transactions"),
             landing_row("receiving_history", "Receiving history rows", receiving_history, "direct", "counterpoint_receiving_history rows"),
         ],
+        snapshot_reconciliation: build_snapshot_reconciliation_rows(pool).await?,
+        cutover_visibility: build_cutover_visibility_rows(pool).await?,
     })
 }
 
@@ -3233,13 +3693,54 @@ async fn record_sync_issue(
     severity: &str,
     message: &str,
 ) {
-    let _ = sqlx::query(
-        "INSERT INTO counterpoint_sync_issue (entity, external_key, severity, message) VALUES ($1, $2, $3, $4)",
+    let updated = sqlx::query(
+        r#"
+        UPDATE counterpoint_sync_issue
+        SET severity = $3, created_at = NOW()
+        WHERE id = (
+            SELECT id
+            FROM counterpoint_sync_issue
+            WHERE entity = $1
+              AND external_key IS NOT DISTINCT FROM $2
+              AND message = $4
+              AND NOT resolved
+            ORDER BY created_at DESC
+            LIMIT 1
+        )
+        "#,
     )
     .bind(entity)
     .bind(external_key)
     .bind(severity)
     .bind(message)
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0);
+
+    if updated == 0 {
+        let _ = sqlx::query(
+            "INSERT INTO counterpoint_sync_issue (entity, external_key, severity, message) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(entity)
+        .bind(external_key)
+        .bind(severity)
+        .bind(message)
+        .execute(pool)
+        .await;
+    }
+}
+
+async fn resolve_sync_issue_by_key(pool: &PgPool, entity: &str, external_key: &str) {
+    let _ = sqlx::query(
+        r#"
+        UPDATE counterpoint_sync_issue
+        SET resolved = TRUE, resolved_at = NOW()
+        WHERE entity = $1 AND external_key = $2 AND NOT resolved
+        "#,
+    )
+    .bind(entity)
+    .bind(external_key)
     .execute(pool)
     .await;
 }
@@ -4615,6 +5116,25 @@ pub async fn execute_counterpoint_ticket_batch(
             .as_deref()
             .and_then(|c| customer_id_map.get(c.trim()))
             .copied();
+        if let Some(cust_no) = tkt
+            .cust_no
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
+            if customer_id.is_some() {
+                resolve_sync_issue_by_key(pool, "tickets", ticket_ref).await;
+            } else {
+                record_sync_issue(
+                    pool,
+                    "tickets",
+                    Some(ticket_ref),
+                    "warning",
+                    &format!("Customer unresolved: CUST_NO {cust_no} was not found in ROS"),
+                )
+                .await;
+            }
+        }
 
         let booked_at = tkt
             .booked_at
@@ -5079,6 +5599,25 @@ pub async fn execute_counterpoint_open_doc_batch(
             .as_deref()
             .and_then(|c| customer_id_map.get(c.trim()))
             .copied();
+        if let Some(cust_no) = doc
+            .cust_no
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
+            if customer_id.is_some() {
+                resolve_sync_issue_by_key(pool, "open_docs", doc_ref).await;
+            } else {
+                record_sync_issue(
+                    pool,
+                    "open_docs",
+                    Some(doc_ref),
+                    "warning",
+                    &format!("Customer unresolved: CUST_NO {cust_no} was not found in ROS"),
+                )
+                .await;
+            }
+        }
 
         let booked_at = doc
             .booked_at
@@ -6371,6 +6910,9 @@ mod tests {
     use sqlx::PgPool;
     use uuid::Uuid;
 
+    static SNAPSHOT_RECONCILIATION_TEST_LOCK: tokio::sync::Mutex<()> =
+        tokio::sync::Mutex::const_new(());
+
     async fn connect_test_db() -> PgPool {
         let _ =
             dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
@@ -6379,6 +6921,45 @@ mod tests {
         PgPool::connect(&database_url)
             .await
             .expect("connect test database")
+    }
+
+    async fn load_counterpoint_config(pool: &PgPool) -> serde_json::Value {
+        sqlx::query_scalar(
+            "SELECT COALESCE(counterpoint_config, '{}'::jsonb) FROM store_settings WHERE id = 1",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("load counterpoint config")
+    }
+
+    async fn restore_counterpoint_config(pool: &PgPool, config: serde_json::Value) {
+        sqlx::query("UPDATE store_settings SET counterpoint_config = $1 WHERE id = 1")
+            .bind(config)
+            .execute(pool)
+            .await
+            .expect("restore counterpoint config");
+    }
+
+    fn snapshot_reconciliation_row<'a>(
+        summary: &'a CounterpointLandingVerificationSummary,
+        key: &str,
+    ) -> &'a CounterpointSnapshotReconciliationRow {
+        summary
+            .snapshot_reconciliation
+            .iter()
+            .find(|row| row.key == key)
+            .expect("snapshot reconciliation row")
+    }
+
+    fn cutover_visibility_row<'a>(
+        summary: &'a CounterpointLandingVerificationSummary,
+        key: &str,
+    ) -> &'a CounterpointCutoverVisibilityRow {
+        summary
+            .cutover_visibility
+            .iter()
+            .find(|row| row.key == key)
+            .expect("cutover visibility row")
     }
 
     #[test]
@@ -6933,6 +7514,527 @@ mod tests {
             .execute(&pool)
             .await
             .expect("cleanup loyalty snapshot customer");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_gift_card_snapshot_reconciliation_passes_when_totals_match() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let (landed_count, landed_sum): (i64, Decimal) = sqlx::query_as(
+            "SELECT COUNT(*)::bigint, COALESCE(SUM(current_balance), 0)::numeric FROM gift_cards",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load landed gift card totals");
+
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "gift_cards".into(),
+                source_count: landed_count,
+                source_sum: landed_sum,
+            },
+        )
+        .await
+        .expect("record source gift card metrics");
+
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let row = snapshot_reconciliation_row(&summary, "gift_cards");
+        let passed = row.passed;
+        let status = row.status.clone();
+        let count_difference = row.count_difference;
+        let sum_difference = row
+            .sum_difference
+            .as_deref()
+            .expect("sum difference")
+            .parse::<Decimal>()
+            .expect("parse sum difference");
+        restore_counterpoint_config(&pool, original_config).await;
+
+        assert!(passed);
+        assert_eq!(status, "pass");
+        assert_eq!(count_difference, Some(0));
+        assert_eq!(sum_difference, Decimal::ZERO);
+    }
+
+    #[tokio::test]
+    async fn counterpoint_gift_card_snapshot_reconciliation_fails_when_balance_sum_differs() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let (landed_count, landed_sum): (i64, Decimal) = sqlx::query_as(
+            "SELECT COUNT(*)::bigint, COALESCE(SUM(current_balance), 0)::numeric FROM gift_cards",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load landed gift card totals");
+
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "gift_cards".into(),
+                source_count: landed_count,
+                source_sum: landed_sum + Decimal::ONE,
+            },
+        )
+        .await
+        .expect("record mismatched source gift card metrics");
+
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let row = snapshot_reconciliation_row(&summary, "gift_cards");
+        let passed = row.passed;
+        let status = row.status.clone();
+        let count_difference = row.count_difference;
+        let sum_difference = row
+            .sum_difference
+            .as_deref()
+            .expect("sum difference")
+            .parse::<Decimal>()
+            .expect("parse sum difference");
+        restore_counterpoint_config(&pool, original_config).await;
+
+        assert!(!passed);
+        assert_eq!(status, "fail");
+        assert_eq!(count_difference, Some(0));
+        assert_eq!(sum_difference, -Decimal::ONE);
+    }
+
+    #[tokio::test]
+    async fn counterpoint_loyalty_snapshot_reconciliation_passes_when_totals_match() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let (landed_count, landed_sum): (i64, Decimal) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint, COALESCE(SUM(COALESCE(loyalty_points, 0)), 0)::numeric
+            FROM customers
+            WHERE customer_created_source = 'counterpoint'
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load landed loyalty totals");
+
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "loyalty_points".into(),
+                source_count: landed_count,
+                source_sum: landed_sum,
+            },
+        )
+        .await
+        .expect("record source loyalty metrics");
+
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let row = snapshot_reconciliation_row(&summary, "loyalty_points");
+        let passed = row.passed;
+        let status = row.status.clone();
+        let count_difference = row.count_difference;
+        let sum_difference = row
+            .sum_difference
+            .as_deref()
+            .expect("sum difference")
+            .parse::<Decimal>()
+            .expect("parse sum difference");
+        restore_counterpoint_config(&pool, original_config).await;
+
+        assert!(passed);
+        assert_eq!(status, "pass");
+        assert_eq!(count_difference, Some(0));
+        assert_eq!(sum_difference, Decimal::ZERO);
+    }
+
+    #[tokio::test]
+    async fn counterpoint_loyalty_snapshot_reconciliation_fails_when_point_sum_differs() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let (landed_count, landed_sum): (i64, Decimal) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint, COALESCE(SUM(COALESCE(loyalty_points, 0)), 0)::numeric
+            FROM customers
+            WHERE customer_created_source = 'counterpoint'
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load landed loyalty totals");
+
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "loyalty_points".into(),
+                source_count: landed_count,
+                source_sum: landed_sum + Decimal::ONE,
+            },
+        )
+        .await
+        .expect("record mismatched source loyalty metrics");
+
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let row = snapshot_reconciliation_row(&summary, "loyalty_points");
+        let passed = row.passed;
+        let status = row.status.clone();
+        let count_difference = row.count_difference;
+        let sum_difference = row
+            .sum_difference
+            .as_deref()
+            .expect("sum difference")
+            .parse::<Decimal>()
+            .expect("parse sum difference");
+        restore_counterpoint_config(&pool, original_config).await;
+
+        assert!(!passed);
+        assert_eq!(status, "fail");
+        assert_eq!(count_difference, Some(0));
+        assert_eq!(sum_difference, -Decimal::ONE);
+    }
+
+    #[tokio::test]
+    async fn counterpoint_customer_reconciliation_count_passes_when_totals_match() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let landed_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM customers WHERE customer_created_source = 'counterpoint'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load landed customer count");
+
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "customers".into(),
+                source_count: landed_count,
+                source_sum: Decimal::ZERO,
+            },
+        )
+        .await
+        .expect("record source customer count");
+
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let row = snapshot_reconciliation_row(&summary, "customers");
+        let passed = row.passed;
+        let status = row.status.clone();
+        let source_count = row.source_count;
+        let count_difference = row.count_difference;
+        restore_counterpoint_config(&pool, original_config).await;
+
+        assert!(passed);
+        assert_eq!(status, "pass");
+        assert_eq!(source_count, Some(landed_count));
+        assert_eq!(count_difference, Some(0));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_open_doc_missing_customer_link_is_visible() {
+        let pool = connect_test_db().await;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let sku = format!("CP-OPEN-CUST-SKU-{suffix}");
+        let cp_key = format!("CP-OPEN-CUST-ITEM-{suffix}");
+        let doc_ref = format!("CP-OPEN-CUST-{suffix}");
+        let missing_customer = format!("CP-MISSING-{suffix}");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, $4, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("Counterpoint Open Doc Customer Fixture {suffix}"))
+        .bind(Decimal::new(4000, 2))
+        .bind(Decimal::new(1000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert product fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, '{}'::jsonb, 1, $4)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .bind(&cp_key)
+        .execute(&pool)
+        .await
+        .expect("insert variant fixture");
+
+        execute_counterpoint_open_doc_batch(
+            &pool,
+            CounterpointOpenDocsPayload {
+                rows: vec![CounterpointOpenDocRow {
+                    doc_ref: doc_ref.clone(),
+                    cust_no: Some(missing_customer.clone()),
+                    booked_at: Some(Utc::now().to_rfc3339()),
+                    total_price: Decimal::new(4000, 2),
+                    amount_paid: Decimal::ZERO,
+                    usr_id: None,
+                    sls_rep: None,
+                    cp_status: None,
+                    doc_typ: Some("O".into()),
+                    lines: vec![TicketLineRow {
+                        sku: Some(sku.clone()),
+                        counterpoint_item_key: Some(cp_key.clone()),
+                        lin_seq_no: Some(1),
+                        quantity: 1,
+                        unit_price: Decimal::new(4000, 2),
+                        unit_cost: Some(Decimal::new(1000, 2)),
+                        description: Some("Missing customer link test".into()),
+                        reason_code: None,
+                    }],
+                    payments: vec![],
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("import open doc with missing customer");
+
+        let issue_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_sync_issue
+            WHERE entity = 'open_docs'
+              AND external_key = $1
+              AND NOT resolved
+              AND message LIKE 'Customer unresolved:%'
+            "#,
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("count unresolved customer issue");
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let visibility = cutover_visibility_row(&summary, "open_doc_customer_links");
+        assert_eq!(issue_count, 1);
+        assert!(!visibility.passed);
+        assert!(visibility.count >= 1);
+
+        let payment_ids: Vec<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT pa.transaction_id
+            FROM payment_allocations pa
+            INNER JOIN transactions t ON t.id = pa.target_transaction_id
+            WHERE t.counterpoint_doc_ref = $1
+            "#,
+        )
+        .bind(&doc_ref)
+        .fetch_all(&pool)
+        .await
+        .expect("load payment ids for cleanup");
+        let transaction_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM transactions WHERE counterpoint_doc_ref = $1")
+                .bind(&doc_ref)
+                .fetch_all(&pool)
+                .await
+                .expect("load transaction ids for cleanup");
+        sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup payment allocations");
+        sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup transaction lines");
+        sqlx::query("DELETE FROM transactions WHERE id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup transactions");
+        sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
+            .bind(&payment_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup payment transactions");
+        sqlx::query(
+            "DELETE FROM counterpoint_sync_issue WHERE entity = 'open_docs' AND external_key = $1",
+        )
+        .bind(&doc_ref)
+        .execute(&pool)
+        .await
+        .expect("cleanup open doc issue");
+        sqlx::query("DELETE FROM product_variants WHERE id = $1")
+            .bind(variant_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup variant");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup product");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_inventory_unmatched_rows_are_visible_and_deduped() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let preexisting_inventory_issues: Vec<i64> = sqlx::query_scalar(
+            "SELECT id FROM counterpoint_sync_issue WHERE entity = 'inventory' AND NOT resolved",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("load preexisting inventory issues");
+        if !preexisting_inventory_issues.is_empty() {
+            sqlx::query(
+                "UPDATE counterpoint_sync_issue SET resolved = TRUE, resolved_at = NOW() WHERE id = ANY($1)",
+            )
+            .bind(&preexisting_inventory_issues)
+            .execute(&pool)
+            .await
+            .expect("temporarily resolve preexisting inventory issues");
+        }
+
+        let suffix = Uuid::new_v4().simple().to_string();
+        let sku = format!("CP-INV-MISS-SKU-{suffix}");
+        let cp_key = format!("CP-INV-MISS-ITEM-{suffix}");
+        let payload = || CounterpointInventoryPayload {
+            rows: vec![CounterpointInventoryRow {
+                sku: sku.clone(),
+                stock_on_hand: 7,
+                counterpoint_item_key: Some(cp_key.clone()),
+                unit_cost: Some(Decimal::new(1200, 2)),
+            }],
+            sync: None,
+        };
+
+        let first = execute_counterpoint_inventory_batch(&pool, payload())
+            .await
+            .expect("first unmatched inventory import");
+        let second = execute_counterpoint_inventory_batch(&pool, payload())
+            .await
+            .expect("rerun unmatched inventory import");
+        let issue_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM counterpoint_sync_issue WHERE entity = 'inventory' AND external_key = $1 AND NOT resolved",
+        )
+        .bind(&cp_key)
+        .fetch_one(&pool)
+        .await
+        .expect("count inventory issue");
+
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, $4, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("Counterpoint Inventory Fixture {suffix}"))
+        .bind(Decimal::new(4000, 2))
+        .bind(Decimal::new(1000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert inventory product fixture");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, '{}'::jsonb, 0, $4)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .bind(&cp_key)
+        .execute(&pool)
+        .await
+        .expect("insert inventory variant fixture");
+
+        let matched = execute_counterpoint_inventory_batch(&pool, payload())
+            .await
+            .expect("matched inventory import");
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "inventory_quantity_rows".into(),
+                source_count: 1,
+                source_sum: Decimal::ZERO,
+            },
+        )
+        .await
+        .expect("record inventory source count");
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let row = snapshot_reconciliation_row(&summary, "inventory_quantity_rows");
+        let row_passed = row.passed;
+        let row_source_count = row.source_count;
+        let row_landed_count = row.landed_count;
+        let unresolved_after_match: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM counterpoint_sync_issue WHERE entity = 'inventory' AND external_key = $1 AND NOT resolved",
+        )
+        .bind(&cp_key)
+        .fetch_one(&pool)
+        .await
+        .expect("count resolved inventory issue");
+
+        restore_counterpoint_config(&pool, original_config).await;
+        sqlx::query(
+            "DELETE FROM counterpoint_sync_issue WHERE entity = 'inventory' AND external_key = $1",
+        )
+        .bind(&cp_key)
+        .execute(&pool)
+        .await
+        .expect("cleanup inventory issue");
+        sqlx::query("DELETE FROM product_variants WHERE id = $1")
+            .bind(variant_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup inventory variant");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup inventory product");
+        if !preexisting_inventory_issues.is_empty() {
+            sqlx::query(
+                "UPDATE counterpoint_sync_issue SET resolved = FALSE, resolved_at = NULL WHERE id = ANY($1)",
+            )
+            .bind(&preexisting_inventory_issues)
+            .execute(&pool)
+            .await
+            .expect("restore preexisting inventory issues");
+        }
+
+        assert_eq!(first.updated, 0);
+        assert_eq!(first.skipped, 1);
+        assert_eq!(second.updated, 0);
+        assert_eq!(issue_count, 1);
+        assert_eq!(matched.updated, 1);
+        assert_eq!(matched.skipped, 0);
+        assert_eq!(unresolved_after_match, 0);
+        assert!(row_passed);
+        assert_eq!(row_source_count, Some(1));
+        assert_eq!(row_landed_count, 1);
     }
 
     #[tokio::test]

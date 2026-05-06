@@ -1386,6 +1386,49 @@ function throwIfBatchFailures(entity, failures, postedRows, sourceRows) {
   );
 }
 
+function decimalToScaledInt(value, scale = 2) {
+  const raw = String(value ?? "0").trim().replace(/,/g, "");
+  const match = raw.match(/^(-?)(\d+)(?:\.(\d+))?$/);
+  if (!match) return 0n;
+  const sign = match[1] === "-" ? -1n : 1n;
+  const whole = BigInt(match[2] || "0");
+  const frac = String(match[3] ?? "").padEnd(scale, "0").slice(0, scale);
+  const factor = 10n ** BigInt(scale);
+  return sign * (whole * factor + BigInt(frac || "0"));
+}
+
+function scaledIntToDecimalString(value, scale = 2) {
+  const sign = value < 0n ? "-" : "";
+  const abs = value < 0n ? -value : value;
+  const factor = 10n ** BigInt(scale);
+  const whole = abs / factor;
+  const frac = String(abs % factor).padStart(scale, "0");
+  return scale === 0 ? `${sign}${whole}` : `${sign}${whole}.${frac}`;
+}
+
+function intLikeToBigInt(value) {
+  if (value == null || value === "") return 0n;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0n;
+  return BigInt(Math.trunc(n));
+}
+
+async function postSnapshotReconciliation(snapshot, sourceCount, sourceSum) {
+  const body = {
+    snapshot,
+    source_count: sourceCount,
+  };
+  if (sourceSum !== undefined && sourceSum !== null) {
+    body.source_sum = sourceSum;
+  }
+  await rosFetch(
+    "/api/sync/counterpoint/snapshot-reconciliation",
+    body,
+    "POST",
+    bridgeIngestHeaders(),
+  );
+}
+
 async function syncReceivingHistory(pool) {
   if (!String(effectiveSql.receiving_history ?? "").trim()) {
     console.warn("[receiving_history] CP_RECEIVING_HISTORY_QUERY empty; skip");
@@ -1556,6 +1599,10 @@ function mapCatalogRow(r, cellRows) {
   };
 }
 
+function catalogVariantSourceCount(row) {
+  return Array.isArray(row.cells) && row.cells.length > 0 ? row.cells.length : 1;
+}
+
 function mapGiftCardRow(r, histRows) {
   const issueDat = r.issue_dat ?? r.issued_at;
   return {
@@ -1656,6 +1703,7 @@ async function syncCustomers(pool) {
   console.info("[customers] SQL returned", rows.length, "customer(s); sending with parallel-concurrency=2");
 
   const mapped = rows.map((row) => mapCustomerRow(normalizeRowKeys(row))).filter((r) => r.cust_no);
+  const loyaltyPointSum = mapped.reduce((sum, row) => sum + intLikeToBigInt(row.loyalty_points), 0n);
   const pendingRequests = [];
   const failures = [];
   let postedRows = 0;
@@ -1694,6 +1742,12 @@ async function syncCustomers(pool) {
     state.customers_cursor = lastSuccessfulCursor;
     writeState(state);
   }
+  await postSnapshotReconciliation("customers", mapped.length);
+  await postSnapshotReconciliation(
+    "loyalty_points",
+    mapped.length,
+    loyaltyPointSum.toString(),
+  );
   return postedRows;
 }
 
@@ -1747,6 +1801,7 @@ async function syncInventory(pool) {
     state.inventory_cursor = lastSuccessfulCursor;
     writeState(state);
   }
+  await postSnapshotReconciliation("inventory_quantity_rows", mapped.length);
   return postedRows;
 }
 
@@ -1838,6 +1893,7 @@ async function syncCatalog(pool) {
   let totalProcessed = 0;
   let totalRowsReceived = 0;
   let totalMappedRows = 0;
+  let totalMappedVariants = 0;
   let skippedDuplicates = 0;
   let inFlight = 0;
   const pendingRequests = [];
@@ -1865,6 +1921,7 @@ async function syncCatalog(pool) {
 
       if (mapped.item_no) {
         totalMappedRows++;
+        totalMappedVariants += catalogVariantSourceCount(mapped);
         batchBuffer.push(mapped);
         if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
           const chunk = [...batchBuffer];
@@ -1925,6 +1982,8 @@ async function syncCatalog(pool) {
           state.catalog_cursor = lastSuccessfulCursor;
           writeState(state);
         }
+        await postSnapshotReconciliation("catalog_products", totalMappedRows);
+        await postSnapshotReconciliation("catalog_variants", totalMappedVariants);
         logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
         console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
         resolve(totalProcessed);
@@ -1964,6 +2023,10 @@ async function syncGiftCards(pool) {
       return mapGiftCardRow(r, histLookup[certNo] ?? []);
     })
     .filter((r) => r.cert_no);
+  const giftBalanceSum = mapped.reduce(
+    (sum, row) => sum + decimalToScaledInt(row.balance, 2),
+    0n,
+  );
 
   logToDashboard(`[gift_cards] SQL returned ${mapped.length} card(s)`);
   const CONCURRENCY = 2;
@@ -2007,6 +2070,11 @@ async function syncGiftCards(pool) {
     state.gift_cards_cursor = lastSuccessfulCursor;
     writeState(state);
   }
+  await postSnapshotReconciliation(
+    "gift_cards",
+    mapped.length,
+    scaledIntToDecimalString(giftBalanceSum, 2),
+  );
   return postedRows;
 }
 
