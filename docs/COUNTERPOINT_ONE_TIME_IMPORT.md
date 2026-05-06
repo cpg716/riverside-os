@@ -185,6 +185,7 @@ What it proves:
 - Direct-ingest and staging-applied batches have produced visible rows in the expected ROS tables.
 - Counts are available for customers, staff/map rows, vendors, categories, products, variants, vendor supplier items, gift cards, store credit openings, loyalty history, closed ticket transactions/lines/payments, open-doc transactions/lines, and receiving history.
 - Customer, catalog product, catalog variant/SKU, and inventory quantity rows show source-vs-ROS count reconciliation.
+- Vendor master, category master, catalog vendor-link, and catalog category-link rows show source-vs-ROS count reconciliation.
 - Open-doc transaction and line rows show source-vs-ROS count reconciliation.
 - Catalog price/cost, category/vendor, variant-label, and inventory quantity/cost rows show source-vs-ROS checksum reconciliation from the live Counterpoint query payloads.
 - If a checksum row fails, the latest bridge-posted diagnostic report shows the bounded list of mismatched item keys/SKUs/fields for that group.
@@ -207,7 +208,7 @@ After each import pass:
 2. Confirm staging is applied or the **Inbound queue** is empty if staging was enabled.
 3. Review **Landing Verification** and confirm every expected domain has a plausible landed count.
 4. Confirm customer, catalog product, catalog variant/SKU, inventory quantity, open-doc, open-doc line, gift-card, and loyalty snapshot reconciliation rows pass.
-5. Confirm customer-link, skipped-open-doc, and unmatched-inventory visibility rows are clear.
+5. Confirm vendor master, category master, catalog vendor-link, catalog category-link, customer-link, skipped-open-doc, and unmatched-inventory visibility rows are clear.
 6. Review **Open sync issues** and resolve or deliberately defer each remaining issue.
 7. Review live **Inventory & Catalog Verification** and confirm the field-fidelity checksum rows pass or document the blocking mismatch.
 8. Record any approximate-domain caveats in the import sign-off notes.

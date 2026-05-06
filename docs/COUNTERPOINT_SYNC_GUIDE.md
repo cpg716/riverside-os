@@ -519,7 +519,7 @@ Use it after each repeatable pre-go-live import pass to confirm that the expecte
 
 The counts do **not** prove full business reconciliation. They do not compare financial totals to Counterpoint, prove tender/tax correctness, prove every historical row was imported, or replace staff review of edge cases. Treat them as landed-row proof only.
 
-Customers, catalog products, catalog variants/SKUs, inventory quantity rows, open docs, open-doc lines, gift-card balances, and loyalty current points have added proof rows. The bridge sends the Counterpoint source count (and source sum where balances/points apply); ROS compares those values to landed ROS values and shows **Pass**, **Fail**, or **No source proof**. Catalog and inventory fidelity proof also uses deterministic live-query checksums for price/cost, category/vendor, variant labels, and inventory quantity/cost field groups.
+Customers, catalog products, catalog variants/SKUs, inventory quantity rows, open docs, open-doc lines, vendor masters, category masters, gift-card balances, and loyalty current points have added proof rows. The bridge sends the Counterpoint source count (and source sum where balances/points apply); ROS compares those values to landed ROS values and shows **Pass**, **Fail**, or **No source proof**. Catalog and inventory fidelity proof also uses deterministic live-query checksums for price/cost, category/vendor, variant labels, and inventory quantity/cost field groups.
 
 Operational cutover visibility rows also call out unresolved ticket customer links, open-doc customer links, skipped open docs from unresolved item lines, skipped open docs from missing required data, and unmatched inventory quantity rows. These rows are backed by **Open sync issues**, so staff can review the exact Counterpoint ticket/doc/SKU key before sign-off.
 
@@ -533,6 +533,7 @@ Use Landing Verification with the other proof surfaces:
 - **Inbound queue / staging** must be empty after all intended staged batches are applied.
 - **Open sync issues** must be empty or explicitly triaged before sign-off.
 - **Inventory & Catalog Verification** uses live bridge/source metrics and ROS landed values for catalog, variant, SKU, barcode, quantity, unresolved-row proof, and aggregate checksum proof for cost, price, category, vendor, and variant labels. A checksum failure means the field group differs and must be investigated before cutover; it does not identify the exact row without a later diagnostic comparison.
+- **Category/vendor mapping proof** compares live vendor/category master counts to ROS `vendors.vendor_code` and `counterpoint_category_map` rows, and compares catalog items that carried `vendor_no` or `category` to products with resolved `primary_vendor_id` or `category_id`.
 - **Fidelity diagnostics** are posted by the bridge from the current live query payload after catalog/inventory sync. ROS compares those source rows to landed products/variants on demand and stores only the latest bounded mismatch report, not the full source payload. Settings shows the first 50 mismatched fields by group.
 
 This is not a full financial reconciliation report.

@@ -1334,6 +1334,10 @@ fn supported_snapshot_key(snapshot: &str) -> Option<&'static str> {
         "catalog_variants" => Some("catalog_variants"),
         "catalog_variant_skus" => Some("catalog_variant_skus"),
         "catalog_variant_barcodes" => Some("catalog_variant_barcodes"),
+        "counterpoint_vendors" => Some("counterpoint_vendors"),
+        "counterpoint_categories" => Some("counterpoint_categories"),
+        "catalog_items_with_vendor" => Some("catalog_items_with_vendor"),
+        "catalog_items_with_category" => Some("catalog_items_with_category"),
         "catalog_price_cost_fields" => Some("catalog_price_cost_fields"),
         "catalog_category_vendor_fields" => Some("catalog_category_vendor_fields"),
         "catalog_variant_label_fields" => Some("catalog_variant_label_fields"),
@@ -2196,6 +2200,45 @@ async fn build_snapshot_reconciliation_rows(
     )
     .fetch_one(pool)
     .await?;
+    let (vendor_count, _vendor_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM vendors
+        WHERE NULLIF(TRIM(vendor_code), '') IS NOT NULL
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let (category_count, _category_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM counterpoint_category_map
+        WHERE ros_category_id IS NOT NULL
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let (products_with_vendor_count, _products_with_vendor_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM products
+        WHERE data_source = 'counterpoint'
+          AND primary_vendor_id IS NOT NULL
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let (products_with_category_count, _products_with_category_sum): (i64, Decimal) =
+        sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint, 0::numeric
+            FROM products
+            WHERE data_source = 'counterpoint'
+              AND category_id IS NOT NULL
+            "#,
+        )
+        .fetch_one(pool)
+        .await?;
     let (open_doc_count, _open_doc_sum): (i64, Decimal) = sqlx::query_as(
         r#"
         SELECT COUNT(*)::bigint, 0::numeric
@@ -2279,6 +2322,34 @@ async fn build_snapshot_reconciliation_rows(
             "Catalog variant barcodes",
             load_snapshot_source_metric(pool, "catalog_variant_barcodes").await?,
             variant_barcode_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "counterpoint_vendors",
+            "Counterpoint vendor masters",
+            load_snapshot_source_metric(pool, "counterpoint_vendors").await?,
+            vendor_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "counterpoint_categories",
+            "Counterpoint category masters",
+            load_snapshot_source_metric(pool, "counterpoint_categories").await?,
+            category_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "catalog_items_with_vendor",
+            "Catalog items with resolved vendors",
+            load_snapshot_source_metric(pool, "catalog_items_with_vendor").await?,
+            products_with_vendor_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "catalog_items_with_category",
+            "Catalog items with resolved categories",
+            load_snapshot_source_metric(pool, "catalog_items_with_category").await?,
+            products_with_category_count,
             Decimal::ZERO,
         ),
         build_checksum_reconciliation_row(
@@ -8780,6 +8851,147 @@ mod tests {
 
         assert_eq!(source_count, Some(2));
         assert_eq!(source_checksum.as_deref(), Some("bbb222"));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_vendor_category_master_counts_reconcile() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let vendor_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM vendors WHERE NULLIF(TRIM(vendor_code), '') IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load landed vendor count");
+        let category_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM counterpoint_category_map WHERE ros_category_id IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load landed category count");
+
+        for (snapshot, count) in [
+            ("counterpoint_vendors", vendor_count),
+            ("counterpoint_categories", category_count),
+        ] {
+            record_counterpoint_snapshot_source_metrics(
+                &pool,
+                CounterpointSnapshotSourceMetricsPayload {
+                    snapshot: snapshot.into(),
+                    source_count: count,
+                    source_sum: Decimal::ZERO,
+                    source_checksum: None,
+                },
+            )
+            .await
+            .expect("record source metric");
+        }
+
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let vendor_row = snapshot_reconciliation_row(&summary, "counterpoint_vendors");
+        let category_row = snapshot_reconciliation_row(&summary, "counterpoint_categories");
+        restore_counterpoint_config(&pool, original_config).await;
+
+        assert!(vendor_row.passed);
+        assert_eq!(vendor_row.source_count, Some(vendor_count));
+        assert!(category_row.passed);
+        assert_eq!(category_row.source_count, Some(category_count));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_catalog_unresolved_vendor_and_category_are_visible() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let product_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO products (
+                id, catalog_handle, name, base_retail_price, base_cost, is_active, data_source
+            )
+            VALUES ($1, $2, $3, 0, 0, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("CP-MAP-MISS-{}", Uuid::new_v4().simple()))
+        .bind("Counterpoint Mapping Missing Fixture")
+        .execute(&pool)
+        .await
+        .expect("insert unmapped product fixture");
+        let products_with_vendor: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM products WHERE data_source = 'counterpoint' AND primary_vendor_id IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load products with vendor count");
+        let products_with_category: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM products WHERE data_source = 'counterpoint' AND category_id IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load products with category count");
+
+        for (snapshot, count) in [
+            ("catalog_items_with_vendor", products_with_vendor + 1),
+            ("catalog_items_with_category", products_with_category + 1),
+        ] {
+            record_counterpoint_snapshot_source_metrics(
+                &pool,
+                CounterpointSnapshotSourceMetricsPayload {
+                    snapshot: snapshot.into(),
+                    source_count: count,
+                    source_sum: Decimal::ZERO,
+                    source_checksum: None,
+                },
+            )
+            .await
+            .expect("record source metric");
+        }
+
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let vendor_row = snapshot_reconciliation_row(&summary, "catalog_items_with_vendor");
+        let category_row = snapshot_reconciliation_row(&summary, "catalog_items_with_category");
+        let vendor_status = vendor_row.status.clone();
+        let category_status = category_row.status.clone();
+        let vendor_diff = vendor_row.count_difference;
+        let category_diff = category_row.count_difference;
+
+        restore_counterpoint_config(&pool, original_config).await;
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup unmapped product fixture");
+
+        assert_eq!(vendor_status, "fail");
+        assert_eq!(vendor_diff, Some(-1));
+        assert_eq!(category_status, "fail");
+        assert_eq!(category_diff, Some(-1));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_vendor_category_missing_source_metrics_show_no_source_proof() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        restore_counterpoint_config(&pool, serde_json::json!({})).await;
+
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let vendor_row = snapshot_reconciliation_row(&summary, "counterpoint_vendors");
+        let category_row = snapshot_reconciliation_row(&summary, "catalog_items_with_category");
+        let vendor_status = vendor_row.status.clone();
+        let category_status = category_row.status.clone();
+        restore_counterpoint_config(&pool, original_config).await;
+
+        assert_eq!(vendor_status, "missing_source");
+        assert_eq!(category_status, "missing_source");
     }
 
     struct FidelityFixture {

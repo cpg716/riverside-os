@@ -2012,6 +2012,7 @@ async function syncCategoryMasters(pool) {
   const rows = (result.recordset ?? []).map((r) => mapCategoryMasterRow(normalizeRowKeys(r))).filter((x) => x.cp_category);
   if (rows.length === 0) {
     console.info("[category_masters] no rows");
+    await postSnapshotReconciliation("counterpoint_categories", 0);
     return;
   }
   logToDashboard(`[category_masters] SQL returned ${rows.length} category(s)`);
@@ -2028,6 +2029,7 @@ async function syncCategoryMasters(pool) {
     console.info("[category_masters] batch", summary);
     postedRows += chunk.length;
   }
+  await postSnapshotReconciliation("counterpoint_categories", rows.length);
   return postedRows;
 }
 
@@ -2087,6 +2089,8 @@ async function syncCatalog(pool) {
   let totalMappedVariants = 0;
   let totalMappedSkus = 0;
   let totalMappedBarcodes = 0;
+  let totalMappedItemsWithVendor = 0;
+  let totalMappedItemsWithCategory = 0;
   const catalogPriceCostChecksumParts = [];
   const catalogCategoryVendorChecksumParts = [];
   const catalogVariantLabelChecksumParts = [];
@@ -2123,6 +2127,8 @@ async function syncCatalog(pool) {
         totalMappedVariants += catalogVariantSourceCount(mapped);
         totalMappedSkus += catalogSkuSourceCount(mapped);
         totalMappedBarcodes += catalogBarcodeSourceCount(mapped);
+        if (String(mapped.vendor_no ?? "").trim()) totalMappedItemsWithVendor++;
+        if (String(mapped.category ?? "").trim()) totalMappedItemsWithCategory++;
         catalogPriceCostChecksumParts.push(...catalogPriceCostChecksumRows(mapped));
         catalogCategoryVendorChecksumParts.push(catalogCategoryVendorChecksumRow(mapped));
         catalogVariantLabelChecksumParts.push(...catalogVariantLabelChecksumRows(mapped));
@@ -2193,6 +2199,8 @@ async function syncCatalog(pool) {
         await postSnapshotReconciliation("catalog_variants", totalMappedVariants);
         await postSnapshotReconciliation("catalog_variant_skus", totalMappedSkus);
         await postSnapshotReconciliation("catalog_variant_barcodes", totalMappedBarcodes);
+        await postSnapshotReconciliation("catalog_items_with_vendor", totalMappedItemsWithVendor);
+        await postSnapshotReconciliation("catalog_items_with_category", totalMappedItemsWithCategory);
         await postSnapshotReconciliation(
           "catalog_price_cost_fields",
           catalogPriceCostChecksumParts.length,
@@ -2818,6 +2826,7 @@ async function syncVendors(pool) {
   const rows = (result.recordset ?? []).map((r) => normalizeRowKeys(r));
   if (rows.length === 0) {
     console.info("[vendors] no rows");
+    await postSnapshotReconciliation("counterpoint_vendors", 0);
     return;
   }
   const mapped = rows
@@ -2869,6 +2878,7 @@ async function syncVendors(pool) {
     state.vendors_cursor = lastSuccessfulCursor;
     writeState(state);
   }
+  await postSnapshotReconciliation("counterpoint_vendors", recordCount);
   return postedRows;
 }
 
