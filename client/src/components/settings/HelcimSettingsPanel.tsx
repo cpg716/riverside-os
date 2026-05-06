@@ -17,10 +17,14 @@ import helcimLogo from "../../assets/images/brands/Helcim_Logo.png";
 interface HelcimProviderStatus {
   enabled: boolean;
   api_token_configured: boolean;
+  terminal_1_device_configured?: boolean;
+  terminal_2_device_configured?: boolean;
   register_1_device_configured: boolean;
   register_2_device_configured: boolean;
   simulator_enabled: boolean;
   webhook_secret_configured: boolean;
+  terminal_1_device_code_suffix?: string | null;
+  terminal_2_device_code_suffix?: string | null;
   register_1_device_code_suffix?: string | null;
   register_2_device_code_suffix?: string | null;
   api_base_host: string;
@@ -217,7 +221,7 @@ const HelcimSettingsPanel: React.FC = () => {
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
                 ROS uses Helcim as the card rail. The API key enables payments
                 reporting and batch/transaction sync; terminal payments need
-                Register #1 and Register #2 terminal codes.
+                Terminal 1 and Terminal 2 device codes.
               </p>
             </div>
             <button
@@ -295,11 +299,11 @@ const HelcimSettingsPanel: React.FC = () => {
               value={
                 helcimLoading
                   ? "Checking..."
-                  : helcimStatus?.register_1_device_configured
-                    ? `R1 •••• ${helcimStatus.register_1_device_code_suffix ?? "set"}`
-                    : helcimStatus?.register_2_device_configured
-                      ? `R2 •••• ${helcimStatus.register_2_device_code_suffix ?? "set"}`
-                    : "Not configured"
+                  : helcimStatus?.terminal_1_device_configured || helcimStatus?.register_1_device_configured
+                    ? `T1 •••• ${helcimStatus.terminal_1_device_code_suffix ?? helcimStatus.register_1_device_code_suffix ?? "set"}`
+                    : helcimStatus?.terminal_2_device_configured || helcimStatus?.register_2_device_configured
+                      ? `T2 •••• ${helcimStatus.terminal_2_device_code_suffix ?? helcimStatus.register_2_device_code_suffix ?? "set"}`
+                      : "Not configured"
               }
             />
             <StatusTile
@@ -320,10 +324,12 @@ const HelcimSettingsPanel: React.FC = () => {
               ? helcimError
               : missingConfig.length
                 ? `Missing configuration: ${missingConfig.join(", ")}`
-                : helcimStatus?.register_1_device_configured ||
+                : helcimStatus?.terminal_1_device_configured ||
+                    helcimStatus?.terminal_2_device_configured ||
+                    helcimStatus?.register_1_device_configured ||
                     helcimStatus?.register_2_device_configured
                   ? "Helcim API access and terminal payments are configured."
-                  : "Helcim API access is configured. Add Register #1 and Register #2 terminal codes only if ROS will start in-store terminal payments."}
+                  : "Helcim API access is configured. Add Terminal 1 and Terminal 2 device codes only if ROS will start in-store terminal payments."}
           </p>
         </div>
       </section>
@@ -350,24 +356,30 @@ const HelcimSettingsPanel: React.FC = () => {
               detail="Used for Helcim API and card payment requests. Secret value is not shown."
             />
             <ConfigRow
-              label="Register #1 terminal code"
+              label="Terminal 1 device code"
               value={
-                helcimStatus?.register_1_device_configured
-                  ? `Configured •••• ${helcimStatus.register_1_device_code_suffix ?? "set"}`
+                helcimStatus?.terminal_1_device_configured || helcimStatus?.register_1_device_configured
+                  ? `Configured •••• ${helcimStatus.terminal_1_device_code_suffix ?? helcimStatus.register_1_device_code_suffix ?? "set"}`
                   : "Not configured"
               }
-              ready={Boolean(helcimStatus?.register_1_device_configured)}
-              detail="Used when Register #1 starts an in-store terminal payment."
+              ready={Boolean(helcimStatus?.terminal_1_device_configured || helcimStatus?.register_1_device_configured)}
+              detail="Used by Register #1 by default and available to Registers #3/#4 when selected."
             />
             <ConfigRow
-              label="Register #2 terminal code"
+              label="Terminal 2 device code"
               value={
-                helcimStatus?.register_2_device_configured
-                  ? `Configured •••• ${helcimStatus.register_2_device_code_suffix ?? "set"}`
+                helcimStatus?.terminal_2_device_configured || helcimStatus?.register_2_device_configured
+                  ? `Configured •••• ${helcimStatus.terminal_2_device_code_suffix ?? helcimStatus.register_2_device_code_suffix ?? "set"}`
                   : "Not configured"
               }
-              ready={Boolean(helcimStatus?.register_2_device_configured)}
-              detail="Used when Register #2 starts an in-store terminal payment."
+              ready={Boolean(helcimStatus?.terminal_2_device_configured || helcimStatus?.register_2_device_configured)}
+              detail="Used by Register #2 by default and available to Registers #3/#4 when selected."
+            />
+            <ConfigRow
+              label="Terminal routing"
+              value="R1 -> T1 | R2 -> T2 | R3/R4 choose"
+              ready={true}
+              detail="Routing follows Riverside register policy. Daily readiness and in-use state live in Payments."
             />
             <ConfigRow
               label="Payment update signing secret"
@@ -445,14 +457,14 @@ const HelcimSettingsPanel: React.FC = () => {
                   help: "Required for Helcim API and card payment requests.",
                 },
                 {
-                  key: "register_1_device_code",
-                  label: "Register #1 terminal code",
-                  help: "Required when Register #1 starts Helcim terminal payments.",
+                  key: "terminal_1_device_code",
+                  label: "Terminal 1 device code",
+                  help: "Default for Register #1. Registers #3/#4 can choose it at checkout.",
                 },
                 {
-                  key: "register_2_device_code",
-                  label: "Register #2 terminal code",
-                  help: "Required when Register #2 starts Helcim terminal payments.",
+                  key: "terminal_2_device_code",
+                  label: "Terminal 2 device code",
+                  help: "Default for Register #2. Registers #3/#4 can choose it at checkout.",
                 },
                 {
                   key: "webhook_secret",

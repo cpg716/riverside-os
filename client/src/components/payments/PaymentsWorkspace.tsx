@@ -190,6 +190,26 @@ type HelcimCardTerminal = {
   [key: string]: unknown;
 };
 
+type HelcimTerminalRouting = {
+  terminals: Array<{
+    key: "terminal_1" | "terminal_2";
+    label: string;
+    configured: boolean;
+    in_use_by_register_lane?: number | null;
+  }>;
+  registers: Array<{
+    register_lane: number;
+    default_terminal_key?: "terminal_1" | "terminal_2" | null;
+    allowed_terminal_keys: Array<"terminal_1" | "terminal_2">;
+    choice_required: boolean;
+    non_default_override_requires_permission: boolean;
+  }>;
+};
+
+type ActiveProviderResponse = {
+  helcim_terminal_routing?: HelcimTerminalRouting;
+};
+
 type DepositRow = {
   id: string;
   source_system: string;
@@ -264,6 +284,7 @@ type DashboardState = {
   health: EventsHealth | null;
   terminalDevices: HelcimDevice[];
   cardTerminals: HelcimCardTerminal[];
+  terminalRouting: HelcimTerminalRouting | null;
   terminalError: string | null;
 };
 
@@ -461,6 +482,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     health: null,
     terminalDevices: [],
     cardTerminals: [],
+    terminalRouting: null,
     terminalError: null,
   });
   const [loading, setLoading] = useState(true);
@@ -568,7 +590,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     setError(null);
     const today = todayYmd();
     try {
-      const [overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health] = await Promise.all([
+      const [overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health, activeProvider] = await Promise.all([
         getJson<OverviewResponse>(
           `/api/payments/providers/helcim/operations/overview?date_from=${today}&date_to=${today}`,
         ),
@@ -582,6 +604,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         getJson<TransactionRow[]>("/api/payments/providers/helcim/transactions?limit=50"),
         getJson<SettlementRun[]>("/api/payments/providers/helcim/sync/runs?limit=10"),
         getJson<EventsHealth>("/api/payments/providers/helcim/events/health"),
+        getJson<ActiveProviderResponse>("/api/payments/providers/active"),
       ]);
       const [terminalDevicesResult, cardTerminalsResult] = overview.helcim_api_active
         ? await Promise.all([
@@ -609,6 +632,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         health,
         terminalDevices: extractArray<HelcimDevice>(terminalDevicesResult.body, ["devices", "data", "items", "results"]),
         cardTerminals: extractArray<HelcimCardTerminal>(cardTerminalsResult.body, ["cardTerminals", "card_terminals", "data", "items", "results"]),
+        terminalRouting: activeProvider.helcim_terminal_routing ?? null,
         terminalError,
       });
     } catch (err) {
@@ -1252,6 +1276,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
                 health={data.health}
                 terminalDevices={data.terminalDevices}
                 cardTerminals={data.cardTerminals}
+                terminalRouting={data.terminalRouting}
                 terminalError={data.terminalError}
                 lastSuccess={lastSuccess}
                 lastError={lastError}
@@ -1702,6 +1727,7 @@ function HealthPanel({
   health,
   terminalDevices,
   cardTerminals,
+  terminalRouting,
   terminalError,
   lastSuccess,
   lastError,
@@ -1718,6 +1744,7 @@ function HealthPanel({
   health: EventsHealth | null;
   terminalDevices: HelcimDevice[];
   cardTerminals: HelcimCardTerminal[];
+  terminalRouting: HelcimTerminalRouting | null;
   terminalError: string | null;
   lastSuccess: SettlementRun | undefined;
   lastError: SettlementRun | undefined;
@@ -1841,6 +1868,32 @@ function HealthPanel({
         {terminalError ? (
           <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-semibold text-app-text-muted">
             {terminalError}
+          </div>
+        ) : null}
+        {terminalRouting ? (
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {terminalRouting.terminals.map((terminal) => {
+              const status = !terminal.configured
+                ? "Not configured"
+                : terminal.in_use_by_register_lane
+                  ? `In use by Register #${terminal.in_use_by_register_lane}`
+                  : "Ready";
+              return (
+                <div key={terminal.key} className="rounded-lg border border-app-border bg-app-surface-2 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black text-app-text">{terminal.label}</div>
+                      <div className="mt-1 text-xs font-semibold text-app-text-muted">
+                        {terminal.key === "terminal_1"
+                          ? "Register #1 default; Registers #3/#4 can choose"
+                          : "Register #2 default; Registers #3/#4 can choose"}
+                      </div>
+                    </div>
+                    <StatusPill value={status} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : null}
         <div className="mt-4 grid gap-4 lg:grid-cols-2">

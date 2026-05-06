@@ -739,9 +739,10 @@ async fn open_session(
     Json(payload): Json<OpenSessionRequest>,
 ) -> Result<Json<SessionResponse>, SessionError> {
     let lane = payload.register_lane;
-    if !(1..=3).contains(&lane) {
+    if !(1..=4).contains(&lane) {
         return Err(SessionError::InvalidPayload(
-            "register_lane must be 1 (Main), 2 (iPad), or 3 (Back Office)".to_string(),
+            "register_lane must be 1 (Main), 2 (iPad), 3 (Back Office), or 4 (Smartphone)"
+                .to_string(),
         ));
     }
 
@@ -849,9 +850,9 @@ async fn open_session(
 
     let receipt_timezone = load_receipt_timezone(&state.db).await;
 
-    // Automatic creation for satellite lanes 2 and 3 when opening lane 1
+    // Automatic creation for satellite lanes 2, 3, and 4 when opening lane 1
     if lane == 1 {
-        for satellite_lane in [2, 3] {
+        for satellite_lane in [2, 3, 4] {
             let satellite_token = pos_session::new_pos_api_token();
             let _: (Uuid,) = sqlx::query_as(
                 r#"

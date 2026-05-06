@@ -334,6 +334,7 @@ export default function PosShell({
               ) : sessionId ? (
                 <Cart
                   sessionId={sessionId}
+                  registerLane={registerLane}
                   receiptTimezone={receiptTimezone}
                   cashierName={cashierName}
                   cashierCode={cashierCode}

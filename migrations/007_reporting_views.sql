@@ -2531,6 +2531,13 @@ ALTER TABLE ONLY public.payment_provider_attempts
     ADD CONSTRAINT payment_provider_attempts_staff_id_fkey FOREIGN KEY (staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
 
 --
+-- Name: payment_provider_attempts payment_provider_attempts_terminal_override_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.payment_provider_attempts
+    ADD CONSTRAINT payment_provider_attempts_terminal_override_staff_id_fkey FOREIGN KEY (terminal_override_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
 -- Name: payment_provider_batches payment_provider_batches_source_event_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

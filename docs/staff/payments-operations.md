@@ -22,6 +22,7 @@ Sensitive actions require these permissions:
 | Review, reopen, or note actual deposits | `payments.deposit.review` |
 | Link actual deposits to expected batches | `payments.deposit.link` |
 | Create manual deposits or accept a variance | `payments.deposit.adjust` |
+| Use a non-default Helcim terminal on Register #1/#2 | `payments.terminal.override` |
 
 Older staff setups may still include the broad `payments.reconcile` permission. ROS accepts it only as a temporary compatibility fallback for reconciliation review, resolution, and linking actions. New access assignments should use the split permissions above.
 
@@ -141,6 +142,21 @@ Terminal status comes from Helcim device and card-terminal APIs. Device codes ar
 
 Provider errors, including Helcim rate limits, remain visible in the issue text so staff can decide whether to retry later or escalate instead of repeatedly submitting the same payment action.
 
+## Register terminal routing
+
+Riverside uses two shared Helcim terminals:
+
+- **Register #1** defaults to **Terminal 1**.
+- **Register #2** defaults to **Terminal 2**.
+- **Register #3** is Backoffice and must choose **Terminal 1** or **Terminal 2** before sending a terminal payment.
+- **Register #4** is Smartphone use and must choose **Terminal 1** or **Terminal 2** before sending a terminal payment.
+
+Staff never type Helcim device codes in POS. Device codes are configured only in **Settings -> Helcim** as **Terminal 1 device code** and **Terminal 2 device code**.
+
+If POS shows **Terminal in use by Register #X**, another payment attempt is still pending on that terminal. Do not send another payment to that terminal until the existing attempt is approved, canceled, failed, or expires locally. If the message does not clear after the customer leaves the terminal flow, check **Payments -> Health** and escalate before retrying repeatedly.
+
+Register #1/#2 non-default terminal use requires Manager Access through `payments.terminal.override` or admin compatibility. Register #3/#4 choosing either configured terminal does not require that override because choosing is the normal workflow for those lanes.
+
 ## Refund safety
 
 Card refunds that go through Helcim create a durable provider-attempt audit row before ROS records the refund. ROS only writes the negative payment and updates the refund queue after Helcim returns an approved or captured refund status.
@@ -162,7 +178,8 @@ Use **Payments** for daily operations:
 Use **Settings → Helcim** only for configuration:
 
 - API token and Helcim credential entry. The API token enables Helcim batch, transaction, settlement, and fee reads.
-- Register #1 and Register #2 terminal code entry.
+- Terminal 1 and Terminal 2 device code entry.
+- Register routing visibility: Register #1 -> Terminal 1, Register #2 -> Terminal 2, Register #3/#4 choose Terminal 1 or Terminal 2.
 - Payment update signing secret entry.
 - Connection checks before live card processing.
 

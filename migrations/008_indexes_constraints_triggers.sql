@@ -497,6 +497,30 @@ COMMENT ON COLUMN public.payment_provider_attempts.raw_audit_reference IS 'Redac
 COMMENT ON COLUMN public.payment_provider_attempts.provider_client_secret IS 'Short-lived hosted payment validation secret kept server-side only; never return to clients or logs.';
 
 --
+-- Name: COLUMN payment_provider_attempts.selected_terminal_key; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.payment_provider_attempts.selected_terminal_key IS 'ROS terminal routing key chosen for a Helcim terminal attempt: terminal_1 or terminal_2.';
+
+--
+-- Name: COLUMN payment_provider_attempts.terminal_route_source; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.payment_provider_attempts.terminal_route_source IS 'How ROS selected the terminal for this Helcim attempt: default, required_choice, or override.';
+
+--
+-- Name: COLUMN payment_provider_attempts.terminal_override_staff_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.payment_provider_attempts.terminal_override_staff_id IS 'Manager/Admin staff actor who approved a non-default register terminal override, when required.';
+
+--
+-- Name: COLUMN payment_provider_attempts.terminal_override_reason; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.payment_provider_attempts.terminal_override_reason IS 'Optional staff-entered reason for using a non-default Helcim terminal.';
+
+--
 -- Name: COLUMN payment_transactions.metadata; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -2188,6 +2212,12 @@ CREATE INDEX idx_payment_provider_attempts_staff_created ON public.payment_provi
 --
 
 CREATE INDEX idx_payment_provider_attempts_terminal_created ON public.payment_provider_attempts USING btree (provider, terminal_id, created_at DESC) WHERE (terminal_id IS NOT NULL);
+
+--
+-- Name: idx_payment_provider_attempts_terminal_route_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_payment_provider_attempts_terminal_route_created ON public.payment_provider_attempts USING btree (provider, selected_terminal_key, created_at DESC) WHERE (selected_terminal_key IS NOT NULL);
 
 --
 -- Name: idx_payment_transactions_payer_created; Type: INDEX; Schema: public; Owner: -

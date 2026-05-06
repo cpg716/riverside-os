@@ -14,8 +14,8 @@ pub const SIMULATOR_DEVICE_CODE: &str = "SIM1";
 #[derive(Debug, Clone)]
 pub struct HelcimConfig {
     api_token: Option<String>,
-    register_1_device_code: Option<String>,
-    register_2_device_code: Option<String>,
+    terminal_1_device_code: Option<String>,
+    terminal_2_device_code: Option<String>,
     api_base_url: String,
 }
 
@@ -23,10 +23,14 @@ pub struct HelcimConfig {
 pub struct HelcimConfigStatus {
     pub enabled: bool,
     pub api_token_configured: bool,
+    pub terminal_1_device_configured: bool,
+    pub terminal_2_device_configured: bool,
     pub register_1_device_configured: bool,
     pub register_2_device_configured: bool,
     pub simulator_enabled: bool,
     pub webhook_secret_configured: bool,
+    pub terminal_1_device_code_suffix: Option<String>,
+    pub terminal_2_device_code_suffix: Option<String>,
     pub register_1_device_code_suffix: Option<String>,
     pub register_2_device_code_suffix: Option<String>,
     pub api_base_host: String,
@@ -236,15 +240,17 @@ pub struct HelcimDevicesQuery {
 impl HelcimConfig {
     pub fn from_env() -> Self {
         let api_token = non_empty_env("HELCIM_API_TOKEN");
-        let register_1_device_code = non_empty_env("HELCIM_REGISTER_1_DEVICE_CODE");
-        let register_2_device_code = non_empty_env("HELCIM_REGISTER_2_DEVICE_CODE");
+        let terminal_1_device_code = non_empty_env("HELCIM_TERMINAL_1_DEVICE_CODE")
+            .or_else(|| non_empty_env("HELCIM_REGISTER_1_DEVICE_CODE"));
+        let terminal_2_device_code = non_empty_env("HELCIM_TERMINAL_2_DEVICE_CODE")
+            .or_else(|| non_empty_env("HELCIM_REGISTER_2_DEVICE_CODE"));
         let api_base_url = non_empty_env("HELCIM_API_BASE_URL")
             .unwrap_or_else(|| DEFAULT_HELCIM_API_BASE_URL.to_string());
 
         Self {
             api_token,
-            register_1_device_code,
-            register_2_device_code,
+            terminal_1_device_code,
+            terminal_2_device_code,
             api_base_url: api_base_url.trim_end_matches('/').to_string(),
         }
     }
@@ -259,12 +265,27 @@ impl HelcimConfig {
 
     pub fn device_code_for_register_lane(&self, register_lane: i16) -> Option<&str> {
         match register_lane {
-            1 => self.register_1_device_code.as_deref(),
-            2 => self.register_2_device_code.as_deref(),
+            1 => self.terminal_1_device_code.as_deref(),
+            2 => self.terminal_2_device_code.as_deref(),
             _ => None,
         }
         .or_else(|| {
             if self.simulator_enabled() {
+                Some(SIMULATOR_DEVICE_CODE)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn device_code_for_terminal_key(&self, terminal_key: &str) -> Option<&str> {
+        match terminal_key {
+            "terminal_1" => self.terminal_1_device_code.as_deref(),
+            "terminal_2" => self.terminal_2_device_code.as_deref(),
+            _ => None,
+        }
+        .or_else(|| {
+            if self.simulator_enabled() && matches!(terminal_key, "terminal_1" | "terminal_2") {
                 Some(SIMULATOR_DEVICE_CODE)
             } else {
                 None
@@ -296,10 +317,18 @@ impl HelcimConfig {
         HelcimConfigStatus {
             enabled: self.enabled(),
             api_token_configured: self.api_token.is_some(),
+            terminal_1_device_configured: self.device_code_for_terminal_key("terminal_1").is_some(),
+            terminal_2_device_configured: self.device_code_for_terminal_key("terminal_2").is_some(),
             register_1_device_configured: self.device_code_for_register_lane(1).is_some(),
             register_2_device_configured: self.device_code_for_register_lane(2).is_some(),
             simulator_enabled,
             webhook_secret_configured: non_empty_env("HELCIM_WEBHOOK_SECRET").is_some(),
+            terminal_1_device_code_suffix: self
+                .device_code_for_terminal_key("terminal_1")
+                .map(mask_suffix),
+            terminal_2_device_code_suffix: self
+                .device_code_for_terminal_key("terminal_2")
+                .map(mask_suffix),
             register_1_device_code_suffix: self.device_code_for_register_lane(1).map(mask_suffix),
             register_2_device_code_suffix: self.device_code_for_register_lane(2).map(mask_suffix),
             api_base_host: api_base_host(&self.api_base_url),

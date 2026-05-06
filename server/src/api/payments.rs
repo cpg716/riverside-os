@@ -38,6 +38,8 @@ const PAYMENTS_DEPOSIT_REVIEW: &str = "payments.deposit.review";
 const PAYMENTS_DEPOSIT_LINK: &str = "payments.deposit.link";
 const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
 const PAYMENTS_SYNC: &str = "payments.sync";
+const PAYMENTS_TERMINAL_OVERRIDE: &str = "payments.terminal.override";
+const HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES: i64 = 10;
 
 #[derive(Debug, Error)]
 pub enum PaymentError {
@@ -319,6 +321,31 @@ pub fn router() -> Router<AppState> {
 pub struct ActiveCardProviderResponse {
     pub active_provider: String,
     pub helcim: helcim::HelcimConfigStatus,
+    pub helcim_terminal_routing: HelcimTerminalRoutingStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimTerminalRoutingStatus {
+    pub terminals: Vec<HelcimTerminalStatus>,
+    pub registers: Vec<HelcimRegisterTerminalRoute>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimTerminalStatus {
+    pub key: String,
+    pub label: String,
+    pub configured: bool,
+    pub device_code_suffix: Option<String>,
+    pub in_use_by_register_lane: Option<i16>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimRegisterTerminalRoute {
+    pub register_lane: i16,
+    pub default_terminal_key: Option<String>,
+    pub allowed_terminal_keys: Vec<String>,
+    pub choice_required: bool,
+    pub non_default_override_requires_permission: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -329,6 +356,8 @@ pub struct PatchActiveCardProviderRequest {
 #[derive(Debug, Deserialize)]
 pub struct PatchHelcimConfigRequest {
     pub api_token: Option<String>,
+    pub terminal_1_device_code: Option<String>,
+    pub terminal_2_device_code: Option<String>,
     pub register_1_device_code: Option<String>,
     pub register_2_device_code: Option<String>,
     pub webhook_secret: Option<String>,
@@ -343,6 +372,10 @@ pub struct HelcimPurchaseRequestBody {
     pub currency: Option<String>,
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
+    #[serde(default)]
+    pub selected_terminal_key: Option<String>,
+    #[serde(default)]
+    pub terminal_override_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -353,6 +386,10 @@ pub struct HelcimTerminalRefundRequestBody {
     pub currency: Option<String>,
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
+    #[serde(default)]
+    pub selected_terminal_key: Option<String>,
+    #[serde(default)]
+    pub terminal_override_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -861,6 +898,10 @@ struct HelcimAttemptRow {
     pub staff_id: Option<Uuid>,
     pub device_id: Option<String>,
     pub terminal_id: Option<String>,
+    pub selected_terminal_key: Option<String>,
+    pub terminal_route_source: Option<String>,
+    pub terminal_override_staff_id: Option<Uuid>,
+    pub terminal_override_reason: Option<String>,
     pub idempotency_key: String,
     pub provider_payment_id: Option<String>,
     pub provider_transaction_id: Option<String>,
@@ -880,6 +921,10 @@ pub struct HelcimAttemptResponse {
     pub staff_id: Option<Uuid>,
     pub device_id: Option<String>,
     pub terminal_id: Option<String>,
+    pub selected_terminal_key: Option<String>,
+    pub terminal_route_source: Option<String>,
+    pub terminal_override_staff_id: Option<Uuid>,
+    pub terminal_override_reason: Option<String>,
     pub idempotency_key: String,
     pub provider_payment_id: Option<String>,
     pub provider_transaction_id: Option<String>,
@@ -922,6 +967,10 @@ impl HelcimAttemptResponse {
             staff_id: row.staff_id,
             device_id: row.device_id,
             terminal_id: row.terminal_id,
+            selected_terminal_key: row.selected_terminal_key,
+            terminal_route_source: row.terminal_route_source,
+            terminal_override_staff_id: row.terminal_override_staff_id,
+            terminal_override_reason: row.terminal_override_reason,
             idempotency_key: row.idempotency_key,
             provider_payment_id: row.provider_payment_id,
             provider_transaction_id: row.provider_transaction_id,
@@ -955,9 +1004,11 @@ async fn active_card_provider_response(
     helcim::apply_persisted_helcim_config_to_env(&state.db)
         .await
         .map_err(map_credential_error)?;
+    let config = helcim::HelcimConfig::from_env();
     Ok(ActiveCardProviderResponse {
         active_provider: load_active_card_provider(state).await?,
-        helcim: helcim::HelcimConfig::from_env().status(),
+        helcim: config.status(),
+        helcim_terminal_routing: helcim_terminal_routing_status(&state.db, &config).await?,
     })
 }
 
@@ -979,30 +1030,227 @@ async fn register_lane_for_session(
     .ok_or_else(|| PaymentError::InvalidPayload("Register session is not open.".to_string()))
 }
 
-async fn resolve_helcim_terminal_for_register(
+#[derive(Debug, Clone)]
+struct ResolvedHelcimTerminalRoute {
+    terminal_key: String,
+    terminal_id: String,
+    route_source: String,
+    override_staff_id: Option<Uuid>,
+    override_reason: Option<String>,
+}
+
+fn helcim_register_terminal_route(register_lane: i16) -> Option<HelcimRegisterTerminalRoute> {
+    match register_lane {
+        1 => Some(HelcimRegisterTerminalRoute {
+            register_lane,
+            default_terminal_key: Some("terminal_1".to_string()),
+            allowed_terminal_keys: vec!["terminal_1".to_string()],
+            choice_required: false,
+            non_default_override_requires_permission: true,
+        }),
+        2 => Some(HelcimRegisterTerminalRoute {
+            register_lane,
+            default_terminal_key: Some("terminal_2".to_string()),
+            allowed_terminal_keys: vec!["terminal_2".to_string()],
+            choice_required: false,
+            non_default_override_requires_permission: true,
+        }),
+        3 | 4 => Some(HelcimRegisterTerminalRoute {
+            register_lane,
+            default_terminal_key: None,
+            allowed_terminal_keys: vec!["terminal_1".to_string(), "terminal_2".to_string()],
+            choice_required: true,
+            non_default_override_requires_permission: false,
+        }),
+        _ => None,
+    }
+}
+
+async fn helcim_terminal_routing_status(
+    pool: &PgPool,
+    config: &helcim::HelcimConfig,
+) -> Result<HelcimTerminalRoutingStatus, PaymentError> {
+    let pending_rows: Vec<(Option<String>, Option<i16>)> = sqlx::query_as(
+        r#"
+        SELECT selected_terminal_key, rs.register_lane
+        FROM payment_provider_attempts ppa
+        LEFT JOIN register_sessions rs ON rs.id = ppa.register_session_id
+        WHERE ppa.provider = 'helcim'
+          AND ppa.status = 'pending'
+          AND ppa.selected_terminal_key IN ('terminal_1', 'terminal_2')
+        ORDER BY ppa.created_at ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let in_use_by_register: BTreeMap<String, i16> = pending_rows
+        .into_iter()
+        .filter_map(|(key, lane)| Some((key?, lane?)))
+        .collect();
+    let terminals = ["terminal_1", "terminal_2"]
+        .into_iter()
+        .map(|key| HelcimTerminalStatus {
+            key: key.to_string(),
+            label: match key {
+                "terminal_1" => "Terminal 1",
+                "terminal_2" => "Terminal 2",
+                _ => key,
+            }
+            .to_string(),
+            configured: config.device_code_for_terminal_key(key).is_some(),
+            device_code_suffix: config
+                .device_code_for_terminal_key(key)
+                .map(mask_terminal_suffix),
+            in_use_by_register_lane: in_use_by_register.get(key).copied(),
+        })
+        .collect();
+    let registers = [1_i16, 2, 3, 4]
+        .into_iter()
+        .filter_map(helcim_register_terminal_route)
+        .collect();
+    Ok(HelcimTerminalRoutingStatus {
+        terminals,
+        registers,
+    })
+}
+
+fn mask_terminal_suffix(value: &str) -> String {
+    value
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
+}
+
+fn normalize_terminal_key(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase().replace('-', "_"))
+}
+
+fn clean_terminal_override_reason(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(255).collect())
+}
+
+async fn staff_can_override_terminal(
+    state: &AppState,
+    staff_id: Option<Uuid>,
+) -> Result<bool, PaymentError> {
+    let Some(staff_id) = staff_id else {
+        return Ok(false);
+    };
+    let row: Option<(DbStaffRole,)> = sqlx::query_as("SELECT role FROM staff WHERE id = $1")
+        .bind(staff_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    let Some((role,)) = row else {
+        return Ok(false);
+    };
+    if role == DbStaffRole::Admin {
+        return Ok(true);
+    }
+    let effective = permissions::effective_permissions_for_staff(&state.db, staff_id, role)
+        .await
+        .map_err(|error| {
+            tracing::error!(error = %error, "terminal override permission resolution failed");
+            PaymentError::InvalidPayload("permission resolution failed".to_string())
+        })?;
+    Ok(staff_has_permission(&effective, PAYMENTS_TERMINAL_OVERRIDE))
+}
+
+async fn resolve_helcim_terminal_for_register_with_selection(
+    state: &AppState,
     pool: &PgPool,
     config: &helcim::HelcimConfig,
     register_session_id: Option<Uuid>,
-) -> Result<String, PaymentError> {
+    selected_terminal_key: Option<&str>,
+    override_reason: Option<&str>,
+    staff_id: Option<Uuid>,
+) -> Result<ResolvedHelcimTerminalRoute, PaymentError> {
     let Some(register_session_id) = register_session_id else {
         return Err(PaymentError::InvalidPayload(
             "Register session is required for Helcim terminal payments.".to_string(),
         ));
     };
     let register_lane = register_lane_for_session(pool, register_session_id).await?;
-    if !matches!(register_lane, 1 | 2) {
+    let route = helcim_register_terminal_route(register_lane).ok_or_else(|| {
+        PaymentError::InvalidPayload(format!(
+            "Helcim terminal payments are not configured for Register #{register_lane}."
+        ))
+    })?;
+    let selected = normalize_terminal_key(selected_terminal_key);
+    let terminal_key = if route.choice_required {
+        selected.ok_or_else(|| {
+            PaymentError::InvalidPayload(format!(
+                "Choose Terminal 1 or Terminal 2 before starting a Register #{register_lane} Helcim payment."
+            ))
+        })?
+    } else {
+        selected.unwrap_or_else(|| route.default_terminal_key.clone().unwrap_or_default())
+    };
+    if !matches!(terminal_key.as_str(), "terminal_1" | "terminal_2") {
         return Err(PaymentError::InvalidPayload(format!(
-            "Helcim terminal payments are only configured for Register #{register_lane} if a terminal code is saved for that register."
+            "Terminal selection is not allowed for Register #{register_lane}."
         )));
     }
-    config
-        .device_code_for_register_lane(register_lane)
+    let is_default = route.default_terminal_key.as_deref() == Some(terminal_key.as_str());
+    let is_allowed = route
+        .allowed_terminal_keys
+        .iter()
+        .any(|key| key == &terminal_key);
+    if !is_allowed && (route.choice_required || !route.non_default_override_requires_permission) {
+        return Err(PaymentError::InvalidPayload(format!(
+            "Terminal selection is not allowed for Register #{register_lane}."
+        )));
+    }
+    let route_source = if route.choice_required {
+        "required_choice"
+    } else if is_default {
+        "default"
+    } else {
+        "override"
+    };
+    let mut override_staff_id = None;
+    let mut cleaned_reason = None;
+    if route_source == "override" && route.non_default_override_requires_permission {
+        if !staff_can_override_terminal(state, staff_id).await? {
+            return Err(PaymentError::Forbidden(
+                "Manager Access is required to use a non-default terminal.".to_string(),
+            ));
+        }
+        override_staff_id = staff_id;
+        cleaned_reason = clean_terminal_override_reason(override_reason);
+    }
+    let terminal_id = config
+        .device_code_for_terminal_key(&terminal_key)
         .map(str::to_string)
         .ok_or_else(|| {
             PaymentError::InvalidPayload(format!(
-                "Helcim terminal code is not configured for Register #{register_lane}."
+                "{} is not configured in Settings.",
+                if terminal_key == "terminal_1" {
+                    "Terminal 1"
+                } else {
+                    "Terminal 2"
+                }
             ))
-        })
+        })?;
+    Ok(ResolvedHelcimTerminalRoute {
+        terminal_key,
+        terminal_id,
+        route_source: route_source.to_string(),
+        override_staff_id,
+        override_reason: cleaned_reason,
+    })
 }
 
 fn clean_optional_secret(
@@ -1068,14 +1316,22 @@ async fn patch_helcim_config(
         .map_err(map_pay_session)?;
 
     let api_token = clean_optional_secret(payload.api_token, "API token")?;
-    let register_1_device_code = clean_optional_device_code(payload.register_1_device_code)?;
-    let register_2_device_code = clean_optional_device_code(payload.register_2_device_code)?;
+    let terminal_1_device_code = clean_optional_device_code(
+        payload
+            .terminal_1_device_code
+            .or(payload.register_1_device_code),
+    )?;
+    let terminal_2_device_code = clean_optional_device_code(
+        payload
+            .terminal_2_device_code
+            .or(payload.register_2_device_code),
+    )?;
     let webhook_secret = clean_optional_secret(payload.webhook_secret, "Signing secret")?;
     let api_base_url = clean_optional_api_base_url(payload.api_base_url)?;
 
     if api_token.is_none()
-        && register_1_device_code.is_none()
-        && register_2_device_code.is_none()
+        && terminal_1_device_code.is_none()
+        && terminal_2_device_code.is_none()
         && webhook_secret.is_none()
         && api_base_url.is_none()
         && payload.simulator_enabled.is_none()
@@ -1089,11 +1345,11 @@ async fn patch_helcim_config(
     if let Some(value) = api_token {
         values.push(("api_token", value));
     }
-    if let Some(value) = register_1_device_code {
-        values.push(("register_1_device_code", value));
+    if let Some(value) = terminal_1_device_code {
+        values.push(("terminal_1_device_code", value));
     }
-    if let Some(value) = register_2_device_code {
-        values.push(("register_2_device_code", value));
+    if let Some(value) = terminal_2_device_code {
+        values.push(("terminal_2_device_code", value));
     }
     if let Some(value) = webhook_secret {
         values.push(("webhook_secret", value));
@@ -5623,6 +5879,54 @@ fn payment_event_label(event_type: &str) -> String {
     }
 }
 
+async fn expire_stale_helcim_terminal_attempts(
+    pool: &PgPool,
+    terminal_id: &str,
+) -> Result<(), PaymentError> {
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = 'expired',
+            error_code = 'terminal_pending_timeout',
+            error_message = 'Expired locally after the terminal stayed pending too long.',
+            completed_at = now()
+        WHERE provider = 'helcim'
+          AND status = 'pending'
+          AND COALESCE(terminal_id, device_id) = $1
+          AND created_at < now() - ($2::bigint * interval '1 minute')
+        "#,
+    )
+    .bind(terminal_id)
+    .bind(HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES)
+    .execute(pool)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(())
+}
+
+async fn terminal_in_use_message(pool: &PgPool, terminal_id: &str) -> Result<String, PaymentError> {
+    let lane: Option<i16> = sqlx::query_scalar(
+        r#"
+        SELECT rs.register_lane
+        FROM payment_provider_attempts ppa
+        LEFT JOIN register_sessions rs ON rs.id = ppa.register_session_id
+        WHERE ppa.provider = 'helcim'
+          AND ppa.status = 'pending'
+          AND COALESCE(ppa.terminal_id, ppa.device_id) = $1
+        ORDER BY ppa.created_at ASC
+        LIMIT 1
+        "#,
+    )
+    .bind(terminal_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    Ok(match lane {
+        Some(register_lane) => format!("Terminal in use by Register #{register_lane}"),
+        None => "Terminal in use by another payment.".to_string(),
+    })
+}
+
 async fn start_helcim_purchase(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -5650,8 +5954,18 @@ async fn start_helcim_purchase(
         middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
     };
     let config = helcim::HelcimConfig::from_env();
-    let terminal_id =
-        resolve_helcim_terminal_for_register(&state.db, &config, register_session_id).await?;
+    let terminal_route = resolve_helcim_terminal_for_register_with_selection(
+        &state,
+        &state.db,
+        &config,
+        register_session_id,
+        payload.selected_terminal_key.as_deref(),
+        payload.terminal_override_reason.as_deref(),
+        staff_id,
+    )
+    .await?;
+    let terminal_id = terminal_route.terminal_id.clone();
+    expire_stale_helcim_terminal_attempts(&state.db, &terminal_id).await?;
     let currency = payload
         .currency
         .as_deref()
@@ -5667,9 +5981,10 @@ async fn start_helcim_purchase(
         r#"
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
-            device_id, terminal_id, idempotency_key
+            device_id, terminal_id, selected_terminal_key, terminal_route_source,
+            terminal_override_staff_id, terminal_override_reason, idempotency_key
         )
-        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $6, $7)
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11)
         "#,
     )
     .bind(attempt_id)
@@ -5678,6 +5993,10 @@ async fn start_helcim_purchase(
     .bind(register_session_id)
     .bind(staff_id)
     .bind(&terminal_id)
+    .bind(&terminal_route.terminal_key)
+    .bind(&terminal_route.route_source)
+    .bind(terminal_route.override_staff_id)
+    .bind(&terminal_route.override_reason)
     .bind(&idempotency_key)
     .execute(&state.db)
     .await;
@@ -5687,7 +6006,7 @@ async fn start_helcim_purchase(
             == Some("uq_payment_provider_attempts_active_device")
         {
             return Err(PaymentError::Conflict(
-                "A Helcim terminal payment is already pending for this device.".to_string(),
+                terminal_in_use_message(&state.db, &terminal_id).await?,
             ));
         }
         return Err(PaymentError::InvalidPayload(e.to_string()));
@@ -5829,8 +6148,18 @@ async fn start_helcim_terminal_refund(
         middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
     };
     let config = helcim::HelcimConfig::from_env();
-    let terminal_id =
-        resolve_helcim_terminal_for_register(&state.db, &config, register_session_id).await?;
+    let terminal_route = resolve_helcim_terminal_for_register_with_selection(
+        &state,
+        &state.db,
+        &config,
+        register_session_id,
+        payload.selected_terminal_key.as_deref(),
+        payload.terminal_override_reason.as_deref(),
+        staff_id,
+    )
+    .await?;
+    let terminal_id = terminal_route.terminal_id.clone();
+    expire_stale_helcim_terminal_attempts(&state.db, &terminal_id).await?;
     let currency = payload
         .currency
         .as_deref()
@@ -5842,13 +6171,15 @@ async fn start_helcim_terminal_refund(
     let attempt_id = Uuid::new_v4();
     let idempotency_key = format!("helcim-refund-{attempt_id}");
 
-    sqlx::query(
+    let insert_result = sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
-            device_id, terminal_id, idempotency_key, provider_transaction_id, raw_audit_reference
+            device_id, terminal_id, selected_terminal_key, terminal_route_source,
+            terminal_override_staff_id, terminal_override_reason, idempotency_key,
+            provider_transaction_id, raw_audit_reference
         )
-        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $6, $7, $8, $9)
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12)
         "#,
     )
     .bind(attempt_id)
@@ -5857,6 +6188,10 @@ async fn start_helcim_terminal_refund(
     .bind(register_session_id)
     .bind(staff_id)
     .bind(&terminal_id)
+    .bind(&terminal_route.terminal_key)
+    .bind(&terminal_route.route_source)
+    .bind(terminal_route.override_staff_id)
+    .bind(&terminal_route.override_reason)
     .bind(&idempotency_key)
     .bind(payload.original_transaction_id.to_string())
     .bind(format!(
@@ -5864,8 +6199,18 @@ async fn start_helcim_terminal_refund(
         payload.original_transaction_id
     ))
     .execute(&state.db)
-    .await
-    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    .await;
+
+    if let Err(e) = insert_result {
+        if e.as_database_error().and_then(|db| db.constraint())
+            == Some("uq_payment_provider_attempts_active_device")
+        {
+            return Err(PaymentError::Conflict(
+                terminal_in_use_message(&state.db, &terminal_id).await?,
+            ));
+        }
+        return Err(PaymentError::InvalidPayload(e.to_string()));
+    }
 
     if config.simulator_enabled() {
         return load_helcim_attempt(&state, attempt_id, None)
@@ -6813,7 +7158,8 @@ async fn load_helcim_attempt_row(
     sqlx::query_as::<_, HelcimAttemptRow>(
         r#"
         SELECT id, provider, status, amount_cents, currency, register_session_id, staff_id,
-               device_id, terminal_id, idempotency_key, provider_payment_id,
+               device_id, terminal_id, selected_terminal_key, terminal_route_source,
+               terminal_override_staff_id, terminal_override_reason, idempotency_key, provider_payment_id,
                provider_transaction_id, error_code, error_message, raw_audit_reference
         FROM payment_provider_attempts
         WHERE id = $1 AND provider = 'helcim'

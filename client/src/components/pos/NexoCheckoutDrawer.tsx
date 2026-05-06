@@ -31,13 +31,32 @@ interface PaymentProviderSettings {
   active_provider: "helcim";
   helcim: {
     enabled: boolean;
+    terminal_1_device_configured?: boolean;
+    terminal_2_device_configured?: boolean;
     register_1_device_configured: boolean;
     register_2_device_configured: boolean;
     simulator_enabled?: boolean;
+    terminal_1_device_code_suffix?: string | null;
+    terminal_2_device_code_suffix?: string | null;
     register_1_device_code_suffix?: string | null;
     register_2_device_code_suffix?: string | null;
     api_base_host: string;
     missing_config: string[];
+  };
+  helcim_terminal_routing?: {
+    terminals: Array<{
+      key: "terminal_1" | "terminal_2";
+      label: string;
+      configured: boolean;
+      in_use_by_register_lane?: number | null;
+    }>;
+    registers: Array<{
+      register_lane: number;
+      default_terminal_key?: "terminal_1" | "terminal_2" | null;
+      allowed_terminal_keys: Array<"terminal_1" | "terminal_2">;
+      choice_required: boolean;
+      non_default_override_requires_permission: boolean;
+    }>;
   };
 }
 
@@ -47,6 +66,8 @@ interface HelcimAttempt {
   amount_cents: number;
   currency: string;
   terminal_id?: string | null;
+  selected_terminal_key?: "terminal_1" | "terminal_2" | null;
+  terminal_route_source?: "default" | "required_choice" | "override" | null;
   provider_payment_id?: string | null;
   provider_transaction_id?: string | null;
   provider_auth_code?: string | null;
@@ -125,6 +146,16 @@ function helcimCardLabel(card: HelcimCard): string {
   const brand = String(card.cardType ?? "Card").trim() || "Card";
   const expiry = String(card.cardExpiry ?? "").trim();
   return `${brand}${last ? ` • ${last}` : ""}${expiry ? ` • ${expiry}` : ""}`;
+}
+
+function terminalLabel(key: "terminal_1" | "terminal_2"): string {
+  return key === "terminal_1" ? "Terminal 1" : "Terminal 2";
+}
+
+function normalizeRegisterLane(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 4
+    ? value
+    : null;
 }
 
 interface RmsChargeAccountChoice {
@@ -271,6 +302,7 @@ function customerTaxExemptReason(taxId?: string | null): string {
 export interface NexoCheckoutDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  activeRegisterLane?: number | null;
   amountDueCents: number;
   stateTaxCents: number;
   localTaxCents: number;
@@ -328,6 +360,7 @@ function giftCardTypeLabel(t: GiftCardType): string {
 export default function NexoCheckoutDrawer({
   isOpen,
   onClose,
+  activeRegisterLane = null,
   amountDueCents,
   stateTaxCents,
   localTaxCents,
@@ -372,6 +405,8 @@ export default function NexoCheckoutDrawer({
   const [selectedHelcimCardToken, setSelectedHelcimCardToken] = useState<string>("");
   const [helcimCardsLoading, setHelcimCardsLoading] = useState(false);
   const [helcimPayOpen, setHelcimPayOpen] = useState(false);
+  const [selectedTerminalKey, setSelectedTerminalKey] = useState<"terminal_1" | "terminal_2" | "">("");
+  const [terminalOverrideConfirmed, setTerminalOverrideConfirmed] = useState(false);
 
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [taxExemptReason, setTaxExemptReason] = useState("Out of State");
@@ -384,6 +419,24 @@ export default function NexoCheckoutDrawer({
   const [rmsLoading, setRmsLoading] = useState(false);
   const [rmsProgramPickerOpen, setRmsProgramPickerOpen] = useState(false);
   const pendingHelcimCentsRef = useRef<number>(0);
+  const registerLane = useMemo(() => normalizeRegisterLane(activeRegisterLane), [activeRegisterLane]);
+  const registerLaneUnavailable = registerLane === null;
+  const registerTerminalRoute = useMemo(
+    () =>
+      providerSettings?.helcim_terminal_routing?.registers.find(
+        (route) => route.register_lane === registerLane,
+      ) ?? null,
+    [providerSettings?.helcim_terminal_routing?.registers, registerLane],
+  );
+  const terminalStatuses = providerSettings?.helcim_terminal_routing?.terminals ?? [];
+  const selectedTerminalIsDefault =
+    Boolean(selectedTerminalKey) &&
+    registerTerminalRoute?.default_terminal_key === selectedTerminalKey;
+  const selectedTerminalNeedsOverride =
+    Boolean(selectedTerminalKey) &&
+    Boolean(registerTerminalRoute?.default_terminal_key) &&
+    !selectedTerminalIsDefault &&
+    Boolean(registerTerminalRoute?.non_default_override_requires_permission);
 
   const tenderTabIds = useMemo(() => {
     const all = Object.keys(TAB_META) as NexoTenderTab[];
@@ -465,6 +518,8 @@ export default function NexoCheckoutDrawer({
       setRmsSelectedProgramCode(null);
       setRmsSummary(null);
       setRmsProgramPickerOpen(false);
+      setSelectedTerminalKey("");
+      setTerminalOverrideConfirmed(false);
     }
   }, [isOpen, rmsPaymentCollectionMode, customerTaxExempt, customerTaxExemptId]);
 
@@ -495,6 +550,24 @@ export default function NexoCheckoutDrawer({
       })
       .finally(() => setProviderSettingsLoading(false));
   }, [backofficeHeaders, baseUrl, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setTerminalOverrideConfirmed(false);
+    if (!registerTerminalRoute) {
+      setSelectedTerminalKey("");
+      return;
+    }
+    if (registerTerminalRoute.choice_required) {
+      setSelectedTerminalKey((current) =>
+        current && registerTerminalRoute.allowed_terminal_keys.includes(current)
+          ? current
+          : "",
+      );
+      return;
+    }
+    setSelectedTerminalKey(registerTerminalRoute.default_terminal_key ?? "");
+  }, [isOpen, registerTerminalRoute]);
 
   const loadRmsProgramsAndSummary = useCallback(async (account: RmsChargeAccountChoice) => {
     if (!customerId) return;
@@ -662,10 +735,13 @@ export default function NexoCheckoutDrawer({
           label,
           metadata: {
             payment_provider: "helcim",
+            payment_provider_attempt_id: attempt.id,
             provider_status: attempt.status,
             provider_payment_id: attempt.provider_payment_id ?? undefined,
             provider_transaction_id: attempt.provider_transaction_id ?? undefined,
             provider_terminal_id: attempt.terminal_id ?? undefined,
+            selected_terminal_key: attempt.selected_terminal_key ?? undefined,
+            terminal_route_source: attempt.terminal_route_source ?? undefined,
             provider_auth_code: attempt.provider_auth_code ?? undefined,
             provider_card_type: attempt.provider_card_type ?? undefined,
             card_brand: attempt.card_brand ?? undefined,
@@ -1030,6 +1106,22 @@ export default function NexoCheckoutDrawer({
         toast("A Helcim payment is already pending on the terminal.", "error");
         return;
       }
+      if (registerLaneUnavailable) {
+        toast("Active register lane is unavailable. Reopen or rejoin the register before using a Helcim terminal.", "error");
+        return;
+      }
+      if (!registerTerminalRoute) {
+        toast("Terminal routing is not available for this register.", "error");
+        return;
+      }
+      if (!selectedTerminalKey) {
+        toast("Choose Terminal 1 or Terminal 2 before starting card payment.", "error");
+        return;
+      }
+      if (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) {
+        toast("Confirm the non-default terminal before starting card payment.", "error");
+        return;
+      }
 
       try {
         const res = await fetch(`${baseUrl}/api/payments/providers/helcim/purchase`, {
@@ -1041,6 +1133,10 @@ export default function NexoCheckoutDrawer({
           body: JSON.stringify({
             amount_cents: amtCents,
             currency: "usd",
+            selected_terminal_key: selectedTerminalKey,
+            terminal_override_reason: selectedTerminalNeedsOverride
+              ? `Register #${registerLane ?? "unknown"} selected ${terminalLabel(selectedTerminalKey)}`
+              : undefined,
           }),
         });
         const body = (await res.json().catch(() => ({}))) as
@@ -1166,7 +1262,7 @@ export default function NexoCheckoutDrawer({
     setKeypad("");
     setGiftCardCode("");
     setCheckNumber("");
-  }, [giftCardSubType, giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsSummary, rmsResolve, rmsPaymentCollectionMode, startHelcimPayPayment, chargeSavedHelcimCard]);
+  }, [giftCardSubType, giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsSummary, rmsResolve, rmsPaymentCollectionMode, startHelcimPayPayment, chargeSavedHelcimCard]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -1507,6 +1603,87 @@ export default function NexoCheckoutDrawer({
                           </button>
                         )}
                       </div>
+                      {providerSettings?.active_provider === "helcim" && (
+                        <div className="mt-3 rounded-lg border border-app-border bg-app-surface p-3">
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="font-black uppercase tracking-widest text-app-text">
+                              {registerLane ? `Register #${registerLane}` : "Register"} terminal
+                            </div>
+                            <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              {registerLaneUnavailable
+                                ? "Register lane unavailable"
+                                : registerTerminalRoute?.choice_required
+                                ? "Choose terminal"
+                                : registerTerminalRoute?.default_terminal_key
+                                  ? `${terminalLabel(registerTerminalRoute.default_terminal_key)} default`
+                                  : "Routing not ready"}
+                            </div>
+                          </div>
+                          {registerLaneUnavailable && (
+                            <p className="mt-3 rounded-lg bg-app-warning/10 px-3 py-2 text-[11px] font-bold text-app-warning">
+                              Active register lane is unavailable. Reopen or rejoin the register before using a Helcim terminal.
+                            </p>
+                          )}
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            {(["terminal_1", "terminal_2"] as const).map((key) => {
+                              const status = terminalStatuses.find((terminal) => terminal.key === key);
+                              const inUseBy = status?.in_use_by_register_lane;
+                              const configured = Boolean(status?.configured);
+                              const disabled =
+                                registerLaneUnavailable ||
+                                !registerTerminalRoute ||
+                                !configured ||
+                                Boolean(inUseBy) ||
+                                helcimAttempt?.status === "pending";
+                              const isDefault = registerTerminalRoute?.default_terminal_key === key;
+                              const statusText = registerLaneUnavailable
+                                ? "Register unavailable"
+                                : !configured
+                                ? "Not configured"
+                                : inUseBy
+                                  ? `In use by Register #${inUseBy}`
+                                  : "Ready";
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  disabled={disabled}
+                                  onClick={() => {
+                                    setSelectedTerminalKey(key);
+                                    setTerminalOverrideConfirmed(false);
+                                  }}
+                                  className={`min-h-16 rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                    selectedTerminalKey === key
+                                      ? "border-app-accent bg-app-accent-soft text-app-text"
+                                      : "border-app-border bg-app-bg text-app-text-muted hover:border-app-input-border"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-black text-app-text">{terminalLabel(key)}</span>
+                                    {isDefault && (
+                                      <span className="rounded-full bg-app-surface-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                        Default
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-1 text-[11px] font-bold text-app-text-muted">{statusText}</div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {selectedTerminalNeedsOverride && (
+                            <label className="mt-3 flex items-center gap-2 text-[11px] font-bold text-app-warning">
+                              <input
+                                type="checkbox"
+                                checked={terminalOverrideConfirmed}
+                                onChange={(event) => setTerminalOverrideConfirmed(event.target.checked)}
+                                className="h-4 w-4 accent-app-accent"
+                              />
+                              Confirm Manager Access for non-default terminal use.
+                            </label>
+                          )}
+                        </div>
+                      )}
                       {providerSettings?.active_provider === "helcim" && helcimAttempt && (
                         <div className="mt-2 space-y-2">
                           <p
@@ -1663,6 +1840,10 @@ export default function NexoCheckoutDrawer({
                               providerSettingsError !== null ||
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
+                                  registerLaneUnavailable ||
+                                  !registerTerminalRoute ||
+                                  !selectedTerminalKey ||
+                                  (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) ||
                                   helcimAttempt?.status === "pending")))) ||
                           (tab === "card_manual" &&
                             (providerSettingsLoading ||

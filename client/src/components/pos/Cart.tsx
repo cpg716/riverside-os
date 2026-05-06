@@ -139,6 +139,7 @@ interface HandoffOrderDetail {
 
 interface CartProps {
   sessionId: string;
+  registerLane?: number | null;
   cashierName?: string | null;
   cashierCode?: string | null;
   initialCustomer?: Customer | null;
@@ -168,6 +169,7 @@ interface CartProps {
 // --- Component ---
 export default function Cart({
   sessionId,
+  registerLane = null,
   cashierName = null,
   initialCustomer = null,
   onInitialCustomerConsumed,
@@ -2166,6 +2168,7 @@ export default function Cart({
       <NexoCheckoutDrawer
         isOpen={checkoutDrawerOpen}
         onClose={() => setCheckoutDrawerOpen(false)}
+        activeRegisterLane={registerLane}
         amountDueCents={totals.totalCents}
         stateTaxCents={totals.stateTaxCents}
         localTaxCents={totals.localTaxCents}

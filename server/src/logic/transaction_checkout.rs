@@ -1416,6 +1416,7 @@ fn resolve_payment_splits(
 
 async fn validate_helcim_payment_splits(
     pool: &PgPool,
+    checkout_register_session_id: Uuid,
     payment_splits: &[ResolvedPaymentSplit],
 ) -> Result<(), CheckoutError> {
     for split in payment_splits {
@@ -1433,8 +1434,14 @@ async fn validate_helcim_payment_splits(
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let provider_attempt_id =
+            metadata_optional_text(&split.metadata, "payment_provider_attempt_id")
+                .and_then(|value| Uuid::parse_str(&value).ok());
 
-        if provider_transaction_id.is_none() && provider_payment_id.is_none() {
+        if provider_transaction_id.is_none()
+            && provider_payment_id.is_none()
+            && provider_attempt_id.is_none()
+        {
             return Err(CheckoutError::InvalidPayload(
                 "Helcim card payment is missing its approved transaction reference".to_string(),
             ));
@@ -1446,28 +1453,36 @@ async fn validate_helcim_payment_splits(
                 CheckoutError::InvalidPayload("Helcim card payment amount is not valid".to_string())
             })?;
 
-        let attempt: Option<(String, i64)> = sqlx::query_as(
+        let attempt: Option<(String, i64, Option<Uuid>)> = sqlx::query_as(
             r#"
-            SELECT status, amount_cents
+            SELECT status, amount_cents, register_session_id
             FROM payment_provider_attempts
             WHERE provider = 'helcim'
               AND (
-                ($1::text IS NOT NULL AND provider_transaction_id = $1)
-                OR ($2::text IS NOT NULL AND provider_payment_id = $2)
+                ($1::uuid IS NOT NULL AND id = $1)
+                OR ($2::text IS NOT NULL AND provider_transaction_id = $2)
+                OR ($3::text IS NOT NULL AND provider_payment_id = $3)
               )
             ORDER BY created_at DESC
             LIMIT 1
             "#,
         )
+        .bind(provider_attempt_id)
         .bind(provider_transaction_id)
         .bind(provider_payment_id)
         .fetch_optional(pool)
         .await?;
-        let Some((attempt_status, attempt_amount_cents)) = attempt else {
+        let Some((attempt_status, attempt_amount_cents, attempt_register_session_id)) = attempt
+        else {
             return Err(CheckoutError::InvalidPayload(
                 "Helcim card payment has not been confirmed by the terminal".to_string(),
             ));
         };
+        if attempt_register_session_id != Some(checkout_register_session_id) {
+            return Err(CheckoutError::InvalidPayload(
+                "Helcim card payment does not belong to this register session".to_string(),
+            ));
+        }
 
         if !matches!(attempt_status.as_str(), "approved" | "captured") {
             return Err(CheckoutError::InvalidPayload(
@@ -2234,7 +2249,7 @@ pub async fn execute_checkout(
         }
     }
 
-    validate_helcim_payment_splits(pool, &payment_splits).await?;
+    validate_helcim_payment_splits(pool, payload.session_id, &payment_splits).await?;
 
     if payload.is_tax_exempt
         && payload

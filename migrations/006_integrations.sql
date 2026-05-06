@@ -291,6 +291,32 @@ CREATE TABLE public.payment_actual_deposits (
 );
 
 --
+-- Name: payment_provider_attempts terminal routing audit columns; Type: ALTER TABLE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.payment_provider_attempts
+    ADD COLUMN IF NOT EXISTS selected_terminal_key text,
+    ADD COLUMN IF NOT EXISTS terminal_route_source text,
+    ADD COLUMN IF NOT EXISTS terminal_override_staff_id uuid,
+    ADD COLUMN IF NOT EXISTS terminal_override_reason text;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'payment_provider_attempts_selected_terminal_key_chk'
+    ) THEN
+        ALTER TABLE public.payment_provider_attempts
+            ADD CONSTRAINT payment_provider_attempts_selected_terminal_key_chk CHECK (((selected_terminal_key IS NULL) OR (selected_terminal_key = ANY (ARRAY['terminal_1'::text, 'terminal_2'::text]))));
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'payment_provider_attempts_terminal_route_source_chk'
+    ) THEN
+        ALTER TABLE public.payment_provider_attempts
+            ADD CONSTRAINT payment_provider_attempts_terminal_route_source_chk CHECK (((terminal_route_source IS NULL) OR (terminal_route_source = ANY (ARRAY['default'::text, 'required_choice'::text, 'override'::text]))));
+    END IF;
+END $$;
+
+--
 -- Name: payment_actual_deposit_batches; Type: TABLE; Schema: public; Owner: -
 --
 
