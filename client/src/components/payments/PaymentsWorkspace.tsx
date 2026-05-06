@@ -568,7 +568,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     setError(null);
     const today = todayYmd();
     try {
-      const [overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health, terminalDevicesResult, cardTerminalsResult] = await Promise.all([
+      const [overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health] = await Promise.all([
         getJson<OverviewResponse>(
           `/api/payments/providers/helcim/operations/overview?date_from=${today}&date_to=${today}`,
         ),
@@ -582,13 +582,20 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         getJson<TransactionRow[]>("/api/payments/providers/helcim/transactions?limit=50"),
         getJson<SettlementRun[]>("/api/payments/providers/helcim/sync/runs?limit=10"),
         getJson<EventsHealth>("/api/payments/providers/helcim/events/health"),
-        getJson<unknown>("/api/payments/providers/helcim/terminal/devices?limit=100")
-          .then((body) => ({ body, error: null as string | null }))
-          .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Device status could not load." })),
-        getJson<unknown>("/api/payments/providers/helcim/terminal/card-terminals")
-          .then((body) => ({ body, error: null as string | null }))
-          .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Card terminal status could not load." })),
       ]);
+      const [terminalDevicesResult, cardTerminalsResult] = overview.helcim_api_active
+        ? await Promise.all([
+            getJson<unknown>("/api/payments/providers/helcim/terminal/devices?limit=100")
+              .then((body) => ({ body, error: null as string | null }))
+              .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Device status could not load." })),
+            getJson<unknown>("/api/payments/providers/helcim/terminal/card-terminals")
+              .then((body) => ({ body, error: null as string | null }))
+              .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Card terminal status could not load." })),
+          ])
+        : [
+            { body: null, error: "HELCIM_API_TOKEN is not configured" },
+            { body: null, error: null },
+          ];
       const terminalError = terminalDevicesResult.error ?? cardTerminalsResult.error;
       setData({
         overview,

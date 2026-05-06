@@ -156,32 +156,32 @@ INSERT INTO payment_provider_batches (
 
 INSERT INTO payment_transactions (
   id, payment_method, amount, metadata, status, merchant_fee, net_amount,
-  payment_provider, provider_transaction_id, provider_status, created_at, occurred_at
+  payment_provider, provider_transaction_id, provider_payment_id, provider_status, created_at, occurred_at
 ) VALUES
   (
     ${sqlLiteral(seed.paymentLink)}, 'card', 100.00,
     jsonb_build_object('e2e_suite', ${sqlLiteral(seed.suite)}, 'helcim_fee_sync_status', 'not_ready', 'helcim_net_sync_status', 'not_ready'),
-    'success', 0.00, 0.00, 'helcim', NULL, 'approved', now(), now()
+    'success', 0.00, 0.00, 'helcim', NULL, ${sqlLiteral(`${seed.suite}-payment-link`)}, 'approved', now(), now()
   ),
   (
     ${sqlLiteral(seed.paymentNonHelcim)}, 'cash', 100.00,
     jsonb_build_object('e2e_suite', ${sqlLiteral(seed.suite)}),
-    'success', 0.00, 0.00, NULL, NULL, NULL, now(), now()
+    'success', 0.00, 0.00, NULL, NULL, NULL, NULL, now(), now()
   ),
   (
     ${sqlLiteral(seed.paymentMismatch)}, 'card', 101.00,
     jsonb_build_object('e2e_suite', ${sqlLiteral(seed.suite)}, 'helcim_fee_sync_status', 'not_ready', 'helcim_net_sync_status', 'not_ready'),
-    'success', 0.00, 0.00, 'helcim', NULL, 'approved', now(), now()
+    'success', 0.00, 0.00, 'helcim', NULL, ${sqlLiteral(`${seed.suite}-payment-mismatch`)}, 'approved', now(), now()
   ),
   (
     ${sqlLiteral(seed.paymentConflict)}, 'card', 100.00,
     jsonb_build_object('e2e_suite', ${sqlLiteral(seed.suite)}, 'helcim_fee_sync_status', 'not_ready', 'helcim_net_sync_status', 'not_ready'),
-    'success', 0.00, 0.00, 'helcim', ${sqlLiteral(`${seed.suite}-other-provider-tx`)}, 'approved', now(), now()
+    'success', 0.00, 0.00, 'helcim', ${sqlLiteral(`${seed.suite}-other-provider-tx`)}, ${sqlLiteral(`${seed.suite}-payment-conflict`)}, 'approved', now(), now()
   ),
   (
     ${sqlLiteral(seed.paymentAlreadyLinked)}, 'card', 100.00,
     jsonb_build_object('e2e_suite', ${sqlLiteral(seed.suite)}, 'helcim_fee_sync_status', 'not_ready', 'helcim_net_sync_status', 'not_ready'),
-    'success', 0.00, 0.00, 'helcim', NULL, 'approved', now(), now()
+    'success', 0.00, 0.00, 'helcim', NULL, ${sqlLiteral(`${seed.suite}-payment-linked`)}, 'approved', now(), now()
   );
 
 INSERT INTO payment_provider_batch_transactions (

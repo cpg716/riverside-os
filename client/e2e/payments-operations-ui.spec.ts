@@ -190,23 +190,28 @@ test.describe.serial("Payments Operations workspace smoke", () => {
       `Payments UI seed unavailable via psql (${databaseUrl()}): ${seedError || "unknown error"}`,
     );
 
+    const paymentsHeader = page
+      .getByRole("banner")
+      .filter({ has: page.getByRole("heading", { name: /^Payments$/i }) });
     const tabs = ["Overview", "Batches", "Reconciliation", "Transactions", "Deposits", "Health"];
     for (const tab of tabs) {
-      await expect(page.getByRole("button", { name: new RegExp(`^${tab}`, "i") })).toBeVisible();
+      await expect(
+        paymentsHeader.getByRole("button", { name: new RegExp(`^${tab}`, "i") }),
+      ).toBeVisible();
     }
 
     await expect(page.getByText("Fee not ready").first()).toBeVisible();
     await expect(page.getByText("Net not ready").first()).toBeVisible();
     await expect(page.getByText("Expected Deposit").first()).toBeVisible();
 
-    await page.getByRole("button", { name: /^batches/i }).click();
+    await paymentsHeader.getByRole("button", { name: /^batches/i }).click();
     await expect(page.getByText(seed.providerBatchId)).toBeVisible({ timeout: 20_000 });
     await page.getByText(seed.providerBatchId).first().click();
     await expect(page.getByRole("dialog")).toContainText(`Batch ${seed.providerBatchId}`);
     await expect(page.getByRole("dialog")).toContainText("Transactions");
     await page.keyboard.press("Escape");
 
-    await page.getByRole("button", { name: /^transactions/i }).click();
+    await paymentsHeader.getByRole("button", { name: /^transactions/i }).click();
     await page.getByPlaceholder("Search payments").fill(seed.suite);
     await expect(page.getByText(seed.providerBatchId).first()).toBeVisible();
     await page.getByText(seed.providerBatchId).first().click();
@@ -216,14 +221,14 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await expect(page.getByRole("dialog")).toContainText("Net not ready");
     await page.keyboard.press("Escape");
 
-    await page.getByRole("button", { name: /^reconciliation/i }).click();
-    await expect(page.getByText("E2E payment needs review")).toBeVisible();
+    await paymentsHeader.getByRole("button", { name: /^reconciliation/i }).click();
+    await expect(page.getByText("E2E payment needs review").first()).toBeVisible();
     await page.getByRole("button", { name: "Open Issue" }).first().click();
     await expect(page.getByRole("dialog")).toContainText("Issue Summary");
     await expect(page.getByRole("dialog")).toContainText("Link Payment");
     await page.keyboard.press("Escape");
 
-    await page.getByRole("button", { name: /^deposits/i }).click();
+    await paymentsHeader.getByRole("button", { name: /^deposits/i }).click();
     await expect(page.getByText("Actual Bank Deposit").first()).toBeVisible();
     await expect(page.getByText("Expected Deposit").first()).toBeVisible();
     await expect(page.getByText(seed.sourceReference)).toBeVisible();
@@ -233,16 +238,18 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await expect(page.getByRole("dialog")).toContainText("Reviewing does not post to QuickBooks");
     await page.keyboard.press("Escape");
 
-    await page.getByRole("button", { name: /^health/i }).click();
+    await paymentsHeader.getByRole("button", { name: /^health/i }).click();
     await expect(page.getByText("Payment Alerts")).toBeVisible();
     await expect(
-      page.getByText(/No payment alerts|Sync failed|Fee still not ready|Payment update failed/i).first(),
+      page
+        .getByText(
+          /No payment alerts|Sync failed|Fee still not ready|Payment update failed|Payment issues need review|Deposit needs review/i,
+        )
+        .first(),
     ).toBeVisible();
 
     const bodyText = await page.locator("body").innerText();
     expect(bodyText).not.toMatch(/\bwebhook\b|\bpayload\b|\bidempotency\b|settlement item/i);
-    expect(bodyText).toContain("Expected Deposit");
-    expect(bodyText).toContain("Actual Bank Deposit");
     expect(consoleErrors).toEqual([]);
   });
 });
