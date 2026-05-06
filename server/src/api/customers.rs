@@ -1,6 +1,7 @@
 //! Customer search, profile, marketing flags, and wedding memberships.
 
 use axum::{
+    body::Bytes,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -71,6 +72,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 
 const RMS_CHARGE_REPORT_TO_R2S: &str = "rms_charge.report_to_r2s";
+const RMS_ACCOUNT_LIST_PREVIEW_MAX_BYTES: usize = 10 * 1024 * 1024;
 
 fn rms_r2s_reporting_activation_cutoff() -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(corecard::RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339)
@@ -1653,6 +1655,55 @@ async fn list_customer_rms_charge_accounts(
     Ok(Json(rows))
 }
 
+async fn preview_rms_charge_account_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<corecard::AccountListPreviewResponse>, CustomerError> {
+    require_rms_charge_report_staff(&state, &headers).await?;
+    if body.len() > RMS_ACCOUNT_LIST_PREVIEW_MAX_BYTES {
+        return Err(CustomerError::BadRequest(
+            "Account List Report preview file is too large.".to_string(),
+        ));
+    }
+    let preview = corecard::preview_account_list_xlsx(body.as_ref())
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(preview))
+}
+
+async fn import_rms_charge_account_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Result<Json<corecard::AccountListImportResponse>, CustomerError> {
+    let staff = require_rms_charge_report_staff(&state, &headers).await?;
+    if body.len() > RMS_ACCOUNT_LIST_PREVIEW_MAX_BYTES {
+        return Err(CustomerError::BadRequest(
+            "Account List Report import file is too large.".to_string(),
+        ));
+    }
+    let source_filename = query.get("filename").map(String::as_str);
+    let response = corecard::import_account_list_xlsx(
+        &state.db,
+        body.as_ref(),
+        source_filename,
+        Some(staff.id),
+    )
+    .await
+    .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(response))
+}
+
+async fn get_latest_rms_charge_account_list_import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<corecard::AccountListLatestImportResponse>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let response = corecard::latest_account_list_import(&state.db).await?;
+    Ok(Json(response))
+}
+
 async fn get_customer_rms_charge_account_balances(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2627,6 +2678,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/rms-charge/customer/{customer_id}/accounts",
             get(list_customer_rms_charge_accounts),
+        )
+        .route(
+            "/rms-charge/account-list/preview",
+            post(preview_rms_charge_account_list),
+        )
+        .route(
+            "/rms-charge/account-list/import",
+            post(import_rms_charge_account_list),
+        )
+        .route(
+            "/rms-charge/account-list/latest",
+            get(get_latest_rms_charge_account_list_import),
         )
         .route(
             "/rms-charge/accounts/{account_id}/balances",

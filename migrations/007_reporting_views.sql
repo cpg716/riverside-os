@@ -179,6 +179,27 @@ ALTER TABLE ONLY public.app_notification
     ADD CONSTRAINT app_notification_pkey PRIMARY KEY (id);
 
 --
+-- Name: rms_account_list_import_batches rms_account_list_import_batches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rms_account_list_import_batches
+    ADD CONSTRAINT rms_account_list_import_batches_pkey PRIMARY KEY (id);
+
+--
+-- Name: rms_account_list_snapshots rms_account_list_snapshots_batch_account_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rms_account_list_snapshots
+    ADD CONSTRAINT rms_account_list_snapshots_batch_account_key UNIQUE (batch_id, account_number);
+
+--
+-- Name: rms_account_list_snapshots rms_account_list_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rms_account_list_snapshots
+    ADD CONSTRAINT rms_account_list_snapshots_pkey PRIMARY KEY (id);
+
+--
 -- Name: categories categories_name_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1857,6 +1878,27 @@ ALTER TABLE ONLY public.customer_corecredit_accounts
 
 ALTER TABLE ONLY public.customer_corecredit_accounts
     ADD CONSTRAINT customer_corecredit_accounts_verified_by_staff_id_fkey FOREIGN KEY (verified_by_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: rms_account_list_import_batches rms_account_list_import_batches_uploaded_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rms_account_list_import_batches
+    ADD CONSTRAINT rms_account_list_import_batches_uploaded_by_staff_id_fkey FOREIGN KEY (uploaded_by_staff_id) REFERENCES public.staff(id) ON DELETE SET NULL;
+
+--
+-- Name: rms_account_list_snapshots rms_account_list_snapshots_batch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rms_account_list_snapshots
+    ADD CONSTRAINT rms_account_list_snapshots_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.rms_account_list_import_batches(id) ON DELETE CASCADE;
+
+--
+-- Name: rms_account_list_snapshots rms_account_list_snapshots_matched_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rms_account_list_snapshots
+    ADD CONSTRAINT rms_account_list_snapshots_matched_customer_id_fkey FOREIGN KEY (matched_customer_id) REFERENCES public.customers(id) ON DELETE SET NULL;
 
 --
 -- Name: customer_duplicate_review_queue customer_duplicate_review_queue_customer_a_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -

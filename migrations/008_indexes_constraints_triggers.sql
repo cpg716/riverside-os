@@ -191,6 +191,18 @@ COMMENT ON TABLE public.payment_actual_deposit_events IS 'Append-only audit hist
 COMMENT ON TABLE public.corecredit_exception_queue IS 'Operational exception queue for failed postings, webhook issues, stale account states, and reconciliation mismatches.';
 
 --
+-- Name: TABLE rms_account_list_import_batches; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rms_account_list_import_batches IS 'Weekly R2S/CoreCredit Account List upload batches. These are reference snapshots only and never create financial ledger rows.';
+
+--
+-- Name: TABLE rms_account_list_snapshots; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.rms_account_list_snapshots IS 'Parsed RMS Charge account snapshots from uploaded Account List reports. Balances are last-imported reference values only.';
+
+--
 -- Name: TABLE customer_corecredit_accounts; Type: COMMENT; Schema: public; Owner: -
 --
 
@@ -1570,6 +1582,54 @@ CREATE INDEX idx_corecredit_event_log_related_record ON public.corecredit_event_
 --
 
 CREATE INDEX idx_corecredit_event_log_status_received ON public.corecredit_event_log USING btree (processing_status, received_at DESC);
+
+--
+-- Name: idx_rms_account_list_import_batches_report_run_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rms_account_list_import_batches_report_run_at ON public.rms_account_list_import_batches USING btree (report_run_at DESC);
+
+--
+-- Name: idx_rms_account_list_import_batches_source_file_hash; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rms_account_list_import_batches_source_file_hash ON public.rms_account_list_import_batches USING btree (source_file_hash);
+
+--
+-- Name: idx_rms_account_list_import_batches_uploaded_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rms_account_list_import_batches_uploaded_at ON public.rms_account_list_import_batches USING btree (uploaded_at DESC);
+
+--
+-- Name: idx_rms_account_list_snapshots_account_number; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rms_account_list_snapshots_account_number ON public.rms_account_list_snapshots USING btree (account_number);
+
+--
+-- Name: idx_rms_account_list_snapshots_batch_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rms_account_list_snapshots_batch_id ON public.rms_account_list_snapshots USING btree (batch_id);
+
+--
+-- Name: idx_rms_account_list_snapshots_match_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rms_account_list_snapshots_match_status ON public.rms_account_list_snapshots USING btree (match_status);
+
+--
+-- Name: idx_rms_account_list_snapshots_matched_customer_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rms_account_list_snapshots_matched_customer_id ON public.rms_account_list_snapshots USING btree (matched_customer_id);
+
+--
+-- Name: idx_rms_account_list_snapshots_normalized_phone; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_rms_account_list_snapshots_normalized_phone ON public.rms_account_list_snapshots USING btree (normalized_phone);
 
 --
 -- Name: idx_helcim_event_log_provider_event; Type: INDEX; Schema: public; Owner: -

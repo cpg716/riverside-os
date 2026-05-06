@@ -273,6 +273,69 @@ pub async fn run_rms_charge_r2s_report_reminders(pool: &PgPool) -> Result<(), sq
     Ok(())
 }
 
+pub async fn run_rms_account_list_stale_upload_reminder(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let recipients = rms_r2s_report_recipients(pool).await?;
+    if recipients.is_empty() {
+        return Ok(());
+    }
+
+    let latest_uploaded_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+        r#"
+        SELECT uploaded_at
+        FROM rms_account_list_import_batches
+        WHERE status = 'imported'
+        ORDER BY uploaded_at DESC, created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+
+    let dedupe = "rms_account_list_weekly_upload";
+    let fresh_cutoff =
+        Utc::now() - ChronoDuration::days(crate::logic::corecard::RMS_ACCOUNT_LIST_FRESH_DAYS);
+    if latest_uploaded_at
+        .map(|uploaded_at| uploaded_at >= fresh_cutoff)
+        .unwrap_or(false)
+    {
+        let _ = delete_app_notification_by_dedupe(pool, dedupe).await?;
+        return Ok(());
+    }
+
+    let body = latest_uploaded_at
+        .map(|uploaded_at| {
+            format!(
+                "The latest RMS Charge account list snapshot was uploaded on {}. Upload this week's R2S Account List report so Customer → RMS Charge has a fresh reference snapshot.",
+                uploaded_at.format("%Y-%m-%d")
+            )
+        })
+        .unwrap_or_else(|| {
+            "No RMS Charge account list snapshot has been imported yet. Upload the weekly R2S Account List report so Customer → RMS Charge has reference snapshots.".to_string()
+        });
+
+    let notification_id = upsert_app_notification_by_dedupe(
+        pool,
+        "rms_account_list_weekly_upload",
+        "Upload weekly RMS Charge account list",
+        &body,
+        json!({
+            "kind": "rms_account_list_weekly_upload",
+            "type": "rms_account_list_weekly_upload",
+            "route": "customers.rms_charge",
+            "tab": "accounts",
+        }),
+        "rms_charge_reporting",
+        json!({
+            "permissions": [RMS_CHARGE_REPORT_TO_R2S, CUSTOMERS_RMS_CHARGE_REPORTING],
+        }),
+        dedupe,
+    )
+    .await?;
+    fan_out_notification_to_staff_ids(pool, notification_id, &recipients).await?;
+    Ok(())
+}
+
 pub async fn run_notification_generators(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut first_error: Option<sqlx::Error> = None;
 
@@ -386,6 +449,10 @@ pub async fn run_notification_generators(pool: &PgPool) -> Result<(), sqlx::Erro
     run_generator!(
         "rms_charge_r2s_report_reminders",
         run_rms_charge_r2s_report_reminders(pool)
+    );
+    run_generator!(
+        "rms_account_list_stale_upload_reminder",
+        run_rms_account_list_stale_upload_reminder(pool)
     );
 
     if let Some(e) = first_error {

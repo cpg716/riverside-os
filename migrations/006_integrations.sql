@@ -88,6 +88,70 @@ CREATE TABLE public.corecredit_event_log (
 );
 
 --
+-- Name: rms_account_list_import_batches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rms_account_list_import_batches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    source_filename text,
+    source_file_hash text NOT NULL,
+    institution_name text,
+    merchant_name text,
+    report_run_at timestamp with time zone,
+    uploaded_by_staff_id uuid,
+    uploaded_at timestamp with time zone DEFAULT now() NOT NULL,
+    parsed_account_count integer NOT NULL,
+    footer_account_count integer,
+    total_balance numeric(12,2),
+    total_minimum_due numeric(12,2),
+    total_past_due numeric(12,2),
+    total_open_to_buy numeric(12,2),
+    warning_summary jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status text DEFAULT 'imported'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--
+-- Name: rms_account_list_snapshots; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rms_account_list_snapshots (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    batch_id uuid NOT NULL,
+    account_number text NOT NULL,
+    account_year text,
+    customer_name text,
+    business_name text,
+    address_line text,
+    city text,
+    state text,
+    postal_code text,
+    phone text,
+    normalized_phone text,
+    high_balance numeric(12,2),
+    previous_balance numeric(12,2),
+    payments numeric(12,2),
+    returns_amount numeric(12,2),
+    charges numeric(12,2),
+    finance_charge numeric(12,2),
+    balance numeric(12,2),
+    minimum_due numeric(12,2),
+    past_due numeric(12,2),
+    aging_30 numeric(12,2),
+    aging_60 numeric(12,2),
+    aging_90 numeric(12,2),
+    open_to_buy numeric(12,2),
+    payment_history text,
+    raw_payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    parser_warnings jsonb DEFAULT '[]'::jsonb NOT NULL,
+    matched_customer_id uuid,
+    match_status text DEFAULT 'unmatched'::text NOT NULL,
+    match_confidence numeric(5,2),
+    match_method text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--
 -- Name: helcim_event_log; Type: TABLE; Schema: public; Owner: -
 --
 

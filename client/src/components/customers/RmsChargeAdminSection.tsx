@@ -7,7 +7,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
-import { ClipboardCheck, Link2, RefreshCw, ShieldCheck, Unlink, X as CloseIcon } from "lucide-react";
+import { ClipboardCheck, Link2, RefreshCw, ShieldCheck, Unlink, Upload, X as CloseIcon } from "lucide-react";
 
 const baseUrl = getBaseUrl();
 const PAGE = 100;
@@ -270,6 +270,87 @@ type RmsReconciliationResponse = {
   items?: RmsReconciliationItem[];
 };
 
+type RmsAccountListPreview = {
+  source: "r2s_account_list_report";
+  snapshot_label: "report snapshot";
+  metadata: {
+    sheet_name: string;
+    report_title?: string | null;
+    institution_name?: string | null;
+    merchant_name?: string | null;
+    report_run_at?: string | null;
+    report_run_at_raw?: string | null;
+  };
+  parsed_account_count: number;
+  footer_count?: number | null;
+  total_balance: string;
+  total_minimum_due: string;
+  total_past_due: string;
+  total_open_to_buy: string;
+  warning_count: number;
+  warnings: string[];
+  data_quality: {
+    missing_phones: number;
+    invalid_phones: number;
+    missing_addresses: number;
+    active_balance_count: number;
+    past_due_count: number;
+    zero_open_to_buy_count: number;
+    duplicate_account_number_count: number;
+  };
+  sample_accounts: Array<{
+    account_number: string;
+    name: string;
+    city?: string | null;
+    state?: string | null;
+    zip?: string | null;
+    phone?: string | null;
+    balance: string;
+    minimum_due: string;
+    past_due: string;
+    open_to_buy: string;
+    parser_warnings: string[];
+  }>;
+};
+
+type RmsAccountListBatchSummary = {
+  id: string;
+  source_filename?: string | null;
+  source_file_hash: string;
+  institution_name?: string | null;
+  merchant_name?: string | null;
+  report_run_at?: string | null;
+  uploaded_by_staff_id?: string | null;
+  uploaded_at: string;
+  parsed_account_count: number;
+  footer_account_count?: number | null;
+  total_balance?: string | null;
+  total_minimum_due?: string | null;
+  total_past_due?: string | null;
+  total_open_to_buy?: string | null;
+  warning_summary?: {
+    warnings?: string[];
+    data_quality?: RmsAccountListPreview["data_quality"];
+  } | null;
+  status: string;
+  created_at: string;
+};
+
+type RmsAccountListLatestStatus = {
+  latest?: RmsAccountListBatchSummary | null;
+  stale: boolean;
+  stale_after_days: number;
+  matched_count: number;
+  unmatched_count: number;
+};
+
+type RmsAccountListImportResponse = {
+  batch: RmsAccountListBatchSummary;
+  inserted_snapshot_count: number;
+  warning_count: number;
+  data_quality: RmsAccountListPreview["data_quality"];
+};
+
 export interface RmsChargeAdminSectionProps {
   onOpenTransactionInBackoffice?: (orderId: string) => void;
   surface?: "backoffice" | "pos";
@@ -338,6 +419,13 @@ export default function RmsChargeAdminSection({
   const [reconciliationError, setReconciliationError] = useState("");
   const [loadingRecords, setLoadingRecords] = useState(false);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [previewingAccountList, setPreviewingAccountList] = useState(false);
+  const [importingAccountList, setImportingAccountList] = useState(false);
+  const [selectedAccountListFile, setSelectedAccountListFile] = useState<File | null>(null);
+  const [accountListPreview, setAccountListPreview] = useState<RmsAccountListPreview | null>(null);
+  const [accountListImportResult, setAccountListImportResult] = useState<RmsAccountListImportResponse | null>(null);
+  const [latestAccountListStatus, setLatestAccountListStatus] = useState<RmsAccountListLatestStatus | null>(null);
+  const [loadingAccountListStatus, setLoadingAccountListStatus] = useState(false);
   const [assigningExceptionId, setAssigningExceptionId] = useState("");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -806,6 +894,87 @@ export default function RmsChargeAdminSection({
     }
   }, [apiAuth, linkForm, loadAccounts, selectedCustomerId, toast]);
 
+  const loadLatestAccountListStatus = useCallback(async () => {
+    if (surface !== "backoffice" || !(canLegacyView || canReportToR2s || canManageLinks)) return;
+    setLoadingAccountListStatus(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/latest`, {
+        headers: apiAuth(),
+      });
+      const body = (await res.json().catch(() => ({}))) as RmsAccountListLatestStatus & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not load RMS Account List status");
+      setLatestAccountListStatus(body);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not load RMS Account List status", "error");
+    } finally {
+      setLoadingAccountListStatus(false);
+    }
+  }, [apiAuth, canLegacyView, canManageLinks, canReportToR2s, surface, toast]);
+
+  const previewAccountList = useCallback(async (file: File | null) => {
+    if (!file) return;
+    setPreviewingAccountList(true);
+    setAccountListPreview(null);
+    setAccountListImportResult(null);
+    setSelectedAccountListFile(file);
+    try {
+      const headers = new Headers(apiAuth());
+      headers.set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/preview`, {
+        method: "POST",
+        headers,
+        body: await file.arrayBuffer(),
+      });
+      const body = (await res.json().catch(() => ({}))) as RmsAccountListPreview & { error?: string };
+      if (!res.ok) {
+        throw new Error(body.error ?? "We couldn't preview this RMS Account List report.");
+      }
+      setAccountListPreview(body);
+      toast("RMS Account List preview parsed. No records were imported.", "success");
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : "We couldn't preview this RMS Account List report.",
+        "error",
+      );
+    } finally {
+      setPreviewingAccountList(false);
+    }
+  }, [apiAuth, toast]);
+
+  const importAccountList = useCallback(async () => {
+    if (!selectedAccountListFile || !accountListPreview) {
+      toast("Preview the RMS Account List before importing it.", "error");
+      return;
+    }
+    setImportingAccountList(true);
+    try {
+      const headers = new Headers(apiAuth());
+      headers.set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      const params = new URLSearchParams({ filename: selectedAccountListFile.name });
+      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/import?${params.toString()}`, {
+        method: "POST",
+        headers,
+        body: await selectedAccountListFile.arrayBuffer(),
+      });
+      const body = (await res.json().catch(() => ({}))) as RmsAccountListImportResponse & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "We couldn't import this RMS Account List report.");
+      setAccountListImportResult(body);
+      toast("RMS Account List snapshot imported. No customers or financial records were created.", "success");
+      await loadLatestAccountListStatus();
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : "We couldn't import this RMS Account List report.",
+        "error",
+      );
+    } finally {
+      setImportingAccountList(false);
+    }
+  }, [accountListPreview, apiAuth, loadLatestAccountListStatus, selectedAccountListFile, toast]);
+
+  useEffect(() => {
+    void loadLatestAccountListStatus();
+  }, [loadLatestAccountListStatus]);
+
   const unlinkAccount = useCallback(async (account: RmsLinkedAccount) => {
     try {
       const res = await fetch(`${baseUrl}/api/customers/rms-charge/unlink-account`, {
@@ -1098,96 +1267,241 @@ export default function RmsChargeAdminSection({
             </div>
           ) : null}
 
-          {surface === "backoffice" && activeWorkspaceTab === "accounts" && canManageLinks ? (
+          {surface === "backoffice" && activeWorkspaceTab === "accounts" ? (
             <div className="mt-4 space-y-3">
-              <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                Link only after you confirm the customer and RMS account belong together. Removing a link only changes Riverside's customer relationship to that account, and the action is recorded in the staff audit trail.
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <input
-                  data-testid="rms-link-corecredit-customer-id"
-                  value={linkForm.corecredit_customer_id}
-                  onChange={(event) =>
-                    setLinkForm((prev) => ({
-                      ...prev,
-                      corecredit_customer_id: event.target.value,
-                    }))
-                  }
-                  placeholder="RMS customer id"
-                  className="ui-input py-2 text-sm"
-                />
-                <input
-                  data-testid="rms-link-corecredit-account-id"
-                  value={linkForm.corecredit_account_id}
-                  onChange={(event) =>
-                    setLinkForm((prev) => ({
-                      ...prev,
-                      corecredit_account_id: event.target.value,
-                    }))
-                  }
-                  placeholder="RMS account id"
-                  className="ui-input py-2 text-sm"
-                />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <input
-                  data-testid="rms-link-program-group"
-                  value={linkForm.program_group}
-                  onChange={(event) =>
-                    setLinkForm((prev) => ({
-                      ...prev,
-                      program_group: event.target.value,
-                    }))
-                  }
-                  placeholder="Program group"
-                  className="ui-input py-2 text-sm"
-                />
-                <select
-                  data-testid="rms-link-status"
-                  value={linkForm.status}
-                  onChange={(event) =>
-                    setLinkForm((prev) => ({ ...prev, status: event.target.value }))
-                  }
-                  className="ui-input py-2 text-sm"
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="restricted">Restricted</option>
-                  <option value="suspended">Suspended</option>
-                </select>
-              </div>
-              <input
-                data-testid="rms-link-notes"
-                value={linkForm.notes}
-                onChange={(event) =>
-                  setLinkForm((prev) => ({ ...prev, notes: event.target.value }))
-                }
-                placeholder="Verification notes"
-                className="ui-input py-2 text-sm"
-              />
-              <label className="flex items-center gap-2 text-sm font-semibold text-app-text">
-                <input
-                  data-testid="rms-link-primary"
-                  type="checkbox"
-                  checked={linkForm.is_primary}
-                  onChange={(event) =>
-                    setLinkForm((prev) => ({
-                      ...prev,
-                      is_primary: event.target.checked,
-                    }))
-                  }
-                />
-                Mark as primary linked account
-              </label>
-              <button
-                type="button"
-                data-testid="rms-link-submit"
-                onClick={() => void submitLink()}
-                className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2"
-              >
-                <Link2 size={14} />
-                Link Account
-              </button>
+              {canManageLinks ? (
+                <>
+                  <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
+                    Link only after you confirm the customer and RMS account belong together. Removing a link only changes Riverside's customer relationship to that account, and the action is recorded in the staff audit trail.
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      data-testid="rms-link-corecredit-customer-id"
+                      value={linkForm.corecredit_customer_id}
+                      onChange={(event) =>
+                        setLinkForm((prev) => ({
+                          ...prev,
+                          corecredit_customer_id: event.target.value,
+                        }))
+                      }
+                      placeholder="RMS customer id"
+                      className="ui-input py-2 text-sm"
+                    />
+                    <input
+                      data-testid="rms-link-corecredit-account-id"
+                      value={linkForm.corecredit_account_id}
+                      onChange={(event) =>
+                        setLinkForm((prev) => ({
+                          ...prev,
+                          corecredit_account_id: event.target.value,
+                        }))
+                      }
+                      placeholder="RMS account id"
+                      className="ui-input py-2 text-sm"
+                    />
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      data-testid="rms-link-program-group"
+                      value={linkForm.program_group}
+                      onChange={(event) =>
+                        setLinkForm((prev) => ({
+                          ...prev,
+                          program_group: event.target.value,
+                        }))
+                      }
+                      placeholder="Program group"
+                      className="ui-input py-2 text-sm"
+                    />
+                    <select
+                      data-testid="rms-link-status"
+                      value={linkForm.status}
+                      onChange={(event) =>
+                        setLinkForm((prev) => ({ ...prev, status: event.target.value }))
+                      }
+                      className="ui-input py-2 text-sm"
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="restricted">Restricted</option>
+                      <option value="suspended">Suspended</option>
+                    </select>
+                  </div>
+                  <input
+                    data-testid="rms-link-notes"
+                    value={linkForm.notes}
+                    onChange={(event) =>
+                      setLinkForm((prev) => ({ ...prev, notes: event.target.value }))
+                    }
+                    placeholder="Verification notes"
+                    className="ui-input py-2 text-sm"
+                  />
+                  <label className="flex items-center gap-2 text-sm font-semibold text-app-text">
+                    <input
+                      data-testid="rms-link-primary"
+                      type="checkbox"
+                      checked={linkForm.is_primary}
+                      onChange={(event) =>
+                        setLinkForm((prev) => ({
+                          ...prev,
+                          is_primary: event.target.checked,
+                        }))
+                      }
+                    />
+                    Mark as primary linked account
+                  </label>
+                  <button
+                    type="button"
+                    data-testid="rms-link-submit"
+                    onClick={() => void submitLink()}
+                    className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2"
+                  >
+                    <Link2 size={14} />
+                    Link Account
+                  </button>
+                </>
+              ) : null}
+
+              {canLegacyView || canReportToR2s ? (
+                <div className="rounded-xl border border-app-border bg-app-bg p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Weekly RMS Account List Snapshot
+                      </div>
+                      <div className="mt-1 text-sm font-semibold text-app-text-muted">
+                        RMS Charge remains the source of truth. Uploaded Account List files are stored as snapshot/reference data only.
+                      </div>
+                    </div>
+                    {canReportToR2s ? (
+                      <label className="ui-btn-secondary inline-flex cursor-pointer items-center gap-2 px-4 py-2 text-[10px]">
+                        <Upload size={14} />
+                        {previewingAccountList ? "Previewing…" : "Upload XLSX"}
+                        <input
+                          data-testid="rms-account-list-preview-upload"
+                          type="file"
+                          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                          className="sr-only"
+                          disabled={previewingAccountList || importingAccountList}
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0] ?? null;
+                            event.currentTarget.value = "";
+                            void previewAccountList(file);
+                          }}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+
+                  <div
+                    data-testid="rms-account-list-latest-status"
+                    className={`mt-4 rounded-lg border p-3 text-xs font-semibold ${
+                      latestAccountListStatus?.stale
+                        ? "border-amber-300/40 bg-amber-500/10 text-amber-800"
+                        : "border-app-border bg-app-surface text-app-text-muted"
+                    }`}
+                  >
+                    {loadingAccountListStatus ? (
+                      "Loading latest snapshot status…"
+                    ) : latestAccountListStatus?.latest ? (
+                      <>
+                        Latest snapshot uploaded {fmtDate(latestAccountListStatus.latest.uploaded_at)} · {latestAccountListStatus.latest.parsed_account_count.toLocaleString()} accounts · {latestAccountListStatus.unmatched_count.toLocaleString()} unmatched.{" "}
+                        {latestAccountListStatus.stale
+                          ? `Upload is older than ${latestAccountListStatus.stale_after_days} days.`
+                          : "Snapshot is current for the weekly workflow."}
+                      </>
+                    ) : (
+                      "No RMS Account List snapshot has been imported yet."
+                    )}
+                  </div>
+
+                  {accountListPreview ? (
+                    <div data-testid="rms-account-list-preview-summary" className="mt-4 space-y-3">
+                      <div className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
+                        Preview only. Confirm Import stores the account snapshots; it does not create customers, update customer profiles, or create financial records.
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-4">
+                        {[
+                          ["Accounts", accountListPreview.parsed_account_count.toLocaleString()],
+                          ["Footer Count", accountListPreview.footer_count?.toLocaleString() ?? "—"],
+                          ["Warnings", accountListPreview.warning_count.toLocaleString()],
+                          ["Report Run", accountListPreview.metadata.report_run_at_raw ?? accountListPreview.metadata.report_run_at ?? "—"],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-lg border border-app-border bg-app-surface px-3 py-2">
+                            <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{label}</div>
+                            <div className="mt-1 text-sm font-black text-app-text">{value}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-4">
+                        {[
+                          ["Last imported balance", fmtMoney(accountListPreview.total_balance)],
+                          ["Minimum due", fmtMoney(accountListPreview.total_minimum_due)],
+                          ["Past due", fmtMoney(accountListPreview.total_past_due)],
+                          ["Last imported open-to-buy", fmtMoney(accountListPreview.total_open_to_buy)],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-lg border border-app-border bg-app-surface px-3 py-2">
+                            <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{label}</div>
+                            <div className="mt-1 text-sm font-black text-app-text">{value}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        {[
+                          ["Missing phones", accountListPreview.data_quality.missing_phones],
+                          ["Invalid phones", accountListPreview.data_quality.invalid_phones],
+                          ["Missing addresses", accountListPreview.data_quality.missing_addresses],
+                          ["Active balances", accountListPreview.data_quality.active_balance_count],
+                          ["Past due", accountListPreview.data_quality.past_due_count],
+                          ["Zero OTB", accountListPreview.data_quality.zero_open_to_buy_count],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-lg bg-app-surface px-3 py-2 text-xs text-app-text-muted">
+                            <span className="font-black text-app-text">{String(value)}</span> {label}
+                          </div>
+                        ))}
+                      </div>
+                      {accountListPreview.warnings.length ? (
+                        <div className="rounded-lg border border-amber-300/40 bg-amber-500/10 p-3 text-xs font-semibold text-amber-800">
+                          {accountListPreview.warnings.slice(0, 3).join(" ")}
+                        </div>
+                      ) : null}
+                      <div className="space-y-2">
+                        {accountListPreview.sample_accounts.slice(0, 5).map((account) => (
+                          <div key={account.account_number} className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="font-black text-app-text">{account.name || "Unnamed account"}</span>
+                              <span className="font-mono text-app-text-muted">{account.account_number}</span>
+                            </div>
+                            <div className="mt-1 text-app-text-muted">
+                              {[account.city, account.state, account.zip].filter(Boolean).join(", ") || "No address preview"} · Last imported balance {fmtMoney(account.balance)} · Last imported open-to-buy {fmtMoney(account.open_to_buy)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {canReportToR2s ? (
+                        <button
+                          type="button"
+                          data-testid="rms-account-list-confirm-import"
+                          disabled={importingAccountList || previewingAccountList || !selectedAccountListFile}
+                          onClick={() => void importAccountList()}
+                          className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2 disabled:opacity-60"
+                        >
+                          <Upload size={14} />
+                          {importingAccountList ? "Importing Snapshot…" : "Confirm Import"}
+                        </button>
+                      ) : null}
+                      {accountListImportResult ? (
+                        <div
+                          data-testid="rms-account-list-import-result"
+                          className="rounded-lg border border-emerald-300/40 bg-emerald-500/10 p-3 text-xs font-semibold text-emerald-800"
+                        >
+                          Imported {accountListImportResult.inserted_snapshot_count.toLocaleString()} snapshot rows from {accountListImportResult.batch.source_filename || "the uploaded report"}. No customers or financial records were created.
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : surface === "backoffice" && activeWorkspaceTab === "overview" ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">

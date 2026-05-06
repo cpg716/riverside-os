@@ -16,6 +16,32 @@ That includes:
 - reversals
 - R2S reporting follow-up
 
+## Weekly RMS Account List snapshot
+
+Sales Support uploads the weekly R2S/CoreCredit Account List report from **Customer → RMS Charge → Accounts**.
+
+Use the upload tool to:
+
+- preview the XLSX report first
+- confirm the account count and report totals
+- store the account list as a weekly snapshot
+- refresh the latest imported balance and open-to-buy reference data
+
+The Account List upload is snapshot/reference data only.
+
+It does **not**:
+
+- create customers
+- update customer profiles
+- create RMS Charge sales or payments
+- create refund/reversal records
+- create ledger rows
+- post anything to R2S, CoreCard, or QBO
+
+RMS Charge remains the source of truth for operational financing activity. Imported Account List balances should be read as `Last imported balance` and `Last imported open-to-buy`, not live balances.
+
+If the weekly upload is older than seven days, Riverside creates a reminder titled `Upload weekly RMS Charge account list` for staff who manage RMS Charge reporting.
+
 ## How to read RMS transaction types
 
 ### Purchase

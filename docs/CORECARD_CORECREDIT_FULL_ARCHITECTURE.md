@@ -15,6 +15,7 @@ The system supports:
 - refunds and reversals using stored reference numbers
 - manual approval/reference capture
 - next-day R2S reporting tracking
+- weekly R2S/CoreCredit Account List snapshot imports
 - customer/account/program linkage
 - transaction history and reporting visibility
 - optional future server-side CoreCard posting
@@ -77,6 +78,28 @@ flowchart LR
 Phase 1 R2S reporting applies to RMS Charge Sales and RMS Charge Payments created through POS. Manual refund/reversal corrections remain tracked against the RMS Charge record/reference trail and can be reviewed in reconciliation, but they do not create a separate reporting checklist item in this phase.
 
 Rows created before the R2S reporting metadata rollout (`2026-05-06T18:00:00Z`) do not become active reporting work unless their metadata explicitly marks reporting as required. They remain visible in history, but they do not create reporting reminders by default.
+
+### Weekly Account List snapshot import
+
+Sales Support uploads the weekly R2S/CoreCredit Account List report from Customer → RMS Charge → Accounts.
+
+This workflow is file-based and manual-first. It is not live CoreCard API integration.
+
+1. Staff upload the XLSX report and review the preview.
+2. Riverside validates the fixed 4-row account block format, report metadata, footer count, and report totals.
+3. Staff choose `Confirm Import`.
+4. Riverside stores one import batch row and one account snapshot row per parsed account.
+5. Riverside does not create customers, update customer records, link accounts automatically, create ledger rows, post transactions, or call live CoreCard APIs.
+
+Imported balances are reference values only and should be labeled as:
+
+- `Last imported balance`
+- `Last imported open-to-buy`
+- `Snapshot only`
+
+RMS Charge remains the operational source of truth. The weekly Account List snapshot helps staff review accounts and prepare future customer matching, but it is not a transaction source and not a live balance proof.
+
+If there is no successful Account List import within seven days, the notification generator upserts a deduped reminder titled `Upload weekly RMS Charge account list`. The reminder clears when a fresh import exists.
 
 ### Refunds and reversals
 
@@ -236,6 +259,19 @@ Important fields:
 - `notes`
 
 This table is the durable Riverside customer-to-CoreCard account map. The active Riverside customer on the sale remains the source of truth for checkout resolution.
+
+### Weekly imported account snapshots
+
+Primary tables:
+
+- `rms_account_list_import_batches`
+- `rms_account_list_snapshots`
+
+`rms_account_list_import_batches` stores the uploaded file hash, report metadata, parsed count, footer count, warning summary, report totals, uploader, and upload timestamp.
+
+`rms_account_list_snapshots` stores parsed account snapshot fields for each account number in that batch, including customer/account display data, address/phone normalization, balance, minimum due, past due aging, open-to-buy, payment history codes, raw source payload, and parser warnings.
+
+Snapshot rows may later carry manual match status and matched customer metadata, but Phase 2 does not auto-match or auto-update customers.
 
 ### RMS record ledger
 
