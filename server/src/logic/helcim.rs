@@ -14,7 +14,8 @@ pub const SIMULATOR_DEVICE_CODE: &str = "SIM1";
 #[derive(Debug, Clone)]
 pub struct HelcimConfig {
     api_token: Option<String>,
-    device_code: Option<String>,
+    register_1_device_code: Option<String>,
+    register_2_device_code: Option<String>,
     api_base_url: String,
 }
 
@@ -22,10 +23,12 @@ pub struct HelcimConfig {
 pub struct HelcimConfigStatus {
     pub enabled: bool,
     pub api_token_configured: bool,
-    pub device_configured: bool,
+    pub register_1_device_configured: bool,
+    pub register_2_device_configured: bool,
     pub simulator_enabled: bool,
     pub webhook_secret_configured: bool,
-    pub device_code_suffix: Option<String>,
+    pub register_1_device_code_suffix: Option<String>,
+    pub register_2_device_code_suffix: Option<String>,
     pub api_base_host: String,
     pub missing_config: Vec<String>,
 }
@@ -226,23 +229,34 @@ pub struct HelcimCardTransactionsQuery {
 impl HelcimConfig {
     pub fn from_env() -> Self {
         let api_token = non_empty_env("HELCIM_API_TOKEN");
-        let device_code = non_empty_env("HELCIM_DEVICE_CODE");
+        let register_1_device_code = non_empty_env("HELCIM_REGISTER_1_DEVICE_CODE");
+        let register_2_device_code = non_empty_env("HELCIM_REGISTER_2_DEVICE_CODE");
         let api_base_url = non_empty_env("HELCIM_API_BASE_URL")
             .unwrap_or_else(|| DEFAULT_HELCIM_API_BASE_URL.to_string());
 
         Self {
             api_token,
-            device_code,
+            register_1_device_code,
+            register_2_device_code,
             api_base_url: api_base_url.trim_end_matches('/').to_string(),
         }
     }
 
     pub fn enabled(&self) -> bool {
-        (self.api_token.is_some() && self.device_code.is_some()) || self.simulator_enabled()
+        self.api_enabled()
     }
 
-    pub fn device_code(&self) -> Option<&str> {
-        self.device_code.as_deref().or_else(|| {
+    pub fn api_enabled(&self) -> bool {
+        self.api_token.is_some() || self.simulator_enabled()
+    }
+
+    pub fn device_code_for_register_lane(&self, register_lane: i16) -> Option<&str> {
+        match register_lane {
+            1 => self.register_1_device_code.as_deref(),
+            2 => self.register_2_device_code.as_deref(),
+            _ => None,
+        }
+        .or_else(|| {
             if self.simulator_enabled() {
                 Some(SIMULATOR_DEVICE_CODE)
             } else {
@@ -270,21 +284,17 @@ impl HelcimConfig {
             if self.api_token.is_none() {
                 missing_config.push("HELCIM_API_TOKEN is not configured".to_string());
             }
-            if self.device_code.is_none() {
-                missing_config.push("HELCIM_DEVICE_CODE is not configured".to_string());
-            }
-            if non_empty_env("HELCIM_WEBHOOK_SECRET").is_none() {
-                missing_config.push("HELCIM_WEBHOOK_SECRET is not configured".to_string());
-            }
         }
 
         HelcimConfigStatus {
             enabled: self.enabled(),
             api_token_configured: self.api_token.is_some(),
-            device_configured: self.device_code().is_some(),
+            register_1_device_configured: self.device_code_for_register_lane(1).is_some(),
+            register_2_device_configured: self.device_code_for_register_lane(2).is_some(),
             simulator_enabled,
             webhook_secret_configured: non_empty_env("HELCIM_WEBHOOK_SECRET").is_some(),
-            device_code_suffix: self.device_code().map(mask_suffix),
+            register_1_device_code_suffix: self.device_code_for_register_lane(1).map(mask_suffix),
+            register_2_device_code_suffix: self.device_code_for_register_lane(2).map(mask_suffix),
             api_base_host: api_base_host(&self.api_base_url),
             missing_config,
         }
@@ -1021,15 +1031,13 @@ pub async fn process_card_reverse(
 pub async fn start_terminal_refund(
     http: &reqwest::Client,
     config: &HelcimConfig,
+    device_code: &str,
     request: HelcimTerminalRefundRequest,
     idempotency_key: &str,
 ) -> Result<HelcimAcceptedPurchaseResponse, String> {
     let token = config
         .api_token()
         .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
-    let device_code = config
-        .device_code()
-        .ok_or_else(|| "HELCIM_DEVICE_CODE is not configured".to_string())?;
     let url = format!(
         "{}/devices/{device_code}/payment/refund",
         config.api_base_url()
@@ -1151,7 +1159,7 @@ async fn send_get_request(
 }
 
 pub fn normalize_accepted_purchase(
-    config: &HelcimConfig,
+    terminal_id: impl Into<String>,
     amount_cents: i64,
     currency: impl Into<String>,
     idempotency_key: impl Into<String>,
@@ -1162,7 +1170,7 @@ pub fn normalize_accepted_purchase(
         status: "pending",
         amount_cents,
         currency: currency.into().to_lowercase(),
-        terminal_id: config.device_code().unwrap_or_default().to_string(),
+        terminal_id: terminal_id.into(),
         idempotency_key: idempotency_key.into(),
         provider_payment_id: response.payment_id,
         provider_transaction_id: response.transaction_id,

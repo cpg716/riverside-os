@@ -111,7 +111,6 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "settings-group-store-setup", label: "Store Setup", kind: "group" },
     { id: "hub", label: "Settings Hub" },
     { id: "profile", label: "Profile" },
-    { id: "general", label: "General" },
     { id: "staff-access-defaults", label: "Staff Access Defaults" },
     { id: "online-store", label: "Online Store" },
     { id: "settings-group-register-setup", label: "Register Setup", kind: "group" },

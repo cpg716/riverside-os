@@ -12,6 +12,10 @@ import {
 } from "react";
 import {
   ChevronRight,
+  BookOpen,
+  Bot,
+  Bug,
+  Code2,
   Database,
   Trash2,
   Download,
@@ -22,13 +26,20 @@ import {
   Gauge,
   Cloud,
   Info,
-  ClipboardList,
   Monitor,
-  Star,
+  Plug,
+  Printer,
+  ReceiptText,
+  Server,
+  ShieldCheck,
   Save,
+  SlidersHorizontal,
+  Store,
+  Tags,
+  UserCircle,
+  Wifi,
   type LucideIcon,
 } from "lucide-react";
-import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
 
@@ -131,9 +142,22 @@ type IntegrationCardItem = {
   brandKind?: "icon" | "wordmark";
 };
 
+type SettingsHubLink = {
+  id: string;
+  label: string;
+  description: string;
+  brand?: IntegrationBrand;
+  icon: LucideIcon;
+};
+
+type SettingsHubGroup = {
+  id: string;
+  label: string;
+  links: SettingsHubLink[];
+};
+
 const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   profile: "Your staff profile, contact details, PIN, and notification preferences.",
-  general: "Core store settings, staff playbook, review invites, and build details.",
   "staff-access-defaults": "Role templates, default access, and discount caps.",
   "online-store": "Storefront publishing, product exposure, and customer checkout setup.",
   printing: "Printers, scanners, labels, test tools, and workstation hardware.",
@@ -160,6 +184,56 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   "ros-dev-center": "Developer operations, runtime health, and guarded actions.",
 };
 
+const SETTINGS_HUB_GROUP_ORDER = [
+  "settings-group-store-setup",
+  "settings-group-register-setup",
+  "settings-group-maintenance",
+  "settings-group-system-support",
+  "settings-group-integrations",
+];
+
+const SETTINGS_HUB_INTEGRATION_BRANDS: Partial<
+  Record<string, IntegrationBrand>
+> = {
+  podium: "podium",
+  shippo: "shippo",
+  helcim: "helcim",
+  corecard: "corecredit",
+  quickbooks: "qbo",
+  nuorder: "nuorder",
+  weather: "weather",
+  insights: "metabase",
+  meilisearch: "meilisearch",
+};
+
+const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
+  profile: UserCircle,
+  "staff-access-defaults": ShieldCheck,
+  "online-store": Store,
+  printing: Printer,
+  "receipt-builder": ReceiptText,
+  "tag-designer": Tags,
+  register: SlidersHorizontal,
+  backups: Database,
+  "remote-access": Wifi,
+  updates: RefreshCw,
+  integrations: Plug,
+  podium: Plug,
+  shippo: Plug,
+  helcim: Plug,
+  corecard: Plug,
+  quickbooks: Plug,
+  counterpoint: Server,
+  nuorder: Plug,
+  weather: Plug,
+  insights: Plug,
+  meilisearch: Plug,
+  "help-center": BookOpen,
+  rosie: Bot,
+  "bug-reports": Bug,
+  "ros-dev-center": Code2,
+};
+
 export default function SettingsWorkspace({
   activeSection,
   settingsActiveSection,
@@ -179,9 +253,11 @@ export default function SettingsWorkspace({
 
   // Navigation - synced with sidebar activeSection; default to profile
   const requestedActiveTab = activeSection || settingsActiveSection || "hub";
-  const activeTab = requestedActiveTab.startsWith("settings-group-")
-    ? "hub"
-    : requestedActiveTab;
+  const activeTab =
+    requestedActiveTab.startsWith("settings-group-") ||
+    requestedActiveTab === "general"
+      ? "hub"
+      : requestedActiveTab;
   const navigateToTab = onNavigateToTab ?? onSettingsSectionNavigate;
 
   // Settings State
@@ -206,18 +282,8 @@ export default function SettingsWorkspace({
   } = useBackofficeAuth();
 
   const settingsHubGroups = useMemo(() => {
-    const groups: {
-      id: string;
-      label: string;
-      links: { id: string; label: string; description: string }[];
-    }[] = [];
-    let currentGroup:
-      | {
-          id: string;
-          label: string;
-          links: { id: string; label: string; description: string }[];
-        }
-      | null = null;
+    const groups: SettingsHubGroup[] = [];
+    let currentGroup: SettingsHubGroup | null = null;
 
     for (const section of SIDEBAR_SUB_SECTIONS.settings) {
       if (section.kind === "group") {
@@ -250,26 +316,19 @@ export default function SettingsWorkspace({
         description:
           SETTINGS_HUB_DESCRIPTIONS[section.id] ??
           "Open this settings workspace.",
+        brand: SETTINGS_HUB_INTEGRATION_BRANDS[section.id],
+        icon: SETTINGS_HUB_ICONS[section.id] ?? Info,
       });
     }
 
-    return groups.filter((group) => group.links.length > 0);
+    return groups
+      .filter((group) => group.links.length > 0)
+      .sort((a, b) => {
+        const aIndex = SETTINGS_HUB_GROUP_ORDER.indexOf(a.id);
+        const bIndex = SETTINGS_HUB_GROUP_ORDER.indexOf(b.id);
+        return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+      });
   }, [hasPermission, permissionsLoaded]);
-
-
-
-  const [staffSopMarkdown, setStaffSopMarkdown] = useState("");
-  const [staffSopLoaded, setStaffSopLoaded] = useState(false);
-  const [staffSopBusy, setStaffSopBusy] = useState(false);
-
-  const [reviewPolicy, setReviewPolicy] = useState<{
-    review_invites_enabled: boolean;
-    send_review_invite_by_default: boolean;
-  } | null>(null);
-  const [reviewPolicyLoaded, setReviewPolicyLoaded] = useState(false);
-  const [reviewPolicyBusy, setReviewPolicyBusy] = useState(false);
-
-  const STAFF_SOP_MAX_BYTES = 131_072;
 
   const fetchBackups = useCallback(async () => {
     try {
@@ -302,106 +361,6 @@ export default function SettingsWorkspace({
     fetchBackups,
     fetchBackupSettings,
   ]);
-
-  useEffect(() => {
-    if (activeTab !== "general") return;
-    setStaffSopLoaded(false);
-    void (async () => {
-      try {
-        const res = await fetch(`${baseUrl}/api/settings/staff-sop`, {
-          headers: backofficeHeaders() as Record<string, string>,
-        });
-        if (res.ok) {
-          const j = (await res.json()) as { markdown?: string };
-          setStaffSopMarkdown(typeof j.markdown === "string" ? j.markdown : "");
-        } else {
-          setStaffSopMarkdown("");
-        }
-      } catch {
-        setStaffSopMarkdown("");
-      } finally {
-        setStaffSopLoaded(true);
-      }
-    })();
-  }, [activeTab, baseUrl, backofficeHeaders]);
-
-  useEffect(() => {
-    if (activeTab !== "general" || !hasPermission("settings.admin")) return;
-    setReviewPolicyLoaded(false);
-    void (async () => {
-      try {
-        const res = await fetch(`${baseUrl}/api/settings/review-policy`, {
-          headers: backofficeHeaders() as Record<string, string>,
-        });
-        if (res.ok) {
-          const j = (await res.json()) as {
-            review_invites_enabled?: boolean;
-            send_review_invite_by_default?: boolean;
-          };
-          setReviewPolicy({
-            review_invites_enabled: j.review_invites_enabled !== false,
-            send_review_invite_by_default:
-              j.send_review_invite_by_default !== false,
-          });
-        } else {
-          setReviewPolicy({
-            review_invites_enabled: true,
-            send_review_invite_by_default: true,
-          });
-        }
-      } catch {
-        setReviewPolicy({
-          review_invites_enabled: true,
-          send_review_invite_by_default: true,
-        });
-      } finally {
-        setReviewPolicyLoaded(true);
-      }
-    })();
-  }, [activeTab, baseUrl, backofficeHeaders, hasPermission]);
-
-  const saveReviewPolicy = async () => {
-    if (!reviewPolicy || !hasPermission("settings.admin")) return;
-    setReviewPolicyBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/review-policy`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify({
-          review_invites_enabled: reviewPolicy.review_invites_enabled,
-          send_review_invite_by_default:
-            reviewPolicy.send_review_invite_by_default,
-        }),
-      });
-      if (res.ok) {
-        const j = (await res.json()) as {
-          review_invites_enabled?: boolean;
-          send_review_invite_by_default?: boolean;
-        };
-        setReviewPolicy({
-          review_invites_enabled: j.review_invites_enabled !== false,
-          send_review_invite_by_default:
-            j.send_review_invite_by_default !== false,
-        });
-        toast("Review invite policy saved", "success");
-      } else {
-        const err = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(
-          typeof err.error === "string"
-            ? err.error
-            : "Could not save review policy",
-          "error",
-        );
-      }
-    } catch {
-      toast("Could not save review policy", "error");
-    } finally {
-      setReviewPolicyBusy(false);
-    }
-  };
 
   const saveBackupSettings = async () => {
     if (!backupCfg) return;
@@ -558,61 +517,6 @@ export default function SettingsWorkspace({
     setBackupCfg({ ...backupCfg, schedule_cron: `${minute} ${hour} * * *` });
   };
 
-  const [tauriShellVersion, setTauriShellVersion] = useState<string | null>(
-    null,
-  );
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const { getVersion } = await import("@tauri-apps/api/app");
-        const v = await getVersion();
-        setTauriShellVersion(v);
-      } catch {
-        setTauriShellVersion(null);
-      }
-    })();
-  }, []);
-
-  const saveStaffSop = async () => {
-    if (staffSopBusy) return;
-    if (
-      new TextEncoder().encode(staffSopMarkdown).length > STAFF_SOP_MAX_BYTES
-    ) {
-      toast(
-        `Store playbook is too large (max ${STAFF_SOP_MAX_BYTES} bytes UTF-8)`,
-        "error",
-      );
-      return;
-    }
-    setStaffSopBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/staff-sop`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify({ markdown: staffSopMarkdown }),
-      });
-      if (res.ok) {
-        const j = (await res.json()) as { markdown?: string };
-        setStaffSopMarkdown(
-          typeof j.markdown === "string" ? j.markdown : staffSopMarkdown,
-        );
-        toast("Store staff playbook saved", "success");
-      } else {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(j.error ?? "Could not save store playbook", "error");
-      }
-    } catch {
-      toast("Could not save store playbook", "error");
-    } finally {
-      setStaffSopBusy(false);
-    }
-  };
-
-
   return (
     <div className="flex flex-1 flex-col bg-app-bg">
       <div className="flex flex-1">
@@ -635,51 +539,89 @@ export default function SettingsWorkspace({
                 </header>
 
                 <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                  {settingsHubGroups.map((group) => (
-                    <section key={group.id} className="ui-card p-5 sm:p-6">
-                      <div className="mb-5 flex items-center justify-between gap-3 border-b border-app-border pb-4">
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                            Settings
-                          </p>
-                          <h3 className="mt-1 text-lg font-black uppercase tracking-tight text-app-text">
-                            {group.label}
-                          </h3>
-                        </div>
-                        <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          {group.links.length}
-                        </span>
-                      </div>
+                  {settingsHubGroups.map((group) => {
+                    const isIntegrationsGroup =
+                      group.id === "settings-group-integrations";
 
-                      <div className="grid grid-cols-1 gap-3">
-                        {group.links.map((link) => (
-                          <button
-                            key={link.id}
-                            type="button"
-                            onClick={() => navigateToTab?.(link.id)}
-                            className="group flex min-h-24 w-full items-center gap-4 rounded-xl border border-app-border bg-app-surface/60 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:bg-app-surface hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
-                          >
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-bg text-xs font-black uppercase text-app-accent">
-                              {link.label.slice(0, 2)}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block text-sm font-black uppercase tracking-wide text-app-text">
-                                {link.label}
+                    return (
+                      <section
+                        key={group.id}
+                        className={`ui-card p-5 sm:p-6 ${
+                          isIntegrationsGroup ? "xl:col-span-2" : ""
+                        }`}
+                      >
+                        <div className="mb-5 flex items-center justify-between gap-3 border-b border-app-border pb-4">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                              Settings
+                            </p>
+                            <h3 className="mt-1 text-lg font-black uppercase tracking-tight text-app-text">
+                              {group.label}
+                            </h3>
+                          </div>
+                          <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            {group.links.length}
+                          </span>
+                        </div>
+
+                        <div
+                          className={`grid grid-cols-1 gap-3 ${
+                            isIntegrationsGroup
+                              ? "md:grid-cols-2 xl:grid-cols-3"
+                              : ""
+                          }`}
+                        >
+                          {group.links.map((link) => (
+                            <button
+                              key={link.id}
+                              type="button"
+                              onClick={() => navigateToTab?.(link.id)}
+                              className="group flex min-h-24 w-full items-center gap-4 rounded-xl border border-app-border bg-app-surface/60 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:bg-app-surface hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
+                            >
+                              <span
+                                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border text-xs font-black uppercase text-app-accent ${
+                                  link.brand ? "bg-white p-1.5" : "bg-app-bg"
+                                } ${link.brand === "helcim" ? "overflow-hidden" : ""}`}
+                              >
+                                {link.brand ? (
+                                  <IntegrationBrandLogo
+                                    brand={link.brand}
+                                    kind="icon"
+                                    alt={link.label}
+                                    className="inline-flex h-full w-full items-center justify-center"
+                                    imageClassName={
+                                      link.brand === "helcim"
+                                        ? "h-full w-auto max-w-none rounded-md object-cover"
+                                        : "max-h-full max-w-full rounded-md object-contain"
+                                    }
+                                  />
+                                ) : (
+                                  createElement(link.icon, {
+                                    size: 20,
+                                    strokeWidth: 2.25,
+                                    "aria-hidden": true,
+                                  })
+                                )}
                               </span>
-                              <span className="mt-1 block text-xs font-medium leading-relaxed text-app-text-muted">
-                                {link.description}
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-black uppercase tracking-wide text-app-text">
+                                  {link.label}
+                                </span>
+                                <span className="mt-1 block text-xs font-medium leading-relaxed text-app-text-muted">
+                                  {link.description}
+                                </span>
                               </span>
-                            </span>
-                            <ChevronRight
-                              className="shrink-0 text-app-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-app-accent"
-                              size={18}
-                              aria-hidden
-                            />
-                          </button>
-                        ))}
-                      </div>
-                    </section>
-                  ))}
+                              <ChevronRight
+                                className="shrink-0 text-app-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-app-accent"
+                                size={18}
+                                aria-hidden
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1326,229 +1268,6 @@ export default function SettingsWorkspace({
               </Suspense>
             )}
 
-            {activeTab === "general" && (
-              <div className="space-y-8 sm:space-y-12">
-                <header className="mb-10">
-                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-                    System Settings
-                  </h2>
-                  <p className="text-sm text-app-text-muted mt-2 font-medium">
-                    Environmental and UI overrides.
-                  </p>
-                </header>
-
-
-                {hasPermission("settings.admin") ? (
-                  <section className="ui-card max-w-2xl p-4 sm:p-6 lg:p-8">
-                    <div className="mb-4 flex items-start gap-3">
-                      <Star
-                        className="mt-0.5 h-5 w-5 shrink-0 text-app-accent"
-                        aria-hidden
-                      />
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                          Post-sale review invites
-                        </h3>
-                        <p className="mt-1 text-xs font-medium text-app-text-muted leading-relaxed">
-                          Store-wide defaults for Podium review flows. The
-                          receipt summary (POS) still lets cashiers opt out per
-                          sale when invites are enabled. Completing Podium
-                          review sending remains in Integrations.
-                        </p>
-                      </div>
-                    </div>
-                    {!reviewPolicyLoaded || !reviewPolicy ? (
-                      <p className="text-sm font-medium text-app-text-muted">
-                        Loading…
-                      </p>
-                    ) : (
-                      <div className="space-y-4">
-                        <label className="flex cursor-pointer items-start gap-3">
-                          <input
-                            type="checkbox"
-                            className="mt-1 h-4 w-4 rounded border-app-border"
-                            checked={reviewPolicy.review_invites_enabled}
-                            onChange={(e) =>
-                              setReviewPolicy((p) =>
-                                p
-                                  ? {
-                                      ...p,
-                                      review_invites_enabled: e.target.checked,
-                                    }
-                                  : p,
-                              )
-                            }
-                          />
-                          <span className="text-sm font-medium text-app-text">
-                            Enable post-sale review invites (when Podium is
-                            configured on the server).
-                          </span>
-                        </label>
-                        <label
-                          className={`flex cursor-pointer items-start gap-3 ${!reviewPolicy.review_invites_enabled ? "opacity-50" : ""}`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="mt-1 h-4 w-4 rounded border-app-border"
-                            disabled={!reviewPolicy.review_invites_enabled}
-                            checked={reviewPolicy.send_review_invite_by_default}
-                            onChange={(e) =>
-                              setReviewPolicy((p) =>
-                                p
-                                  ? {
-                                      ...p,
-                                      send_review_invite_by_default:
-                                        e.target.checked,
-                                    }
-                                  : p,
-                              )
-                            }
-                          />
-                          <span className="text-sm font-medium text-app-text">
-                            Default receipt summary to send an invite (unchecked
-                            means cashiers must confirm sending, or check
-                            &quot;do not send&quot; to suppress).
-                          </span>
-                        </label>
-                        <button
-                          type="button"
-                          disabled={reviewPolicyBusy}
-                          onClick={() => void saveReviewPolicy()}
-                          className="ui-btn-primary h-11 px-6 text-sm font-black disabled:opacity-50"
-                        >
-                          {reviewPolicyBusy ? "Saving…" : "Save review policy"}
-                        </button>
-                      </div>
-                    )}
-                  </section>
-                ) : null}
-
-                <section className="ui-card max-w-4xl p-4 sm:p-6 lg:p-8">
-                  <div className="mb-4 flex items-start gap-3">
-                    <ClipboardList
-                      className="mt-0.5 h-5 w-5 shrink-0 text-app-accent"
-                      aria-hidden
-                    />
-                    <div className="min-w-0 flex-1">
-                      <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                        Store staff playbook
-                      </h3>
-                      <p className="mt-1 text-xs font-medium text-app-text-muted leading-relaxed">
-                        Markdown notes for{" "}
-                        <strong className="text-app-text">this store</strong>{" "}
-                        (contacts, void rules, cash tolerance, seasonal policy).
-                        Staff can read it via{" "}
-                        <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                          GET /api/staff/store-sop
-                        </code>{" "}
-                        when signed in. Suggested sections live in repo{" "}
-                        <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                          docs/staff/STORE-SOP-TEMPLATE.md
-                        </code>
-                        .
-                      </p>
-                    </div>
-                  </div>
-                  {!staffSopLoaded ? (
-                    <p className="text-sm font-medium text-app-text-muted">
-                      Loading…
-                    </p>
-                  ) : (
-                    <>
-                      <textarea
-                        value={staffSopMarkdown}
-                        onChange={(e) => setStaffSopMarkdown(e.target.value)}
-                        spellCheck={false}
-                        className="ui-input min-h-[320px] w-full resize-y font-mono text-sm leading-relaxed"
-                        placeholder={
-                          "# Store playbook\n\nFill tables for your location (manager phone, void policy, …). See docs/staff/STORE-SOP-TEMPLATE.md for ideas."
-                        }
-                        aria-label="Store staff playbook markdown"
-                      />
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                          UTF-8 size{" "}
-                          <span
-                            className={
-                              new TextEncoder().encode(staffSopMarkdown)
-                                .length > STAFF_SOP_MAX_BYTES
-                                ? "text-red-600"
-                                : "text-app-text"
-                            }
-                          >
-                            {new TextEncoder().encode(staffSopMarkdown).length}
-                          </span>
-                          {" / "}
-                          {STAFF_SOP_MAX_BYTES} bytes
-                        </p>
-                        <button
-                          type="button"
-                          disabled={staffSopBusy}
-                          onClick={() => void saveStaffSop()}
-                          className="ui-btn-primary h-11 px-6 text-sm font-black disabled:opacity-50"
-                        >
-                          {staffSopBusy ? "Saving…" : "Save playbook"}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </section>
-
-                <section className="ui-card p-8 max-w-2xl">
-                  <div className="flex items-center gap-3 mb-4">
-                    <Info
-                      className="h-5 w-5 text-app-accent shrink-0"
-                      aria-hidden
-                    />
-                    <div>
-                      <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                        About this build
-                      </h3>
-                      <p className="text-xs text-app-text-muted mt-1 font-medium">
-                        Share these details with support when reporting an
-                        issue. Use Settings → Updates for app update checks.
-                      </p>
-                    </div>
-                  </div>
-                  <dl className="grid gap-3 text-sm">
-                    <div className="flex flex-wrap justify-between gap-2 border-b border-app-border/60 pb-3">
-                      <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">
-                        Surface
-                      </dt>
-                      <dd className="font-mono text-app-text tabular-nums">
-                        {tauriShellVersion != null
-                          ? `Desktop (Tauri ${tauriShellVersion})`
-                          : "Web / PWA"}
-                      </dd>
-                    </div>
-                    <div className="flex flex-wrap justify-between gap-2 border-b border-app-border/60 pb-3">
-                      <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">
-                        Client version
-                      </dt>
-                      <dd className="font-mono text-app-text tabular-nums">
-                        {CLIENT_SEMVER}
-                      </dd>
-                    </div>
-                    <div className="flex flex-wrap justify-between gap-2 border-b border-app-border/60 pb-3">
-                      <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">
-                        Git revision
-                      </dt>
-                      <dd className="font-mono text-app-text tabular-nums">
-                        {GIT_SHORT}
-                      </dd>
-                    </div>
-                    <div className="flex flex-wrap justify-between gap-2 pt-1">
-                      <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">
-                        API base
-                      </dt>
-                      <dd className="font-mono text-xs text-app-text break-all text-right max-w-[min(100%,20rem)]">
-                        {baseUrl}
-                      </dd>
-                    </div>
-                  </dl>
-                </section>
-              </div>
-            )}
           </div>
         </main>
       </div>

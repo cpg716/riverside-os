@@ -38,7 +38,7 @@ Cards show:
 - **Needs Review**: open payment or deposit issues.
 - **Sync Status**: last successful sync and health warnings.
 
-If Helcim has not provided a value, ROS shows **Fee not ready** or **Net not ready**. Do not treat a missing fee or net as `$0.00`.
+If Helcim has not provided a value, ROS shows **Fee not ready** or **Net not ready**. Do not treat a missing fee or net as `$0.00`. Fee/net readiness is a tracking signal, not a reason by itself to stop daily payment review.
 
 If there are no card payments yet, the tab shows **No payments yet today**. Run sync later after card activity begins.
 
@@ -70,7 +70,6 @@ Common labels:
 | **Status Difference** | Riverside and Helcim disagree about payment state. |
 | **Fee Difference** | Both systems provided a fee and the values differ. |
 | **Net Difference** | Both systems provided net amount and the values differ. |
-| **Fee Not Ready** | Helcim has not provided fee/net data yet. |
 
 Available actions:
 
@@ -122,7 +121,6 @@ Use **Health** to verify payment operations are current.
 Watch for:
 
 - **Sync failed**
-- **Fee still not ready**
 - **Batch has not settled**
 - **Deposit needs review**
 - **Payment update failed**
@@ -130,11 +128,11 @@ Watch for:
 Sync actions:
 
 - **Sync Batches** pulls Helcim batch/transaction data.
-- **Sync Fees** pulls explicit Helcim fee/net data.
+- **Sync Fees** pulls explicit Helcim fee/net data. If fees are not available yet, ROS keeps them as **Fee not ready** instead of estimating them or treating them as `$0.00`.
 
 Payment alerts are reminders, not financial corrections. Alerts may clear when the condition disappears, but reconciliation and deposit issues remain manual until staff act.
 
-Alert recipients follow the Payments permission split: sync failures go to staff who can run payment sync, fee/readiness and health alerts go to staff who can view Payments, reconciliation alerts go to staff who can review payment issues, and deposit alerts go to staff who can review actual deposits.
+Alert recipients follow the Payments permission split: sync failures go to staff who can run payment sync, payment-health alerts go to staff who can view Payments, reconciliation alerts go to staff who can review payment issues, and deposit alerts go to staff who can review actual deposits.
 
 ## Payments vs. Helcim Settings
 
@@ -150,8 +148,8 @@ Use **Payments** for daily operations:
 
 Use **Settings → Helcim** only for configuration:
 
-- API token and Helcim credential entry.
-- Terminal/device code entry.
+- API token and Helcim credential entry. The API token enables Helcim batch, transaction, settlement, and fee reads.
+- Register #1 and Register #2 terminal code entry.
 - Payment update signing secret entry.
 - Connection checks before live card processing.
 

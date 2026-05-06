@@ -38,7 +38,7 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 1. **Staging** → sort by **date** or **status**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
 3. Open a row → **drilldown** to lines; fix **unmapped** SKUs or accounts **before** approve.
-4. Before approving card-heavy days, run **Settings → Helcim → Sync Helcim Fees** so the merchant-fee expense and clearing offset use API-returned fee data.
+4. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
 5. **Approve** only when totals match **ROS** expectations for that close.
 6. **Sync** after approve; watch **History** for success/fail.
 

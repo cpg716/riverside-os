@@ -796,32 +796,40 @@ pub async fn runtime_diagnostics_snapshot(
     let strict_production = env_truthy("RIVERSIDE_STRICT_PRODUCTION");
 
     let helcim_token = nonempty_env("HELCIM_API_TOKEN");
-    let helcim_device = nonempty_env("HELCIM_DEVICE_CODE");
+    let helcim_register_1_device = nonempty_env("HELCIM_REGISTER_1_DEVICE_CODE");
+    let helcim_register_2_device = nonempty_env("HELCIM_REGISTER_2_DEVICE_CODE");
     let helcim_webhook = nonempty_env("HELCIM_WEBHOOK_SECRET");
     let helcim_token_ok = helcim_token
         .as_deref()
         .map(|value| !looks_placeholder(value))
         .unwrap_or(false);
-    let helcim_device_ok = helcim_device
+    let helcim_register_1_ok = helcim_register_1_device
         .as_deref()
         .map(|value| !looks_placeholder(value))
         .unwrap_or(false);
-    let helcim_value = if helcim_token_ok && helcim_device_ok {
+    let helcim_register_2_ok = helcim_register_2_device
+        .as_deref()
+        .map(|value| !looks_placeholder(value))
+        .unwrap_or(false);
+    let helcim_terminals_ok = helcim_register_1_ok && helcim_register_2_ok;
+    let helcim_value = if helcim_token_ok && helcim_terminals_ok {
         "Configured"
-    } else if helcim_token_ok || helcim_device_ok {
+    } else if helcim_token_ok || helcim_register_1_ok || helcim_register_2_ok {
         "Partial"
     } else {
         "Not configured"
     };
     let helcim_detail = format!(
-        "API token {} • device code {} • webhook {}",
+        "API token {} • register terminals {} • webhook {}",
         if helcim_token_ok {
             "present"
         } else {
             "missing"
         },
-        if helcim_device_ok {
+        if helcim_terminals_ok {
             "present"
+        } else if helcim_register_1_ok || helcim_register_2_ok {
+            "partial"
         } else {
             "missing"
         },
@@ -837,7 +845,7 @@ pub async fn runtime_diagnostics_snapshot(
             "not configured"
         }
     );
-    let helcim_severity = if helcim_token_ok && helcim_device_ok {
+    let helcim_severity = if helcim_token_ok && helcim_terminals_ok {
         "info"
     } else {
         "warning"

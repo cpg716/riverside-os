@@ -13,6 +13,7 @@ import {
   Sparkles,
   Bot,
   Camera,
+  ClipboardList,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
@@ -21,6 +22,7 @@ import {
 } from "../../lib/rosie";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import StoreStaffPlaybookCard from "./StoreStaffPlaybookCard";
 
 const baseUrl = getBaseUrl();
 
@@ -89,6 +91,7 @@ type OpsLog = {
 
 type ManagerTab =
   | "library"
+  | "store-playbook"
   | "editor"
   | "ai-authoring"
   | "automation"
@@ -1008,6 +1011,15 @@ export default function HelpCenterSettingsPanel() {
           </button>
           <button
             type="button"
+            onClick={() => setTab("store-playbook")}
+            className={`ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs font-black uppercase tracking-wider ${
+              tab === "store-playbook" ? "ring-2 ring-app-accent" : ""
+            }`}
+          >
+            <ClipboardList size={14} /> Store Playbook
+          </button>
+          <button
+            type="button"
             onClick={() => setTab("editor")}
             className={`ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs font-black uppercase tracking-wider ${
               tab === "editor" ? "ring-2 ring-app-accent" : ""
@@ -1057,6 +1069,8 @@ export default function HelpCenterSettingsPanel() {
       {loadErr ? (
         <p className="text-sm text-red-600 dark:text-red-400">{loadErr}</p>
       ) : null}
+
+      {tab === "store-playbook" && <StoreStaffPlaybookCard />}
 
       {(tab === "library" || tab === "editor") && (
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(260px,320px)_1fr]">

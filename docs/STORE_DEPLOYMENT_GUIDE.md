@@ -370,6 +370,8 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 #### Credit-card hardware (Helcim Terminal)
 - [ ] Reader firmware and location registration confirmed.
 - [ ] Reader visible/healthy in store payment settings.
+- [ ] Register #1 terminal code saved in **Settings → Helcim**.
+- [ ] Register #2 terminal code saved in **Settings → Helcim**.
 - [ ] Card-present payment intent path validated with supervised test.
 - [ ] Reader disconnect/failure fallback procedure trained.
 - [ ] Refund/credit reconciliation path verified in reports and logs.

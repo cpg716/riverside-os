@@ -21,6 +21,7 @@ import {
   Shield,
   ShoppingCart,
   Star,
+  Store,
   Truck,
   Users,
   Wallet,
@@ -66,7 +67,7 @@ export const APP_ICONS: Record<AppIconName, LucideIcon> = {
   orders: ClipboardList,
   orderHistory: History,
   inventory: Package,
-  onlineStore: ShoppingCart,
+  onlineStore: Store,
   product: Package,
   weddings: Heart,
   giftCards: Gift,
@@ -114,7 +115,7 @@ export const APP_NAV_ICON_NAMES = {
 } as const;
 
 export const APP_ICON_SIZES = {
-  rail: 18,
+  rail: 20,
   section: 16,
   stat: 18,
   button: 16,

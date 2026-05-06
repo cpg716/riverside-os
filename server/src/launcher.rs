@@ -53,7 +53,11 @@ fn validate_helcim_environment(strict_production: bool) -> Result<(), Box<dyn st
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_default();
-    let device_code = std::env::var("HELCIM_DEVICE_CODE")
+    let register_1_device_code = std::env::var("HELCIM_REGISTER_1_DEVICE_CODE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let register_2_device_code = std::env::var("HELCIM_REGISTER_2_DEVICE_CODE")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
@@ -71,12 +75,23 @@ fn validate_helcim_environment(strict_production: bool) -> Result<(), Box<dyn st
         if helcim_value_looks_placeholder(&api_token) {
             return Err("Strict production requires HELCIM_API_TOKEN to be configured".into());
         }
-        if device_code
+        if register_1_device_code
             .as_deref()
             .map(helcim_value_looks_placeholder)
             .unwrap_or(true)
         {
-            return Err("Strict production requires HELCIM_DEVICE_CODE to be configured".into());
+            return Err(
+                "Strict production requires HELCIM_REGISTER_1_DEVICE_CODE to be configured".into(),
+            );
+        }
+        if register_2_device_code
+            .as_deref()
+            .map(helcim_value_looks_placeholder)
+            .unwrap_or(true)
+        {
+            return Err(
+                "Strict production requires HELCIM_REGISTER_2_DEVICE_CODE to be configured".into(),
+            );
         }
     } else {
         if helcim_value_looks_placeholder(&api_token) && !simulator_enabled {
@@ -84,9 +99,11 @@ fn validate_helcim_environment(strict_production: bool) -> Result<(), Box<dyn st
                 "HELCIM_API_TOKEN is missing or placeholder; live Helcim payments will be unavailable until configured"
             );
         }
-        if device_code.is_none() && !simulator_enabled {
+        if (register_1_device_code.is_none() || register_2_device_code.is_none())
+            && !simulator_enabled
+        {
             tracing::warn!(
-                "HELCIM_DEVICE_CODE is missing; Helcim terminal payments will be unavailable until configured"
+                "Helcim Register #1 or Register #2 terminal code is missing; terminal payments require a configured terminal code for the active register"
             );
         }
     }

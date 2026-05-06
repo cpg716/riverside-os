@@ -4,6 +4,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import ReviewInvitesSettingsCard from "./ReviewInvitesSettingsCard";
 import { 
   getPodiumOAuthRedirectUri, 
   PODIUM_OAUTH_STATE_STORAGE_KEY, 
@@ -164,6 +165,8 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
         <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Messaging & Web Chat</h2>
         <p className="text-sm text-app-text-muted mt-2 font-medium">Coordinate operational SMS, HTML email templates, and web chat widgets.</p>
       </header>
+
+      <ReviewInvitesSettingsCard baseUrl={baseUrl} />
 
       <section className="ui-card ui-tint-accent p-8 max-w-4xl shadow-xl">
         {!podiumSms.credentials_configured && (

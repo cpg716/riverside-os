@@ -1250,13 +1250,13 @@ function OverviewPanel({
           label="Known Fees"
           value={money(overview?.known_fees, "Fee not ready")}
           note={`${overview?.fee_not_ready_count ?? 0} payments waiting for fees`}
-          tone={(overview?.fee_not_ready_count ?? 0) > 0 ? "warning" : "good"}
+          tone={(overview?.fee_not_ready_count ?? 0) > 0 ? "neutral" : "good"}
         />
         <MetricCard
           label="Expected Net"
           value={money(overview?.known_net, "Net not ready")}
           note={`${overview?.net_not_ready_count ?? 0} payments waiting for net`}
-          tone={(overview?.net_not_ready_count ?? 0) > 0 ? "warning" : "good"}
+          tone={(overview?.net_not_ready_count ?? 0) > 0 ? "neutral" : "good"}
         />
         <MetricCard
           label="Expected Deposit"
@@ -1279,7 +1279,6 @@ function OverviewPanel({
       <div className="grid gap-4 lg:grid-cols-3">
         <WarningLine count={missingPayments} label="Missing payments" />
         <WarningLine count={notInDeposit} label="Not in deposit" />
-        <WarningLine count={overview?.fee_not_ready_count ?? 0} label="Fee not ready" />
       </div>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={onSyncBatches} disabled={!canSync} title={!canSync ? "You do not have permission to perform this action" : undefined} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
@@ -1613,8 +1612,6 @@ function HealthPanel({
   const paymentAlertCount =
     (lastError ? 1 : 0) +
     (health?.failed_event_count ?? 0) +
-    (overview?.fee_not_ready_count ?? 0) +
-    (overview?.net_not_ready_count ?? 0) +
     depositAlertCount +
     reconciliationAlertCount;
   const lastChecked =
@@ -1631,13 +1628,6 @@ function HealthPanel({
       ? {
           label: "Payment update failed",
           detail: `${health?.failed_event_count ?? 0} payment update(s) need review.`,
-          tone: "warning" as const,
-        }
-      : null,
-    (overview?.fee_not_ready_count ?? 0) > 0 || (overview?.net_not_ready_count ?? 0) > 0
-      ? {
-          label: "Fee still not ready",
-          detail: `${overview?.fee_not_ready_count ?? 0} fee(s) and ${overview?.net_not_ready_count ?? 0} net amount(s) still waiting on Helcim data.`,
           tone: "warning" as const,
         }
       : null,

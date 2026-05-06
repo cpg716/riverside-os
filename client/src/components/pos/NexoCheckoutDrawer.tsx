@@ -31,9 +31,11 @@ interface PaymentProviderSettings {
   active_provider: "helcim";
   helcim: {
     enabled: boolean;
-    device_configured: boolean;
+    register_1_device_configured: boolean;
+    register_2_device_configured: boolean;
     simulator_enabled?: boolean;
-    device_code_suffix?: string | null;
+    register_1_device_code_suffix?: string | null;
+    register_2_device_code_suffix?: string | null;
     api_base_host: string;
     missing_config: string[];
   };

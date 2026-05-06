@@ -7,7 +7,6 @@ import {
   RefreshCw,
   Server,
   Settings,
-  ShieldCheck,
 } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
@@ -18,10 +17,12 @@ import helcimLogo from "../../assets/images/brands/Helcim_Logo.png";
 interface HelcimProviderStatus {
   enabled: boolean;
   api_token_configured: boolean;
-  device_configured: boolean;
+  register_1_device_configured: boolean;
+  register_2_device_configured: boolean;
   simulator_enabled: boolean;
   webhook_secret_configured: boolean;
-  device_code_suffix?: string | null;
+  register_1_device_code_suffix?: string | null;
+  register_2_device_code_suffix?: string | null;
   api_base_host: string;
   missing_config: string[];
 }
@@ -169,7 +170,7 @@ const HelcimSettingsPanel: React.FC = () => {
   }
 
   const missingConfig = helcimStatus?.missing_config ?? [];
-  const configured = Boolean(helcimStatus?.enabled);
+  const apiConfigured = Boolean(helcimStatus?.enabled);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -214,8 +215,9 @@ const HelcimSettingsPanel: React.FC = () => {
                 Active Card Provider
               </h3>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                POS card reader payments use Helcim when this provider is
-                configured and selected.
+                ROS uses Helcim as the card rail. The API key enables payments
+                reporting and batch/transaction sync; terminal payments need
+                Register #1 and Register #2 terminal codes.
               </p>
             </div>
             <button
@@ -229,19 +231,19 @@ const HelcimSettingsPanel: React.FC = () => {
           </div>
           {providerSettings && !providerSettings.helcim.enabled ? (
             <p className="mt-3 text-xs font-bold text-app-warning">
-              Helcim is not fully configured. Card reader payments stay blocked
-              until required settings are present.
+              Helcim API access is not configured yet. Add the API key below to
+              enable payment reporting and sync.
             </p>
           ) : null}
         </div>
 
         <div className="flex flex-col gap-5 p-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-border bg-white shadow-sm">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-app-border bg-white p-2 shadow-sm">
               <img
                 src={helcimIcon}
                 alt=""
-                className="h-9 w-9 object-contain"
+                className="h-full w-auto max-w-none rounded-lg object-cover"
                 aria-hidden="true"
               />
             </div>
@@ -261,7 +263,8 @@ const HelcimSettingsPanel: React.FC = () => {
               </h3>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
                 Riverside checks whether server-side Helcim credentials and the
-                terminal device code are available. Secrets are not shown here.
+                optional terminal setup are available. Secrets are not shown
+                here.
               </p>
             </div>
           </div>
@@ -269,19 +272,19 @@ const HelcimSettingsPanel: React.FC = () => {
           <div className="grid gap-3 text-xs font-semibold text-app-text-muted sm:grid-cols-3 lg:min-w-[520px]">
             <StatusTile
               icon={
-                configured ? (
+                apiConfigured ? (
                   <CheckCircle2 size={13} className="text-app-success" />
                 ) : (
                   <AlertTriangle size={13} className="text-app-warning" />
                 )
               }
-              label="Configuration"
+              label="API access"
               value={
                 helcimLoading
                   ? "Checking..."
                   : helcimError
                     ? "Unavailable"
-                    : configured
+                    : apiConfigured
                       ? "Configured"
                       : "Not configured"
               }
@@ -292,8 +295,10 @@ const HelcimSettingsPanel: React.FC = () => {
               value={
                 helcimLoading
                   ? "Checking..."
-                  : helcimStatus?.device_configured
-                    ? `•••• ${helcimStatus.device_code_suffix ?? "set"}`
+                  : helcimStatus?.register_1_device_configured
+                    ? `R1 •••• ${helcimStatus.register_1_device_code_suffix ?? "set"}`
+                    : helcimStatus?.register_2_device_configured
+                      ? `R2 •••• ${helcimStatus.register_2_device_code_suffix ?? "set"}`
                     : "Not configured"
               }
             />
@@ -315,12 +320,15 @@ const HelcimSettingsPanel: React.FC = () => {
               ? helcimError
               : missingConfig.length
                 ? `Missing configuration: ${missingConfig.join(", ")}`
-                : "Helcim is configured for card reader payments."}
+                : helcimStatus?.register_1_device_configured ||
+                    helcimStatus?.register_2_device_configured
+                  ? "Helcim API access and terminal payments are configured."
+                  : "Helcim API access is configured. Add Register #1 and Register #2 terminal codes only if ROS will start in-store terminal payments."}
           </p>
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+      <section>
         <div className="ui-card ui-tint-info p-6">
           <div className="mb-4 flex items-center gap-3">
             <div className="rounded-xl border border-app-border bg-app-surface p-2 text-app-info">
@@ -342,14 +350,24 @@ const HelcimSettingsPanel: React.FC = () => {
               detail="Used for Helcim API and card payment requests. Secret value is not shown."
             />
             <ConfigRow
-              label="Terminal device code"
+              label="Register #1 terminal code"
               value={
-                helcimStatus?.device_configured
-                  ? `Configured •••• ${helcimStatus.device_code_suffix ?? "set"}`
+                helcimStatus?.register_1_device_configured
+                  ? `Configured •••• ${helcimStatus.register_1_device_code_suffix ?? "set"}`
                   : "Not configured"
               }
-              ready={Boolean(helcimStatus?.device_configured)}
-              detail="Used for in-store terminal payments."
+              ready={Boolean(helcimStatus?.register_1_device_configured)}
+              detail="Used when Register #1 starts an in-store terminal payment."
+            />
+            <ConfigRow
+              label="Register #2 terminal code"
+              value={
+                helcimStatus?.register_2_device_configured
+                  ? `Configured •••• ${helcimStatus.register_2_device_code_suffix ?? "set"}`
+                  : "Not configured"
+              }
+              ready={Boolean(helcimStatus?.register_2_device_configured)}
+              detail="Used when Register #2 starts an in-store terminal payment."
             />
             <ConfigRow
               label="Payment update signing secret"
@@ -427,9 +445,14 @@ const HelcimSettingsPanel: React.FC = () => {
                   help: "Required for Helcim API and card payment requests.",
                 },
                 {
-                  key: "device_code",
-                  label: "Terminal device code",
-                  help: "Required for in-store terminal payments.",
+                  key: "register_1_device_code",
+                  label: "Register #1 terminal code",
+                  help: "Required when Register #1 starts Helcim terminal payments.",
+                },
+                {
+                  key: "register_2_device_code",
+                  label: "Register #2 terminal code",
+                  help: "Required when Register #2 starts Helcim terminal payments.",
                 },
                 {
                   key: "webhook_secret",
@@ -450,22 +473,6 @@ const HelcimSettingsPanel: React.FC = () => {
             Credential values are encrypted server-side and are intentionally
             hidden after save. Use{" "}
             <span className="font-black text-app-text">Check Connection</span>.
-          </p>
-        </div>
-
-        <div className="ui-card ui-tint-success p-6">
-          <div className="mb-4 flex items-center gap-3">
-            <div className="rounded-xl border border-app-border bg-app-surface p-2 text-app-success">
-              <ShieldCheck size={18} />
-            </div>
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-              Daily Review Moved to Payments
-            </h3>
-          </div>
-          <p className="text-sm font-semibold leading-6 text-app-text-muted">
-            Use <span className="font-black text-app-text">Payments</span> for
-            card sales, Sync Batches, Sync Fees, fee readiness, batch review,
-            reconciliation issues, actual bank deposits, and payment alerts.
           </p>
         </div>
       </section>

@@ -303,7 +303,8 @@ pub struct PatchActiveCardProviderRequest {
 #[derive(Debug, Deserialize)]
 pub struct PatchHelcimConfigRequest {
     pub api_token: Option<String>,
-    pub device_code: Option<String>,
+    pub register_1_device_code: Option<String>,
+    pub register_2_device_code: Option<String>,
     pub webhook_secret: Option<String>,
     pub api_base_url: Option<String>,
     pub simulator_enabled: Option<bool>,
@@ -908,6 +909,50 @@ async fn active_card_provider_response(
     })
 }
 
+async fn register_lane_for_session(
+    pool: &PgPool,
+    register_session_id: Uuid,
+) -> Result<i16, PaymentError> {
+    sqlx::query_scalar(
+        r#"
+        SELECT register_lane
+        FROM register_sessions
+        WHERE id = $1 AND is_open = true
+        "#,
+    )
+    .bind(register_session_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Register session is not open.".to_string()))
+}
+
+async fn resolve_helcim_terminal_for_register(
+    pool: &PgPool,
+    config: &helcim::HelcimConfig,
+    register_session_id: Option<Uuid>,
+) -> Result<String, PaymentError> {
+    let Some(register_session_id) = register_session_id else {
+        return Err(PaymentError::InvalidPayload(
+            "Register session is required for Helcim terminal payments.".to_string(),
+        ));
+    };
+    let register_lane = register_lane_for_session(pool, register_session_id).await?;
+    if !matches!(register_lane, 1 | 2) {
+        return Err(PaymentError::InvalidPayload(format!(
+            "Helcim terminal payments are only configured for Register #{register_lane} if a terminal code is saved for that register."
+        )));
+    }
+    config
+        .device_code_for_register_lane(register_lane)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            PaymentError::InvalidPayload(format!(
+                "Helcim terminal code is not configured for Register #{register_lane}."
+            ))
+        })
+}
+
 fn clean_optional_secret(
     value: Option<String>,
     label: &str,
@@ -971,12 +1016,14 @@ async fn patch_helcim_config(
         .map_err(map_pay_session)?;
 
     let api_token = clean_optional_secret(payload.api_token, "API token")?;
-    let device_code = clean_optional_device_code(payload.device_code)?;
+    let register_1_device_code = clean_optional_device_code(payload.register_1_device_code)?;
+    let register_2_device_code = clean_optional_device_code(payload.register_2_device_code)?;
     let webhook_secret = clean_optional_secret(payload.webhook_secret, "Signing secret")?;
     let api_base_url = clean_optional_api_base_url(payload.api_base_url)?;
 
     if api_token.is_none()
-        && device_code.is_none()
+        && register_1_device_code.is_none()
+        && register_2_device_code.is_none()
         && webhook_secret.is_none()
         && api_base_url.is_none()
         && payload.simulator_enabled.is_none()
@@ -990,8 +1037,11 @@ async fn patch_helcim_config(
     if let Some(value) = api_token {
         values.push(("api_token", value));
     }
-    if let Some(value) = device_code {
-        values.push(("device_code", value));
+    if let Some(value) = register_1_device_code {
+        values.push(("register_1_device_code", value));
+    }
+    if let Some(value) = register_2_device_code {
+        values.push(("register_2_device_code", value));
     }
     if let Some(value) = webhook_secret {
         values.push(("webhook_secret", value));
@@ -1144,6 +1194,22 @@ pub async fn run_scheduled_helcim_fee_sync(
     pool: &PgPool,
     http_client: &reqwest::Client,
 ) -> Result<HelcimFeeSyncResponse, String> {
+    let config = helcim::HelcimConfig::from_env();
+    if !config.enabled() {
+        tracing::info!("Helcim fee sync skipped; credentials are not configured yet");
+        integration_alerts::record_integration_success(pool, "helcim_fee_sync")
+            .await
+            .map_err(|error| error.to_string())?;
+        return Ok(HelcimFeeSyncResponse {
+            scanned: 0,
+            updated: 0,
+            fees_unavailable: 0,
+            skipped_missing_transaction_id: 0,
+            errors: 0,
+            total_fee_synced: "0.00".to_string(),
+            total_net_synced: "0.00".to_string(),
+        });
+    }
     let date_from = Some((Utc::now() - ChronoDuration::days(7)).date_naive());
     match run_helcim_fee_sync(pool, http_client, date_from).await {
         Ok(response) => {
@@ -1438,7 +1504,7 @@ async fn get_helcim_settlement_status(
     );
 
     let config = helcim::HelcimConfig::from_env();
-    let api_integration_active = config.enabled() && !config.simulator_enabled();
+    let api_integration_active = config.api_enabled() && !config.simulator_enabled();
     let last_run_at = last_run.as_ref().map(|run| run.started_at);
 
     Ok(Json(HelcimSettlementStatusResponse {
@@ -1509,7 +1575,7 @@ async fn run_helcim_settlement_sync(
     date_to: Option<NaiveDate>,
 ) -> Result<HelcimSettlementSyncResponse, PaymentError> {
     let config = helcim::HelcimConfig::from_env();
-    let api_integration_active = config.enabled() && !config.simulator_enabled();
+    let api_integration_active = config.api_enabled() && !config.simulator_enabled();
     let processor_data = if api_integration_active {
         Some(
             fetch_helcim_processor_settlement_data(http_client, &config, date_from, date_to)
@@ -1757,7 +1823,7 @@ async fn get_helcim_operations_overview(
         critical_issue_count: row.critical_issue_count,
         last_settlement_sync,
         last_fee_sync: row.last_fee_sync,
-        helcim_api_active: config.enabled() && !config.simulator_enabled(),
+        helcim_api_active: config.api_enabled() && !config.simulator_enabled(),
     }))
 }
 
@@ -5443,10 +5509,15 @@ async fn start_helcim_purchase(
         ));
     }
 
+    let (register_session_id, staff_id) = match auth {
+        middleware::StaffOrPosSession::Staff(staff) => {
+            (payload.register_session_id, Some(staff.id))
+        }
+        middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
+    };
     let config = helcim::HelcimConfig::from_env();
-    let terminal_id = config.device_code().ok_or_else(|| {
-        PaymentError::InvalidPayload("Helcim device code is not configured.".to_string())
-    })?;
+    let terminal_id =
+        resolve_helcim_terminal_for_register(&state.db, &config, register_session_id).await?;
     let currency = payload
         .currency
         .as_deref()
@@ -5457,12 +5528,6 @@ async fn start_helcim_purchase(
 
     let attempt_id = Uuid::new_v4();
     let idempotency_key = format!("helcim-{attempt_id}");
-    let (register_session_id, staff_id) = match auth {
-        middleware::StaffOrPosSession::Staff(staff) => {
-            (payload.register_session_id, Some(staff.id))
-        }
-        middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
-    };
 
     let insert_result = sqlx::query(
         r#"
@@ -5478,7 +5543,7 @@ async fn start_helcim_purchase(
     .bind(&currency)
     .bind(register_session_id)
     .bind(staff_id)
-    .bind(terminal_id)
+    .bind(&terminal_id)
     .bind(&idempotency_key)
     .execute(&state.db)
     .await;
@@ -5574,7 +5639,7 @@ async fn start_helcim_purchase(
             audit_reference: None,
         });
     let pending = helcim::normalize_accepted_purchase(
-        &config,
+        terminal_id.clone(),
         payload.amount_cents,
         currency,
         idempotency_key,
@@ -5623,10 +5688,15 @@ async fn start_helcim_terminal_refund(
         ));
     }
 
+    let (register_session_id, staff_id) = match auth {
+        middleware::StaffOrPosSession::Staff(staff) => {
+            (payload.register_session_id, Some(staff.id))
+        }
+        middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
+    };
     let config = helcim::HelcimConfig::from_env();
-    let terminal_id = config.device_code().ok_or_else(|| {
-        PaymentError::InvalidPayload("Helcim device code is not configured.".to_string())
-    })?;
+    let terminal_id =
+        resolve_helcim_terminal_for_register(&state.db, &config, register_session_id).await?;
     let currency = payload
         .currency
         .as_deref()
@@ -5637,12 +5707,6 @@ async fn start_helcim_terminal_refund(
 
     let attempt_id = Uuid::new_v4();
     let idempotency_key = format!("helcim-refund-{attempt_id}");
-    let (register_session_id, staff_id) = match auth {
-        middleware::StaffOrPosSession::Staff(staff) => {
-            (payload.register_session_id, Some(staff.id))
-        }
-        middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
-    };
 
     sqlx::query(
         r#"
@@ -5658,7 +5722,7 @@ async fn start_helcim_terminal_refund(
     .bind(&currency)
     .bind(register_session_id)
     .bind(staff_id)
-    .bind(terminal_id)
+    .bind(&terminal_id)
     .bind(&idempotency_key)
     .bind(payload.original_transaction_id.to_string())
     .bind(format!(
@@ -5682,6 +5746,7 @@ async fn start_helcim_terminal_refund(
     match helcim::start_terminal_refund(
         &state.http_client,
         &config,
+        &terminal_id,
         request_payload,
         &idempotency_key,
     )

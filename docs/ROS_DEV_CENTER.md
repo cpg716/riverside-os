@@ -74,7 +74,7 @@ The Dev Center also includes a read-only **Runtime Diagnostics** section for dev
 Current signals:
 - resolved client API base
 - environment mode (`Development` vs `Strict production`)
-- Helcim config state
+- Helcim config state, including API token readiness and Register #1/#2 terminal-code readiness
 - Shippo mode
 - Metabase auth mode
 - search mode

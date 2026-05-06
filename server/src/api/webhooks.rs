@@ -436,7 +436,7 @@ async fn post_helcim_webhook(
                         .await;
                 return StatusCode::BAD_REQUEST.into_response();
             };
-            match handle_helcim_card_transaction(&state, event.id, &transaction_id).await {
+            match handle_helcim_card_transaction(&state, event.id, &transaction_id, &value).await {
                 Ok(outcome) => Json(json!({
                     "ok": true,
                     "updated": outcome.updated,
@@ -502,6 +502,7 @@ async fn handle_helcim_card_transaction(
     state: &AppState,
     event_id: Uuid,
     transaction_id: &str,
+    value: &Value,
 ) -> Result<HelcimProcessingOutcome, sqlx::Error> {
     let config = helcim::HelcimConfig::from_env();
     let transaction = helcim::fetch_card_transaction(&state.http_client, &config, transaction_id)
@@ -532,7 +533,7 @@ async fn handle_helcim_card_transaction(
     let audit_reference = transaction
         .audit_reference()
         .unwrap_or_else(|| format!("helcim:cardTransaction:{provider_transaction_id}"));
-    let terminal_id = config.device_code().unwrap_or_default().to_string();
+    let terminal_id = helcim_webhook_device_code(value).unwrap_or_default();
 
     let mut tx = state.db.begin().await?;
     let mut match_type = "provider_transaction_id";
@@ -649,13 +650,7 @@ async fn handle_helcim_terminal_cancel(
     event_id: Uuid,
     value: &Value,
 ) -> Result<HelcimProcessingOutcome, sqlx::Error> {
-    let device_code = helcim_webhook_device_code(value)
-        .or_else(|| {
-            helcim::HelcimConfig::from_env()
-                .device_code()
-                .map(str::to_string)
-        })
-        .unwrap_or_default();
+    let device_code = helcim_webhook_device_code(value).unwrap_or_default();
     let amount_cents = helcim_webhook_amount_cents(value);
     let currency = helcim_webhook_currency(value);
     let query = r#"

@@ -458,7 +458,6 @@ async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx:
     let sync_staff = payment_alert_recipients(pool, PAYMENTS_SYNC).await?;
     let reconciliation_staff = payment_alert_recipients(pool, PAYMENTS_RECONCILE_REVIEW).await?;
     let deposit_staff = payment_alert_recipients(pool, PAYMENTS_DEPOSIT_REVIEW).await?;
-    let day_key = store_local_day_key(pool).await?;
 
     let sync_failures: Vec<(String, Option<chrono::DateTime<Utc>>, Option<String>)> =
         sqlx::query_as(
@@ -515,42 +514,9 @@ async fn run_payment_operations_notifications(pool: &PgPool) -> Result<(), sqlx:
         }
     }
 
-    let (fee_not_ready, net_not_ready): (i64, i64) = sqlx::query_as(
-        r#"
-        SELECT
-            COUNT(*) FILTER (
-                WHERE COALESCE(metadata->>'helcim_fee_sync_status', '') <> 'applied'
-            )::bigint,
-            COUNT(*) FILTER (
-                WHERE COALESCE(metadata->>'helcim_net_sync_status', '') <> 'applied'
-            )::bigint
-        FROM payment_transactions
-        WHERE payment_provider = 'helcim'
-          AND status = 'success'
-          AND created_at >= now() - interval '7 days'
-        "#,
-    )
-    .fetch_one(pool)
-    .await?;
-    let fee_dedupe = format!("payments:fee_not_ready:{day_key}");
-    if fee_not_ready > 0 || net_not_ready > 0 {
-        upsert_payment_alert(
-            pool,
-            &view_staff,
-            "payment_fee_not_ready",
-            "Fee still not ready",
-            &format!(
-                "{fee_not_ready} payment(s) still need fee data and {net_not_ready} payment(s) still need net data."
-            ),
-            json!({ "type": "payments", "section": "overview" }),
-            &fee_dedupe,
-        )
+    let _ = sqlx::query("DELETE FROM app_notification WHERE kind = 'payment_fee_not_ready'")
+        .execute(pool)
         .await?;
-    } else {
-        let _ = sqlx::query("DELETE FROM app_notification WHERE kind = 'payment_fee_not_ready'")
-            .execute(pool)
-            .await?;
-    }
 
     let (failed_events, last_event_error): (i64, Option<String>) = sqlx::query_as(
         r#"

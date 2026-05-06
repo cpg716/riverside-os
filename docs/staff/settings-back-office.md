@@ -57,10 +57,11 @@ Settings appears in these sidebar groups:
 **Purpose:** Confirm Helcim configuration/readiness. Daily card review now belongs in **Back Office → Payments**.
 
 1. **Settings** → **Helcim**.
-2. Confirm **Configuration**, **Device**, and **API host** are healthy before processing live card payments.
-3. Use **Payments → Health** or **Payments → Overview** for daily **Sync Batches** and **Sync Fees** work. ROS pulls fee/net fields from Helcim only when Helcim explicitly exposes them and leaves unavailable rows clearly counted.
-4. Use **Payments → Batches**, **Reconciliation**, and **Deposits** to review processor batches, issue history, expected deposits, and actual bank deposits.
-5. QBO uses one **Helcim card clearing** tender mapping for Helcim card, manual, saved-card, refund/credit, and web checkout payments.
+2. Confirm **API access** and **API host** are healthy before using Helcim batch, transaction, settlement, or fee sync.
+3. Confirm the **Register #1 terminal code** and **Register #2 terminal code** before processing live in-store terminal payments on those registers.
+4. Use **Payments → Health** or **Payments → Overview** for daily **Sync Batches** and **Sync Fees** work. ROS pulls fee/net fields from Helcim only when Helcim explicitly exposes them and leaves unavailable rows clearly counted. Missing fee/net values are tracked, not estimated and not treated as `$0.00`.
+5. Use **Payments → Batches**, **Reconciliation**, and **Deposits** to review processor batches, issue history, expected deposits, and actual bank deposits.
+6. QBO uses one **Helcim card clearing** tender mapping for Helcim card, manual, saved-card, refund/credit, and web checkout payments.
 
 ## Staff access defaults
 

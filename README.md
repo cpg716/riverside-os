@@ -92,8 +92,8 @@ Environment variables:
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://postgres:password@localhost:5433/riverside_os` | Must match Docker `db` host port (**5433** avoids conflict with native Postgres on 5432; see `server/.env.example`) |
-| `HELCIM_API_TOKEN` | unset | Deployment fallback for Helcim API token. Routine Helcim credentials should be saved in Backoffice Settings. Strict production requires configured non-placeholder Helcim credentials. |
-| `HELCIM_DEVICE_CODE` | unset | Deployment fallback for Helcim terminal device code. Routine device setup should be saved in Backoffice Settings. Strict production requires a configured non-placeholder device code. |
+| `HELCIM_API_TOKEN` | unset | Deployment fallback for Helcim API token. Routine Helcim credentials should be saved in Backoffice Settings. The API token is enough for Helcim batch/transaction/fee reads. |
+| `HELCIM_REGISTER_1_DEVICE_CODE` / `HELCIM_REGISTER_2_DEVICE_CODE` | unset | Deployment fallback for Register #1 and Register #2 Helcim terminal codes. Routine terminal setup should be saved in Backoffice Settings. Terminal payments use the terminal code assigned to the active register session. |
 | `HELCIM_WEBHOOK_SECRET` | unset | Deployment fallback for Helcim webhook signing secret. Routine webhook secret setup should be saved in Backoffice Settings. When unset, inbound Helcim webhook verification is rejected. |
 | `RIVERSIDE_CREDENTIALS_KEY` | unset | Root encryption key for Backoffice-managed integration credentials, including QBO client credentials and OAuth tokens. Must be non-default and at least 32 characters before credentials can be saved. `QBO_TOKEN_ENC_KEY` remains accepted as a transitional fallback. |
 | `RIVERSIDE_BACKUP_DIR` | `backups` | Local backup directory. Strict production requires this to be set to an absolute, durable path; Settings and ROS Dev Center show the effective path. |
