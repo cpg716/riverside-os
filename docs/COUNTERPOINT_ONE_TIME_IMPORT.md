@@ -186,6 +186,7 @@ What it proves:
 - Counts are available for customers, staff/map rows, vendors, categories, products, variants, vendor supplier items, gift cards, store credit openings, loyalty history, closed ticket transactions/lines/payments, open-doc transactions/lines, and receiving history.
 - Customer, catalog product, catalog variant/SKU, and inventory quantity rows show source-vs-ROS count reconciliation.
 - Open-doc transaction and line rows show source-vs-ROS count reconciliation.
+- Catalog price/cost, category/vendor, variant-label, and inventory quantity/cost rows show source-vs-ROS checksum reconciliation from the live Counterpoint query payloads.
 - Gift-card current balance and loyalty current point snapshot rows show **Pass**. These rows compare the Counterpoint source count/sum sent by the bridge to the landed ROS count/sum.
 - Unresolved customer links, skipped open docs, and unmatched inventory rows are summarized and backed by **Open sync issues** with the exact Counterpoint reference or SKU/key where available.
 
@@ -193,7 +194,8 @@ What it does **not** prove:
 - It is not full financial reconciliation.
 - It does not compare Counterpoint financial totals, tender totals, tax, discounts, or receivables to ROS.
 - It does not prove every source row was imported when provenance is missing or when the source SQL scope changed.
-- It does not replace sync issue review, operator spot checks, or a future stored source-payload field comparison.
+- It does not identify the exact row behind a catalog/inventory checksum mismatch without a later diagnostic comparison.
+- It does not replace sync issue review or operator spot checks.
 
 Weak or approximate domains:
 - **Gift cards** are approximate only until the source count/sum proof has been received and the snapshot reconciliation row passes.
@@ -206,7 +208,7 @@ After each import pass:
 4. Confirm customer, catalog product, catalog variant/SKU, inventory quantity, open-doc, open-doc line, gift-card, and loyalty snapshot reconciliation rows pass.
 5. Confirm customer-link, skipped-open-doc, and unmatched-inventory visibility rows are clear.
 6. Review **Open sync issues** and resolve or deliberately defer each remaining issue.
-7. Review live **Inventory & Catalog Verification** and document any not-yet-field-verified cost, price, category, vendor, or variant-label risks.
+7. Review live **Inventory & Catalog Verification** and confirm the field-fidelity checksum rows pass or document the blocking mismatch.
 8. Record any approximate-domain caveats in the import sign-off notes.
 
 ### Limits of live inventory verification
@@ -216,7 +218,7 @@ After each import pass:
 - Counterpoint parent item keys such as `I-XXXXX` are treated as product-group scope markers, not as direct row-level variant IDs for multi-row live-payload groups.
 - It is read-only and does not correct data.
 - It proves count reconciliation for products, variants, SKUs, barcodes, and matched quantity rows, and it exposes unresolved inventory rows.
-- It does **not yet** field-verify cost, price, category, vendor, or variant-label fidelity without a stored source-payload snapshot.
+- It field-verifies cost, price, category, vendor, variant-label, inventory quantity, and inventory cost fidelity at aggregate checksum level from the live bridge payloads. It does not store the full source payload or identify the exact mismatched row when a checksum fails.
 - It does not validate ticket/open-doc financial history.
 
 ### Limits of the sign-off reconciliation table

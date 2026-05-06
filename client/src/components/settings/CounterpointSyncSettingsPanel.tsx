@@ -170,6 +170,9 @@ interface CounterpointSnapshotReconciliationRow {
   source_sum: string | null;
   landed_sum: string;
   sum_difference: string | null;
+  source_checksum: string | null;
+  landed_checksum: string | null;
+  checksum_matched: boolean | null;
   note: string;
   source_updated_at: string | null;
 }
@@ -2836,6 +2839,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     {snapshotReconciliationRows.map((row) => {
                       const isPass = row.passed;
                       const isMissing = row.status === "missing_source";
+                      const hasChecksum = Boolean(row.source_checksum || row.landed_checksum);
                       return (
                         <div
                           key={row.key}
@@ -2870,7 +2874,13 @@ export default function CounterpointSyncSettingsPanel(props?: {
                               <p className="mt-1 font-bold text-app-text tabular-nums">
                                 {row.source_count == null ? "—" : fmtNum(row.source_count)}
                               </p>
-                              <p className="text-app-text-muted tabular-nums">{row.source_sum ?? "—"}</p>
+                              <p className="text-app-text-muted tabular-nums">
+                                {hasChecksum
+                                  ? row.source_checksum
+                                    ? `Checksum ${row.source_checksum.slice(0, 12)}`
+                                    : "Checksum —"
+                                  : row.source_sum ?? "—"}
+                              </p>
                             </div>
                             <div className="rounded-md bg-app-bg/60 border border-app-border p-2">
                               <p className="font-black uppercase tracking-widest text-app-text-muted">
@@ -2879,7 +2889,13 @@ export default function CounterpointSyncSettingsPanel(props?: {
                               <p className="mt-1 font-bold text-app-text tabular-nums">
                                 {fmtNum(row.landed_count)}
                               </p>
-                              <p className="text-app-text-muted tabular-nums">{row.landed_sum}</p>
+                              <p className="text-app-text-muted tabular-nums">
+                                {hasChecksum
+                                  ? row.landed_checksum
+                                    ? `Checksum ${row.landed_checksum.slice(0, 12)}`
+                                    : "Checksum —"
+                                  : row.landed_sum}
+                              </p>
                             </div>
                           </div>
                           {row.source_updated_at ? (

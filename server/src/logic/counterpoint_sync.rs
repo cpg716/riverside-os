@@ -42,6 +42,8 @@ pub struct CounterpointSnapshotSourceMetricsPayload {
     pub source_count: i64,
     #[serde(default)]
     pub source_sum: Decimal,
+    #[serde(default)]
+    pub source_checksum: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1013,6 +1015,9 @@ pub struct CounterpointSnapshotReconciliationRow {
     pub source_sum: Option<String>,
     pub landed_sum: String,
     pub sum_difference: Option<String>,
+    pub source_checksum: Option<String>,
+    pub landed_checksum: Option<String>,
+    pub checksum_matched: Option<bool>,
     pub note: String,
     pub source_updated_at: Option<DateTime<Utc>>,
 }
@@ -1269,6 +1274,10 @@ fn supported_snapshot_key(snapshot: &str) -> Option<&'static str> {
         "catalog_variants" => Some("catalog_variants"),
         "catalog_variant_skus" => Some("catalog_variant_skus"),
         "catalog_variant_barcodes" => Some("catalog_variant_barcodes"),
+        "catalog_price_cost_fields" => Some("catalog_price_cost_fields"),
+        "catalog_category_vendor_fields" => Some("catalog_category_vendor_fields"),
+        "catalog_variant_label_fields" => Some("catalog_variant_label_fields"),
+        "inventory_quantity_cost_fields" => Some("inventory_quantity_cost_fields"),
         "inventory_quantity_rows" => Some("inventory_quantity_rows"),
         "open_docs" => Some("open_docs"),
         "open_doc_lines" => Some("open_doc_lines"),
@@ -1293,10 +1302,19 @@ pub async fn record_counterpoint_snapshot_source_metrics(
             "source_count cannot be negative".into(),
         ));
     }
+    let source_checksum = payload.source_checksum.as_ref().map(|checksum| {
+        checksum
+            .trim()
+            .to_ascii_lowercase()
+            .chars()
+            .take(128)
+            .collect::<String>()
+    });
 
     let body = serde_json::json!({
         "source_count": payload.source_count,
         "source_sum": payload.source_sum.to_string(),
+        "source_checksum": source_checksum,
         "updated_at": Utc::now(),
     });
 
@@ -1324,6 +1342,7 @@ pub async fn record_counterpoint_snapshot_source_metrics(
 struct SnapshotSourceMetric {
     source_count: i64,
     source_sum: Decimal,
+    source_checksum: Option<String>,
     updated_at: Option<DateTime<Utc>>,
 }
 
@@ -1357,6 +1376,11 @@ async fn load_snapshot_source_metric(
     let source_sum = source_sum_raw
         .parse::<Decimal>()
         .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+    let source_checksum = raw
+        .get("source_checksum")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty());
     let updated_at = raw
         .get("updated_at")
         .and_then(|v| v.as_str())
@@ -1366,6 +1390,7 @@ async fn load_snapshot_source_metric(
     Ok(Some(SnapshotSourceMetric {
         source_count,
         source_sum,
+        source_checksum,
         updated_at,
     }))
 }
@@ -1389,6 +1414,9 @@ fn build_snapshot_reconciliation_row(
             source_sum: None,
             landed_sum: landed_sum.to_string(),
             sum_difference: None,
+            source_checksum: None,
+            landed_checksum: None,
+            checksum_matched: None,
             note: "No Counterpoint source snapshot metrics have been received for this domain."
                 .into(),
             source_updated_at: None,
@@ -1409,6 +1437,9 @@ fn build_snapshot_reconciliation_row(
         source_sum: Some(metric.source_sum.to_string()),
         landed_sum: landed_sum.to_string(),
         sum_difference: Some(sum_difference.to_string()),
+        source_checksum: metric.source_checksum,
+        landed_checksum: None,
+        checksum_matched: None,
         note: if passed {
             "Counterpoint source count and sum match landed ROS snapshot values.".into()
         } else {
@@ -1416,6 +1447,179 @@ fn build_snapshot_reconciliation_row(
         },
         source_updated_at: metric.updated_at,
     }
+}
+
+fn build_checksum_reconciliation_row(
+    key: &str,
+    label: &str,
+    metric: Option<SnapshotSourceMetric>,
+    landed_count: i64,
+    landed_checksum: Option<String>,
+) -> CounterpointSnapshotReconciliationRow {
+    let Some(metric) = metric else {
+        return CounterpointSnapshotReconciliationRow {
+            key: key.into(),
+            label: label.into(),
+            status: "missing_source".into(),
+            passed: false,
+            source_count: None,
+            landed_count,
+            count_difference: None,
+            source_sum: None,
+            landed_sum: Decimal::ZERO.to_string(),
+            sum_difference: None,
+            source_checksum: None,
+            landed_checksum,
+            checksum_matched: None,
+            note: "No Counterpoint source checksum proof has been received for this field group."
+                .into(),
+            source_updated_at: None,
+        };
+    };
+
+    let source_checksum = metric.source_checksum.clone();
+    let checksum_matched = source_checksum.is_some()
+        && landed_checksum.is_some()
+        && source_checksum.as_deref() == landed_checksum.as_deref();
+    let count_difference = landed_count - metric.source_count;
+    let passed = count_difference == 0 && checksum_matched;
+    let status = if source_checksum.is_none() {
+        "missing_source"
+    } else if passed {
+        "pass"
+    } else {
+        "fail"
+    };
+
+    CounterpointSnapshotReconciliationRow {
+        key: key.into(),
+        label: label.into(),
+        status: status.into(),
+        passed,
+        source_count: Some(metric.source_count),
+        landed_count,
+        count_difference: Some(count_difference),
+        source_sum: Some(metric.source_sum.to_string()),
+        landed_sum: Decimal::ZERO.to_string(),
+        sum_difference: Some(Decimal::ZERO.to_string()),
+        source_checksum,
+        landed_checksum,
+        checksum_matched: Some(checksum_matched),
+        note: if status == "missing_source" {
+            "No Counterpoint source checksum proof has been received for this field group.".into()
+        } else if passed {
+            "Counterpoint live-query checksum matches landed ROS field values.".into()
+        } else {
+            "Counterpoint live-query checksum does not match landed ROS field values.".into()
+        },
+        source_updated_at: metric.updated_at,
+    }
+}
+
+async fn landed_catalog_price_cost_checksum(
+    pool: &PgPool,
+) -> Result<(i64, Option<String>), CounterpointSyncError> {
+    sqlx::query_as(
+        r#"
+        WITH rows AS (
+            SELECT CONCAT_WS('|',
+                UPPER(TRIM(COALESCE(pv.counterpoint_item_key, ''))),
+                TO_CHAR(ROUND(COALESCE(pv.retail_price_override, p.base_retail_price, 0)::numeric, 4), 'FM999999999999999999990.0000'),
+                TO_CHAR(ROUND(COALESCE(pv.cost_override, p.base_cost, 0)::numeric, 4), 'FM999999999999999999990.0000'),
+                TO_CHAR(ROUND(COALESCE(pv.counterpoint_prc_2, 0)::numeric, 4), 'FM999999999999999999990.0000'),
+                TO_CHAR(ROUND(COALESCE(pv.counterpoint_prc_3, 0)::numeric, 4), 'FM999999999999999999990.0000')
+            ) AS row_text
+            FROM product_variants pv
+            INNER JOIN products p ON p.id = pv.product_id
+            WHERE NULLIF(TRIM(pv.counterpoint_item_key), '') IS NOT NULL
+        )
+        SELECT COUNT(*)::bigint, MD5(COALESCE(STRING_AGG(row_text, E'\n' ORDER BY row_text), ''))
+        FROM rows
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(CounterpointSyncError::from)
+}
+
+async fn landed_catalog_category_vendor_checksum(
+    pool: &PgPool,
+) -> Result<(i64, Option<String>), CounterpointSyncError> {
+    sqlx::query_as(
+        r#"
+        WITH rows AS (
+            SELECT CONCAT_WS('|',
+                UPPER(TRIM(COALESCE(p.catalog_handle, ''))),
+                UPPER(TRIM(COALESCE(mapped_category.cp_category, c.name, ''))),
+                UPPER(TRIM(COALESCE(v.vendor_code, '')))
+            ) AS row_text
+            FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN LATERAL (
+                SELECT ccm.cp_category
+                FROM counterpoint_category_map ccm
+                WHERE ccm.ros_category_id = p.category_id
+                ORDER BY ccm.cp_category
+                LIMIT 1
+            ) mapped_category ON TRUE
+            LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+            WHERE p.data_source = 'counterpoint'
+              AND NULLIF(TRIM(p.catalog_handle), '') IS NOT NULL
+        )
+        SELECT COUNT(*)::bigint, MD5(COALESCE(STRING_AGG(row_text, E'\n' ORDER BY row_text), ''))
+        FROM rows
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(CounterpointSyncError::from)
+}
+
+async fn landed_catalog_variant_label_checksum(
+    pool: &PgPool,
+) -> Result<(i64, Option<String>), CounterpointSyncError> {
+    sqlx::query_as(
+        r#"
+        WITH rows AS (
+            SELECT CONCAT_WS('|',
+                UPPER(TRIM(COALESCE(pv.counterpoint_item_key, ''))),
+                TRIM(COALESCE(pv.variation_label, ''))
+            ) AS row_text
+            FROM product_variants pv
+            WHERE NULLIF(TRIM(pv.counterpoint_item_key), '') IS NOT NULL
+        )
+        SELECT COUNT(*)::bigint, MD5(COALESCE(STRING_AGG(row_text, E'\n' ORDER BY row_text), ''))
+        FROM rows
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(CounterpointSyncError::from)
+}
+
+async fn landed_inventory_quantity_cost_checksum(
+    pool: &PgPool,
+) -> Result<(i64, Option<String>), CounterpointSyncError> {
+    sqlx::query_as(
+        r#"
+        WITH rows AS (
+            SELECT CONCAT_WS('|',
+                UPPER(TRIM(COALESCE(NULLIF(TRIM(pv.counterpoint_item_key), ''), pv.sku, ''))),
+                COALESCE(pv.stock_on_hand, 0)::text,
+                TO_CHAR(ROUND(COALESCE(pv.cost_override, 0)::numeric, 4), 'FM999999999999999999990.0000')
+            ) AS row_text
+            FROM product_variants pv
+            INNER JOIN products p ON p.id = pv.product_id
+            WHERE NULLIF(TRIM(pv.counterpoint_item_key), '') IS NOT NULL
+               OR p.data_source = 'counterpoint'
+        )
+        SELECT COUNT(*)::bigint, MD5(COALESCE(STRING_AGG(row_text, E'\n' ORDER BY row_text), ''))
+        FROM rows
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(CounterpointSyncError::from)
 }
 
 async fn build_snapshot_reconciliation_rows(
@@ -1508,6 +1712,14 @@ async fn build_snapshot_reconciliation_rows(
         .as_ref()
         .map(|metric| (metric.source_count - unresolved_inventory).max(0))
         .unwrap_or(0);
+    let (catalog_price_cost_count, catalog_price_cost_checksum) =
+        landed_catalog_price_cost_checksum(pool).await?;
+    let (catalog_category_vendor_count, catalog_category_vendor_checksum) =
+        landed_catalog_category_vendor_checksum(pool).await?;
+    let (catalog_variant_label_count, catalog_variant_label_checksum) =
+        landed_catalog_variant_label_checksum(pool).await?;
+    let (inventory_quantity_cost_count, inventory_quantity_cost_checksum) =
+        landed_inventory_quantity_cost_checksum(pool).await?;
 
     Ok(vec![
         build_snapshot_reconciliation_row(
@@ -1545,12 +1757,40 @@ async fn build_snapshot_reconciliation_rows(
             variant_barcode_count,
             Decimal::ZERO,
         ),
+        build_checksum_reconciliation_row(
+            "catalog_price_cost_fields",
+            "Catalog price/cost fields",
+            load_snapshot_source_metric(pool, "catalog_price_cost_fields").await?,
+            catalog_price_cost_count,
+            catalog_price_cost_checksum,
+        ),
+        build_checksum_reconciliation_row(
+            "catalog_category_vendor_fields",
+            "Catalog category/vendor fields",
+            load_snapshot_source_metric(pool, "catalog_category_vendor_fields").await?,
+            catalog_category_vendor_count,
+            catalog_category_vendor_checksum,
+        ),
+        build_checksum_reconciliation_row(
+            "catalog_variant_label_fields",
+            "Catalog variant labels",
+            load_snapshot_source_metric(pool, "catalog_variant_label_fields").await?,
+            catalog_variant_label_count,
+            catalog_variant_label_checksum,
+        ),
         build_snapshot_reconciliation_row(
             "inventory_quantity_rows",
             "Inventory quantity rows matched",
             inventory_metric,
             inventory_landed,
             Decimal::ZERO,
+        ),
+        build_checksum_reconciliation_row(
+            "inventory_quantity_cost_fields",
+            "Inventory quantity/cost fields",
+            load_snapshot_source_metric(pool, "inventory_quantity_cost_fields").await?,
+            inventory_quantity_cost_count,
+            inventory_quantity_cost_checksum,
         ),
         build_snapshot_reconciliation_row(
             "open_docs",
@@ -1633,23 +1873,6 @@ fn cutover_visibility_row(
     }
 }
 
-fn cutover_status_row(
-    key: &str,
-    label: &str,
-    status: &str,
-    passed: bool,
-    note: &str,
-) -> CounterpointCutoverVisibilityRow {
-    CounterpointCutoverVisibilityRow {
-        key: key.into(),
-        label: label.into(),
-        status: status.into(),
-        passed,
-        count: 0,
-        note: note.into(),
-    }
-}
-
 async fn build_cutover_visibility_rows(
     pool: &PgPool,
 ) -> Result<Vec<CounterpointCutoverVisibilityRow>, CounterpointSyncError> {
@@ -1705,27 +1928,6 @@ async fn build_cutover_visibility_rows(
             inventory_rows,
             "No unresolved Counterpoint inventory quantity rows are open.",
             "Counterpoint inventory rows could not match a ROS variant by item key or SKU. Review Open sync issues.",
-        ),
-        cutover_status_row(
-            "inventory_cost_price_fidelity",
-            "Inventory cost/price fidelity",
-            "not_verified",
-            false,
-            "Live query count reconciliation is present, but per-row cost and price fidelity is not yet field-verified without storing source payload snapshots.",
-        ),
-        cutover_status_row(
-            "inventory_category_vendor_fidelity",
-            "Category/vendor fidelity",
-            "not_verified",
-            false,
-            "Live query count reconciliation is present, but category, vendor, and vendor-item fidelity is not yet field-verified without storing source payload snapshots.",
-        ),
-        cutover_status_row(
-            "inventory_variant_label_fidelity",
-            "Variant-label fidelity",
-            "not_verified",
-            false,
-            "Live query count reconciliation is present, but matrix variant label fidelity is not yet field-verified without storing source payload snapshots.",
         ),
     ])
 }
@@ -7676,6 +7878,7 @@ mod tests {
                 snapshot: "gift_cards".into(),
                 source_count: landed_count,
                 source_sum: landed_sum,
+                source_checksum: None,
             },
         )
         .await
@@ -7720,6 +7923,7 @@ mod tests {
                 snapshot: "gift_cards".into(),
                 source_count: landed_count,
                 source_sum: landed_sum + Decimal::ONE,
+                source_checksum: None,
             },
         )
         .await
@@ -7768,6 +7972,7 @@ mod tests {
                 snapshot: "loyalty_points".into(),
                 source_count: landed_count,
                 source_sum: landed_sum,
+                source_checksum: None,
             },
         )
         .await
@@ -7816,6 +8021,7 @@ mod tests {
                 snapshot: "loyalty_points".into(),
                 source_count: landed_count,
                 source_sum: landed_sum + Decimal::ONE,
+                source_checksum: None,
             },
         )
         .await
@@ -7860,6 +8066,7 @@ mod tests {
                 snapshot: "customers".into(),
                 source_count: landed_count,
                 source_sum: Decimal::ZERO,
+                source_checksum: None,
             },
         )
         .await
@@ -7895,6 +8102,7 @@ mod tests {
                 Some(SnapshotSourceMetric {
                     source_count: 12,
                     source_sum: Decimal::ZERO,
+                    source_checksum: None,
                     updated_at: None,
                 }),
                 12,
@@ -7909,23 +8117,144 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn counterpoint_inventory_field_fidelity_status_is_explicit() {
-        let pool = connect_test_db().await;
-        let summary = build_counterpoint_landing_verification_summary(&pool)
-            .await
-            .expect("build landing verification");
-
-        for key in [
-            "inventory_cost_price_fidelity",
-            "inventory_category_vendor_fidelity",
-            "inventory_variant_label_fidelity",
+    #[test]
+    fn counterpoint_field_checksum_reconciliation_passes_when_matching() {
+        for (key, label) in [
+            ("catalog_price_cost_fields", "Catalog price/cost fields"),
+            (
+                "catalog_category_vendor_fields",
+                "Catalog category/vendor fields",
+            ),
+            ("catalog_variant_label_fields", "Catalog variant labels"),
+            (
+                "inventory_quantity_cost_fields",
+                "Inventory quantity/cost fields",
+            ),
         ] {
-            let row = cutover_visibility_row(&summary, key);
-            assert_eq!(row.status, "not_verified");
-            assert!(!row.passed);
-            assert!(row.note.contains("not yet field-verified"));
+            let row = build_checksum_reconciliation_row(
+                key,
+                label,
+                Some(SnapshotSourceMetric {
+                    source_count: 4,
+                    source_sum: Decimal::ZERO,
+                    source_checksum: Some("abc123".into()),
+                    updated_at: None,
+                }),
+                4,
+                Some("abc123".into()),
+            );
+
+            assert!(row.passed);
+            assert_eq!(row.status, "pass");
+            assert_eq!(row.count_difference, Some(0));
+            assert_eq!(row.checksum_matched, Some(true));
         }
+    }
+
+    #[test]
+    fn counterpoint_field_checksum_reconciliation_fails_when_mismatched() {
+        for (key, label) in [
+            ("catalog_price_cost_fields", "Catalog price/cost fields"),
+            (
+                "catalog_category_vendor_fields",
+                "Catalog category/vendor fields",
+            ),
+            ("catalog_variant_label_fields", "Catalog variant labels"),
+            (
+                "inventory_quantity_cost_fields",
+                "Inventory quantity/cost fields",
+            ),
+        ] {
+            let row = build_checksum_reconciliation_row(
+                key,
+                label,
+                Some(SnapshotSourceMetric {
+                    source_count: 4,
+                    source_sum: Decimal::ZERO,
+                    source_checksum: Some("abc123".into()),
+                    updated_at: None,
+                }),
+                4,
+                Some("def456".into()),
+            );
+
+            assert!(!row.passed);
+            assert_eq!(row.status, "fail");
+            assert_eq!(row.count_difference, Some(0));
+            assert_eq!(row.checksum_matched, Some(false));
+        }
+    }
+
+    #[test]
+    fn counterpoint_field_checksum_reconciliation_requires_source_proof() {
+        let row = build_checksum_reconciliation_row(
+            "catalog_price_cost_fields",
+            "Catalog price/cost fields",
+            None,
+            4,
+            Some("abc123".into()),
+        );
+
+        assert!(!row.passed);
+        assert_eq!(row.status, "missing_source");
+        assert_eq!(row.source_count, None);
+        assert_eq!(row.landed_checksum.as_deref(), Some("abc123"));
+
+        let legacy_metric_row = build_checksum_reconciliation_row(
+            "catalog_price_cost_fields",
+            "Catalog price/cost fields",
+            Some(SnapshotSourceMetric {
+                source_count: 4,
+                source_sum: Decimal::ZERO,
+                source_checksum: None,
+                updated_at: None,
+            }),
+            4,
+            Some("abc123".into()),
+        );
+
+        assert!(!legacy_metric_row.passed);
+        assert_eq!(legacy_metric_row.status, "missing_source");
+        assert_eq!(legacy_metric_row.source_count, Some(4));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_checksum_source_metrics_rerun_updates_json() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "catalog_price_cost_fields".into(),
+                source_count: 1,
+                source_sum: Decimal::ZERO,
+                source_checksum: Some("aaa111".into()),
+            },
+        )
+        .await
+        .expect("record first checksum metric");
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "catalog_price_cost_fields".into(),
+                source_count: 2,
+                source_sum: Decimal::ZERO,
+                source_checksum: Some("bbb222".into()),
+            },
+        )
+        .await
+        .expect("record replacement checksum metric");
+
+        let config = load_counterpoint_config(&pool).await;
+        let metric = &config["snapshot_reconciliation"]["catalog_price_cost_fields"];
+        let source_count = metric["source_count"].as_i64();
+        let source_checksum = metric["source_checksum"].as_str().map(str::to_string);
+        restore_counterpoint_config(&pool, original_config).await;
+
+        assert_eq!(source_count, Some(2));
+        assert_eq!(source_checksum.as_deref(), Some("bbb222"));
     }
 
     #[tokio::test]
@@ -8190,6 +8519,7 @@ mod tests {
                 snapshot: "open_docs".into(),
                 source_count: landed_docs,
                 source_sum: Decimal::ZERO,
+                source_checksum: None,
             },
         )
         .await
@@ -8200,6 +8530,7 @@ mod tests {
                 snapshot: "open_doc_lines".into(),
                 source_count: landed_lines,
                 source_sum: Decimal::ZERO,
+                source_checksum: None,
             },
         )
         .await
@@ -8445,6 +8776,7 @@ mod tests {
                 snapshot: "inventory_quantity_rows".into(),
                 source_count: 1,
                 source_sum: Decimal::ZERO,
+                source_checksum: None,
             },
         )
         .await

@@ -8,6 +8,7 @@
  * Heartbeat: idle/syncing each poll cycle; bridge polls for pending sync requests.
  */
 import fs from "node:fs";
+import crypto from "node:crypto";
 import net from "node:net";
 import path from "node:path";
 import readline from "node:readline";
@@ -1413,13 +1414,108 @@ function intLikeToBigInt(value) {
   return BigInt(Math.trunc(n));
 }
 
-async function postSnapshotReconciliation(snapshot, sourceCount, sourceSum) {
+function checksumText(value, { uppercase = false } = {}) {
+  const normalized = value == null ? "" : String(value).trim();
+  return uppercase ? normalized.toUpperCase() : normalized;
+}
+
+function checksumDecimal(value, scale = 4) {
+  if (value == null || String(value).trim() === "") {
+    return `0.${"0".repeat(scale)}`;
+  }
+  const cleaned = String(value).trim().replace(/[$,]/g, "");
+  const negative = cleaned.startsWith("-");
+  const unsigned = cleaned.replace(/^[+-]/, "");
+  const [wholeRaw, fracRaw = ""] = unsigned.split(".");
+  const whole = wholeRaw.replace(/\D/g, "") || "0";
+  const fracDigits = fracRaw.replace(/\D/g, "");
+  const padded = `${fracDigits}${"0".repeat(scale + 1)}`;
+  let scaled = BigInt(whole) * (10n ** BigInt(scale));
+  scaled += BigInt(padded.slice(0, scale) || "0");
+  if (Number(padded[scale] ?? "0") >= 5) scaled += 1n;
+  if (negative) scaled = -scaled;
+  return scaledIntToDecimalString(scaled, scale);
+}
+
+function checksumQuantity(value) {
+  if (value == null || String(value).trim() === "") return "0";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  return String(Math.trunc(n));
+}
+
+function checksumRows(rows) {
+  const body = [...rows].sort().join("\n");
+  return crypto.createHash("md5").update(body, "utf8").digest("hex");
+}
+
+function catalogPriceCostChecksumRows(row) {
+  const rows = [];
+  const cells = Array.isArray(row.cells) ? row.cells : [];
+  if (cells.length === 0) {
+    rows.push([
+      checksumText(row.item_no, { uppercase: true }),
+      checksumDecimal(row.retail_price),
+      checksumDecimal(row.unit_cost),
+      checksumDecimal(row.prc_2),
+      checksumDecimal(row.prc_3),
+    ].join("|"));
+    return rows;
+  }
+  for (const cell of cells) {
+    rows.push([
+      checksumText(cell.counterpoint_item_key, { uppercase: true }),
+      checksumDecimal(cell.retail_price ?? row.retail_price),
+      checksumDecimal(cell.unit_cost ?? row.unit_cost),
+      checksumDecimal(cell.prc_2),
+      checksumDecimal(cell.prc_3),
+    ].join("|"));
+  }
+  return rows;
+}
+
+function catalogCategoryVendorChecksumRow(row) {
+  return [
+    checksumText(row.item_no, { uppercase: true }),
+    checksumText(row.category, { uppercase: true }),
+    checksumText(row.vendor_no, { uppercase: true }),
+  ].join("|");
+}
+
+function catalogVariantLabelChecksumRows(row) {
+  const rows = [];
+  const cells = Array.isArray(row.cells) ? row.cells : [];
+  if (cells.length === 0) {
+    rows.push([checksumText(row.item_no, { uppercase: true }), ""].join("|"));
+    return rows;
+  }
+  for (const cell of cells) {
+    rows.push([
+      checksumText(cell.counterpoint_item_key, { uppercase: true }),
+      checksumText(cell.variation_label),
+    ].join("|"));
+  }
+  return rows;
+}
+
+function inventoryQuantityCostChecksumRow(row) {
+  return [
+    checksumText(row.counterpoint_item_key || row.sku, { uppercase: true }),
+    checksumQuantity(row.stock_on_hand),
+    checksumDecimal(row.unit_cost),
+  ].join("|");
+}
+
+async function postSnapshotReconciliation(snapshot, sourceCount, sourceSum, sourceChecksum) {
   const body = {
     snapshot,
     source_count: sourceCount,
   };
   if (sourceSum !== undefined && sourceSum !== null) {
     body.source_sum = sourceSum;
+  }
+  if (sourceChecksum !== undefined && sourceChecksum !== null) {
+    body.source_checksum = sourceChecksum;
   }
   await rosFetch(
     "/api/sync/counterpoint/snapshot-reconciliation",
@@ -1775,6 +1871,7 @@ async function syncInventory(pool) {
   const rows = result.recordset ?? [];
   logToDashboard(`[inventory] SQL returned ${rows.length} item(s)`);
   const mapped = rows.map((row) => mapInventoryRow(normalizeRowKeys(row))).filter((r) => r.sku);
+  const quantityCostChecksumRows = mapped.map(inventoryQuantityCostChecksumRow);
 
   const INV_BATCH = 400;
   const MAX_CONCURRENCY = 5;
@@ -1816,6 +1913,12 @@ async function syncInventory(pool) {
     writeState(state);
   }
   await postSnapshotReconciliation("inventory_quantity_rows", mapped.length);
+  await postSnapshotReconciliation(
+    "inventory_quantity_cost_fields",
+    quantityCostChecksumRows.length,
+    undefined,
+    checksumRows(quantityCostChecksumRows),
+  );
   return postedRows;
 }
 
@@ -1910,6 +2013,9 @@ async function syncCatalog(pool) {
   let totalMappedVariants = 0;
   let totalMappedSkus = 0;
   let totalMappedBarcodes = 0;
+  const catalogPriceCostChecksumParts = [];
+  const catalogCategoryVendorChecksumParts = [];
+  const catalogVariantLabelChecksumParts = [];
   let skippedDuplicates = 0;
   let inFlight = 0;
   const pendingRequests = [];
@@ -1940,6 +2046,9 @@ async function syncCatalog(pool) {
         totalMappedVariants += catalogVariantSourceCount(mapped);
         totalMappedSkus += catalogSkuSourceCount(mapped);
         totalMappedBarcodes += catalogBarcodeSourceCount(mapped);
+        catalogPriceCostChecksumParts.push(...catalogPriceCostChecksumRows(mapped));
+        catalogCategoryVendorChecksumParts.push(catalogCategoryVendorChecksumRow(mapped));
+        catalogVariantLabelChecksumParts.push(...catalogVariantLabelChecksumRows(mapped));
         batchBuffer.push(mapped);
         if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
           const chunk = [...batchBuffer];
@@ -2004,6 +2113,24 @@ async function syncCatalog(pool) {
         await postSnapshotReconciliation("catalog_variants", totalMappedVariants);
         await postSnapshotReconciliation("catalog_variant_skus", totalMappedSkus);
         await postSnapshotReconciliation("catalog_variant_barcodes", totalMappedBarcodes);
+        await postSnapshotReconciliation(
+          "catalog_price_cost_fields",
+          catalogPriceCostChecksumParts.length,
+          undefined,
+          checksumRows(catalogPriceCostChecksumParts),
+        );
+        await postSnapshotReconciliation(
+          "catalog_category_vendor_fields",
+          catalogCategoryVendorChecksumParts.length,
+          undefined,
+          checksumRows(catalogCategoryVendorChecksumParts),
+        );
+        await postSnapshotReconciliation(
+          "catalog_variant_label_fields",
+          catalogVariantLabelChecksumParts.length,
+          undefined,
+          checksumRows(catalogVariantLabelChecksumParts),
+        );
         logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
         console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
         resolve(totalProcessed);
