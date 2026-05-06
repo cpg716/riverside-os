@@ -518,9 +518,9 @@ Use it after each repeatable pre-go-live import pass to confirm that the expecte
 
 The counts do **not** prove full business reconciliation. They do not compare financial totals to Counterpoint, prove tender/tax correctness, prove every historical row was imported, or replace staff review of edge cases. Treat them as landed-row proof only.
 
-Customers, catalog products, catalog variants/SKUs, inventory quantity rows, gift-card balances, and loyalty current points have added proof rows. The bridge sends the Counterpoint source count (and source sum where balances/points apply); ROS compares those values to landed ROS values and shows **Pass**, **Fail**, or **No source proof**.
+Customers, catalog products, catalog variants/SKUs, inventory quantity rows, open docs, open-doc lines, gift-card balances, and loyalty current points have added proof rows. The bridge sends the Counterpoint source count (and source sum where balances/points apply); ROS compares those values to landed ROS values and shows **Pass**, **Fail**, or **No source proof**.
 
-Operational cutover visibility rows also call out unresolved ticket customer links, open-doc customer links, and unmatched inventory quantity rows. These rows are backed by **Open sync issues**, so staff can review the exact Counterpoint ticket/doc/SKU key before sign-off.
+Operational cutover visibility rows also call out unresolved ticket customer links, open-doc customer links, skipped open docs from unresolved item lines, skipped open docs from missing required data, and unmatched inventory quantity rows. These rows are backed by **Open sync issues**, so staff can review the exact Counterpoint ticket/doc/SKU key before sign-off.
 
 Weak or approximate domains are explicitly marked in the section:
 - **Gift cards** are approximate only until source count/sum proof has been received and the snapshot reconciliation row passes.

@@ -70,8 +70,9 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 - No unresolved sync issues remain unless they are explicitly documented and accepted for this rehearsal pass.
 - Every expected domain for the selected scope appears in Landing Verification.
 - Customer, catalog product, catalog variant/SKU, and inventory quantity reconciliation rows show passing source-vs-ROS counts.
+- Open-doc and open-doc line reconciliation rows show passing source-vs-ROS counts.
 - Gift-card current balances and loyalty current points show passing source-vs-ROS count/sum reconciliation in Landing Verification.
-- Customer-link and unmatched-inventory visibility rows show clear/zero unresolved rows.
+- Customer-link, skipped-open-doc, and unmatched-inventory visibility rows show clear/zero unresolved rows.
 - Weak or approximate domains, especially closed-ticket payments, have been reviewed and documented.
 - Transaction, open-doc, and inventory/catalog warnings are documented with either a fix plan or an accepted explanation.
 - Bridge counts, ROS landed counts, staging state, and verification snapshots are captured for the rehearsal record.
@@ -184,8 +185,9 @@ What it proves:
 - Direct-ingest and staging-applied batches have produced visible rows in the expected ROS tables.
 - Counts are available for customers, staff/map rows, vendors, categories, products, variants, vendor supplier items, gift cards, store credit openings, loyalty history, closed ticket transactions/lines/payments, open-doc transactions/lines, and receiving history.
 - Customer, catalog product, catalog variant/SKU, and inventory quantity rows show source-vs-ROS count reconciliation.
+- Open-doc transaction and line rows show source-vs-ROS count reconciliation.
 - Gift-card current balance and loyalty current point snapshot rows show **Pass**. These rows compare the Counterpoint source count/sum sent by the bridge to the landed ROS count/sum.
-- Unresolved customer links and unmatched inventory rows are summarized and backed by **Open sync issues** with the exact Counterpoint reference or SKU/key.
+- Unresolved customer links, skipped open docs, and unmatched inventory rows are summarized and backed by **Open sync issues** with the exact Counterpoint reference or SKU/key where available.
 
 What it does **not** prove:
 - It is not full financial reconciliation.
@@ -201,8 +203,8 @@ After each import pass:
 1. Capture the bridge row counts for the entities that ran.
 2. Confirm staging is applied or the **Inbound queue** is empty if staging was enabled.
 3. Review **Landing Verification** and confirm every expected domain has a plausible landed count.
-4. Confirm customer, catalog product, catalog variant/SKU, inventory quantity, gift-card, and loyalty snapshot reconciliation rows pass.
-5. Confirm customer-link and unmatched-inventory visibility rows are clear.
+4. Confirm customer, catalog product, catalog variant/SKU, inventory quantity, open-doc, open-doc line, gift-card, and loyalty snapshot reconciliation rows pass.
+5. Confirm customer-link, skipped-open-doc, and unmatched-inventory visibility rows are clear.
 6. Review **Open sync issues** and resolve or deliberately defer each remaining issue.
 7. Run **CSV inventory verification** for catalog, variant, quantity, cost, price, and vendor-link confidence.
 8. Record any approximate-domain caveats in the import sign-off notes.

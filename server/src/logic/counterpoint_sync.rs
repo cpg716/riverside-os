@@ -1268,6 +1268,8 @@ fn supported_snapshot_key(snapshot: &str) -> Option<&'static str> {
         "catalog_products" => Some("catalog_products"),
         "catalog_variants" => Some("catalog_variants"),
         "inventory_quantity_rows" => Some("inventory_quantity_rows"),
+        "open_docs" => Some("open_docs"),
+        "open_doc_lines" => Some("open_doc_lines"),
         "gift_cards" => Some("gift_cards"),
         "loyalty_points" => Some("loyalty_points"),
         _ => None,
@@ -1444,6 +1446,25 @@ async fn build_snapshot_reconciliation_rows(
     )
     .fetch_one(pool)
     .await?;
+    let (open_doc_count, _open_doc_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM transactions
+        WHERE counterpoint_doc_ref IS NOT NULL
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let (open_doc_line_count, _open_doc_line_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM transaction_lines tl
+        INNER JOIN transactions t ON t.id = tl.transaction_id
+        WHERE t.counterpoint_doc_ref IS NOT NULL
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
     let (gift_count, gift_sum): (i64, Decimal) = sqlx::query_as(
         "SELECT COUNT(*)::bigint, COALESCE(SUM(current_balance), 0)::numeric FROM gift_cards",
     )
@@ -1493,6 +1514,20 @@ async fn build_snapshot_reconciliation_rows(
             "Inventory quantity rows matched",
             inventory_metric,
             inventory_landed,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "open_docs",
+            "Open docs/unfulfilled obligations",
+            load_snapshot_source_metric(pool, "open_docs").await?,
+            open_doc_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "open_doc_lines",
+            "Open-doc lines",
+            load_snapshot_source_metric(pool, "open_doc_lines").await?,
+            open_doc_line_count,
             Decimal::ZERO,
         ),
         build_snapshot_reconciliation_row(
@@ -1569,6 +1604,17 @@ async fn build_cutover_visibility_rows(
         unresolved_sync_issue_count(pool, "tickets", Some("Customer unresolved")).await?;
     let open_doc_customer_links =
         unresolved_sync_issue_count(pool, "open_docs", Some("Customer unresolved")).await?;
+    let open_doc_unresolved_lines =
+        unresolved_sync_issue_count(pool, "open_docs", Some("Open doc skipped: unresolved line"))
+            .await?;
+    let open_doc_required_data = unresolved_sync_issue_count(
+        pool,
+        "open_docs",
+        Some("Open doc skipped: missing required"),
+    )
+    .await?
+        + unresolved_sync_issue_count(pool, "open_docs", Some("Open doc skipped: no line items"))
+            .await?;
     let inventory_rows = unresolved_sync_issue_count(pool, "inventory", None).await?;
 
     Ok(vec![
@@ -1585,6 +1631,20 @@ async fn build_cutover_visibility_rows(
             open_doc_customer_links,
             "No unresolved Counterpoint open-doc customer links are open.",
             "Counterpoint open docs imported with unresolved customer codes. Review Open sync issues.",
+        ),
+        cutover_visibility_row(
+            "open_doc_unresolved_lines",
+            "Open-doc unresolved lines",
+            open_doc_unresolved_lines,
+            "No Counterpoint open docs are blocked by unresolved item lines.",
+            "Counterpoint open docs were skipped because item lines could not match ROS variants. Review Open sync issues.",
+        ),
+        cutover_visibility_row(
+            "open_doc_required_data",
+            "Open-doc required data",
+            open_doc_required_data,
+            "No Counterpoint open docs are blocked by missing required data.",
+            "Counterpoint open docs were skipped because required fields or lines were missing. Review Open sync issues.",
         ),
         cutover_visibility_row(
             "inventory_unmatched_rows",
@@ -5578,6 +5638,14 @@ pub async fn execute_counterpoint_open_doc_batch(
     for doc in &payload.rows {
         let doc_ref = doc.doc_ref.trim();
         if doc_ref.is_empty() {
+            record_sync_issue(
+                pool,
+                "open_docs",
+                None,
+                "error",
+                "Open doc skipped: missing required doc_ref",
+            )
+            .await;
             summary.skipped += 1;
             continue;
         }
@@ -7888,6 +7956,284 @@ mod tests {
             .execute(&pool)
             .await
             .expect("cleanup product");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_open_doc_source_doc_and_line_counts_reconcile() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let sku = format!("CP-OPEN-RECON-SKU-{suffix}");
+        let cp_key = format!("CP-OPEN-RECON-ITEM-{suffix}");
+        let doc_ref = format!("CP-OPEN-RECON-{suffix}");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, $4, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!(
+            "Counterpoint Open Doc Reconciliation Fixture {suffix}"
+        ))
+        .bind(Decimal::new(4000, 2))
+        .bind(Decimal::new(1000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert product fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, '{}'::jsonb, 1, $4)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .bind(&cp_key)
+        .execute(&pool)
+        .await
+        .expect("insert variant fixture");
+
+        execute_counterpoint_open_doc_batch(
+            &pool,
+            CounterpointOpenDocsPayload {
+                rows: vec![CounterpointOpenDocRow {
+                    doc_ref: doc_ref.clone(),
+                    cust_no: None,
+                    booked_at: Some(Utc::now().to_rfc3339()),
+                    total_price: Decimal::new(8000, 2),
+                    amount_paid: Decimal::ZERO,
+                    usr_id: None,
+                    sls_rep: None,
+                    cp_status: None,
+                    doc_typ: Some("O".into()),
+                    lines: vec![
+                        TicketLineRow {
+                            sku: Some(sku.clone()),
+                            counterpoint_item_key: Some(cp_key.clone()),
+                            lin_seq_no: Some(1),
+                            quantity: 1,
+                            unit_price: Decimal::new(4000, 2),
+                            unit_cost: Some(Decimal::new(1000, 2)),
+                            description: Some("Open doc reconciliation item 1".into()),
+                            reason_code: None,
+                        },
+                        TicketLineRow {
+                            sku: Some(sku.clone()),
+                            counterpoint_item_key: Some(cp_key.clone()),
+                            lin_seq_no: Some(2),
+                            quantity: 1,
+                            unit_price: Decimal::new(4000, 2),
+                            unit_cost: Some(Decimal::new(1000, 2)),
+                            description: Some("Open doc reconciliation item 2".into()),
+                            reason_code: None,
+                        },
+                    ],
+                    payments: vec![],
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("import open doc");
+
+        let landed_docs: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM transactions WHERE counterpoint_doc_ref IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load landed open doc count");
+        let landed_lines: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM transaction_lines tl
+            INNER JOIN transactions t ON t.id = tl.transaction_id
+            WHERE t.counterpoint_doc_ref IS NOT NULL
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("load landed open doc line count");
+
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "open_docs".into(),
+                source_count: landed_docs,
+                source_sum: Decimal::ZERO,
+            },
+        )
+        .await
+        .expect("record source open doc count");
+        record_counterpoint_snapshot_source_metrics(
+            &pool,
+            CounterpointSnapshotSourceMetricsPayload {
+                snapshot: "open_doc_lines".into(),
+                source_count: landed_lines,
+                source_sum: Decimal::ZERO,
+            },
+        )
+        .await
+        .expect("record source open doc line count");
+
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let doc_row = snapshot_reconciliation_row(&summary, "open_docs");
+        let line_row = snapshot_reconciliation_row(&summary, "open_doc_lines");
+        let doc_passed = doc_row.passed;
+        let doc_difference = doc_row.count_difference;
+        let line_passed = line_row.passed;
+        let line_difference = line_row.count_difference;
+
+        let payment_ids: Vec<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT pa.transaction_id
+            FROM payment_allocations pa
+            INNER JOIN transactions t ON t.id = pa.target_transaction_id
+            WHERE t.counterpoint_doc_ref = $1
+            "#,
+        )
+        .bind(&doc_ref)
+        .fetch_all(&pool)
+        .await
+        .expect("load payment ids for cleanup");
+        let transaction_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM transactions WHERE counterpoint_doc_ref = $1")
+                .bind(&doc_ref)
+                .fetch_all(&pool)
+                .await
+                .expect("load transaction ids for cleanup");
+        sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup payment allocations");
+        sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup transaction lines");
+        sqlx::query("DELETE FROM transactions WHERE id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup transactions");
+        sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
+            .bind(&payment_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup payment transactions");
+        sqlx::query("DELETE FROM product_variants WHERE id = $1")
+            .bind(variant_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup variant");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup product");
+        restore_counterpoint_config(&pool, original_config).await;
+
+        assert!(doc_passed);
+        assert_eq!(doc_difference, Some(0));
+        assert!(line_passed);
+        assert_eq!(line_difference, Some(0));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_open_doc_unresolved_lines_are_visible_and_deduped() {
+        let pool = connect_test_db().await;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let doc_ref = format!("CP-OPEN-LINE-MISS-{suffix}");
+        let missing_sku = format!("CP-OPEN-MISSING-SKU-{suffix}");
+        let missing_key = format!("CP-OPEN-MISSING-ITEM-{suffix}");
+        let payload = || CounterpointOpenDocsPayload {
+            rows: vec![CounterpointOpenDocRow {
+                doc_ref: doc_ref.clone(),
+                cust_no: None,
+                booked_at: Some(Utc::now().to_rfc3339()),
+                total_price: Decimal::new(4000, 2),
+                amount_paid: Decimal::ZERO,
+                usr_id: None,
+                sls_rep: None,
+                cp_status: None,
+                doc_typ: Some("O".into()),
+                lines: vec![TicketLineRow {
+                    sku: Some(missing_sku.clone()),
+                    counterpoint_item_key: Some(missing_key.clone()),
+                    lin_seq_no: Some(1),
+                    quantity: 1,
+                    unit_price: Decimal::new(4000, 2),
+                    unit_cost: Some(Decimal::new(1000, 2)),
+                    description: Some("Unresolved line test".into()),
+                    reason_code: None,
+                }],
+                payments: vec![],
+            }],
+            sync: None,
+        };
+
+        let first = execute_counterpoint_open_doc_batch(&pool, payload())
+            .await
+            .expect("first unresolved open doc import");
+        let second = execute_counterpoint_open_doc_batch(&pool, payload())
+            .await
+            .expect("rerun unresolved open doc import");
+
+        let issue_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_sync_issue
+            WHERE entity = 'open_docs'
+              AND external_key = $1
+              AND NOT resolved
+              AND message LIKE 'Open doc skipped: unresolved line%'
+            "#,
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("count unresolved line issues");
+        let transaction_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM transactions WHERE counterpoint_doc_ref = $1)",
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("check no skipped open doc transaction");
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+        let visibility = cutover_visibility_row(&summary, "open_doc_unresolved_lines");
+        let visibility_passed = visibility.passed;
+        let visibility_count = visibility.count;
+
+        sqlx::query(
+            "DELETE FROM counterpoint_sync_issue WHERE entity = 'open_docs' AND external_key = $1",
+        )
+        .bind(&doc_ref)
+        .execute(&pool)
+        .await
+        .expect("cleanup open doc issue");
+
+        assert_eq!(first.transactions_created, 0);
+        assert_eq!(first.skipped, 1);
+        assert_eq!(second.transactions_created, 0);
+        assert_eq!(second.skipped, 1);
+        assert_eq!(issue_count, 1);
+        assert!(!transaction_exists);
+        assert!(!visibility_passed);
+        assert!(visibility_count >= 1);
     }
 
     #[tokio::test]

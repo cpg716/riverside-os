@@ -2382,6 +2382,7 @@ async function syncOpenDocs(pool) {
     .filter((r) => r.doc_ref);
 
   const recordCount = mapped.length;
+  const sourceLineCount = mapped.reduce((sum, doc) => sum + (doc.lines?.length ?? 0), 0);
   logToDashboard(`[open_docs] SQL returned ${recordCount} doc(s)`);
   console.info("[open_docs] Sending items (parallel-concurrency=5)...");
   const state = readState();
@@ -2424,6 +2425,8 @@ async function syncOpenDocs(pool) {
     state.open_docs_cursor = lastSuccessfulCursor;
     writeState(state);
   }
+  await postSnapshotReconciliation("open_docs", recordCount);
+  await postSnapshotReconciliation("open_doc_lines", sourceLineCount);
   return postedRows;
 }
 
