@@ -6,7 +6,7 @@
 
 ## What RMS Charge is
 
-RMS Charge is Riverside's financing workflow for customers whose RMS account is managed through CoreCredit/CoreCard.
+RMS Charge is Riverside's manual-first financing workflow. Staff use it to record RMS Charge sales, RMS Charge payments, accounts, programs, reference numbers, and follow-up reporting to R2S.
 
 In day-to-day use, Riverside staff see one financing tender:
 
@@ -24,19 +24,30 @@ This is when the customer uses RMS Charge to pay for a new sale.
 
 This is when the customer is making a payment toward an RMS balance that already exists.
 
-## What CoreCard does
+## Report to R2S
 
-CoreCard is the outside host that Riverside talks to on the server side.
+Every RMS Charge Sale and RMS Charge Payment created through POS must be reported to R2S by the next day.
 
-In simple terms, CoreCard is where Riverside confirms:
+Customer → `RMS Charge` tracks this directly on each RMS Charge record:
 
-- which RMS account belongs to the customer
-- which programs are available
-- whether a purchase or payment post succeeds
-- which host reference belongs to that transaction
-- whether later refunds, reversals, and status updates are valid
+- `Unreported`
+  The record still needs R2S follow-up.
+- `Overdue`
+  The next-day reporting deadline has passed.
+- `Reported`
+  Staff recorded that the R2S follow-up was completed.
 
-Staff do not log in to CoreCard from the browser. Riverside handles that server-side.
+Marking a record `Reported` only clears the reporting follow-up. It does not change transaction amounts, post to a live API, or imply automatic accounting/bank reconciliation.
+
+Use `Reference Number` for the R2S approval, authorization, merchant, or support reference. Do not enter PAN, CVV, card tokens, or full account numbers.
+
+Permission required to mark reported: `rms_charge.report_to_r2s` or RMS Charge reporting access.
+
+## Optional live integration readiness
+
+Settings → `CoreCard` can still validate optional future live integration. That validation is not required for the manual RMS Charge workflow.
+
+Before enabling any future live API posting, Settings → `CoreCard` should show saved credentials, runtime configuration loaded, no restart-required warning, Merchant Number `12115`, Merchant ID `11324`, unsigned webhooks disabled, and **Run Probe** should return `Live CoreCard read confirmed`. The Payments workspace is Helcim-focused and should not be used as proof of RMS Charge status.
 
 ## What you can do in the RMS Charge workspace
 
@@ -44,7 +55,7 @@ Back Office RMS Charge is organized into:
 
 - `Overview`
 - `Accounts`
-- `Transactions`
+- `Transactions` / `Report to R2S`
 - `Programs`
 - `Exceptions`
 - `Reconciliation`
@@ -66,27 +77,28 @@ Use the main `Customers` workspace and the `Customer Relationship Hub` when staf
 - shipments
 - non-RMS order review
 
-Use `RMS Charge` when the issue is specifically about financing accounts, RMS posting status, exceptions, or reconciliation.
+Use `RMS Charge` when the issue is specifically about financing accounts, R2S reporting status, reference numbers, exceptions, or reconciliation.
 
 ## Key terms
 
 - `program`
   The financing option chosen after `RMS Charge` is selected, such as `Standard` or `RMS 90`.
-- `posting status`
-  Whether Riverside successfully posted the action to CoreCard.
-- `host reference`
-  The external CoreCard-side reference Riverside stores for the posted action.
+- `Reference Number`
+  The approval, authorization, merchant, or support reference staff use for RMS Charge follow-up.
+- `Report to R2S`
+  The next-day reporting checklist for RMS Charge Sales and RMS Charge Payments.
 - `exception`
   A failed, stale, or mismatched RMS item that needs follow-up.
 - `reconciliation`
-  A comparison of Riverside RMS records, CoreCard state, and expected QBO-clearing behavior.
+  A comparison of Riverside RMS records, available RMS update state, and expected QBO-clearing behavior.
 
 ## What staff should remember
 
 - Always use the active Riverside customer as the source of truth.
 - Do not rely on name-only matching.
-- Do not promise RMS success until the system confirms the host post succeeded.
-- Do not treat a failed host post as a completed sale or completed payment collection.
+- Report every POS-created RMS Charge Sale and RMS Charge Payment to R2S by the next day.
+- Mark the RMS Charge record `Reported` after the R2S follow-up is complete.
+- Do not treat `Reported` as automatic live posting, bank reconciliation, or QBO posting.
 
 ## Related guides
 

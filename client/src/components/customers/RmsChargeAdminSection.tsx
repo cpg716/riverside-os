@@ -7,8 +7,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
-import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
-import { Link2, RefreshCw, ShieldCheck, Unlink, X as CloseIcon } from "lucide-react";
+import { ClipboardCheck, Link2, RefreshCw, ShieldCheck, Unlink, X as CloseIcon } from "lucide-react";
 
 const baseUrl = getBaseUrl();
 const PAGE = 100;
@@ -25,6 +24,51 @@ function fmtDate(value?: string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleString();
 }
+
+function fmtDateOnly(value?: string | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString();
+}
+
+function sourceLabel(source?: string | null) {
+  if (source === "corecard_live") return "Live RMS read";
+  if (source === "manual" || source === "local_fallback") return "Manual RMS Charge";
+  if (source === "unavailable") return "Unavailable";
+  return source || "Manual RMS Charge";
+}
+
+function manualWorkflowCopy(warningCode?: string | null) {
+  switch (warningCode) {
+    case "corecard_config_missing":
+      return "Manual RMS Charge account details are ready for staff review.";
+    case "corecard_live_empty_response":
+      return "Manual RMS Charge account details are ready for staff review.";
+    case "corecard_live_request_failed":
+      return "Manual RMS Charge account details are ready for staff review.";
+    case "program_catalog_from_riverside_history":
+      return "Program options are managed in Riverside for manual RMS Charge work.";
+    default:
+      return "Manual RMS Charge account details are ready for staff review.";
+  }
+}
+
+function reportStatusLabel(
+  row?: Pick<RmsRecordRow, "r2s_reporting_required" | "r2s_report_status" | "r2s_report_due_at"> | null,
+) {
+  if (!row) return "—";
+  if (!row.r2s_reporting_required || row.r2s_report_status === "not_required") return "Not required";
+  if (row.r2s_report_status === "reported") return "Reported";
+  if (new Date(row.r2s_report_due_at).getTime() < Date.now()) return "Overdue";
+  return "Unreported";
+}
+
+type CoreCardSourceFields = {
+  source?: string | null;
+  fallback_used?: boolean;
+  warning_code?: string | null;
+  credential_source?: string | null;
+  last_corecard_request_at?: string | null;
+};
 
 type RmsLinkedAccount = {
   id: string;
@@ -68,6 +112,14 @@ type RmsRecordRow = {
   posting_error_code?: string | null;
   host_reference?: string | null;
   external_transaction_id?: string | null;
+  source_mode?: string | null;
+  r2s_reporting_required: boolean;
+  r2s_report_status: "unreported" | "reported" | string;
+  r2s_report_due_at: string;
+  r2s_reported_at?: string | null;
+  r2s_reported_by_staff_id?: string | null;
+  r2s_reported_by_name?: string | null;
+  r2s_report_note?: string | null;
   customer_name: string | null;
   customer_code: string | null;
   operator_name: string | null;
@@ -87,7 +139,7 @@ type RmsRecordDetail = RmsRecordRow & {
   response_snapshot_json?: Record<string, unknown> | null;
 };
 
-type PosAccountSummary = {
+type PosAccountSummary = CoreCardSourceFields & {
   corecredit_customer_id: string;
   corecredit_account_id: string;
   masked_account: string;
@@ -95,7 +147,6 @@ type PosAccountSummary = {
   available_credit?: string | null;
   current_balance?: string | null;
   resolution_status?: string | null;
-  source: string;
   recent_history?: Array<{
     created_at: string;
     record_kind: string;
@@ -107,7 +158,7 @@ type PosAccountSummary = {
   }>;
 };
 
-type PosProgramOption = {
+type PosProgramOption = CoreCardSourceFields & {
   program_code: string;
   program_label: string;
   eligible: boolean;
@@ -123,6 +174,10 @@ type AccountTransactionRow = {
   masked_account?: string | null;
   order_short_ref?: string | null;
   external_reference?: string | null;
+};
+
+type AccountTransactionsResponse = CoreCardSourceFields & {
+  rows?: AccountTransactionRow[];
 };
 
 type RmsOverviewResponse = {
@@ -251,6 +306,10 @@ export default function RmsChargeAdminSection({
     canManageLinks;
   const canReporting =
     hasPermission("customers.rms_charge.reporting") || canLegacyView;
+  const canReportToR2s =
+    hasPermission("rms_charge.report_to_r2s") ||
+    hasPermission("customers.rms_charge.reporting") ||
+    hasPermission("customers.rms_charge");
 
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [selectedCustomerLabel, setSelectedCustomerLabel] = useState("");
@@ -269,6 +328,7 @@ export default function RmsChargeAdminSection({
   const [exceptions, setExceptions] = useState<RmsExceptionRow[]>([]);
   const [reconciliation, setReconciliation] = useState<RmsReconciliationResponse | null>(null);
   const [resolvingException, setResolvingException] = useState<RmsExceptionRow | null>(null);
+  const [reportingRecord, setReportingRecord] = useState<RmsRecordDetail | null>(null);
   const [confirmUnlinkAccount, setConfirmUnlinkAccount] = useState<RmsLinkedAccount | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [loadingExceptions, setLoadingExceptions] = useState(false);
@@ -288,6 +348,7 @@ export default function RmsChargeAdminSection({
   });
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [kind, setKind] = useState<"" | "charge" | "payment">("");
+  const [reportStatus, setReportStatus] = useState<"all" | "unreported" | "reported" | "overdue">("all");
   const [q, setQ] = useState("");
   const [linkForm, setLinkForm] = useState({
     corecredit_customer_id: "",
@@ -302,6 +363,13 @@ export default function RmsChargeAdminSection({
     () => accounts.find((account) => account.corecredit_account_id === activeAccountId) ?? null,
     [accounts, activeAccountId],
   );
+  const liveReadConfirmed =
+    accountSummary?.source === "corecard_live" ||
+    programs.some((program) => program.source === "corecard_live");
+  const manualInfoCodes = [
+    accountSummary?.source !== "corecard_live" ? accountSummary?.warning_code : null,
+    ...programs.map((program) => (program.source !== "corecard_live" ? program.warning_code : null)),
+  ].filter((value): value is string => Boolean(value));
   const reconciliationScopeMessage = useMemo(() => {
     if (selectedCustomerId) {
       return "Reconciliation reviews all RMS Charge activity across customers. Customer lookup does not filter mismatch results on this tab.";
@@ -379,9 +447,7 @@ export default function RmsChargeAdminSection({
       }
       const programsBody = (await programsRes.json()) as PosProgramOption[];
       const summaryBody = (await summaryRes.json()) as PosAccountSummary;
-      const transactionsBody = (await transactionsRes.json()) as {
-        rows?: AccountTransactionRow[];
-      };
+      const transactionsBody = (await transactionsRes.json()) as AccountTransactionsResponse;
       setPrograms(Array.isArray(programsBody) ? programsBody : []);
       setAccountSummary(summaryBody as PosAccountSummary);
       setAccountTransactions(Array.isArray(transactionsBody?.rows) ? transactionsBody.rows : []);
@@ -401,6 +467,7 @@ export default function RmsChargeAdminSection({
       params.set("from", from);
       params.set("to", to);
       if (kind) params.set("kind", kind);
+      if (reportStatus !== "all") params.set("r2s_report_status", reportStatus);
       if (selectedCustomerId) params.set("customer_id", selectedCustomerId);
       if (q.trim()) params.set("q", q.trim());
       params.set("limit", String(PAGE));
@@ -424,7 +491,7 @@ export default function RmsChargeAdminSection({
     } finally {
       setLoadingRecords(false);
     }
-  }, [apiAuth, canLegacyView, from, kind, q, selectedCustomerId, surface, to, toast]);
+  }, [apiAuth, canLegacyView, from, kind, q, reportStatus, selectedCustomerId, surface, to, toast]);
 
   useEffect(() => {
     void loadAccounts();
@@ -438,7 +505,7 @@ export default function RmsChargeAdminSection({
     if (surface === "pos" || !canLegacyView) return;
     setOffset(0);
     void fetchRecords(0, false);
-  }, [canLegacyView, fetchRecords, from, kind, q, selectedCustomerId, surface, to]);
+  }, [canLegacyView, fetchRecords, from, kind, q, reportStatus, selectedCustomerId, surface, to]);
 
   const loadRecordDetail = useCallback(async (recordId: string) => {
     if (!recordId || surface === "pos") return;
@@ -460,6 +527,39 @@ export default function RmsChargeAdminSection({
       setLoadingRecordDetail(false);
     }
   }, [apiAuth, surface, toast]);
+
+  const submitR2sReportNote = useCallback(async (note: string) => {
+    if (!reportingRecord) return false;
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/rms-charge/records/${encodeURIComponent(reportingRecord.id)}/r2s-report`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...apiAuth(),
+          },
+          body: JSON.stringify({ note: note.trim() || undefined }),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as RmsRecordDetail & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "We couldn't mark this RMS Charge record reported.");
+      setRecordDetail(body);
+      setRecords((current) =>
+        current.map((row) => (row.id === body.id ? { ...row, ...body } : row)),
+      );
+      setReportingRecord(null);
+      toast("RMS Charge marked reported to R2S.", "success");
+      await fetchRecords(0, false);
+      return true;
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : "We couldn't mark this RMS Charge record reported.",
+        "error",
+      );
+      return false;
+    }
+  }, [apiAuth, fetchRecords, reportingRecord, toast]);
 
   const loadOperationalData = useCallback(async () => {
     if (surface === "pos") return;
@@ -571,21 +671,6 @@ export default function RmsChargeAdminSection({
     surface,
     toast,
   ]);
-
-  const retryException = useCallback(async (exceptionId: string) => {
-    try {
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/exceptions/${encodeURIComponent(exceptionId)}/retry`, {
-        method: "POST",
-        headers: apiAuth(),
-      });
-      const body = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
-      if (!res.ok) throw new Error(body.error ?? "We couldn't try this issue again.");
-      toast("The issue was sent for another try.", "success");
-      await Promise.all([loadOperationalData(), loadAccounts()]);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "We couldn't try this issue again.", "error");
-    }
-  }, [apiAuth, loadAccounts, loadOperationalData, toast]);
 
   const assignExceptionToCurrentStaff = useCallback(async (exception: RmsExceptionRow) => {
     if (!staffId) {
@@ -758,14 +843,6 @@ export default function RmsChargeAdminSection({
   return (
     <div className="ui-page flex min-h-0 flex-1 flex-col p-6">
       <div className="mb-4 shrink-0">
-        <div className="mb-3 flex items-center">
-          <IntegrationBrandLogo
-            brand="corecredit"
-            kind="wordmark"
-            className="inline-flex rounded-2xl border border-app-border bg-white px-4 py-2 shadow-sm"
-            imageClassName="h-8 w-auto object-contain"
-          />
-        </div>
         <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
           {surface === "pos" ? "Register" : "Customers"}
         </p>
@@ -774,8 +851,8 @@ export default function RmsChargeAdminSection({
         </h2>
         <p className="mt-1 max-w-3xl text-sm text-app-text-muted">
           {surface === "pos"
-            ? "Use this view to check the customer's RMS account, recent activity, and available plans."
-            : "Use this all-customer workspace for RMS Charge account lookup, transactions, issues, and reconciliation."}
+            ? "Use this view to check the customer's RMS account, recent activity, and available programs."
+            : "Use this all-customer workspace for RMS Charge accounts, reporting to R2S, transaction history, and reconciliation."}
         </p>
       </div>
 
@@ -889,7 +966,7 @@ export default function RmsChargeAdminSection({
             ) : accounts.length === 0 ? (
               <div className="rounded-xl border border-dashed border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
                 {selectedCustomerId
-                  ? "No linked CoreCredit/CoreCard accounts for this customer yet."
+                  ? "No linked RMS Charge accounts for this customer yet."
                   : "Search a customer to review linked RMS Charge accounts."}
               </div>
             ) : (
@@ -946,7 +1023,7 @@ export default function RmsChargeAdminSection({
                   <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
                     <div className="rounded-lg bg-app-surface px-3 py-2">
                       <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        CoreCredit Customer
+                        RMS Customer ID
                       </div>
                       <div className="mt-1 font-mono text-app-text">
                         {account.corecredit_customer_id}
@@ -979,13 +1056,47 @@ export default function RmsChargeAdminSection({
                 : activeWorkspaceTab === "accounts"
                   ? "Accounts & Verification"
                   : activeWorkspaceTab === "transactions"
-                    ? "Posting Transactions"
+                    ? "RMS Charge Reporting"
                     : activeWorkspaceTab === "programs"
                       ? "Program Visibility"
                       : activeWorkspaceTab === "exceptions"
                         ? "Exception Queue"
                         : "Reconciliation & QBO Support"}
           </h3>
+
+          {activeAccount ? (
+            <div
+              className={`mt-4 rounded-xl border p-3 text-xs font-semibold leading-5 ${
+                liveReadConfirmed
+                  ? "border-emerald-300/50 bg-emerald-500/10 text-emerald-800"
+                  : "border-app-border bg-app-bg text-app-text-muted"
+              }`}
+            >
+              <div className="flex items-start gap-2">
+                {liveReadConfirmed ? (
+                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <Link2 className="mt-0.5 h-3.5 w-3.5" aria-hidden />
+                )}
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-widest">
+                    RMS Charge Workflow
+                  </div>
+                  <div className="mt-1">
+                    Account: {activeAccount.masked_account} · Workflow: {sourceLabel(accountSummary?.source)}
+                  </div>
+                  <div>
+                    Program: {programs.length ? `${programs.length} available` : "Manual review"}
+                  </div>
+                  {liveReadConfirmed ? (
+                    <div className="mt-1">RMS account read confirmed for this account.</div>
+                  ) : (
+                    <div className="mt-1">{manualWorkflowCopy(manualInfoCodes[0])}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {surface === "backoffice" && activeWorkspaceTab === "accounts" && canManageLinks ? (
             <div className="mt-4 space-y-3">
@@ -1002,7 +1113,7 @@ export default function RmsChargeAdminSection({
                       corecredit_customer_id: event.target.value,
                     }))
                   }
-                  placeholder="CoreCredit customer id"
+                  placeholder="RMS customer id"
                   className="ui-input py-2 text-sm"
                 />
                 <input
@@ -1014,7 +1125,7 @@ export default function RmsChargeAdminSection({
                       corecredit_account_id: event.target.value,
                     }))
                   }
-                  placeholder="CoreCredit account id"
+                  placeholder="RMS account id"
                   className="ui-input py-2 text-sm"
                 />
               </div>
@@ -1093,7 +1204,7 @@ export default function RmsChargeAdminSection({
               {[
                 ["Charges", `${overview?.totals?.charge_count ?? 0} · ${fmtMoney(overview?.totals?.charge_amount)}`],
                 ["Payments", `${overview?.totals?.payment_count ?? 0} · ${fmtMoney(overview?.totals?.payment_amount)}`],
-                ["Failed host actions", String(overview?.totals?.failed_count ?? 0)],
+                ["Needs review", String(overview?.totals?.failed_count ?? 0)],
                 ["Pending exceptions", String(overview?.sync_health?.active_exception_count ?? 0)],
                 ["Updates waiting", String(overview?.sync_health?.pending_webhook_count ?? 0)],
                 ["Last automatic refresh", fmtDate(overview?.sync_health?.last_repair_poll_at)],
@@ -1131,22 +1242,29 @@ export default function RmsChargeAdminSection({
             <div className="mt-4 space-y-3">
               {programs.length === 0 ? (
                 <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                  Select an account to review available RMS Charge plans. Program totals still appear in Overview.
+                  Select an account to review available RMS Charge programs. Program totals still appear in Overview.
                 </div>
               ) : (
                 programs.map((program) => (
                   <div key={program.program_code} className="rounded-xl border border-app-border bg-app-bg p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-black uppercase tracking-wide text-app-text">{program.program_label}</div>
-                        <div className="text-[11px] text-app-text-muted">{program.program_code}</div>
-                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-black uppercase tracking-wide text-app-text">{program.program_label}</div>
+                          <div className="text-[11px] text-app-text-muted">
+                            {program.program_code} · {sourceLabel(program.source)}
+                          </div>
+                        </div>
                       <div className={`text-[10px] font-black uppercase tracking-widest ${program.eligible ? "text-emerald-700" : "text-rose-700"}`}>
                         {program.eligible ? "Eligible" : "Blocked"}
                       </div>
+                      </div>
+                      {program.source !== "corecard_live" ? (
+                        <div className="mt-2 text-xs text-app-text-muted">
+                          {manualWorkflowCopy(program.warning_code)}
+                        </div>
+                      ) : null}
+                      {program.disclosure ? <div className="mt-2 text-xs text-app-text-muted">{program.disclosure}</div> : null}
                     </div>
-                    {program.disclosure ? <div className="mt-2 text-xs text-app-text-muted">{program.disclosure}</div> : null}
-                  </div>
                 ))
               )}
             </div>
@@ -1212,9 +1330,6 @@ export default function RmsChargeAdminSection({
                             {assigningExceptionId === exception.id ? "Claiming…" : "Assign to Me"}
                           </button>
                         ) : null}
-                        <button type="button" data-testid={`rms-exception-retry-${exception.id}`} onClick={() => void retryException(exception.id)} className="ui-btn-secondary px-3 py-2 text-[10px]">
-                          Retry
-                        </button>
                         <button type="button" data-testid={`rms-exception-resolve-${exception.id}`} onClick={() => void resolveException(exception.id)} className="ui-btn-secondary px-3 py-2 text-[10px]">
                           Resolve
                         </button>
@@ -1319,6 +1434,14 @@ export default function RmsChargeAdminSection({
                     <div className="mt-1 text-sm text-app-text-muted">
                       Current balance: {fmtMoney(accountSummary?.current_balance)}
                     </div>
+                    <div className="mt-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
+                      Workflow: {sourceLabel(accountSummary?.source)}
+                    </div>
+                    {accountSummary?.source !== "corecard_live" ? (
+                      <div className="mt-2 text-xs text-app-text-muted">
+                        {manualWorkflowCopy(accountSummary?.warning_code)}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="rounded-xl border border-app-border bg-app-bg p-4">
                     <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1336,13 +1459,23 @@ export default function RmsChargeAdminSection({
                             className="rounded-lg border border-app-border px-3 py-2"
                           >
                             <div className="flex items-center justify-between">
-                              <span className="font-black uppercase tracking-wide text-app-text">
-                                {program.program_label}
+                              <span>
+                                <span className="block font-black uppercase tracking-wide text-app-text">
+                                  {program.program_label}
+                                </span>
+                                <span className="text-[11px] text-app-text-muted">
+                                  {sourceLabel(program.source)}
+                                </span>
                               </span>
                               <span className={`text-[10px] font-black uppercase tracking-widest ${program.eligible ? "text-emerald-700" : "text-rose-700"}`}>
                                 {program.eligible ? "Eligible" : "Blocked"}
                               </span>
                             </div>
+                            {program.source !== "corecard_live" ? (
+                              <div className="mt-2 text-xs text-app-text-muted">
+                                {manualWorkflowCopy(program.warning_code)}
+                              </div>
+                            ) : null}
                             {program.disclosure ? (
                               <div className="mt-1 text-xs text-app-text-muted">
                                 {program.disclosure}
@@ -1606,6 +1739,21 @@ export default function RmsChargeAdminSection({
                 <option value="payment">Payment</option>
               </select>
             </label>
+            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Report to R2S
+              <select
+                value={reportStatus}
+                onChange={(event) =>
+                  setReportStatus(event.target.value as "all" | "unreported" | "reported" | "overdue")
+                }
+                className="ui-input py-2 text-xs font-semibold normal-case"
+              >
+                <option value="all">All</option>
+                <option value="unreported">Unreported</option>
+                <option value="reported">Reported</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </label>
             <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               Search
               <input
@@ -1618,12 +1766,13 @@ export default function RmsChargeAdminSection({
           </div>
 
           <div className="no-scrollbar min-h-0 flex-1 overflow-auto">
-            <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[1220px] border-collapse text-left text-sm">
               <thead className="sticky top-0 z-[1] bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 <tr>
                   <th className="px-4 py-3">When</th>
                   <th className="px-4 py-3">Kind</th>
-                  <th className="px-4 py-3">Posting</th>
+                  <th className="px-4 py-3">Record</th>
+                  <th className="px-4 py-3">Report to R2S</th>
                   <th className="px-4 py-3 text-right">Amount</th>
                   <th className="px-4 py-3">Tender</th>
                   <th className="px-4 py-3">Program</th>
@@ -1635,7 +1784,7 @@ export default function RmsChargeAdminSection({
               <tbody>
                 {records.length === 0 && !loadingRecords ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-app-text-muted">
+                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-app-text-muted">
                       No RMS Charge activity in this date range.
                     </td>
                   </tr>
@@ -1674,6 +1823,26 @@ export default function RmsChargeAdminSection({
                         {row.host_reference ? (
                           <span className="font-mono text-[11px] text-app-text-muted">
                             {row.host_reference}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+                          reportStatusLabel(row) === "Reported"
+                            ? "bg-emerald-500/15 text-emerald-800"
+                            : reportStatusLabel(row) === "Overdue"
+                              ? "bg-rose-500/15 text-rose-800"
+                              : reportStatusLabel(row) === "Not required"
+                                ? "bg-slate-500/10 text-app-text-muted"
+                                : "bg-amber-500/15 text-amber-900"
+                        }`}>
+                          {reportStatusLabel(row)}
+                        </span>
+                        {row.r2s_reporting_required ? (
+                          <span className="text-[11px] text-app-text-muted">
+                            Due {fmtDateOnly(row.r2s_report_due_at)}
                           </span>
                         ) : null}
                       </div>
@@ -1757,11 +1926,33 @@ export default function RmsChargeAdminSection({
                       <span className="font-black uppercase tracking-wide text-app-text">{recordDetail.posting_status}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">Host reference</span>
+                      <span className="text-app-text-muted">Report to R2S</span>
+                      <span className="font-black uppercase tracking-wide text-app-text">{reportStatusLabel(recordDetail)}</span>
+                    </div>
+                    {recordDetail.r2s_reporting_required ? (
+                      <div className="flex items-center justify-between">
+                        <span className="text-app-text-muted">Due date</span>
+                        <span className="text-app-text">{fmtDateOnly(recordDetail.r2s_report_due_at)}</span>
+                      </div>
+                    ) : null}
+                    {recordDetail.r2s_reported_at ? (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <span className="text-app-text-muted">Reported at</span>
+                          <span className="text-app-text">{fmtDate(recordDetail.r2s_reported_at)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-app-text-muted">Reported by</span>
+                          <span className="text-app-text">{recordDetail.r2s_reported_by_name || "Recorded staff member"}</span>
+                        </div>
+                      </>
+                    ) : null}
+                    <div className="flex items-center justify-between">
+                      <span className="text-app-text-muted">Reference Number</span>
                       <span className="font-mono text-app-text">{recordDetail.host_reference || "—"}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">Host transaction</span>
+                      <span className="text-app-text-muted">RMS posting id</span>
                       <span className="font-mono text-app-text">{recordDetail.external_transaction_id || "—"}</span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1776,6 +1967,21 @@ export default function RmsChargeAdminSection({
                       <span className="text-app-text-muted">Completed at</span>
                       <span className="text-app-text">{fmtDate(recordDetail.posted_at)}</span>
                     </div>
+                    {recordDetail.r2s_report_note ? (
+                      <div className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text">
+                        {recordDetail.r2s_report_note}
+                      </div>
+                    ) : null}
+                    {canReportToR2s && recordDetail.r2s_reporting_required && recordDetail.r2s_report_status !== "reported" ? (
+                      <button
+                        type="button"
+                        onClick={() => setReportingRecord(recordDetail)}
+                        className="ui-btn-primary mt-2 inline-flex items-center gap-2 px-3 py-2 text-xs"
+                      >
+                        <ClipboardCheck size={14} />
+                        Mark Reported
+                      </button>
+                    ) : null}
                     {recordDetail.posting_error_message ? (
                       <div className="rounded-lg border border-rose-300/40 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-700">
                         {recordDetail.posting_error_message}
@@ -1795,7 +2001,7 @@ export default function RmsChargeAdminSection({
                 <div className="mt-3 space-y-2">
                   {accountTransactions.length === 0 ? (
                     <div className="text-sm text-app-text-muted">
-                      Select an account to view recent host/account activity.
+                      Select an account to view recent RMS Charge activity.
                     </div>
                   ) : (
                     accountTransactions.slice(0, 6).map((row) => (
@@ -1823,6 +2029,20 @@ export default function RmsChargeAdminSection({
         </div>)
       )}
       <PromptModal
+        isOpen={Boolean(reportingRecord)}
+        onClose={() => setReportingRecord(null)}
+        onSubmit={(value) => submitR2sReportNote(value)}
+        title="Mark Reported to R2S"
+        message={
+          reportingRecord
+            ? `Record that this ${reportingRecord.record_kind === "payment" ? "RMS Charge Payment" : "RMS Charge Sale"} was reported to R2S. This updates reporting follow-up only; it does not change the transaction amount.`
+            : ""
+        }
+        placeholder="Optional note or R2S reference"
+        defaultValue={reportingRecord?.r2s_report_note ?? ""}
+        confirmLabel="Mark Reported"
+      />
+      <PromptModal
         isOpen={Boolean(resolvingException)}
         onClose={() => setResolvingException(null)}
         onSubmit={(value) => submitResolutionNote(value)}
@@ -1832,7 +2052,7 @@ export default function RmsChargeAdminSection({
             ? `Add a short support note for ${resolvingException.exception_type.replaceAll("_", " ")}.\n\nExplain what cleared the issue so the next staff member can follow the audit trail.`
             : ""
         }
-        placeholder="Example: CoreCard confirmed the original post and no retry was needed."
+        placeholder="Example: Staff confirmed the RMS Charge record was corrected."
         defaultValue={resolvingException?.resolution_notes ?? ""}
         confirmLabel="Save Resolution"
       />
@@ -1847,7 +2067,7 @@ export default function RmsChargeAdminSection({
         title="Remove RMS Account Link"
         message={
           confirmUnlinkAccount
-            ? `Remove ${confirmUnlinkAccount.masked_account} from ${selectedCustomerLabel || "this customer"} in Riverside?\n\nThis only removes the customer-to-account link in Riverside. It does not change the CoreCard account itself, and the correction is recorded in the audit trail.`
+            ? `Remove ${confirmUnlinkAccount.masked_account} from ${selectedCustomerLabel || "this customer"} in Riverside?\n\nThis only removes the customer-to-account link in Riverside. It does not change the RMS Charge account itself, and the correction is recorded in the audit trail.`
             : ""
         }
         confirmLabel="Remove Link"

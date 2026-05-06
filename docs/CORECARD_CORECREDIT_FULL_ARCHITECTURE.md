@@ -2,20 +2,24 @@
 
 This document is the current architectural source of truth for RiversideOS RMS Charge operations.
 
-Use this file when you need to understand how the implemented system works end to end. Use the staff manuals in [`/Users/cpg/riverside-os/docs/staff`](./staff) for role-based procedures, and use [`/Users/cpg/riverside-os/docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md`](./CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md) for real sandbox or live tenant validation.
+Use this file when you need to understand how the implemented system works end to end. Use the staff manuals in [`/Users/cpg/riverside-os/docs/staff`](./staff) for role-based procedures, and use [`/Users/cpg/riverside-os/docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md`](./CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md) for optional real sandbox or live tenant validation.
 
 ## Purpose
 
-RMS Charge is RiversideOS's unified financing tender for CoreCredit/CoreCard-backed activity.
+RMS Charge is RiversideOS's unified financing tender for CoreCredit/CoreCard-backed activity. The launch/default workflow is manual RMS Charge: staff record the financing sale, payment collection, adjustment details, account, program, amount, and reference number in ROS while any external R2S/CoreCard work is completed through the approved merchant process.
 
 The system supports:
 
 - financed purchases from POS
 - RMS payment collection from POS
-- refunds and reversals using stored host references
-- server-side CoreCard posting
-- webhook ingestion
-- repair polling
+- refunds and reversals using stored reference numbers
+- manual approval/reference capture
+- next-day R2S reporting tracking
+- customer/account/program linkage
+- transaction history and reporting visibility
+- optional future server-side CoreCard posting
+- optional webhook ingestion
+- optional repair polling
 - exception management
 - reconciliation and QBO-aware accounting support
 
@@ -26,9 +30,9 @@ The system does **not** expose CoreCard credentials, raw PAN, or CVV to the brow
 ```mermaid
 flowchart LR
   POS["POS (PWA / Tauri)"] --> API["Riverside Server APIs"]
-  API --> CORE["CoreCard APIs"]
-  CORE --> WEBHOOK["CoreCard Webhooks"]
-  WEBHOOK --> API
+  API -. "future live mode" .-> CORE["CoreCard APIs"]
+  CORE -. "future live mode" .-> WEBHOOK["CoreCard Webhooks"]
+  WEBHOOK -. "future live mode" .-> API
   API --> RMS["RMS Charge Workspace"]
   API --> QBO["QBO Journal / Clearing Support"]
 ```
@@ -38,35 +42,95 @@ flowchart LR
 1. POS attaches the active Riverside customer to the sale.
 2. POS selects the single financing tender: `RMS Charge`.
 3. Riverside resolves linked CoreCredit/CoreCard accounts on the server.
-4. POS shows masked account choices if needed, then presents a required plan-selection step for the eligible programs.
-5. POS does not silently default the financing plan. The operator must choose it explicitly.
+4. POS shows masked account choices if needed, then presents a required program-selection step for the eligible programs.
+5. POS does not silently default the financing program. The operator must choose it explicitly.
 6. POS sends the selected account and program metadata back to Riverside checkout.
-7. Riverside posts the financing transaction to CoreCard from the server.
-8. Checkout only succeeds after the required CoreCard host post succeeds.
-9. Riverside persists RMS posting state, host references, and transaction metadata.
-10. Receipts and RMS workspaces render from saved metadata, not from legacy tender names.
+7. Riverside records the RMS Charge sale in manual mode and preserves the account, program, amount, staff actor, timestamps, and reference number when supplied.
+8. Checkout succeeds from the ROS financial workflow without requiring a live CoreCard API post.
+9. Riverside persists RMS source mode, reference metadata, transaction metadata, R2S reporting status, and reconciliation visibility. Manual records are `recorded_manually` / reference-tracked, not host-posted.
+10. The record starts as `r2s_report_status: unreported` with `r2s_report_due_at` set to the next day.
+11. Receipts and RMS workspaces render from saved metadata, not from legacy tender names.
 
 ### RMS payment collection
 
 1. POS adds the internal `RMS CHARGE PAYMENT` line by using the `PAYMENT` search workflow.
 2. POS requires a customer and resolves the linked account on the server.
 3. POS collects only the allowed in-store collection tenders for this flow.
-4. Riverside posts the payment to CoreCard from the server.
-5. The collection only succeeds after the required host payment post succeeds.
-6. Riverside records the payment in RMS records and preserves the existing QBO-safe clearing behavior.
+4. Riverside records the RMS Charge payment collection in manual mode with the selected account, payment tender, staff actor, timestamps, and reference number when supplied.
+5. Riverside records the payment in RMS records, starts the R2S reporting follow-up as `unreported`, and preserves the existing QBO-safe clearing behavior.
+
+### R2S reporting lifecycle
+
+1. Manual RMS Charge Sales and RMS Charge Payments created through POS are reportable to R2S by the next day.
+2. Riverside stores R2S reporting fields on the RMS Charge record metadata:
+   - `r2s_reporting_required`
+   - `r2s_report_status`
+   - `r2s_report_due_at`
+   - `r2s_reported_at`
+   - `r2s_reported_by_staff_id`
+   - `r2s_report_note`
+3. The notification generator upserts a deduped reminder titled `Report RMS Charge to R2S` for each reporting-required unreported RMS Charge record.
+4. Staff complete the external R2S follow-up through the approved merchant process, then open Customer → RMS Charge and choose `Mark Reported`.
+5. Marking reported records the actor, timestamp, and optional note/reference, and clears the related reminder.
+6. Marking reported does not post to a live API, mutate financial amounts, change QBO behavior, or imply bank reconciliation.
+
+Phase 1 R2S reporting applies to RMS Charge Sales and RMS Charge Payments created through POS. Manual refund/reversal corrections remain tracked against the RMS Charge record/reference trail and can be reviewed in reconciliation, but they do not create a separate reporting checklist item in this phase.
+
+Rows created before the R2S reporting metadata rollout (`2026-05-06T18:00:00Z`) do not become active reporting work unless their metadata explicitly marks reporting as required. They remain visible in history, but they do not create reporting reminders by default.
 
 ### Refunds and reversals
 
 1. Back Office or other authorized RMS actions start from a previously posted RMS record.
-2. Riverside uses the stored host reference and idempotency model to post the correction to CoreCard.
-3. Riverside persists reversal or refund state and exposes it in RMS records, exceptions, reconciliation, receipts, and accounting support views as appropriate.
+2. Riverside uses the stored RMS record, reference number, and audit metadata to track the correction.
+3. Manual RMS Charge corrections are tracked without requiring a CoreCard external transaction id. Live CoreCard records continue to use stored host identifiers for live refund/reversal posting.
+4. Riverside persists reversal or refund state and exposes it in RMS records, exceptions, reconciliation, receipts, and accounting support views as appropriate.
 
 ### Webhooks, polling, and reconciliation
 
-1. CoreCard sends webhook events to Riverside server endpoints.
-2. Riverside verifies, redacts, logs, and processes those events idempotently.
-3. Repair polling refreshes balances, account status, transaction status, and stale posting state if webhook delivery is delayed or missing.
-4. Reconciliation compares Riverside RMS records, CoreCard state, and expected QBO-clearing behavior.
+1. Manual RMS Charge records remain visible in reconciliation and reporting without live CoreCard events.
+2. If optional live CoreCard automation is enabled later, CoreCard can send webhook events to Riverside server endpoints.
+3. Riverside verifies, redacts, logs, and processes those events idempotently.
+4. Repair polling can refresh balances, account status, transaction status, and stale posting state if webhook delivery is delayed or missing.
+5. Reconciliation compares Riverside RMS records, available CoreCard state, and expected QBO-clearing behavior.
+
+### Mode and source model
+
+RMS Charge records preserve a source/mode internally for audit, reporting, and future automation gating:
+
+- `source: manual` means the launch/default workflow. Riverside is the operational system of record for the RMS Charge sale, payment, reversal/refund tracking, reference number, account/program metadata, staff actor, timestamps, and reconciliation visibility.
+- `source: corecard_live` means a response came from a confirmed CoreCard host read or a future enabled live-posting path.
+- `credential_source` identifies whether the active runtime credentials came
+  from encrypted Settings, deployment environment, or are missing.
+- `last_corecard_request_at` is included when a live request timestamp is
+  available.
+
+Manual RMS Charge is not a degraded state. It does not require a live host reference, and staff-facing workflows should use operational labels such as `RMS Charge Sale`, `RMS Charge Payment`, `Reference Number`, `Program`, and `Account`.
+
+Operational staff UI should also use `Report to R2S`, `Reported`, `Unreported`, and `Overdue` for the next-day follow-up requirement. CoreCard/CoreCredit API terms remain appropriate in Settings, architecture docs, and future live-integration diagnostics, but should not dominate daily Customer → RMS Charge work.
+
+### Read-only tenant probe
+
+Settings → CoreCard exposes a read-only tenant probe at:
+
+- `GET /api/settings/corecard/tenant-probe`
+
+The probe uses the runtime CoreCard host credentials and Riverside merchant
+scope under R2S Financial:
+
+- Merchant Number `12115`
+- Merchant ID `11324`
+
+The probe does not post purchases, payments, refunds, or reversals. It does not
+create ledger rows and does not mutate customer/account data. A live-read proof
+response for future CoreCard API enablement must show:
+
+- `configured: true`
+- `runtime_loaded: true`
+- `source: "corecard_live"`
+- `api_host_reachable: true`
+- `read_call_succeeded: true`
+
+`source: "manual"` remains valid for the launch RMS Charge workflow. Do not enable future live CoreCard API posting unless the probe returns `source: "corecard_live"` with a successful read for the Riverside merchant scope.
 
 ## System Boundaries
 
@@ -96,7 +160,8 @@ The Riverside server is the broker and system of orchestration for:
 
 - token-based CoreCard authentication
 - account lookup and program eligibility requests
-- purchase, payment, refund, and reversal posts
+- manual RMS Charge recording
+- optional purchase, payment, refund, and reversal posts after live enablement
 - webhook verification and ingestion
 - redacted payload logging
 - posting state persistence
@@ -112,7 +177,7 @@ CoreCard is the external host for:
 - account identity and status
 - program eligibility
 - balance and transaction detail
-- live purchase and payment posting
+- optional live purchase and payment posting
 - refund and reversal responses
 - host-side transaction references
 - webhook event delivery
@@ -125,26 +190,26 @@ CoreCard is the external host for:
    Riverside matches the active Riverside customer to one or more linked CoreCard accounts.
 2. `program selected`
    POS stores the selected program metadata in checkout state.
-3. `pending host post`
-   Riverside prepares the CoreCard request, generates an idempotency key, and opens the posting transaction lifecycle.
-4. `posted`
-   CoreCard accepts the purchase. Riverside stores the external transaction id, host reference, optional auth code, posting timestamps, and program/account metadata.
+3. `manual record created`
+   Riverside records the RMS Charge source mode, program/account metadata, amount, actor, timestamp, and reference number when supplied.
+4. `corecard_live posted`
+   In a future enabled live mode, CoreCard accepts the purchase and Riverside stores the external transaction id, host reference, optional auth code, posting timestamps, and program/account metadata.
 5. `webhook updated`
-   Riverside may later receive a host event that confirms or updates the posting state.
+   Riverside may later receive a host event that confirms or updates live posting state.
 6. `reconciled`
    A reconciliation run marks the RMS record and its accounting support expectations as matched or mismatched.
 
 ### Payment lifecycle
 
 1. POS creates the RMS payment collection flow using `RMS CHARGE PAYMENT`.
-2. Riverside resolves the account and posts the payment to CoreCard.
-3. Riverside persists the payment RMS record and host reference state.
-4. Later webhook, polling, and reconciliation flows refresh or verify final status.
+2. Riverside resolves the account and records the payment in manual mode with the selected tender and reference number when supplied.
+3. In a future enabled live mode, Riverside can also post the payment to CoreCard and persist host reference state.
+4. Later webhook, polling, and reconciliation flows refresh or verify final status when live CoreCard automation is active.
 
 ### Refund / reversal lifecycle
 
-1. An authorized user starts from an RMS record with an existing host linkage.
-2. Riverside posts the refund or reversal using stored host identifiers.
+1. An authorized user starts from an RMS record with an existing RMS reference trail.
+2. Riverside records the refund or reversal tracking details. In a future enabled live mode, Riverside can post the correction using stored host identifiers.
 3. Riverside marks the RMS record and posting event history with the correction state.
 4. Reconciliation and QBO-supporting views reflect the correction path.
 

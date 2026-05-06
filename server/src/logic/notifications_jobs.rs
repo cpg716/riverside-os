@@ -17,7 +17,7 @@ use crate::logic::notifications::{
 };
 use crate::logic::tasks;
 use crate::models::DbStaffRole;
-use chrono::{Duration as ChronoDuration, NaiveDate, Timelike, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Timelike, Utc};
 use chrono_tz::Tz;
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
@@ -28,6 +28,16 @@ const PAYMENTS_VIEW: &str = "payments.view";
 const PAYMENTS_SYNC: &str = "payments.sync";
 const PAYMENTS_RECONCILE_REVIEW: &str = "payments.reconcile.review";
 const PAYMENTS_DEPOSIT_REVIEW: &str = "payments.deposit.review";
+const RMS_CHARGE_REPORT_TO_R2S: &str = "rms_charge.report_to_r2s";
+const CUSTOMERS_RMS_CHARGE_REPORTING: &str = "customers.rms_charge.reporting";
+
+fn rms_r2s_reporting_activation_cutoff() -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(
+        crate::logic::corecard::RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339,
+    )
+    .expect("valid RMS R2S reporting activation cutoff")
+    .with_timezone(&Utc)
+}
 
 fn env_archive_hours() -> i64 {
     std::env::var("RIVERSIDE_NOTIFICATION_ARCHIVE_HOURS")
@@ -139,6 +149,130 @@ async fn staff_for_alteration_order(
     Ok(out)
 }
 
+async fn rms_r2s_report_recipients(pool: &PgPool) -> Result<Vec<Uuid>, sqlx::Error> {
+    let mut ids = staff_ids_with_permission(pool, RMS_CHARGE_REPORT_TO_R2S).await?;
+    ids.append(&mut staff_ids_with_permission(pool, CUSTOMERS_RMS_CHARGE_REPORTING).await?);
+    ids.append(&mut admin_staff_ids(pool).await?);
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
+pub async fn run_rms_charge_r2s_report_reminders(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let recipients = rms_r2s_report_recipients(pool).await?;
+    if recipients.is_empty() {
+        return Ok(());
+    }
+
+    let rows = sqlx::query_as::<_, (
+        Uuid,
+        String,
+        chrono::DateTime<Utc>,
+        Option<Uuid>,
+        Option<String>,
+        Option<String>,
+        Decimal,
+        Option<String>,
+        Option<String>,
+    )>(
+        r#"
+        SELECT
+            r.id,
+            r.record_kind,
+            COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day') AS due_at,
+            r.customer_id,
+            NULLIF(TRIM(BOTH FROM CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '') AS customer_name,
+            r.order_short_ref,
+            r.amount,
+            r.program_label,
+            r.host_reference
+        FROM pos_rms_charge_record r
+        LEFT JOIN customers c ON c.id = r.customer_id
+        WHERE r.record_kind IN ('charge', 'payment')
+          AND (
+            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+            OR r.metadata_json ? 'r2s_report_status'
+            OR r.created_at >= $1
+          )
+          AND COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported') = 'unreported'
+        ORDER BY due_at ASC, r.created_at ASC
+        LIMIT 500
+        "#,
+    )
+    .bind(rms_r2s_reporting_activation_cutoff())
+    .fetch_all(pool)
+    .await?;
+
+    for (
+        record_id,
+        record_kind,
+        due_at,
+        customer_id,
+        customer_name,
+        order_short_ref,
+        amount,
+        program_label,
+        reference,
+    ) in rows
+    {
+        let is_overdue = due_at < Utc::now();
+        let due_label = due_at.format("%Y-%m-%d").to_string();
+        let action_label = if record_kind == "payment" {
+            "RMS Charge Payment"
+        } else {
+            "RMS Charge Sale"
+        };
+        let customer_label = customer_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Customer not linked");
+        let body = format!(
+            "{} {} for ${} is {} R2S reporting. Customer: {}.{}{}",
+            action_label,
+            order_short_ref.as_deref().unwrap_or("record"),
+            amount,
+            if is_overdue { "overdue for" } else { "due for" },
+            customer_label,
+            program_label
+                .as_deref()
+                .map(|value| format!(" Program: {value}."))
+                .unwrap_or_default(),
+            reference
+                .as_deref()
+                .map(|value| format!(" Reference: {value}."))
+                .unwrap_or_default()
+        );
+        let dedupe = format!("rms_r2s_report:{record_id}");
+        let notification_id = upsert_app_notification_by_dedupe(
+            pool,
+            "rms_r2s_charge",
+            "Report RMS Charge to R2S",
+            &body,
+            json!({
+                "kind": "rms_r2s_charge",
+                "type": "rms_charge_r2s_report",
+                "rms_record_id": record_id,
+                "record_kind": record_kind,
+                "customer_id": customer_id,
+                "due_at": due_at.to_rfc3339(),
+                "due_date": due_label,
+                "overdue": is_overdue,
+                "route": "customers.rms_charge",
+            }),
+            "rms_charge_reporting",
+            json!({
+                "permissions": [RMS_CHARGE_REPORT_TO_R2S, CUSTOMERS_RMS_CHARGE_REPORTING],
+            }),
+            &dedupe,
+        )
+        .await?;
+        fan_out_notification_to_staff_ids(pool, notification_id, &recipients).await?;
+    }
+
+    Ok(())
+}
+
 pub async fn run_notification_generators(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut first_error: Option<sqlx::Error> = None;
 
@@ -248,6 +382,10 @@ pub async fn run_notification_generators(pool: &PgPool) -> Result<(), sqlx::Erro
     run_generator!(
         "messaging_and_reviews_unread_nudges",
         run_messaging_and_reviews_unread_nudges(pool)
+    );
+    run_generator!(
+        "rms_charge_r2s_report_reminders",
+        run_rms_charge_r2s_report_reminders(pool)
     );
 
     if let Some(e) = first_error {

@@ -1,5 +1,6 @@
 //! RMS / RMS90 register tenders + R2S payment collection: durable rows and Sales Support follow-up.
 
+use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -40,6 +41,28 @@ fn clean_text(value: Option<&Value>) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+fn r2s_report_due_at_from_now() -> String {
+    (Utc::now() + Duration::days(1)).to_rfc3339()
+}
+
+fn with_r2s_reporting_metadata(record_kind: &str, metadata: Value) -> Value {
+    if !matches!(record_kind, "charge" | "payment") {
+        return metadata;
+    }
+
+    let mut object = metadata.as_object().cloned().unwrap_or_default();
+    object
+        .entry("r2s_reporting_required".to_string())
+        .or_insert(Value::Bool(true));
+    object
+        .entry("r2s_report_status".to_string())
+        .or_insert_with(|| Value::String("unreported".to_string()));
+    object
+        .entry("r2s_report_due_at".to_string())
+        .or_insert_with(|| Value::String(r2s_report_due_at_from_now()));
+    Value::Object(object)
 }
 
 fn gift_card_sub_type_label(metadata: Option<&Value>) -> Option<&'static str> {
@@ -391,7 +414,8 @@ pub async fn insert_rms_record<'e, E>(
 where
     E: Executor<'e, Database = Postgres>,
 {
-    let metadata_json = metadata.cloned().unwrap_or_else(|| json!({}));
+    let metadata_json =
+        with_r2s_reporting_metadata(record_kind, metadata.cloned().unwrap_or_else(|| json!({})));
     let selection = extract_selection_from_metadata(&metadata_json);
     let tender_family = selection.as_ref().map(|value| value.tender_family.clone());
     let program_code = selection

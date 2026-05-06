@@ -8,7 +8,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::FromRow;
 use thiserror::Error;
 use uuid::Uuid;
@@ -69,6 +69,14 @@ use crate::logic::wedding_party_display::SQL_PARTY_TRACKING_LABEL_WP;
 use crate::middleware;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
+
+const RMS_CHARGE_REPORT_TO_R2S: &str = "rms_charge.report_to_r2s";
+
+fn rms_r2s_reporting_activation_cutoff() -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(corecard::RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339)
+        .expect("valid RMS R2S reporting activation cutoff")
+        .with_timezone(&Utc)
+}
 
 #[derive(Debug, Error)]
 pub enum CustomerError {
@@ -543,6 +551,7 @@ async fn require_rms_charge_view_staff(
             CUSTOMERS_RMS_CHARGE_VIEW,
             CUSTOMERS_RMS_CHARGE_MANAGE_LINKS,
             CUSTOMERS_RMS_CHARGE_REPORTING,
+            RMS_CHARGE_REPORT_TO_R2S,
             CUSTOMERS_RMS_CHARGE_RESOLVE_EXCEPTIONS,
             CUSTOMERS_RMS_CHARGE_RECONCILE,
             POS_RMS_CHARGE_USE,
@@ -592,6 +601,22 @@ async fn require_rms_charge_reconcile_staff(
         headers,
         &[
             CUSTOMERS_RMS_CHARGE_RECONCILE,
+            CUSTOMERS_RMS_CHARGE_REPORTING,
+            CUSTOMERS_RMS_CHARGE,
+        ],
+    )
+    .await
+}
+
+async fn require_rms_charge_report_staff(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<crate::auth::pins::AuthenticatedStaff, CustomerError> {
+    require_staff_with_any_permission(
+        state,
+        headers,
+        &[
+            RMS_CHARGE_REPORT_TO_R2S,
             CUSTOMERS_RMS_CHARGE_REPORTING,
             CUSTOMERS_RMS_CHARGE,
         ],
@@ -1444,6 +1469,8 @@ struct RmsChargeRecordsQuery {
     #[serde(default)]
     posting_status: Option<String>,
     #[serde(default)]
+    r2s_report_status: Option<String>,
+    #[serde(default)]
     limit: Option<i64>,
     #[serde(default)]
     offset: Option<i64>,
@@ -1501,6 +1528,12 @@ struct ExceptionResolveBody {
     resolution_notes: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct RmsChargeMarkReportedBody {
+    #[serde(default)]
+    note: Option<String>,
+}
+
 #[derive(Debug, Serialize, FromRow)]
 struct RmsChargeRecordApiRow {
     id: Uuid,
@@ -1526,6 +1559,14 @@ struct RmsChargeRecordApiRow {
     posting_error_code: Option<String>,
     host_reference: Option<String>,
     external_transaction_id: Option<String>,
+    source_mode: String,
+    r2s_reporting_required: bool,
+    r2s_report_status: String,
+    r2s_report_due_at: DateTime<Utc>,
+    r2s_reported_at: Option<DateTime<Utc>>,
+    r2s_reported_by_staff_id: Option<Uuid>,
+    r2s_reported_by_name: Option<String>,
+    r2s_report_note: Option<String>,
     customer_name: Option<String>,
     customer_code: Option<String>,
     operator_name: Option<String>,
@@ -1666,6 +1707,80 @@ async fn get_rms_charge_record(
     Path(record_id): Path<Uuid>,
 ) -> Result<Json<corecard::RmsChargeRecordDetail>, CustomerError> {
     require_rms_charge_view_staff(&state, &headers).await?;
+    let row = corecard::get_rms_charge_record_detail(&state.db, record_id)
+        .await
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(row))
+}
+
+async fn mark_rms_charge_record_reported_to_r2s(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(record_id): Path<Uuid>,
+    Json(body): Json<RmsChargeMarkReportedBody>,
+) -> Result<Json<corecard::RmsChargeRecordDetail>, CustomerError> {
+    let staff = require_rms_charge_report_staff(&state, &headers).await?;
+    let existing: Option<Value> =
+        sqlx::query_scalar("SELECT metadata_json FROM pos_rms_charge_record WHERE id = $1")
+            .bind(record_id)
+            .fetch_optional(&state.db)
+            .await?;
+    let Some(existing) = existing else {
+        return Err(CustomerError::NotFound);
+    };
+
+    let now = Utc::now();
+    let mut object = existing.as_object().cloned().unwrap_or_default();
+    object.insert(
+        "r2s_report_status".to_string(),
+        Value::String("reported".to_string()),
+    );
+    object.insert(
+        "r2s_reported_at".to_string(),
+        Value::String(now.to_rfc3339()),
+    );
+    object.insert(
+        "r2s_reported_by_staff_id".to_string(),
+        Value::String(staff.id.to_string()),
+    );
+    if let Some(note) = body.note.map(|value| value.trim().to_string()) {
+        if note.is_empty() {
+            object.remove("r2s_report_note");
+        } else {
+            object.insert("r2s_report_note".to_string(), Value::String(note));
+        }
+    }
+    let metadata = Value::Object(object);
+
+    sqlx::query(
+        r#"
+        UPDATE pos_rms_charge_record
+        SET metadata_json = $2
+        WHERE id = $1
+        "#,
+    )
+    .bind(record_id)
+    .bind(&metadata)
+    .execute(&state.db)
+    .await?;
+
+    let _ = crate::logic::notifications::delete_app_notification_by_dedupe(
+        &state.db,
+        &format!("rms_r2s_report:{record_id}"),
+    )
+    .await;
+
+    let _ = crate::auth::pins::log_staff_access(
+        &state.db,
+        staff.id,
+        "rms_charge_report_to_r2s",
+        json!({
+            "rms_record_id": record_id,
+            "reported_at": now,
+        }),
+    )
+    .await;
+
     let row = corecard::get_rms_charge_record_detail(&state.db, record_id)
         .await
         .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
@@ -2000,6 +2115,8 @@ async fn list_rms_charge_records(
             CUSTOMERS_RMS_CHARGE,
             CUSTOMERS_RMS_CHARGE_VIEW,
             CUSTOMERS_RMS_CHARGE_MANAGE_LINKS,
+            CUSTOMERS_RMS_CHARGE_REPORTING,
+            RMS_CHARGE_REPORT_TO_R2S,
         ],
     )
     .await?;
@@ -2050,8 +2167,21 @@ async fn list_rms_charge_records(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
+    let r2s_report_status_filter = q
+        .r2s_report_status
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(status) = r2s_report_status_filter {
+        if !matches!(status, "all" | "unreported" | "reported" | "overdue") {
+            return Err(CustomerError::BadRequest(
+                "r2s_report_status must be all, unreported, reported, or overdue".to_string(),
+            ));
+        }
+    }
 
     let q_trim = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let r2s_cutoff = rms_r2s_reporting_activation_cutoff();
 
     let search = q_trim.map(|s| {
         format!(
@@ -2110,18 +2240,83 @@ async fn list_rms_charge_records(
                     r.posting_error_code,
                     r.host_reference,
                     r.external_transaction_id,
+                    COALESCE(
+                        r.metadata_json->>'rms_charge_source',
+                        r.metadata_json->>'source_mode',
+                        CASE
+                            WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                            ELSE 'manual'
+                        END
+                    ) AS source_mode,
+                    r2s.reporting_required AS r2s_reporting_required,
+                    r2s.report_status AS r2s_report_status,
+                    r2s.due_at AS r2s_report_due_at,
+                    (NULLIF(r.metadata_json->>'r2s_reported_at', ''))::timestamptz AS r2s_reported_at,
+                    CASE
+                        WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+                        THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+                        ELSE NULL
+                    END AS r2s_reported_by_staff_id,
+                    rs.full_name AS r2s_reported_by_name,
+                    NULLIF(r.metadata_json->>'r2s_report_note', '') AS r2s_report_note,
                     NULLIF(TRIM(BOTH FROM CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '') AS customer_name,
                     c.customer_code,
                     s.full_name AS operator_name
                 FROM pos_rms_charge_record r
                 LEFT JOIN customers c ON c.id = r.customer_id
                 LEFT JOIN staff s ON s.id = r.operator_staff_id
+                LEFT JOIN staff rs ON rs.id = CASE
+                    WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+                    THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+                    ELSE NULL
+                END
+                CROSS JOIN LATERAL (
+                    SELECT
+                        (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $13
+                        ) AS reporting_required,
+                        CASE
+                            WHEN (
+                                lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                                OR r.metadata_json ? 'r2s_report_status'
+                                OR r.created_at >= $13
+                            )
+                            THEN COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported')
+                            ELSE 'not_required'
+                        END AS report_status,
+                        CASE
+                            WHEN (
+                                lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                                OR r.metadata_json ? 'r2s_report_status'
+                                OR r.created_at >= $13
+                            )
+                            THEN COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day')
+                            ELSE r.created_at
+                        END AS due_at
+                ) r2s
                 WHERE r.created_at >= $1 AND r.created_at < $2
                   AND ($3::text IS NULL OR r.record_kind = $3)
                   AND ($4::uuid IS NULL OR r.customer_id = $4)
                   AND ($5::text IS NULL OR r.linked_corecredit_account_id = $5)
                   AND ($6::text IS NULL OR r.program_code = $6)
                   AND ($7::text IS NULL OR COALESCE(r.posting_status, 'legacy') = $7)
+                  AND (
+                    $12::text IS NULL
+                    OR $12::text = 'all'
+                    OR (
+                        $12::text = 'overdue'
+                        AND r2s.reporting_required
+                        AND r2s.report_status = 'unreported'
+                        AND r2s.due_at < now()
+                    )
+                    OR (
+                        $12::text <> 'overdue'
+                        AND r2s.reporting_required
+                        AND r2s.report_status = $12
+                    )
+                  )
                   AND (
                     c.id = ANY($8)
                     OR c.customer_code ILIKE $9 ESCAPE '\'
@@ -2144,6 +2339,8 @@ async fn list_rms_charge_records(
             .bind(pat)
             .bind(limit)
             .bind(offset)
+            .bind(r2s_report_status_filter)
+            .bind(r2s_cutoff)
             .fetch_all(&state.db)
             .await?
         } else {
@@ -2173,18 +2370,83 @@ async fn list_rms_charge_records(
                     r.posting_error_code,
                     r.host_reference,
                     r.external_transaction_id,
+                    COALESCE(
+                        r.metadata_json->>'rms_charge_source',
+                        r.metadata_json->>'source_mode',
+                        CASE
+                            WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                            ELSE 'manual'
+                        END
+                    ) AS source_mode,
+                    r2s.reporting_required AS r2s_reporting_required,
+                    r2s.report_status AS r2s_report_status,
+                    r2s.due_at AS r2s_report_due_at,
+                    (NULLIF(r.metadata_json->>'r2s_reported_at', ''))::timestamptz AS r2s_reported_at,
+                    CASE
+                        WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+                        THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+                        ELSE NULL
+                    END AS r2s_reported_by_staff_id,
+                    rs.full_name AS r2s_reported_by_name,
+                    NULLIF(r.metadata_json->>'r2s_report_note', '') AS r2s_report_note,
                     NULLIF(TRIM(BOTH FROM CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '') AS customer_name,
                     c.customer_code,
                     s.full_name AS operator_name
                 FROM pos_rms_charge_record r
                 LEFT JOIN customers c ON c.id = r.customer_id
                 LEFT JOIN staff s ON s.id = r.operator_staff_id
+                LEFT JOIN staff rs ON rs.id = CASE
+                    WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+                    THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+                    ELSE NULL
+                END
+                CROSS JOIN LATERAL (
+                    SELECT
+                        (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $12
+                        ) AS reporting_required,
+                        CASE
+                            WHEN (
+                                lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                                OR r.metadata_json ? 'r2s_report_status'
+                                OR r.created_at >= $12
+                            )
+                            THEN COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported')
+                            ELSE 'not_required'
+                        END AS report_status,
+                        CASE
+                            WHEN (
+                                lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                                OR r.metadata_json ? 'r2s_report_status'
+                                OR r.created_at >= $12
+                            )
+                            THEN COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day')
+                            ELSE r.created_at
+                        END AS due_at
+                ) r2s
                 WHERE r.created_at >= $1 AND r.created_at < $2
                   AND ($3::text IS NULL OR r.record_kind = $3)
                   AND ($4::uuid IS NULL OR r.customer_id = $4)
                   AND ($5::text IS NULL OR r.linked_corecredit_account_id = $5)
                   AND ($6::text IS NULL OR r.program_code = $6)
                   AND ($7::text IS NULL OR COALESCE(r.posting_status, 'legacy') = $7)
+                  AND (
+                    $11::text IS NULL
+                    OR $11::text = 'all'
+                    OR (
+                        $11::text = 'overdue'
+                        AND r2s.reporting_required
+                        AND r2s.report_status = 'unreported'
+                        AND r2s.due_at < now()
+                    )
+                    OR (
+                        $11::text <> 'overdue'
+                        AND r2s.reporting_required
+                        AND r2s.report_status = $11
+                    )
+                  )
                   AND (
                     c.customer_code ILIKE $8 ESCAPE '\'
                     OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $8 ESCAPE '\'
@@ -2205,6 +2467,8 @@ async fn list_rms_charge_records(
             .bind(pat)
             .bind(limit)
             .bind(offset)
+            .bind(r2s_report_status_filter)
+            .bind(r2s_cutoff)
             .fetch_all(&state.db)
             .await?
         }
@@ -2235,18 +2499,83 @@ async fn list_rms_charge_records(
                 r.posting_error_code,
                 r.host_reference,
                 r.external_transaction_id,
+                COALESCE(
+                    r.metadata_json->>'rms_charge_source',
+                    r.metadata_json->>'source_mode',
+                    CASE
+                        WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                        ELSE 'manual'
+                    END
+                ) AS source_mode,
+                r2s.reporting_required AS r2s_reporting_required,
+                r2s.report_status AS r2s_report_status,
+                r2s.due_at AS r2s_report_due_at,
+                (NULLIF(r.metadata_json->>'r2s_reported_at', ''))::timestamptz AS r2s_reported_at,
+                CASE
+                    WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+                    THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+                    ELSE NULL
+                END AS r2s_reported_by_staff_id,
+                rs.full_name AS r2s_reported_by_name,
+                NULLIF(r.metadata_json->>'r2s_report_note', '') AS r2s_report_note,
                 NULLIF(TRIM(BOTH FROM CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '') AS customer_name,
                 c.customer_code,
                 s.full_name AS operator_name
             FROM pos_rms_charge_record r
             LEFT JOIN customers c ON c.id = r.customer_id
             LEFT JOIN staff s ON s.id = r.operator_staff_id
+            LEFT JOIN staff rs ON rs.id = CASE
+                WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+                THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+                ELSE NULL
+            END
+            CROSS JOIN LATERAL (
+                SELECT
+                    (
+                        lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                        OR r.metadata_json ? 'r2s_report_status'
+                        OR r.created_at >= $11
+                    ) AS reporting_required,
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $11
+                        )
+                        THEN COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported')
+                        ELSE 'not_required'
+                    END AS report_status,
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $11
+                        )
+                        THEN COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day')
+                        ELSE r.created_at
+                    END AS due_at
+            ) r2s
             WHERE r.created_at >= $1 AND r.created_at < $2
               AND ($3::text IS NULL OR r.record_kind = $3)
               AND ($4::uuid IS NULL OR r.customer_id = $4)
               AND ($5::text IS NULL OR r.linked_corecredit_account_id = $5)
               AND ($6::text IS NULL OR r.program_code = $6)
               AND ($7::text IS NULL OR COALESCE(r.posting_status, 'legacy') = $7)
+              AND (
+                $10::text IS NULL
+                OR $10::text = 'all'
+                OR (
+                    $10::text = 'overdue'
+                    AND r2s.reporting_required
+                    AND r2s.report_status = 'unreported'
+                    AND r2s.due_at < now()
+                )
+                OR (
+                    $10::text <> 'overdue'
+                    AND r2s.reporting_required
+                    AND r2s.report_status = $10
+                )
+              )
             ORDER BY r.created_at DESC
             LIMIT $8 OFFSET $9
             "#,
@@ -2260,6 +2589,8 @@ async fn list_rms_charge_records(
         .bind(posting_status_filter)
         .bind(limit)
         .bind(offset)
+        .bind(r2s_report_status_filter)
+        .bind(r2s_cutoff)
         .fetch_all(&state.db)
         .await?
     };
@@ -2333,6 +2664,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/rms-charge/records/{record_id}",
             get(get_rms_charge_record),
+        )
+        .route(
+            "/rms-charge/records/{record_id}/r2s-report",
+            post(mark_rms_charge_record_reported_to_r2s),
         )
         .route("/groups", get(list_customer_groups))
         .route(

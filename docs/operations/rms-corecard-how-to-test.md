@@ -60,21 +60,23 @@ Expected local ports:
 - fake CoreCard server: `http://127.0.0.1:43400`
 - local Docker Postgres: `localhost:5433`
 
-## SECTION 2 — MANUAL UI TEST (LOCAL)
+## SECTION 2 — MANUAL RMS CHARGE UI TEST
 
 1. Open POS in the browser at `http://localhost:43173`.
 2. Sign in as a POS user.
 3. Attach a seeded test customer with a linked RMS account.
 4. Click `RMS Charge`.
-5. When the plan picker appears, select a program.
+5. When the picker appears, select the account and program.
 6. Complete the sale.
 
 Expected:
 
 - transaction succeeds
-- plan selection is required before the RMS Charge payment can be added
-- receipt shows `RMS Charge` + the selected program
+- program selection is required before the RMS Charge sale can be added
+- receipt shows `RMS Charge` plus the selected program
 - RMS workspace shows the transaction
+- the RMS record is tracked as the manual RMS Charge workflow unless live
+  CoreCard automation has been explicitly enabled
 
 Then:
 
@@ -84,6 +86,21 @@ Expected:
 
 - payment succeeds
 - appears in RMS workspace
+- staff can preserve the Reference Number supplied by the R2S/CoreCard portal,
+  approval documentation, or finance support notes
+
+Manual RMS Charge is the launch/default workflow. It is not a temporary or
+broken state. Staff should enter:
+
+- customer and account
+- program
+- financed amount or payment amount
+- Reference Number when available
+- collection tender for RMS Charge payments
+
+The Reference Number is the approval, authorization, merchant, or support
+reference supplied by the approved RMS/CoreCard process. It is never a PAN, CVV,
+card token, or full account number.
 
 Then:
 
@@ -148,7 +165,7 @@ If tests fail:
 - confirm the fake CoreCard server is on `http://127.0.0.1:43400`
 - rerun after resetting the fake host
 
-## SECTION 5 — SANDBOX TEST (OPTIONAL)
+## SECTION 5 — LIVE CORECARD API VALIDATION (OPTIONAL)
 
 1. Save real CoreCard credentials in **Settings → Integrations → CoreCard**. Because live CoreCard runtime configuration is currently loaded at server startup, restart the server before running live/sandbox validation against newly saved values.
 2. Run:
@@ -160,10 +177,51 @@ npm run validate:corecard:sandbox
 3. Follow:
    [`/Users/cpg/riverside-os/docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md`](../CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md)
 
+4. Before running any real sandbox/live API action, open **Settings → CoreCard** and
+   confirm the pre-live proof panel:
+
+   - credentials saved
+   - runtime config loaded
+   - restart state current
+   - Merchant Number `12115`
+   - Merchant ID `11324`
+   - unsigned webhooks disabled
+   - **Run Probe** returns `source: corecard_live`
+
+5. Optional CLI check for the same read-only probe:
+
+```bash
+curl -sS \
+  -H "x-riverside-staff-code: <staff-code>" \
+  -H "x-riverside-staff-pin: <access-pin>" \
+  http://127.0.0.1:3000/api/settings/corecard/tenant-probe
+```
+
+6. The probe is go only when it returns:
+
+   - `configured: true`
+   - `runtime_loaded: true`
+   - `merchant_number: "12115"`
+   - `merchant_id: "11324"`
+   - `source: "corecard_live"`
+   - `api_host_reachable: true`
+   - `read_call_succeeded: true`
+
+7. In Customers → RMS Charge or POS RMS Charge, treat `source: corecard_live`
+   as live-read proof. Treat `source: manual` as the normal launch workflow, not
+   as live API proof. Keep live API posting disabled if any
+   `corecard_*_missing/request_failed` warning appears during validation.
+
 Important warnings:
 
 - real transactions may occur
 - start with one test customer only
+- a visible account/program list is not proof of live CoreCard usage unless the
+  source indicator says `corecard_live`
+- the Payments workspace is Helcim-focused and is not proof of CoreCard tenant
+  readiness
+- manual RMS Charge remains operational even when live CoreCard validation is
+  not complete
 
 ## SECTION 6 — COMMON ISSUES
 
@@ -182,6 +240,7 @@ Important warnings:
 
 - [ ] POS RMS Charge purchase works
 - [ ] RMS payment collection works
+- [ ] Reference Number, account, program, amount, staff actor, and timestamps are visible in RMS history/reporting
 - [ ] failure cases behave correctly
 - [ ] RMS workspace reflects data
 - [ ] E2E tests pass

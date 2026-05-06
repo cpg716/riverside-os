@@ -96,6 +96,28 @@ Transaction details show:
 - **Timeline**: simplified payment updates.
 - **Issues**: linked items needing review.
 
+## RMS Charge
+
+Use **RMS Charge Sale** and **RMS Charge Payment** as normal manual financial workflows. Staff do not need a live CoreCard API post to record the sale, collect an RMS payment, or preserve the operational reference trail in ROS.
+
+Required details:
+
+- **Customer** and **Account**.
+- **Program**.
+- Financed amount or payment amount.
+- **Reference Number** when available.
+- Payment tender for RMS Charge payment collection.
+
+The **Reference Number** is the approval, authorization, merchant, or support reference from the approved R2S/CoreCard process. Never enter a PAN, CVV, card token, or full account number in this field.
+
+RMS Charge entries appear in customer history, RMS Charge reporting, and reconciliation review. They preserve the staff actor, timestamps, account/program metadata, and reference details. ROS does not imply that bank deposit matching, QBO posting, or live CoreCard settlement happened automatically.
+
+Manual RMS Charge refunds and reversals are recorded manually against the RMS Charge transaction/reference trail. Future live-post references are not required for that manual tracking path.
+
+Every POS-created RMS Charge Sale and RMS Charge Payment must be reported to R2S by the next day. This is tracked in **Customers → RMS Charge**, not the Payments workspace. Use the `Report to R2S` status, due date, and `Mark Reported` action on the RMS Charge record after staff complete the R2S follow-up.
+
+If live CoreCard automation is enabled later, ROS may add host references automatically after validated live reads/posts. The staff workflow remains **RMS Charge Sale**, **RMS Charge Payment**, **Reference Number**, **Program**, and **Account**.
+
 ## Deposits
 
 Use **Deposits** to compare expected Helcim deposits with actual bank deposits recorded in ROS.

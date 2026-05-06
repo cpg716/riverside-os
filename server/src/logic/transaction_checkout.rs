@@ -305,6 +305,14 @@ fn apply_corecard_result_to_metadata(
 ) {
     let mut object = metadata.as_object().cloned().unwrap_or_default();
     object.insert(
+        "source_mode".to_string(),
+        Value::String("corecard_live".to_string()),
+    );
+    object.insert(
+        "rms_charge_source".to_string(),
+        Value::String("corecard_live".to_string()),
+    );
+    object.insert(
         "posting_status".to_string(),
         Value::String(result.posting_status.clone()),
     );
@@ -344,6 +352,50 @@ fn apply_corecard_result_to_metadata(
     }
     object.insert("host_metadata".to_string(), result.metadata.clone());
     object.insert("response_snapshot".to_string(), result.metadata.clone());
+    *metadata = Value::Object(object);
+}
+
+fn rms_source_mode(metadata: &Value) -> String {
+    metadata_optional_text(metadata, "rms_charge_source")
+        .or_else(|| metadata_optional_text(metadata, "source_mode"))
+        .unwrap_or_else(|| "manual".to_string())
+}
+
+fn rms_source_is_corecard_live(metadata: &Value) -> bool {
+    rms_source_mode(metadata).eq_ignore_ascii_case("corecard_live")
+}
+
+fn apply_manual_rms_tracking_metadata(metadata: &mut Value) {
+    let mut object = metadata.as_object().cloned().unwrap_or_default();
+    object.insert(
+        "source_mode".to_string(),
+        Value::String("manual".to_string()),
+    );
+    object.insert(
+        "rms_charge_source".to_string(),
+        Value::String("manual".to_string()),
+    );
+    object
+        .entry("posting_status".to_string())
+        .or_insert_with(|| Value::String("recorded_manually".to_string()));
+    object.insert(
+        "manual_tracking_status".to_string(),
+        Value::String("reference_tracked".to_string()),
+    );
+    object.insert("not_host_posted".to_string(), Value::Bool(true));
+
+    if let Some(reference) = object
+        .get("reference_number")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+    {
+        object
+            .entry("host_reference".to_string())
+            .or_insert_with(|| Value::String(reference));
+    }
+
     *metadata = Value::Object(object);
 }
 
@@ -1532,12 +1584,11 @@ async fn prepare_live_corecard_postings(
     payment_splits: &mut [ResolvedPaymentSplit],
     is_rms_payment_collection: bool,
 ) -> Result<(), CheckoutError> {
+    let has_rms_tender = payment_splits
+        .iter()
+        .any(|split| pos_rms_charge::is_rms_method(&split.method));
     let Some(customer_id) = payload.customer_id else {
-        if payment_splits
-            .iter()
-            .any(|split| pos_rms_charge::is_rms_method(&split.method))
-            || is_rms_payment_collection
-        {
+        if has_rms_tender || is_rms_payment_collection {
             return Err(CheckoutError::InvalidPayload(
                 "RMS Charge requires an active customer on the sale.".to_string(),
             ));
@@ -1545,11 +1596,22 @@ async fn prepare_live_corecard_postings(
         return Ok(());
     };
 
-    let checkout_client_id = payload.checkout_client_id.ok_or_else(|| {
-        CheckoutError::InvalidPayload(
-            "RMS Charge live posting requires checkout_client_id for idempotency.".to_string(),
-        )
-    })?;
+    let has_live_rms_purchase = payment_splits.iter().any(|split| {
+        pos_rms_charge::is_rms_method(&split.method) && rms_source_is_corecard_live(&split.metadata)
+    });
+    let has_live_rms_collection = is_rms_payment_collection
+        && payment_splits
+            .iter()
+            .any(|split| rms_source_is_corecard_live(&split.metadata));
+    let checkout_client_id = if has_live_rms_purchase || has_live_rms_collection {
+        Some(payload.checkout_client_id.ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "RMS Charge live posting requires checkout_client_id for idempotency.".to_string(),
+            )
+        })?)
+    } else {
+        payload.checkout_client_id
+    };
 
     for (index, split) in payment_splits.iter_mut().enumerate() {
         if !pos_rms_charge::is_rms_method(&split.method) {
@@ -1573,6 +1635,12 @@ async fn prepare_live_corecard_postings(
         )?;
         let linked_corecredit_card_id =
             metadata_optional_text(&split.metadata, "linked_corecredit_card_id");
+        if !rms_source_is_corecard_live(&split.metadata) {
+            apply_manual_rms_tracking_metadata(&mut split.metadata);
+            continue;
+        }
+        let checkout_client_id =
+            checkout_client_id.expect("live RMS posting requires checkout_client_id");
         let stable_reference = format!("{checkout_client_id}:purchase:{index}");
         let idempotency_key = corecard::build_idempotency_key(
             corecard::CoreCardOperationType::Purchase,
@@ -1661,6 +1729,40 @@ async fn prepare_live_corecard_postings(
             CheckoutError::InvalidPayload(message)
         })?;
 
+        for split in payment_splits.iter_mut() {
+            let mut obj = split.metadata.as_object().cloned().unwrap_or_default();
+            obj.insert("rms_charge_collection".to_string(), Value::Bool(true));
+            obj.insert(
+                "tender_family".to_string(),
+                Value::String(pos_rms_charge::RMS_TENDER_FAMILY.to_string()),
+            );
+            obj.insert(
+                "linked_corecredit_customer_id".to_string(),
+                Value::String(selected_account.corecredit_customer_id.clone()),
+            );
+            obj.insert(
+                "linked_corecredit_account_id".to_string(),
+                Value::String(selected_account.corecredit_account_id.clone()),
+            );
+            obj.insert(
+                "masked_account".to_string(),
+                Value::String(selected_account.masked_account.clone()),
+            );
+            obj.insert(
+                "resolution_status".to_string(),
+                Value::String(resolve.resolution_status.clone()),
+            );
+            split.metadata = Value::Object(obj);
+            if !has_live_rms_collection {
+                apply_manual_rms_tracking_metadata(&mut split.metadata);
+            }
+        }
+        if !has_live_rms_collection {
+            return Ok(());
+        }
+
+        let checkout_client_id =
+            checkout_client_id.expect("live RMS posting requires checkout_client_id");
         let stable_reference = format!("{checkout_client_id}:payment");
         let idempotency_key = corecard::build_idempotency_key(
             corecard::CoreCardOperationType::Payment,
@@ -1720,29 +1822,6 @@ async fn prepare_live_corecard_postings(
         )
         .await;
         for split in payment_splits.iter_mut() {
-            let mut obj = split.metadata.as_object().cloned().unwrap_or_default();
-            obj.insert("rms_charge_collection".to_string(), Value::Bool(true));
-            obj.insert(
-                "tender_family".to_string(),
-                Value::String(pos_rms_charge::RMS_TENDER_FAMILY.to_string()),
-            );
-            obj.insert(
-                "linked_corecredit_customer_id".to_string(),
-                Value::String(selected_account.corecredit_customer_id.clone()),
-            );
-            obj.insert(
-                "linked_corecredit_account_id".to_string(),
-                Value::String(selected_account.corecredit_account_id.clone()),
-            );
-            obj.insert(
-                "masked_account".to_string(),
-                Value::String(selected_account.masked_account.clone()),
-            );
-            obj.insert(
-                "resolution_status".to_string(),
-                Value::String(resolve.resolution_status.clone()),
-            );
-            split.metadata = Value::Object(obj);
             apply_corecard_result_to_metadata(&mut split.metadata, &idempotency_key, &result);
         }
     }

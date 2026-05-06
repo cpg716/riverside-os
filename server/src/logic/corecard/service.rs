@@ -1,8 +1,10 @@
 use crate::logic::corecard::auth::ensure_access_token;
-use chrono::{Duration, NaiveDate, Utc};
+use crate::logic::integration_credentials;
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use sqlx::{Executor, PgPool, Row};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -13,12 +15,13 @@ use super::models::{
     CoreCardHostMutationResult, CoreCardLiveProgramsResponse, CoreCardLiveSummaryResponse,
     CoreCardMutationRequest, CoreCardOperationType, CoreCardOverviewResponse,
     CoreCardPostingAttemptDraft, CoreCardPostingEvent, CoreCardProgramOption,
-    CoreCardReconciliationItemRow, CoreCardReconciliationResponse, CoreCardReconciliationRunRow,
-    CoreCardSyncHealthResponse, CoreCardUiAccountTransactionRow, CoreCardWebhookOutcome,
-    CustomerCoreCreditAccount, CustomerCoreCreditAccountSnapshot,
-    LinkCustomerCoreCreditAccountRequest, LinkedCoreCreditAccountView, PosResolveAccountRequest,
-    PosResolveAccountResponse, RmsChargeAccountChoice, RmsChargeBlockingError,
-    RmsChargeHistorySummaryRow, RmsChargeRecordDetail, UnlinkCustomerCoreCreditAccountRequest,
+    CoreCardReadinessStatusResponse, CoreCardReconciliationItemRow, CoreCardReconciliationResponse,
+    CoreCardReconciliationRunRow, CoreCardSyncHealthResponse, CoreCardTenantProbeResponse,
+    CoreCardUiAccountTransactionRow, CoreCardWebhookOutcome, CustomerCoreCreditAccount,
+    CustomerCoreCreditAccountSnapshot, LinkCustomerCoreCreditAccountRequest,
+    LinkedCoreCreditAccountView, PosResolveAccountRequest, PosResolveAccountResponse,
+    RmsChargeAccountChoice, RmsChargeBlockingError, RmsChargeHistorySummaryRow,
+    RmsChargeRecordDetail, UnlinkCustomerCoreCreditAccountRequest,
 };
 use super::redaction::{log_corecard_payload, mask_account_identifier};
 use super::{CoreCardConfig, CoreCardError, CoreCardTokenCache};
@@ -30,6 +33,184 @@ fn normalized_status(status: &str) -> String {
     } else {
         trimmed.to_ascii_lowercase()
     }
+}
+
+const CORECARD_REQUIRED_CREDENTIALS: &[&str] = &["base_url", "client_id", "client_secret"];
+const CORECARD_SUPPORTED_CREDENTIALS: &[&str] = &[
+    "base_url",
+    "client_id",
+    "client_secret",
+    "webhook_secret",
+    "merchant_number",
+    "merchant_id",
+    "tenant_probe_path",
+];
+
+fn rms_r2s_reporting_activation_cutoff() -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(super::RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339)
+        .expect("valid RMS R2S reporting activation cutoff")
+        .with_timezone(&Utc)
+}
+const RMS_SOURCE_MANUAL: &str = "manual";
+const RMS_SOURCE_CORECARD_LIVE: &str = "corecard_live";
+
+fn clean_config_value(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.trim_end_matches('/').to_string())
+}
+
+fn active_config_values(config: &CoreCardConfig) -> HashMap<String, String> {
+    [
+        ("base_url", clean_config_value(Some(&config.base_url))),
+        ("client_id", clean_config_value(config.client_id.as_deref())),
+        (
+            "client_secret",
+            clean_config_value(config.client_secret.as_deref()),
+        ),
+        (
+            "webhook_secret",
+            clean_config_value(config.webhook_secret.as_deref()),
+        ),
+        (
+            "merchant_number",
+            clean_config_value(config.merchant_number.as_deref()),
+        ),
+        (
+            "merchant_id",
+            clean_config_value(config.merchant_id.as_deref()),
+        ),
+        (
+            "tenant_probe_path",
+            clean_config_value(Some(&config.tenant_probe_path)),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(key, value)| value.map(|value| (key.to_string(), value)))
+    .collect()
+}
+
+fn saved_credentials_complete(saved: &HashMap<String, String>) -> bool {
+    CORECARD_REQUIRED_CREDENTIALS.iter().all(|key| {
+        saved
+            .get(*key)
+            .is_some_and(|value| !value.trim().is_empty())
+    })
+}
+
+fn saved_credentials_match_runtime(
+    saved: &HashMap<String, String>,
+    active: &HashMap<String, String>,
+) -> bool {
+    CORECARD_SUPPORTED_CREDENTIALS.iter().all(|key| {
+        let saved_value = saved
+            .get(*key)
+            .map(|value| value.trim().trim_end_matches('/'));
+        let active_value = active
+            .get(*key)
+            .map(|value| value.trim().trim_end_matches('/'));
+        saved_value == active_value || saved_value.is_none()
+    })
+}
+
+async fn load_saved_corecard_credentials(db: &PgPool) -> HashMap<String, String> {
+    integration_credentials::load_integration_credentials(
+        db,
+        "corecard",
+        CORECARD_SUPPORTED_CREDENTIALS,
+    )
+    .await
+    .unwrap_or_default()
+}
+
+async fn corecard_credential_source(db: &PgPool, config: &CoreCardConfig) -> String {
+    let saved = load_saved_corecard_credentials(db).await;
+    let active = active_config_values(config);
+    if saved_credentials_complete(&saved) && saved_credentials_match_runtime(&saved, &active) {
+        "encrypted_settings".to_string()
+    } else if config.is_configured() {
+        "env".to_string()
+    } else {
+        "missing".to_string()
+    }
+}
+
+pub async fn live_corecard_posting_ready(db: &PgPool) -> Result<bool, CoreCardError> {
+    let last_corecard_request_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+        r#"
+        SELECT MAX(GREATEST(
+            COALESCE(last_balance_sync_at, '-infinity'::timestamptz),
+            COALESCE(last_status_sync_at, '-infinity'::timestamptz),
+            COALESCE(last_transactions_sync_at, '-infinity'::timestamptz)
+        ))
+        FROM customer_corecredit_accounts
+        WHERE last_sync_error IS NULL
+          AND (
+              last_balance_sync_at IS NOT NULL
+              OR last_status_sync_at IS NOT NULL
+              OR last_transactions_sync_at IS NOT NULL
+          )
+        "#,
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    Ok(last_corecard_request_at.is_some())
+}
+
+fn annotate_program(
+    mut program: CoreCardProgramOption,
+    source: &str,
+    fallback_used: bool,
+    warning_code: Option<&str>,
+    credential_source: &str,
+    last_corecard_request_at: Option<DateTime<Utc>>,
+) -> CoreCardProgramOption {
+    program.source = source.to_string();
+    program.fallback_used = fallback_used;
+    program.warning_code = warning_code.map(str::to_string);
+    program.credential_source = Some(credential_source.to_string());
+    program.last_corecard_request_at = last_corecard_request_at;
+    program
+}
+
+pub fn mask_corecard_base_url(base_url: &str) -> Option<String> {
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let parsed = reqwest::Url::parse(trimmed).ok()?;
+    let host = parsed.host_str().unwrap_or_default();
+    let masked_host = mask_account_identifier(host);
+    let port = parsed
+        .port()
+        .map(|port| format!(":{port}"))
+        .unwrap_or_default();
+    let path = parsed.path().trim_end_matches('/');
+    let path = if path.is_empty() || path == "/" {
+        ""
+    } else {
+        path
+    };
+    Some(format!(
+        "{}://{}{}{}",
+        parsed.scheme(),
+        masked_host,
+        port,
+        path
+    ))
+}
+
+fn merchant_scope_configured(config: &CoreCardConfig) -> bool {
+    config
+        .merchant_number
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        && config
+            .merchant_id
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
 }
 
 pub fn account_is_selectable(status: &str) -> bool {
@@ -557,6 +738,7 @@ pub async fn programs_for_account(
     customer_id: Uuid,
     account_id: &str,
 ) -> Result<Vec<CoreCardProgramOption>, CoreCardError> {
+    let credential_source = corecard_credential_source(db, config).await;
     let linked = list_customer_accounts(db, customer_id).await?;
     let Some(link) = linked
         .iter()
@@ -565,10 +747,12 @@ pub async fn programs_for_account(
         return Err(CoreCardError::AccountNotFound);
     };
 
+    let mut last_corecard_request_at = None;
     if let (Some(token), Some(url)) = (
         ensure_access_token(http_client, config, token_cache).await?,
         config.account_programs_url(account_id),
     ) {
+        last_corecard_request_at = Some(Utc::now());
         let response = http_client
             .get(url)
             .timeout(std::time::Duration::from_secs(config.timeout_secs))
@@ -584,7 +768,20 @@ pub async fn programs_for_account(
                 log_corecard_payload(config, "inbound", "accounts.programs", &body);
                 if let Ok(parsed) = serde_json::from_value::<CoreCardLiveProgramsResponse>(body) {
                     if !parsed.programs.is_empty() {
-                        return Ok(parsed.programs);
+                        return Ok(parsed
+                            .programs
+                            .into_iter()
+                            .map(|program| {
+                                annotate_program(
+                                    program,
+                                    RMS_SOURCE_CORECARD_LIVE,
+                                    false,
+                                    None,
+                                    &credential_source,
+                                    last_corecard_request_at,
+                                )
+                            })
+                            .collect());
                     }
                 }
             }
@@ -596,6 +793,11 @@ pub async fn programs_for_account(
         program_label: "Standard".to_string(),
         eligible: account_is_selectable(&link.status),
         disclosure: Some("Primary revolving RMS Charge program.".to_string()),
+        source: String::new(),
+        fallback_used: false,
+        warning_code: None,
+        credential_source: None,
+        last_corecard_request_at: None,
     }];
 
     let group = link
@@ -611,10 +813,27 @@ pub async fn programs_for_account(
             disclosure: Some(
                 "Promotional 90-day financing selection captured for later posting.".to_string(),
             ),
+            source: String::new(),
+            fallback_used: false,
+            warning_code: None,
+            credential_source: None,
+            last_corecard_request_at: None,
         });
     }
 
-    Ok(programs)
+    Ok(programs
+        .into_iter()
+        .map(|program| {
+            annotate_program(
+                program,
+                RMS_SOURCE_MANUAL,
+                false,
+                None,
+                &credential_source,
+                last_corecard_request_at,
+            )
+        })
+        .collect())
 }
 
 pub async fn recent_history_for_customer(
@@ -656,6 +875,7 @@ pub async fn account_summary_for_customer(
     customer_id: Uuid,
     account_id: &str,
 ) -> Result<CoreCardAccountSummary, CoreCardError> {
+    let credential_source = corecard_credential_source(db, config).await;
     let linked = list_customer_accounts(db, customer_id).await?;
     let Some(link) = linked
         .iter()
@@ -672,14 +892,20 @@ pub async fn account_summary_for_customer(
         available_credit: None,
         current_balance: None,
         resolution_status: Some("linked_account".to_string()),
-        source: "linked_account".to_string(),
+        source: RMS_SOURCE_MANUAL.to_string(),
+        fallback_used: false,
+        warning_code: None,
+        credential_source: Some(credential_source.clone()),
+        last_corecard_request_at: None,
         recent_history: Vec::new(),
     };
 
+    let mut last_corecard_request_at = None;
     if let (Some(token), Some(url)) = (
         ensure_access_token(http_client, config, token_cache).await?,
         config.account_summary_url(account_id),
     ) {
+        last_corecard_request_at = Some(Utc::now());
         let response = http_client
             .get(url)
             .timeout(std::time::Duration::from_secs(config.timeout_secs))
@@ -694,26 +920,65 @@ pub async fn account_summary_for_customer(
                 let body: Value = response.json().await.unwrap_or(Value::Null);
                 log_corecard_payload(config, "inbound", "accounts.summary", &body);
                 if let Ok(parsed) = serde_json::from_value::<CoreCardLiveSummaryResponse>(body) {
+                    let mut live_fields_seen = false;
                     if let Some(masked) = parsed.masked_account {
                         summary.masked_account = masked;
+                        live_fields_seen = true;
                     }
                     summary.available_credit = parsed.available_credit;
                     summary.current_balance = parsed.current_balance;
                     if let Some(status) = parsed.account_status {
                         summary.account_status = normalized_status(&status);
+                        live_fields_seen = true;
+                    }
+                    if summary.available_credit.is_some() || summary.current_balance.is_some() {
+                        live_fields_seen = true;
                     }
                     summary.resolution_status =
                         parsed.resolution_status.or(summary.resolution_status);
-                    summary.source = "corecard_live".to_string();
+                    if live_fields_seen {
+                        summary.source = RMS_SOURCE_CORECARD_LIVE.to_string();
+                        summary.fallback_used = false;
+                        summary.warning_code = None;
+                        summary.last_corecard_request_at = last_corecard_request_at;
+                        sqlx::query(
+                            r#"
+                            UPDATE customer_corecredit_accounts
+                            SET
+                                status = $3,
+                                available_credit_snapshot = $4,
+                                current_balance_snapshot = $5,
+                                last_balance_sync_at = now(),
+                                last_status_sync_at = now(),
+                                last_sync_error = NULL,
+                                updated_at = now()
+                            WHERE id = $1 AND customer_id = $2
+                            "#,
+                        )
+                        .bind(link.id)
+                        .bind(customer_id)
+                        .bind(&summary.account_status)
+                        .bind(summary.available_credit.as_deref())
+                        .bind(summary.current_balance.as_deref())
+                        .execute(db)
+                        .await?;
+                    }
                 }
             } else {
                 tracing::warn!(
                     status = %response.status(),
                     account_id,
-                    "corecard summary request returned non-success; falling back to linked account data"
+                    "corecard summary request returned non-success; using manual RMS account data"
                 );
             }
         }
+    }
+
+    if summary.source != RMS_SOURCE_CORECARD_LIVE {
+        summary.source = RMS_SOURCE_MANUAL.to_string();
+        summary.fallback_used = false;
+        summary.warning_code = None;
+        summary.last_corecard_request_at = last_corecard_request_at;
     }
 
     Ok(summary)
@@ -762,6 +1027,10 @@ pub async fn account_balances_for_customer(
         current_balance: summary.current_balance,
         last_host_reference,
         source: summary.source,
+        fallback_used: summary.fallback_used,
+        warning_code: summary.warning_code,
+        credential_source: summary.credential_source,
+        last_corecard_request_at: summary.last_corecard_request_at,
     })
 }
 
@@ -773,6 +1042,7 @@ pub async fn account_transactions_for_customer(
     customer_id: Uuid,
     account_id: &str,
 ) -> Result<CoreCardAccountTransactionsResponse, CoreCardError> {
+    let credential_source = corecard_credential_source(db, config).await;
     let linked = list_customer_accounts(db, customer_id).await?;
     let Some(link) = linked
         .iter()
@@ -781,10 +1051,12 @@ pub async fn account_transactions_for_customer(
         return Err(CoreCardError::AccountNotFound);
     };
 
+    let mut last_corecard_request_at = None;
     if let (Some(token), Some(url)) = (
         ensure_access_token(http_client, config, token_cache).await?,
         config.account_transactions_url(account_id),
     ) {
+        last_corecard_request_at = Some(Utc::now());
         let response = http_client
             .get(url)
             .timeout(std::time::Duration::from_secs(config.timeout_secs))
@@ -820,10 +1092,28 @@ pub async fn account_transactions_for_customer(
                                 .or_else(|| metadata_text(row, "host_reference")),
                         })
                         .collect();
+                    sqlx::query(
+                        r#"
+                        UPDATE customer_corecredit_accounts
+                        SET
+                            last_transactions_sync_at = now(),
+                            last_sync_error = NULL,
+                            updated_at = now()
+                        WHERE id = $1 AND customer_id = $2
+                        "#,
+                    )
+                    .bind(link.id)
+                    .bind(customer_id)
+                    .execute(db)
+                    .await?;
                     return Ok(CoreCardAccountTransactionsResponse {
                         account_id: link.corecredit_account_id.clone(),
                         masked_account: mask_account_identifier(&link.corecredit_account_id),
-                        source: "corecard_live".to_string(),
+                        source: RMS_SOURCE_CORECARD_LIVE.to_string(),
+                        fallback_used: false,
+                        warning_code: None,
+                        credential_source: Some(credential_source),
+                        last_corecard_request_at,
                         rows: mapped,
                     });
                 }
@@ -857,7 +1147,11 @@ pub async fn account_transactions_for_customer(
     Ok(CoreCardAccountTransactionsResponse {
         account_id: link.corecredit_account_id.clone(),
         masked_account: mask_account_identifier(&link.corecredit_account_id),
-        source: "riverside_history".to_string(),
+        source: RMS_SOURCE_MANUAL.to_string(),
+        fallback_used: false,
+        warning_code: None,
+        credential_source: Some(credential_source),
+        last_corecard_request_at,
         rows,
     })
 }
@@ -899,6 +1193,25 @@ pub async fn get_rms_charge_record_detail(
             r.idempotency_key,
             r.external_transaction_type,
             r.host_reference,
+            COALESCE(
+                r.metadata_json->>'rms_charge_source',
+                r.metadata_json->>'source_mode',
+                CASE
+                    WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                    ELSE 'manual'
+                END
+            ) AS source_mode,
+            r2s.reporting_required AS r2s_reporting_required,
+            r2s.report_status AS r2s_report_status,
+            r2s.due_at AS r2s_report_due_at,
+            (NULLIF(r.metadata_json->>'r2s_reported_at', ''))::timestamptz AS r2s_reported_at,
+            CASE
+                WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+                THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+                ELSE NULL
+            END AS r2s_reported_by_staff_id,
+            rs.full_name AS r2s_reported_by_name,
+            NULLIF(r.metadata_json->>'r2s_report_note', '') AS r2s_report_note,
             r.metadata_json,
             r.host_metadata_json,
             r.request_snapshot_json,
@@ -909,10 +1222,42 @@ pub async fn get_rms_charge_record_detail(
         FROM pos_rms_charge_record r
         LEFT JOIN customers c ON c.id = r.customer_id
         LEFT JOIN staff s ON s.id = r.operator_staff_id
+        LEFT JOIN staff rs ON rs.id = CASE
+            WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+            THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+            ELSE NULL
+        END
+        CROSS JOIN LATERAL (
+            SELECT
+                (
+                    lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                    OR r.metadata_json ? 'r2s_report_status'
+                    OR r.created_at >= $2
+                ) AS reporting_required,
+                CASE
+                    WHEN (
+                        lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                        OR r.metadata_json ? 'r2s_report_status'
+                        OR r.created_at >= $2
+                    )
+                    THEN COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported')
+                    ELSE 'not_required'
+                END AS report_status,
+                CASE
+                    WHEN (
+                        lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                        OR r.metadata_json ? 'r2s_report_status'
+                        OR r.created_at >= $2
+                    )
+                    THEN COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day')
+                    ELSE r.created_at
+                END AS due_at
+        ) r2s
         WHERE r.id = $1
         "#,
     )
     .bind(record_id)
+    .bind(rms_r2s_reporting_activation_cutoff())
     .fetch_one(db)
     .await?;
     Ok(row)
@@ -1284,6 +1629,10 @@ fn mutation_payload(request: &CoreCardMutationRequest) -> Value {
                 .map(|id| Value::String(id.to_string()))
                 .unwrap_or(Value::Null),
         );
+        obj.insert(
+            "rms_charge_source".to_string(),
+            Value::String(RMS_SOURCE_CORECARD_LIVE.to_string()),
+        );
     }
 
     json!({
@@ -1319,6 +1668,11 @@ async fn post_mutation_with_persistence(
             "amount must be positive".to_string(),
         ));
     }
+    if !live_corecard_posting_ready(db).await? {
+        return Err(CoreCardError::InvalidRequest(
+            "Live CoreCard posting is not enabled for this RMS Charge workflow.".to_string(),
+        ));
+    }
 
     let draft = CoreCardPostingAttemptDraft {
         idempotency_key: request.idempotency_key.clone(),
@@ -1333,6 +1687,7 @@ async fn post_mutation_with_persistence(
         host_metadata_json: json!({
             "account": mask_account_identifier(&request.linked_corecredit_account_id),
             "operation_type": operation_type.as_str(),
+            "rms_charge_source": RMS_SOURCE_CORECARD_LIVE,
         }),
     };
     let existing = persist_posting_attempt_start(db, &draft).await?;
@@ -1777,12 +2132,22 @@ pub async fn list_program_catalog(
             program_label: "Standard".to_string(),
             eligible: true,
             disclosure: Some("Primary RMS Charge financing program.".to_string()),
+            source: RMS_SOURCE_MANUAL.to_string(),
+            fallback_used: false,
+            warning_code: None,
+            credential_source: None,
+            last_corecard_request_at: None,
         },
         CoreCardProgramOption {
             program_code: "rms90".to_string(),
             program_label: "RMS 90".to_string(),
             eligible: true,
             disclosure: Some("Promotional 90-day financing program.".to_string()),
+            source: RMS_SOURCE_MANUAL.to_string(),
+            fallback_used: false,
+            warning_code: None,
+            credential_source: None,
+            last_corecard_request_at: None,
         },
     ];
     for (program_code, program_label) in rows {
@@ -1793,6 +2158,11 @@ pub async fn list_program_catalog(
                     program_label: program_label.unwrap_or_else(|| "Program".to_string()),
                     eligible: true,
                     disclosure: None,
+                    source: RMS_SOURCE_MANUAL.to_string(),
+                    fallback_used: false,
+                    warning_code: None,
+                    credential_source: None,
+                    last_corecard_request_at: None,
                 });
             }
         }
@@ -1846,6 +2216,256 @@ pub async fn collect_sync_health(db: &PgPool) -> Result<CoreCardSyncHealthRespon
         failed_webhook_count,
         stale_account_count,
     })
+}
+
+pub async fn collect_readiness_status(
+    db: &PgPool,
+    config: &CoreCardConfig,
+) -> Result<CoreCardReadinessStatusResponse, CoreCardError> {
+    let configured_keys = integration_credentials::configured_integration_credentials(
+        db,
+        "corecard",
+        CORECARD_SUPPORTED_CREDENTIALS,
+    )
+    .await
+    .unwrap_or_default();
+    let configured: HashMap<String, bool> = CORECARD_SUPPORTED_CREDENTIALS
+        .iter()
+        .map(|key| (key.to_string(), configured_keys.contains(*key)))
+        .collect();
+    let credentials_saved = CORECARD_REQUIRED_CREDENTIALS
+        .iter()
+        .all(|key| configured.get(*key).copied().unwrap_or(false));
+
+    let saved = load_saved_corecard_credentials(db).await;
+    let active = active_config_values(config);
+    let runtime_config_loaded = config.is_configured();
+    let credential_source =
+        if saved_credentials_complete(&saved) && saved_credentials_match_runtime(&saved, &active) {
+            "encrypted_settings".to_string()
+        } else if runtime_config_loaded {
+            "env".to_string()
+        } else {
+            "missing".to_string()
+        };
+    let restart_required = credentials_saved
+        && saved_credentials_complete(&saved)
+        && !saved_credentials_match_runtime(&saved, &active);
+
+    let last_corecard_request_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+        r#"
+        SELECT MAX(GREATEST(
+            COALESCE(last_balance_sync_at, '-infinity'::timestamptz),
+            COALESCE(last_status_sync_at, '-infinity'::timestamptz),
+            COALESCE(last_transactions_sync_at, '-infinity'::timestamptz)
+        ))
+        FROM customer_corecredit_accounts
+        WHERE last_sync_error IS NULL
+          AND (
+              last_balance_sync_at IS NOT NULL
+              OR last_status_sync_at IS NOT NULL
+              OR last_transactions_sync_at IS NOT NULL
+          )
+        "#,
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    let sync_health = collect_sync_health(db).await?;
+
+    let mut warning_codes = Vec::new();
+    if !credentials_saved {
+        warning_codes.push("corecard_credentials_missing".to_string());
+    }
+    if !runtime_config_loaded {
+        warning_codes.push("corecard_runtime_config_missing".to_string());
+    }
+    if !merchant_scope_configured(config) {
+        warning_codes.push("corecard_merchant_scope_missing".to_string());
+    }
+    if restart_required {
+        warning_codes.push("corecard_restart_required".to_string());
+    }
+    if config.webhook_allow_unsigned {
+        warning_codes.push("corecard_webhook_unsigned_enabled".to_string());
+    }
+    if last_corecard_request_at.is_none() {
+        warning_codes.push("corecard_live_read_not_confirmed".to_string());
+    }
+    let tenant_probe_path_configured = configured
+        .get("tenant_probe_path")
+        .copied()
+        .unwrap_or(false);
+
+    Ok(CoreCardReadinessStatusResponse {
+        credentials_saved,
+        configured,
+        credential_source,
+        runtime_config_loaded,
+        restart_required,
+        live_read_confirmed: last_corecard_request_at.is_some(),
+        warning_codes,
+        environment: config.environment.clone(),
+        region: config.region.clone(),
+        masked_base_url: mask_corecard_base_url(&config.base_url),
+        merchant_number: config.merchant_number.clone(),
+        merchant_id: config.merchant_id.clone(),
+        tenant_probe_path_configured,
+        webhook_secret_configured: config.webhook_secret.is_some(),
+        webhook_unsigned_allowed: config.webhook_allow_unsigned,
+        repair_polling_enabled: config.repair_poll_secs >= 60,
+        repair_poll_secs: config.repair_poll_secs,
+        last_repair_poll_at: sync_health.last_repair_poll_at,
+        last_corecard_request_at,
+    })
+}
+
+pub async fn probe_corecard_tenant(
+    http_client: &reqwest::Client,
+    config: &CoreCardConfig,
+    token_cache: &Arc<Mutex<CoreCardTokenCache>>,
+) -> Result<CoreCardTenantProbeResponse, CoreCardError> {
+    let last_checked_at = Utc::now();
+    let runtime_loaded = config.is_configured();
+    let merchant_scope_loaded = merchant_scope_configured(config);
+    let configured = runtime_loaded && merchant_scope_loaded;
+    let masked_base_url = mask_corecard_base_url(&config.base_url);
+    let mut warning_codes = Vec::new();
+
+    if !runtime_loaded {
+        warning_codes.push("corecard_runtime_config_missing".to_string());
+    }
+    if !merchant_scope_loaded {
+        warning_codes.push("corecard_merchant_scope_missing".to_string());
+    }
+
+    if !configured {
+        return Ok(CoreCardTenantProbeResponse {
+            configured,
+            runtime_loaded,
+            merchant_number: config.merchant_number.clone(),
+            merchant_id: config.merchant_id.clone(),
+            source: "unavailable".to_string(),
+            last_checked_at,
+            masked_base_url,
+            api_host_reachable: false,
+            read_call_succeeded: false,
+            warning_codes,
+        });
+    }
+
+    let token = match ensure_access_token(http_client, config, token_cache).await {
+        Ok(Some(token)) => token,
+        Ok(None) => {
+            warning_codes.push("corecard_auth_not_configured".to_string());
+            return Ok(CoreCardTenantProbeResponse {
+                configured,
+                runtime_loaded,
+                merchant_number: config.merchant_number.clone(),
+                merchant_id: config.merchant_id.clone(),
+                source: "unavailable".to_string(),
+                last_checked_at,
+                masked_base_url,
+                api_host_reachable: false,
+                read_call_succeeded: false,
+                warning_codes,
+            });
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "corecard tenant probe token request failed");
+            warning_codes.push("corecard_token_request_failed".to_string());
+            return Ok(CoreCardTenantProbeResponse {
+                configured,
+                runtime_loaded,
+                merchant_number: config.merchant_number.clone(),
+                merchant_id: config.merchant_id.clone(),
+                source: "unavailable".to_string(),
+                last_checked_at,
+                masked_base_url,
+                api_host_reachable: false,
+                read_call_succeeded: false,
+                warning_codes,
+            });
+        }
+    };
+
+    let Some(url) = config.tenant_probe_url() else {
+        warning_codes.push("corecard_tenant_probe_url_missing".to_string());
+        return Ok(CoreCardTenantProbeResponse {
+            configured,
+            runtime_loaded,
+            merchant_number: config.merchant_number.clone(),
+            merchant_id: config.merchant_id.clone(),
+            source: "unavailable".to_string(),
+            last_checked_at,
+            masked_base_url,
+            api_host_reachable: true,
+            read_call_succeeded: false,
+            warning_codes,
+        });
+    };
+
+    let merchant_number = config.merchant_number.as_deref().unwrap_or_default();
+    let merchant_id = config.merchant_id.as_deref().unwrap_or_default();
+    let response = http_client
+        .get(url)
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .bearer_auth(token)
+        .header("x-riverside-corecard-region", &config.region)
+        .header("x-riverside-corecard-environment", &config.environment)
+        .header("x-riverside-corecard-merchant-number", merchant_number)
+        .header("x-riverside-corecard-merchant-id", merchant_id)
+        .header("x-corecard-merchant-number", merchant_number)
+        .header("x-corecard-merchant-id", merchant_id)
+        .send()
+        .await;
+
+    match response {
+        Ok(response) => {
+            let status = response.status();
+            let api_host_reachable = true;
+            let body: Value = response.json().await.unwrap_or(Value::Null);
+            log_corecard_payload(config, "inbound", "tenant.probe", &body);
+            let success_flag = metadata_bool(&body, "success");
+            let read_call_succeeded = status.is_success() && success_flag != Some(false);
+            if !read_call_succeeded {
+                tracing::warn!(status = %status, "corecard tenant probe read failed");
+                warning_codes.push("corecard_tenant_read_failed".to_string());
+            }
+            Ok(CoreCardTenantProbeResponse {
+                configured,
+                runtime_loaded,
+                merchant_number: config.merchant_number.clone(),
+                merchant_id: config.merchant_id.clone(),
+                source: if read_call_succeeded {
+                    "corecard_live".to_string()
+                } else {
+                    "unavailable".to_string()
+                },
+                last_checked_at,
+                masked_base_url,
+                api_host_reachable,
+                read_call_succeeded,
+                warning_codes,
+            })
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "corecard tenant probe read request failed");
+            warning_codes.push("corecard_tenant_read_request_failed".to_string());
+            Ok(CoreCardTenantProbeResponse {
+                configured,
+                runtime_loaded,
+                merchant_number: config.merchant_number.clone(),
+                merchant_id: config.merchant_id.clone(),
+                source: "unavailable".to_string(),
+                last_checked_at,
+                masked_base_url,
+                api_host_reachable: false,
+                read_call_succeeded: false,
+                warning_codes,
+            })
+        }
+    }
 }
 
 pub async fn fetch_overview(
@@ -1910,6 +2530,14 @@ pub async fn fetch_overview(
             r.idempotency_key,
             r.external_transaction_type,
             r.host_reference,
+            COALESCE(
+                r.metadata_json->>'rms_charge_source',
+                r.metadata_json->>'source_mode',
+                CASE
+                    WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                    ELSE 'manual'
+                END
+            ) AS source_mode,
             COALESCE(r.metadata_json, '{}'::jsonb) AS metadata_json,
             COALESCE(r.host_metadata_json, '{}'::jsonb) AS host_metadata_json,
             COALESCE(r.request_snapshot_json, '{}'::jsonb) AS request_snapshot_json,
@@ -1933,12 +2561,12 @@ pub async fn fetch_overview(
         r#"
         SELECT
             COALESCE(program_code, 'legacy') AS program_code,
-            COALESCE(program_label, 'Legacy / Manual') AS program_label,
+            COALESCE(program_label, 'Manual RMS Charge') AS program_label,
             COUNT(*) AS row_count,
             COALESCE(SUM(amount), 0) AS total_amount
         FROM pos_rms_charge_record
         WHERE ($1::uuid IS NULL OR customer_id = $1)
-        GROUP BY COALESCE(program_code, 'legacy'), COALESCE(program_label, 'Legacy / Manual')
+        GROUP BY COALESCE(program_code, 'legacy'), COALESCE(program_label, 'Manual RMS Charge')
         ORDER BY total_amount DESC, row_count DESC
         LIMIT 12
         "#,
@@ -2206,7 +2834,7 @@ fn qbo_support_value_for_record(
     } else {
         json!({
             "expected_clearing_account": null,
-            "accounting_treatment": "legacy_or_manual",
+            "accounting_treatment": "manual_rms_charge_review",
             "payment_method": payment_method,
         })
     }
@@ -2270,6 +2898,14 @@ pub async fn run_reconciliation(
             COALESCE(posting_status, 'legacy') AS posting_status,
             external_transaction_id,
             host_reference,
+            COALESCE(
+                metadata_json->>'rms_charge_source',
+                metadata_json->>'source_mode',
+                CASE
+                    WHEN external_transaction_id IS NOT NULL OR host_reference IS NOT NULL THEN 'corecard_live'
+                    ELSE 'manual'
+                END
+            ) AS source_mode,
             linked_corecredit_account_id
         FROM pos_rms_charge_record
         WHERE created_at >= $1 AND created_at < $2
@@ -2288,6 +2924,7 @@ pub async fn run_reconciliation(
         let posting_status = row.get::<String, _>("posting_status");
         let external_transaction_id = row.get::<Option<String>, _>("external_transaction_id");
         let host_reference = row.get::<Option<String>, _>("host_reference");
+        let source_mode = row.get::<String, _>("source_mode");
         let payment_method = row.get::<String, _>("payment_method");
         let record_kind = row.get::<String, _>("record_kind");
         let tender_family = row.get::<Option<String>, _>("tender_family");
@@ -2297,7 +2934,8 @@ pub async fn run_reconciliation(
             Some(("posting_failed", "high", true))
         } else if posting_status == "pending" {
             Some(("posting_pending", "medium", true))
-        } else if posting_status == "posted"
+        } else if source_mode == RMS_SOURCE_CORECARD_LIVE
+            && posting_status == "posted"
             && external_transaction_id
                 .as_deref()
                 .unwrap_or("")
@@ -2343,6 +2981,7 @@ pub async fn run_reconciliation(
                 "posting_status": posting_status,
                 "external_transaction_id": external_transaction_id,
                 "host_reference": host_reference,
+                "source_mode": source_mode,
                 "record_kind": record_kind,
                 "amount": row.get::<Decimal, _>("amount").to_string(),
             }))
@@ -2545,6 +3184,27 @@ pub async fn run_repair_poll(
                     &account.corecredit_account_id,
                 )
                 .await?;
+                if summary.source != "corecard_live" || transactions.source != "corecard_live" {
+                    let warning = summary
+                        .warning_code
+                        .clone()
+                        .or_else(|| transactions.warning_code.clone())
+                        .unwrap_or_else(|| "corecard_live_read_not_confirmed".to_string());
+                    sqlx::query(
+                        r#"
+                        UPDATE customer_corecredit_accounts
+                        SET last_sync_error = $2, updated_at = now()
+                        WHERE id = $1
+                        "#,
+                    )
+                    .bind(account.id)
+                    .bind(format!(
+                        "CoreCard live read not confirmed during repair poll ({warning})."
+                    ))
+                    .execute(db)
+                    .await?;
+                    continue;
+                }
                 sqlx::query(
                     r#"
                     UPDATE customer_corecredit_accounts
@@ -2743,6 +3403,41 @@ mod tests {
     }
 
     #[test]
+    fn masked_corecard_base_url_does_not_expose_full_host() {
+        let masked = mask_corecard_base_url("https://tenant-corecard.example.com/api")
+            .expect("url should mask");
+        assert!(masked.starts_with("https://"));
+        assert!(masked.ends_with("/api"));
+        assert!(!masked.contains("tenant-corecard.example.com"));
+    }
+
+    #[test]
+    fn tenant_probe_url_uses_configured_merchant_scope() {
+        let config = CoreCardConfig {
+            base_url: "https://corecard.example.test/api".to_string(),
+            client_id: Some("client".to_string()),
+            client_secret: Some("secret".to_string()),
+            region: "us".to_string(),
+            environment: "sandbox".to_string(),
+            timeout_secs: 5,
+            log_payloads: false,
+            redaction_mode: super::super::CoreCardRedactionMode::Standard,
+            webhook_secret: None,
+            merchant_number: Some("12115".to_string()),
+            merchant_id: Some("11324".to_string()),
+            tenant_probe_path: "/institutions/r2s/merchants/{merchant_number}/{merchant_id}"
+                .to_string(),
+            webhook_allow_unsigned: true,
+            repair_poll_secs: 900,
+            snapshot_retention_days: 30,
+        };
+        assert_eq!(
+            config.tenant_probe_url().as_deref(),
+            Some("https://corecard.example.test/api/institutions/r2s/merchants/12115/11324")
+        );
+    }
+
+    #[test]
     fn qbo_support_value_uses_rms_clearing_accounts() {
         let purchase = qbo_support_value_for_record("charge", Some("rms_charge"), "rms_charge");
         let payment = qbo_support_value_for_record("payment", None, "cash");
@@ -2796,6 +3491,9 @@ mod tests {
             log_payloads: false,
             redaction_mode: super::super::CoreCardRedactionMode::Standard,
             webhook_secret: None,
+            merchant_number: Some("12115".to_string()),
+            merchant_id: Some("11324".to_string()),
+            tenant_probe_path: "/merchants/{merchant_id}/status".to_string(),
             webhook_allow_unsigned: true,
             repair_poll_secs: 900,
             snapshot_retention_days: 30,
@@ -2854,6 +3552,9 @@ mod tests {
             log_payloads: false,
             redaction_mode: super::super::CoreCardRedactionMode::Standard,
             webhook_secret: None,
+            merchant_number: Some("12115".to_string()),
+            merchant_id: Some("11324".to_string()),
+            tenant_probe_path: "/merchants/{merchant_id}/status".to_string(),
             webhook_allow_unsigned: true,
             repair_poll_secs: 900,
             snapshot_retention_days: 30,

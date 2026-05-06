@@ -897,6 +897,7 @@ export default function CustomersWorkspace({
       !hasPermission("customers.rms_charge.view") &&
       !hasPermission("customers.rms_charge.manage_links") &&
       !hasPermission("customers.rms_charge.reporting") &&
+      !hasPermission("rms_charge.report_to_r2s") &&
       !hasPermission("customers.rms_charge.resolve_exceptions") &&
       !hasPermission("customers.rms_charge.reconcile") &&
       !hasPermission("pos.rms_charge.use") &&

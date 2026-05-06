@@ -1,8 +1,8 @@
 # CoreCard Sandbox / Live Validation Runbook
 
-This runbook is the operational checklist for validating the existing RiversideOS RMS Charge / CoreCredit / CoreCard integration against a real CoreCard sandbox or live tenant.
+This runbook is the operational checklist for validating optional RiversideOS RMS Charge / CoreCredit / CoreCard live API automation against a real CoreCard sandbox or live tenant.
 
-It is intentionally narrow. It does not redesign the integration and it does not replace the fake-host E2E suite.
+It is intentionally narrow. It does not redesign the integration, does not replace the fake-host E2E suite, and is not required for the launch/default manual RMS Charge workflow.
 
 ## Purpose
 
@@ -20,16 +20,68 @@ What is already validated locally:
 - program-specific receipt wording
 - legacy RMS / RMS90 history compatibility
 
-What still must be validated against real CoreCard behavior:
+What still must be validated before enabling future live CoreCard API automation:
 
 - real token acquisition against the tenant
 - real account summary, balances, transactions, and program eligibility payloads
-- real host posting behavior for purchase, payment, refund, and reversal
+- real host posting behavior for purchase, payment, refund, and reversal if those live paths are activated
 - real webhook delivery and verification behavior
-- polling fallback when webhook delivery is delayed or missed
+- repair polling when webhook delivery is delayed or missed
 - real-world timeout / retry / bad-credential failure behavior
 - operator-facing results with tenant-specific programs and account states
-- Riverside-visible QBO support artifacts under real host references
+- Riverside-visible QBO support artifacts under real host references if live posting is activated
+
+## Launch mode and live proof indicators
+
+Manual RMS Charge is the launch/default workflow. Staff can process an `RMS Charge Sale`, record an `RMS Charge Payment`, select a `Program`, choose the `Account`, and enter a `Reference Number` without a live CoreCard API post.
+
+Do not treat a loaded RMS Charge screen as live CoreCard proof. Account links,
+program names, balances, and history can be shown from Riverside manual records
+and linked-account data. That is valid for manual RMS Charge operations, but it
+is not proof that live CoreCard API automation is enabled.
+
+Acceptable signs of real CoreCard usage:
+
+- Settings → CoreCard shows **Runtime config: Loaded**.
+- Settings → CoreCard shows **Restart state: Current** after the latest
+  credential save.
+- Settings → CoreCard → **Run Probe** returns **Tenant probe: Live CoreCard read
+  confirmed** for Riverside merchant scope.
+- The read-only probe response from `GET /api/settings/corecard/tenant-probe`
+  includes:
+  - `configured: true`
+  - `runtime_loaded: true`
+  - `merchant_number: "12115"`
+  - `merchant_id: "11324"`
+  - `source: "corecard_live"`
+  - `api_host_reachable: true`
+  - `read_call_succeeded: true`
+- The selected RMS Charge account/program response shows `source: corecard_live`
+  during account validation.
+- The response includes `credential_source: encrypted_settings` or an approved
+  deployment env source for the validation window.
+- The displayed CoreCard host is masked and points at the expected sandbox/live
+  tenant.
+- `last_corecard_request_at` or `last_repair_poll_at` moves forward during the
+  validation window.
+- CoreCard tenant logs show the matching token/read call, and post calls only
+  for explicitly approved live-post validation.
+
+Do not enable live CoreCard API posting when any of these are true:
+
+- RMS Charge responses show only `source: manual`
+- `warning_code: corecard_config_missing`
+- `warning_code: corecard_live_request_failed`
+- `warning_code: corecard_live_empty_response`
+- Settings → CoreCard shows **Not live-verified yet**
+- Settings → CoreCard shows **Restart required**
+- Settings → CoreCard → **Run Probe** returns `source: unavailable`
+- Settings → CoreCard → **Run Probe** returns `api_host_reachable: false` or
+  `read_call_succeeded: false`
+- unsigned webhooks are enabled outside an approved local/fake-host test
+
+These no-go conditions apply to future live API automation only. They do not
+block the manual RMS Charge launch workflow.
 
 ## Environment prerequisites
 
@@ -49,6 +101,15 @@ Required CoreCard credentials in Settings:
 - `RIVERSIDE_CORECARD_CLIENT_ID`
 - `RIVERSIDE_CORECARD_CLIENT_SECRET`
 - `RIVERSIDE_CORECARD_WEBHOOK_SECRET`
+- `RIVERSIDE_CORECARD_MERCHANT_NUMBER=12115`
+- `RIVERSIDE_CORECARD_MERCHANT_ID=11324`
+
+Optional CoreCard tenant probe setting:
+
+- `RIVERSIDE_CORECARD_TENANT_PROBE_PATH`
+  Defaults to `/merchants/{merchant_id}/status`. If CoreCard supplies a
+  different read-only merchant status path for the R2S hierarchy, configure it
+  in Settings → CoreCard before restarting the server.
 
 Recommended CoreCard runtime flags to confirm before validation:
 
@@ -72,6 +133,27 @@ For live:
 ```bash
 npm run validate:corecard:live
 ```
+
+Read-only tenant probe:
+
+1. Save the CoreCard API host, client ID, client secret, merchant number
+   `12115`, and merchant ID `11324` in Settings → CoreCard.
+2. Restart the server so the runtime CoreCard config picks up the saved values.
+3. Open Settings → CoreCard and click **Run Probe**.
+4. For CLI validation, call the same read-only endpoint with an authenticated
+   Settings admin session:
+
+```bash
+curl -sS \
+  -H "x-riverside-staff-code: <staff-code>" \
+  -H "x-riverside-staff-pin: <access-pin>" \
+  http://127.0.0.1:3000/api/settings/corecard/tenant-probe
+```
+
+Enable live CoreCard API automation only if the response has `configured: true`, `runtime_loaded: true`,
+`merchant_number: "12115"`, `merchant_id: "11324"`, and `source:
+"corecard_live"`. Keep manual RMS Charge as the active workflow if the response
+is `source: "manual"` or `source: "unavailable"`.
 
 Tenant-specific prerequisites a human must provide:
 
@@ -135,12 +217,12 @@ Run in this exact order:
 2. Auth/token test
 3. Linked account read test
 4. Program eligibility test
-5. Financed purchase test
+5. Live financed purchase test
 6. RMS 90 / promo program test if tenant supports it
 7. RMS payment collection test
 8. Refund/reversal test
 9. Webhook delivery/verification test
-10. Repair polling / sync-health fallback test
+10. Repair polling / sync-health test
 11. Exception / retry test
 12. Reconciliation test
 13. QBO-sensitive verification review
@@ -159,11 +241,17 @@ Preconditions:
 Action:
 
 - run `npm run validate:corecard:sandbox` or `npm run validate:corecard:live`
+- open **Settings → CoreCard** and refresh **Pre-Live Proof**
 
 Expected Riverside behavior:
 
 - preflight reports required vars present
 - webhook and polling settings are visible for review
+- credential status shows saved values without exposing secrets
+- runtime status is loaded
+- restart state is current
+- unsigned webhook mode is disabled for sandbox/live validation unless the test
+  has explicit approval
 
 Expected CoreCard-side behavior:
 
@@ -184,7 +272,9 @@ Expected logging/audit behavior:
 Pass/fail criteria:
 
 - pass if all required vars are present and mode-specific warnings are understood
+- pass if Settings → CoreCard does not report `corecard_restart_required`
 - fail if any required var is missing or obviously pointed at the wrong environment
+- fail if the server still shows stale runtime config after credentials were saved
 
 Rollback/recovery:
 
@@ -214,6 +304,8 @@ Expected CoreCard-side behavior:
 Expected RMS workspace visibility:
 
 - masked account, account status, balances/history if supported
+- `source: corecard_live` is visible for the account read, or Settings →
+  CoreCard reports **Live read confirmed** after the read/repair poll
 
 Expected receipt behavior:
 
@@ -228,6 +320,8 @@ Pass/fail criteria:
 
 - pass if the tenant accepts auth and Riverside loads a live account read
 - fail if auth is rejected, loops, times out consistently, or logs are too opaque
+- fail for live automation if RMS Charge shows only `source: manual`; that is
+  expected for manual operations, but it does not prove CoreCard is reachable
 
 Rollback/recovery:
 
@@ -269,7 +363,7 @@ Expected logging/audit behavior:
 Pass/fail criteria:
 
 - pass if the linked customer resolves correctly and all identifiers remain masked
-- fail if name-only fallback appears to be in use or masking is broken
+- fail if masking is broken or the linked account cannot be resolved
 
 Rollback/recovery:
 
@@ -317,13 +411,15 @@ Rollback/recovery:
 
 - stop before posting any live transaction if eligibility looks wrong
 
-### 5. Financed purchase test
+### 5. Live financed purchase test
 
 Preconditions:
 
 - active POS register session
 - linked customer with a valid account and available credit
 - a small, intentionally chosen validation item
+- Settings → CoreCard probe already returned `source: "corecard_live"` for the
+  Riverside merchant scope
 
 Action:
 
@@ -335,8 +431,9 @@ Action:
 
 Expected Riverside behavior:
 
-- checkout succeeds only after host posting succeeds
-- transaction metadata stores tender family, program label, masked account, host reference, and posting status
+- checkout succeeds only after the explicitly enabled live host posting succeeds
+- transaction metadata stores tender family, program label, masked account,
+  source mode, host reference, and posting status
 
 Expected CoreCard-side behavior:
 
@@ -537,7 +634,7 @@ Rollback/recovery:
 
 - if the webhook secret is wrong, disable further tenant sends until verification is corrected
 
-### 10. Repair polling / sync-health fallback test
+### 10. Repair polling / sync-health test
 
 Preconditions:
 
@@ -716,8 +813,8 @@ Run this in one controlled operator session:
    - open a linked RMS customer
    - verify balances/programs load
    - verify masking in UI
-3. Financed purchase
-   - complete one Standard RMS Charge sale
+3. Live financed purchase
+   - complete one Standard RMS Charge sale only after the tenant probe confirms `source: corecard_live`
    - verify host-gated success
    - verify metadata, receipt wording, and host reference
 4. Payment collection
@@ -762,7 +859,7 @@ Stop validation immediately when:
 
 - token/auth behavior is inconsistent
 - unmasked account data appears anywhere
-- checkout/payment collection succeeds without a confirmed host post
+- live checkout/payment collection succeeds without a confirmed host post
 - webhook verification appears misconfigured
 - duplicate live financial effects are suspected
 - reconciliation exposes unexplained high-severity mismatches
@@ -792,7 +889,7 @@ How to identify and isolate partial/failed validation records:
   - Transactions
   - Reconciliation
   - Sync health
-- capture the RMS record id, host reference, posting status, and exception id
+- capture the RMS record id, reference number or host reference, posting status, source mode, and exception id
 - do not reuse the same account/test case blindly until the failed record is understood
 
 ## Post-validation checklist

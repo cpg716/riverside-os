@@ -526,9 +526,84 @@ async fn reverse_rms_record(
     reason: Option<String>,
     amount: rust_decimal::Decimal,
 ) -> Result<corecard::CoreCardHostMutationResult, PosMetaError> {
+    if !record.source_mode.eq_ignore_ascii_case("corecard_live") {
+        let now = chrono::Utc::now();
+        let status = match operation_type {
+            corecard::CoreCardOperationType::Refund => "refunded",
+            corecard::CoreCardOperationType::Reversal => "reversed",
+            _ => {
+                return Err(PosMetaError::BadRequest(
+                    "unsupported RMS follow-on operation".to_string(),
+                ));
+            }
+        };
+        let mut metadata = record.metadata_json.clone();
+        if !metadata.is_object() {
+            metadata = json!({});
+        }
+        let obj = metadata.as_object_mut().expect("object just assigned");
+        obj.insert(
+            "source_mode".to_string(),
+            Value::String("manual".to_string()),
+        );
+        obj.insert(
+            "rms_charge_source".to_string(),
+            Value::String("manual".to_string()),
+        );
+        obj.insert(
+            "posting_status".to_string(),
+            Value::String(status.to_string()),
+        );
+        obj.insert(
+            "manual_tracking_status".to_string(),
+            Value::String(format!("{status}_manually")),
+        );
+        obj.insert("not_host_posted".to_string(), Value::Bool(true));
+        obj.insert(
+            "manual_follow_on_amount".to_string(),
+            Value::String(amount.to_string()),
+        );
+        if let Some(reason) = reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            obj.insert(
+                "manual_follow_on_reason".to_string(),
+                Value::String(reason.to_string()),
+            );
+        }
+        let timestamp_field = match operation_type {
+            corecard::CoreCardOperationType::Refund => "refunded_at",
+            corecard::CoreCardOperationType::Reversal => "reversed_at",
+            _ => unreachable!("unsupported operation returned above"),
+        };
+        obj.insert(timestamp_field.to_string(), Value::String(now.to_rfc3339()));
+
+        let mut tx = state.db.begin().await.map_err(PosMetaError::Database)?;
+        pos_rms_charge::update_record_host_result(&mut *tx, record.id, &metadata)
+            .await
+            .map_err(PosMetaError::Database)?;
+        tx.commit().await.map_err(PosMetaError::Database)?;
+
+        return Ok(corecard::CoreCardHostMutationResult {
+            operation_type: operation_type.as_str().to_string(),
+            posting_status: status.to_string(),
+            external_transaction_id: None,
+            external_auth_code: None,
+            external_transaction_type: Some(operation_type.as_str().to_string()),
+            host_reference: record.host_reference.clone(),
+            posted_at: None,
+            reversed_at: (operation_type == corecard::CoreCardOperationType::Reversal)
+                .then_some(now),
+            refunded_at: (operation_type == corecard::CoreCardOperationType::Refund).then_some(now),
+            metadata,
+        });
+    }
+
     let external_transaction_id = record.external_transaction_id.clone().ok_or_else(|| {
         PosMetaError::BadRequest(
-            "This RMS record does not have a live host reference yet.".to_string(),
+            "This RMS Charge record does not have a live reference number yet.".to_string(),
         )
     })?;
     let linked_customer = record

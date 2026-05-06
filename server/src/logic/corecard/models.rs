@@ -5,6 +5,11 @@ use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+/// R2S reporting metadata became authoritative for new POS-created RMS Charge records at this
+/// rollout. Older rows without explicit reporting metadata remain visible but do not become
+/// active R2S reporting work by default.
+pub const RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339: &str = "2026-05-06T18:00:00Z";
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CustomerCoreCreditAccount {
     pub id: Uuid,
@@ -139,6 +144,16 @@ pub struct CoreCardProgramOption {
     pub eligible: bool,
     #[serde(default)]
     pub disclosure: Option<String>,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub fallback_used: bool,
+    #[serde(default)]
+    pub warning_code: Option<String>,
+    #[serde(default)]
+    pub credential_source: Option<String>,
+    #[serde(default)]
+    pub last_corecard_request_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -155,6 +170,14 @@ pub struct CoreCardAccountSummary {
     pub resolution_status: Option<String>,
     #[serde(default)]
     pub source: String,
+    #[serde(default)]
+    pub fallback_used: bool,
+    #[serde(default)]
+    pub warning_code: Option<String>,
+    #[serde(default)]
+    pub credential_source: Option<String>,
+    #[serde(default)]
+    pub last_corecard_request_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub recent_history: Vec<RmsChargeHistorySummaryRow>,
 }
@@ -413,6 +436,14 @@ pub struct CoreCardAccountBalancesResponse {
     pub last_host_reference: Option<String>,
     #[serde(default)]
     pub source: String,
+    #[serde(default)]
+    pub fallback_used: bool,
+    #[serde(default)]
+    pub warning_code: Option<String>,
+    #[serde(default)]
+    pub credential_source: Option<String>,
+    #[serde(default)]
+    pub last_corecard_request_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -421,6 +452,14 @@ pub struct CoreCardAccountTransactionsResponse {
     pub masked_account: String,
     #[serde(default)]
     pub source: String,
+    #[serde(default)]
+    pub fallback_used: bool,
+    #[serde(default)]
+    pub warning_code: Option<String>,
+    #[serde(default)]
+    pub credential_source: Option<String>,
+    #[serde(default)]
+    pub last_corecard_request_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub rows: Vec<CoreCardUiAccountTransactionRow>,
 }
@@ -457,6 +496,14 @@ pub struct RmsChargeRecordDetail {
     pub idempotency_key: Option<String>,
     pub external_transaction_type: Option<String>,
     pub host_reference: Option<String>,
+    pub source_mode: String,
+    pub r2s_reporting_required: bool,
+    pub r2s_report_status: String,
+    pub r2s_report_due_at: DateTime<Utc>,
+    pub r2s_reported_at: Option<DateTime<Utc>>,
+    pub r2s_reported_by_staff_id: Option<Uuid>,
+    pub r2s_reported_by_name: Option<String>,
+    pub r2s_report_note: Option<String>,
     pub metadata_json: Value,
     pub host_metadata_json: Value,
     pub request_snapshot_json: Value,
@@ -587,4 +634,55 @@ pub struct CoreCardSyncHealthResponse {
     pub failed_webhook_count: i64,
     #[serde(default)]
     pub stale_account_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CoreCardReadinessStatusResponse {
+    pub credentials_saved: bool,
+    #[serde(default)]
+    pub configured: std::collections::HashMap<String, bool>,
+    pub credential_source: String,
+    pub runtime_config_loaded: bool,
+    pub restart_required: bool,
+    pub live_read_confirmed: bool,
+    #[serde(default)]
+    pub warning_codes: Vec<String>,
+    #[serde(default)]
+    pub environment: String,
+    #[serde(default)]
+    pub region: String,
+    #[serde(default)]
+    pub masked_base_url: Option<String>,
+    #[serde(default)]
+    pub merchant_number: Option<String>,
+    #[serde(default)]
+    pub merchant_id: Option<String>,
+    #[serde(default)]
+    pub tenant_probe_path_configured: bool,
+    pub webhook_secret_configured: bool,
+    pub webhook_unsigned_allowed: bool,
+    pub repair_polling_enabled: bool,
+    pub repair_poll_secs: u64,
+    #[serde(default)]
+    pub last_repair_poll_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_corecard_request_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoreCardTenantProbeResponse {
+    pub configured: bool,
+    pub runtime_loaded: bool,
+    #[serde(default)]
+    pub merchant_number: Option<String>,
+    #[serde(default)]
+    pub merchant_id: Option<String>,
+    pub source: String,
+    pub last_checked_at: DateTime<Utc>,
+    #[serde(default)]
+    pub masked_base_url: Option<String>,
+    pub api_host_reachable: bool,
+    pub read_call_succeeded: bool,
+    #[serde(default)]
+    pub warning_codes: Vec<String>,
 }

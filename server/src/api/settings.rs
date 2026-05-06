@@ -946,6 +946,41 @@ async fn get_integration_credentials_status(
     ))
 }
 
+async fn get_corecard_readiness_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<crate::logic::corecard::CoreCardReadinessStatusResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let status =
+        crate::logic::corecard::collect_readiness_status(&state.db, &state.corecard_config)
+            .await
+            .map_err(|error| match error {
+                crate::logic::corecard::CoreCardError::Database(error) => {
+                    SettingsError::Database(error)
+                }
+                other => SettingsError::InvalidPayload(other.to_string()),
+            })?;
+    Ok(Json(status))
+}
+
+async fn get_corecard_tenant_probe(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<crate::logic::corecard::CoreCardTenantProbeResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let status = crate::logic::corecard::probe_corecard_tenant(
+        &state.http_client,
+        &state.corecard_config,
+        &state.corecard_token_cache,
+    )
+    .await
+    .map_err(|error| match error {
+        crate::logic::corecard::CoreCardError::Database(error) => SettingsError::Database(error),
+        other => SettingsError::InvalidPayload(other.to_string()),
+    })?;
+    Ok(Json(status))
+}
+
 async fn patch_integration_credentials(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1878,6 +1913,8 @@ pub fn router() -> Router<AppState> {
             "/integration-credentials/{integration_key}/{credential_key}",
             delete(delete_integration_credential),
         )
+        .route("/corecard/readiness", get(get_corecard_readiness_status))
+        .route("/corecard/tenant-probe", get(get_corecard_tenant_probe))
         .route(
             "/weather",
             get(get_weather_settings).patch(patch_weather_settings),

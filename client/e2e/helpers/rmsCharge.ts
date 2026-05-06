@@ -106,6 +106,7 @@ export type TransactionArtifacts = {
     linked_corecredit_account_id?: string | null;
     posting_status: string;
     host_reference?: string | null;
+    source_mode: string;
     external_transaction_id?: string | null;
     metadata_json?: Record<string, unknown> | null;
   }>;
@@ -349,6 +350,7 @@ export async function checkoutFinancedSale(
     fixture: SeedFixtureResponse;
     programCode: "standard" | "rms90";
     hostScenario?: string;
+    referenceNumber?: string;
   },
 ): Promise<{ response: Awaited<ReturnType<APIRequestContext["post"]>>; body?: CheckoutResponse }> {
   const { sessionId, sessionToken } = await ensureSessionAuth(request);
@@ -394,6 +396,7 @@ export async function checkoutFinancedSale(
             linked_corecredit_customer_id: account?.corecredit_customer_id,
             linked_corecredit_account_id: account?.corecredit_account_id,
             resolution_status: "selected",
+            reference_number: options.referenceNumber,
           },
         },
       ],
@@ -424,6 +427,7 @@ export async function checkoutRmsPaymentCollection(
   request: APIRequestContext,
   fixture: SeedFixtureResponse,
   hostScenario?: string,
+  referenceNumber?: string,
 ) {
   const { sessionId, sessionToken } = await ensureSessionAuth(request);
   const operatorStaffId = await verifyStaffId(request);
@@ -465,6 +469,7 @@ export async function checkoutRmsPaymentCollection(
           amount: "50.00",
           metadata: {
             rms_charge_collection: true,
+            reference_number: referenceNumber,
           },
         },
       ],

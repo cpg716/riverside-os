@@ -21,6 +21,9 @@ pub struct CoreCardConfig {
     pub log_payloads: bool,
     pub redaction_mode: CoreCardRedactionMode,
     pub webhook_secret: Option<String>,
+    pub merchant_number: Option<String>,
+    pub merchant_id: Option<String>,
+    pub tenant_probe_path: String,
     pub webhook_allow_unsigned: bool,
     pub repair_poll_secs: u64,
     pub snapshot_retention_days: u32,
@@ -77,6 +80,19 @@ impl CoreCardConfig {
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
+        let merchant_number = std::env::var("RIVERSIDE_CORECARD_MERCHANT_NUMBER")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let merchant_id = std::env::var("RIVERSIDE_CORECARD_MERCHANT_ID")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let tenant_probe_path = std::env::var("RIVERSIDE_CORECARD_TENANT_PROBE_PATH")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "/merchants/{merchant_id}/status".to_string());
         let webhook_allow_unsigned = matches!(
             std::env::var("RIVERSIDE_CORECARD_WEBHOOK_ALLOW_UNSIGNED")
                 .ok()
@@ -107,6 +123,9 @@ impl CoreCardConfig {
             log_payloads,
             redaction_mode,
             webhook_secret,
+            merchant_number,
+            merchant_id,
+            tenant_probe_path,
             webhook_allow_unsigned,
             repair_poll_secs,
             snapshot_retention_days,
@@ -125,6 +144,24 @@ impl CoreCardConfig {
         } else {
             Some(format!("{}/oauth/token", self.base_url))
         }
+    }
+
+    pub fn tenant_probe_url(&self) -> Option<String> {
+        if self.base_url.is_empty() {
+            return None;
+        }
+        let merchant_id = self.merchant_id.as_deref()?;
+        let merchant_number = self.merchant_number.as_deref().unwrap_or_default();
+        let replaced = self
+            .tenant_probe_path
+            .replace("{merchant_id}", &urlencoding::encode(merchant_id))
+            .replace("{merchant_number}", &urlencoding::encode(merchant_number));
+        let path = if replaced.starts_with('/') {
+            replaced
+        } else {
+            format!("/{replaced}")
+        };
+        Some(format!("{}{}", self.base_url, path))
     }
 
     pub fn account_summary_url(&self, account_id: &str) -> Option<String> {

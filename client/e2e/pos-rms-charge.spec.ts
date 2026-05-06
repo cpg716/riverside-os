@@ -16,12 +16,13 @@ test.describe("POS RMS Charge", () => {
     await resetFakeCoreCardHost(request);
   });
 
-  test("financed sale success persists metadata and receipt wording", async ({ request }) => {
+  test("manual financed sale persists metadata and receipt wording", async ({ request }) => {
     const fixture = await seedRmsFixture(request, "rms90_eligible", "Success");
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const checkout = await checkoutFinancedSale(request, {
       fixture,
       programCode: "rms90",
+      referenceNumber: "REF-MANUAL-SALE-001",
     });
 
     expect(checkout.response.status()).toBe(200);
@@ -31,17 +32,19 @@ test.describe("POS RMS Charge", () => {
     expect(financingMeta.program_label).toBe("RMS 90");
     expect(rmsRecord.program_label).toBe("RMS 90");
     expect(rmsRecord.masked_account).toContain("••••");
-    expect(rmsRecord.host_reference).toContain("HOST-");
-    expect(rmsRecord.posting_status).toBe("posted");
+    expect(rmsRecord.host_reference).toBe("REF-MANUAL-SALE-001");
+    expect(rmsRecord.source_mode).toBe("manual");
+    expect(rmsRecord.posting_status).toBe("recorded_manually");
+    expect(rmsRecord.external_transaction_id).toBeNull();
 
     const receipt = await fetchReceiptEscpos(request, checkout.body!.transaction_id, sessionId);
     expect(receipt).toContain("RMS Charge");
     expect(receipt).toContain("RMS 90");
     expect(receipt).toMatch(/Account[\s\S]*MS90/);
-    expect(receipt).toContain(rmsRecord.host_reference ?? "HOST-");
+    expect(receipt).toContain("REF-MANUAL-SALE-001");
   });
 
-  test("financed sale decline blocks checkout and does not record false success", async ({ request }) => {
+  test("manual financed sale records even when fake host is set to decline", async ({ request }) => {
     const fixture = await seedRmsFixture(request, "single_valid", "Decline");
     const accountId = fixture.linked_accounts[0]!.corecredit_account_id;
     await setFakeCoreCardScenario(request, "purchase", "insufficient_credit", accountId);
@@ -50,10 +53,10 @@ test.describe("POS RMS Charge", () => {
       fixture,
       programCode: "standard",
       hostScenario: "insufficient_credit",
+      referenceNumber: "REF-MANUAL-DECLINE-001",
     });
-    expect(checkout.response.status()).toBe(502);
-    const body = (await checkout.response.json()) as { error?: string };
-    expect(body.error).toMatch(/insufficient/i);
+    expect(checkout.response.status()).toBe(200);
+    expect(checkout.body?.transaction_id).toBeTruthy();
 
     const recordsRes = await request.get(
       `${process.env.E2E_API_BASE || "http://127.0.0.1:43300"}/api/customers/rms-charge/records?customer_id=${fixture.customer.id}`,
@@ -65,8 +68,20 @@ test.describe("POS RMS Charge", () => {
       },
     );
     expect(recordsRes.status()).toBe(200);
-    const rows = (await recordsRes.json()) as Array<{ posting_status?: string }>;
-    expect(rows.every((row) => row.posting_status !== "posted")).toBeTruthy();
+    const rows = (await recordsRes.json()) as Array<{
+      posting_status?: string;
+      source_mode?: string;
+      host_reference?: string | null;
+      external_transaction_id?: string | null;
+    }>;
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        posting_status: "recorded_manually",
+        source_mode: "manual",
+        host_reference: "REF-MANUAL-DECLINE-001",
+        external_transaction_id: null,
+      }),
+    );
   });
 
   test("no-customer RMS Charge block avoids host call", async ({ request, page }) => {
@@ -144,33 +159,41 @@ test.describe("POS RMS Charge", () => {
     expect(artifacts.rms_records[0]?.linked_corecredit_account_id).toBe(chosen.corecredit_account_id);
   });
 
-  test("RMS payment collection success persists host reference and clearing metadata", async ({ request }) => {
+  test("manual RMS payment collection persists reference and clearing metadata", async ({ request }) => {
     const fixture = await seedRmsFixture(request, "single_valid", "Payment");
     const { sessionId } = await ensureSessionAuth(request);
-    const checkout = await checkoutRmsPaymentCollection(request, fixture);
+    const checkout = await checkoutRmsPaymentCollection(request, fixture, undefined, "REF-MANUAL-PAY-001");
     expect(checkout.response.status()).toBe(200);
     const artifacts = await getTransactionArtifacts(request, checkout.body!.transaction_id);
     expect(artifacts.rms_records[0]?.record_kind).toBe("payment");
-    expect(artifacts.rms_records[0]?.posting_status).toBe("posted");
+    expect(artifacts.rms_records[0]?.posting_status).toBe("recorded_manually");
+    expect(artifacts.rms_records[0]?.source_mode).toBe("manual");
+    expect(artifacts.rms_records[0]?.host_reference).toBe("REF-MANUAL-PAY-001");
+    expect(artifacts.rms_records[0]?.external_transaction_id).toBeNull();
     expect(artifacts.metadata.rms_charge_payment_collection).toMatchObject({
       tender_family: "rms_charge",
-      posting_status: "posted",
+      posting_status: "recorded_manually",
     });
 
     const receipt = await fetchReceiptEscpos(request, checkout.body!.transaction_id, sessionId);
     expect(receipt).toMatch(/Tender[\s\S]*Cash/);
-    expect(receipt).toMatch(/RMS Ref[\s\S]*HOST-/);
-    expect(receipt).toContain(artifacts.rms_records[0]?.host_reference ?? "HOST-");
+    expect(receipt).toMatch(/RMS Ref[\s\S]*REF-MANUAL-PAY-001/);
   });
 
-  test("RMS payment collection host failure does not silently succeed", async ({ request }) => {
+  test("manual RMS payment collection does not depend on fake host availability", async ({ request }) => {
     const fixture = await seedRmsFixture(request, "single_valid", "Payment Failure");
     const accountId = fixture.linked_accounts[0]!.corecredit_account_id;
     await setFakeCoreCardScenario(request, "payment", "retryable", accountId);
-    const checkout = await checkoutRmsPaymentCollection(request, fixture, "retryable");
-    expect(checkout.response.status()).toBe(502);
-    const body = (await checkout.response.json()) as { error?: string };
-    expect(body.error).toMatch(/unavailable|retry/i);
+    const checkout = await checkoutRmsPaymentCollection(request, fixture, "retryable", "REF-MANUAL-PAY-RETRY");
+    expect(checkout.response.status()).toBe(200);
+    const artifacts = await getTransactionArtifacts(request, checkout.body!.transaction_id);
+    expect(artifacts.rms_records[0]).toMatchObject({
+      record_kind: "payment",
+      posting_status: "recorded_manually",
+      source_mode: "manual",
+      host_reference: "REF-MANUAL-PAY-RETRY",
+      external_transaction_id: null,
+    });
   });
 
   test("program-specific receipt correctness covers standard and RMS 90", async ({ request }) => {

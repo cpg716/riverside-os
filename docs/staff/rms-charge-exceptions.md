@@ -10,13 +10,19 @@ An exception is an RMS item that Riverside could not complete or verify automati
 
 Common exception types include:
 
-- failed purchase post
-- failed payment post
+- failed future live purchase post
+- failed future live payment post
 - failed refund or reversal
-- webhook processing failure
+- update processing failure
 - stale or mismatched account state
 - duplicate or replay hold
 - reconciliation mismatch
+
+## R2S reporting follow-up
+
+R2S reporting is tracked on the RMS Charge transaction record, not through the exception queue.
+
+If a Sale or Payment is `Unreported` or `Overdue`, open Customer → `RMS Charge` → `Transactions` and complete `Mark Reported` after the R2S follow-up is done.
 
 ## How to work the queue
 
@@ -46,7 +52,7 @@ Use `Resolve` when the issue is actually cleared and the notes explain why.
 
 Resolution notes should say what cleared the issue, for example:
 
-- host confirmed the original post
+- staff confirmed the original RMS Charge record
 - duplicate failure was reviewed and closed
 - wrong customer link was corrected before follow-up
 - finance confirmed no further action was needed
@@ -58,5 +64,5 @@ Do **not** retry if:
 - the account is clearly inactive or restricted
 - the program is invalid for that account
 - the customer or account link is wrong
-- the original item already posted successfully and the exception is only stale
-- the issue is actually a reconciliation review issue, not a fresh host post attempt
+- the original item was already reviewed and the exception is only stale
+- the issue is actually a reconciliation or R2S reporting review issue, not a fresh live post attempt

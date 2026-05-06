@@ -6,7 +6,7 @@
 
 ## What this section is for
 
-The `Accounts` section shows which CoreCredit/CoreCard account is linked to the active Riverside customer.
+The `Accounts` section shows which RMS Charge account is linked to the active Riverside customer.
 
 Use it to:
 
@@ -18,7 +18,7 @@ Use it to:
 
 ## How linking works
 
-Riverside links a Riverside customer to one or more CoreCredit/CoreCard accounts in `customer_corecredit_accounts`.
+Riverside links a Riverside customer to one or more RMS Charge accounts in `customer_corecredit_accounts`.
 
 Important rules:
 
@@ -26,8 +26,14 @@ Important rules:
 - account resolution happens on the server
 - POS never relies on name-only matching at checkout
 - UI-facing account values remain masked
-- removing a link changes Riverside's customer relationship only; it does not change the CoreCard account itself
+- removing a link changes Riverside's customer relationship only; it does not change the RMS Charge account itself
 - link and unlink corrections are recorded in the staff audit trail
+
+## Optional live-read proof
+
+Settings can still show optional future live-integration readiness. Day-to-day account review in Customer → RMS Charge is manual-first.
+
+Do not use account links, balances, or programs as proof that future live API posting is enabled. Use Settings → `CoreCard` probe status for that specific technical validation.
 
 ## Safe correction workflow
 
@@ -46,7 +52,7 @@ Important rules:
 - `restricted`
   The account may be blocked from some or all RMS actions.
 - `stale`
-  Riverside needs a refresh, webhook update, or repair poll before staff should trust the current snapshot.
+  Riverside needs a refresh or support review before staff should trust the current snapshot.
 
 ## What to do if no account is found
 

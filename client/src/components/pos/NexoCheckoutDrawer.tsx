@@ -12,7 +12,7 @@ import {
   ScanLine,
   ScrollText,
   Sparkles,
-  Layers
+  Layers,
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import NumericPinKeypad from "../ui/NumericPinKeypad";
@@ -76,6 +76,13 @@ interface HelcimAttempt {
   card_last4?: string | null;
   error_message?: string | null;
   safe_message?: string | null;
+}
+
+function rmsSourceLabel(source?: string | null) {
+  if (source === "corecard_live") return "Live CoreCard";
+  if (source === "manual" || source === "local_fallback") return "Manual RMS Charge";
+  if (source === "unavailable") return "Unavailable";
+  return source || "Manual RMS Charge";
 }
 
 interface HelcimCard {
@@ -183,6 +190,11 @@ interface RmsChargeProgramOption {
   program_label: string;
   eligible: boolean;
   disclosure?: string | null;
+  source?: string | null;
+  fallback_used?: boolean;
+  warning_code?: string | null;
+  credential_source?: string | null;
+  last_corecard_request_at?: string | null;
 }
 
 interface RmsChargeAccountSummary {
@@ -194,6 +206,10 @@ interface RmsChargeAccountSummary {
   current_balance?: string | null;
   resolution_status?: string | null;
   source: string;
+  fallback_used?: boolean;
+  warning_code?: string | null;
+  credential_source?: string | null;
+  last_corecard_request_at?: string | null;
   recent_history?: Array<{
     created_at: string;
     record_kind: string;
@@ -415,6 +431,7 @@ export default function NexoCheckoutDrawer({
   const [rmsSelectedAccount, setRmsSelectedAccount] = useState<RmsChargeAccountChoice | null>(null);
   const [rmsPrograms, setRmsPrograms] = useState<RmsChargeProgramOption[]>([]);
   const [rmsSelectedProgramCode, setRmsSelectedProgramCode] = useState<string | null>(null);
+  const [rmsReferenceNumber, setRmsReferenceNumber] = useState("");
   const [rmsSummary, setRmsSummary] = useState<RmsChargeAccountSummary | null>(null);
   const [rmsLoading, setRmsLoading] = useState(false);
   const [rmsProgramPickerOpen, setRmsProgramPickerOpen] = useState(false);
@@ -516,6 +533,7 @@ export default function NexoCheckoutDrawer({
       setRmsSelectedAccount(null);
       setRmsPrograms([]);
       setRmsSelectedProgramCode(null);
+      setRmsReferenceNumber("");
       setRmsSummary(null);
       setRmsProgramPickerOpen(false);
       setSelectedTerminalKey("");
@@ -587,7 +605,7 @@ export default function NexoCheckoutDrawer({
 
     if (!programsRes.ok) {
       const body = (await programsRes.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? "Could not load RMS Charge plans");
+      throw new Error(body.error ?? "Could not load RMS Charge programs");
     }
     if (!summaryRes.ok) {
       const body = (await summaryRes.json().catch(() => ({}))) as { error?: string };
@@ -1173,7 +1191,7 @@ export default function NexoCheckoutDrawer({
         (program) => program.program_code === rmsSelectedProgramCode,
       );
       if (!selectedProgram) {
-        toast("Select an eligible RMS Charge plan before adding payment.", "error");
+        toast("Select an eligible RMS Charge program before adding payment.", "error");
         return;
       }
     }
@@ -1203,7 +1221,7 @@ export default function NexoCheckoutDrawer({
           tab === "gift_card"
             ? `Gift Card (${giftCardTypeLabel(giftCardSubType ?? "paid_liability")})`
             : tab === "rms_charge"
-              ? `RMS Charge${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label ? ` • ${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label}` : ""}`
+              ? `RMS Charge Sale${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label ? ` • ${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label}` : ""}`
               : meta.label,
         metadata:
           tab === "check"
@@ -1218,6 +1236,10 @@ export default function NexoCheckoutDrawer({
                         rmsSelectedAccount?.corecredit_customer_id ?? undefined,
                       linked_corecredit_account_id:
                         rmsSelectedAccount?.corecredit_account_id ?? undefined,
+                      source_mode: "manual",
+                      rms_charge_source: "manual",
+                      reference_number: rmsReferenceNumber.trim() || undefined,
+                      host_reference: rmsReferenceNumber.trim() || undefined,
                       resolution_status:
                         rmsSummary?.resolution_status ??
                         rmsResolve?.resolution_status ??
@@ -1234,6 +1256,10 @@ export default function NexoCheckoutDrawer({
                   masked_account: rmsSelectedAccount?.masked_account ?? undefined,
                   linked_corecredit_customer_id: rmsSelectedAccount?.corecredit_customer_id ?? undefined,
                   linked_corecredit_account_id: rmsSelectedAccount?.corecredit_account_id ?? undefined,
+                  source_mode: "manual",
+                  rms_charge_source: "manual",
+                  reference_number: rmsReferenceNumber.trim() || undefined,
+                  host_reference: rmsReferenceNumber.trim() || undefined,
                   resolution_status:
                     rmsSummary?.resolution_status ??
                     rmsResolve?.resolution_status ??
@@ -1251,6 +1277,10 @@ export default function NexoCheckoutDrawer({
                       rmsSelectedAccount?.corecredit_customer_id ?? undefined,
                     linked_corecredit_account_id:
                       rmsSelectedAccount?.corecredit_account_id ?? undefined,
+                    source_mode: "manual",
+                    rms_charge_source: "manual",
+                    reference_number: rmsReferenceNumber.trim() || undefined,
+                    host_reference: rmsReferenceNumber.trim() || undefined,
                     resolution_status:
                       rmsSummary?.resolution_status ??
                       rmsResolve?.resolution_status ??
@@ -1262,7 +1292,8 @@ export default function NexoCheckoutDrawer({
     setKeypad("");
     setGiftCardCode("");
     setCheckNumber("");
-  }, [giftCardSubType, giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsSummary, rmsResolve, rmsPaymentCollectionMode, startHelcimPayPayment, chargeSavedHelcimCard]);
+    setRmsReferenceNumber("");
+  }, [giftCardSubType, giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, startHelcimPayPayment, chargeSavedHelcimCard]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -1443,13 +1474,13 @@ export default function NexoCheckoutDrawer({
               >
                 <div className="mb-5">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-                    RMS Charge
+                    RMS Charge Sale
                   </p>
                   <h3 className="mt-2 text-2xl font-black italic tracking-tight text-app-text">
-                    Choose Plan
+                    Choose Program
                   </h3>
                   <p className="mt-2 text-sm text-app-text-muted">
-                    Select the customer's RMS Charge plan to continue.
+                    Select the customer's RMS Charge program to continue.
                   </p>
                 </div>
 
@@ -1899,7 +1930,7 @@ export default function NexoCheckoutDrawer({
                           </p>
                           <div className="mt-2 space-y-1.5 text-[11px] font-medium leading-relaxed text-app-text-muted">
                             <p>Use this when the customer is charging today's sale to approved private label credit.</p>
-                            <p>Choose an eligible plan before adding the payment line.</p>
+                            <p>Choose an eligible program before adding the payment line.</p>
                             <p>RMS Charge payments are separate from normal cash or check tenders.</p>
                           </div>
                         </div>
@@ -1957,10 +1988,13 @@ export default function NexoCheckoutDrawer({
                                   <p className="text-lg font-black italic text-app-text">
                                     {rmsSelectedAccount.masked_account}
                                   </p>
-                                  <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
-                                    Status: {rmsSummary?.account_status ?? rmsSelectedAccount.status}
-                                  </p>
-                                </div>
+                                    <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
+                                      Status: {rmsSummary?.account_status ?? rmsSelectedAccount.status}
+                                    </p>
+                                    <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
+                                      Workflow: {rmsSourceLabel(rmsSummary?.source)}
+                                    </p>
+                                  </div>
                                 <button
                                   type="button"
                                   onClick={() => void resolveRmsAccount()}
@@ -1969,38 +2003,55 @@ export default function NexoCheckoutDrawer({
                                   Refresh
                                 </button>
                               </div>
-                              <div className="mt-3 grid grid-cols-2 gap-3 text-[11px]">
+                                <div className="mt-3 grid grid-cols-2 gap-3 text-[11px]">
                                 <div className="rounded-lg bg-app-surface px-3 py-2">
                                   <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                                     Available Credit
                                   </div>
                                   <div className="mt-1 font-black text-app-text">
                                     {rmsSummary?.available_credit ?? "Linked account"}
-                                  </div>
                                 </div>
+                              </div>
                                 <div className="rounded-lg bg-app-surface px-3 py-2">
                                   <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                                     Current Balance
                                   </div>
                                   <div className="mt-1 font-black text-app-text">
-                                    {rmsSummary?.current_balance ?? "Pending live sync"}
+                                    {rmsSummary?.current_balance ?? "Linked account"}
                                   </div>
                                 </div>
                               </div>
                             </div>
 
+                            <label className="block rounded-xl border border-app-border bg-app-bg px-4 py-3">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Reference Number
+                              </span>
+                              <input
+                                value={rmsReferenceNumber}
+                                onChange={(event) => setRmsReferenceNumber(event.target.value)}
+                                placeholder="Approval or reference"
+                                className="ui-input mt-2 h-11 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-black uppercase tracking-wide text-app-text focus:border-app-accent"
+                              />
+                            </label>
+
                             <div className="space-y-2">
                               <div className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-bg px-4 py-3">
                                 <div>
                                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                    Selected Plan
+                                    Selected Program
                                   </p>
-                                  <p className="mt-1 text-sm font-black uppercase tracking-wide text-app-text">
-                                    {rmsSelectedProgram?.program_label ?? "Choose plan"}
-                                  </p>
+                                    <p className="mt-1 text-sm font-black uppercase tracking-wide text-app-text">
+                                      {rmsSelectedProgram?.program_label ?? "Choose program"}
+                                    </p>
+                                    {rmsSelectedProgram ? (
+                                      <p className="mt-1 text-[11px] text-app-text-muted">
+                                        {rmsSourceLabel(rmsSelectedProgram.source)}
+                                      </p>
+                                    ) : null}
                                   {!rmsSelectedProgram ? (
                                     <p className="mt-1 text-[11px] text-amber-600">
-                                      Choose a plan before continuing.
+                                      Choose a program before continuing.
                                     </p>
                                   ) : rmsSelectedProgram.disclosure ? (
                                     <p className="mt-1 text-[11px] text-app-text-muted">
@@ -2013,7 +2064,7 @@ export default function NexoCheckoutDrawer({
                                   onClick={() => setRmsProgramPickerOpen(true)}
                                   className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
                                 >
-                                  {rmsSelectedProgram ? "Change Plan" : "Choose Plan"}
+                                  {rmsSelectedProgram ? "Change Program" : "Choose Program"}
                                 </button>
                               </div>
                             </div>
@@ -2085,10 +2136,13 @@ export default function NexoCheckoutDrawer({
                                 <p className="text-lg font-black italic text-app-text">
                                   {rmsSelectedAccount.masked_account}
                                 </p>
-                                <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
-                                  Status: {rmsSummary?.account_status ?? rmsSelectedAccount.status}
-                                </p>
-                              </div>
+                                  <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
+                                    Status: {rmsSummary?.account_status ?? rmsSelectedAccount.status}
+                                  </p>
+                                  <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
+                                    Workflow: {rmsSourceLabel(rmsSummary?.source)}
+                                  </p>
+                                </div>
                               <button
                                 type="button"
                                 onClick={() => void resolveRmsAccount()}
@@ -2104,17 +2158,28 @@ export default function NexoCheckoutDrawer({
                                 </div>
                                 <div className="mt-1 font-black text-app-text">
                                   {rmsSummary?.available_credit ?? "Linked account"}
-                                </div>
                               </div>
+                            </div>
                               <div className="rounded-lg bg-app-surface px-3 py-2">
                                 <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                                   Current Balance
                                 </div>
                                 <div className="mt-1 font-black text-app-text">
-                                  {rmsSummary?.current_balance ?? "Pending live sync"}
+                                  {rmsSummary?.current_balance ?? "Linked account"}
                                 </div>
                               </div>
                             </div>
+                            <label className="mt-3 block rounded-xl border border-app-border bg-app-bg px-4 py-3">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Reference Number
+                              </span>
+                              <input
+                                value={rmsReferenceNumber}
+                                onChange={(event) => setRmsReferenceNumber(event.target.value)}
+                                placeholder="Approval or reference"
+                                className="ui-input mt-2 h-11 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-black uppercase tracking-wide text-app-text focus:border-app-accent"
+                              />
+                            </label>
                           </div>
                         ) : null}
                       </div>

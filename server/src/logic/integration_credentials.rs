@@ -150,6 +150,21 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "RIVERSIDE_CORECARD_WEBHOOK_SECRET",
     },
     IntegrationCredentialMapping {
+        integration_key: "corecard",
+        credential_key: "merchant_number",
+        env_key: "RIVERSIDE_CORECARD_MERCHANT_NUMBER",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "corecard",
+        credential_key: "merchant_id",
+        env_key: "RIVERSIDE_CORECARD_MERCHANT_ID",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "corecard",
+        credential_key: "tenant_probe_path",
+        env_key: "RIVERSIDE_CORECARD_TENANT_PROBE_PATH",
+    },
+    IntegrationCredentialMapping {
         integration_key: "weather",
         credential_key: "api_key",
         env_key: "RIVERSIDE_VISUAL_CROSSING_API_KEY",
