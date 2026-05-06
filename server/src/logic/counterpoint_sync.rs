@@ -3887,7 +3887,7 @@ async fn upsert_variant(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Gift card ingest (SY_GFT_CERT → gift_cards + gift_card_events)
+// Gift card ingest (SY_GFT_CERT → gift_cards current balance snapshots)
 // ────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -3953,39 +3953,6 @@ async fn resolve_gift_card_kind(
     "purchased".to_string()
 }
 
-async fn gift_card_event_exists(
-    tx: &mut Transaction<'_, Postgres>,
-    gift_card_id: Uuid,
-    event_kind: &str,
-    amount: Decimal,
-    balance_after: Decimal,
-    transaction_id: Option<Uuid>,
-    notes: Option<&str>,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"
-        SELECT EXISTS(
-            SELECT 1
-            FROM gift_card_events
-            WHERE gift_card_id = $1
-              AND event_kind = $2
-              AND amount = $3
-              AND balance_after = $4
-              AND transaction_id IS NOT DISTINCT FROM $5
-              AND notes IS NOT DISTINCT FROM $6
-        )
-        "#,
-    )
-    .bind(gift_card_id)
-    .bind(event_kind)
-    .bind(amount)
-    .bind(balance_after)
-    .bind(transaction_id)
-    .bind(notes)
-    .fetch_one(&mut **tx)
-    .await
-}
-
 pub async fn execute_counterpoint_gift_card_batch(
     pool: &PgPool,
     payload: CounterpointGiftCardsPayload,
@@ -4042,7 +4009,7 @@ pub async fn execute_counterpoint_gift_card_batch(
                 .fetch_optional(&mut *tx)
                 .await?;
 
-        let gc_id = if let Some(gid) = existing {
+        if let Some(gid) = existing {
             sqlx::query(
                 r#"
                 UPDATE gift_cards SET
@@ -4063,13 +4030,11 @@ pub async fn execute_counterpoint_gift_card_batch(
             .execute(&mut *tx)
             .await?;
             summary.updated += 1;
-            gid
         } else {
-            let gid: Uuid = sqlx::query_scalar(
+            sqlx::query(
                 r#"
                 INSERT INTO gift_cards (code, current_balance, original_value, is_liability, card_kind, card_status, expires_at, created_at)
                 VALUES ($1, $2, $3, $4, $5::gift_card_kind, 'active'::gift_card_status, $6, COALESCE($7, CURRENT_TIMESTAMP))
-                RETURNING id
                 "#,
             )
             .bind(code)
@@ -4079,55 +4044,9 @@ pub async fn execute_counterpoint_gift_card_batch(
             .bind(&kind)
             .bind(expires)
             .bind(issued_at)
-            .fetch_one(&mut *tx)
-            .await?;
-            summary.created += 1;
-            gid
-        };
-
-        for evt in &row.events {
-            let ts = evt
-                .created_at
-                .as_deref()
-                .and_then(|s| {
-                    DateTime::parse_from_rfc3339(s)
-                        .ok()
-                        .map(|d| d.with_timezone(&Utc))
-                })
-                .or(issued_at)
-                .unwrap_or_else(Utc::now);
-
-            let notes = evt.notes.as_deref();
-            let already_exists = gift_card_event_exists(
-                &mut tx,
-                gc_id,
-                &evt.event_kind,
-                evt.amount,
-                evt.balance_after,
-                None,
-                notes,
-            )
-            .await?;
-
-            if already_exists {
-                continue;
-            }
-
-            sqlx::query(
-                r#"
-                INSERT INTO gift_card_events (gift_card_id, event_kind, amount, balance_after, notes, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                "#,
-            )
-            .bind(gc_id)
-            .bind(&evt.event_kind)
-            .bind(evt.amount)
-            .bind(evt.balance_after)
-            .bind(notes)
-            .bind(ts)
             .execute(&mut *tx)
             .await?;
-            summary.events_created += 1;
+            summary.created += 1;
         }
     }
 
@@ -4731,18 +4650,17 @@ pub async fn execute_counterpoint_ticket_batch(
         let transaction_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO transactions (
-                customer_id, counterpoint_ticket_ref, counterpoint_customer_code,
-                is_counterpoint_import, status, booked_at, total_price, 
+                customer_id, counterpoint_ticket_ref,
+                is_counterpoint_import, status, booked_at, total_price,
                 amount_paid, balance_due, processed_by_staff_id, 
                 primary_salesperson_id, notes
             )
-            VALUES ($1, $2, $3, TRUE, $4::order_status, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, TRUE, $3::order_status, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id
             "#,
         )
         .bind(customer_id)
         .bind(ticket_ref)
-        .bind(tkt.cust_no.as_deref())
         .bind(status)
         .bind(booked_at)
         .bind(tkt.total_price)
@@ -4810,12 +4728,12 @@ pub async fn execute_counterpoint_ticket_batch(
                 summary.skipped += 1;
                 continue;
             }
-            let gc_row: Option<(Uuid, Decimal)> =
-                sqlx::query_as("SELECT id, current_balance FROM gift_cards WHERE code = $1")
+            let gift_card_exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM gift_cards WHERE code = $1)")
                     .bind(cert)
-                    .fetch_optional(&mut *tx)
+                    .fetch_one(&mut *tx)
                     .await?;
-            let Some((gc_id, mut bal)) = gc_row else {
+            if !gift_card_exists {
                 record_sync_issue(
                     pool,
                     "tickets",
@@ -4826,50 +4744,8 @@ pub async fn execute_counterpoint_ticket_batch(
                 .await;
                 summary.skipped += 1;
                 continue;
-            };
-            let redeem = ga.amount.min(bal);
-            if redeem <= Decimal::ZERO {
-                summary.skipped += 1;
-                continue;
             }
-            bal -= redeem;
-            let redemption_note = format!("Counterpoint ticket {ticket_ref}");
-            let already_exists = gift_card_event_exists(
-                &mut tx,
-                gc_id,
-                "redeemed",
-                -redeem,
-                bal,
-                Some(transaction_id),
-                Some(redemption_note.as_str()),
-            )
-            .await?;
-
-            if already_exists {
-                summary.skipped += 1;
-                continue;
-            }
-            sqlx::query("UPDATE gift_cards SET current_balance = $1 WHERE id = $2")
-                .bind(bal)
-                .bind(gc_id)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query(
-                r#"
-                INSERT INTO gift_card_events (
-                    gift_card_id, event_kind, amount, balance_after, transaction_id, notes, created_at
-                )
-                VALUES ($1, 'redeemed', $2, $3, $4, $5, $6)
-                "#,
-            )
-            .bind(gc_id)
-            .bind(-redeem)
-            .bind(bal)
-            .bind(transaction_id)
-            .bind(redemption_note)
-            .bind(booked_at)
-            .execute(&mut *tx)
-            .await?;
+            let redeem = ga.amount;
 
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
@@ -5266,18 +5142,17 @@ pub async fn execute_counterpoint_open_doc_batch(
         let transaction_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO transactions (
-                customer_id, counterpoint_ticket_ref, counterpoint_doc_ref, 
-                counterpoint_customer_code, is_counterpoint_import,
+                customer_id, counterpoint_ticket_ref, counterpoint_doc_ref,
+                is_counterpoint_import,
                 status, booked_at, total_price, amount_paid, balance_due,
                 processed_by_staff_id, primary_salesperson_id
             )
-            VALUES ($1, NULL, $2, $3, TRUE, $4::order_status, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, NULL, $2, TRUE, $3::order_status, $4, $5, $6, $7, $8, $9)
             RETURNING id
             "#,
         )
         .bind(customer_id)
         .bind(doc_ref)
-        .bind(doc.cust_no.as_deref())
         .bind(status)
         .bind(booked_at)
         .bind(doc.total_price)
@@ -6803,6 +6678,261 @@ mod tests {
             .execute(&pool)
             .await
             .expect("cleanup sync run row");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_ticket_gift_application_preserves_snapshot_balance() {
+        let pool = connect_test_db().await;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let gift_code = format!("CPGC-{suffix}");
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let sku = format!("CP-TKT-SKU-{suffix}");
+        let cp_key = format!("CP-TKT-ITEM-{suffix}");
+        let ticket_ref = format!("CP-TKT-{suffix}");
+
+        execute_counterpoint_gift_card_batch(
+            &pool,
+            CounterpointGiftCardsPayload {
+                rows: vec![CounterpointGiftCardRow {
+                    cert_no: gift_code.clone(),
+                    balance: Decimal::new(10000, 2),
+                    original_value: Some(Decimal::new(15000, 2)),
+                    reason_cod: None,
+                    expires_at: None,
+                    issued_at: None,
+                    events: vec![GiftCardEventRow {
+                        event_kind: "redeem".into(),
+                        amount: Decimal::new(5000, 2),
+                        balance_after: Decimal::new(10000, 2),
+                        created_at: Some(Utc::now().to_rfc3339()),
+                        notes: Some("historical Counterpoint event ignored for snapshot".into()),
+                    }],
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("import current gift card balance");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, $4, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("Counterpoint Ticket Fixture {suffix}"))
+        .bind(Decimal::new(4000, 2))
+        .bind(Decimal::new(1000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert ticket fixture product");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, '{}'::jsonb, 1, $4)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .bind(&cp_key)
+        .execute(&pool)
+        .await
+        .expect("insert ticket fixture variant");
+
+        execute_counterpoint_ticket_batch(
+            &pool,
+            CounterpointTicketsPayload {
+                rows: vec![CounterpointTicketRow {
+                    ticket_ref: ticket_ref.clone(),
+                    cust_no: None,
+                    booked_at: Some(Utc::now().to_rfc3339()),
+                    total_price: Decimal::new(4000, 2),
+                    amount_paid: Decimal::ZERO,
+                    usr_id: None,
+                    sls_rep: None,
+                    notes: None,
+                    lines: vec![TicketLineRow {
+                        sku: Some(sku.clone()),
+                        counterpoint_item_key: Some(cp_key.clone()),
+                        lin_seq_no: Some(1),
+                        quantity: 1,
+                        unit_price: Decimal::new(4000, 2),
+                        unit_cost: Some(Decimal::new(1000, 2)),
+                        description: Some("Gift tender test item".into()),
+                        reason_code: None,
+                    }],
+                    payments: vec![],
+                    gift_applications: vec![TicketGiftApplicationRow {
+                        gift_cert_no: gift_code.clone(),
+                        amount: Decimal::new(2500, 2),
+                        action: Some("redeem".into()),
+                    }],
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("import historical ticket with gift application");
+
+        let balance: Decimal =
+            sqlx::query_scalar("SELECT current_balance FROM gift_cards WHERE code = $1")
+                .bind(&gift_code)
+                .fetch_one(&pool)
+                .await
+                .expect("load gift card balance");
+        assert_eq!(balance, Decimal::new(10000, 2));
+
+        let event_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM gift_card_events e
+            INNER JOIN gift_cards g ON g.id = e.gift_card_id
+            WHERE g.code = $1
+            "#,
+        )
+        .bind(&gift_code)
+        .fetch_one(&pool)
+        .await
+        .expect("count gift card events");
+        assert_eq!(event_count, 0);
+
+        let gift_payment_sum: Decimal = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(SUM(pa.amount_allocated), 0)::numeric
+            FROM payment_allocations pa
+            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            INNER JOIN transactions t ON t.id = pa.target_transaction_id
+            WHERE t.counterpoint_ticket_ref = $1
+              AND pt.payment_method = 'gift_card'
+            "#,
+        )
+        .bind(&ticket_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("sum gift card payment allocations");
+        assert_eq!(gift_payment_sum, Decimal::new(2500, 2));
+
+        let payment_ids: Vec<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT pa.transaction_id
+            FROM payment_allocations pa
+            INNER JOIN transactions t ON t.id = pa.target_transaction_id
+            WHERE t.counterpoint_ticket_ref = $1
+            "#,
+        )
+        .bind(&ticket_ref)
+        .fetch_all(&pool)
+        .await
+        .expect("load payment ids for cleanup");
+        let transaction_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM transactions WHERE counterpoint_ticket_ref = $1")
+                .bind(&ticket_ref)
+                .fetch_all(&pool)
+                .await
+                .expect("load transaction ids for cleanup");
+
+        sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup payment allocations");
+        sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup transaction lines");
+        sqlx::query("DELETE FROM transactions WHERE id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup transactions");
+        sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
+            .bind(&payment_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup payment transactions");
+        sqlx::query("DELETE FROM gift_cards WHERE code = $1")
+            .bind(&gift_code)
+            .execute(&pool)
+            .await
+            .expect("cleanup gift card");
+        sqlx::query("DELETE FROM product_variants WHERE id = $1")
+            .bind(variant_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup variant");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup product");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_customer_import_sets_current_loyalty_points_without_history() {
+        let pool = connect_test_db().await;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let customer_code = format!("CP-LOY-{suffix}");
+
+        execute_counterpoint_customer_batch(
+            &pool,
+            CounterpointCustomersPayload {
+                rows: vec![CounterpointCustomerRow {
+                    cust_no: customer_code.clone(),
+                    first_name: Some("Loyalty".into()),
+                    last_name: Some("Snapshot".into()),
+                    full_name: None,
+                    company_name: None,
+                    email: Some(format!("cp-loy-{suffix}@example.com")),
+                    phone: None,
+                    address_line1: None,
+                    address_line2: None,
+                    city: None,
+                    state: None,
+                    postal_code: None,
+                    date_of_birth: None,
+                    marketing_email_opt_in: None,
+                    marketing_sms_opt_in: None,
+                    loyalty_points: Some(1234),
+                    customer_type: None,
+                    ar_balance: None,
+                    sls_rep: None,
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("import customer current loyalty balance");
+
+        let (customer_id, loyalty_points): (Uuid, i32) = sqlx::query_as(
+            "SELECT id, COALESCE(loyalty_points, 0)::int FROM customers WHERE customer_code = $1",
+        )
+        .bind(&customer_code)
+        .fetch_one(&pool)
+        .await
+        .expect("load imported customer loyalty balance");
+        assert_eq!(loyalty_points, 1234);
+
+        let ledger_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM loyalty_point_ledger WHERE customer_id = $1",
+        )
+        .bind(customer_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count loyalty ledger rows");
+        assert_eq!(ledger_rows, 0);
+
+        sqlx::query("DELETE FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup loyalty snapshot customer");
     }
 
     #[tokio::test]

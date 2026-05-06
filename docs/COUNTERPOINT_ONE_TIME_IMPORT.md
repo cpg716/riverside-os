@@ -42,7 +42,8 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 - Confirm a current ROS database backup exists and is usable before changing import state.
 - Confirm the Counterpoint bridge `.env` points at the correct Counterpoint company database and ROS server.
 - Confirm `COUNTERPOINT_SYNC_TOKEN`, `CP_IMPORT_SINCE`, `RUN_ONCE`, staging mode, and enabled `SYNC_*` entities in the bridge runtime snapshot.
-- Confirm the enabled entities follow the required order: staff / sales-rep stubs, vendors, customers, store credit opening, customer notes, catalog, inventory, vendor items, gift cards if used, tickets, open docs, loyalty history.
+- Confirm the enabled entities follow the required order: staff / sales-rep stubs, vendors, customers, store credit opening, customer notes, catalog, inventory, vendor items, gift cards if used, tickets, open docs. Keep loyalty history disabled for the current-balance snapshot cutover.
+- Confirm gift cards and loyalty are configured as snapshots: leave `CP_GFC_HIST_QUERY` empty, leave `CP_TICKET_GIFT_QUERY` empty, keep `SYNC_LOYALTY_HIST=0`, and ensure `CP_CUSTOMERS_QUERY` selects the current Counterpoint points balance as `pts_bal`.
 - Decide whether to run **Settings → Counterpoint → Status → Fresh baseline reset** before this pass. Use it when you need a clean ROS import baseline while preserving reviewed Counterpoint mapping configuration.
 - Decide whether to clear the bridge-local `.counterpoint-bridge-state.json` file before launch. Clear it only when the next run must replay from the beginning instead of continuing from saved bridge cursors.
 
@@ -68,7 +69,7 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 
 - No unresolved sync issues remain unless they are explicitly documented and accepted for this rehearsal pass.
 - Every expected domain for the selected scope appears in Landing Verification.
-- Weak or approximate domains, especially gift cards and closed-ticket payments, have been reviewed and documented.
+- Weak or approximate domains, especially gift-card current balance snapshots and closed-ticket payments, have been reviewed and documented.
 - Transaction, open-doc, and inventory/catalog warnings are documented with either a fix plan or an accepted explanation.
 - Bridge counts, ROS landed counts, staging state, and verification snapshots are captured for the rehearsal record.
 
@@ -112,9 +113,9 @@ Hard dependencies in ROS:
 8. **Closed ticket history** (`SYNC_TICKETS`) — idempotent on `counterpoint_ticket_ref`.
 9. **Open PS_DOC documents** (optional) — `SYNC_OPEN_DOCS=1` and `CP_OPEN_DOCS_*` queries **after** tickets. Posts to `POST /api/sync/counterpoint/open-docs`. Idempotent on `counterpoint_doc_ref`.
    Historical ticket/open-doc totals are useful for operational history, but tax remains non-authoritative unless you explicitly extend the bridge with proven Counterpoint tax columns.
-10. **Loyalty** — **off by default** in the bridge. If your CP DB has no loyalty history table, or you prefer to set points only in ROS (**`customers.loyalty_points`** / **`loyalty_point_ledger`** via the app or a separate import), keep **`SYNC_LOYALTY_HIST=0`**.
+10. **Loyalty** — current points come from `AR_CUST` during customer sync. Keep **`SYNC_LOYALTY_HIST=0`** for cutover; loyalty ledger history is not imported.
 
-**Gift cards** — same idea: keep **`SYNC_GIFT_CARDS=0`** and maintain **`gift_cards`** in ROS yourself when Counterpoint is not the source of truth.
+**Gift cards** — if Counterpoint is the source of current card balances, enable **`SYNC_GIFT_CARDS=1`** for the card master/current balance rows only. Leave **`CP_GFC_HIST_QUERY`** and **`CP_TICKET_GIFT_QUERY`** empty so historical gift-card activity is not imported and current balances are not replayed downward.
 
 Enable either sync only when **`discover`** shows the corresponding CP tables and you want the bridge to load them.
 
@@ -229,12 +230,13 @@ Do **not** assume every Counterpoint entity is safe to rerun. Current repeatabil
   - `vendor_items`
   - `tickets`
   - `open_docs`
-  - `loyalty_hist`
 - **Partially repeatable with caveats**
   - `category_masters`
     The mapping/category outcome is stable, but manual map decisions still matter for final correctness.
   - `gift_cards`
-    Card masters already upsert. Event inserts now skip duplicate event shapes for repeat migration passes, but operators should still review card history carefully before the final accepted run.
+    Card masters/current balances upsert. Historical gift-card event import is out of scope for cutover and should remain disabled.
+  - `loyalty_hist`
+    Optional historical replay only. Keep disabled for current-balance snapshot migration.
   - `receiving_history`
     Raw receiving rows now skip duplicate natural-key matches on rerun, but this remains analytics/history support rather than a reconciled procurement engine.
 - **Use explicit operator caution / unclear enough to avoid casual reruns**

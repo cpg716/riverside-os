@@ -128,11 +128,11 @@ Each data entity has a flag. Enable what you need. **Recommended enable order:**
 | `SYNC_CUSTOMER_NOTES=1` | Customer timeline memos | Disabled | `AR_CUST_NOTE` |
 | `SYNC_INVENTORY=1` | Stock quantities for existing variants | Disabled | `IM_INV` |
 | `SYNC_CATALOG=1` | Products + matrix variants (creates items in ROS) | Disabled | `IM_ITEM`, `IM_INV_CELL`, `IM_PRC`, `IM_BARCOD` |
-| `SYNC_GIFT_CARDS=1` | Gift certificates + lifecycle events | Disabled | `SY_GFT_CERT` (Standard) or `SY_GFC` (Custom) |
+| `SYNC_GIFT_CARDS=1` | Gift certificate current balance snapshots | Disabled | `SY_GFT_CERT` (Standard) or `SY_GFC` (Custom) |
 | `SYNC_TICKETS=1` | Historical sales tickets → orders | Disabled | `PS_TKT_HIST`, `PS_TKT_HIST_LIN`, `PS_TKT_HIST_PMT` |
 | `SYNC_RECEIVING_HISTORY=1` | Historical cost/receiving logs (2018+) | Disabled | `PO_RECVR_HIST` |
 | `SYNC_TICKET_PAYMENTS=1` | Historical payment method details | Disabled | `PS_TKT_HIST_PMT` |
-| `SYNC_TICKET_GIFT_REDEEM=1` | Historical gift card redemptions | Disabled | `PS_TKT_HIST_GFT` |
+| `SYNC_TICKET_GIFT_REDEEM=1` | Historical gift card tender visibility only; does not mutate current card balances | Disabled | `PS_TKT_HIST_GFT` |
 | `SYNC_STORE_CREDIT_OPENING=1` | Current Store Credit balances | Disabled | `SY_STC` |
 
 ### 3d. Start
@@ -201,7 +201,7 @@ Imported staff have **no PIN** (`pin_hash = NULL`) and cannot log in to the Back
 | `EMAIL_ADRS_1` | `email` | Unique constraint; skipped on conflict (logged as `email_conflicts`) |
 | `PHONE_1` | `phone` | Clamped to 20 chars |
 | `ADRS_1`, `ADRS_2`, `CITY`, `STATE`, `ZIP_COD` | `address_line1/2`, `city`, `state`, `postal_code` | |
-| `PTS_BAL` | `loyalty_points` | Integer points balance |
+| `PTS_BAL` / `LOY_PTS_BAL` | `loyalty_points` | Current integer points balance snapshot |
 | `CUST_TYP` | `custom_field_1` | Customer type tag (e.g., "RETAIL", "WHOLESALE") |
 | `BAL` | `custom_field_2` | A/R balance (stored as string for reference) |
 | `SLS_REP` | `preferred_salesperson_id` | Resolved via `counterpoint_staff_map` (sync staff first) |
@@ -227,11 +227,15 @@ Imported staff have **no PIN** (`pin_hash = NULL`) and cannot log in to the Back
 
 Idempotent: notes with the same `[CP:NOTE_ID]` prefix for a customer are skipped on re-sync.
 
-### 4b-3. Loyalty history (`PS_LOY_PTS_HIST`)
+### 4b-3. Loyalty current balance and optional history
 
-**Target:** `loyalty_point_ledger` (`reason = 'cp_loy_pts_hist'`, dedupe `metadata.cp_ref`).
+**Current cutover scope:** loyalty imports as a current point-balance snapshot on `customers.loyalty_points`. Ensure `CP_CUSTOMERS_QUERY` selects the Counterpoint current points column (`PTS_BAL`, `LOY_PTS_BAL`, or the local equivalent) as `pts_bal`.
 
-**Order:** Runs **after** customer sync so `customers.loyalty_points` reflects Counterpoint’s current balance (`LOY_PTS_BAL` / `PTS_BAL` on `AR_CUST`). Only history rows on or after **`CP_IMPORT_SINCE`** are sent (`CP_LOYALTY_HIST_QUERY`).
+**Historical loyalty activity is not imported for cutover.** Keep `SYNC_LOYALTY_HIST=0` unless a separate historical replay is explicitly requested later.
+
+**Optional history target:** `loyalty_point_ledger` (`reason = 'cp_loy_pts_hist'`, dedupe `metadata.cp_ref`).
+
+**Order if explicitly enabled later:** Runs **after** customer sync so `customers.loyalty_points` reflects Counterpoint’s current balance (`LOY_PTS_BAL` / `PTS_BAL` on `AR_CUST`). Only history rows on or after **`CP_IMPORT_SINCE`** are sent (`CP_LOYALTY_HIST_QUERY`).
 
 **Opening balance:** For a customer with **no** prior ledger rows, the first imported delta uses  
 `previous_balance = loyalty_points − Σ(earned − redeemed)` over **that batch’s** rows for the same `cust_no`, so the chain ends at the same total as `AR_CUST`. If Counterpoint data is inconsistent (sum of deltas exceeds current balance), the server clamps the opening to **0** and logs a warning.
@@ -292,8 +296,8 @@ Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows with **non-zero `Q
 
 ### 4e. Gift cards
 
-**Source:** `dbo.SY_GFT_CERT` (active cards) + `dbo.SY_GFT_CERT_HIST` (lifecycle events)
-**Target:** `gift_cards` + `gift_card_events`
+**Source:** `dbo.SY_GFT_CERT` / `dbo.SY_GFC` current issued-card rows.
+**Target:** `gift_cards`
 **Key:** `GFT_CERT_NO` → `gift_cards.code`
 
 | Counterpoint | ROS |
@@ -303,10 +307,6 @@ Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows with **non-zero `Q
 | `SY_GFT_CERT.ORIG_AMT` | `gift_cards.original_value` |
 | `SY_GFT_CERT.ISSUE_DAT` | `gift_cards.created_at` + drives `expires_at` computation |
 | `SY_GFT_CERT.REASON_COD` | `gift_cards.card_kind` (via `counterpoint_gift_reason_map`) |
-| `SY_GFT_CERT_HIST.ACTION` | `gift_card_events.event_kind` (Issue/Redeem → event type) |
-| `SY_GFT_CERT_HIST.AMT` | `gift_card_events.amount` |
-| `SY_GFT_CERT_HIST.TKT_NO` | `gift_card_events.notes` (stored as "Ticket TKT_NO") |
-| `SY_GFT_CERT_HIST.TRX_DAT` | `gift_card_events.created_at` |
 
 **Reason code mapping:** `REASON_COD` values are resolved through `counterpoint_gift_reason_map`. If no mapping exists, the card defaults to `purchased`. Admins can populate the map via SQL or a future Settings UI.
 
@@ -319,7 +319,7 @@ Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows with **non-zero `Q
 
 If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
-**Gift card history:** Set `CP_GFT_CERT_HIST_QUERY` to import the full lifecycle (issues, redeems, adjustments). Leave it empty to import only current balances without event history.
+**Gift card history:** Historical gift card activity is not imported for cutover. Leave `CP_GFC_HIST_QUERY` empty. Leave `CP_TICKET_GIFT_QUERY` empty. If ticket gift rows are separately enabled later for tender visibility, ROS still treats gift cards as current balance snapshots and does not decrement `gift_cards.current_balance`.
 
 ### 4f. Ticket history (orders)
 
@@ -338,8 +338,8 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `PS_TKT_HIST.SLS_REP` | `orders.primary_salesperson_id` + `order_items.salesperson_id` (resolved via `counterpoint_staff_map`) |
 | `PS_TKT_HIST_LIN.ITEM_NO` + `LIN_SEQ_NO` | `order_items.variant_id` (with `PS_TKT_HIST_CELL` the bridge builds the same matrix `counterpoint_item_key` as `IM_INV_CELL`) |
 | `PS_TKT_HIST_PMT.PMT_TYP` | `payment_transactions.payment_method` (via `counterpoint_payment_method_map`) |
-| `PS_TKT_HIST_GFT` | `payment_transactions` (`gift_card`) + `gift_card_events` (redemption); load/issue-like `ACTION` values are skipped server-side |
-| `PS_LOY_PTS_HIST` | `loyalty_point_ledger` (`reason = 'cp_loy_pts_hist'`, idempotent `metadata.cp_ref`) |
+| `PS_TKT_HIST_GFT` | Optional `payment_transactions` (`gift_card`) tender visibility only; does not decrement `gift_cards.current_balance` |
+| `PS_LOY_PTS_HIST` | Optional historical replay only; not required for current loyalty balances |
 | `PO_VEND_ITEM` | `vendor_supplier_item` (links `vendors.vendor_code` + CP `ITEM_NO` to `product_variants` when resolvable) |
 | — | `orders.counterpoint_customer_code` | Original CP customer code preserved for audit fallback |
 
@@ -639,7 +639,7 @@ Unmapped reason codes default to `purchased`.
 
 ## 9. Date-range filtering (recommended)
 
-You do **not** have to import the full Counterpoint history. The `.env.example` uses **`CP_IMPORT_SINCE`** (default **2018-01-01**) expanded as **`__CP_IMPORT_SINCE__`** in ticket, note, loyalty, gift-history, **customer**, and **inventory** templates. Adjust **`CP_IMPORT_SINCE`** once rather than editing every date literal.
+You do **not** have to import the full Counterpoint history. The `.env.example` uses **`CP_IMPORT_SINCE`** (default **2018-01-01**) expanded as **`__CP_IMPORT_SINCE__`** in ticket, note, **customer**, and **inventory** templates. Adjust **`CP_IMPORT_SINCE`** once rather than editing every date literal.
 
 ### What to filter vs. keep full
 
@@ -647,7 +647,7 @@ You do **not** have to import the full Counterpoint history. The `.env.example` 
 |--------|---------|--------|
 | **Tickets** (`PS_TKT_HIST` + LIN + PMT) | **Yes** — `BUS_DAT >= __CP_IMPORT_SINCE__` | Largest volume |
 | **Customer notes** (`AR_CUST_NOTE`) | **Typical** — `NOTE_DAT >= __CP_IMPORT_SINCE__` | Aligns with customer import window |
-| **Gift card history** (`SY_GFT_CERT_HIST`) | **Optional** — `TRX_DAT >= __CP_IMPORT_SINCE__` | Balances from `SY_GFT_CERT`; history is supplementary |
+| **Gift card history** (`SY_GFT_CERT_HIST`) | **Do not import for cutover** | Balances come from the current `SY_GFT_CERT` / `SY_GFC` snapshot |
 | **Staff** (`SY_USR`, `PS_SLS_REP`) | **Full sync** | Small table; tickets reference staff |
 | **Customers** (`AR_CUST`) | **Default: ticket, in-range note, or positive `MERCH_CR_BAL`** (adjust in `.env`) when store-credit sync is on | Loyalty does **not** widen the list |
 | **Vendors** (`PO_VEND`) | **Default: vendors of “active” items only** | Matches trimmed catalog |
