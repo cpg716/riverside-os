@@ -207,6 +207,7 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md` | Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival. | Developers / ops |
 | `docs/ORBSTACK_GUIDE.md` | Local Docker management, context switch, VirtioFS | Devs |
 | `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
+| `docs/HELCIM.md` | Helcim POS/Payments integration contract, provider attempts, terminal health, webhooks, settlement, refunds | Devs / ops |
 | `docs/staff/payments-operations.md` | Staff guide for Helcim payment operations, reconciliation, deposits, sync health, and alerts | Ops / devs |
 | `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
 | `docs/SEARCH_AND_PAGINATION.md` | Search semantics, optional Meilisearch | Devs |

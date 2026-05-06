@@ -167,6 +167,27 @@ type EventsHealth = {
   ignored_event_count: number;
   last_event_at: string | null;
   last_failed_message: string | null;
+  last_failed_event_id: string | null;
+};
+
+type HelcimDevice = {
+  code?: string;
+  deviceCode?: string;
+  id?: string | number;
+  nickname?: string;
+  name?: string;
+  status?: string;
+  model?: string;
+  type?: string;
+  [key: string]: unknown;
+};
+
+type HelcimCardTerminal = {
+  id?: string | number;
+  nickname?: string;
+  currency?: string;
+  status?: string;
+  [key: string]: unknown;
 };
 
 type DepositRow = {
@@ -241,6 +262,9 @@ type DashboardState = {
   transactions: TransactionRow[];
   runs: SettlementRun[];
   health: EventsHealth | null;
+  terminalDevices: HelcimDevice[];
+  cardTerminals: HelcimCardTerminal[];
+  terminalError: string | null;
 };
 
 type Props = {
@@ -304,6 +328,30 @@ function asText(value: unknown, emptyLabel = "Not ready") {
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? "Yes" : "No";
   return emptyLabel;
+}
+
+function extractArray<T>(value: unknown, keys: string[]): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    if (Array.isArray(record[key])) return record[key] as T[];
+  }
+  return [];
+}
+
+function helcimDeviceCode(device: HelcimDevice) {
+  const value = device.code ?? device.deviceCode ?? device.id;
+  return value === undefined || value === null ? "" : String(value).trim();
+}
+
+function helcimDeviceLabel(device: HelcimDevice) {
+  return (
+    asText(device.nickname, "") ||
+    asText(device.name, "") ||
+    asText(device.model, "") ||
+    `Device ${helcimDeviceCode(device) || "unknown"}`
+  );
 }
 
 function staffLabel(value: string | null | undefined, emptyLabel = "Not ready") {
@@ -411,6 +459,9 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     transactions: [],
     runs: [],
     health: null,
+    terminalDevices: [],
+    cardTerminals: [],
+    terminalError: null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -517,7 +568,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     setError(null);
     const today = todayYmd();
     try {
-      const [overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health] = await Promise.all([
+      const [overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health, terminalDevicesResult, cardTerminalsResult] = await Promise.all([
         getJson<OverviewResponse>(
           `/api/payments/providers/helcim/operations/overview?date_from=${today}&date_to=${today}`,
         ),
@@ -531,8 +582,28 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
         getJson<TransactionRow[]>("/api/payments/providers/helcim/transactions?limit=50"),
         getJson<SettlementRun[]>("/api/payments/providers/helcim/sync/runs?limit=10"),
         getJson<EventsHealth>("/api/payments/providers/helcim/events/health"),
+        getJson<unknown>("/api/payments/providers/helcim/terminal/devices?limit=100")
+          .then((body) => ({ body, error: null as string | null }))
+          .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Device status could not load." })),
+        getJson<unknown>("/api/payments/providers/helcim/terminal/card-terminals")
+          .then((body) => ({ body, error: null as string | null }))
+          .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Card terminal status could not load." })),
       ]);
-      setData({ overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health });
+      const terminalError = terminalDevicesResult.error ?? cardTerminalsResult.error;
+      setData({
+        overview,
+        batches,
+        deposits,
+        unmatchedBatches,
+        unmatchedDeposits,
+        issues,
+        transactions,
+        runs,
+        health,
+        terminalDevices: extractArray<HelcimDevice>(terminalDevicesResult.body, ["devices", "data", "items", "results"]),
+        cardTerminals: extractArray<HelcimCardTerminal>(cardTerminalsResult.body, ["cardTerminals", "card_terminals", "data", "items", "results"]),
+        terminalError,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payments could not load.");
     } finally {
@@ -1006,6 +1077,33 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     [apiHeaders, canSync, refresh, toast],
   );
 
+  const replayLastFailedEvent = useCallback(async () => {
+    const eventId = data.health?.last_failed_event_id;
+    if (!eventId) {
+      toast("No failed Helcim update is available to replay.", "info");
+      return;
+    }
+    try {
+      await sendJson(`/api/payments/providers/helcim/events/${eventId}/replay`, "POST");
+      toast("Helcim update replayed.", "success");
+      await refresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Helcim update replay failed.", "error");
+    }
+  }, [data.health?.last_failed_event_id, refresh, sendJson, toast]);
+
+  const pingDevice = useCallback(async (code: string) => {
+    const normalized = code.trim();
+    if (!normalized) return;
+    try {
+      await sendJson(`/api/payments/providers/helcim/terminal/devices/${encodeURIComponent(normalized)}/ping`, "POST");
+      toast(`Ping sent to Helcim device ${normalized}.`, "success");
+      await refresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Helcim device ping failed.", "error");
+    }
+  }, [refresh, sendJson, toast]);
+
   const filteredTransactions = useMemo(() => {
     const query = transactionSearch.trim().toLowerCase();
     if (!query) return data.transactions;
@@ -1145,6 +1243,9 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
                 overview={data.overview}
                 runs={data.runs}
                 health={data.health}
+                terminalDevices={data.terminalDevices}
+                cardTerminals={data.cardTerminals}
+                terminalError={data.terminalError}
                 lastSuccess={lastSuccess}
                 lastError={lastError}
                 depositAlertCount={depositBadge}
@@ -1152,6 +1253,8 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
                 canSync={canSync}
                 onSyncBatches={() => void runSync("batches")}
                 onSyncFees={() => void runSync("fees")}
+                onReplayLastFailedEvent={() => void replayLastFailedEvent()}
+                onPingDevice={(code) => void pingDevice(code)}
               />
             )}
           </>
@@ -1590,6 +1693,9 @@ function HealthPanel({
   overview,
   runs,
   health,
+  terminalDevices,
+  cardTerminals,
+  terminalError,
   lastSuccess,
   lastError,
   depositAlertCount,
@@ -1597,10 +1703,15 @@ function HealthPanel({
   canSync,
   onSyncBatches,
   onSyncFees,
+  onReplayLastFailedEvent,
+  onPingDevice,
 }: {
   overview: OverviewResponse | null;
   runs: SettlementRun[];
   health: EventsHealth | null;
+  terminalDevices: HelcimDevice[];
+  cardTerminals: HelcimCardTerminal[];
+  terminalError: string | null;
   lastSuccess: SettlementRun | undefined;
   lastError: SettlementRun | undefined;
   depositAlertCount: number;
@@ -1608,6 +1719,8 @@ function HealthPanel({
   canSync: boolean;
   onSyncBatches: () => void;
   onSyncFees: () => void;
+  onReplayLastFailedEvent: () => void;
+  onPingDevice: (code: string) => void;
 }) {
   const paymentAlertCount =
     (lastError ? 1 : 0) +
@@ -1692,6 +1805,90 @@ function HealthPanel({
           <MetricCard label="Needs Review" value={`${health?.failed_event_count ?? 0}`} tone={(health?.failed_event_count ?? 0) > 0 ? "warning" : "good"} />
           <MetricCard label="No Action Needed" value={`${health?.ignored_event_count ?? 0}`} />
           <MetricCard label="Last Update" value={shortDateTime(health?.last_event_at)} />
+        </div>
+        {(health?.failed_event_count ?? 0) > 0 ? (
+          <div className="mt-4 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-semibold text-app-text-muted sm:flex-row sm:items-center sm:justify-between">
+            <span>{health?.last_failed_message ?? "A Helcim payment update failed and can be replayed."}</span>
+            <button
+              type="button"
+              onClick={onReplayLastFailedEvent}
+              disabled={!canSync || !health?.last_failed_event_id}
+              title={!canSync ? "You do not have permission to perform this action" : undefined}
+              className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text disabled:opacity-50"
+            >
+              Replay Last Update
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <div className="rounded-lg border border-app-border bg-app-surface p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-black text-app-text">Terminal Control</h2>
+            <p className="mt-1 text-sm font-semibold text-app-text-muted">
+              Device codes come from Helcim API mode. Ping checks whether the device is listening.
+            </p>
+          </div>
+          <StatusPill value={terminalError ? "Needs Review" : terminalDevices.length > 0 ? "Ready" : "Not Ready"} />
+        </div>
+        {terminalError ? (
+          <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-semibold text-app-text-muted">
+            {terminalError}
+          </div>
+        ) : null}
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <section className="space-y-3">
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text-muted">Payment Devices</h3>
+            {terminalDevices.length === 0 ? (
+              <EmptyState title="No devices returned" body="Confirm API mode and device code setup in Helcim." compact />
+            ) : (
+              <div className="space-y-2">
+                {terminalDevices.map((device, index) => {
+                  const code = helcimDeviceCode(device);
+                  return (
+                    <div key={code || String(index)} className="rounded-lg border border-app-border bg-app-surface-2 p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="text-sm font-black text-app-text">{helcimDeviceLabel(device)}</div>
+                          <div className="mt-1 text-xs font-semibold text-app-text-muted">
+                            Code {code || "Not ready"} · {staffLabel(device.status, "Status not ready")}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onPingDevice(code)}
+                          disabled={!canSync || !code}
+                          title={!canSync ? "You do not have permission to perform this action" : undefined}
+                          className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-black uppercase tracking-widest text-app-text disabled:opacity-50"
+                        >
+                          Ping
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+          <section className="space-y-3">
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text-muted">Card Terminals</h3>
+            {cardTerminals.length === 0 ? (
+              <EmptyState title="No card terminals returned" body="Helcim did not return processor terminal records." compact />
+            ) : (
+              <DataTable
+                empty="No card terminals found."
+                headers={["Terminal", "Currency", "Status"]}
+                rows={cardTerminals.map((terminal, index) => ({
+                  key: String(terminal.id ?? terminal.nickname ?? index),
+                  cells: [
+                    asText(terminal.nickname ?? terminal.id),
+                    asText(terminal.currency),
+                    <StatusPill value={asText(terminal.status, "Not ready")} />,
+                  ],
+                }))}
+              />
+            )}
+          </section>
         </div>
       </div>
       <div className="flex flex-wrap gap-2">

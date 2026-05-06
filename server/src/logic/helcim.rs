@@ -226,6 +226,13 @@ pub struct HelcimCardTransactionsQuery {
     pub page: Option<i32>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct HelcimDevicesQuery {
+    pub code: Option<String>,
+    pub limit: Option<i32>,
+    pub page: Option<i32>,
+}
+
 impl HelcimConfig {
     pub fn from_env() -> Self {
         let api_token = non_empty_env("HELCIM_API_TOKEN");
@@ -425,6 +432,27 @@ impl HelcimCardTransactionsQuery {
         }
         if let Some(page) = self.page {
             query.push(("page", page.to_string()));
+        }
+        query
+    }
+}
+
+impl HelcimDevicesQuery {
+    fn query_params(&self) -> Vec<(&str, String)> {
+        let mut query = Vec::new();
+        if let Some(code) = self
+            .code
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            query.push(("code", code.to_string()));
+        }
+        if let Some(limit) = self.limit {
+            query.push(("limit", limit.clamp(1, 100).to_string()));
+        }
+        if let Some(page) = self.page {
+            query.push(("page", page.max(0).to_string()));
         }
         query
     }
@@ -837,6 +865,57 @@ pub async fn get_customer_cards(
     send_get_request(http, config, &path, &query).await
 }
 
+pub async fn list_card_terminals(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+) -> Result<Value, String> {
+    send_get_request(http, config, "card-terminals/", &[]).await
+}
+
+pub async fn list_devices(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    query: &HelcimDevicesQuery,
+) -> Result<Value, String> {
+    send_get_request(http, config, "devices/", &query.query_params()).await
+}
+
+pub async fn get_device(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    code: &str,
+) -> Result<Value, String> {
+    let code = normalized_device_code(code)?;
+    let path = format!("devices/{code}");
+    send_get_request(http, config, &path, &[]).await
+}
+
+pub async fn ping_device(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    code: &str,
+) -> Result<Value, String> {
+    let code = normalized_device_code(code)?;
+    let token = config
+        .api_token()
+        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+    let url = format!("{}/devices/{code}/ping", config.api_base_url());
+    let response = http
+        .get(&url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header("api-token", token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if response.status() != reqwest::StatusCode::ACCEPTED && !response.status().is_success() {
+        return Err(response_error_message("Helcim device ping", response).await);
+    }
+    response
+        .json::<Value>()
+        .await
+        .or_else(|_| Ok(serde_json::json!({ "status": "accepted" })))
+}
+
 pub async fn list_card_batches(
     http: &reqwest::Client,
     config: &HelcimConfig,
@@ -921,11 +1000,7 @@ pub async fn delete_customer_card(
         .await
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        let status = response.status();
-        let message = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "Helcim delete customer card returned HTTP {status}: {message}"
-        ));
+        return Err(response_error_message("Helcim delete customer card", response).await);
     }
     Ok(())
 }
@@ -951,11 +1026,7 @@ pub async fn set_customer_card_default(
         .await
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        let status = response.status();
-        let message = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "Helcim set customer card default returned HTTP {status}: {message}"
-        ));
+        return Err(response_error_message("Helcim set customer card default", response).await);
     }
     response.json::<Value>().await.map_err(|e| e.to_string())
 }
@@ -1053,11 +1124,7 @@ pub async fn start_terminal_refund(
         .await
         .map_err(|e| e.to_string())?;
     if response.status() != reqwest::StatusCode::ACCEPTED {
-        let status = response.status();
-        let message = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "Helcim terminal refund returned HTTP {status}: {message}"
-        ));
+        return Err(response_error_message("Helcim terminal refund", response).await);
     }
     response
         .json::<HelcimAcceptedPurchaseResponse>()
@@ -1084,11 +1151,7 @@ pub async fn initialize_helcim_pay(
         .await
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        let status = response.status();
-        let message = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "HelcimPay.js initialization returned HTTP {status}: {message}"
-        ));
+        return Err(response_error_message("HelcimPay.js initialization", response).await);
     }
     response
         .json::<HelcimPayInitializeResponse>()
@@ -1118,11 +1181,7 @@ async fn send_payment_request<T: Serialize + ?Sized>(
         .await
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        let status = response.status();
-        let message = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "Helcim payment request returned HTTP {status}: {message}"
-        ));
+        return Err(response_error_message("Helcim payment request", response).await);
     }
     response
         .json::<HelcimCardTransaction>()
@@ -1149,13 +1208,54 @@ async fn send_get_request(
         .await
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        let status = response.status();
-        let message = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "Helcim GET request returned HTTP {status}: {message}"
-        ));
+        return Err(response_error_message("Helcim GET request", response).await);
     }
     response.json::<Value>().await.map_err(|e| e.to_string())
+}
+
+async fn response_error_message(context: &str, response: reqwest::Response) -> String {
+    let status = response.status();
+    let retry_after = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let minute_remaining = response
+        .headers()
+        .get("minute-limit-remaining")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let hourly_remaining = response
+        .headers()
+        .get("hour-limit-remaining")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let message = response.text().await.unwrap_or_default();
+    let mut detail = format!("{context} returned HTTP {status}");
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        detail.push_str("; Helcim rate limit reached");
+    }
+    if let Some(value) = retry_after {
+        detail.push_str(&format!("; retry-after={value}"));
+    }
+    if let Some(value) = minute_remaining {
+        detail.push_str(&format!("; minute-limit-remaining={value}"));
+    }
+    if let Some(value) = hourly_remaining {
+        detail.push_str(&format!("; hour-limit-remaining={value}"));
+    }
+    if !message.trim().is_empty() {
+        detail.push_str(&format!(": {message}"));
+    }
+    detail
+}
+
+fn normalized_device_code(code: &str) -> Result<String, String> {
+    let code = code.trim().to_ascii_uppercase();
+    if code.is_empty() || code.len() > 4 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("Helcim device code must be 1 to 4 alphanumeric characters".to_string());
+    }
+    Ok(code)
 }
 
 pub fn normalize_accepted_purchase(

@@ -1707,6 +1707,27 @@ async fn process_refund(
             "helcim-refund-{}-{original_transaction_id}-{already_refunded_cents}-{amount_cents}",
             refund.id
         );
+        let provider_attempt_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO payment_provider_attempts (
+                id, provider, status, amount_cents, currency, register_session_id,
+                idempotency_key, provider_transaction_id, raw_audit_reference
+            )
+            VALUES ($1, 'helcim', 'pending', $2, 'usd', $3, $4, $5, $6)
+            "#,
+        )
+        .bind(provider_attempt_id)
+        .bind(amount_cents)
+        .bind(body.session_id)
+        .bind(&idempotency_key)
+        .bind(original_transaction_id.to_string())
+        .bind(format!(
+            "helcim:transactionRefund:{transaction_id}:{refund_id}",
+            refund_id = refund.id
+        ))
+        .execute(&mut *tx)
+        .await?;
         let config = helcim::HelcimConfig::from_env();
         let refund_request = helcim::HelcimCardRefundRequest {
             original_transaction_id,
@@ -1714,18 +1735,78 @@ async fn process_refund(
             ip_address: request_ip_address(&headers),
             ecommerce: false,
         };
-        let refund_transaction = helcim::process_card_refund(
+        let refund_transaction = match helcim::process_card_refund(
             &state.http_client,
             &config,
             refund_request,
             &idempotency_key,
         )
         .await
-        .map_err(|error| TransactionError::BadGateway(format!("Helcim refund failed: {error}")))?;
+        {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                sqlx::query(
+                    r#"
+                    UPDATE payment_provider_attempts
+                    SET status = 'failed',
+                        error_code = 'request_failed',
+                        error_message = $2,
+                        completed_at = now()
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(provider_attempt_id)
+                .bind(error.chars().take(500).collect::<String>())
+                .execute(&mut *tx)
+                .await?;
+                tx.commit().await?;
+                return Err(TransactionError::BadGateway(format!(
+                    "Helcim refund failed: {error}"
+                )));
+            }
+        };
 
-        provider_payment_id = refund_transaction.transaction_id_string();
+        let refund_status = refund_transaction.normalized_status();
+        let refund_provider_payment_id = refund_transaction.transaction_id_string();
+        let refund_provider_status = refund_transaction.provider_status();
+        let refund_audit_reference = refund_transaction.audit_reference();
+        let refund_warning = refund_transaction.warning.clone();
+
+        sqlx::query(
+            r#"
+            UPDATE payment_provider_attempts
+            SET status = $2,
+                provider_payment_id = $3,
+                provider_transaction_id = COALESCE($3, provider_transaction_id),
+                error_code = CASE WHEN $2 = 'failed' THEN 'declined' ELSE NULL END,
+                error_message = CASE WHEN $2 = 'failed' THEN COALESCE($5, 'Helcim refund was declined.') ELSE NULL END,
+                raw_audit_reference = COALESCE($4, raw_audit_reference),
+                completed_at = now()
+            WHERE id = $1
+            "#,
+        )
+        .bind(provider_attempt_id)
+        .bind(&refund_status)
+        .bind(refund_provider_payment_id.clone())
+        .bind(refund_audit_reference)
+        .bind(refund_warning.clone())
+        .execute(&mut *tx)
+        .await?;
+
+        if !matches!(refund_status.as_str(), "approved" | "captured") {
+            tx.commit().await?;
+            let provider_status_label = refund_provider_status
+                .as_deref()
+                .unwrap_or("not approved")
+                .to_string();
+            return Err(TransactionError::BadGateway(format!(
+                "Helcim refund was not approved: {provider_status_label}"
+            )));
+        }
+
+        provider_payment_id = refund_provider_payment_id;
         provider_transaction_id = provider_payment_id.clone();
-        provider_status = refund_transaction.provider_status();
+        provider_status = refund_provider_status;
         provider_auth_code = refund_transaction.approval_code.clone();
         provider_card_type = refund_transaction.card_type.clone();
         card_brand = refund_transaction.card_brand();
@@ -1733,6 +1814,10 @@ async fn process_refund(
 
         if let Some(object) = refund_metadata.as_object_mut() {
             object.insert("payment_provider".to_string(), json!("helcim"));
+            object.insert(
+                "provider_attempt_id".to_string(),
+                json!(provider_attempt_id),
+            );
             object.insert(
                 "original_provider_transaction_id".to_string(),
                 json!(original_transaction_id),

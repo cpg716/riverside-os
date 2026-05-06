@@ -93,7 +93,8 @@ For pre-launch baseline work, regenerate and validate the baseline as a whole. F
 The Helcim settlement foundation is backend-only and lives in the baseline integration schema:
 
 - `integration_credentials` stores encrypted server-side integration credentials saved from Backoffice Settings. `RIVERSIDE_CREDENTIALS_KEY` (or the existing `QBO_TOKEN_ENC_KEY` during transition) must be configured on the server before credentials can be saved; API responses expose configured status only, not raw secrets. QBO client credentials and OAuth tokens now use this shared store, while `qbo_integration` remains the metadata row for company realm, sandbox mode, token expiry, and sync timestamps.
-- `helcim_event_log` stores durable inbound webhook events before any mutation.
+- `helcim_event_log` stores durable inbound webhook events before any mutation. Replay is limited to stored failed Helcim events and reuses the stored payload; raw replay payloads are not accepted.
+- `payment_provider_attempts` stores POS/Payments provider attempts for terminal payments, HelcimPay, saved-card payments, card refunds/reverses, and queued transaction refunds. A failed provider attempt is audit evidence only; it must not by itself create or mutate `payment_transactions`.
 - `payment_provider_batches` stores provider batch headers by `provider` + `provider_batch_id`.
 - `payment_provider_batch_transactions` stores provider transaction membership inside a batch and links to `payment_transactions` when matched.
 - `payment_settlement_runs` stores durable sync/reconciliation run history.
@@ -107,5 +108,7 @@ The Helcim settlement foundation is backend-only and lives in the baseline integ
 Resolving or marking a reconciliation finding expected records staff review history only. It does not delete processor evidence, mutate payment amounts, create payment ledger rows, or create QBO/bank deposits.
 
 Actual bank deposits are modeled for matching and audit only. The deposit layer does not create QuickBooks deposits, automate bank-feed ingestion, mutate payment ledger amounts, or change expected Helcim batch amounts, fees, or net values.
+
+Helcim refund attempts are two-phase from ROS's perspective: the provider attempt may be recorded as failed for audit, but `payment_transactions`, refund queue totals, and transaction paid amounts are updated only after the provider response normalizes to approved/captured.
 
 Payments automation uses the notification system for operational alerts only. Scheduled Helcim fee and batch syncs may refresh explicit provider data, but they do not infer fees or net amounts and do not mutate payment, batch, deposit, QBO, or bank-feed truth. Payment alert notifications are bundled and deduped by condition; clearing an alert only removes the staff reminder and never auto-resolves reconciliation or deposit review items.

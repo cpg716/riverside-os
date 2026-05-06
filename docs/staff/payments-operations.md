@@ -2,7 +2,7 @@
 
 **Purpose:** Use ROS as the daily card-payment workspace. Helcim remains the card processor, but staff should use **Payments** to review activity, batches, issues, sync health, and actual bank deposits.
 
-Use this guide for **Back Office → Payments**. Use **Settings → Helcim** only for configuration/readiness checks and integration troubleshooting.
+Use this guide for **Back Office → Payments**. Use **Settings → Helcim** only for configuration/readiness checks and integration troubleshooting. Developer and integration contracts live in [`../HELCIM.md`](../HELCIM.md).
 
 ## Who should use it
 
@@ -124,15 +124,28 @@ Watch for:
 - **Batch has not settled**
 - **Deposit needs review**
 - **Payment update failed**
+- **Terminal not ready**
 
 Sync actions:
 
 - **Sync Batches** pulls Helcim batch/transaction data.
 - **Sync Fees** pulls explicit Helcim fee/net data. If fees are not available yet, ROS keeps them as **Fee not ready** instead of estimating them or treating them as `$0.00`.
+- **Replay Last Update** retries the latest failed Helcim payment update from the stored webhook event. Processed or ignored updates cannot be replayed.
+- **Ping** sends a Helcim device ping to confirm that an API-mode terminal is listening.
 
 Payment alerts are reminders, not financial corrections. Alerts may clear when the condition disappears, but reconciliation and deposit issues remain manual until staff act.
 
 Alert recipients follow the Payments permission split: sync failures go to staff who can run payment sync, payment-health alerts go to staff who can view Payments, reconciliation alerts go to staff who can review payment issues, and deposit alerts go to staff who can review actual deposits.
+
+Terminal status comes from Helcim device and card-terminal APIs. Device codes are still configured in **Settings → Helcim**, but daily readiness checks belong in **Payments → Health**. If a ping returns a device-not-listening or rate-limit message, do not retry repeatedly; confirm the terminal is signed in, in API mode, and assigned to the correct register.
+
+Provider errors, including Helcim rate limits, remain visible in the issue text so staff can decide whether to retry later or escalate instead of repeatedly submitting the same payment action.
+
+## Refund safety
+
+Card refunds that go through Helcim create a durable provider-attempt audit row before ROS records the refund. ROS only writes the negative payment and updates the refund queue after Helcim returns an approved or captured refund status.
+
+If Helcim declines the refund, returns a rate-limit response, or the provider request fails, ROS keeps the refund state unchanged and records the failed provider attempt for review.
 
 ## Payments vs. Helcim Settings
 

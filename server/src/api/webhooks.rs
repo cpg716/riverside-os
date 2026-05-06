@@ -111,6 +111,18 @@ struct HelcimProcessingOutcome {
     match_type: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HelcimReplayOutcome {
+    pub ok: bool,
+    pub processing_status: String,
+    pub updated: u64,
+    pub provider_transaction_id: Option<String>,
+    pub payment_provider_attempt_id: Option<Uuid>,
+    pub payment_transaction_id: Option<Uuid>,
+    pub match_type: String,
+    pub ignored: bool,
+}
+
 fn verify_helcim_webhook(
     headers: &HeaderMap,
     body: &[u8],
@@ -374,6 +386,100 @@ async fn mark_helcim_event_ignored(
     .await?;
     tracing::debug!(target = "helcim_webhook", event_type = %event_type, "stored unhandled Helcim event");
     Ok(())
+}
+
+pub async fn replay_helcim_event(
+    state: &AppState,
+    event_id: Uuid,
+) -> Result<HelcimReplayOutcome, sqlx::Error> {
+    let row: Option<(String, String, Value)> = sqlx::query_as(
+        r#"
+        SELECT event_type, processing_status, payload_json
+        FROM helcim_event_log
+        WHERE id = $1
+          AND provider = 'helcim'
+        "#,
+    )
+    .bind(event_id)
+    .fetch_optional(&state.db)
+    .await?;
+    let Some((event_type, processing_status, value)) = row else {
+        return Err(sqlx::Error::RowNotFound);
+    };
+    if processing_status != "failed" {
+        return Err(sqlx::Error::Protocol(
+            "Only failed Helcim events can be replayed.".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE helcim_event_log
+        SET processing_status = 'received',
+            error_message = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind(event_id)
+    .execute(&state.db)
+    .await?;
+
+    match helcim_webhook_action(&event_type) {
+        HelcimWebhookAction::CardTransaction => {
+            let transaction_id = helcim_webhook_event_id(&value).ok_or_else(|| {
+                sqlx::Error::Protocol("missing Helcim transaction id".to_string())
+            })?;
+            match handle_helcim_card_transaction(state, event_id, &transaction_id, &value).await {
+                Ok(outcome) => Ok(HelcimReplayOutcome {
+                    ok: true,
+                    processing_status: "processed".to_string(),
+                    updated: outcome.updated,
+                    provider_transaction_id: outcome.provider_transaction_id,
+                    payment_provider_attempt_id: outcome.payment_provider_attempt_id,
+                    payment_transaction_id: outcome.payment_transaction_id,
+                    match_type: outcome.match_type,
+                    ignored: false,
+                }),
+                Err(error) => {
+                    let message = error.to_string();
+                    let _ = mark_helcim_event_failed(&state.db, event_id, &message).await;
+                    Err(error)
+                }
+            }
+        }
+        HelcimWebhookAction::TerminalCancel => {
+            match handle_helcim_terminal_cancel(state, event_id, &value).await {
+                Ok(outcome) => Ok(HelcimReplayOutcome {
+                    ok: true,
+                    processing_status: "processed".to_string(),
+                    updated: outcome.updated,
+                    provider_transaction_id: outcome.provider_transaction_id,
+                    payment_provider_attempt_id: outcome.payment_provider_attempt_id,
+                    payment_transaction_id: outcome.payment_transaction_id,
+                    match_type: outcome.match_type,
+                    ignored: false,
+                }),
+                Err(error) => {
+                    let message = error.to_string();
+                    let _ = mark_helcim_event_failed(&state.db, event_id, &message).await;
+                    Err(error)
+                }
+            }
+        }
+        HelcimWebhookAction::Ignore => {
+            mark_helcim_event_ignored(&state.db, event_id, &event_type).await?;
+            Ok(HelcimReplayOutcome {
+                ok: true,
+                processing_status: "ignored".to_string(),
+                updated: 0,
+                provider_transaction_id: None,
+                payment_provider_attempt_id: None,
+                payment_transaction_id: None,
+                match_type: "none".to_string(),
+                ignored: true,
+            })
+        }
+    }
 }
 
 async fn post_helcim_webhook(
