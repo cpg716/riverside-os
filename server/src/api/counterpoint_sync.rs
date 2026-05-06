@@ -25,8 +25,9 @@ use crate::logic::counterpoint_sync::{
     execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
     execute_counterpoint_vendor_item_batch, CounterpointCatalogPayload,
     CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
-    CounterpointCustomersPayload, CounterpointGiftCardsPayload, CounterpointInventoryPayload,
-    CounterpointLoyaltyHistPayload, CounterpointOpenDocsPayload, CounterpointSlsRepStubPayload,
+    CounterpointCustomersPayload, CounterpointFidelityDiagnosticPayload,
+    CounterpointGiftCardsPayload, CounterpointInventoryPayload, CounterpointLoyaltyHistPayload,
+    CounterpointOpenDocsPayload, CounterpointSlsRepStubPayload,
     CounterpointSnapshotSourceMetricsPayload, CounterpointStaffPayload,
     CounterpointStoreCreditOpeningPayload, CounterpointSyncError, CounterpointTicketsPayload,
     CounterpointVendorItemsPayload, CounterpointVendorsPayload, HeartbeatPayload,
@@ -234,6 +235,18 @@ async fn cp_snapshot_reconciliation(
         .await
         .map_err(cp_err)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+async fn cp_fidelity_diagnostics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CounterpointFidelityDiagnosticPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    let report = counterpoint_sync::record_counterpoint_fidelity_diagnostics(&state.db, payload)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(serde_json::to_value(report).unwrap_or_default()))
 }
 
 async fn cp_customers(
@@ -1323,6 +1336,7 @@ pub fn router() -> Router<AppState> {
             .route("/heartbeat", post(cp_heartbeat))
             .route("/run-start", post(cp_run_start))
             .route("/snapshot-reconciliation", post(cp_snapshot_reconciliation))
+            .route("/fidelity-diagnostics", post(cp_fidelity_diagnostics))
             .route("/request/ack", post(cp_ack_request))
             .route("/ack-request", post(cp_ack_request))
             .route("/request/complete", post(cp_complete_request))

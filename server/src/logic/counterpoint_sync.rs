@@ -1022,6 +1022,65 @@ pub struct CounterpointSnapshotReconciliationRow {
     pub source_updated_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CounterpointFidelityDiagnosticPayload {
+    pub group: String,
+    #[serde(default)]
+    pub rows: Vec<CounterpointFidelityDiagnosticSourceRow>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CounterpointFidelityDiagnosticSourceRow {
+    #[serde(default)]
+    pub item_no: Option<String>,
+    #[serde(default)]
+    pub counterpoint_item_key: Option<String>,
+    #[serde(default)]
+    pub sku: Option<String>,
+    #[serde(default)]
+    pub barcode: Option<String>,
+    #[serde(default)]
+    pub retail_price: Option<String>,
+    #[serde(default)]
+    pub unit_cost: Option<String>,
+    #[serde(default)]
+    pub prc_2: Option<String>,
+    #[serde(default)]
+    pub prc_3: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub vendor_no: Option<String>,
+    #[serde(default)]
+    pub variation_label: Option<String>,
+    #[serde(default)]
+    pub stock_on_hand: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CounterpointFidelityDiagnosticMismatch {
+    pub group: String,
+    pub item_key: Option<String>,
+    pub sku: Option<String>,
+    pub barcode: Option<String>,
+    pub field: String,
+    pub counterpoint_value: String,
+    pub ros_value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CounterpointFidelityDiagnosticReport {
+    pub group: String,
+    pub generated_at: DateTime<Utc>,
+    pub total_source_rows: i64,
+    pub compared_rows: i64,
+    pub mismatch_count: i64,
+    pub result_limit: usize,
+    pub mismatches: Vec<CounterpointFidelityDiagnosticMismatch>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CounterpointCutoverVisibilityRow {
     pub key: String,
@@ -1039,6 +1098,7 @@ pub struct CounterpointLandingVerificationSummary {
     pub rows: Vec<CounterpointLandingVerificationRow>,
     pub snapshot_reconciliation: Vec<CounterpointSnapshotReconciliationRow>,
     pub cutover_visibility: Vec<CounterpointCutoverVisibilityRow>,
+    pub fidelity_diagnostics: Vec<CounterpointFidelityDiagnosticReport>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1622,6 +1682,470 @@ async fn landed_inventory_quantity_cost_checksum(
     .map_err(CounterpointSyncError::from)
 }
 
+fn supported_fidelity_group(group: &str) -> Option<&'static str> {
+    match group.trim() {
+        "catalog_price_cost_fields" => Some("catalog_price_cost_fields"),
+        "catalog_category_vendor_fields" => Some("catalog_category_vendor_fields"),
+        "catalog_variant_label_fields" => Some("catalog_variant_label_fields"),
+        "inventory_quantity_cost_fields" => Some("inventory_quantity_cost_fields"),
+        _ => None,
+    }
+}
+
+fn normalize_diag_key(value: Option<&str>) -> String {
+    value.unwrap_or("").trim().to_ascii_uppercase()
+}
+
+fn normalize_diag_text(value: Option<&str>, uppercase: bool) -> String {
+    let trimmed = value.unwrap_or("").trim();
+    if uppercase {
+        trimmed.to_ascii_uppercase()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn normalize_diag_decimal(value: Option<&str>) -> String {
+    value
+        .and_then(|v| v.trim().parse::<Decimal>().ok())
+        .map(|d| {
+            format!(
+                "{:.4}",
+                d.round_dp_with_strategy(4, RoundingStrategy::MidpointAwayFromZero)
+            )
+        })
+        .unwrap_or_else(|| "0.0000".into())
+}
+
+fn normalize_diag_decimal_value(value: Option<Decimal>) -> String {
+    value
+        .map(|d| {
+            format!(
+                "{:.4}",
+                d.round_dp_with_strategy(4, RoundingStrategy::MidpointAwayFromZero)
+            )
+        })
+        .unwrap_or_else(|| "0.0000".into())
+}
+
+fn push_fidelity_mismatch(
+    mismatches: &mut Vec<CounterpointFidelityDiagnosticMismatch>,
+    mismatch_count: &mut i64,
+    limit: usize,
+    row: &CounterpointFidelityDiagnosticSourceRow,
+    group: &str,
+    field: &str,
+    counterpoint_value: String,
+    ros_value: String,
+) {
+    if counterpoint_value == ros_value {
+        return;
+    }
+    *mismatch_count += 1;
+    if mismatches.len() < limit {
+        mismatches.push(CounterpointFidelityDiagnosticMismatch {
+            group: group.into(),
+            item_key: trim_opt(&row.counterpoint_item_key).or_else(|| trim_opt(&row.item_no)),
+            sku: trim_opt(&row.sku),
+            barcode: trim_opt(&row.barcode),
+            field: field.into(),
+            counterpoint_value,
+            ros_value,
+        });
+    }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct RosFidelityVariantRow {
+    counterpoint_item_key: Option<String>,
+    sku: String,
+    variation_label: Option<String>,
+    stock_on_hand: i32,
+    retail_price: Decimal,
+    unit_cost: Decimal,
+    prc_2: Option<Decimal>,
+    prc_3: Option<Decimal>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct RosFidelityProductRow {
+    catalog_handle: String,
+    category: Option<String>,
+    vendor_no: Option<String>,
+}
+
+async fn load_ros_fidelity_variants(
+    pool: &PgPool,
+) -> Result<Vec<RosFidelityVariantRow>, CounterpointSyncError> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            pv.counterpoint_item_key,
+            pv.sku,
+            pv.variation_label,
+            COALESCE(pv.stock_on_hand, 0) AS stock_on_hand,
+            COALESCE(pv.retail_price_override, p.base_retail_price, 0) AS retail_price,
+            COALESCE(pv.cost_override, p.base_cost, 0) AS unit_cost,
+            pv.counterpoint_prc_2 AS prc_2,
+            pv.counterpoint_prc_3 AS prc_3
+        FROM product_variants pv
+        INNER JOIN products p ON p.id = pv.product_id
+        WHERE NULLIF(TRIM(pv.counterpoint_item_key), '') IS NOT NULL
+           OR p.data_source = 'counterpoint'
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(CounterpointSyncError::from)
+}
+
+async fn load_ros_fidelity_products(
+    pool: &PgPool,
+) -> Result<Vec<RosFidelityProductRow>, CounterpointSyncError> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            p.catalog_handle,
+            COALESCE(mapped_category.cp_category, c.name) AS category,
+            v.vendor_code AS vendor_no
+        FROM products p
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN LATERAL (
+            SELECT ccm.cp_category
+            FROM counterpoint_category_map ccm
+            WHERE ccm.ros_category_id = p.category_id
+            ORDER BY ccm.cp_category
+            LIMIT 1
+        ) mapped_category ON TRUE
+        LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+        WHERE p.data_source = 'counterpoint'
+          AND NULLIF(TRIM(p.catalog_handle), '') IS NOT NULL
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(CounterpointSyncError::from)
+}
+
+fn build_variant_maps(
+    rows: Vec<RosFidelityVariantRow>,
+) -> (
+    HashMap<String, RosFidelityVariantRow>,
+    HashMap<String, RosFidelityVariantRow>,
+) {
+    let mut by_key = HashMap::new();
+    let mut by_sku = HashMap::new();
+    for row in rows {
+        if let Some(key) = trim_opt(&row.counterpoint_item_key) {
+            by_key.insert(normalize_diag_key(Some(&key)), row.clone());
+        }
+        by_sku.insert(normalize_diag_key(Some(&row.sku)), row);
+    }
+    (by_key, by_sku)
+}
+
+fn source_row_variant_key(row: &CounterpointFidelityDiagnosticSourceRow) -> String {
+    normalize_diag_key(
+        row.counterpoint_item_key
+            .as_deref()
+            .or(row.item_no.as_deref()),
+    )
+}
+
+fn compare_variant_field_group(
+    group: &str,
+    rows: &[CounterpointFidelityDiagnosticSourceRow],
+    by_key: &HashMap<String, RosFidelityVariantRow>,
+    by_sku: &HashMap<String, RosFidelityVariantRow>,
+    limit: usize,
+) -> (i64, i64, Vec<CounterpointFidelityDiagnosticMismatch>) {
+    let mut compared_rows = 0_i64;
+    let mut mismatch_count = 0_i64;
+    let mut mismatches = Vec::new();
+
+    for row in rows {
+        let key = source_row_variant_key(row);
+        let sku_key = normalize_diag_key(row.sku.as_deref());
+        let ros = by_key.get(&key).or_else(|| by_sku.get(&sku_key));
+        let Some(ros) = ros else {
+            mismatch_count += 1;
+            if mismatches.len() < limit {
+                mismatches.push(CounterpointFidelityDiagnosticMismatch {
+                    group: group.into(),
+                    item_key: trim_opt(&row.counterpoint_item_key)
+                        .or_else(|| trim_opt(&row.item_no)),
+                    sku: trim_opt(&row.sku),
+                    barcode: trim_opt(&row.barcode),
+                    field: "row".into(),
+                    counterpoint_value: "present".into(),
+                    ros_value: "missing".into(),
+                });
+            }
+            continue;
+        };
+        compared_rows += 1;
+
+        match group {
+            "catalog_price_cost_fields" => {
+                push_fidelity_mismatch(
+                    &mut mismatches,
+                    &mut mismatch_count,
+                    limit,
+                    row,
+                    group,
+                    "retail_price",
+                    normalize_diag_decimal(row.retail_price.as_deref()),
+                    normalize_diag_decimal_value(Some(ros.retail_price)),
+                );
+                push_fidelity_mismatch(
+                    &mut mismatches,
+                    &mut mismatch_count,
+                    limit,
+                    row,
+                    group,
+                    "unit_cost",
+                    normalize_diag_decimal(row.unit_cost.as_deref()),
+                    normalize_diag_decimal_value(Some(ros.unit_cost)),
+                );
+                push_fidelity_mismatch(
+                    &mut mismatches,
+                    &mut mismatch_count,
+                    limit,
+                    row,
+                    group,
+                    "prc_2",
+                    normalize_diag_decimal(row.prc_2.as_deref()),
+                    normalize_diag_decimal_value(ros.prc_2),
+                );
+                push_fidelity_mismatch(
+                    &mut mismatches,
+                    &mut mismatch_count,
+                    limit,
+                    row,
+                    group,
+                    "prc_3",
+                    normalize_diag_decimal(row.prc_3.as_deref()),
+                    normalize_diag_decimal_value(ros.prc_3),
+                );
+            }
+            "catalog_variant_label_fields" => {
+                push_fidelity_mismatch(
+                    &mut mismatches,
+                    &mut mismatch_count,
+                    limit,
+                    row,
+                    group,
+                    "variation_label",
+                    normalize_diag_text(row.variation_label.as_deref(), false),
+                    normalize_diag_text(ros.variation_label.as_deref(), false),
+                );
+            }
+            "inventory_quantity_cost_fields" => {
+                push_fidelity_mismatch(
+                    &mut mismatches,
+                    &mut mismatch_count,
+                    limit,
+                    row,
+                    group,
+                    "stock_on_hand",
+                    row.stock_on_hand.unwrap_or(0).to_string(),
+                    ros.stock_on_hand.to_string(),
+                );
+                push_fidelity_mismatch(
+                    &mut mismatches,
+                    &mut mismatch_count,
+                    limit,
+                    row,
+                    group,
+                    "unit_cost",
+                    normalize_diag_decimal(row.unit_cost.as_deref()),
+                    normalize_diag_decimal_value(Some(ros.unit_cost)),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    (compared_rows, mismatch_count, mismatches)
+}
+
+fn compare_category_vendor_group(
+    rows: &[CounterpointFidelityDiagnosticSourceRow],
+    products: Vec<RosFidelityProductRow>,
+    limit: usize,
+) -> (i64, i64, Vec<CounterpointFidelityDiagnosticMismatch>) {
+    let by_handle: HashMap<String, RosFidelityProductRow> = products
+        .into_iter()
+        .map(|row| (normalize_diag_key(Some(&row.catalog_handle)), row))
+        .collect();
+    let mut compared_rows = 0_i64;
+    let mut mismatch_count = 0_i64;
+    let mut mismatches = Vec::new();
+
+    for row in rows {
+        let item_key = normalize_diag_key(row.item_no.as_deref());
+        let Some(ros) = by_handle.get(&item_key) else {
+            mismatch_count += 1;
+            if mismatches.len() < limit {
+                mismatches.push(CounterpointFidelityDiagnosticMismatch {
+                    group: "catalog_category_vendor_fields".into(),
+                    item_key: trim_opt(&row.item_no),
+                    sku: trim_opt(&row.sku),
+                    barcode: trim_opt(&row.barcode),
+                    field: "row".into(),
+                    counterpoint_value: "present".into(),
+                    ros_value: "missing".into(),
+                });
+            }
+            continue;
+        };
+        compared_rows += 1;
+        push_fidelity_mismatch(
+            &mut mismatches,
+            &mut mismatch_count,
+            limit,
+            row,
+            "catalog_category_vendor_fields",
+            "category",
+            normalize_diag_text(row.category.as_deref(), true),
+            normalize_diag_text(ros.category.as_deref(), true),
+        );
+        push_fidelity_mismatch(
+            &mut mismatches,
+            &mut mismatch_count,
+            limit,
+            row,
+            "catalog_category_vendor_fields",
+            "vendor_no",
+            normalize_diag_text(row.vendor_no.as_deref(), true),
+            normalize_diag_text(ros.vendor_no.as_deref(), true),
+        );
+    }
+
+    (compared_rows, mismatch_count, mismatches)
+}
+
+async fn store_fidelity_diagnostic_report(
+    pool: &PgPool,
+    report: &CounterpointFidelityDiagnosticReport,
+) -> Result<(), CounterpointSyncError> {
+    let body = serde_json::to_value(report)
+        .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+    sqlx::query(
+        r#"
+        UPDATE store_settings
+        SET counterpoint_config = COALESCE(counterpoint_config, '{}'::jsonb)
+            || jsonb_build_object(
+                'fidelity_diagnostics',
+                COALESCE(counterpoint_config->'fidelity_diagnostics', '{}'::jsonb)
+                    || jsonb_build_object($1::text, $2::jsonb)
+            )
+        WHERE id = 1
+        "#,
+    )
+    .bind(&report.group)
+    .bind(body)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn resolve_sync_issue_by_message(
+    pool: &PgPool,
+    entity: &str,
+    external_key: &str,
+    message: &str,
+) {
+    let _ = sqlx::query(
+        r#"
+        UPDATE counterpoint_sync_issue
+        SET resolved = TRUE, resolved_at = NOW()
+        WHERE entity = $1 AND external_key = $2 AND message = $3 AND NOT resolved
+        "#,
+    )
+    .bind(entity)
+    .bind(external_key)
+    .bind(message)
+    .execute(pool)
+    .await;
+}
+
+pub async fn record_counterpoint_fidelity_diagnostics(
+    pool: &PgPool,
+    payload: CounterpointFidelityDiagnosticPayload,
+) -> Result<CounterpointFidelityDiagnosticReport, CounterpointSyncError> {
+    let Some(group) = supported_fidelity_group(&payload.group) else {
+        return Err(CounterpointSyncError::InvalidPayload(format!(
+            "unsupported fidelity diagnostic group: {}",
+            payload.group
+        )));
+    };
+    let limit = payload.limit.unwrap_or(50).clamp(1, 250);
+    let rows = payload.rows;
+
+    let (compared_rows, mismatch_count, mismatches) = if group == "catalog_category_vendor_fields" {
+        compare_category_vendor_group(&rows, load_ros_fidelity_products(pool).await?, limit)
+    } else {
+        let (by_key, by_sku) = build_variant_maps(load_ros_fidelity_variants(pool).await?);
+        compare_variant_field_group(group, &rows, &by_key, &by_sku, limit)
+    };
+
+    let report = CounterpointFidelityDiagnosticReport {
+        group: group.into(),
+        generated_at: Utc::now(),
+        total_source_rows: rows.len() as i64,
+        compared_rows,
+        mismatch_count,
+        result_limit: limit,
+        mismatches,
+    };
+    store_fidelity_diagnostic_report(pool, &report).await?;
+
+    let message = format!("Counterpoint fidelity diagnostic mismatch: {group}");
+    if report.mismatch_count > 0 {
+        record_sync_issue(pool, "inventory_fidelity", Some(group), "error", &message).await;
+    } else {
+        resolve_sync_issue_by_message(pool, "inventory_fidelity", group, &message).await;
+    }
+
+    Ok(report)
+}
+
+async fn load_fidelity_diagnostic_reports(
+    pool: &PgPool,
+) -> Result<Vec<CounterpointFidelityDiagnosticReport>, CounterpointSyncError> {
+    let raw: Option<serde_json::Value> = sqlx::query_scalar(
+        r#"
+        SELECT counterpoint_config->'fidelity_diagnostics'
+        FROM store_settings
+        WHERE id = 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    let mut reports = Vec::new();
+    for group in [
+        "catalog_price_cost_fields",
+        "catalog_category_vendor_fields",
+        "catalog_variant_label_fields",
+        "inventory_quantity_cost_fields",
+    ] {
+        if let Some(value) = raw.get(group) {
+            if let Ok(report) =
+                serde_json::from_value::<CounterpointFidelityDiagnosticReport>(value.clone())
+            {
+                reports.push(report);
+            }
+        }
+    }
+    Ok(reports)
+}
+
 async fn build_snapshot_reconciliation_rows(
     pool: &PgPool,
 ) -> Result<Vec<CounterpointSnapshotReconciliationRow>, CounterpointSyncError> {
@@ -2083,6 +2607,7 @@ pub async fn build_counterpoint_landing_verification_summary(
         ],
         snapshot_reconciliation: build_snapshot_reconciliation_rows(pool).await?,
         cutover_visibility: build_cutover_visibility_rows(pool).await?,
+        fidelity_diagnostics: load_fidelity_diagnostic_reports(pool).await?,
     })
 }
 
@@ -8255,6 +8780,301 @@ mod tests {
 
         assert_eq!(source_count, Some(2));
         assert_eq!(source_checksum.as_deref(), Some("bbb222"));
+    }
+
+    struct FidelityFixture {
+        product_id: Uuid,
+        variant_id: Uuid,
+        category_id: Uuid,
+        vendor_id: Uuid,
+        item_no: String,
+        sku: String,
+        barcode: String,
+        category: String,
+        vendor_no: String,
+    }
+
+    async fn insert_fidelity_fixture(pool: &PgPool) -> FidelityFixture {
+        let suffix = Uuid::new_v4().simple().to_string();
+        let category_id = Uuid::new_v4();
+        let vendor_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let item_no = format!("CP-FID-{suffix}");
+        let sku = format!("CP-FID-SKU-{suffix}");
+        let barcode = format!("CP-FID-BC-{suffix}");
+        let category = format!("CP-FID-CAT-{suffix}");
+        let vendor_no = format!("CP-FID-VEND-{suffix}");
+
+        sqlx::query("INSERT INTO categories (id, name) VALUES ($1, $2)")
+            .bind(category_id)
+            .bind(format!("Counterpoint Fidelity Category {suffix}"))
+            .execute(pool)
+            .await
+            .expect("insert fidelity category");
+        sqlx::query(
+            "INSERT INTO counterpoint_category_map (cp_category, ros_category_id) VALUES ($1, $2)",
+        )
+        .bind(&category)
+        .bind(category_id)
+        .execute(pool)
+        .await
+        .expect("insert fidelity category map");
+        sqlx::query(
+            "INSERT INTO vendors (id, name, vendor_code, is_active) VALUES ($1, $2, $3, TRUE)",
+        )
+        .bind(vendor_id)
+        .bind(format!("Counterpoint Fidelity Vendor {suffix}"))
+        .bind(&vendor_no)
+        .execute(pool)
+        .await
+        .expect("insert fidelity vendor");
+        sqlx::query(
+            r#"
+            INSERT INTO products (
+                id, catalog_handle, name, base_retail_price, base_cost,
+                is_active, data_source, category_id, primary_vendor_id
+            )
+            VALUES ($1, $2, $3, $4, $5, TRUE, 'counterpoint', $6, $7)
+            "#,
+        )
+        .bind(product_id)
+        .bind(&item_no)
+        .bind(format!("Counterpoint Fidelity Product {suffix}"))
+        .bind(Decimal::new(12000, 2))
+        .bind(Decimal::new(4500, 2))
+        .bind(category_id)
+        .bind(vendor_id)
+        .execute(pool)
+        .await
+        .expect("insert fidelity product");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, barcode, variation_values, variation_label,
+                stock_on_hand, counterpoint_item_key, retail_price_override, cost_override,
+                counterpoint_prc_2, counterpoint_prc_3
+            )
+            VALUES ($1, $2, $3, $4, '{}'::jsonb, $5, $6, $7, $8, $9, $10, $11)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .bind(&barcode)
+        .bind("40R / Navy")
+        .bind(7_i32)
+        .bind(&item_no)
+        .bind(Decimal::new(12000, 2))
+        .bind(Decimal::new(4500, 2))
+        .bind(Decimal::new(9500, 2))
+        .bind(Decimal::new(8000, 2))
+        .execute(pool)
+        .await
+        .expect("insert fidelity variant");
+
+        FidelityFixture {
+            product_id,
+            variant_id,
+            category_id,
+            vendor_id,
+            item_no,
+            sku,
+            barcode,
+            category,
+            vendor_no,
+        }
+    }
+
+    async fn cleanup_fidelity_fixture(pool: &PgPool, fixture: &FidelityFixture) {
+        sqlx::query(
+            r#"
+            DELETE FROM counterpoint_sync_issue
+            WHERE entity = 'inventory_fidelity'
+              AND external_key = ANY($1)
+            "#,
+        )
+        .bind(&vec![
+            "catalog_price_cost_fields",
+            "catalog_category_vendor_fields",
+            "catalog_variant_label_fields",
+            "inventory_quantity_cost_fields",
+        ])
+        .execute(pool)
+        .await
+        .expect("cleanup fidelity issues");
+        sqlx::query("DELETE FROM product_variants WHERE id = $1")
+            .bind(fixture.variant_id)
+            .execute(pool)
+            .await
+            .expect("cleanup fidelity variant");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(fixture.product_id)
+            .execute(pool)
+            .await
+            .expect("cleanup fidelity product");
+        sqlx::query("DELETE FROM counterpoint_category_map WHERE cp_category = $1")
+            .bind(&fixture.category)
+            .execute(pool)
+            .await
+            .expect("cleanup fidelity category map");
+        sqlx::query("DELETE FROM categories WHERE id = $1")
+            .bind(fixture.category_id)
+            .execute(pool)
+            .await
+            .expect("cleanup fidelity category");
+        sqlx::query("DELETE FROM vendors WHERE id = $1")
+            .bind(fixture.vendor_id)
+            .execute(pool)
+            .await
+            .expect("cleanup fidelity vendor");
+    }
+
+    fn fidelity_source_row(fixture: &FidelityFixture) -> CounterpointFidelityDiagnosticSourceRow {
+        CounterpointFidelityDiagnosticSourceRow {
+            item_no: Some(fixture.item_no.clone()),
+            counterpoint_item_key: Some(fixture.item_no.clone()),
+            sku: Some(fixture.sku.clone()),
+            barcode: Some(fixture.barcode.clone()),
+            retail_price: Some("120.00".into()),
+            unit_cost: Some("45.00".into()),
+            prc_2: Some("95.00".into()),
+            prc_3: Some("80.00".into()),
+            category: Some(fixture.category.clone()),
+            vendor_no: Some(fixture.vendor_no.clone()),
+            variation_label: Some("40R / Navy".into()),
+            stock_on_hand: Some(7),
+        }
+    }
+
+    async fn run_fidelity_diagnostic(
+        pool: &PgPool,
+        group: &str,
+        rows: Vec<CounterpointFidelityDiagnosticSourceRow>,
+        limit: Option<usize>,
+    ) -> CounterpointFidelityDiagnosticReport {
+        record_counterpoint_fidelity_diagnostics(
+            pool,
+            CounterpointFidelityDiagnosticPayload {
+                group: group.into(),
+                rows,
+                limit,
+            },
+        )
+        .await
+        .expect("record fidelity diagnostic")
+    }
+
+    #[tokio::test]
+    async fn counterpoint_fidelity_diagnostics_return_no_mismatches_when_fields_match() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let fixture = insert_fidelity_fixture(&pool).await;
+        let row = fidelity_source_row(&fixture);
+
+        for group in [
+            "catalog_price_cost_fields",
+            "catalog_category_vendor_fields",
+            "catalog_variant_label_fields",
+            "inventory_quantity_cost_fields",
+        ] {
+            let report = run_fidelity_diagnostic(&pool, group, vec![row.clone()], Some(50)).await;
+            assert_eq!(report.mismatch_count, 0, "{group}");
+            assert!(report.mismatches.is_empty(), "{group}");
+        }
+
+        restore_counterpoint_config(&pool, original_config).await;
+        cleanup_fidelity_fixture(&pool, &fixture).await;
+    }
+
+    #[tokio::test]
+    async fn counterpoint_fidelity_diagnostics_return_field_mismatches() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let fixture = insert_fidelity_fixture(&pool).await;
+
+        let mut price_row = fidelity_source_row(&fixture);
+        price_row.retail_price = Some("121.00".into());
+        let price_report = run_fidelity_diagnostic(
+            &pool,
+            "catalog_price_cost_fields",
+            vec![price_row],
+            Some(50),
+        )
+        .await;
+        assert!(price_report
+            .mismatches
+            .iter()
+            .any(|row| row.field == "retail_price"));
+
+        let mut category_row = fidelity_source_row(&fixture);
+        category_row.vendor_no = Some("WRONG-VENDOR".into());
+        let category_report = run_fidelity_diagnostic(
+            &pool,
+            "catalog_category_vendor_fields",
+            vec![category_row],
+            Some(50),
+        )
+        .await;
+        assert!(category_report
+            .mismatches
+            .iter()
+            .any(|row| row.field == "vendor_no"));
+
+        let mut label_row = fidelity_source_row(&fixture);
+        label_row.variation_label = Some("42L / Black".into());
+        let label_report = run_fidelity_diagnostic(
+            &pool,
+            "catalog_variant_label_fields",
+            vec![label_row],
+            Some(50),
+        )
+        .await;
+        assert!(label_report
+            .mismatches
+            .iter()
+            .any(|row| row.field == "variation_label"));
+
+        let mut inventory_row = fidelity_source_row(&fixture);
+        inventory_row.stock_on_hand = Some(9);
+        let inventory_report = run_fidelity_diagnostic(
+            &pool,
+            "inventory_quantity_cost_fields",
+            vec![inventory_row],
+            Some(50),
+        )
+        .await;
+        assert!(inventory_report
+            .mismatches
+            .iter()
+            .any(|row| row.field == "stock_on_hand"));
+
+        restore_counterpoint_config(&pool, original_config).await;
+        cleanup_fidelity_fixture(&pool, &fixture).await;
+    }
+
+    #[tokio::test]
+    async fn counterpoint_fidelity_diagnostics_respect_result_limit() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let original_config = load_counterpoint_config(&pool).await;
+        let fixture = insert_fidelity_fixture(&pool).await;
+        let mut row = fidelity_source_row(&fixture);
+        row.retail_price = Some("121.00".into());
+        row.unit_cost = Some("46.00".into());
+        row.prc_2 = Some("96.00".into());
+
+        let report =
+            run_fidelity_diagnostic(&pool, "catalog_price_cost_fields", vec![row], Some(2)).await;
+
+        restore_counterpoint_config(&pool, original_config).await;
+        cleanup_fidelity_fixture(&pool, &fixture).await;
+
+        assert_eq!(report.mismatch_count, 3);
+        assert_eq!(report.mismatches.len(), 2);
+        assert_eq!(report.result_limit, 2);
     }
 
     #[tokio::test]

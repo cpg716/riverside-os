@@ -390,6 +390,7 @@ To handle mixed Counterpoint ID formats (legacy integers vs. newer `C-` prefixed
 | `POST /api/sync/counterpoint/catalog` | Products + variants | M2M |
 | `POST /api/sync/counterpoint/gift-cards` | Gift card current balance snapshots | M2M |
 | `POST /api/sync/counterpoint/snapshot-reconciliation` | Source count/sum/checksum proof for cutover reconciliation | M2M |
+| `POST /api/sync/counterpoint/fidelity-diagnostics` | Bounded live-query mismatch diagnostics for failed inventory/catalog checksum groups | M2M |
 | `POST /api/sync/counterpoint/tickets` | Orders + payments (+ optional gift applications in payload) | M2M |
 | `POST /api/sync/counterpoint/vendor-items` | `PO_VEND_ITEM` → `vendor_supplier_item` | M2M |
 | `POST /api/sync/counterpoint/loyalty-hist` | `PS_LOY_PTS_HIST` → `loyalty_point_ledger` | M2M |
@@ -532,6 +533,7 @@ Use Landing Verification with the other proof surfaces:
 - **Inbound queue / staging** must be empty after all intended staged batches are applied.
 - **Open sync issues** must be empty or explicitly triaged before sign-off.
 - **Inventory & Catalog Verification** uses live bridge/source metrics and ROS landed values for catalog, variant, SKU, barcode, quantity, unresolved-row proof, and aggregate checksum proof for cost, price, category, vendor, and variant labels. A checksum failure means the field group differs and must be investigated before cutover; it does not identify the exact row without a later diagnostic comparison.
+- **Fidelity diagnostics** are posted by the bridge from the current live query payload after catalog/inventory sync. ROS compares those source rows to landed products/variants on demand and stores only the latest bounded mismatch report, not the full source payload. Settings shows the first 50 mismatched fields by group.
 
 This is not a full financial reconciliation report.
 

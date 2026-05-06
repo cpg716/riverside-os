@@ -187,6 +187,7 @@ What it proves:
 - Customer, catalog product, catalog variant/SKU, and inventory quantity rows show source-vs-ROS count reconciliation.
 - Open-doc transaction and line rows show source-vs-ROS count reconciliation.
 - Catalog price/cost, category/vendor, variant-label, and inventory quantity/cost rows show source-vs-ROS checksum reconciliation from the live Counterpoint query payloads.
+- If a checksum row fails, the latest bridge-posted diagnostic report shows the bounded list of mismatched item keys/SKUs/fields for that group.
 - Gift-card current balance and loyalty current point snapshot rows show **Pass**. These rows compare the Counterpoint source count/sum sent by the bridge to the landed ROS count/sum.
 - Unresolved customer links, skipped open docs, and unmatched inventory rows are summarized and backed by **Open sync issues** with the exact Counterpoint reference or SKU/key where available.
 
@@ -194,7 +195,7 @@ What it does **not** prove:
 - It is not full financial reconciliation.
 - It does not compare Counterpoint financial totals, tender totals, tax, discounts, or receivables to ROS.
 - It does not prove every source row was imported when provenance is missing or when the source SQL scope changed.
-- It does not identify the exact row behind a catalog/inventory checksum mismatch without a later diagnostic comparison.
+- It stores only the latest bounded mismatch diagnostics for catalog/inventory checksum failures, not the full source payload.
 - It does not replace sync issue review or operator spot checks.
 
 Weak or approximate domains:
@@ -218,7 +219,7 @@ After each import pass:
 - Counterpoint parent item keys such as `I-XXXXX` are treated as product-group scope markers, not as direct row-level variant IDs for multi-row live-payload groups.
 - It is read-only and does not correct data.
 - It proves count reconciliation for products, variants, SKUs, barcodes, and matched quantity rows, and it exposes unresolved inventory rows.
-- It field-verifies cost, price, category, vendor, variant-label, inventory quantity, and inventory cost fidelity at aggregate checksum level from the live bridge payloads. It does not store the full source payload or identify the exact mismatched row when a checksum fails.
+- It field-verifies cost, price, category, vendor, variant-label, inventory quantity, and inventory cost fidelity at aggregate checksum level from the live bridge payloads. When a checksum fails, the bridge posts an on-demand diagnostic comparison and Settings shows the first bounded mismatched rows/fields. It does not store the full source payload.
 - It does not validate ticket/open-doc financial history.
 
 ### Limits of the sign-off reconciliation table

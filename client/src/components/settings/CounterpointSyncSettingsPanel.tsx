@@ -186,12 +186,33 @@ interface CounterpointCutoverVisibilityRow {
   note: string;
 }
 
+interface CounterpointFidelityDiagnosticMismatch {
+  group: string;
+  item_key: string | null;
+  sku: string | null;
+  barcode: string | null;
+  field: string;
+  counterpoint_value: string;
+  ros_value: string;
+}
+
+interface CounterpointFidelityDiagnosticReport {
+  group: string;
+  generated_at: string;
+  total_source_rows: number;
+  compared_rows: number;
+  mismatch_count: number;
+  result_limit: number;
+  mismatches: CounterpointFidelityDiagnosticMismatch[];
+}
+
 interface CounterpointLandingVerificationSummary {
   generated_at: string;
   disclaimer: string;
   rows: CounterpointLandingVerificationRow[];
   snapshot_reconciliation: CounterpointSnapshotReconciliationRow[];
   cutover_visibility: CounterpointCutoverVisibilityRow[];
+  fidelity_diagnostics: CounterpointFidelityDiagnosticReport[];
 }
 
 interface CounterpointTransactionReconciliationTotals {
@@ -1213,6 +1234,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const landingVerificationRows = landingVerification?.rows ?? [];
   const snapshotReconciliationRows = landingVerification?.snapshot_reconciliation ?? [];
   const cutoverVisibilityRows = landingVerification?.cutover_visibility ?? [];
+  const fidelityDiagnostics = landingVerification?.fidelity_diagnostics ?? [];
   const landingApproximateCount = landingVerificationRows.filter(
     (row) => row.confidence !== "direct",
   ).length;
@@ -2902,6 +2924,73 @@ export default function CounterpointSyncSettingsPanel(props?: {
                             <p className="mt-2 text-[10px] text-app-text-muted">
                               Source proof received {formatDate(row.source_updated_at)}
                             </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {fidelityDiagnostics.length > 0 ? (
+                  <div className="mt-4 space-y-3">
+                    {fidelityDiagnostics.map((report) => {
+                      const passed = report.mismatch_count === 0;
+                      const shown = report.mismatches.slice(0, report.result_limit);
+                      return (
+                        <div
+                          key={report.group}
+                          className={`rounded-lg border p-3 ${
+                            passed
+                              ? "border-emerald-500/25 bg-emerald-500/5"
+                              : "border-red-500/25 bg-red-500/5"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                {report.group.replaceAll("_", " ")}
+                              </p>
+                              <p className="mt-1 text-xs text-app-text-muted">
+                                Compared {fmtNum(report.compared_rows)} of{" "}
+                                {fmtNum(report.total_source_rows)} live source row(s).{" "}
+                                {fmtNum(report.mismatch_count)} mismatch(es) found.
+                              </p>
+                            </div>
+                            <span
+                              className={`ui-pill text-[8px] ${
+                                passed
+                                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                                  : "bg-red-500/10 text-red-600"
+                              }`}
+                            >
+                              {passed ? "Pass" : "Fail"}
+                            </span>
+                          </div>
+                          {shown.length > 0 ? (
+                            <div className="mt-3 overflow-x-auto">
+                              <table className="min-w-full text-left text-[10px]">
+                                <thead className="text-app-text-muted">
+                                  <tr>
+                                    <th className="px-2 py-1 font-black uppercase tracking-widest">Key</th>
+                                    <th className="px-2 py-1 font-black uppercase tracking-widest">SKU</th>
+                                    <th className="px-2 py-1 font-black uppercase tracking-widest">Field</th>
+                                    <th className="px-2 py-1 font-black uppercase tracking-widest">Counterpoint</th>
+                                    <th className="px-2 py-1 font-black uppercase tracking-widest">ROS</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {shown.map((row, idx) => (
+                                    <tr key={`${report.group}-${idx}`} className="border-t border-app-border">
+                                      <td className="px-2 py-1 tabular-nums">{row.item_key ?? "—"}</td>
+                                      <td className="px-2 py-1 tabular-nums">{row.sku ?? "—"}</td>
+                                      <td className="px-2 py-1">{row.field}</td>
+                                      <td className="px-2 py-1 tabular-nums">{row.counterpoint_value || "—"}</td>
+                                      <td className="px-2 py-1 tabular-nums">{row.ros_value || "—"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
                           ) : null}
                         </div>
                       );

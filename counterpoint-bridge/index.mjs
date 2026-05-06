@@ -1506,6 +1506,69 @@ function inventoryQuantityCostChecksumRow(row) {
   ].join("|");
 }
 
+function catalogPriceCostDiagnosticRows(row) {
+  const cells = Array.isArray(row.cells) ? row.cells : [];
+  if (cells.length === 0) {
+    return [{
+      item_no: row.item_no,
+      counterpoint_item_key: row.item_no,
+      sku: row.item_no,
+      barcode: row.barcode,
+      retail_price: row.retail_price,
+      unit_cost: row.unit_cost,
+      prc_2: row.prc_2,
+      prc_3: row.prc_3,
+    }];
+  }
+  return cells.map((cell) => ({
+    item_no: row.item_no,
+    counterpoint_item_key: cell.counterpoint_item_key,
+    sku: cell.sku,
+    barcode: cell.barcode,
+    retail_price: cell.retail_price ?? row.retail_price,
+    unit_cost: cell.unit_cost ?? row.unit_cost,
+    prc_2: cell.prc_2,
+    prc_3: cell.prc_3,
+  }));
+}
+
+function catalogCategoryVendorDiagnosticRow(row) {
+  return {
+    item_no: row.item_no,
+    category: row.category,
+    vendor_no: row.vendor_no,
+  };
+}
+
+function catalogVariantLabelDiagnosticRows(row) {
+  const cells = Array.isArray(row.cells) ? row.cells : [];
+  if (cells.length === 0) {
+    return [{
+      item_no: row.item_no,
+      counterpoint_item_key: row.item_no,
+      sku: row.item_no,
+      barcode: row.barcode,
+      variation_label: "",
+    }];
+  }
+  return cells.map((cell) => ({
+    item_no: row.item_no,
+    counterpoint_item_key: cell.counterpoint_item_key,
+    sku: cell.sku,
+    barcode: cell.barcode,
+    variation_label: cell.variation_label,
+  }));
+}
+
+function inventoryQuantityCostDiagnosticRow(row) {
+  return {
+    counterpoint_item_key: row.counterpoint_item_key,
+    sku: row.sku,
+    stock_on_hand: row.stock_on_hand,
+    unit_cost: row.unit_cost,
+  };
+}
+
 async function postSnapshotReconciliation(snapshot, sourceCount, sourceSum, sourceChecksum) {
   const body = {
     snapshot,
@@ -1520,6 +1583,15 @@ async function postSnapshotReconciliation(snapshot, sourceCount, sourceSum, sour
   await rosFetch(
     "/api/sync/counterpoint/snapshot-reconciliation",
     body,
+    "POST",
+    bridgeIngestHeaders(),
+  );
+}
+
+async function postFidelityDiagnostics(group, rows, limit = 50) {
+  return await rosFetch(
+    "/api/sync/counterpoint/fidelity-diagnostics",
+    { group, rows, limit },
     "POST",
     bridgeIngestHeaders(),
   );
@@ -1872,6 +1944,7 @@ async function syncInventory(pool) {
   logToDashboard(`[inventory] SQL returned ${rows.length} item(s)`);
   const mapped = rows.map((row) => mapInventoryRow(normalizeRowKeys(row))).filter((r) => r.sku);
   const quantityCostChecksumRows = mapped.map(inventoryQuantityCostChecksumRow);
+  const quantityCostDiagnosticRows = mapped.map(inventoryQuantityCostDiagnosticRow);
 
   const INV_BATCH = 400;
   const MAX_CONCURRENCY = 5;
@@ -1919,6 +1992,7 @@ async function syncInventory(pool) {
     undefined,
     checksumRows(quantityCostChecksumRows),
   );
+  await postFidelityDiagnostics("inventory_quantity_cost_fields", quantityCostDiagnosticRows);
   return postedRows;
 }
 
@@ -2016,6 +2090,9 @@ async function syncCatalog(pool) {
   const catalogPriceCostChecksumParts = [];
   const catalogCategoryVendorChecksumParts = [];
   const catalogVariantLabelChecksumParts = [];
+  const catalogPriceCostDiagnosticParts = [];
+  const catalogCategoryVendorDiagnosticParts = [];
+  const catalogVariantLabelDiagnosticParts = [];
   let skippedDuplicates = 0;
   let inFlight = 0;
   const pendingRequests = [];
@@ -2049,6 +2126,9 @@ async function syncCatalog(pool) {
         catalogPriceCostChecksumParts.push(...catalogPriceCostChecksumRows(mapped));
         catalogCategoryVendorChecksumParts.push(catalogCategoryVendorChecksumRow(mapped));
         catalogVariantLabelChecksumParts.push(...catalogVariantLabelChecksumRows(mapped));
+        catalogPriceCostDiagnosticParts.push(...catalogPriceCostDiagnosticRows(mapped));
+        catalogCategoryVendorDiagnosticParts.push(catalogCategoryVendorDiagnosticRow(mapped));
+        catalogVariantLabelDiagnosticParts.push(...catalogVariantLabelDiagnosticRows(mapped));
         batchBuffer.push(mapped);
         if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
           const chunk = [...batchBuffer];
@@ -2131,6 +2211,9 @@ async function syncCatalog(pool) {
           undefined,
           checksumRows(catalogVariantLabelChecksumParts),
         );
+        await postFidelityDiagnostics("catalog_price_cost_fields", catalogPriceCostDiagnosticParts);
+        await postFidelityDiagnostics("catalog_category_vendor_fields", catalogCategoryVendorDiagnosticParts);
+        await postFidelityDiagnostics("catalog_variant_label_fields", catalogVariantLabelDiagnosticParts);
         logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
         console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
         resolve(totalProcessed);
