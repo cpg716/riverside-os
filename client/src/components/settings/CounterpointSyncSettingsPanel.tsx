@@ -1345,15 +1345,15 @@ export default function CounterpointSyncSettingsPanel(props?: {
     },
     {
       key: "csv-inventory",
-      label: "CSV Inventory Audit",
+      label: "Legacy Inventory Audit",
       value: inventoryVerificationSummary
         ? `${fmtNum(inventoryVerificationSummary.matched_count)} matched`
         : "Not run",
       warningCount: inventoryVerificationWarningCount,
-      warningLabel: "CSV/ROS issue(s)",
+      warningLabel: "legacy issue(s)",
       ready: !!inventoryVerificationSummary && inventoryVerificationWarningCount === 0,
       loading: inventoryVerificationLoading,
-      actionLabel: "Run CSV audit",
+      actionLabel: "Run legacy audit",
       onRefresh: fetchInventoryVerification,
     },
   ];
@@ -1361,7 +1361,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const formatVerificationStatus = (statusValue: string) => {
     if (statusValue === "missing_in_ros") return "Missing in ROS";
     if (statusValue === "comparison_artifact") return "Comparison artifact";
-    if (statusValue === "csv_source_issue") return "CSV source issue";
+    if (statusValue === "csv_source_issue") return "Source file issue";
     if (statusValue === "expected_out_of_scope_exclusion") return "Expected out-of-scope exclusion";
     if (statusValue === "extra_parent_scope_artifact") return "ROS parent-scope artifact";
     if (statusValue === "extra_key_present_scope_gap") return "ROS scope gap";
@@ -2989,11 +2989,11 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      CSV inventory verification
+                      Legacy inventory file verification
                     </h4>
                     <p className="text-xs text-app-text-muted mt-1 max-w-3xl">
-                      Read-only comparison between the Counterpoint CSV ground-truth export and the
-                      Counterpoint-linked ROS catalog, variant, inventory, and vendor records.
+                      Legacy read-only comparison against a checked-in inventory file. This is not
+                      the live Counterpoint cutover proof.
                     </p>
                   </div>
                   <button
@@ -3012,7 +3012,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
                 {!inventoryVerification && inventoryVerificationLoading ? (
                   <p className="mt-4 text-xs text-app-text-muted">
-                    Building CSV verification report…
+                    Building legacy verification report…
                   </p>
                 ) : null}
 
@@ -3021,7 +3021,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     <div className="grid grid-cols-2 xl:grid-cols-5 gap-2 mt-4 text-xs">
                       <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          CSV SKUs
+                          Source SKUs
                         </p>
                         <p className="mt-1 font-bold text-app-text tabular-nums">
                           {fmtNum(inventoryVerificationSummary.total_csv_skus)}
@@ -3088,7 +3088,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       </div>
                       <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          CSV source issues
+                          Source file issues
                         </p>
                         <p className="mt-1 font-bold text-amber-600 tabular-nums">
                           {fmtNum(inventoryVerificationSummary.csv_source_issue_count)}
@@ -3170,7 +3170,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                               <p key={issue}>{issue}</p>
                             ))
                           ) : (
-                            <p>No critical issues were detected in the current CSV-versus-ROS comparison.</p>
+                            <p>No critical issues were detected in the current source-file comparison.</p>
                           )}
                         </div>
                       </div>
@@ -3179,7 +3179,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                           Report limits
                         </p>
                         <div className="mt-2 space-y-1 text-xs text-app-text-muted">
-                          <p>CSV source: {inventoryVerificationSummary.csv_path}</p>
+                          <p>Source file: {inventoryVerificationSummary.csv_path}</p>
                           <p>
                             Detailed mismatch rows shown:{" "}
                             <span className="font-bold text-app-text tabular-nums">
@@ -3219,7 +3219,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                             <th className="px-4 py-2">SKU</th>
                             <th className="px-4 py-2">Status</th>
                             <th className="px-4 py-2">Mismatch type(s)</th>
-                            <th className="px-4 py-2">CSV</th>
+                            <th className="px-4 py-2">Source</th>
                             <th className="px-4 py-2">ROS</th>
                           </tr>
                         </thead>
@@ -3330,9 +3330,9 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   </>
                 ) : !inventoryVerificationLoading ? (
                   <p className="mt-4 text-xs text-app-text-muted">
-                    Run this verification when you want a direct CSV-versus-ROS inventory audit for
-                    SKU presence, variant grouping, price, cost, quantity, category, and supplier
-                    linkage.
+                    Run this legacy verification only when using a checked-in inventory file. Live
+                    cutover proof is shown in Landing Verification and Inventory & Catalog
+                    Verification.
                   </p>
                 ) : null}
               </div>

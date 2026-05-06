@@ -1603,6 +1603,20 @@ function catalogVariantSourceCount(row) {
   return Array.isArray(row.cells) && row.cells.length > 0 ? row.cells.length : 1;
 }
 
+function catalogSkuSourceCount(row) {
+  if (Array.isArray(row.cells) && row.cells.length > 0) {
+    return row.cells.filter((cell) => String(cell.sku ?? "").trim() !== "").length;
+  }
+  return row.item_no ? 1 : 0;
+}
+
+function catalogBarcodeSourceCount(row) {
+  if (Array.isArray(row.cells) && row.cells.length > 0) {
+    return row.cells.filter((cell) => String(cell.barcode ?? "").trim() !== "").length;
+  }
+  return String(row.barcode ?? "").trim() !== "" ? 1 : 0;
+}
+
 function mapGiftCardRow(r, histRows) {
   const issueDat = r.issue_dat ?? r.issued_at;
   return {
@@ -1894,6 +1908,8 @@ async function syncCatalog(pool) {
   let totalRowsReceived = 0;
   let totalMappedRows = 0;
   let totalMappedVariants = 0;
+  let totalMappedSkus = 0;
+  let totalMappedBarcodes = 0;
   let skippedDuplicates = 0;
   let inFlight = 0;
   const pendingRequests = [];
@@ -1922,6 +1938,8 @@ async function syncCatalog(pool) {
       if (mapped.item_no) {
         totalMappedRows++;
         totalMappedVariants += catalogVariantSourceCount(mapped);
+        totalMappedSkus += catalogSkuSourceCount(mapped);
+        totalMappedBarcodes += catalogBarcodeSourceCount(mapped);
         batchBuffer.push(mapped);
         if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
           const chunk = [...batchBuffer];
@@ -1984,6 +2002,8 @@ async function syncCatalog(pool) {
         }
         await postSnapshotReconciliation("catalog_products", totalMappedRows);
         await postSnapshotReconciliation("catalog_variants", totalMappedVariants);
+        await postSnapshotReconciliation("catalog_variant_skus", totalMappedSkus);
+        await postSnapshotReconciliation("catalog_variant_barcodes", totalMappedBarcodes);
         logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
         console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
         resolve(totalProcessed);

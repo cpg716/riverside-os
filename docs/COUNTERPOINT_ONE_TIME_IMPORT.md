@@ -168,7 +168,7 @@ After the bridge finishes, review **Settings → Counterpoint → Status** and c
 1. **Last bridge run** shows the expected completion time, duration, and record count.
 2. **Sign-off reconciliation** shows the latest bridge-reported rows beside the latest ROS landed/apply count for each entity in scope.
 3. **Landing Verification** shows the expected ROS-landed counts for every domain included in the pass.
-4. **CSV inventory verification** has been run when catalog / variant / quantity / supplier fidelity needs direct proof against the Counterpoint export.
+4. **Inventory & Catalog Verification** shows live-query source-vs-ROS count proof for catalog products, variants, SKUs, barcodes, and inventory quantity rows.
 5. **Sign-off blockers** is empty, or every listed blocker has been intentionally resolved.
 6. **Server sync history** shows landed entity rows and no unexpected last-error values.
 7. **Open sync issues** is empty, or every remaining issue has been deliberately triaged.
@@ -193,7 +193,7 @@ What it does **not** prove:
 - It is not full financial reconciliation.
 - It does not compare Counterpoint financial totals, tender totals, tax, discounts, or receivables to ROS.
 - It does not prove every source row was imported when provenance is missing or when the source SQL scope changed.
-- It does not replace CSV inventory verification, sync issue review, or operator spot checks.
+- It does not replace sync issue review, operator spot checks, or a future stored source-payload field comparison.
 
 Weak or approximate domains:
 - **Gift cards** are approximate only until the source count/sum proof has been received and the snapshot reconciliation row passes.
@@ -206,16 +206,18 @@ After each import pass:
 4. Confirm customer, catalog product, catalog variant/SKU, inventory quantity, open-doc, open-doc line, gift-card, and loyalty snapshot reconciliation rows pass.
 5. Confirm customer-link, skipped-open-doc, and unmatched-inventory visibility rows are clear.
 6. Review **Open sync issues** and resolve or deliberately defer each remaining issue.
-7. Run **CSV inventory verification** for catalog, variant, quantity, cost, price, and vendor-link confidence.
+7. Review live **Inventory & Catalog Verification** and document any not-yet-field-verified cost, price, category, vendor, or variant-label risks.
 8. Record any approximate-domain caveats in the import sign-off notes.
 
-### Limits of the CSV inventory verification table
+### Limits of live inventory verification
 
-- It compares the checked-in Counterpoint CSV export to Counterpoint-linked ROS products and variants.
-- Matching is **SKU-first**, with fallback to the Counterpoint item key carried in the CSV `tags` field.
-- Counterpoint parent item keys such as `I-XXXXX` are treated as product-group scope markers, not as direct row-level variant IDs for multi-row CSV groups.
+- It uses the bridge's live Counterpoint SQL payload metrics and Counterpoint-linked ROS products and variants.
+- Matching is **SKU-first**, with fallback to the Counterpoint item key or cell key carried in the live payload.
+- Counterpoint parent item keys such as `I-XXXXX` are treated as product-group scope markers, not as direct row-level variant IDs for multi-row live-payload groups.
 - It is read-only and does not correct data.
-- It proves inventory import fidelity for catalog, variants, prices, costs, quantities, and vendor linkage, but it does not validate ticket/open-doc financial history.
+- It proves count reconciliation for products, variants, SKUs, barcodes, and matched quantity rows, and it exposes unresolved inventory rows.
+- It does **not yet** field-verify cost, price, category, vendor, or variant-label fidelity without a stored source-payload snapshot.
+- It does not validate ticket/open-doc financial history.
 
 ### Limits of the sign-off reconciliation table
 

@@ -1267,6 +1267,8 @@ fn supported_snapshot_key(snapshot: &str) -> Option<&'static str> {
         "customers" => Some("customers"),
         "catalog_products" => Some("catalog_products"),
         "catalog_variants" => Some("catalog_variants"),
+        "catalog_variant_skus" => Some("catalog_variant_skus"),
+        "catalog_variant_barcodes" => Some("catalog_variant_barcodes"),
         "inventory_quantity_rows" => Some("inventory_quantity_rows"),
         "open_docs" => Some("open_docs"),
         "open_doc_lines" => Some("open_doc_lines"),
@@ -1446,6 +1448,26 @@ async fn build_snapshot_reconciliation_rows(
     )
     .fetch_one(pool)
     .await?;
+    let (variant_sku_count, _variant_sku_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM product_variants
+        WHERE NULLIF(TRIM(counterpoint_item_key), '') IS NOT NULL
+          AND NULLIF(TRIM(sku), '') IS NOT NULL
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let (variant_barcode_count, _variant_barcode_sum): (i64, Decimal) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)::bigint, 0::numeric
+        FROM product_variants
+        WHERE NULLIF(TRIM(counterpoint_item_key), '') IS NOT NULL
+          AND NULLIF(TRIM(barcode), '') IS NOT NULL
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
     let (open_doc_count, _open_doc_sum): (i64, Decimal) = sqlx::query_as(
         r#"
         SELECT COUNT(*)::bigint, 0::numeric
@@ -1507,6 +1529,20 @@ async fn build_snapshot_reconciliation_rows(
             "Catalog variants/SKUs",
             load_snapshot_source_metric(pool, "catalog_variants").await?,
             variant_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "catalog_variant_skus",
+            "Catalog variant SKUs",
+            load_snapshot_source_metric(pool, "catalog_variant_skus").await?,
+            variant_sku_count,
+            Decimal::ZERO,
+        ),
+        build_snapshot_reconciliation_row(
+            "catalog_variant_barcodes",
+            "Catalog variant barcodes",
+            load_snapshot_source_metric(pool, "catalog_variant_barcodes").await?,
+            variant_barcode_count,
             Decimal::ZERO,
         ),
         build_snapshot_reconciliation_row(
@@ -1597,6 +1633,23 @@ fn cutover_visibility_row(
     }
 }
 
+fn cutover_status_row(
+    key: &str,
+    label: &str,
+    status: &str,
+    passed: bool,
+    note: &str,
+) -> CounterpointCutoverVisibilityRow {
+    CounterpointCutoverVisibilityRow {
+        key: key.into(),
+        label: label.into(),
+        status: status.into(),
+        passed,
+        count: 0,
+        note: note.into(),
+    }
+}
+
 async fn build_cutover_visibility_rows(
     pool: &PgPool,
 ) -> Result<Vec<CounterpointCutoverVisibilityRow>, CounterpointSyncError> {
@@ -1652,6 +1705,27 @@ async fn build_cutover_visibility_rows(
             inventory_rows,
             "No unresolved Counterpoint inventory quantity rows are open.",
             "Counterpoint inventory rows could not match a ROS variant by item key or SKU. Review Open sync issues.",
+        ),
+        cutover_status_row(
+            "inventory_cost_price_fidelity",
+            "Inventory cost/price fidelity",
+            "not_verified",
+            false,
+            "Live query count reconciliation is present, but per-row cost and price fidelity is not yet field-verified without storing source payload snapshots.",
+        ),
+        cutover_status_row(
+            "inventory_category_vendor_fidelity",
+            "Category/vendor fidelity",
+            "not_verified",
+            false,
+            "Live query count reconciliation is present, but category, vendor, and vendor-item fidelity is not yet field-verified without storing source payload snapshots.",
+        ),
+        cutover_status_row(
+            "inventory_variant_label_fidelity",
+            "Variant-label fidelity",
+            "not_verified",
+            false,
+            "Live query count reconciliation is present, but matrix variant label fidelity is not yet field-verified without storing source payload snapshots.",
         ),
     ])
 }
@@ -7805,6 +7879,53 @@ mod tests {
         assert_eq!(status, "pass");
         assert_eq!(source_count, Some(landed_count));
         assert_eq!(count_difference, Some(0));
+    }
+
+    #[test]
+    fn counterpoint_live_catalog_sku_barcode_count_rows_reconcile() {
+        for key in [
+            "catalog_products",
+            "catalog_variants",
+            "catalog_variant_skus",
+            "catalog_variant_barcodes",
+        ] {
+            let row = build_snapshot_reconciliation_row(
+                key,
+                "Catalog count",
+                Some(SnapshotSourceMetric {
+                    source_count: 12,
+                    source_sum: Decimal::ZERO,
+                    updated_at: None,
+                }),
+                12,
+                Decimal::ZERO,
+            );
+
+            assert!(row.passed);
+            assert_eq!(row.status, "pass");
+            assert_eq!(row.source_count, Some(12));
+            assert_eq!(row.landed_count, 12);
+            assert_eq!(row.count_difference, Some(0));
+        }
+    }
+
+    #[tokio::test]
+    async fn counterpoint_inventory_field_fidelity_status_is_explicit() {
+        let pool = connect_test_db().await;
+        let summary = build_counterpoint_landing_verification_summary(&pool)
+            .await
+            .expect("build landing verification");
+
+        for key in [
+            "inventory_cost_price_fidelity",
+            "inventory_category_vendor_fidelity",
+            "inventory_variant_label_fidelity",
+        ] {
+            let row = cutover_visibility_row(&summary, key);
+            assert_eq!(row.status, "not_verified");
+            assert!(!row.passed);
+            assert!(row.note.contains("not yet field-verified"));
+        }
     }
 
     #[tokio::test]

@@ -531,7 +531,7 @@ Use Landing Verification with the other proof surfaces:
 - **Landing Verification** shows what is currently present in ROS tables after direct ingest or staging apply.
 - **Inbound queue / staging** must be empty after all intended staged batches are applied.
 - **Open sync issues** must be empty or explicitly triaged before sign-off.
-- **CSV inventory verification** remains the stronger proof for catalog, variant, quantity, cost, price, and vendor-link fidelity against the Counterpoint export.
+- **Inventory & Catalog Verification** uses live bridge/source metrics and ROS landed values for catalog, variant, SKU, barcode, quantity, and unresolved-row proof. Cost, price, category, vendor, and variant-label fidelity are explicitly marked as not yet field-verified unless a later source-snapshot comparison is added.
 
 This is not a full financial reconciliation report.
 
