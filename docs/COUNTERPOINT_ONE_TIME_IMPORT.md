@@ -112,7 +112,7 @@ Hard dependencies in ROS:
 3. **Customers** (`SYNC_CUSTOMERS`) — `CUST_NO` → `customer_code`. The shipped bridge now imports the full **`AR_CUST`** customer base so loyalty balances, store-credit ownership, ticket history, and open-doc ownership all resolve against the same ROS customer set. If you intentionally narrow `CP_CUSTOMERS_QUERY` for rehearsal work, re-verify loyalty, store credit, and open-doc customer linking before sign-off.
 4. **Store credit opening** — **on by default** in `.env.example` (`SYNC_STORE_CREDIT_OPENING=1`, **`CP_STORE_CREDIT_QUERY`** after customers). Posts to `POST /api/sync/counterpoint/store-credit-opening`. Ledger reason **`counterpoint_opening_balance`**; re-runs skip rows already imported (**idempotent**). Set **`SYNC_STORE_CREDIT_OPENING=0`** if you are not using Counterpoint merchandise credit on **`AR_CUST`**.
 5. **Customer notes** (optional) — usual position after customers.
-6. **Catalog** then **inventory** then **vendor_items** — matrix keys on variants must exist before ticket/open-doc lines resolve. Default **`CP_INVENTORY_QUERY`** only sends **MAIN** rows whose **`ITEM_NO`** sold on a ticket on or after **`CP_IMPORT_SINCE`** (same window as ticket history) **or** have **non-zero `QTY_ON_HND`**, so dead catalog SKUs are not pushed to ROS. Replace with the full `IM_INV` `SELECT` in `.env` if you need every row.
+6. **Catalog** then **inventory** then **vendor_items** — matrix keys on variants must exist before ticket/open-doc lines resolve. The shipped catalog query sends all nonblank `IM_ITEM` rows. The shipped inventory query sends MAIN `IM_INV` / `IM_INV_CELL` quantity rows, including zero-on-hand rows when Counterpoint has a row for that item or cell.
 7. **Gift cards** — default off (`SYNC_GIFT_CARDS=0`) for bulk simplicity.
 8. **Closed ticket history** (`SYNC_TICKETS`) — idempotent on `counterpoint_ticket_ref`.
 9. **Open PS_DOC documents** (optional) — `SYNC_OPEN_DOCS=1` and `CP_OPEN_DOCS_*` queries **after** tickets. Posts to `POST /api/sync/counterpoint/open-docs`. Idempotent on `counterpoint_doc_ref`.
@@ -152,6 +152,7 @@ Customer ingest may still map Counterpoint A/R reference text to `customers.cust
 - Headers must expose a stable **`doc_ref`** (alias). Map `booked_at`, `total_price`, `amount_paid`, `cust_no`, optional `usr_id` / `sls_rep`, optional **`cp_status`** (void/cancel markers → `cancelled` in ROS).
 - ROS now prefers the summed `PS_DOC_PMT` tender rows for `amount_paid` / `balance_due` when those rows are present. The header `amount_paid` value is a fallback only.
 - Lines reuse the same shape as ticket lines (`sku`, `counterpoint_item_key`, `quantity`, `unit_price`, etc.). ROS sets **`fulfillment_type = layaway`** when `DOC_TYP = 'L'`; all other imported open-doc lines land as **`special_order`**.
+- Open documents are current obligations. Unlike closed ticket history, unresolved open-doc lines are skipped and surfaced as sync issues so deposits, previous payments, and remaining balance due cannot be fulfilled against ambiguous items.
 - Re-imports: existing `counterpoint_doc_ref` rows are skipped.
 - Tax remains a known limitation: shipped ticket/open-doc templates do not source tax columns, so imported historical line-tax fields remain zero. Use this history for operational/customer lookup, not authoritative tax reconstruction.
 

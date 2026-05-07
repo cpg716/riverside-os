@@ -252,7 +252,7 @@ Idempotent: notes with the same `[CP:NOTE_ID]` prefix for a customer are skipped
 
 Updates `stock_on_hand` and optionally `cost_override`. This is a lightweight sync for stores that maintain Counterpoint as the stock-of-record and only need ROS to reflect current quantities.
 
-Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows with **non-zero `QTY_ON_HND`** **or** `ITEM_NO` on a **closed ticket** on or after **`CP_IMPORT_SINCE`**, parallel to the “active SKU” idea used for catalog (matrix stock often lives in **`IM_INV_CELL`**—handled on the catalog side).
+Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows and MAIN `IM_INV_CELL` rows, including zero-on-hand rows when Counterpoint has an inventory row for that item or cell. Matrix stock often lives in `IM_INV_CELL`.
 
 ### 4c-2. Vendors
 
@@ -292,7 +292,7 @@ Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows with **non-zero `Q
 
 **Provenance:** Products created by this sync get `data_source = 'counterpoint'` (migration 85). Products that already exist (matched via their variants' `counterpoint_item_key`) are updated but their `data_source` is not overwritten.
 
-**Default “active” catalog (bridge 0.6.5+):** **`CP_CATALOG_QUERY`** limits **`IM_ITEM`** to rows that have **(a)** a **non-zero `QTY_ON_HND`** on **MAIN** `IM_INV`, **or (b)** a **non-zero** `QTY_ON_HND` on **any `IM_INV_CELL`** for that parent, **or (c)** **`ITEM_NO` on a closed-ticket line** (`DOC_TYP = 'T'`) with **`BUS_DAT >= CP_IMPORT_SINCE`**. **`CP_CATALOG_CELLS_QUERY`**, **`CP_VENDORS_QUERY`**, and **`CP_VEND_ITEM_QUERY`** follow the same product scope so vendors and vendor cross-refs do not pull dead SKUs. This does **not** read **`IM_HST_TRX`** / receipt history; if you must keep items that only moved on receipts with zero current qty and no in-range sale, extend the SQL in SSMS. If ticket lines store **child** SKUs in **`CELL_DESCR`** only, add an **`OR EXISTS`** join that ties **`PS_TKT_HIST_LIN.ITEM_NO`** to **`IM_INV_CELL.CELL_DESCR`** for the parent **`ITEM_NO`**.
+**Default catalog:** **`CP_CATALOG_QUERY`** sends all nonblank `IM_ITEM` rows so zero-stock items are still available for lookup, history, vendor mapping, and reporting. **`CP_CATALOG_CELLS_QUERY`** sends MAIN matrix cells with their Counterpoint cell keys and quantity fields. If ticket lines store **child** SKUs in **`CELL_DESCR`** only, add an **`OR EXISTS`** join that ties **`PS_TKT_HIST_LIN.ITEM_NO`** to **`IM_INV_CELL.CELL_DESCR`** for the parent **`ITEM_NO`**.
 
 **Category mapping:** The bridge sends a `category` string from `CATEG_COD`. ROS looks up `counterpoint_category_map` first (admin-configurable), then falls back to a case-insensitive name match in `categories`. Unmapped categories result in `category_id = NULL` on the product.
 
@@ -301,6 +301,8 @@ Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows with **non-zero `Q
 **Source:** `dbo.SY_GFT_CERT` / `dbo.SY_GFC` current issued-card rows.
 **Target:** `gift_cards`
 **Key:** `GFT_CERT_NO` → `gift_cards.code`
+
+Gift-card cutover imports only cards with a current open balance. For the Riverside bridge payload, alias the card number as `cert_no` (the bridge and ROS also accept `gft_cert_no` / `gift_cert_no` as compatibility aliases).
 
 | Counterpoint | ROS |
 |--------------|-----|
@@ -349,6 +351,8 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 **Idempotency:** If an order with the same `counterpoint_ticket_ref` already exists, the entire ticket is **skipped** (no duplicates).
 
 **Totals / paid semantics:** The shipped bridge still sources the gross historical ticket total from the header query (`PS_TKT_HIST.TOT` in the default v8.2 template). ROS now prefers the summed tender history from `PS_TKT_HIST_PMT` plus redeeming `PS_TKT_HIST_GFT` rows for `amount_paid` and `balance_due` whenever those rows are present. If those tender rows are absent, ROS falls back to the header `amount_paid` value from `CP_TICKETS_QUERY`.
+
+**Historical sales posture:** Closed ticket rows are imported for customer history, item history, and reporting comparison. They are not active fulfillment obligations. ROS links historical lines to exact variants when the payload has enough SKU/cell detail; unresolved historical lines use the historical Counterpoint fallback item instead of blocking the import. Open documents remain strict because they are current obligations.
 
 **Tax limitation:** The shipped Counterpoint ticket queries do not currently source line-level or header-level tax columns, so imported historical `transaction_lines.state_tax` and `local_tax` land as `0`. Treat imported ticket history as operational/customer-service history, not as financially authoritative tax history, unless you extend the bridge with proven Counterpoint tax columns from your live schema.
 
@@ -650,7 +654,7 @@ Unmapped reason codes default to `purchased`.
 
 ## 9. Date-range filtering (recommended)
 
-You do **not** have to import the full Counterpoint history. The `.env.example` uses **`CP_IMPORT_SINCE`** (default **2018-01-01**) expanded as **`__CP_IMPORT_SINCE__`** in ticket, note, **customer**, and **inventory** templates. Adjust **`CP_IMPORT_SINCE`** once rather than editing every date literal.
+You do **not** have to import the full Counterpoint history. The `.env.example` uses **`CP_IMPORT_SINCE`** (default **2018-01-01**) expanded as **`__CP_IMPORT_SINCE__`** in historical ticket and note templates. Current master-data snapshots are not date-scoped.
 
 ### What to filter vs. keep full
 
@@ -660,11 +664,11 @@ You do **not** have to import the full Counterpoint history. The `.env.example` 
 | **Customer notes** (`AR_CUST_NOTE`) | **Typical** — `NOTE_DAT >= __CP_IMPORT_SINCE__` | Aligns with customer import window |
 | **Gift card history** (`SY_GFT_CERT_HIST`) | **Do not import for cutover** | Balances come from the current `SY_GFT_CERT` / `SY_GFC` snapshot |
 | **Staff** (`SY_USR`, `PS_SLS_REP`) | **Full sync** | Small table; tickets reference staff |
-| **Customers** (`AR_CUST`) | **Default: ticket, in-range note, or positive `MERCH_CR_BAL`** (adjust in `.env`) when store-credit sync is on | Loyalty does **not** widen the list |
-| **Vendors** (`PO_VEND`) | **Default: vendors of “active” items only** | Matches trimmed catalog |
-| **Catalog** (`IM_ITEM` + cells) | **Default: active items** (in-range sale, MAIN qty ≠ 0, or matrix cell qty ≠ 0) | Not full `IM_ITEM`; not `IM_HST_TRX` |
-| **Inventory** (`IM_INV` MAIN) | **Default: non-zero on-hand or SKU on in-range ticket** | Full `IM_INV` optional in `.env` comment |
-| **Gift cards** (`SY_GFT_CERT`) | **Full sync** | Need current balances regardless of issue date |
+| **Customers** (`AR_CUST`) | **Full sync** | Customer master data is current cutover data |
+| **Vendors** (`PO_VEND`) | **Full sync** by default | Fast path imports all `PO_VEND` rows |
+| **Catalog** (`IM_ITEM` + cells) | **Full nonblank item sync** by default | Zero-stock items still import |
+| **Inventory** (`IM_INV` / `IM_INV_CELL` MAIN) | **Full MAIN quantity-row sync** by default | Zero-on-hand rows import when Counterpoint has a row |
+| **Gift cards** (`SY_GFT_CERT` / `SY_GFC`) | **Current open-balance snapshot** | Only cards with current open balances are needed |
 
 ### How to change the cutoff
 

@@ -35,6 +35,23 @@ import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 type HubTab = "status" | "inbound" | "categories" | "payments" | "gifts" | "staff";
 type CounterpointStatusSection = "connect" | "signoff" | "details" | "advanced";
 
+function isHubTab(value: string | null): value is HubTab {
+  return (
+    value === "status" ||
+    value === "inbound" ||
+    value === "categories" ||
+    value === "payments" ||
+    value === "gifts" ||
+    value === "staff"
+  );
+}
+
+function isCounterpointStatusSection(
+  value: string | null,
+): value is CounterpointStatusSection {
+  return value === "connect" || value === "signoff" || value === "details" || value === "advanced";
+}
+
 interface EntityRunRow {
   entity: string;
   cursor_value: string | null;
@@ -285,6 +302,8 @@ interface CounterpointInventoryCatalogVerificationSnapshot {
 /* ── Bridge live status from :3002 ── */
 const BRIDGE_LOCAL_URLS = ["http://127.0.0.1:3002", "http://localhost:3002"];
 const BRIDGE_CONTROL_URL_STORAGE_KEY = "counterpoint.bridgeControlUrl";
+const COUNTERPOINT_TAB_STORAGE_KEY = "counterpoint.settingsTab";
+const COUNTERPOINT_STATUS_SECTION_STORAGE_KEY = "counterpoint.statusSection";
 
 function normalizeBridgeControlUrl(value: string): string {
   const trimmed = value.trim().replace(/\/+$/, "");
@@ -543,8 +562,16 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
 
-  const [tab, setTab] = useState<HubTab>("status");
-  const [statusSection, setStatusSection] = useState<CounterpointStatusSection>("connect");
+  const [tab, setTab] = useState<HubTab>(() => {
+    if (typeof window === "undefined") return "status";
+    const saved = window.localStorage.getItem(COUNTERPOINT_TAB_STORAGE_KEY);
+    return isHubTab(saved) ? saved : "status";
+  });
+  const [statusSection, setStatusSection] = useState<CounterpointStatusSection>(() => {
+    if (typeof window === "undefined") return "connect";
+    const saved = window.localStorage.getItem(COUNTERPOINT_STATUS_SECTION_STORAGE_KEY);
+    return isCounterpointStatusSection(saved) ? saved : "connect";
+  });
   const [status, setStatus] = useState<SyncStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [batches, setBatches] = useState<StagingBatchRow[]>([]);
@@ -605,6 +632,9 @@ export default function CounterpointSyncSettingsPanel(props?: {
   );
   const serverBridgeActive =
     status?.windows_sync_state === "online" || status?.windows_sync_state === "syncing";
+  const serverBridgeSyncing = status?.windows_sync_state === "syncing";
+  const bridgeSyncing = bridgeLive?.isSyncing || serverBridgeSyncing;
+  const bridgeCurrentEntity = bridgeLive?.currentEntity ?? status?.current_entity ?? null;
 
   const saveBridgeControlUrl = useCallback(() => {
     const normalized = normalizeBridgeControlUrl(bridgeControlUrlDraft);
@@ -684,9 +714,9 @@ export default function CounterpointSyncSettingsPanel(props?: {
     }
   }, [toast, fetchBridgeLive, bridgeUrls]);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (options?: { quiet?: boolean }) => {
     if (!hasPermission("settings.admin")) return;
-    setLoading(true);
+    if (!options?.quiet) setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/status`, {
         headers: backofficeHeaders() as Record<string, string>,
@@ -699,7 +729,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
     } catch {
       setStatus(null);
     } finally {
-      setLoading(false);
+      if (!options?.quiet) setLoading(false);
     }
   }, [baseUrl, backofficeHeaders, hasPermission]);
 
@@ -917,6 +947,24 @@ export default function CounterpointSyncSettingsPanel(props?: {
     fetchOpenDocsVerification,
     fetchInventoryCatalogVerification,
   ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(COUNTERPOINT_TAB_STORAGE_KEY, tab);
+  }, [tab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(COUNTERPOINT_STATUS_SECTION_STORAGE_KEY, statusSection);
+  }, [statusSection]);
+
+  useEffect(() => {
+    if (tab !== "status") return;
+    const interval = setInterval(() => {
+      void fetchStatus({ quiet: true });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [tab, fetchStatus]);
 
   useEffect(() => {
     if (tab === "inbound") void fetchBatches();
@@ -1673,16 +1721,16 @@ export default function CounterpointSyncSettingsPanel(props?: {
           {bridgeOnline && bridgeLive ? (
             <>
               {/* Run Control */}
-              {(statusSection === "connect" || bridgeLive.isSyncing) && (
+              {(statusSection === "connect" || bridgeSyncing) && (
               <div className="ui-panel ui-tint-neutral p-4 mb-4">
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                   <div className="flex items-center gap-3">
                     <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                      bridgeLive.isSyncing
+                      bridgeSyncing
                         ? "bg-app-warning/20 text-app-warning"
                         : "bg-app-success/15 text-app-success"
                     }`}>
-                      {bridgeLive.isSyncing ? (
+                      {bridgeSyncing ? (
                         <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
                       ) : (
                         <Zap className="h-5 w-5" aria-hidden />
@@ -1690,9 +1738,9 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     </div>
                     <div>
                       <p className="text-sm font-black uppercase tracking-widest">
-                        {bridgeLive.isSyncing ? (
+                        {bridgeSyncing ? (
                           <span className="text-app-warning">
-                            Importing{bridgeLive.currentEntity ? ` — ${bridgeLive.currentEntity.replace(/_/g, " ")}` : ""}
+                            Importing{bridgeCurrentEntity ? ` — ${bridgeCurrentEntity.replace(/_/g, " ")}` : ""}
                           </span>
                         ) : (
                           <span className="text-app-success">Bridge Idle</span>
@@ -1701,10 +1749,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
 	                      <p className="text-[10px] text-app-text-muted mt-0.5">
 	                        {formatFreshnessLabel(bridgeLive.lastRun)}
 	                        {bridgeLive.lastRunDurationMs ? ` · ${fmtDuration(bridgeLive.lastRunDurationMs)}` : ""}
-	                        {bridgeLive.totalRecordsLastRun ? ` · ${fmtNum(bridgeLive.totalRecordsLastRun)} records` : ""}
+                        {bridgeLive.totalRecordsLastRun ? ` · ${fmtNum(bridgeLive.totalRecordsLastRun)} records` : ""}
 	                      </p>
                         <p className="text-[10px] text-app-text-muted mt-1">
-                          {bridgeLive.isSyncing
+                          {bridgeSyncing
                             ? "The bridge is actively importing. Riverside landed counts update after each entity finishes."
                             : Object.values(bridgeLive.entityStats || {}).some((stat) => !!stat?.error)
                               ? "The latest visible bridge run includes errors. Review the failed entity rows and recent bridge events before rerunning."
@@ -1721,6 +1769,15 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     >
                       <Square className="h-3.5 w-3.5" aria-hidden />
                       {bridgeLive.abortRequested ? "Stopping…" : "Stop Import"}
+                    </button>
+                  ) : serverBridgeSyncing ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="px-5 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 rounded-xl border border-app-warning/30 bg-app-warning/10 text-app-warning disabled:opacity-80"
+                    >
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      Import Running
                     </button>
                   ) : (
                     <button
@@ -1739,7 +1796,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   )}
                 </div>
 
-                {!bridgeLive.isSyncing && bridgeLive.lastRun && (
+                {!bridgeSyncing && bridgeLive.lastRun && (
                   <div className="ui-panel ui-tint-danger p-3 mb-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
                       Post-sign-off retirement reminder
@@ -2188,7 +2245,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     <tbody className="divide-y divide-app-border">
                       {ENTITY_DISPLAY.map(({ key, label, icon: Icon }) => {
                         const stat = bridgeLive?.entityStats?.[key];
-                        const isRunning = bridgeLive.currentEntity === key;
+                        const isRunning = bridgeCurrentEntity === key;
                         const hasError = !!stat?.error;
                         const isDone = !!stat?.lastSync && !hasError;
                         return (
@@ -2246,7 +2303,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                             <td className="px-4 py-2.5">
                               <button
                                 type="button"
-                                disabled={bridgeLive.isSyncing || runRequestBusy}
+                                disabled={bridgeSyncing || runRequestBusy}
                                 onClick={() => void triggerBridgeSync(key)}
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-app-border bg-app-surface-1/50 text-[9px] font-black uppercase tracking-widest hover:bg-app-surface-2 transition-colors disabled:opacity-50"
                               >
@@ -2321,29 +2378,44 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     <WifiOff className="h-10 w-10 text-red-500/50 mx-auto mb-3" />
                   )}
                   <p className="font-bold text-app-text">
-                    {serverBridgeActive
+                    {serverBridgeSyncing
+                      ? "Bridge is importing through ROS"
+                      : serverBridgeActive
                       ? "Bridge is connected through ROS"
                       : "Bridge controls are not reachable on this workstation"}
                   </p>
                   <p className="text-xs text-app-text-muted mt-1 mb-4">
-                    {serverBridgeActive
+                    {serverBridgeSyncing
+                      ? "The Mac browser cannot reach the direct control port, but ROS is receiving bridge heartbeats and the import is already running."
+                      : serverBridgeActive
                       ? "The Mac browser cannot reach the direct control port, but ROS is receiving bridge heartbeats. Run requests are queued through ROS."
                       : "Automatic checking stopped after 3 attempts to reach the bridge control port."}
                   </p>
                   <div className="flex flex-wrap items-center justify-center gap-2">
-                    <button
-                      type="button"
-                      disabled={runRequestBusy}
-                      onClick={() => void triggerBridgeSync()}
-                      className="ui-btn-primary px-6 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {runRequestBusy ? (
+                    {serverBridgeSyncing ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="px-6 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 rounded-xl border border-app-warning/30 bg-app-warning/10 text-app-warning disabled:opacity-80"
+                      >
                         <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Play className="h-4 w-4" />
-                      )}
-                      {runRequestBusy ? "Queuing…" : "Run Full Import"}
-                    </button>
+                        Import Running{bridgeCurrentEntity ? `: ${bridgeCurrentEntity.replace(/_/g, " ")}` : ""}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={runRequestBusy}
+                        onClick={() => void triggerBridgeSync()}
+                        className="ui-btn-primary px-6 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {runRequestBusy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
+                        {runRequestBusy ? "Queuing…" : "Run Full Import"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {

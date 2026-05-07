@@ -1829,7 +1829,7 @@ function catalogBarcodeSourceCount(row) {
 function mapGiftCardRow(r, histRows) {
   const issueDat = r.issue_dat ?? r.issued_at;
   return {
-    cert_no: String(r.cert_no ?? r.gft_cert_no ?? "").trim(),
+    cert_no: String(r.cert_no ?? r.gft_cert_no ?? r.gift_cert_no ?? "").trim(),
     balance: String(r.balance ?? r.bal ?? r.bal_amt ?? "0"),
     original_value: r.original_value ?? (r.orig_amt != null ? String(r.orig_amt) : undefined),
     reason_cod: r.reason_cod ?? undefined,
@@ -2359,7 +2359,7 @@ async function syncGiftCards(pool) {
 
   const mapped = rows
     .map((r) => {
-      const certNo = String(r.cert_no ?? r.gft_cert_no ?? "").trim();
+      const certNo = String(r.cert_no ?? r.gft_cert_no ?? r.gift_cert_no ?? "").trim();
       return mapGiftCardRow(r, histLookup[certNo] ?? []);
     })
     .filter((r) => r.cert_no);

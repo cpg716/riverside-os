@@ -3223,10 +3223,11 @@ async fn build_counterpoint_reset_scope(
                   + (SELECT COUNT(*)::bigint FROM counterpoint_staging_batch)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_receiving_history)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_staff_map)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_category_map)
                 "#,
             )
             .await?,
-            note: "Clears Counterpoint staging, run history, issues, requests, receiving history, and staff maps so ROS shows a fresh migration state.".into(),
+            note: "Clears Counterpoint staging, run history, issues, requests, receiving history, staff maps, and category maps so ROS shows a fresh migration state.".into(),
         },
         CounterpointResetCountRow {
             key: "counterpoint_staff".into(),
@@ -4253,6 +4254,7 @@ struct CounterpointBaselineResetTargets {
     counterpoint_staging_batch_ids: Vec<i64>,
     counterpoint_receiving_history_ids: Vec<Uuid>,
     counterpoint_staff_map_staff_ids: Vec<Uuid>,
+    counterpoint_category_map_ids: Vec<i64>,
 }
 
 async fn collect_counterpoint_baseline_reset_targets(
@@ -4356,6 +4358,11 @@ async fn collect_counterpoint_baseline_reset_targets(
         .await?,
         counterpoint_staff_map_staff_ids: sqlx::query_scalar(
             "SELECT ros_staff_id FROM counterpoint_staff_map",
+        )
+        .fetch_all(&mut **tx)
+        .await?,
+        counterpoint_category_map_ids: sqlx::query_scalar(
+            "SELECT id FROM counterpoint_category_map",
         )
         .fetch_all(&mut **tx)
         .await?,
@@ -4596,6 +4603,12 @@ async fn perform_counterpoint_baseline_reset_targets(
     if !targets.counterpoint_staff_map_staff_ids.is_empty() {
         sqlx::query("DELETE FROM counterpoint_staff_map WHERE ros_staff_id = ANY($1)")
             .bind(&targets.counterpoint_staff_map_staff_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !targets.counterpoint_category_map_ids.is_empty() {
+        sqlx::query("DELETE FROM counterpoint_category_map WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_category_map_ids)
             .execute(&mut **tx)
             .await?;
     }
@@ -5394,6 +5407,7 @@ async fn upsert_variant(
 
 #[derive(Debug, Deserialize)]
 pub struct CounterpointGiftCardRow {
+    #[serde(alias = "gft_cert_no", alias = "gift_cert_no")]
     pub cert_no: String,
     pub balance: Decimal,
     #[serde(default)]
@@ -5654,17 +5668,6 @@ pub struct TicketSyncSummary {
     pub skipped: i32,
 }
 
-async fn resolve_payment_method(tx: &mut Transaction<'_, Postgres>, pmt_typ: &str) -> String {
-    let mapped: Option<String> = sqlx::query_scalar(
-        "SELECT ros_method FROM counterpoint_payment_method_map WHERE cp_pmt_typ = $1",
-    )
-    .bind(pmt_typ.trim().to_uppercase())
-    .fetch_optional(&mut **tx)
-    .await
-    .unwrap_or(None);
-    mapped.unwrap_or_else(|| "cash".to_string())
-}
-
 fn sum_counterpoint_ticket_tenders(
     payments: &[TicketPaymentRow],
     gift_applications: &[TicketGiftApplicationRow],
@@ -5702,52 +5705,207 @@ fn cp_gift_hist_row_is_redemption(action: Option<&str>) -> bool {
     }
 }
 
-/// When `PS_TKT_HIST_CELL` is unavailable, ticket lines often carry only the **parent** `ITEM_NO`.
-/// Resolve to the single matrix variant whose `counterpoint_item_key` / `sku` shares that parent prefix,
-/// disambiguating by **unit price** when multiple matrix rows exist.
-async fn resolve_variant_matrix_parent_price_fallback(
-    tx: &mut Transaction<'_, Postgres>,
-    parent_item_no: &str,
-    unit_price: Decimal,
-) -> Result<Option<(Uuid, Uuid)>, sqlx::Error> {
-    let parent = parent_item_no.trim();
-    if parent.is_empty() || parent.contains('|') {
-        return Ok(None);
-    }
-    let parent_lc = parent.to_lowercase();
+#[derive(Debug, Clone, Copy)]
+struct ParentVariantCandidate {
+    variant_id: Uuid,
+    product_id: Uuid,
+    effective_price: Decimal,
+}
 
-    let rows: Vec<(Uuid, Uuid, Decimal)> = sqlx::query_as(
-        r#"
-        SELECT pv.id, pv.product_id,
-               COALESCE(pv.retail_price_override, p.base_retail_price) AS eff_price
-        FROM product_variants pv
-        JOIN products p ON p.id = pv.product_id
-        WHERE LOWER(TRIM(SPLIT_PART(COALESCE(pv.counterpoint_item_key, ''), '|', 1))) = $1
-           OR LOWER(TRIM(SPLIT_PART(COALESCE(pv.sku, ''), '|', 1))) = $1
-        "#,
-    )
-    .bind(&parent_lc)
-    .fetch_all(&mut **tx)
-    .await?;
+#[derive(Debug, Default)]
+struct VariantResolutionCache {
+    exact: HashMap<String, (Uuid, Uuid)>,
+    parent: HashMap<String, Vec<ParentVariantCandidate>>,
+}
 
-    if rows.is_empty() {
-        return Ok(None);
+fn normalized_lower_key(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_lowercase())
     }
-    if rows.len() == 1 {
-        return Ok(Some((rows[0].0, rows[0].1)));
+}
+
+fn normalized_exact_key(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn line_parent_key(line: &TicketLineRow) -> Option<String> {
+    line.counterpoint_item_key
+        .as_deref()
+        .or(line.sku.as_deref())
+        .and_then(normalized_lower_key)
+        .filter(|s| !s.contains('|'))
+}
+
+async fn build_variant_resolution_cache<'a>(
+    pool: &PgPool,
+    lines: impl IntoIterator<Item = &'a TicketLineRow>,
+) -> Result<VariantResolutionCache, sqlx::Error> {
+    let mut item_keys = HashSet::new();
+    let mut skus = HashSet::new();
+    let mut parent_keys = HashSet::new();
+
+    for line in lines {
+        if let Some(key) = line
+            .counterpoint_item_key
+            .as_deref()
+            .and_then(normalized_exact_key)
+        {
+            item_keys.insert(key);
+        }
+        if let Some(sku) = line.sku.as_deref().and_then(normalized_lower_key) {
+            skus.insert(sku);
+        }
+        if let Some(parent) = line_parent_key(line) {
+            parent_keys.insert(parent);
+        }
     }
 
-    let tol = Decimal::new(1, 2); // $0.01
-    let exact: Vec<(Uuid, Uuid)> = rows
+    let mut cache = VariantResolutionCache::default();
+
+    if !item_keys.is_empty() {
+        let keys: Vec<String> = item_keys.into_iter().collect();
+        let rows: Vec<(String, Uuid, Uuid)> = sqlx::query_as(
+            r#"
+            SELECT counterpoint_item_key, id, product_id
+            FROM product_variants
+            WHERE counterpoint_item_key = ANY($1)
+            "#,
+        )
+        .bind(&keys)
+        .fetch_all(pool)
+        .await?;
+        for (key, variant_id, product_id) in rows {
+            cache.exact.insert(key, (variant_id, product_id));
+        }
+    }
+
+    if !skus.is_empty() {
+        let sku_values: Vec<String> = skus.into_iter().collect();
+        let rows: Vec<(String, Uuid, Uuid)> = sqlx::query_as(
+            r#"
+            SELECT lower(trim(sku)), id, product_id
+            FROM product_variants
+            WHERE lower(trim(sku)) = ANY($1)
+            "#,
+        )
+        .bind(&sku_values)
+        .fetch_all(pool)
+        .await?;
+        for (sku, variant_id, product_id) in rows {
+            cache.exact.entry(sku).or_insert((variant_id, product_id));
+        }
+    }
+
+    if !parent_keys.is_empty() {
+        let parents: Vec<String> = parent_keys.into_iter().collect();
+        let rows: Vec<(String, Uuid, Uuid, Decimal)> = sqlx::query_as(
+            r#"
+            WITH parent_rows AS (
+                SELECT
+                    lower(trim(split_part(coalesce(pv.counterpoint_item_key, ''), '|', 1))) AS parent_key,
+                    pv.id,
+                    pv.product_id,
+                    COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price
+                FROM product_variants pv
+                JOIN products p ON p.id = pv.product_id
+                WHERE NULLIF(trim(pv.counterpoint_item_key), '') IS NOT NULL
+                UNION ALL
+                SELECT
+                    lower(trim(split_part(coalesce(pv.sku, ''), '|', 1))) AS parent_key,
+                    pv.id,
+                    pv.product_id,
+                    COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price
+                FROM product_variants pv
+                JOIN products p ON p.id = pv.product_id
+                WHERE NULLIF(trim(pv.sku), '') IS NOT NULL
+            )
+            SELECT parent_key, id, product_id, effective_price
+            FROM parent_rows
+            WHERE parent_key = ANY($1)
+            "#,
+        )
+        .bind(&parents)
+        .fetch_all(pool)
+        .await?;
+        for (parent, variant_id, product_id, effective_price) in rows {
+            let candidates = cache.parent.entry(parent).or_default();
+            if !candidates.iter().any(|c| c.variant_id == variant_id) {
+                candidates.push(ParentVariantCandidate {
+                    variant_id,
+                    product_id,
+                    effective_price,
+                });
+            }
+        }
+    }
+
+    Ok(cache)
+}
+
+fn resolve_variant_from_cache(
+    cache: &VariantResolutionCache,
+    line: &TicketLineRow,
+) -> Option<(Uuid, Uuid)> {
+    if let Some(key) = line
+        .counterpoint_item_key
+        .as_deref()
+        .and_then(normalized_exact_key)
+    {
+        if let Some(pair) = cache.exact.get(&key) {
+            return Some(*pair);
+        }
+    }
+    if let Some(sku) = line.sku.as_deref().and_then(normalized_lower_key) {
+        if let Some(pair) = cache.exact.get(&sku) {
+            return Some(*pair);
+        }
+    }
+    let parent = line_parent_key(line)?;
+    let candidates = cache.parent.get(&parent)?;
+    if candidates.len() == 1 {
+        let candidate = candidates[0];
+        return Some((candidate.variant_id, candidate.product_id));
+    }
+
+    let tol = Decimal::new(1, 2);
+    let mut exact = candidates
         .iter()
-        .filter(|(_, _, eff)| (*eff - unit_price).abs() <= tol)
-        .map(|(a, b, _)| (*a, *b))
-        .collect();
-    if exact.len() == 1 {
-        return Ok(Some(exact[0]));
+        .filter(|candidate| (candidate.effective_price - line.unit_price).abs() <= tol);
+    let first = exact.next()?;
+    if exact.next().is_none() {
+        Some((first.variant_id, first.product_id))
+    } else {
+        None
     }
+}
 
-    Ok(None)
+fn resolve_ticket_lines_from_cache(
+    cache: &VariantResolutionCache,
+    lines: &[TicketLineRow],
+) -> Result<Vec<(Uuid, Uuid)>, String> {
+    let mut out = Vec::with_capacity(lines.len());
+    for line in lines {
+        match resolve_variant_from_cache(cache, line) {
+            Some(pair) => out.push(pair),
+            None => {
+                let sku_str = line.sku.as_deref().unwrap_or("");
+                let key = line.counterpoint_item_key.as_deref().unwrap_or("");
+                let desc = line.description.as_deref().unwrap_or("Unknown item");
+                return Err(format!(
+                    "unresolved line (sku={sku_str:?} counterpoint_item_key={key:?} descr={desc:?}); import catalog and align SKUs or cell keys"
+                ));
+            }
+        }
+    }
+    Ok(out)
 }
 
 async fn resolve_variant_for_cp_item_no(
@@ -5773,80 +5931,6 @@ async fn resolve_variant_for_cp_item_no(
     .bind(item_no)
     .fetch_optional(&mut **tx)
     .await
-}
-
-async fn resolve_variant_for_line(
-    tx: &mut Transaction<'_, Postgres>,
-    line: &TicketLineRow,
-) -> Result<Option<(Uuid, Uuid)>, sqlx::Error> {
-    if let Some(ref key) = line.counterpoint_item_key {
-        let key = key.trim();
-        if !key.is_empty() {
-            let row: Option<(Uuid, Uuid)> = sqlx::query_as(
-                "SELECT id, product_id FROM product_variants WHERE counterpoint_item_key = $1",
-            )
-            .bind(key)
-            .fetch_optional(&mut **tx)
-            .await?;
-            if row.is_some() {
-                return Ok(row);
-            }
-        }
-    }
-    if let Some(ref sku) = line.sku {
-        let sku = sku.trim();
-        if !sku.is_empty() {
-            let row: Option<(Uuid, Uuid)> = sqlx::query_as(
-                "SELECT id, product_id FROM product_variants WHERE lower(trim(sku)) = lower(trim($1))",
-            )
-            .bind(sku)
-            .fetch_optional(&mut **tx)
-            .await?;
-            if row.is_some() {
-                return Ok(row);
-            }
-        }
-    }
-
-    // Parent ITEM_NO only (no PS_TKT_HIST_CELL): match matrix variants under same parent + line price.
-    let parent_only = line
-        .counterpoint_item_key
-        .as_deref()
-        .or(line.sku.as_deref())
-        .map(str::trim)
-        .filter(|s| !s.is_empty() && !s.contains('|'));
-    if let Some(parent) = parent_only {
-        if let Some(pair) =
-            resolve_variant_matrix_parent_price_fallback(tx, parent, line.unit_price).await?
-        {
-            return Ok(Some(pair));
-        }
-    }
-
-    Ok(None)
-}
-
-/// Resolves every line to a variant **before** inserting an order so header totals and line items stay consistent.
-/// On failure returns `Err(message)` for the first unresolved line. Pairs are in the same order as `lines`.
-async fn resolve_ticket_lines_for_import(
-    tx: &mut Transaction<'_, Postgres>,
-    lines: &[TicketLineRow],
-) -> Result<Result<Vec<(Uuid, Uuid)>, String>, sqlx::Error> {
-    let mut out = Vec::with_capacity(lines.len());
-    for line in lines {
-        match resolve_variant_for_line(tx, line).await? {
-            Some((vid, pid)) => out.push((vid, pid)),
-            None => {
-                let sku_str = line.sku.as_deref().unwrap_or("");
-                let key = line.counterpoint_item_key.as_deref().unwrap_or("");
-                let desc = line.description.as_deref().unwrap_or("Unknown item");
-                return Ok(Err(format!(
-                    "unresolved line (sku={sku_str:?} counterpoint_item_key={key:?} descr={desc:?}); import catalog and align SKUs or cell keys"
-                )));
-            }
-        }
-    }
-    Ok(Ok(out))
 }
 
 pub async fn execute_counterpoint_ticket_batch(
@@ -5876,46 +5960,11 @@ pub async fn execute_counterpoint_ticket_batch(
     .into_iter()
     .collect();
 
-    // Batch pre-fetch variants to avoid per-line DB lookups (massive bottleneck for 13k+ tickets)
-    let mut all_item_keys = HashSet::new();
-    let mut all_skus = HashSet::new();
-    for tkt in &payload.rows {
-        for line in &tkt.lines {
-            if let Some(ref k) = line.counterpoint_item_key {
-                all_item_keys.insert(k.trim().to_string());
-            }
-            if let Some(ref s) = line.sku {
-                all_skus.insert(s.trim().to_lowercase());
-            }
-        }
-    }
-
-    let mut variant_cache: HashMap<String, (Uuid, Uuid)> = HashMap::new();
-    if !all_item_keys.is_empty() {
-        let keys: Vec<String> = all_item_keys.into_iter().collect();
-        let rows: Vec<(String, Uuid, Uuid)> = sqlx::query_as(
-            "SELECT counterpoint_item_key, id, product_id FROM product_variants WHERE counterpoint_item_key = ANY($1)",
-        )
-        .bind(&keys)
-        .fetch_all(pool)
-        .await?;
-        for (k, id, pid) in rows {
-            variant_cache.insert(k, (id, pid));
-        }
-    }
-    if !all_skus.is_empty() {
-        let skus: Vec<String> = all_skus.into_iter().collect();
-        let rows: Vec<(String, Uuid, Uuid)> = sqlx::query_as(
-            "SELECT lower(trim(sku)), id, product_id FROM product_variants WHERE lower(trim(sku)) = ANY($1)",
-        )
-        .bind(&skus)
-        .fetch_all(pool)
-        .await?;
-        for (s, id, pid) in rows {
-            // Only insert if not already there via item_key (item_key wins)
-            variant_cache.entry(s).or_insert((id, pid));
-        }
-    }
+    // Batch pre-fetch exact variants and matrix-parent fallback candidates once per payload.
+    // Historical tickets may carry parent ITEM_NO only; resolving those with per-line SQL is too slow.
+    let variant_cache =
+        build_variant_resolution_cache(pool, payload.rows.iter().flat_map(|tkt| tkt.lines.iter()))
+            .await?;
 
     // Batch pre-fetch customer IDs and duplicate ticket refs (Extreme Performance for 13k+ tickets)
     let cust_codes: HashSet<String> = payload
@@ -6021,96 +6070,27 @@ pub async fn execute_counterpoint_ticket_batch(
             continue;
         }
 
-        let mut resolved_lines = Vec::with_capacity(tkt.lines.len());
-        let mut resolve_err = None;
-        for line in &tkt.lines {
-            let mut resolved = None;
-            if let Some(ref k) = line.counterpoint_item_key {
-                resolved = variant_cache.get(k.trim()).copied();
+        let resolved_lines = match resolve_ticket_lines_from_cache(&variant_cache, &tkt.lines) {
+            Ok(lines) => lines,
+            Err(msg) => {
+                let fallback = ensure_historical_fallback_variant(&mut tx).await?;
+                record_sync_issue(
+                    pool,
+                    "tickets",
+                    Some(ticket_ref),
+                    "warning",
+                    &format!("Item unresolved, using historical fallback: {msg}"),
+                )
+                .await;
+
+                tkt.lines
+                    .iter()
+                    .map(|line| {
+                        resolve_variant_from_cache(&variant_cache, line).unwrap_or(fallback)
+                    })
+                    .collect()
             }
-            if resolved.is_none() {
-                if let Some(ref s) = line.sku {
-                    resolved = variant_cache.get(&s.trim().to_lowercase()).copied();
-                }
-            }
-
-            // Fallback for matrix parents (optimized fallback)
-            if resolved.is_none() {
-                let parent_only = line
-                    .counterpoint_item_key
-                    .as_deref()
-                    .or(line.sku.as_deref())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty() && !s.contains('|'));
-                if let Some(parent) = parent_only {
-                    resolved = resolve_variant_matrix_parent_price_fallback(
-                        &mut tx,
-                        parent,
-                        line.unit_price,
-                    )
-                    .await?;
-                }
-            }
-
-            if let Some(v) = resolved {
-                resolved_lines.push(v);
-            } else {
-                let sku_str = line.sku.as_deref().unwrap_or("");
-                let key = line.counterpoint_item_key.as_deref().unwrap_or("");
-                resolve_err = Some(format!(
-                    "unresolved line (sku={sku_str:?} counterpoint_item_key={key:?}); import catalog and align SKUs or cell keys"
-                ));
-                break;
-            }
-        }
-
-        if let Some(msg) = resolve_err {
-            let fallback = ensure_historical_fallback_variant(&mut tx).await?;
-            record_sync_issue(
-                pool,
-                "tickets",
-                Some(ticket_ref),
-                "warning",
-                &format!("Item unresolved, using historical fallback: {msg}"),
-            )
-            .await;
-
-            // Reset lines for order insertion (use fallback for all lines if ANY failed in this order
-            // to maintain consistency, or we could selectively fallback. For simplicity, if any fail,
-            // we'll keep the resolved ones and use fallback for the rest).
-
-            // Re-run resolution with fallback mode
-            resolved_lines.clear();
-            for line in &tkt.lines {
-                let mut resolved = None;
-                if let Some(ref k) = line.counterpoint_item_key {
-                    resolved = variant_cache.get(k.trim()).copied();
-                }
-                if resolved.is_none() {
-                    if let Some(ref s) = line.sku {
-                        resolved = variant_cache.get(&s.trim().to_lowercase()).copied();
-                    }
-                }
-                if resolved.is_none() {
-                    let parent_only = line
-                        .counterpoint_item_key
-                        .as_deref()
-                        .or(line.sku.as_deref())
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty() && !s.contains('|'));
-                    if let Some(parent) = parent_only {
-                        resolved = resolve_variant_matrix_parent_price_fallback(
-                            &mut tx,
-                            parent,
-                            line.unit_price,
-                        )
-                        .await?;
-                    }
-                }
-
-                resolved_lines.push(resolved.unwrap_or(fallback));
-            }
-        }
+        };
 
         let customer_id: Option<Uuid> = tkt
             .cust_no
@@ -6567,6 +6547,37 @@ pub async fn execute_counterpoint_open_doc_batch(
         map
     };
 
+    let pmt_map: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+        "SELECT cp_pmt_typ, ros_method FROM counterpoint_payment_method_map",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+
+    let variant_cache =
+        build_variant_resolution_cache(pool, payload.rows.iter().flat_map(|doc| doc.lines.iter()))
+            .await?;
+
+    let doc_refs: Vec<String> = payload
+        .rows
+        .iter()
+        .map(|doc| doc.doc_ref.trim().to_string())
+        .filter(|doc_ref| !doc_ref.is_empty())
+        .collect();
+    let existing_doc_refs: HashSet<String> = if doc_refs.is_empty() {
+        HashSet::new()
+    } else {
+        sqlx::query_scalar::<_, String>(
+            "SELECT counterpoint_doc_ref FROM transactions WHERE counterpoint_doc_ref = ANY($1)",
+        )
+        .bind(&doc_refs)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect()
+    };
+
     let mut tx = pool.begin().await?;
     let mut summary = OpenDocSyncSummary {
         transactions_created: 0,
@@ -6591,14 +6602,7 @@ pub async fn execute_counterpoint_open_doc_batch(
             continue;
         }
 
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM transactions WHERE counterpoint_doc_ref = $1)",
-        )
-        .bind(doc_ref)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        if exists {
+        if existing_doc_refs.contains(doc_ref) {
             summary.transactions_skipped_existing += 1;
             continue;
         }
@@ -6671,8 +6675,8 @@ pub async fn execute_counterpoint_open_doc_batch(
             continue;
         }
 
-        let resolved_lines = match resolve_ticket_lines_for_import(&mut tx, &doc.lines).await? {
-            Ok(v) => v,
+        let resolved_lines = match resolve_ticket_lines_from_cache(&variant_cache, &doc.lines) {
+            Ok(lines) => lines,
             Err(msg) => {
                 record_sync_issue(
                     pool,
@@ -6743,7 +6747,10 @@ pub async fn execute_counterpoint_open_doc_batch(
         }
 
         for pmt in &doc.payments {
-            let method = resolve_payment_method(&mut tx, &pmt.pmt_typ).await;
+            let method = pmt_map
+                .get(&pmt.pmt_typ.trim().to_uppercase())
+                .cloned()
+                .unwrap_or_else(|| "cash".to_string());
 
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
@@ -10358,6 +10365,10 @@ mod tests {
                     .await
                     .expect("load receiving history ids"),
                 counterpoint_staff_map_staff_ids: vec![imported_staff_id],
+                counterpoint_category_map_ids: sqlx::query_scalar("SELECT id FROM counterpoint_category_map")
+                    .fetch_all(&mut *tx)
+                    .await
+                    .expect("load category map ids"),
             };
 
             perform_counterpoint_baseline_reset_targets(&mut tx, &targets)
@@ -10385,15 +10396,21 @@ mod tests {
             let preserved_maps_count: i64 = sqlx::query_scalar(
                 r#"
                 SELECT
-                    (SELECT COUNT(*)::bigint FROM counterpoint_category_map)
-                  + (SELECT COUNT(*)::bigint FROM counterpoint_payment_method_map)
+                    (SELECT COUNT(*)::bigint FROM counterpoint_payment_method_map)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_gift_reason_map)
                 "#,
             )
             .fetch_one(&mut *tx)
             .await
             .expect("count preserved maps");
-            assert!(preserved_maps_count >= 3);
+            assert!(preserved_maps_count >= 2);
+
+            let category_map_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*)::bigint FROM counterpoint_category_map")
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("count category maps");
+            assert_eq!(category_map_count, 0);
 
             let imported_customer_exists: bool =
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
