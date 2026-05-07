@@ -308,10 +308,8 @@ impl HelcimConfig {
     pub fn status(&self) -> HelcimConfigStatus {
         let mut missing_config = Vec::new();
         let simulator_enabled = self.simulator_enabled();
-        if !simulator_enabled {
-            if self.api_token.is_none() {
-                missing_config.push("HELCIM_API_TOKEN is not configured".to_string());
-            }
+        if !simulator_enabled && self.api_token.is_none() {
+            missing_config.push("HELCIM_API_TOKEN is not configured".to_string());
         }
 
         HelcimConfigStatus {

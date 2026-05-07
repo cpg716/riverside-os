@@ -1737,14 +1737,14 @@ fn push_fidelity_mismatch(
     mismatch_count: &mut i64,
     limit: usize,
     row: &CounterpointFidelityDiagnosticSourceRow,
-    group: &str,
-    field: &str,
+    group_field: (&str, &str),
     counterpoint_value: String,
     ros_value: String,
 ) {
     if counterpoint_value == ros_value {
         return;
     }
+    let (group, field) = group_field;
     *mismatch_count += 1;
     if mismatches.len() < limit {
         mismatches.push(CounterpointFidelityDiagnosticMismatch {
@@ -1896,8 +1896,7 @@ fn compare_variant_field_group(
                     &mut mismatch_count,
                     limit,
                     row,
-                    group,
-                    "retail_price",
+                    (group, "retail_price"),
                     normalize_diag_decimal(row.retail_price.as_deref()),
                     normalize_diag_decimal_value(Some(ros.retail_price)),
                 );
@@ -1906,8 +1905,7 @@ fn compare_variant_field_group(
                     &mut mismatch_count,
                     limit,
                     row,
-                    group,
-                    "unit_cost",
+                    (group, "unit_cost"),
                     normalize_diag_decimal(row.unit_cost.as_deref()),
                     normalize_diag_decimal_value(Some(ros.unit_cost)),
                 );
@@ -1916,8 +1914,7 @@ fn compare_variant_field_group(
                     &mut mismatch_count,
                     limit,
                     row,
-                    group,
-                    "prc_2",
+                    (group, "prc_2"),
                     normalize_diag_decimal(row.prc_2.as_deref()),
                     normalize_diag_decimal_value(ros.prc_2),
                 );
@@ -1926,8 +1923,7 @@ fn compare_variant_field_group(
                     &mut mismatch_count,
                     limit,
                     row,
-                    group,
-                    "prc_3",
+                    (group, "prc_3"),
                     normalize_diag_decimal(row.prc_3.as_deref()),
                     normalize_diag_decimal_value(ros.prc_3),
                 );
@@ -1938,8 +1934,7 @@ fn compare_variant_field_group(
                     &mut mismatch_count,
                     limit,
                     row,
-                    group,
-                    "variation_label",
+                    (group, "variation_label"),
                     normalize_diag_text(row.variation_label.as_deref(), false),
                     normalize_diag_text(ros.variation_label.as_deref(), false),
                 );
@@ -1950,8 +1945,7 @@ fn compare_variant_field_group(
                     &mut mismatch_count,
                     limit,
                     row,
-                    group,
-                    "stock_on_hand",
+                    (group, "stock_on_hand"),
                     row.stock_on_hand.unwrap_or(0).to_string(),
                     ros.stock_on_hand.to_string(),
                 );
@@ -1960,8 +1954,7 @@ fn compare_variant_field_group(
                     &mut mismatch_count,
                     limit,
                     row,
-                    group,
-                    "unit_cost",
+                    (group, "unit_cost"),
                     normalize_diag_decimal(row.unit_cost.as_deref()),
                     normalize_diag_decimal_value(Some(ros.unit_cost)),
                 );
@@ -2009,8 +2002,7 @@ fn compare_category_vendor_group(
             &mut mismatch_count,
             limit,
             row,
-            "catalog_category_vendor_fields",
-            "category",
+            ("catalog_category_vendor_fields", "category"),
             normalize_diag_text(row.category.as_deref(), true),
             normalize_diag_text(ros.category.as_deref(), true),
         );
@@ -2019,8 +2011,7 @@ fn compare_category_vendor_group(
             &mut mismatch_count,
             limit,
             row,
-            "catalog_category_vendor_fields",
-            "vendor_no",
+            ("catalog_category_vendor_fields", "vendor_no"),
             normalize_diag_text(row.vendor_no.as_deref(), true),
             normalize_diag_text(ros.vendor_no.as_deref(), true),
         );

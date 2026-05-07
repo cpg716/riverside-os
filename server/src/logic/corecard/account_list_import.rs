@@ -253,7 +253,7 @@ pub fn parse_account_list_xlsx(
         invalid_phones: accounts
             .iter()
             .filter(|account| {
-                account.phone.as_deref().unwrap_or("").trim().len() > 0
+                !account.phone.as_deref().unwrap_or("").trim().is_empty()
                     && account.normalized_phone.is_none()
             })
             .count(),
@@ -872,8 +872,7 @@ fn decimal_at_optional(range: &calamine::Range<Data>, row: usize, col: usize) ->
 fn parse_decimal(value: &str) -> Option<Decimal> {
     let cleaned = value
         .trim()
-        .replace('$', "")
-        .replace(',', "")
+        .replace(['$', ','], "")
         .replace('(', "-")
         .replace(')', "");
     if cleaned.is_empty() {
