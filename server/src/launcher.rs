@@ -355,76 +355,80 @@ async fn launch_server_inner(
         }
     });
 
-    let corecard_state = state.clone();
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
-            corecard_state.corecard_config.repair_poll_secs,
-        ));
-        loop {
-            ticker.tick().await;
-            match crate::logic::corecard::run_repair_poll(
-                &corecard_state.db,
-                &corecard_state.http_client,
-                &corecard_state.corecard_config,
-                &corecard_state.corecard_token_cache,
-            )
-            .await
-            {
-                Ok(summary) => {
-                    let _ = crate::logic::integration_alerts::record_integration_success(
-                        &corecard_state.db,
-                        "corecard_repair_poll",
-                    )
-                    .await;
-                    tracing::info!(
-                        active_exception_count = summary.active_exception_count,
-                        stale_account_count = summary.stale_account_count,
-                        pending_webhook_count = summary.pending_webhook_count,
-                        "CoreCard repair poll completed"
-                    );
-                }
-                Err(error) => {
-                    let _ = crate::logic::integration_alerts::record_integration_failure(
-                        &corecard_state.db,
-                        "corecard_repair_poll",
-                        &error.to_string(),
-                    )
-                    .await;
-                    tracing::error!(error = %error, "CoreCard repair poll failed");
+    if state.corecard_config.is_configured() {
+        let corecard_state = state.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
+                corecard_state.corecard_config.repair_poll_secs,
+            ));
+            loop {
+                ticker.tick().await;
+                match crate::logic::corecard::run_repair_poll(
+                    &corecard_state.db,
+                    &corecard_state.http_client,
+                    &corecard_state.corecard_config,
+                    &corecard_state.corecard_token_cache,
+                )
+                .await
+                {
+                    Ok(summary) => {
+                        let _ = crate::logic::integration_alerts::record_integration_success(
+                            &corecard_state.db,
+                            "corecard_repair_poll",
+                        )
+                        .await;
+                        tracing::info!(
+                            active_exception_count = summary.active_exception_count,
+                            stale_account_count = summary.stale_account_count,
+                            pending_webhook_count = summary.pending_webhook_count,
+                            "CoreCard repair poll completed"
+                        );
+                    }
+                    Err(error) => {
+                        let _ = crate::logic::integration_alerts::record_integration_failure(
+                            &corecard_state.db,
+                            "corecard_repair_poll",
+                            &error.to_string(),
+                        )
+                        .await;
+                        tracing::error!(error = %error, "CoreCard repair poll failed");
+                    }
                 }
             }
-        }
-    });
+        });
 
-    let corecard_recon_state = state.clone();
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
-        loop {
-            ticker.tick().await;
-            let today = chrono::Utc::now().date_naive();
-            let from = today.pred_opt().unwrap_or(today);
-            match crate::logic::corecard::run_reconciliation(
-                &corecard_recon_state.db,
-                None,
-                "daily",
-                Some(from),
-                Some(today),
-            )
-            .await
-            {
-                Ok(run) => {
-                    tracing::info!(
-                        run_id = %run.id,
-                        mismatch_summary = %run.summary_json,
-                        "Daily CoreCard reconciliation completed"
-                    );
-                }
-                Err(error) => {
-                    tracing::error!(error = %error, "Daily CoreCard reconciliation failed");
+        let corecard_recon_state = state.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+            loop {
+                ticker.tick().await;
+                let today = chrono::Utc::now().date_naive();
+                let from = today.pred_opt().unwrap_or(today);
+                match crate::logic::corecard::run_reconciliation(
+                    &corecard_recon_state.db,
+                    None,
+                    "daily",
+                    Some(from),
+                    Some(today),
+                )
+                .await
+                {
+                    Ok(run) => {
+                        tracing::info!(
+                            run_id = %run.id,
+                            mismatch_summary = %run.summary_json,
+                            "Daily CoreCard reconciliation completed"
+                        );
+                    }
+                    Err(error) => {
+                        tracing::error!(error = %error, "Daily CoreCard reconciliation failed");
+                    }
                 }
             }
-        }
-    });
+        });
+    } else {
+        tracing::info!("CoreCard background workers disabled; CoreCard is not configured");
+    }
 
     // CORS
     let cors_header_values: Vec<HeaderValue> = config

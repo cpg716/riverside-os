@@ -680,7 +680,13 @@ pub async fn execute_counterpoint_inventory_batch(
             || matched_skus.contains(&sku.to_lowercase());
         let external_key = key.clone().unwrap_or_else(|| sku.to_string());
         if matched {
-            matched_issue_keys.push(external_key);
+            matched_issue_keys.push(external_key.clone());
+            if let Some((parent_key, _)) = external_key.split_once('|') {
+                let parent_key = parent_key.trim();
+                if !parent_key.is_empty() {
+                    matched_issue_keys.push(parent_key.to_string());
+                }
+            }
         } else {
             unmatched_issues.push((
                 external_key,
@@ -1206,9 +1212,23 @@ pub async fn get_sync_status(
     )
     .fetch_optional(pool)
     .await?;
+    let latest_run_activity: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT updated_at FROM counterpoint_sync_runs ORDER BY updated_at DESC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let freshest_seen =
+        |heartbeat_seen: Option<DateTime<Utc>>| match (heartbeat_seen, latest_run_activity) {
+            (Some(heartbeat), Some(run_activity)) => Some(heartbeat.max(run_activity)),
+            (Some(heartbeat), None) => Some(heartbeat),
+            (None, Some(run_activity)) => Some(run_activity),
+            (None, None) => None,
+        };
 
     let (state, offline_reason, phase, entity, version, hostname, last_seen) = match hb {
         Some((seen, phase, entity, ver, host)) => {
+            let activity_seen = freshest_seen(Some(seen));
             if !token_configured {
                 (
                     "offline".into(),
@@ -1217,26 +1237,57 @@ pub async fn get_sync_status(
                     entity,
                     ver,
                     host,
-                    Some(seen),
+                    activity_seen,
                 )
             } else {
-                let age = Utc::now().signed_duration_since(seen).num_seconds();
+                let age = activity_seen
+                    .map(|last| Utc::now().signed_duration_since(last).num_seconds())
+                    .unwrap_or(i64::MAX);
                 if age > HEARTBEAT_TTL_SECONDS {
                     (
                         "offline".into(),
                         Some(format!(
-                            "Last heartbeat {age}s ago (TTL {HEARTBEAT_TTL_SECONDS}s)"
+                            "Last bridge activity {age}s ago (TTL {HEARTBEAT_TTL_SECONDS}s)"
                         )),
                         phase,
                         entity,
                         ver,
                         host,
-                        Some(seen),
+                        activity_seen,
                     )
                 } else if phase == "syncing" {
-                    ("syncing".into(), None, phase, entity, ver, host, Some(seen))
+                    (
+                        "syncing".into(),
+                        None,
+                        phase,
+                        entity,
+                        ver,
+                        host,
+                        activity_seen,
+                    )
+                } else if latest_run_activity
+                    .map(|run_activity| run_activity > seen)
+                    .unwrap_or(false)
+                {
+                    (
+                        "syncing".into(),
+                        None,
+                        phase,
+                        entity,
+                        ver,
+                        host,
+                        activity_seen,
+                    )
                 } else {
-                    ("online".into(), None, phase, entity, ver, host, Some(seen))
+                    (
+                        "online".into(),
+                        None,
+                        phase,
+                        entity,
+                        ver,
+                        host,
+                        activity_seen,
+                    )
                 }
             }
         }
@@ -1251,6 +1302,33 @@ pub async fn get_sync_status(
                     None,
                     None,
                 )
+            } else if let Some(activity_seen) = freshest_seen(None) {
+                let age = Utc::now()
+                    .signed_duration_since(activity_seen)
+                    .num_seconds();
+                if age > HEARTBEAT_TTL_SECONDS {
+                    (
+                        "offline".into(),
+                        Some(format!(
+                            "Last bridge activity {age}s ago (TTL {HEARTBEAT_TTL_SECONDS}s)"
+                        )),
+                        "idle".into(),
+                        None,
+                        None,
+                        None,
+                        Some(activity_seen),
+                    )
+                } else {
+                    (
+                        "syncing".into(),
+                        None,
+                        "syncing".into(),
+                        None,
+                        None,
+                        None,
+                        Some(activity_seen),
+                    )
+                }
             } else {
                 (
                     "offline".into(),

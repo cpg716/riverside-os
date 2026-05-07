@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -155,8 +156,26 @@ const ENTITY_DEPENDENCIES = {
 
 
 // --- Local Bridge Control Server ---
+const BRIDGE_CONTROL_PORT = Number.parseInt(process.env.BRIDGE_CONTROL_PORT ?? "3002", 10);
+const BRIDGE_CONTROL_HOST = (process.env.BRIDGE_CONTROL_HOST ?? "0.0.0.0").trim() || "0.0.0.0";
+
+function bridgeControlUrls() {
+    const urls = [
+        `http://localhost:${BRIDGE_CONTROL_PORT}`,
+        `http://${os.hostname()}:${BRIDGE_CONTROL_PORT}`,
+    ];
+    for (const entries of Object.values(os.networkInterfaces())) {
+        for (const entry of entries ?? []) {
+            if (entry.family === "IPv4" && !entry.internal) {
+                urls.push(`http://${entry.address}:${BRIDGE_CONTROL_PORT}`);
+            }
+        }
+    }
+    return Array.from(new Set(urls));
+}
+
 const startLocalServer = () => {
-    http.createServer((req, res) => {
+    const server = http.createServer((req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', '*');
@@ -330,8 +349,12 @@ const startLocalServer = () => {
             res.writeHead(404);
             res.end();
         }
-    }).listen(3002, () => {
-        console.log("🌐 Bridge Command UI available at: http://localhost:3002");
+    });
+    server.listen(BRIDGE_CONTROL_PORT, BRIDGE_CONTROL_HOST, () => {
+        console.log(`🌐 Bridge Command UI listening on ${BRIDGE_CONTROL_HOST}:${BRIDGE_CONTROL_PORT}`);
+        for (const url of bridgeControlUrls()) {
+            console.log(`   ${url}`);
+        }
     });
 };
 
@@ -351,8 +374,9 @@ function loadDotEnv() {
     if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
       v = v.slice(1, -1);
     }
-    if (process.env[k] === undefined) process.env[k] = v;
+    process.env[k] = v;
   }
+  console.info(`[env] loaded ${p}`);
 }
 
 loadDotEnv();
@@ -470,6 +494,8 @@ const CONN = process.env.SQL_CONNECTION_STRING ?? "";
 /** mssql default requestTimeout is 15s — large EXISTS / ticket-scoped queries often exceed that on real CP DBs. */
 const SQL_REQUEST_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SQL_REQUEST_TIMEOUT_MS ?? "600000", 10));
 const SQL_CONNECT_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SQL_CONNECT_TIMEOUT_MS ?? "60000", 10));
+const SQL_PROGRESS_LOG_MS = Math.max(10000, Number.parseInt(process.env.SQL_PROGRESS_LOG_MS ?? "30000", 10));
+const CATALOG_SQL_STALL_TIMEOUT_MS = Math.max(30000, Number.parseInt(process.env.CATALOG_SQL_STALL_TIMEOUT_MS ?? "180000", 10));
 /** Node fetch has no default body timeout; large vendor/customer batches to ROS need a high ceiling. */
 const ROS_FETCH_TIMEOUT_MS = Math.max(15000, Number.parseInt(process.env.ROS_FETCH_TIMEOUT_MS ?? "300000", 10));
 
@@ -508,7 +534,9 @@ const POLL_MS = 10000; // Fast poll for triggers (10s)
 const AUTO_SYNC_INTERVAL_MS = Number.parseInt(process.env.POLL_INTERVAL_MS ?? "900000", 10); // Auto-sync (15m default)
 let lastAutoRunTime = 0;
 const RUN_ONCE =
-  process.env.RUN_ONCE === "1" || String(process.env.COUNTERPOINT_SYNC_ONCE ?? "").toLowerCase() === "true";
+  process.env.RUN_ONCE === "1" ||
+  (process.env.RUN_ONCE == null &&
+    String(process.env.COUNTERPOINT_SYNC_ONCE ?? "").toLowerCase() === "true");
 /** When RUN_ONCE=1, wait for Enter before exiting so the console window stays open (Windows-friendly). Set to 0 to exit immediately. */
 const WAIT_AFTER_RUN_ONCE =
   process.env.WAIT_AFTER_RUN_ONCE !== "0" && String(process.env.WAIT_AFTER_RUN_ONCE ?? "").toLowerCase() !== "false";
@@ -579,6 +607,19 @@ const CP_OPEN_DOC_PMT_QUERY = expandImportSince(process.env.CP_OPEN_DOC_PMT_QUER
 const CP_RECEIVING_HISTORY_QUERY = expandImportSince(process.env.CP_RECEIVING_HISTORY_QUERY ?? "");
 const CP_TICKET_NOTES_QUERY = expandImportSince(process.env.CP_TICKET_NOTES_QUERY ?? "");
 const BRIDGE_VERSION = "0.7.3";
+
+console.info(
+  `[env] effective mode RUN_ONCE=${RUN_ONCE ? "1" : "0"} WAIT_AFTER_RUN_ONCE=${WAIT_AFTER_RUN_ONCE ? "1" : "0"} ` +
+    `SYNC_LOYALTY_HIST=${SYNC_LOYALTY_HIST ? "1" : "0"} CP_GFC_HIST_QUERY=${CP_GFC_HIST_QUERY.trim() ? "set" : "empty"} ` +
+    `CP_TICKET_GIFT_QUERY=${CP_TICKET_GIFT_QUERY.trim() ? "set" : "empty"}`,
+);
+
+if (SYNC_LOYALTY_HIST || CP_LOYALTY_HIST_QUERY.trim() || CP_GFC_HIST_QUERY.trim() || CP_TICKET_GIFT_QUERY.trim()) {
+  console.error(
+    "[cutover-safety] Snapshot-only cutover requires SYNC_LOYALTY_HIST=0 and empty CP_LOYALTY_HIST_QUERY, CP_GFC_HIST_QUERY, and CP_TICKET_GIFT_QUERY.",
+  );
+  process.exit(1);
+}
 
 /** Fast vendor list — no IM_ITEM / PS_TKT_HIST joins (avoids timeouts & missing DOC_TYP / VEND_NO). */
 const CP_VENDORS_QUERY_SIMPLE = `SELECT RTRIM(LTRIM(VEND_NO)) AS vend_no, RTRIM(LTRIM(NAM)) AS name, RTRIM(LTRIM(TERMS_COD)) AS payment_terms FROM PO_VEND WHERE VEND_NO IS NOT NULL ORDER BY VEND_NO`;
@@ -1328,7 +1369,7 @@ async function sendHeartbeat(phase, currentEntity) {
       phase,
       current_entity: currentEntity ?? null,
       version: BRIDGE_VERSION,
-      hostname: (await import("node:os")).hostname(),
+      hostname: os.hostname(),
     });
     if (resp?.pending_request_id) {
         logToDashboard(`[heartbeat] Pending request found: ${resp.pending_request_id} (${resp.pending_request_entity ?? "Full"})`);
@@ -2106,10 +2147,56 @@ async function syncCatalog(pool) {
   return new Promise((resolve, reject) => {
     const request = pool.request();
     request.stream = true;
+    request.timeout = SQL_REQUEST_TIMEOUT_MS;
     console.log(`[catalog] executing query...`);
-    request.query(effectiveSql.catalog);
-
+    logToDashboard(
+      `[catalog] SQL query started. Waiting for rows (stall timeout ${Math.round(CATALOG_SQL_STALL_TIMEOUT_MS / 1000)}s).`,
+    );
+    let settled = false;
+    let lastActivityAt = Date.now();
+    let lastLoggedRowsReceived = 0;
+    const markCatalogActivity = () => {
+      lastActivityAt = Date.now();
+    };
+    const cleanupCatalogWatchdog = () => {
+      clearInterval(catalogWatchdog);
+    };
+    const failCatalog = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanupCatalogWatchdog();
+      try {
+        request.cancel();
+      } catch {
+        // Best-effort cancellation. The SQL driver may already be closing the stream.
+      }
+      reject(err);
+    };
+    const catalogWatchdog = setInterval(() => {
+      const idleMs = Date.now() - lastActivityAt;
+      if (idleMs >= CATALOG_SQL_STALL_TIMEOUT_MS) {
+        const err = new Error(
+          `Catalog SQL made no progress for ${Math.round(idleMs / 1000)}s. Check CP_CATALOG_QUERY or raise CATALOG_SQL_STALL_TIMEOUT_MS.`,
+        );
+        console.error(`[catalog] ${err.message}`);
+        logToDashboard(`[catalog] failed: ${err.message}`);
+        failCatalog(err);
+        return;
+      }
+      if (totalRowsReceived === 0) {
+        logToDashboard(
+          `[catalog] still waiting for first SQL row (${Math.round(idleMs / 1000)}s idle).`,
+        );
+      } else if (totalRowsReceived !== lastLoggedRowsReceived) {
+        lastLoggedRowsReceived = totalRowsReceived;
+        logToDashboard(
+          `[catalog] streaming: ${totalRowsReceived} SQL rows read, ${totalProcessed} items sent.`,
+        );
+      }
+    }, SQL_PROGRESS_LOG_MS);
     request.on("row", (row) => {
+      if (settled) return;
+      markCatalogActivity();
       totalRowsReceived++;
       const normalized = normalizeRowKeys(row);
       const itemNo = String(normalized.item_no ?? normalized.sku ?? "").trim();
@@ -2146,6 +2233,7 @@ async function syncCatalog(pool) {
 
           const promise = rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } })
             .then((summary) => {
+              markCatalogActivity();
               totalProcessed += chunk.length;
               if (totalProcessed % 500 === 0) {
                 logToDashboard(`[catalog] ingest: ${totalProcessed} items processed...`);
@@ -2156,6 +2244,7 @@ async function syncCatalog(pool) {
               if (inFlight < MAX_CONCURRENCY) request.resume();
             })
             .catch((err) => {
+              markCatalogActivity();
               console.error("[catalog] batch failed:", err.message);
               failures.push(err);
               inFlight--;
@@ -2167,11 +2256,14 @@ async function syncCatalog(pool) {
     });
 
     request.on("error", (err) => {
+      if (settled) return;
       console.error("[catalog] stream error:", err.message);
-      reject(err);
+      failCatalog(err);
     });
 
     request.on("done", async () => {
+      if (settled) return;
+      markCatalogActivity();
       try {
         if (batchBuffer.length > 0) {
           const chunk = [...batchBuffer];
@@ -2180,10 +2272,12 @@ async function syncCatalog(pool) {
             rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } })
               .then((summary) => {
                 console.info("[catalog] batch", summary);
+                markCatalogActivity();
                 totalProcessed += chunk.length;
                 if (last) lastSuccessfulCursor = last;
               })
               .catch((err) => {
+                markCatalogActivity();
                 console.error("[catalog] batch failed:", err.message);
                 failures.push(err);
               }),
@@ -2224,10 +2318,18 @@ async function syncCatalog(pool) {
         await postFidelityDiagnostics("catalog_variant_label_fields", catalogVariantLabelDiagnosticParts);
         logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
         console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
+        settled = true;
+        cleanupCatalogWatchdog();
         resolve(totalProcessed);
       } catch (e) {
-        reject(e);
+        failCatalog(e);
       }
+    });
+
+    request.query(effectiveSql.catalog).catch((err) => {
+      if (settled) return;
+      console.error("[catalog] query failed:", err.message);
+      failCatalog(err);
     });
   });
 }
@@ -3393,6 +3495,9 @@ async function waitForDiscoverClose() {
 /** Isolate entity failures so one bad SQL query does not hide which entity failed. */
 async function runSyncEntity(entityLabel, fn) {
   const t0 = Date.now();
+  const heartbeatTimer = setInterval(() => {
+    void sendHeartbeat("syncing", entityLabel);
+  }, 30_000);
   try {
     await signalRunStart(entityLabel, null);
     const result = await fn();
@@ -3431,6 +3536,8 @@ async function runSyncEntity(entityLabel, fn) {
     };
     pushEvent('error', entityLabel, msg, { durationMs: dur });
     throw e;
+  } finally {
+    clearInterval(heartbeatTimer);
   }
 }
 
@@ -3506,9 +3613,9 @@ async function main() {
     console.error("Set SQL_CONNECTION_STRING");
     process.exit(1);
   }
-  bridgeHostnameCached = (await import("node:os")).hostname();
+  bridgeHostnameCached = os.hostname();
 
-  // Start the Bridge Command Dashboard (Port 3001)
+  // Start the Bridge Command Dashboard (Port 3002)
   startLocalServer();
 
   await refreshRosStagingFromHealth();
@@ -3623,6 +3730,9 @@ async function main() {
     BRIDGE_STATE.totalRecordsLastRun = 0;
     const tStart = Date.now();
     pushEvent('start', null, 'Auto-sync cycle started');
+    const pendingRequestEntities = hasPendingRequest && hbResp.pending_request_entity
+      ? new Set([...(ENTITY_DEPENDENCIES[hbResp.pending_request_entity] || []), hbResp.pending_request_entity])
+      : null;
 
     try {
       for (const step of orderedSyncSteps) {
@@ -3634,7 +3744,7 @@ async function main() {
         }
 
         // If it's a manual request for a specific entity, skip others
-        if (hasPendingRequest && hbResp.pending_request_entity && hbResp.pending_request_entity !== step.label) {
+        if (pendingRequestEntities && !pendingRequestEntities.has(step.label)) {
             continue;
         }
 

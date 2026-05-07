@@ -35,7 +35,7 @@ if not exist ".env" (
   echo    - SQL_CONNECTION_STRING   ^(Counterpoint SQL Server^)
   echo    - ROS_BASE_URL             ^(e.g. http://192.168.1.50:3000^)
   echo    - COUNTERPOINT_SYNC_TOKEN  ^(same secret as the ROS server^)
-  echo    - RUN_ONCE=1 ^(default: one full import then exit; 0 = repeat on a timer^)
+  echo    - RUN_ONCE ^(0 = standby and wait for ROS requests; 1 = one full import then exit^)
   echo.
   echo  Save the file, then double-click START_BRIDGE.cmd again.
   echo.
@@ -43,7 +43,7 @@ if not exist ".env" (
   exit /b 0
 )
 
-echo Starting Counterpoint - Riverside OS sync ^(Ctrl+C to stop; RUN_ONCE=1 + WAIT_AFTER_RUN_ONCE=1 waits for Enter before exit — see .env^)...
+echo Starting Counterpoint - Riverside OS sync ^(Ctrl+C to stop; mode is read from .env^)...
 node --max-old-space-size=8192 index.mjs
 if errorlevel 1 (
   echo.

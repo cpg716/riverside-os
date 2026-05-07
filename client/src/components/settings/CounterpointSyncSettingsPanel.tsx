@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   RefreshCw,
   Monitor,
@@ -284,10 +284,37 @@ interface CounterpointInventoryCatalogVerificationSnapshot {
 
 /* ── Bridge live status from :3002 ── */
 const BRIDGE_LOCAL_URLS = ["http://127.0.0.1:3002", "http://localhost:3002"];
+const BRIDGE_CONTROL_URL_STORAGE_KEY = "counterpoint.bridgeControlUrl";
 
-async function fetchBridgeLocal(path: string, init?: RequestInit): Promise<Response> {
+function normalizeBridgeControlUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+}
+
+function bridgeControlUrls(bridgeHostname?: string | null, preferredUrl?: string): string[] {
+  const urls = [
+    normalizeBridgeControlUrl(preferredUrl ?? ""),
+    ...BRIDGE_LOCAL_URLS,
+  ].filter(Boolean);
+  const host = bridgeHostname?.trim();
+  if (host) {
+    const candidates = [host];
+    if (!host.includes(".")) candidates.push(`${host}.local`);
+    for (const candidate of candidates) {
+      urls.push(`http://${candidate}:3002`);
+    }
+  }
+  return Array.from(new Set(urls));
+}
+
+async function fetchBridgeLocal(
+  path: string,
+  urls = BRIDGE_LOCAL_URLS,
+  init?: RequestInit,
+): Promise<Response> {
   let lastError: unknown = null;
-  for (const bridgeUrl of BRIDGE_LOCAL_URLS) {
+  for (const bridgeUrl of urls) {
     try {
       const res = await fetch(`${bridgeUrl}${path}`, init);
       if (res.ok) return res;
@@ -296,7 +323,7 @@ async function fetchBridgeLocal(path: string, init?: RequestInit): Promise<Respo
       lastError = error;
     }
   }
-  throw lastError instanceof Error ? lastError : new Error("Could not reach local Counterpoint bridge");
+  throw lastError instanceof Error ? lastError : new Error("Could not reach Counterpoint bridge");
 }
 
 interface BridgeEntityStat {
@@ -562,11 +589,41 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [bridgeLive, setBridgeLive] = useState<BridgeLiveStatus | null>(null);
   const [bridgeOnline, setBridgeOnline] = useState(false);
   const [bridgeFailCount, setBridgeFailCount] = useState(0);
+  const [runRequestBusy, setRunRequestBusy] = useState(false);
+  const [bridgeControlUrl, setBridgeControlUrl] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem(BRIDGE_CONTROL_URL_STORAGE_KEY) ?? "";
+  });
+  const [bridgeControlUrlDraft, setBridgeControlUrlDraft] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem(BRIDGE_CONTROL_URL_STORAGE_KEY) ?? "";
+  });
   const bridgePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bridgeUrls = useMemo(
+    () => bridgeControlUrls(status?.bridge_hostname, bridgeControlUrl),
+    [status?.bridge_hostname, bridgeControlUrl],
+  );
+  const serverBridgeActive =
+    status?.windows_sync_state === "online" || status?.windows_sync_state === "syncing";
+
+  const saveBridgeControlUrl = useCallback(() => {
+    const normalized = normalizeBridgeControlUrl(bridgeControlUrlDraft);
+    setBridgeControlUrl(normalized);
+    setBridgeControlUrlDraft(normalized);
+    if (typeof window !== "undefined") {
+      if (normalized) {
+        window.localStorage.setItem(BRIDGE_CONTROL_URL_STORAGE_KEY, normalized);
+      } else {
+        window.localStorage.removeItem(BRIDGE_CONTROL_URL_STORAGE_KEY);
+      }
+    }
+    setBridgeFailCount(0);
+    toast(normalized ? "Bridge control URL saved." : "Bridge control URL cleared.", "success");
+  }, [bridgeControlUrlDraft, toast]);
 
   const fetchBridgeLive = useCallback(async () => {
     try {
-      const res = await fetchBridgeLocal("/api/status", {
+      const res = await fetchBridgeLocal("/api/status", bridgeUrls, {
         signal: AbortSignal.timeout(3000),
       });
       const data = (await res.json()) as BridgeLiveStatus;
@@ -577,7 +634,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
       setBridgeOnline(false);
       setBridgeFailCount((f) => f + 1);
     }
-  }, []);
+  }, [bridgeUrls]);
 
   // Poll bridge every 3s when on status tab, up to 3 failures
   useEffect(() => {
@@ -592,24 +649,40 @@ export default function CounterpointSyncSettingsPanel(props?: {
   }, [tab, fetchBridgeLive, bridgeFailCount]);
 
   const triggerBridgeSync = useCallback(async (entity?: string) => {
+    setRunRequestBusy(true);
     try {
-      await fetchBridgeLocal(`/api/trigger-entity?name=${entity ?? "full"}`);
-      toast(entity ? `Pulling ${entity}…` : "Full sync started.", "success");
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/request-run`, {
+        method: "POST",
+        headers: {
+          ...(backofficeHeaders() as Record<string, string>),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ entity: entity ?? null }),
+      });
+      if (!res.ok) throw new Error(`Request failed with ${res.status}`);
+      toast(
+        entity
+          ? `Queued ${entity} import for the Counterpoint bridge.`
+          : "Queued full import for the Counterpoint bridge.",
+        "success",
+      );
       setTimeout(() => void fetchBridgeLive(), 1000);
     } catch {
-      toast("Could not reach bridge at localhost:3002", "error");
+      toast("Could not queue a Counterpoint bridge run", "error");
+    } finally {
+      setRunRequestBusy(false);
     }
-  }, [toast, fetchBridgeLive]);
+  }, [baseUrl, backofficeHeaders, toast, fetchBridgeLive]);
 
   const stopBridgeSync = useCallback(async () => {
     try {
-      await fetchBridgeLocal("/api/stop");
+      await fetchBridgeLocal("/api/stop", bridgeUrls);
       toast("Stop requested — will halt after current entity finishes.", "info");
       setTimeout(() => void fetchBridgeLive(), 1000);
     } catch {
-      toast("Could not reach bridge at localhost:3002", "error");
+      toast("Could not reach the Counterpoint bridge controls", "error");
     }
-  }, [toast, fetchBridgeLive]);
+  }, [toast, fetchBridgeLive, bridgeUrls]);
 
   const fetchStatus = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
@@ -1137,6 +1210,31 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const rosRunsByEntity = new Map(
     (status?.entity_runs ?? []).map((run) => [run.entity, run] as const),
   );
+  const landingVerificationRows = landingVerification?.rows ?? [];
+  const snapshotReconciliationRows = landingVerification?.snapshot_reconciliation ?? [];
+  const cutoverVisibilityRows = landingVerification?.cutover_visibility ?? [];
+  const fidelityDiagnostics = landingVerification?.fidelity_diagnostics ?? [];
+  const landingRowsByKey = new Map(landingVerificationRows.map((row) => [row.key, row] as const));
+  const snapshotRowsByKey = new Map(snapshotReconciliationRows.map((row) => [row.key, row] as const));
+  const snapshotProofKeyByEntity: Record<string, string> = {
+    customers: "customers",
+    vendors: "counterpoint_vendors",
+    category_masters: "counterpoint_categories",
+    catalog: "catalog_products",
+    inventory: "inventory_quantity_rows",
+    gift_cards: "gift_cards",
+    open_docs: "open_docs",
+  };
+  const landingProofKeyByEntity: Record<string, string> = {
+    staff: "staff_records",
+    vendors: "vendors",
+    store_credit_opening: "store_credit_openings",
+    category_masters: "category_maps",
+    catalog: "products",
+    vendor_items: "vendor_supplier_items",
+    tickets: "closed_ticket_transactions",
+    receiving_history: "receiving_history",
+  };
   const latestRunEntities = Array.from(
     new Set([
       ...enabledEntities,
@@ -1147,10 +1245,12 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const reconciliationRows = latestRunEntities.map((entity) => {
     const bridgeStat = bridgeLive?.entityStats?.[entity];
     const rosRun = rosRunsByEntity.get(entity);
-    const bridgeCount = bridgeStat?.recordCount ?? null;
-    const rosCount = rosRun?.records_processed ?? null;
+    const snapshotProof = snapshotRowsByKey.get(snapshotProofKeyByEntity[entity]);
+    const landingProof = landingRowsByKey.get(landingProofKeyByEntity[entity]);
+    const bridgeCount = bridgeStat?.recordCount ?? snapshotProof?.source_count ?? null;
+    const rosCount = snapshotProof?.landed_count ?? landingProof?.count ?? rosRun?.records_processed ?? null;
     const bridgeTime = bridgeStat?.lastSync ?? null;
-    const rosTime = rosRun?.last_ok_at ?? null;
+    const rosTime = snapshotProof?.source_updated_at ?? rosRun?.last_ok_at ?? null;
     const minuteGap = diffMinutes(bridgeTime, rosTime);
 
     let comparisonLabel = "No latest proof";
@@ -1172,10 +1272,16 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
     let note = "No current bridge or ROS count for this entity in the latest visible data.";
     if (bridgeCount != null && rosCount != null) {
-      note =
-        minuteGap != null
-          ? `Latest timestamps are ${minuteGap} minute(s) apart. ROS count is the last successful landed/apply count for this entity.`
-          : "ROS count is the last successful landed/apply count for this entity.";
+      if (snapshotProof) {
+        note = `ROS count uses ${snapshotProof.label.toLowerCase()} proof. ${snapshotProof.note}`;
+      } else if (landingProof) {
+        note = `ROS count uses landed-table proof: ${landingProof.note}.`;
+      } else {
+        note =
+          minuteGap != null
+            ? `Latest timestamps are ${minuteGap} minute(s) apart. ROS count is the last successful landed/apply count for this entity.`
+            : "ROS count is the last successful landed/apply count for this entity.";
+      }
     } else if (bridgeCount != null) {
       note = "Bridge reported rows for this entity, but ROS does not show a successful landed count yet.";
     } else if (rosCount != null) {
@@ -1222,7 +1328,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
     migrationPreflight?.staging_enabled
       ? "ROS landed counts may reflect Apply timing instead of the exact bridge send moment when staging is enabled."
       : null,
-    "ROS landed counts come from `counterpoint_sync_runs.records_processed` and can include skipped or already-existing rows, so treat this as import proof, not full business reconciliation."
+    "Where available, ROS landed counts use domain proof tables instead of rerun counters. Remaining entities may still use `counterpoint_sync_runs.records_processed`, which can include skipped or already-existing rows."
   ].filter((item): item is string => !!item);
   const resetScopeRows = resetPreview?.reset_scope ?? [];
   const resetTotalRows = resetScopeRows.reduce((sum, row) => sum + row.count, 0);
@@ -1231,10 +1337,6 @@ export default function CounterpointSyncSettingsPanel(props?: {
     inventoryVerification?.mismatch_rows ?? [];
   const inventoryVerificationExtraRows = inventoryVerification?.extra_rows ?? [];
   const inventoryVerificationIssues = inventoryVerification?.critical_issues ?? [];
-  const landingVerificationRows = landingVerification?.rows ?? [];
-  const snapshotReconciliationRows = landingVerification?.snapshot_reconciliation ?? [];
-  const cutoverVisibilityRows = landingVerification?.cutover_visibility ?? [];
-  const fidelityDiagnostics = landingVerification?.fidelity_diagnostics ?? [];
   const landingApproximateCount = landingVerificationRows.filter(
     (row) => row.confidence !== "direct",
   ).length;
@@ -1571,7 +1673,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
           {bridgeOnline && bridgeLive ? (
             <>
               {/* Run Control */}
-              {statusSection === "connect" && (
+              {(statusSection === "connect" || bridgeLive.isSyncing) && (
               <div className="ui-panel ui-tint-neutral p-4 mb-4">
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                   <div className="flex items-center gap-3">
@@ -1623,11 +1725,16 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   ) : (
                     <button
                       type="button"
+                      disabled={runRequestBusy}
                       onClick={() => void triggerBridgeSync()}
-                      className="ui-btn-primary px-5 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-lg"
+                      className="ui-btn-primary px-5 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-lg disabled:opacity-50"
                     >
-                      <Play className="h-3.5 w-3.5" aria-hidden />
-                      Run Full Import
+                      {runRequestBusy ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <Play className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                      {runRequestBusy ? "Queuing…" : "Run Full Import"}
                     </button>
                   )}
                 </div>
@@ -2139,12 +2246,16 @@ export default function CounterpointSyncSettingsPanel(props?: {
                             <td className="px-4 py-2.5">
                               <button
                                 type="button"
-                                disabled={bridgeLive.isSyncing}
+                                disabled={bridgeLive.isSyncing || runRequestBusy}
                                 onClick={() => void triggerBridgeSync(key)}
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-app-border bg-app-surface-1/50 text-[9px] font-black uppercase tracking-widest hover:bg-app-surface-2 transition-colors disabled:opacity-50"
                               >
-                                <RefreshCw className="h-3 w-3 text-app-text-muted" />
-                                Import
+                                {runRequestBusy ? (
+                                  <Loader2 className="h-3 w-3 animate-spin text-app-text-muted" />
+                                ) : (
+                                  <RefreshCw className="h-3 w-3 text-app-text-muted" />
+                                )}
+                                {runRequestBusy ? "Queuing" : "Import"}
                               </button>
                             </td>
                           </tr>
@@ -2199,22 +2310,51 @@ export default function CounterpointSyncSettingsPanel(props?: {
             <>
               {/* Bridge Offline UI (Manual Retry) */}
               {!bridgeOnline && bridgeFailCount >= 3 && (
-                <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 mb-4 text-center">
-                  <WifiOff className="h-10 w-10 text-red-500/50 mx-auto mb-3" />
-                  <p className="font-bold text-app-text">Bridge controls are not reachable on this workstation</p>
-                  <p className="text-xs text-app-text-muted mt-1 mb-4">
-                    Automatic checking stopped after 3 attempts to reach the local bridge control port.
+                <div className={`rounded-xl border p-6 mb-4 text-center ${
+                  serverBridgeActive
+                    ? "border-emerald-500/20 bg-emerald-500/5"
+                    : "border-red-500/20 bg-red-500/5"
+                }`}>
+                  {serverBridgeActive ? (
+                    <Wifi className="h-10 w-10 text-emerald-500/60 mx-auto mb-3" />
+                  ) : (
+                    <WifiOff className="h-10 w-10 text-red-500/50 mx-auto mb-3" />
+                  )}
+                  <p className="font-bold text-app-text">
+                    {serverBridgeActive
+                      ? "Bridge is connected through ROS"
+                      : "Bridge controls are not reachable on this workstation"}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBridgeFailCount(0);
-                    }}
-                    className="ui-btn-secondary px-6 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Reconnect to Bridge
-                  </button>
+                  <p className="text-xs text-app-text-muted mt-1 mb-4">
+                    {serverBridgeActive
+                      ? "The Mac browser cannot reach the direct control port, but ROS is receiving bridge heartbeats. Run requests are queued through ROS."
+                      : "Automatic checking stopped after 3 attempts to reach the bridge control port."}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      disabled={runRequestBusy}
+                      onClick={() => void triggerBridgeSync()}
+                      className="ui-btn-primary px-6 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {runRequestBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
+                      {runRequestBusy ? "Queuing…" : "Run Full Import"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBridgeFailCount(0);
+                      }}
+                      className="ui-btn-secondary px-6 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Reconnect to Bridge
+                    </button>
+                  </div>
                 </div>
               )}
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 mb-4 flex items-start gap-3">
@@ -2222,9 +2362,29 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 <div className="text-xs">
                   <p className="font-bold text-app-text">Bridge controls are not reachable on this workstation</p>
                   <p className="text-app-text-muted mt-1">
-                    The panel checks the bridge control port on 127.0.0.1:3002 and localhost:3002.
-                    ROS heartbeat below can still show online when the Windows bridge is posting to the server.
+                    The panel checks the bridge control port on this workstation and the latest ROS heartbeat host
+                    {status?.bridge_hostname ? ` (${status.bridge_hostname})` : ""}.
+                    {bridgeUrls.length > 0 ? ` Tried: ${bridgeUrls.join(", ")}.` : ""}
                   </p>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="url"
+                      value={bridgeControlUrlDraft}
+                      onChange={(event) => setBridgeControlUrlDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") saveBridgeControlUrl();
+                      }}
+                      placeholder="http://10.64.70.163:3002"
+                      className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-surface-1/70 px-3 py-2 text-xs font-mono text-app-text outline-none focus:border-app-warning/60"
+                    />
+                    <button
+                      type="button"
+                      onClick={saveBridgeControlUrl}
+                      className="ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Save URL
+                    </button>
+                  </div>
                 </div>
               </div>
             </>
@@ -2299,7 +2459,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   <p className="text-[10px] text-app-text-muted mt-1 font-mono">
                     {status.bridge_hostname && <span className="mr-3">Host: {status.bridge_hostname}</span>}
                     {status.bridge_version && <span className="mr-3">v{status.bridge_version}</span>}
-                    {status.last_seen_at && <span>Last heartbeat: {formatDate(status.last_seen_at)}</span>}
+                    {status.last_seen_at && <span>Last bridge activity: {formatDate(status.last_seen_at)}</span>}
                   </p>
                 </div>
                 {!status.token_configured && (
