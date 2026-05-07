@@ -119,6 +119,7 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | Gift Cards | Card Inventory | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Gift Cards | Issue Purchased | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Gift Cards | Issue Donated | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
+| Gift Cards | Issue Promo | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Loyalty | Monthly Eligible | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Loyalty | Adjust Points | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Loyalty | Program Settings | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |

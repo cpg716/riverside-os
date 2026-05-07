@@ -44,7 +44,7 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 
 - [ ] Single tender, single category, balanced journal  
 - [ ] Multi-split checkout (multiple tenders)  
-- [ ] Gift card `sub_type` `paid_liability` vs `loyalty_giveaway`  
+- [ ] Gift card `sub_type` `paid_liability` vs `loyalty_giveaway` / `donated_giveaway` / `promo_gift_card`
 - [ ] Exchange pair (two transactions) does not double-count if only reporting by recognition
 - [ ] Shipped transaction has no QBO revenue before shipment recognition event
 

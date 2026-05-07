@@ -473,7 +473,7 @@ const PAYMENT_METHOD_OPTIONS = [
   "store_credit",
 ];
 
-const GIFT_KIND_OPTIONS = ["purchased", "loyalty_reward", "donated_giveaway"];
+const GIFT_KIND_OPTIONS = ["purchased", "loyalty_reward", "donated_giveaway", "promo_gift_card"];
 const EXPECTED_COUNTERPOINT_MIGRATION_FLOOR = "2018-01-01";
 
 const STATUS_SECTIONS: { key: CounterpointStatusSection; label: string; description: string }[] = [

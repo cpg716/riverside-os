@@ -13,6 +13,7 @@ expected=(
   "006_integrations.sql"
   "007_reporting_views.sql"
   "008_indexes_constraints_triggers.sql"
+  "009_promo_gift_cards.sql"
 )
 
 active=()
@@ -48,7 +49,7 @@ fi
 
 legacy_root_files="$(
   find "$ROOT/migrations" -maxdepth 1 -type f -name '*.sql' \
-    ! -name '00[1-8]_*' \
+    ! -name '00[1-9]_*' \
     -exec basename {} \; \
     | sort
 )"
@@ -66,4 +67,4 @@ if rg -n "INSERT INTO (public\\.)?(staff|staff_role_permission|staff_permission|
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-008 only."
+echo "Migration layout OK: active baseline 001-009 only."

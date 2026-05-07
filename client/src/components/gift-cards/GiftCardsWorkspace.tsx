@@ -1,6 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CreditCard, Gift, RefreshCw, X, TrendingUp, Wallet, BadgeDollarSign } from "lucide-react";
+import { CreditCard, Gift, RefreshCw, X, TrendingUp, Wallet, BadgeDollarSign, Megaphone } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
@@ -21,6 +21,7 @@ interface GiftCardRow {
   expires_at: string | null;
   customer_id: string | null;
   customer_name: string | null;
+  promo_event_name: string | null;
   notes: string | null;
   created_at: string;
 }
@@ -30,6 +31,7 @@ interface GiftCardSummary {
   active_liability_balance: string;
   loyalty_cards_count: number;
   donated_cards_count: number;
+  promo_cards_count: number;
 }
 
 interface GiftCardEventRow {
@@ -46,6 +48,7 @@ const KIND_LABELS: Record<string, string> = {
   purchased: "Purchased",
   loyalty_reward: "Loyalty reward",
   donated_giveaway: "Donated / giveaway",
+  promo_gift_card: "Promo gift card",
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -133,6 +136,12 @@ function SelectedCardPanel({
           <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Tracked to</span>
           <span className="font-bold text-right">{selectedCard.customer_name ?? "—"}</span>
         </div>
+        {selectedCard.promo_event_name ? (
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
+            <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Event</span>
+            <span className="font-bold text-right">{selectedCard.promo_event_name}</span>
+          </div>
+        ) : null}
       </div>
 
       {selectedCard.notes ? (
@@ -195,33 +204,38 @@ function SelectedCardPanel({
 }
 
 interface IssueFormProps {
+  mode: "donated" | "promo";
   onDone: () => void;
 }
 
-function IssueForm({ onDone }: IssueFormProps) {
+function IssueForm({ mode, onDone }: IssueFormProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const [code, setCode] = useState("");
   const [amount, setAmount] = useState("");
+  const [eventName, setEventName] = useState("");
   const [notes, setNotes] = useState("");
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customerLabel, setCustomerLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const { toast } = useToast();
+  const isPromo = mode === "promo";
 
   const submit = async () => {
     setErr(null);
     if (!code.trim()) { setErr("Card code is required."); return; }
+    if (isPromo && !eventName.trim()) { setErr("Event name is required."); return; }
     const amtCents = parseMoneyToCents(amount);
     if (amtCents <= 0) { setErr("Enter a positive amount."); return; }
     setBusy(true);
     try {
-      const res = await fetch(`${BASE}/api/gift-cards/issue-donated`, {
+      const res = await fetch(`${BASE}/api/gift-cards/${isPromo ? "issue-promo" : "issue-donated"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(backofficeHeaders() as Record<string, string>) },
         body: JSON.stringify({
           code: code.trim(),
           amount: centsToFixed2(amtCents),
+          ...(isPromo ? { event_name: eventName.trim() } : {}),
           notes: notes.trim() || undefined,
           customer_id: customerId,
         }),
@@ -230,7 +244,7 @@ function IssueForm({ onDone }: IssueFormProps) {
         const b = (await res.json()) as { error?: string };
         throw new Error(b.error ?? "Failed to issue card");
       }
-      toast(`Gift card ${code} issued successfully.`, "success");
+      toast(`${isPromo ? "Promo gift card" : "Gift card"} ${code} issued successfully.`, "success");
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
@@ -242,7 +256,7 @@ function IssueForm({ onDone }: IssueFormProps) {
   return (
     <div className="ui-card p-5 space-y-4 max-w-sm">
       <h3 className="text-sm font-black uppercase tracking-wide text-app-text">
-        Issue Donated / Giveaway Card
+        {isPromo ? "Issue Promo Gift Card" : "Issue Donated / Giveaway Card"}
       </h3>
       {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{err}</p>}
       <label className="block">
@@ -253,6 +267,12 @@ function IssueForm({ onDone }: IssueFormProps) {
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Amount ($)</span>
         <input type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="ui-input mt-1 w-full" />
       </label>
+      {isPromo ? (
+        <label className="block">
+          <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Event name</span>
+          <input value={eventName} onChange={e => setEventName(e.target.value)} placeholder="Event or giveaway name" className="ui-input mt-1 w-full" />
+        </label>
+      ) : null}
       <div className="space-y-1">
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Link Customer (optional)</span>
         <CustomerSearchInput 
@@ -301,6 +321,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
     liabilityLabel: summary ? fmt(summary.active_liability_balance) : fmt("0"),
     loyaltyCount: summary?.loyalty_cards_count ?? 0,
     donatedCount: summary?.donated_cards_count ?? 0,
+    promoCount: summary?.promo_cards_count ?? 0,
   }), [summary]);
 
   const load = useCallback(async () => {
@@ -408,10 +429,10 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
 
   const selectedCard = cards.find((card) => card.id === selectedCardId) ?? null;
 
-  if (activeSection === "issue-donated") {
+  if (activeSection === "issue-donated" || activeSection === "issue-promo") {
     return (
       <div className="p-6">
-        <IssueForm onDone={() => void load()} />
+        <IssueForm mode={activeSection === "issue-promo" ? "promo" : "donated"} onDone={() => void load()} />
       </div>
     );
   }
@@ -455,6 +476,15 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             bg: "bg-purple-500/10",
             border: "border-purple-500/20",
             trend: "community",
+          },
+          {
+            label: "Promo Cards",
+            val: stats.promoCount.toLocaleString(),
+            icon: Megaphone,
+            color: "text-fuchsia-500",
+            bg: "bg-fuchsia-500/10",
+            border: "border-fuchsia-500/20",
+            trend: "events",
           },
         ].map((s, idx) => (
           <div key={idx} className={`group relative flex min-w-[210px] flex-1 items-center gap-5 overflow-hidden rounded-[28px] border ${s.border} ${s.bg} p-5 shadow-sm backdrop-blur-3xl transition-transform duration-500 hover:scale-[1.02] sm:min-w-[240px]`}>
@@ -504,6 +534,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                 <option value="purchased">Purchased</option>
                 <option value="loyalty_reward">Loyalty reward</option>
                 <option value="donated_giveaway">Donated / giveaway</option>
+                <option value="promo_gift_card">Promo gift card</option>
               </select>
               <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="ui-input text-xs px-2 py-1.5">
                 <option value="">All statuses</option>
@@ -530,7 +561,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
           <div className="flex flex-col items-center py-16 gap-4">
             <CreditCard className="h-10 w-10 text-app-text-muted" />
             <p className="text-sm text-app-text-muted">No gift cards found.</p>
-            <p className="text-xs text-app-text-muted">Purchased gift cards are sold from Register. Use Issue Donated for approved giveaway cards.</p>
+            <p className="text-xs text-app-text-muted">Purchased gift cards are sold from Register. Use Issue Donated or Issue Promo for approved giveaway cards.</p>
           </div>
         ) : (
           <div className={isSmallScreen ? "space-y-3" : "grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.9fr)]"}>
@@ -591,10 +622,16 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                         <span className="font-semibold text-app-text-muted">Expires</span>
                         <span className="font-black">{fmtDate(c.expires_at)}</span>
                       </p>
-                      <p className="flex justify-between gap-2">
-                        <span className="font-semibold text-app-text-muted">Customer</span>
-                        <span className="truncate font-black">{c.customer_name ?? "—"}</span>
-                      </p>
+	                      <p className="flex justify-between gap-2">
+	                        <span className="font-semibold text-app-text-muted">Customer</span>
+	                        <span className="truncate font-black">{c.customer_name ?? "—"}</span>
+	                      </p>
+	                      {c.promo_event_name ? (
+	                        <p className="flex justify-between gap-2">
+	                          <span className="font-semibold text-app-text-muted">Event</span>
+	                          <span className="truncate font-black">{c.promo_event_name}</span>
+	                        </p>
+	                      ) : null}
                     </div>
 
                     {selected ? (
@@ -622,7 +659,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                 <th className="pb-3 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Balance</th>
                 <th className="pb-3 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Original</th>
                 <th className="pb-3 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Expires</th>
-                <th className="pb-3 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Customer</th>
+	                <th className="pb-3 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Customer / event</th>
                 <th className="pb-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted"></th>
               </tr>
             </thead>
@@ -637,13 +674,15 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                 >
                   <td className="py-4 pr-4 font-mono text-xs font-black text-app-accent tracking-tighter">{c.code}</td>
                   <td className="py-4 pr-4">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest border ${
-                      c.card_kind === "loyalty_reward"
-                        ? "border-amber-500/20 bg-amber-500/10 text-amber-600"
-                        : c.card_kind === "donated_giveaway"
-                          ? "border-purple-500/20 bg-purple-500/10 text-purple-600"
-                          : "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
-                    }`}>
+	                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest border ${
+	                      c.card_kind === "loyalty_reward"
+	                        ? "border-amber-500/20 bg-amber-500/10 text-amber-600"
+	                        : c.card_kind === "donated_giveaway"
+	                          ? "border-purple-500/20 bg-purple-500/10 text-purple-600"
+	                          : c.card_kind === "promo_gift_card"
+	                            ? "border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600"
+	                            : "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
+	                    }`}>
                       {KIND_LABELS[c.card_kind] ?? c.card_kind}
                     </span>
                   </td>
@@ -659,7 +698,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                   <td className="py-4 pr-4 font-black tabular-nums text-app-text">{fmt(c.current_balance)}</td>
                   <td className="py-4 pr-4 font-bold tabular-nums text-app-text-muted opacity-60">{fmt(c.original_value)}</td>
                   <td className="py-4 pr-4 text-xs font-bold text-app-text-muted whitespace-nowrap">{fmtDate(c.expires_at)}</td>
-                  <td className="py-4 pr-4 text-xs font-bold text-app-text truncate max-w-[120px]">{c.customer_name ?? "—"}</td>
+	                  <td className="py-4 pr-4 text-xs font-bold text-app-text truncate max-w-[150px]">{c.promo_event_name ?? c.customer_name ?? "—"}</td>
                   <td className="py-4 text-right">
                     {c.card_status === "active" && (
                       <button

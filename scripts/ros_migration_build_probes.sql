@@ -47,5 +47,21 @@ FROM (
         ('008_indexes_constraints_triggers.sql',
          EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'idx_transaction_lines_transaction')
          AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trigger_generate_txn_display_id'),
-         'indexes and triggers')
+         'indexes and triggers'),
+        ('009_promo_gift_cards.sql',
+         EXISTS (
+             SELECT 1
+             FROM pg_enum e
+             JOIN pg_type t ON t.oid = e.enumtypid
+             WHERE t.typname = 'gift_card_kind'
+               AND e.enumlabel = 'promo_gift_card'
+         )
+         AND EXISTS (
+             SELECT 1
+             FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'gift_cards'
+               AND column_name = 'promo_event_name'
+         ),
+         'promo gift card kind and event name column')
 ) AS t(migration_version, probe_ok, probe_hint);

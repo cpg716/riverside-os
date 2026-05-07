@@ -9,6 +9,7 @@ use uuid::Uuid;
 pub const GIFT_CARD_SUB_TYPE_PAID_LIABILITY: &str = "paid_liability";
 pub const GIFT_CARD_SUB_TYPE_LOYALTY_GIVEAWAY: &str = "loyalty_giveaway";
 pub const GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY: &str = "donated_giveaway";
+pub const GIFT_CARD_SUB_TYPE_PROMO_GIFT_CARD: &str = "promo_gift_card";
 
 #[derive(Debug, thiserror::Error)]
 pub enum GiftCardOpError {
@@ -44,6 +45,7 @@ pub fn canonical_gift_card_sub_type_for_kind(
         "purchased" => Ok(GIFT_CARD_SUB_TYPE_PAID_LIABILITY),
         "loyalty_reward" => Ok(GIFT_CARD_SUB_TYPE_LOYALTY_GIVEAWAY),
         "donated_giveaway" => Ok(GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY),
+        "promo_gift_card" => Ok(GIFT_CARD_SUB_TYPE_PROMO_GIFT_CARD),
         _ => Err(GiftCardOpError::BadRequest(
             "This gift card type is not supported at checkout. Please ask a manager for help."
                 .to_string(),
@@ -56,6 +58,7 @@ fn gift_card_sub_type_label(sub_type: &str) -> &'static str {
         GIFT_CARD_SUB_TYPE_PAID_LIABILITY => "Paid",
         GIFT_CARD_SUB_TYPE_LOYALTY_GIVEAWAY => "Loyalty",
         GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY => "Donated",
+        GIFT_CARD_SUB_TYPE_PROMO_GIFT_CARD => "Promo",
         _ => "Gift Card",
     }
 }
@@ -461,6 +464,10 @@ mod tests {
         assert_eq!(
             canonical_gift_card_sub_type_for_kind("donated_giveaway").unwrap(),
             GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY
+        );
+        assert_eq!(
+            canonical_gift_card_sub_type_for_kind("promo_gift_card").unwrap(),
+            GIFT_CARD_SUB_TYPE_PROMO_GIFT_CARD
         );
     }
 

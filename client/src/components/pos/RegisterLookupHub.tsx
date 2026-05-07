@@ -87,6 +87,7 @@ const KIND_LABELS: Record<string, string> = {
   purchased: "Purchased",
   loyalty_reward: "Loyalty",
   donated_giveaway: "Donated",
+  promo_gift_card: "Promo",
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -294,7 +295,7 @@ export default function RegisterLookupHub({
             <p className="text-[11px] text-app-text-muted sm:text-xs">
               {tab === "giftcard"
                 ? "Open cards (usable balance) and quick scan for balance plus full activity history."
-                : "Customers at reward threshold — redeem issues a loyalty reward card, and the activity list shows recent earns, reward issues, and clawbacks. Adjust points and donated cards are Back Office only."}
+                : "Customers at reward threshold — redeem issues a loyalty reward card, and the activity list shows recent earns, reward issues, and clawbacks. Adjust points and donated or promo cards are Back Office only."}
             </p>
           </div>
           <div className="flex gap-1 rounded-xl bg-app-surface-2 p-1">
@@ -461,7 +462,7 @@ export default function RegisterLookupHub({
               </div>
             )}
             <p className="mt-2 text-[10px] leading-snug text-app-text-muted">
-              Purchased cards are not tied to a customer. Loyalty and donated cards show the CRM
+              Purchased cards are not tied to a customer. Loyalty, donated, and promo cards show the CRM
               contact they are tracked to. Scan any code above for balance and full historical
               events (loads, checkouts, refills).
             </p>
@@ -573,7 +574,7 @@ export default function RegisterLookupHub({
               </div>
             )}
             <p className="mt-2 text-[10px] text-app-text-muted">
-              Point adjustments and issuing donated cards stay in Back Office. POS lookup is for balance and recent loyalty activity only.
+              Point adjustments and issuing donated or promo cards stay in Back Office. POS lookup is for balance and recent loyalty activity only.
             </p>
           </div>
         )}

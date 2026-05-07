@@ -129,7 +129,8 @@ export interface CheckoutOrderPaymentPayload {
 export type GiftCardType =
   | "paid_liability"
   | "loyalty_giveaway"
-  | "donated_giveaway";
+  | "donated_giveaway"
+  | "promo_gift_card";
 
 export interface AppliedPaymentLine {
   id: string;
@@ -190,7 +191,7 @@ export type NexoTenderTab =
 export interface CheckoutPaymentSplitPayload {
   payment_method: string;
   amount: string;
-  sub_type?: "paid_liability" | "loyalty_giveaway" | "donated_giveaway";
+  sub_type?: "paid_liability" | "loyalty_giveaway" | "donated_giveaway" | "promo_gift_card";
   applied_deposit_amount?: string;
   gift_card_code?: string;
   check_number?: string;

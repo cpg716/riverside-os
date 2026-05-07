@@ -37,7 +37,7 @@ For cutover work, treat this as a **one-time migration** screen, not an ongoing 
 3. **Categories / Payments / Gift reasons**
    Maintain Counterpoint-to-Riverside mapping rows.
    Gift reason mappings must use valid Riverside card kinds:
-   `purchased`, `loyalty_reward`, `donated_giveaway`
+   `purchased`, `loyalty_reward`, `donated_giveaway`, `promo_gift_card`
 
 4. **Staff links**
    Review how Counterpoint staff/user codes are linked to Riverside staff records for attribution.

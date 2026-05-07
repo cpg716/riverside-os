@@ -38,11 +38,11 @@ After checkout is fully paid, the gift card receives the loaded balance and the 
 ## Important rules
 
 - Use this modal only for **purchased** gift cards.
-- Do not use it for loyalty or donated cards.
+- Do not use it for loyalty, donated, or promo cards.
 - A void card cannot be loaded here.
 
 ## If something looks wrong
 
-- If the code belongs to a loyalty or donated card, stop and send the issue to Back Office.
+- If the code belongs to a loyalty, donated, or promo card, stop and send the issue to Back Office.
 - If the amount is wrong, remove the cart line before checkout.
 - If the sale is not fully paid, the card will not be credited.

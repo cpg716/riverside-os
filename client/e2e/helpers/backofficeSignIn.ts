@@ -31,21 +31,20 @@ export async function selectBackofficeStaffMember(
   const dropdown = (container as any).getByTestId?.("staff-selector-dropdown") || 
                    container.locator("[data-testid='staff-selector-dropdown']");
   
-  await dropdown.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
+  await dropdown.waitFor({ state: "visible", timeout: 10_000 });
 
-  const preferredOption = container.getByRole("button", {
+  const preferredOption = dropdown.getByRole("button", {
     name: new RegExp(preferredName, "i"),
   });
   
   if (await preferredOption.isVisible().catch(() => false)) {
     await preferredOption.click();
   } else {
-    const firstOption = (container as any).getByTestId?.("staff-identity-selector-1") || 
-                        container.locator("[data-testid='staff-identity-selector-1']");
-    if (await firstOption.isVisible().catch(() => false)) {
-      await firstOption.click();
-    }
+    const firstOption = dropdown.getByTestId("staff-identity-selector-1");
+    await expect(firstOption).toBeVisible({ timeout: 20_000 });
+    await firstOption.click();
   }
+  await expect(dropdown).toBeHidden({ timeout: 10_000 });
 }
 
 export async function ensureMainNavigationVisible(page: Page) {
@@ -108,10 +107,14 @@ export async function openBackofficeSidebarTab(
     dashboard: /^insights(?:\s+bo)?$/i,
     settings: /^settings(?:\s+bo)?$/i,
   };
-  const resolveTabButton = () =>
-    mainNav.getByRole("button", {
-      name: tabLabelPatterns[tabId],
-    });
+  const resolveTabButton = () => {
+    const testIdButton = mainNav.getByTestId(`sidebar-nav-${tabId}`);
+    return testIdButton.or(
+      mainNav.getByRole("button", {
+        name: tabLabelPatterns[tabId],
+      }),
+    ).first();
+  };
   const isInteractableInViewport = async (
     locator: ReturnType<typeof resolveTabButton>,
   ) =>

@@ -20,8 +20,8 @@
 
 ## Corrections vs informal Counterpoint prompts
 
-- ROS gift cards use PostgreSQL enum **`gift_card_kind`**: `purchased`, `loyalty_reward`, `donated_giveaway` (see [../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql](../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql)), not a separate `gift_card_type` name.
-- **`is_liability`** on `gift_cards` must stay consistent with kind (purchased = liability; loyalty/donated = typically not, per existing comments).
+- ROS gift cards use PostgreSQL enum **`gift_card_kind`**: `purchased`, `loyalty_reward`, `donated_giveaway`, `promo_gift_card`, not a separate `gift_card_type` name.
+- **`is_liability`** on `gift_cards` must stay consistent with kind (purchased = liability; loyalty/donated/promo = typically not, per existing comments).
 
 ## Current baseline in repo
 

@@ -24,6 +24,7 @@ The only active migration files in `migrations/` are:
 | `006_integrations.sql` | QBO, Counterpoint, Podium, Shippo, NuORDER, online store, payment-provider integration tables, Helcim event and settlement foundations |
 | `007_reporting_views.sql` | Reporting schema, reporting functions, Metabase-facing views |
 | `008_indexes_constraints_triggers.sql` | Cross-domain indexes, constraints, triggers, generated IDs |
+| `009_promo_gift_cards.sql` | Promo gift card enum support and event-name tracking |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 

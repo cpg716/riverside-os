@@ -777,6 +777,7 @@ function App() {
         const allowedG = new Set([
           "inventory",
           "issue-donated",
+          "issue-promo",
         ]);
         setActiveSubSection(allowedG.has(sec) ? sec : "inventory");
         return;

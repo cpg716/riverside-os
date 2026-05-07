@@ -2,7 +2,7 @@
 id: gift-cards-workspace
 title: "Gift Cards Workspace"
 order: 1010
-summary: "Back Office gift card guide for looking up cards, issuing donated cards, and voiding cards safely."
+summary: "Back Office gift card guide for looking up cards, issuing donated or promo cards, and voiding cards safely."
 source: client/src/components/gift-cards/GiftCardsWorkspace.tsx
 last_scanned: 2026-04-21
 tags: gift-cards, back-office, staff-manual
@@ -16,7 +16,7 @@ The Gift Cards workspace is the Back Office control surface for managing the sto
 
 ## What this is
 
-Use this workspace to look up card balances, review transaction history, issue promotional (donated) cards, and void cards when necessary. 
+Use this workspace to look up card balances, review transaction history, issue donated or promo cards, and void cards when necessary.
 
 > [!IMPORTANT]
 > Purchased gift cards must be sold or reloaded from the **Register** to ensure correct financial recording. This workspace is for administrative management and promotional issuance only.
@@ -27,6 +27,7 @@ Use this workspace to look up card balances, review transaction history, issue p
 - Look up a card by code, kind, or status.
 - Review recent activity for the selected card.
 - Issue a donated/giveaway card.
+- Issue a promo gift card for a named event.
 - Void a card when a manager has approved it.
 
 ## What this screen is not for
@@ -41,6 +42,7 @@ Use this workspace to look up card balances, review transaction history, issue p
 - **Purchased**: customer-paid gift cards sold from Register. These increase gift card liability when sold/loaded and reduce gift card liability when redeemed.
 - **Loyalty reward**: rewards issued from the loyalty workflow. These are not purchased-card liabilities.
 - **Donated / giveaway**: promotional cards. These do not use the purchased gift card liability path.
+- **Promo gift card**: event or giveaway cards with a required event name. These expire after one year and are expensed like loyalty/promo value when redeemed.
 
 ## How to use it
 
@@ -66,6 +68,14 @@ Use this workspace to look up card balances, review transaction history, issue p
 3. Add notes that explain why the card was issued.
 4. Confirm the new card appears in the list.
 
+### Issue a promo gift card
+
+1. Open **Issue Promo**.
+2. Enter the card code, amount, and event name.
+3. Link the customer if the promo card is assigned to one person.
+4. Add notes if finance/support needs more context.
+5. Confirm the new card appears in the list with the event name.
+
 ### Void a card
 
 1. Find the card in the list.
@@ -82,3 +92,4 @@ When a cashier redeems a gift card in checkout, Riverside matches the card type 
 - Treat gift cards like cash.
 - If a customer says the balance is wrong, compare the card and the event history before changing anything.
 - Use notes on donated cards so finance and support can tell why the card exists.
+- Use clear event names on promo cards so accounting can match the card to the event or giveaway.

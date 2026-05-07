@@ -317,7 +317,7 @@ Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows with **non-zero `Q
 | Card kind | Expiry from issue date |
 |-----------|----------------------|
 | `purchased` (liability) | **9 years** |
-| `loyalty_reward`, `donated_giveaway` | **1 year** |
+| `loyalty_reward`, `donated_giveaway`, `promo_gift_card` | **1 year** |
 
 If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
@@ -642,7 +642,7 @@ Pre-seeded with common mappings. Add rows for store-specific tender types.
 | Column | Purpose |
 |--------|---------|
 | `cp_reason_cod` | Counterpoint `REASON_COD` value |
-| `ros_card_kind` | ROS `gift_card_kind` value (`purchased`, `loyalty_reward`, `donated_giveaway`) |
+| `ros_card_kind` | ROS `gift_card_kind` value (`purchased`, `loyalty_reward`, `donated_giveaway`, `promo_gift_card`) |
 
 Unmapped reason codes default to `purchased`.
 

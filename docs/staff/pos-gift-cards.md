@@ -26,7 +26,7 @@ After the sale, the receipt summary shows the loaded card as a masked code so st
 
 ### Back Office gift card limits
 
-Back Office is for lookup, void review, and donated/giveaway issuance. Customer-paid purchased gift cards must be sold or reloaded through **Register** so the sale, tender, card event, and gift card liability are tracked together.
+Back Office is for lookup, void review, donated/giveaway issuance, and promo gift card issuance. Customer-paid purchased gift cards must be sold or reloaded through **Register** so the sale, tender, card event, and gift card liability are tracked together.
 
 ### Redeem toward checkout
 
@@ -35,6 +35,7 @@ Back Office is for lookup, void review, and donated/giveaway issuance. Customer-
    - **Paid**
    - **Loyalty**
    - **Donated**
+   - **Promo**
 3. Scan or type the code.
 4. Apply the amount and complete the rest of the sale if needed.
 

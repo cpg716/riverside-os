@@ -151,7 +151,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "gift-cards-workspace",
     title: "Gift Cards Workspace",
-    summary: "Back Office gift card guide for looking up cards, issuing donated cards, and voiding cards safely.",
+    summary: "Back Office gift card guide for looking up cards, issuing donated or promo cards, and voiding cards safely.",
     markdown: manual_12_raw,
     tags: ["gift-cards","back-office","staff-manual"],
   },

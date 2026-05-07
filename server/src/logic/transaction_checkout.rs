@@ -1229,15 +1229,16 @@ fn resolve_payment_splits(
                         .filter(|s| !s.is_empty())
                         .ok_or_else(|| {
                             CheckoutError::InvalidPayload(
-                                "gift_card split requires sub_type (`paid_liability`, `loyalty_giveaway`, or `donated_giveaway`)".to_string(),
+                                "gift_card split requires sub_type (`paid_liability`, `loyalty_giveaway`, `donated_giveaway`, or `promo_gift_card`)".to_string(),
                             )
                         })?;
                     if st != "paid_liability"
                         && st != "loyalty_giveaway"
                         && st != "donated_giveaway"
+                        && st != "promo_gift_card"
                     {
                         return Err(CheckoutError::InvalidPayload(
-                            "gift_card sub_type must be `paid_liability`, `loyalty_giveaway`, or `donated_giveaway`".to_string(),
+                            "gift_card sub_type must be `paid_liability`, `loyalty_giveaway`, `donated_giveaway`, or `promo_gift_card`".to_string(),
                         ));
                     }
                 } else if line

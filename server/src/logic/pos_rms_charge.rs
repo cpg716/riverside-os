@@ -75,6 +75,7 @@ fn gift_card_sub_type_label(metadata: Option<&Value>) -> Option<&'static str> {
         "paid_liability" | "purchased" => Some("Paid"),
         "loyalty_giveaway" | "loyalty_reward" => Some("Loyalty"),
         "donated_giveaway" => Some("Donated"),
+        "promo_gift_card" => Some("Promo"),
         _ => None,
     }
 }

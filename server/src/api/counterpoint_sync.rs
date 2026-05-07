@@ -34,7 +34,12 @@ use crate::logic::counterpoint_sync::{
 };
 use crate::middleware;
 
-const VALID_GIFT_CARD_KINDS: [&str; 3] = ["purchased", "loyalty_reward", "donated_giveaway"];
+const VALID_GIFT_CARD_KINDS: [&str; 4] = [
+    "purchased",
+    "loyalty_reward",
+    "donated_giveaway",
+    "promo_gift_card",
+];
 
 fn validate_sync_token(
     state: &AppState,

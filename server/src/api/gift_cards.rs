@@ -103,6 +103,7 @@ pub struct GiftCardRow {
     pub expires_at: DateTime<Utc>,
     pub customer_id: Option<Uuid>,
     pub customer_name: Option<String>,
+    pub promo_event_name: Option<String>,
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -124,6 +125,7 @@ pub struct GiftCardSummary {
     pub active_liability_balance: Decimal,
     pub loyalty_cards_count: i64,
     pub donated_cards_count: i64,
+    pub promo_cards_count: i64,
 }
 
 async fn list_gift_cards(
@@ -149,7 +151,7 @@ async fn list_gift_cards(
             CASE WHEN c.id IS NOT NULL
                  THEN TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))
                  ELSE NULL END AS customer_name,
-            gc.notes, gc.created_at
+            gc.promo_event_name, gc.notes, gc.created_at
         FROM gift_cards gc
         LEFT JOIN customers c ON c.id = gc.customer_id
         WHERE 1=1
@@ -166,6 +168,8 @@ async fn list_gift_cards(
         qb.push_bind(like.clone());
         qb.push(" OR COALESCE(gc.notes, '') ILIKE ");
         qb.push_bind(like);
+        qb.push(" OR COALESCE(gc.promo_event_name, '') ILIKE ");
+        qb.push_bind(format!("%{search}%"));
         qb.push(") ");
     }
 
@@ -220,7 +224,8 @@ async fn get_gift_card_summary(
                 0
             )::numeric(14,2) AS active_liability_balance,
             COUNT(*) FILTER (WHERE gc.card_kind = 'loyalty_reward'::gift_card_kind)::bigint AS loyalty_cards_count,
-            COUNT(*) FILTER (WHERE gc.card_kind = 'donated_giveaway'::gift_card_kind)::bigint AS donated_cards_count
+            COUNT(*) FILTER (WHERE gc.card_kind = 'donated_giveaway'::gift_card_kind)::bigint AS donated_cards_count,
+            COUNT(*) FILTER (WHERE gc.card_kind = 'promo_gift_card'::gift_card_kind)::bigint AS promo_cards_count
         FROM gift_cards gc
         "#,
     )
@@ -243,7 +248,7 @@ async fn list_gift_cards_open(
             CASE WHEN c.id IS NOT NULL
                  THEN TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))
                  ELSE NULL END AS customer_name,
-            gc.notes, gc.created_at
+            gc.promo_event_name, gc.notes, gc.created_at
         FROM gift_cards gc
         LEFT JOIN customers c ON c.id = gc.customer_id
         WHERE gc.card_status = 'active'::gift_card_status
@@ -272,7 +277,7 @@ async fn get_gift_card_by_code(
             CASE WHEN c.id IS NOT NULL
                  THEN TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))
                  ELSE NULL END AS customer_name,
-            gc.notes, gc.created_at
+            gc.promo_event_name, gc.notes, gc.created_at
         FROM gift_cards gc
         LEFT JOIN customers c ON c.id = gc.customer_id
         WHERE gc.code = $1
@@ -515,6 +520,82 @@ async fn issue_donated(
     get_card_row(&state.db, id).await
 }
 
+// ── Issue: promo gift card ───────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct IssuePromoRequest {
+    pub code: String,
+    pub amount: Decimal,
+    pub event_name: String,
+    #[serde(default)]
+    pub customer_id: Option<Uuid>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+async fn issue_promo(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<IssuePromoRequest>,
+) -> Result<Json<GiftCardRow>, GiftCardError> {
+    require_gift_cards_manage(&state, &headers).await?;
+    let code = body.code.trim().to_string();
+    let event_name = body.event_name.trim().to_string();
+    if code.is_empty() {
+        return Err(GiftCardError::InvalidPayload(
+            "code is required".to_string(),
+        ));
+    }
+    if event_name.is_empty() {
+        return Err(GiftCardError::InvalidPayload(
+            "event name is required".to_string(),
+        ));
+    }
+    if body.amount <= Decimal::ZERO {
+        return Err(GiftCardError::InvalidPayload(
+            "amount must be positive".to_string(),
+        ));
+    }
+
+    let expires_at = Utc::now() + Duration::days(365);
+    let mut tx = state.db.begin().await?;
+
+    let id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO gift_cards
+            (code, card_kind, card_status, current_balance, original_value,
+             is_liability, expires_at, customer_id, promo_event_name, notes)
+        VALUES ($1, 'promo_gift_card', 'active', $2, $2, FALSE, $3, $4, $5, $6)
+        RETURNING id
+        "#,
+    )
+    .bind(&code)
+    .bind(body.amount)
+    .bind(expires_at)
+    .bind(body.customer_id)
+    .bind(&event_name)
+    .bind(body.notes.as_deref())
+    .fetch_one(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO gift_card_events
+            (gift_card_id, event_kind, amount, balance_after, notes)
+        VALUES ($1, 'issued', $2, $2, $3)
+        "#,
+    )
+    .bind(id)
+    .bind(body.amount)
+    .bind(format!("Promo gift card: {event_name}"))
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    get_card_row(&state.db, id).await
+}
+
 // ── Void card (back-office admin) ─────────────────────────────────────────────
 
 async fn void_gift_card(
@@ -626,7 +707,7 @@ async fn get_card_row(pool: &sqlx::PgPool, id: Uuid) -> Result<Json<GiftCardRow>
             CASE WHEN c.id IS NOT NULL
                  THEN TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))
                  ELSE NULL END AS customer_name,
-            gc.notes, gc.created_at
+            gc.promo_event_name, gc.notes, gc.created_at
         FROM gift_cards gc
         LEFT JOIN customers c ON c.id = gc.customer_id
         WHERE gc.id = $1
@@ -649,6 +730,7 @@ pub fn router() -> Router<AppState> {
         .route("/pos-load-purchased", post(pos_load_purchased))
         .route("/issue-loyalty-load", post(issue_loyalty_load))
         .route("/issue-donated", post(issue_donated))
+        .route("/issue-promo", post(issue_promo))
         .route("/{id}/void", post(void_gift_card))
         .route("/{id}/events", get(get_card_events))
 }

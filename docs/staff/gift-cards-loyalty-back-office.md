@@ -10,7 +10,7 @@
 
 ## How to use these tabs
 
-Use **Gift Cards** for card lookup, donated/giveaway issuance, and voids. Use **Loyalty** for points economics. Cashiers redeem gift cards in POS, but Riverside now checks the real card type during checkout so purchased, loyalty, and donated cards follow the right accounting path.
+Use **Gift Cards** for card lookup, donated/giveaway issuance, promo gift card issuance, and voids. Use **Loyalty** for points economics. Cashiers redeem gift cards in POS, but Riverside now checks the real card type during checkout so purchased, loyalty, donated, and promo cards follow the right accounting path.
 
 Purchased gift cards are sold or reloaded from **Register** only. Do not issue customer-paid gift card value from Back Office.
 
@@ -35,6 +35,16 @@ Purchased gift cards are sold or reloaded from **Register** only. Do not issue c
 1. **Gift Cards** → **Issue Donated**.
 2. Complete fields; add **reason** in notes if the form supports it.
 3. File any **paper approval** your finance team requires.
+
+### Issue Promo
+
+**Purpose:** Event, bridal show, community, or store-promotion issuance. Promo cards expire after one year and do not use the purchased-card liability path.
+
+1. **Gift Cards** → **Issue Promo**.
+2. Enter the card code, amount, and **event name**.
+3. Link a customer if the card is assigned to one person.
+4. Add notes for finance/support context if needed.
+5. Confirm the new card appears in **Gift Cards** with the event name.
 
 ---
 
@@ -73,7 +83,7 @@ Purchased gift cards are sold or reloaded from **Register** only. Do not issue c
 
 ## POS coordination
 
-If POS says a gift card type does not match, check the card record in Back Office first. Purchased cards should be sold/reloaded from **Register** and redeemed as **Paid**. Loyalty reward cards should be redeemed as **Loyalty**. Donated cards should be redeemed as **Donated**.
+If POS says a gift card type does not match, check the card record in Back Office first. Purchased cards should be sold/reloaded from **Register** and redeemed as **Paid**. Loyalty reward cards should be redeemed as **Loyalty**. Donated cards should be redeemed as **Donated**. Promo gift cards should be redeemed as **Promo**.
 
 ## Helping a coworker
 

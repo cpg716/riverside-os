@@ -362,6 +362,7 @@ const GIFT_CARD_TYPES: GiftCardType[] = [
   "paid_liability",
   "loyalty_giveaway",
   "donated_giveaway",
+  "promo_gift_card",
 ];
 
 function giftCardTypeLabel(t: GiftCardType): string {
@@ -369,6 +370,7 @@ function giftCardTypeLabel(t: GiftCardType): string {
     case "paid_liability": return "Paid";
     case "loyalty_giveaway": return "Loyalty";
     case "donated_giveaway": return "Donated";
+    case "promo_gift_card": return "Promo";
     default: return t;
   }
 }

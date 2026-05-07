@@ -130,7 +130,7 @@ async function checkoutGiftCardRedemption(
     sku: string;
   },
   redeemCode: string,
-  subType: "paid_liability" | "loyalty_giveaway" | "donated_giveaway",
+  subType: "paid_liability" | "loyalty_giveaway" | "donated_giveaway" | "promo_gift_card",
 ) {
   const pricing = await fetchCatalogPricing(request, product.sku);
   const totalCents =

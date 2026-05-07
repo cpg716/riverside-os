@@ -30,7 +30,7 @@ fn rms_payment_collection_flag(value: Option<bool>) -> bool {
 fn gift_card_uses_loyalty_expense(sub_type: Option<&str>) -> bool {
     matches!(
         sub_type.map(str::trim),
-        Some("loyalty_giveaway") | Some("donated_giveaway")
+        Some("loyalty_giveaway") | Some("donated_giveaway") | Some("promo_gift_card")
     )
 }
 
@@ -549,7 +549,7 @@ pub async fn propose_daily_journal(
         let is_rms_collection = rms_payment_collection_flag(t.rms_charge_collection);
         if is_gift_card && !is_paid_liability_gc && !is_loyalty_gc {
             warnings.push(
-                "Gift card payment missing/unknown card classification; expected purchased, loyalty, or donated card metadata. Falling back to tender mapping."
+                "Gift card payment missing/unknown card classification; expected purchased, loyalty, donated, or promo card metadata. Falling back to tender mapping."
                     .to_string(),
             );
         }
@@ -577,7 +577,7 @@ pub async fn propose_daily_journal(
             Some(m) => {
                 if is_loyalty_gc && liability_gc.is_none() {
                     warnings.push(
-                        "Gift card loyalty redemption uses tender fallback — set `expense_loyalty` / default for expense recognition.".to_string(),
+                        "Gift card loyalty/promo redemption uses tender fallback — set `expense_loyalty` / default for expense recognition.".to_string(),
                     );
                 } else if is_paid_liability_gc && liability_gc.is_none() {
                     warnings.push(
@@ -601,7 +601,7 @@ pub async fn propose_daily_journal(
         };
         let memo = if amt < Decimal::ZERO {
             if is_loyalty_gc && liability_gc.is_some() {
-                "Gift card (refund / reversal) — loyalty expense".to_string()
+                "Gift card (refund / reversal) — loyalty/promo expense".to_string()
             } else if is_paid_liability_gc && liability_gc.is_some() {
                 "Gift card (refund / reversal) — liability".to_string()
             } else if is_rms_financing {
@@ -612,7 +612,7 @@ pub async fn propose_daily_journal(
                 format!("Tenders (refund/outflow) — {sid}")
             }
         } else if is_loyalty_gc && liability_gc.is_some() {
-            "Gift card redemption (loyalty expense)".to_string()
+            "Gift card redemption (loyalty/promo expense)".to_string()
         } else if is_paid_liability_gc && liability_gc.is_some() {
             "Gift card redemption (liability)".to_string()
         } else if is_rms_financing {
@@ -1551,6 +1551,7 @@ mod tests {
         assert!(!gift_card_uses_liability_relief(Some("loyalty_giveaway")));
         assert!(gift_card_uses_loyalty_expense(Some("loyalty_giveaway")));
         assert!(gift_card_uses_loyalty_expense(Some("donated_giveaway")));
+        assert!(gift_card_uses_loyalty_expense(Some("promo_gift_card")));
         assert!(!gift_card_uses_loyalty_expense(Some("paid_liability")));
         assert!(!gift_card_uses_loyalty_expense(None));
     }

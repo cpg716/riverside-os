@@ -22,6 +22,7 @@ export function normalizeGiftCardSubType(
   if (s.includes("paid")) return "paid_liability";
   if (s.includes("loyalty")) return "loyalty_giveaway";
   if (s.includes("donated")) return "donated_giveaway";
+  if (s.includes("promo")) return "promo_gift_card";
   return undefined;
 }
 
