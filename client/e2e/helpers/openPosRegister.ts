@@ -192,6 +192,17 @@ export async function ensurePosRegisterSessionOpen(
         if (await cartShell.isVisible().catch(() => false)) return "cart";
         if (await registerDialog.isVisible().catch(() => false)) return "pin";
         if (await openPrimaryRegisterButton.isVisible().catch(() => false)) return "primary-gate";
+        if (await goToRegisterButton.isVisible().catch(() => false)) {
+          await goToRegisterButton.click();
+          return "waiting";
+        }
+        if (
+          !(await registerPanel.isVisible().catch(() => false)) &&
+          (await registerNavButton.isVisible().catch(() => false))
+        ) {
+          await registerNavButton.click();
+          return "waiting";
+        }
         return "waiting";
       },
       {
