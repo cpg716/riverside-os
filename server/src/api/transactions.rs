@@ -285,6 +285,7 @@ pub struct TransactionDetailResponse {
     pub wedding_summary: Option<TransactionWeddingSummary>,
     pub customer: Option<TransactionCustomerSummary>,
     pub financial_summary: TransactionFinancialSummary,
+    pub linked_alteration_summary: TransactionLinkedAlterationSummary,
     pub items: Vec<TransactionDetailItem>,
     pub is_tax_exempt: bool,
     pub tax_exempt_reason: Option<String>,
@@ -310,6 +311,14 @@ pub struct TransactionDetailResponse {
 pub struct TransactionFinancialSummary {
     pub total_allocated_payments: Decimal,
     pub total_applied_deposit_amount: Decimal,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct TransactionLinkedAlterationSummary {
+    pub open_count: i64,
+    pub overdue_count: i64,
+    pub ready_count: i64,
+    pub picked_up_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -478,6 +487,12 @@ mod tests {
             financial_summary: TransactionFinancialSummary {
                 total_allocated_payments: Decimal::new(1000, 2),
                 total_applied_deposit_amount: Decimal::ZERO,
+            },
+            linked_alteration_summary: TransactionLinkedAlterationSummary {
+                open_count: 0,
+                overdue_count: 0,
+                ready_count: 0,
+                picked_up_count: 0,
             },
             items,
             is_tax_exempt: false,
@@ -2554,7 +2569,7 @@ pub(crate) async fn load_transaction_detail(
         _ => None,
     };
 
-    let items = items
+    let items: Vec<TransactionDetailItem> = items
         .into_iter()
         .map(|r| TransactionDetailItem {
             transaction_line_id: r.transaction_line_id,
@@ -2581,6 +2596,10 @@ pub(crate) async fn load_transaction_detail(
             gift_card_load_code: r.gift_card_load_code,
         })
         .collect();
+    let transaction_line_ids = items
+        .iter()
+        .map(|item| item.transaction_line_id)
+        .collect::<Vec<_>>();
 
     let (total_allocated_payments, total_applied_deposit_amount): (Option<Decimal>, Option<Decimal>) =
         sqlx::query_as(
@@ -2595,6 +2614,34 @@ pub(crate) async fn load_transaction_detail(
         .bind(transaction_id)
         .fetch_one(pool)
         .await?;
+
+    let linked_alteration_summary = sqlx::query_as::<_, TransactionLinkedAlterationSummary>(
+        r#"
+        SELECT
+            COUNT(*) FILTER (
+                WHERE a.status IN ('intake'::alteration_status, 'in_work'::alteration_status)
+            )::bigint AS open_count,
+            COUNT(*) FILTER (
+                WHERE a.status IN ('intake'::alteration_status, 'in_work'::alteration_status)
+                  AND a.due_at IS NOT NULL
+                  AND a.due_at < now()
+            )::bigint AS overdue_count,
+            COUNT(*) FILTER (
+                WHERE a.status = 'ready'::alteration_status
+            )::bigint AS ready_count,
+            COUNT(*) FILTER (
+                WHERE a.status = 'picked_up'::alteration_status
+            )::bigint AS picked_up_count
+        FROM alteration_orders a
+        WHERE a.transaction_id = $1
+           OR a.source_transaction_id = $1
+           OR a.source_transaction_line_id = ANY($2::uuid[])
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(&transaction_line_ids)
+    .fetch_one(pool)
+    .await?;
 
     let receipt_cfg_raw: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT receipt_config FROM store_settings WHERE id = 1")
@@ -2653,6 +2700,7 @@ pub(crate) async fn load_transaction_detail(
             total_allocated_payments: total_allocated_payments.unwrap_or(Decimal::ZERO),
             total_applied_deposit_amount: total_applied_deposit_amount.unwrap_or(Decimal::ZERO),
         },
+        linked_alteration_summary,
         items,
         receipt_studio_layout_available,
         receipt_thermal_mode,

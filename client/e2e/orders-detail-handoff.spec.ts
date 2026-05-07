@@ -3,7 +3,6 @@ import { parseMoneyToCents } from "../src/lib/money";
 import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
   openBackofficeSidebarTab,
-  selectBackofficeStaffMember,
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
 import {
@@ -25,6 +24,7 @@ type CheckoutResponse = {
 type SeededOrder = {
   transactionId: string;
   displayId: string;
+  customerId: string;
   customerName: string;
   productName: string;
   transactionLineId: string;
@@ -89,18 +89,71 @@ async function createSpecialOrder(
   expect(detailRes.status()).toBe(200);
   const detail = (await detailRes.json()) as {
     transaction_display_id?: string;
+    customer?: {
+      id?: string;
+    } | null;
     items?: Array<{
       transaction_line_id?: string;
     }>;
   };
+  expect(detail.customer?.id).toBeTruthy();
 
   return {
     transactionId: checkout.transaction_id,
     displayId: detail.transaction_display_id ?? checkout.transaction_id,
+    customerId: detail.customer?.id ?? fixture.customer.id,
     customerName: fixture.customer.display_name,
     productName: fixture.product.name,
     transactionLineId: detail.items?.[0]?.transaction_line_id ?? "",
   };
+}
+
+async function createLinkedOverdueAlteration(
+  request: APIRequestContext,
+  order: SeededOrder,
+) {
+  const dueAt = new Date(Date.now() - 86_400_000).toISOString();
+  const res = await request.post(`${apiBase()}/api/alterations`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      customer_id: order.customerId,
+      due_at: dueAt,
+      notes: "Readiness check linked alteration fixture",
+      linked_transaction_id: order.transactionId,
+      source_type: "past_transaction_line",
+      item_description: order.productName,
+      work_requested: "Readiness check alteration",
+      source_transaction_id: order.transactionId,
+      source_transaction_line_id: order.transactionLineId,
+      charge_amount: "0.00",
+      intake_channel: "standalone",
+    },
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
+
+  const detailRes = await request.get(`${apiBase()}/api/transactions/${order.transactionId}`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  expect(detailRes.status()).toBe(200);
+  const detail = (await detailRes.json()) as {
+    linked_alteration_summary?: {
+      open_count?: number;
+      overdue_count?: number;
+      ready_count?: number;
+      picked_up_count?: number;
+    };
+  };
+  expect(detail.linked_alteration_summary).toMatchObject({
+    open_count: 1,
+    overdue_count: 1,
+    ready_count: 0,
+    picked_up_count: 0,
+  });
 }
 
 async function openPosOrdersSection(page: Parameters<typeof signInToBackOffice>[0]) {
@@ -119,6 +172,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     request,
   }) => {
     const order = await createSpecialOrder(request, "BO");
+    await createLinkedOverdueAlteration(request, order);
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
@@ -148,18 +202,12 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(drawer).toContainText("Blocks Release");
     await expect(drawer).toContainText("Balance due before release");
     await expect(drawer).toContainText("1 pickup line is still open.");
+    await expect(drawer).toContainText("1 linked alteration is overdue.");
     await expect(drawer).toContainText("Still Open");
 
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();
 
-    const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
-    await expect(cashierDialog).toBeVisible({ timeout: 20_000 });
-    await selectBackofficeStaffMember(cashierDialog);
-    for (const digit of "1234") {
-      await cashierDialog.getByTestId(`pin-key-${digit}`).click();
-    }
-    await cashierDialog.getByRole("button", { name: /^continue$/i }).click();
-    await expect(cashierDialog).toBeHidden({ timeout: 20_000 });
+    await ensurePosSaleCashierSignedIn(page);
     await expect(page.getByText(order.productName).first()).toBeVisible({ timeout: 20_000 });
   });
 

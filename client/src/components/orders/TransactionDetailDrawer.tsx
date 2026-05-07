@@ -85,6 +85,12 @@ export interface TransactionDrawerDetail {
     event_date?: string | null;
     member_role?: string | null;
   } | null;
+  linked_alteration_summary?: {
+    open_count: number;
+    overdue_count: number;
+    ready_count: number;
+    picked_up_count: number;
+  };
   customer: {
     id: string;
     first_name: string;
@@ -411,6 +417,10 @@ function formatWeddingProximity(days: number): string {
   return `Wedding is in ${days} days.`;
 }
 
+function linkedAlterationBullet(count: number, singular: string, plural: string): string {
+  return count === 1 ? singular : plural.replace("{count}", String(count));
+}
+
 function buildReadinessCheck(
   detail: TransactionDrawerDetail,
   summary: ReturnType<typeof fulfillmentSummary>,
@@ -444,6 +454,34 @@ function buildReadinessCheck(
     );
   }
 
+  const linkedAlterations = detail.linked_alteration_summary;
+  const overdueAlterations = linkedAlterations?.overdue_count ?? 0;
+  const openAlterations = Math.max(
+    0,
+    (linkedAlterations?.open_count ?? 0) - overdueAlterations,
+  );
+  const readyAlterations = linkedAlterations?.ready_count ?? 0;
+
+  if (overdueAlterations > 0) {
+    blockers.push(
+      linkedAlterationBullet(
+        overdueAlterations,
+        "1 linked alteration is overdue.",
+        "{count} linked alterations are overdue.",
+      ),
+    );
+  }
+
+  if (openAlterations > 0) {
+    blockers.push(
+      linkedAlterationBullet(
+        openAlterations,
+        "1 linked alteration is still open.",
+        "{count} linked alterations are still open.",
+      ),
+    );
+  }
+
   const weddingDays = detail.wedding_summary?.event_date
     ? daysFromToday(detail.wedding_summary.event_date)
     : null;
@@ -458,6 +496,16 @@ function buildReadinessCheck(
     !["fulfilled", "cancelled"].includes(detail.status)
   ) {
     warnings.push(`Open more than 30 days; booked ${openAgeDays} days ago.`);
+  }
+
+  if (readyAlterations > 0) {
+    warnings.push(
+      linkedAlterationBullet(
+        readyAlterations,
+        "1 linked alteration is ready.",
+        "{count} linked alterations are ready.",
+      ),
+    );
   }
 
   return {
