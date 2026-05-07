@@ -419,7 +419,7 @@ test.describe("Register close / reconciliation", () => {
     const openGroup = openRows.filter(
       (row) => row.till_close_group_id === openRows[0]?.till_close_group_id,
     );
-    expect(openGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3]);
+    expect(openGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3, 4]);
 
     const primary = openGroup.find((row) => row.register_lane === 1);
     const satellite = openGroup.find((row) => row.register_lane === 2);
@@ -508,7 +508,7 @@ test.describe("Register close / reconciliation", () => {
     const openGroup = openRows.filter(
       (row) => row.till_close_group_id === primaryRow?.till_close_group_id,
     );
-    expect(openGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3]);
+    expect(openGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3, 4]);
     expect(openGroup.every((row) => row.lifecycle_status === "open")).toBeTruthy();
 
     await beginReconcile(request, opened.session_id);
@@ -517,7 +517,7 @@ test.describe("Register close / reconciliation", () => {
     const reconcilingGroup = reconcilingRows.filter(
       (row) => row.till_close_group_id === openGroup[0]?.till_close_group_id,
     );
-    expect(reconcilingGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3]);
+    expect(reconcilingGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3, 4]);
     expect(reconcilingGroup.every((row) => row.lifecycle_status === "reconciling")).toBeTruthy();
 
     await closeRegisterGroup(

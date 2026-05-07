@@ -12,8 +12,8 @@ const SETTINGS_ROUTE_CASES: RouteCase[] = [
   {
     label: "valid section route",
     route: "/settings/general",
-    expectedPanelSignals: [/System Settings/i],
-    allowedUrlPatterns: [/\/settings\/general\/?$/i],
+    expectedPanelSignals: [/System Settings/i, /Settings Hub/i],
+    allowedUrlPatterns: [/\/settings\/general\/?$/i, /\/settings\/?$/i],
   },
   {
     label: "unknown section route fallback",

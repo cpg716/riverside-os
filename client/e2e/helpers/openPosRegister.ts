@@ -162,15 +162,28 @@ export async function ensurePosRegisterSessionOpen(
   // 1. Wait for initial bootstrap to clear
   await expect(page.getByText(/loading riverside pos/i)).toBeHidden({ timeout: 20_000 });
 
+  const registerPanel = page.getByTestId("pos-register-panel");
+  const posNav = page.getByRole("navigation", { name: "POS Navigation" });
+  const goToRegisterButton = page.getByRole("button", {
+    name: /go to register/i,
+  });
+  const registerNavButton = posNav.getByRole("button", { name: /^register$/i });
+  if (!(await registerPanel.isVisible().catch(() => false))) {
+    if (await goToRegisterButton.isVisible().catch(() => false)) {
+      await goToRegisterButton.click();
+    } else if (await registerNavButton.isVisible().catch(() => false)) {
+      await registerNavButton.click();
+    }
+  }
+
   await waitForPosRegisterPanel(page);
   const registerDialog = page.getByRole("dialog", {
-    name: /access register|riverside register/i,
+    name: /access register|riverside register|open register/i,
   });
   const openPrimaryRegisterButton = page.getByRole("button", {
     name: /open register #1/i,
   });
   const cartShell = page.getByTestId("pos-register-cart-shell");
-  const posNav = page.getByRole("navigation", { name: "POS Navigation" });
 
   // 2. Wait for state stabilization: cart already mounted, primary-register gate, or PIN dialog.
   await expect

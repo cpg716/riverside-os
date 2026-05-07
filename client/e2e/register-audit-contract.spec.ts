@@ -219,7 +219,7 @@ test.describe("register audit contract", () => {
     const groupRows = rows
       .filter((row) => row.till_close_group_id === opened.till_close_group_id)
       .sort((a, b) => a.register_lane - b.register_lane);
-    expect(groupRows.map((row) => row.register_lane)).toEqual([1, 2, 3]);
+    expect(groupRows.map((row) => row.register_lane)).toEqual([1, 2, 3, 4]);
     expect(groupRows.every((row) => row.lifecycle_status === "open")).toBe(true);
 
     const duplicatePrimary = await request.post(`${apiBase()}/api/sessions/open`, {
