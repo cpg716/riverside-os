@@ -29,7 +29,10 @@ use crate::logic::corecard;
 use crate::logic::customer_duplicate_candidates::{
     find_duplicate_candidates, DuplicateCandidateParams,
 };
-use crate::logic::customer_hub::{days_since_last_visit, fetch_hub_stats};
+use crate::logic::customer_hub::{
+    days_since_last_visit, fetch_customer_snapshot_items, fetch_hub_stats, CustomerSnapshotContext,
+    CustomerSnapshotItem,
+};
 use crate::logic::customer_measurements;
 use crate::logic::customer_merge;
 use crate::logic::customer_open_deposit;
@@ -946,6 +949,7 @@ pub struct CustomerHubResponse {
     pub weddings: Vec<WeddingMembershipRow>,
     pub stats: CustomerHubStats,
     pub partner: Option<CoupleMemberPreview>,
+    pub snapshot_items: Vec<CustomerSnapshotItem>,
 }
 
 #[derive(Debug, Serialize)]
@@ -4373,6 +4377,25 @@ async fn get_customer_hub(
 
     let marketing_needs_attention =
         !row.marketing_email_opt_in && !row.marketing_sms_opt_in && !row.transactional_sms_opt_in;
+    let next_wedding = weddings
+        .iter()
+        .filter(|w| w.active)
+        .min_by_key(|w| w.event_date);
+    let snapshot_items = fetch_customer_snapshot_items(
+        &state.db,
+        customer_id,
+        CustomerSnapshotContext {
+            balance_due_usd: hub.balance_due_usd,
+            marketing_email_opt_in: row.marketing_email_opt_in,
+            marketing_sms_opt_in: row.marketing_sms_opt_in,
+            transactional_sms_opt_in: row.transactional_sms_opt_in,
+            transactional_email_opt_in: row.transactional_email_opt_in,
+            next_wedding_party_name: next_wedding.map(|w| w.party_name.clone()),
+            next_wedding_event_date: next_wedding.map(|w| w.event_date),
+        },
+    )
+    .await
+    .map_err(CustomerError::Database)?;
 
     let partner = if let Some(cid) = row.couple_id {
         sqlx::query_as::<_, CoupleMemberPreview>(
@@ -4405,6 +4428,7 @@ async fn get_customer_hub(
         profile_complete,
         weddings,
         partner,
+        snapshot_items,
     }))
 }
 

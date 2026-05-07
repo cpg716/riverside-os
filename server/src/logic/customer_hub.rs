@@ -1,7 +1,8 @@
 //! Aggregates for Customer Relationship Hub (stats, timeline sources, measurements).
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
+use serde::Serialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -12,6 +13,261 @@ pub struct HubStats {
     pub wedding_party_count: i64,
     pub last_activity_at: Option<DateTime<Utc>>,
     pub loyalty_points: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct CustomerSnapshotContext {
+    pub balance_due_usd: Decimal,
+    pub marketing_email_opt_in: bool,
+    pub marketing_sms_opt_in: bool,
+    pub transactional_sms_opt_in: bool,
+    pub transactional_email_opt_in: bool,
+    pub next_wedding_party_name: Option<String>,
+    pub next_wedding_event_date: Option<NaiveDate>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CustomerSnapshotSeverity {
+    Info,
+    Warning,
+    Success,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CustomerSnapshotItem {
+    pub label: String,
+    pub severity: CustomerSnapshotSeverity,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct CustomerSnapshotFacts {
+    open_orders_count: i64,
+    store_credit_balance: Decimal,
+    open_deposit_balance: Decimal,
+    open_alterations_count: i64,
+    overdue_alterations_count: i64,
+    due_soon_alterations_count: i64,
+    recent_salesperson_name: Option<String>,
+}
+
+fn plural(count: i64, one: &str, many: &str) -> String {
+    if count == 1 {
+        format!("1 {one}")
+    } else {
+        format!("{count} {many}")
+    }
+}
+
+fn money_label(value: Decimal) -> String {
+    format!("${value:.2}")
+}
+
+fn contact_preference_label(ctx: &CustomerSnapshotContext) -> CustomerSnapshotItem {
+    let transactional = match (ctx.transactional_sms_opt_in, ctx.transactional_email_opt_in) {
+        (true, true) => "Operational contact: text and email",
+        (true, false) => "Operational contact: text only",
+        (false, true) => "Operational contact: email only",
+        (false, false) => "No operational contact channel enabled",
+    };
+
+    if ctx.marketing_sms_opt_in || ctx.marketing_email_opt_in {
+        CustomerSnapshotItem {
+            label: format!("{transactional}; marketing opt-in on file"),
+            severity: CustomerSnapshotSeverity::Info,
+        }
+    } else if ctx.transactional_sms_opt_in || ctx.transactional_email_opt_in {
+        CustomerSnapshotItem {
+            label: transactional.to_string(),
+            severity: CustomerSnapshotSeverity::Info,
+        }
+    } else {
+        CustomerSnapshotItem {
+            label: transactional.to_string(),
+            severity: CustomerSnapshotSeverity::Warning,
+        }
+    }
+}
+
+fn wedding_snapshot_item(ctx: &CustomerSnapshotContext) -> Option<CustomerSnapshotItem> {
+    let event_date = ctx.next_wedding_event_date?;
+    let party_name = ctx
+        .next_wedding_party_name
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("current party");
+    let days = event_date
+        .signed_duration_since(Utc::now().date_naive())
+        .num_days();
+    if days < 0 {
+        return None;
+    }
+
+    let label = match days {
+        0 => format!("Wedding today: {party_name}"),
+        1 => format!("Wedding tomorrow: {party_name}"),
+        _ => format!("Wedding in {days} days: {party_name}"),
+    };
+
+    Some(CustomerSnapshotItem {
+        label,
+        severity: if days <= 7 {
+            CustomerSnapshotSeverity::Warning
+        } else {
+            CustomerSnapshotSeverity::Info
+        },
+    })
+}
+
+pub async fn fetch_customer_snapshot_items(
+    pool: &PgPool,
+    customer_id: Uuid,
+    ctx: CustomerSnapshotContext,
+) -> Result<Vec<CustomerSnapshotItem>, sqlx::Error> {
+    let facts = sqlx::query_as::<_, CustomerSnapshotFacts>(
+        r#"
+        SELECT
+            (
+                SELECT COUNT(*)::bigint
+                FROM transactions t
+                WHERE t.customer_id = $1
+                  AND t.status IN ('open'::order_status, 'pending_measurement'::order_status)
+            ) AS open_orders_count,
+            COALESCE((
+                SELECT sca.balance
+                FROM store_credit_accounts sca
+                WHERE sca.customer_id = $1
+                LIMIT 1
+            ), 0)::numeric(14, 2) AS store_credit_balance,
+            COALESCE((
+                SELECT coda.balance
+                FROM customer_open_deposit_accounts coda
+                WHERE coda.customer_id = $1
+                LIMIT 1
+            ), 0)::numeric(14, 2) AS open_deposit_balance,
+            (
+                SELECT COUNT(*)::bigint
+                FROM alteration_orders ao
+                WHERE ao.customer_id = $1
+                  AND ao.status::text NOT IN ('completed', 'complete', 'cancelled', 'canceled', 'picked_up')
+            ) AS open_alterations_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM alteration_orders ao
+                WHERE ao.customer_id = $1
+                  AND ao.due_at IS NOT NULL
+                  AND ao.due_at < now()
+                  AND ao.status::text NOT IN ('completed', 'complete', 'cancelled', 'canceled', 'picked_up', 'ready')
+            ) AS overdue_alterations_count,
+            (
+                SELECT COUNT(*)::bigint
+                FROM alteration_orders ao
+                WHERE ao.customer_id = $1
+                  AND ao.due_at IS NOT NULL
+                  AND ao.due_at >= now()
+                  AND ao.due_at <= now() + interval '7 days'
+                  AND ao.status::text NOT IN ('completed', 'complete', 'cancelled', 'canceled', 'picked_up', 'ready')
+            ) AS due_soon_alterations_count,
+            (
+                SELECT NULLIF(TRIM(st.full_name), '')
+                FROM transactions t
+                JOIN staff st ON st.id = t.primary_salesperson_id
+                WHERE t.customer_id = $1
+                  AND t.status != 'cancelled'::order_status
+                ORDER BY t.booked_at DESC
+                LIMIT 1
+            ) AS recent_salesperson_name
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_one(pool)
+    .await?;
+
+    let mut items = Vec::new();
+
+    if facts.open_orders_count > 0 {
+        items.push(CustomerSnapshotItem {
+            label: plural(facts.open_orders_count, "open order", "open orders"),
+            severity: CustomerSnapshotSeverity::Info,
+        });
+    }
+
+    if ctx.balance_due_usd > Decimal::ZERO {
+        items.push(CustomerSnapshotItem {
+            label: format!("Balance due {}", money_label(ctx.balance_due_usd)),
+            severity: CustomerSnapshotSeverity::Warning,
+        });
+    }
+
+    if facts.store_credit_balance > Decimal::ZERO {
+        items.push(CustomerSnapshotItem {
+            label: format!(
+                "Store credit available {}",
+                money_label(facts.store_credit_balance)
+            ),
+            severity: CustomerSnapshotSeverity::Success,
+        });
+    }
+
+    if facts.open_deposit_balance > Decimal::ZERO {
+        items.push(CustomerSnapshotItem {
+            label: format!(
+                "Deposit waiting {}",
+                money_label(facts.open_deposit_balance)
+            ),
+            severity: CustomerSnapshotSeverity::Success,
+        });
+    }
+
+    if let Some(item) = wedding_snapshot_item(&ctx) {
+        items.push(item);
+    }
+
+    if facts.overdue_alterations_count > 0 {
+        items.push(CustomerSnapshotItem {
+            label: plural(
+                facts.overdue_alterations_count,
+                "overdue alteration",
+                "overdue alterations",
+            ),
+            severity: CustomerSnapshotSeverity::Warning,
+        });
+    } else if facts.due_soon_alterations_count > 0 {
+        items.push(CustomerSnapshotItem {
+            label: plural(
+                facts.due_soon_alterations_count,
+                "alteration due within 7 days",
+                "alterations due within 7 days",
+            ),
+            severity: CustomerSnapshotSeverity::Warning,
+        });
+    } else if facts.open_alterations_count > 0 {
+        items.push(CustomerSnapshotItem {
+            label: plural(
+                facts.open_alterations_count,
+                "open alteration",
+                "open alterations",
+            ),
+            severity: CustomerSnapshotSeverity::Info,
+        });
+    }
+
+    items.push(contact_preference_label(&ctx));
+
+    if let Some(name) = facts
+        .recent_salesperson_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        items.push(CustomerSnapshotItem {
+            label: format!("Recent sale with {name}"),
+            severity: CustomerSnapshotSeverity::Info,
+        });
+    }
+
+    items.truncate(7);
+    Ok(items)
 }
 
 pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStats, sqlx::Error> {

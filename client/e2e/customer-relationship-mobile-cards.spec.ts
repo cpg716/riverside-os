@@ -100,6 +100,14 @@ const CUSTOMER_HUB_RESPONSE = {
     lifecycle_state: "active",
   },
   partner: null,
+  snapshot_items: [
+    { label: "1 open order", severity: "info" },
+    {
+      label: "Operational contact: text and email; marketing opt-in on file",
+      severity: "info",
+    },
+    { label: "Recent sale with Chris G", severity: "info" },
+  ],
 };
 
 function linkedHubResponse(
@@ -422,6 +430,12 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
   await expect(dialog.getByText(/lifecycle/i)).toHaveCount(0);
 
   await expect(dialog.getByText(/register defaults/i)).toBeVisible();
+  await expect(dialog.getByTestId("customer-snapshot-card")).toBeVisible();
+  await expect(dialog.getByText("1 open order")).toBeVisible();
+  await expect(
+    dialog.getByText(/operational contact: text and email/i),
+  ).toBeVisible();
+  await expect(dialog.getByText("Recent sale with Chris G")).toBeVisible();
   await expect(dialog.getByLabel(/automatic discount/i)).toHaveValue("12.50");
   await expect(dialog.getByLabel(/^tax id$/i)).toHaveValue("NY-EXEMPT-123");
 

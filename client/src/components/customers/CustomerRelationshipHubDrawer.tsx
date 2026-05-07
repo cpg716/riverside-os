@@ -63,6 +63,13 @@ export interface CoupleMemberPreview {
   couple_primary_id: string | null;
 }
 
+type CustomerSnapshotSeverity = "info" | "warning" | "success";
+
+export interface CustomerSnapshotItem {
+  label: string;
+  severity: CustomerSnapshotSeverity;
+}
+
 export interface CustomerHubData extends CustomerProfile {
   is_vip: boolean;
   stats: CustomerHubStats;
@@ -70,6 +77,7 @@ export interface CustomerHubData extends CustomerProfile {
   couple_id: string | null;
   couple_primary_id: string | null;
   couple_linked_at: string | null;
+  snapshot_items: CustomerSnapshotItem[];
 }
 
 export interface CustomerTimelineEvent {
@@ -358,6 +366,17 @@ function shortDate(value: string | null | undefined): string {
   return date.toLocaleDateString();
 }
 
+function snapshotItemTone(severity: CustomerSnapshotSeverity): string {
+  switch (severity) {
+    case "warning":
+      return "border-app-warning/30 bg-app-warning/10 text-app-text";
+    case "success":
+      return "border-app-success/25 bg-app-success/10 text-app-text";
+    default:
+      return "border-app-border bg-app-surface-3 text-app-text";
+  }
+}
+
 export interface CustomerRelationshipHubDrawerProps {
   customer: Customer;
   open: boolean;
@@ -620,6 +639,7 @@ export function CustomerRelationshipHubDrawer({
           couple_id: null,
           couple_primary_id: null,
           couple_linked_at: null,
+          snapshot_items: [],
         });
       }
     } catch {
@@ -2318,6 +2338,27 @@ export function CustomerRelationshipHubDrawer({
                 </button>
               ))}
             </div>
+          ) : null}
+
+          {showHubSummary && hub.snapshot_items.length > 0 ? (
+            <section
+              data-testid="customer-snapshot-card"
+              className="rounded-2xl border border-app-border bg-app-surface-2/90 p-4"
+            >
+              <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                Customer Snapshot
+              </h3>
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {hub.snapshot_items.slice(0, 7).map((item) => (
+                  <li
+                    key={item.label}
+                    className={`rounded-xl border px-3 py-2 text-sm font-semibold ${snapshotItemTone(item.severity)}`}
+                  >
+                    {item.label}
+                  </li>
+                ))}
+              </ul>
+            </section>
           ) : null}
 
           {showHubSummary ? (
