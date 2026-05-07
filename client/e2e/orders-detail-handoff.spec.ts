@@ -144,6 +144,10 @@ test.describe("Orders detail drawer and POS handoff", () => {
     );
     await expect(drawer).toContainText("Pickup Work");
     await expect(drawer).toContainText("Balance Due Before Release");
+    await expect(drawer).toContainText("Readiness Check");
+    await expect(drawer).toContainText("Blocks Release");
+    await expect(drawer).toContainText("Balance due before release");
+    await expect(drawer).toContainText("1 pickup line is still open.");
     await expect(drawer).toContainText("Still Open");
 
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();

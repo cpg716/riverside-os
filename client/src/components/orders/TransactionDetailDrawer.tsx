@@ -387,6 +387,85 @@ function readinessSummary(
   };
 }
 
+function daysFromToday(value: string): number | null {
+  const target = new Date(value);
+  if (Number.isNaN(target.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+  return Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+function daysSince(value: string): number | null {
+  const target = new Date(value);
+  if (Number.isNaN(target.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+  return Math.floor((today.getTime() - target.getTime()) / 86_400_000);
+}
+
+function formatWeddingProximity(days: number): string {
+  if (days === 0) return "Wedding is today.";
+  if (days === 1) return "Wedding is tomorrow.";
+  return `Wedding is in ${days} days.`;
+}
+
+function buildReadinessCheck(
+  detail: TransactionDrawerDetail,
+  summary: ReturnType<typeof fulfillmentSummary>,
+): { blockers: string[]; warnings: string[] } {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const dueCents = parseMoneyToCents(detail.balance_due);
+  const isShip = detail.fulfillment_method === "ship";
+  const hasLayawayLine = detail.items.some(
+    (item) => !item.is_internal && item.fulfillment === "layaway",
+  );
+
+  if (dueCents > 0) {
+    blockers.push(
+      hasLayawayLine
+        ? `Layaway balance due before release: ${fmtMoney(detail.balance_due)}.`
+        : `Balance due before release: ${fmtMoney(detail.balance_due)}.`,
+    );
+  }
+
+  if (detail.status === "pending_measurement") {
+    blockers.push("Measurements/details still need follow-up.");
+  }
+
+  if (summary.pending > 0) {
+    const workType = isShip ? "shipping" : "pickup";
+    blockers.push(
+      summary.pending === 1
+        ? `1 ${workType} line is still open.`
+        : `${summary.pending} ${workType} lines are still open.`,
+    );
+  }
+
+  const weddingDays = detail.wedding_summary?.event_date
+    ? daysFromToday(detail.wedding_summary.event_date)
+    : null;
+  if (weddingDays !== null && weddingDays >= 0 && weddingDays <= 30) {
+    warnings.push(formatWeddingProximity(weddingDays));
+  }
+
+  const openAgeDays = daysSince(detail.booked_at);
+  if (
+    openAgeDays !== null &&
+    openAgeDays > 30 &&
+    !["fulfilled", "cancelled"].includes(detail.status)
+  ) {
+    warnings.push(`Open more than 30 days; booked ${openAgeDays} days ago.`);
+  }
+
+  return {
+    blockers: blockers.slice(0, 6),
+    warnings: warnings.slice(0, Math.max(0, 6 - blockers.length)),
+  };
+}
+
 function badgeClassName(kind: "success" | "info" | "warning" | "neutral" | "rose") {
   switch (kind) {
     case "success":
@@ -578,6 +657,10 @@ export default function TransactionDetailDrawer({
   const mode = useMemo(() => (detail ? modeSummary(detail) : null), [detail]);
   const readiness = useMemo(
     () => (detail && summary ? readinessSummary(detail, summary) : null),
+    [detail, summary],
+  );
+  const readinessCheck = useMemo(
+    () => (detail && summary ? buildReadinessCheck(detail, summary) : null),
     [detail, summary],
   );
   const beginLineEdit = useCallback((item: TransactionDrawerItem) => {
@@ -945,6 +1028,55 @@ export default function TransactionDetailDrawer({
                 </div>
               </div>
             </section>
+
+            {readinessCheck ? (
+              <section className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={16} className="text-app-text-muted" />
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
+                    Readiness Check
+                  </h3>
+                </div>
+                {readinessCheck.blockers.length > 0 || readinessCheck.warnings.length > 0 ? (
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    {readinessCheck.blockers.length > 0 ? (
+                      <div className="rounded-xl border border-app-warning/20 bg-app-warning/8 p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
+                          Blocks Release
+                        </p>
+                        <ul className="mt-2 space-y-2 text-[12px] font-semibold text-app-text">
+                          {readinessCheck.blockers.map((item) => (
+                            <li key={item} className="flex gap-2">
+                              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-app-warning" />
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {readinessCheck.warnings.length > 0 ? (
+                      <div className="rounded-xl border border-app-info/20 bg-app-info/8 p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-info">
+                          Watch
+                        </p>
+                        <ul className="mt-2 space-y-2 text-[12px] font-semibold text-app-text">
+                          {readinessCheck.warnings.map((item) => (
+                            <li key={item} className="flex gap-2">
+                              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-app-info" />
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-xl border border-app-border/70 bg-app-surface p-3 text-[12px] font-semibold text-app-text-muted">
+                    No release blockers found from current order details.
+                  </p>
+                )}
+              </section>
+            ) : null}
 
             {detail.wedding_summary ? (
               <section className="rounded-2xl border border-rose-500/20 bg-rose-500/8 p-4">
