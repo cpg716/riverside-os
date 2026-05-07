@@ -147,6 +147,13 @@ interface CatalogQualitySummary {
   missingPrimaryVendor: number;
 }
 
+interface InventoryCleanupSummary {
+  duplicate_barcode_groups: number;
+  duplicate_vendor_upc_groups: number;
+  products_missing_category: number;
+  products_missing_primary_vendor: number;
+}
+
 function money(v: string | number) {
   if (typeof v === "number") return formatUsdFromCents(Math.round(v * 100));
   return formatUsdFromCents(parseMoneyToCents(v || "0"));
@@ -360,6 +367,8 @@ export default function InventoryControlBoard({
   const baseUrl = getBaseUrl();
   const isPosSurface = surface === "pos";
   const [rows, setRows] = useState<BoardRow[]>([]);
+  const [cleanupSummary, setCleanupSummary] =
+    useState<InventoryCleanupSummary | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [searchInput, setSearchInput] = useState("");
@@ -497,6 +506,21 @@ export default function InventoryControlBoard({
     }
   }, [baseUrl, apiAuth]);
 
+  const loadCleanupSummary = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl(baseUrl, "/api/products/cleanup-summary"), {
+        headers: apiAuth(),
+      });
+      if (!res.ok) {
+        setCleanupSummary(null);
+        return;
+      }
+      setCleanupSummary((await res.json()) as InventoryCleanupSummary);
+    } catch {
+      setCleanupSummary(null);
+    }
+  }, [baseUrl, apiAuth]);
+
   const refreshBoard = useCallback(async () => {
     const params = new URLSearchParams();
     if (debouncedSearch) params.set("search", debouncedSearch);
@@ -550,12 +574,16 @@ export default function InventoryControlBoard({
   ]);
 
   const refresh = useCallback(async () => {
-    await Promise.all([loadCategoriesAndVendors(), refreshBoard()]);
-  }, [loadCategoriesAndVendors, refreshBoard]);
+    await Promise.all([loadCategoriesAndVendors(), refreshBoard(), loadCleanupSummary()]);
+  }, [loadCategoriesAndVendors, refreshBoard, loadCleanupSummary]);
 
   useEffect(() => {
     void loadCategoriesAndVendors();
   }, [loadCategoriesAndVendors]);
+
+  useEffect(() => {
+    void loadCleanupSummary();
+  }, [loadCleanupSummary]);
 
   useEffect(() => {
     void refreshBoard();
@@ -716,6 +744,23 @@ export default function InventoryControlBoard({
       },
     );
   }, [visibleProductRows]);
+
+  const cleanupReviewItems = useMemo(() => {
+    if (!cleanupSummary) return [];
+    return [
+      `${cleanupSummary.duplicate_barcode_groups} duplicate barcode groups need review.`,
+      `${cleanupSummary.duplicate_vendor_upc_groups} duplicate vendor UPC groups need review.`,
+      `${cleanupSummary.products_missing_category} active items are missing a category.`,
+      `${cleanupSummary.products_missing_primary_vendor} active items are missing a primary vendor.`,
+    ];
+  }, [cleanupSummary]);
+
+  const showCleanupReview =
+    cleanupSummary != null &&
+    (cleanupSummary.duplicate_barcode_groups > 0 ||
+      cleanupSummary.duplicate_vendor_upc_groups > 0 ||
+      cleanupSummary.products_missing_category > 0 ||
+      cleanupSummary.products_missing_primary_vendor > 0);
 
   const groupedRowsByVendor = useMemo(() => {
     if (!groupByPrimaryVendor) return null;
@@ -1417,39 +1462,59 @@ export default function InventoryControlBoard({
           )}
         </div>
 
-        <div className="ui-card ui-tint-warning px-4 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                Item Readiness
-              </p>
-              <p className="mt-1 text-sm font-semibold text-app-text">
-                Visible items missing fields that help with purchasing, selling, or reporting.
-              </p>
-            </div>
-            <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              {catalogQualitySummary.templatesVisible} templates visible
-            </span>
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            {[
-              ["Category missing", catalogQualitySummary.missingCategory],
-              ["Vendor missing", catalogQualitySummary.missingPrimaryVendor],
-              ["Optional brand blank", catalogQualitySummary.missingBrand],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                className="ui-metric-cell ui-tint-neutral px-3 py-3"
-              >
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                  {label}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="ui-card ui-tint-warning px-4 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                  Item Readiness
                 </p>
-                <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                  {value}
+                <p className="mt-1 text-sm font-semibold text-app-text">
+                  Visible items missing fields that help with purchasing, selling, or reporting.
                 </p>
               </div>
-            ))}
+              <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                {catalogQualitySummary.templatesVisible} templates visible
+              </span>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              {[
+                ["Category missing", catalogQualitySummary.missingCategory],
+                ["Vendor missing", catalogQualitySummary.missingPrimaryVendor],
+                ["Optional brand blank", catalogQualitySummary.missingBrand],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="ui-metric-cell ui-tint-neutral px-3 py-3"
+                >
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    {label}
+                  </p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
+
+          {showCleanupReview ? (
+            <div className="ui-card ui-tint-neutral px-4 py-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                Inventory Cleanup Review
+              </p>
+              <ul className="mt-4 space-y-2 text-sm font-semibold text-app-text">
+                {cleanupReviewItems.map((item) => (
+                  <li
+                    key={item}
+                    className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2"
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       </div>
 

@@ -529,6 +529,14 @@ pub struct InventoryControlResponse {
     pub stats: InventoryStats,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct InventoryCleanupSummary {
+    pub duplicate_barcode_groups: i64,
+    pub duplicate_vendor_upc_groups: i64,
+    pub products_missing_category: i64,
+    pub products_missing_primary_vendor: i64,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BulkUpdateRequest {
     pub product_id: Uuid,
@@ -785,6 +793,7 @@ pub fn router() -> Router<AppState> {
         .route("/", post(create_product).get(list_products))
         .route("/next-ros-skus", get(next_ros_skus))
         .route("/control-board", get(list_control_board))
+        .route("/cleanup-summary", get(get_cleanup_summary))
         .route("/bulk-update", post(bulk_update_product_model))
         .route("/bulk-set-model", post(bulk_set_product_model))
         .route("/bulk-archive", post(bulk_archive_products))
@@ -1457,6 +1466,63 @@ pub async fn list_control_board(
     };
 
     Ok(Json(InventoryControlResponse { rows, stats }))
+}
+
+async fn get_cleanup_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<InventoryCleanupSummary>, ProductError> {
+    middleware::require_staff_perm_or_pos_session(&state, &headers, CATALOG_VIEW)
+        .await
+        .map_err(map_perm_err_products)?;
+
+    let summary = sqlx::query_as::<_, InventoryCleanupSummary>(
+        r#"
+        SELECT
+            (
+                SELECT COUNT(*)::bigint
+                FROM (
+                    SELECT lower(trim(pv.barcode)) AS normalized_barcode
+                    FROM product_variants pv
+                    INNER JOIN products p ON p.id = pv.product_id
+                    WHERE p.is_active = true
+                      AND pv.barcode IS NOT NULL
+                      AND trim(pv.barcode) <> ''
+                    GROUP BY lower(trim(pv.barcode))
+                    HAVING COUNT(*) > 1
+                ) duplicate_barcodes
+            ) AS duplicate_barcode_groups,
+            (
+                SELECT COUNT(*)::bigint
+                FROM (
+                    SELECT lower(trim(pv.vendor_upc)) AS normalized_vendor_upc
+                    FROM product_variants pv
+                    INNER JOIN products p ON p.id = pv.product_id
+                    WHERE p.is_active = true
+                      AND pv.vendor_upc IS NOT NULL
+                      AND trim(pv.vendor_upc) <> ''
+                    GROUP BY lower(trim(pv.vendor_upc))
+                    HAVING COUNT(*) > 1
+                ) duplicate_vendor_upcs
+            ) AS duplicate_vendor_upc_groups,
+            (
+                SELECT COUNT(*)::bigint
+                FROM products p
+                WHERE p.is_active = true
+                  AND p.category_id IS NULL
+            ) AS products_missing_category,
+            (
+                SELECT COUNT(*)::bigint
+                FROM products p
+                WHERE p.is_active = true
+                  AND p.primary_vendor_id IS NULL
+            ) AS products_missing_primary_vendor
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(summary))
 }
 
 async fn bulk_update_product_model(

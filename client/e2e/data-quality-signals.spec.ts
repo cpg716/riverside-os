@@ -81,6 +81,19 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
     });
   });
 
+  await page.route("**/api/products/cleanup-summary", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        duplicate_barcode_groups: 2,
+        duplicate_vendor_upc_groups: 3,
+        products_missing_category: 4,
+        products_missing_primary_vendor: 5,
+      }),
+    });
+  });
+
   await page.route("**/api/customers/groups", async (route) => {
     await route.fulfill({
       status: 200,
@@ -159,6 +172,11 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
   await expect(page.getByText("Item Readiness")).toBeVisible();
   await expect(page.getByText("Optional brand blank")).toBeVisible();
   await expect(page.getByText("Vendor missing")).toBeVisible();
+  await expect(page.getByText("Inventory Cleanup Review")).toBeVisible();
+  await expect(page.getByText("2 duplicate barcode groups need review.")).toBeVisible();
+  await expect(page.getByText("3 duplicate vendor UPC groups need review.")).toBeVisible();
+  await expect(page.getByText("4 active items are missing a category.")).toBeVisible();
+  await expect(page.getByText("5 active items are missing a primary vendor.")).toBeVisible();
 
   await openWorkspace(
     page,
