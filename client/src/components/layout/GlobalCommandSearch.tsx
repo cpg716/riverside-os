@@ -85,6 +85,17 @@ interface ProductSearchGroup {
   matchedSkus: string[];
 }
 
+type SearchShortcutIntent = "open_orders";
+
+interface SearchShortcut {
+  intent: SearchShortcutIntent;
+  key: string;
+  title: string;
+  subtitle: string;
+  tab: SidebarTabId;
+  section?: string;
+}
+
 type SearchResultEntry =
   | { kind: "sku"; key: string; title: string; subtitle: string; meta: string }
   | { kind: "customer"; key: string; customer: Customer }
@@ -92,7 +103,8 @@ type SearchResultEntry =
   | { kind: "shipment"; key: string; shipment: ShipmentSearchHit }
   | { kind: "product"; key: string; product: ProductSearchGroup }
   | { kind: "wedding"; key: string; wedding: WeddingSearchHit }
-  | { kind: "alteration"; key: string; alteration: AlterationSearchHit };
+  | { kind: "alteration"; key: string; alteration: AlterationSearchHit }
+  | { kind: "shortcut"; key: string; shortcut: SearchShortcut };
 
 interface GlobalCommandSearchProps {
   onNavigateRegister: () => void;
@@ -113,6 +125,41 @@ function looksLikeSku(q: string): boolean {
   if (t.length < 2 || t.length > 64) return false;
   if (/\s/.test(t)) return false;
   return /^[A-Za-z0-9][A-Za-z0-9._\-/]*$/.test(t);
+}
+
+function normalizedShortcutQuery(q: string): string {
+  return q
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function buildSearchShortcuts(q: string, canNavigate: boolean): SearchShortcut[] {
+  if (!canNavigate) return [];
+  const normalized = normalizedShortcutQuery(q);
+  if (!normalized) return [];
+  const words = new Set(normalized.split(" "));
+  const hasOrderWord = words.has("order") || words.has("orders");
+  const wantsOpenOrders =
+    hasOrderWord &&
+    (words.has("open") ||
+      normalized === "orders" ||
+      normalized === "order lookup" ||
+      normalized === "find orders");
+
+  if (!wantsOpenOrders) return [];
+
+  return [
+    {
+      intent: "open_orders",
+      key: "shortcut:open_orders",
+      title: "Open Orders",
+      subtitle: "Go to the open orders workspace.",
+      tab: "orders",
+      section: "open",
+    },
+  ];
 }
 
 function groupProductRows(
@@ -238,6 +285,10 @@ export default function GlobalCommandSearch({
   });
 
   const isPosVariant = variant === "pos";
+  const shortcuts = useMemo(
+    () => buildSearchShortcuts(query, Boolean(onNavigateToTab)),
+    [onNavigateToTab, query],
+  );
 
   const resultEntries = useMemo<SearchResultEntry[]>(
     () => [
@@ -282,8 +333,13 @@ export default function GlobalCommandSearch({
         key: `alteration:${alteration.id}`,
         alteration,
       })),
+      ...shortcuts.map((shortcut) => ({
+        kind: "shortcut" as const,
+        key: shortcut.key,
+        shortcut,
+      })),
     ],
-    [alterations, customers, orders, products, shipments, skuHit, weddings],
+    [alterations, customers, orders, products, shipments, shortcuts, skuHit, weddings],
   );
 
   const indexedEntries = useMemo(
@@ -358,6 +414,16 @@ export default function GlobalCommandSearch({
           item,
         ): item is { entry: Extract<SearchResultEntry, { kind: "alteration" }>; index: number } =>
           item.entry.kind === "alteration",
+      ),
+    [indexedEntries],
+  );
+  const shortcutEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is { entry: Extract<SearchResultEntry, { kind: "shortcut" }>; index: number } =>
+          item.entry.kind === "shortcut",
       ),
     [indexedEntries],
   );
@@ -618,6 +684,11 @@ export default function GlobalCommandSearch({
     onSearchOpenAlteration?.(alterationId);
   };
 
+  const pickShortcut = (shortcut: SearchShortcut) => {
+    closePalette();
+    onNavigateToTab?.(shortcut.tab, shortcut.section);
+  };
+
   const activateHighlighted = (e: KeyboardEvent<HTMLInputElement>, altRegister: boolean) => {
     if (pickCount === 0 || loading) return;
     const entry = resultEntries[highlightIndex >= 0 ? highlightIndex : 0];
@@ -648,6 +719,9 @@ export default function GlobalCommandSearch({
         return;
       case "alteration":
         pickAlteration(entry.alteration.id);
+        return;
+      case "shortcut":
+        pickShortcut(entry.shortcut);
         return;
     }
   };
@@ -1062,6 +1136,24 @@ export default function GlobalCommandSearch({
                             ? ` · ${entry.alteration.customer_phone ?? entry.alteration.customer_email}`
                             : ""}
                         </span>
+                      </ResultButton>
+                    ))}
+                  </ResultSection>
+
+                  <ResultSection title="Suggested Searches" visible={shortcutEntries.length > 0}>
+                    {shortcutEntries.map(({ entry, index }) => (
+                      <ResultButton
+                        key={entry.key}
+                        index={index}
+                        highlightIndex={highlightIndex}
+                        onMouseEnter={() => setHighlightIndex(index)}
+                        onClick={() => pickShortcut(entry.shortcut)}
+                      >
+                        <span className="font-semibold text-app-text">{entry.shortcut.title}</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Shortcut
+                        </span>
+                        <span className="text-xs text-app-text-muted">{entry.shortcut.subtitle}</span>
                       </ResultButton>
                     ))}
                   </ResultSection>
