@@ -13,7 +13,7 @@ The primary entry point is **`Start-RiversideDeployment.cmd`**. It opens the Riv
 Build output:
 
 ```text
-RiversideOS-v0.4.0-Windows-Deployment/
+RiversideOS-v0.4.5-Windows-Deployment/
   Start-RiversideDeployment.cmd
   Start-RiversideDeployment.ps1
   install-server.ps1
@@ -32,7 +32,7 @@ RiversideOS-v0.4.0-Windows-Deployment/
 From a Windows release machine after building the server, client, and Tauri bundle:
 
 ```powershell
-.\deployment\windows\build-deployment-package.ps1 -Version "0.4.0"
+.\deployment\windows\build-deployment-package.ps1 -Version "0.4.5"
 ```
 
 If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`.

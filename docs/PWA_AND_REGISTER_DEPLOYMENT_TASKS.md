@@ -22,14 +22,14 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **Separate PWA vs register builds:** `client/.env.pwa.example`, `client/.env.register.example` (copy to `.env.pwa` / `.env.register`, gitignored). Scripts: `npm run build:pwa`, `npm run build:register`. Tauri uses `beforeBuildCommand`: `npm run build:register` in `client/src-tauri/tauri.conf.json`.
 - [x] **Version display:** Settings → General → **About this build** (semver, git SHA, Tauri version, API base).
 
-### A.1 Current release artifact status (2026-05-01)
+### A.1 Current release artifact status (2026-05-07)
 
-- [x] Target app version is now **`v0.4.0`** for the deployment-audit release candidate.
-- [ ] **`v0.4.0` Windows installer/updater assets are not published yet.** Required Windows release artifacts are `latest.json`, the Windows MSI, and the `.sig`.
+- [x] Target app version is now **`v0.4.5`** for the release-prep build.
+- [ ] **`v0.4.5` Windows installer/updater assets are not published yet.** Required Windows release artifacts are `latest.json`, the Windows MSI, and the `.sig`.
 - [x] Previous updater proof exists: **`v0.2.1`** release includes `latest.json`, MSI, and `.sig`.
-- [ ] Before installing Windows stations for **`v0.4.0`**, run the Windows updater release workflow, use a manual workflow artifact, or produce an approved local Windows build and record the artifact URL.
-- [ ] Latest `main` **Lint Checks** must be green before calling the current head release-ready. The previous GitHub run failed on a Meilisearch helper too-many-arguments lint; the local v0.4.0 readiness fix refactors that helper, and CI still needs a fresh run after commit/push.
-- [ ] Latest `main` **Playwright E2E** must be green before calling the current head release-ready. The later GitHub run at `ef1f6a28` failed the individualized-shirt order contract; the local v0.4.0 readiness fix now passes that targeted slice, and CI still needs a fresh run after commit/push.
+- [ ] Before installing Windows stations for **`v0.4.5`**, run the Windows updater release workflow, use a manual workflow artifact, or produce an approved local Windows build and record the artifact URL.
+- [ ] Latest `main` **Lint Checks** must be green before calling the current head release-ready. Local release-prep validation has passed targeted client/server checks; CI still needs a fresh run after commit/push.
+- [ ] Latest `main` **Playwright E2E** must be green before calling the current head release-ready. Local gift card browser smoke and gift card E2E specs passed during `v0.4.5` release prep; CI still needs a fresh run after commit/push.
 
 ---
 

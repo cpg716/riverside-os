@@ -2,33 +2,33 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-## Current Deployment Status (2026-05-01)
+## Current Deployment Status (2026-05-07)
 
-- [x] Target release version is **`v0.4.0`**.
-- [ ] Current release tag exists: **`v0.4.0`**.
+- [x] Target release version is **`v0.4.5`**.
+- [ ] Current release tag exists: **`v0.4.5`**.
 - [ ] Current release has Windows installer/updater assets published.
-  - Evidence: **`v0.4.0`** has not been tagged/published yet.
+  - Evidence: **`v0.4.5`** has not been tagged/published yet.
   - Previous proof: **`v0.2.1`** has `latest.json`, MSI, and `.sig`.
-  - Required action: tag/publish `v0.4.0`, then run the Windows updater release workflow, use a manual workflow artifact, or produce an approved local Windows build before installing Windows stations.
+  - Required action: tag/publish `v0.4.5`, then run the Windows updater release workflow, use a manual workflow artifact, or produce an approved local Windows build before installing Windows stations.
   - Required artifacts: `latest.json`, Windows MSI, and `.sig`.
 - [ ] Latest Playwright E2E push on `main` passed.
   - Previous pass: `ed4172de` passed on 2026-05-01.
   - Later blocker: `ef1f6a28` failed individualized-shirt order contract coverage.
-  - Local v0.4.0 readiness fix: exact SKU lookup for known custom-order fixtures so the targeted individualized-shirt slice passes before commit.
+  - Local v0.4.5 readiness evidence: gift card browser smoke and gift card contract specs passed during release prep; full GitHub E2E still needs a fresh run on the release commit.
 - [ ] Latest Lint Checks push on `main` passed.
   - Previous blocker: server Clippy reported `control_board_meili_filter_parts` has too many arguments in `server/src/logic/meilisearch_search.rs`.
-  - Local v0.4.0 readiness fix: refactor the helper so `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` passes before commit.
+  - Local v0.4.5 readiness evidence: targeted client/server validation passed during release prep; full GitHub lint/checks still need a fresh run on the release commit.
 - [ ] Production station deployment log is complete for:
   - Backoffice / Server PC
   - Register #1 Windows Tauri
   - Register #2 iPad PWA
   - other Windows laptop PWA / optional Tauri clients
 
-## v0.4.0 Release Readiness Blockers
+## v0.4.5 Release Readiness Blockers
 
-- [x] Server Clippy blocker is fixed locally for the v0.4.0 readiness pass.
-- [x] Individualized-shirt Playwright blocker is fixed locally for the v0.4.0 readiness pass.
-- [ ] `v0.4.0` Windows updater assets exist: `latest.json`, MSI, and `.sig`.
+- [x] Promo gift card support and gift card browser smoke passed locally for the v0.4.5 readiness pass.
+- [x] Counterpoint cutover reconciliation hardening is committed locally before the v0.4.5 readiness pass.
+- [ ] `v0.4.5` Windows updater assets exist: `latest.json`, MSI, and `.sig`.
 - [ ] Physical station smoke is complete for Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] GitHub checks have rerun and passed on the final release commit.
 

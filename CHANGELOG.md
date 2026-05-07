@@ -6,14 +6,33 @@ The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## [0.4.5] — 2026-05-07
 ### Added
+- Added online store workspace, merchandising, checkout, and store operations surfaces.
+- Added in-app update manager and Windows deployment package workflow support.
 - Added Helcim-focused Payments Operations documentation for event logging, fee sync, batch/settlement reconciliation, issue resolution, actual bank deposit matching, automation alerts, and test coverage.
 - Added staff-facing Payments Operations guidance covering Overview, Batches, Reconciliation, Transactions, Deposits, Health, permission-gated actions, and expected-vs-actual deposit language.
+- Added secure integration credential storage and unified credential settings.
+- Added RMS account list snapshots and manual-first RMS Charge handling.
+- Added Counterpoint cutover reconciliation for customers, inventory, open docs, category/vendor mappings, inventory fidelity checksums, and mismatch diagnostics.
+- Added promo gift cards with event names, one-year expiration, POS tender support, and QBO expense mapping.
 
 ### Changed
+- Bumped application/package metadata to `0.4.5` across root, client/POS, server, and Tauri manifests/lockfiles.
+- Replaced card payment operations with Helcim-centered terminal routing, settlement, webhook logging, and shared-terminal support.
+- Strengthened Windows deployment provenance, installer package behavior, and local deployment manager setup.
+- Updated Counterpoint gift card and loyalty migration behavior to snapshot-only balances for cutover.
 - Documented the schema-contract reset: active baseline migrations `001` through `008`, legacy pre-launch migration archive, separated seed phases, validation-only runtime startup, and schema guardrail scripts.
 - Updated developer, local setup, E2E, and deployment docs to use baseline migrations plus `scripts/seeds/` instead of seed-like historical migrations.
 - Updated developer, permissions, integration-scope, Settings, and E2E docs to reflect ROS-owned Helcim payment operations and the new `payments.*` permission boundaries.
+
+### Fixed
+- Hardened POS register startup flow and database pool sizing for deployment environments.
+- Fixed CI/payment/offline blockers and hardened payments operations coverage.
+- Fixed Counterpoint gift card snapshot behavior so historical ticket gift applications do not mutate imported current balances.
+- Fixed Counterpoint transaction schema alignment and reconciliation visibility for cutover sign-off.
+- Fixed Playwright local auto-boot readiness and Back Office navigation/sign-in helper stability for gift card browser smoke.
 
 ## [0.4.0] — 2026-05-01
 ### Added

@@ -62,21 +62,21 @@ flowchart TB
 | **Other Windows PCs / laptops** | **PWA or optional Tauri** | Use a browser-installed PWA for Back Office/POS where hardware printing is not required; use Tauri where native printer/scanner reliability is required. |
 | **Off-site phones / laptops** | **PWA over Tailscale** | Use **Tailscale** (or equivalent private mesh) and **HTTPS** when the device is not on the same local network as the host. Do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
 
-### 2.1 Current deployment status snapshot (2026-05-01)
+### 2.1 Current deployment status snapshot (2026-05-07)
 
 This is the current repo/deployment status to verify before a live install:
 
 | Item | Current status | Deployment impact |
 |------|----------------|-------------------|
-| Target release version | **`v0.4.0`** | Version metadata is bumped locally for the deployment-audit release candidate. |
-| Latest published GitHub release | **`v0.3.1`** published 2026-04-25 | The new `v0.4.0` tag/release has not been published yet. |
-| `v0.4.0` Windows installer assets | **Not published yet** | Do **not** install Windows stations until `latest.json`, the Windows MSI, and the `.sig` are produced by the updater release workflow, a manual workflow artifact, or an approved local Windows build. |
-| Last published Windows updater installer assets | **`v0.2.1`** release has `latest.json`, MSI, and `.sig` | Good evidence the updater pipeline works, but not current for `v0.4.0`. |
-| Latest Playwright E2E on `main` | Later GitHub run at `ef1f6a28` failed individualized-shirt order contract coverage; local v0.4.0 readiness fix now passes that targeted slice | Rerun GitHub checks on the release commit before calling the code gate green. |
-| Latest Lint Checks on `main` | Previous GitHub run failed server Clippy on `control_board_meili_filter_parts`; the local v0.4.0 readiness fix refactors that helper | Rerun GitHub checks on the release commit before calling the code gate green. |
+| Target release version | **`v0.4.5`** | Version metadata is bumped locally for the release-prep build. |
+| Latest published GitHub release | **`v0.4.0`** published 2026-05-01 | The new `v0.4.5` tag/release has not been published yet. |
+| `v0.4.5` Windows installer assets | **Not published yet** | Do **not** install Windows stations until `latest.json`, the Windows MSI, and the `.sig` are produced by the updater release workflow, a manual workflow artifact, or an approved local Windows build. |
+| Last published Windows updater installer assets | **`v0.2.1`** release has `latest.json`, MSI, and `.sig` | Good evidence the updater pipeline works, but not current for `v0.4.5`. |
+| Latest Playwright E2E on `main` | Local gift card browser smoke and gift card contract specs passed for promo gift card release prep; full GitHub checks still need to run on the release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
+| Latest Lint Checks on `main` | Local client lint/typecheck and targeted Rust suites passed during promo gift card validation; full GitHub checks still need to run on the release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
 | Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |
 
-Before installing the two Windows PCs and PWA devices for production use, create or publish a current Windows installer/updater artifact for **`v0.4.0`** and record its release/run URL in the deployment log.
+Before installing the two Windows PCs and PWA devices for production use, create or publish a current Windows installer/updater artifact for **`v0.4.5`** and record its release/run URL in the deployment log.
 
 For a near-turnkey Windows setup package, use [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOWS_INSTALLER_PACKAGE.md). That package automates the Server PC install, migration apply, startup task, firewall rule, Register #1 desktop install, station API base, and printer settings import.
 
