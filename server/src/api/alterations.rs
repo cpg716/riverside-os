@@ -364,7 +364,7 @@ async fn add_alteration_item(
     .fetch_one(&mut *tx)
     .await?;
 
-    crate::logic::alterations_scheduler::update_order_unit_totals(&state.db, id).await?;
+    crate::logic::alterations_scheduler::update_order_unit_totals(&mut tx, id).await?;
 
     let row = sqlx::query_as::<_, AlterationOrderItemRow>(
         "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at 
@@ -426,7 +426,7 @@ async fn delete_alteration_item(
         .execute(&mut *tx)
         .await?;
 
-    crate::logic::alterations_scheduler::update_order_unit_totals(&state.db, id).await?;
+    crate::logic::alterations_scheduler::update_order_unit_totals(&mut tx, id).await?;
 
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)

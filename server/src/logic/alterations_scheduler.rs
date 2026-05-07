@@ -147,7 +147,10 @@ pub async fn find_suggested_slots(
 }
 
 /// Recalculate denormalized units for an alteration order.
-pub async fn update_order_unit_totals(pool: &PgPool, order_id: Uuid) -> Result<(), sqlx::Error> {
+pub async fn update_order_unit_totals(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    order_id: Uuid,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         UPDATE alteration_orders
@@ -167,7 +170,7 @@ pub async fn update_order_unit_totals(pool: &PgPool, order_id: Uuid) -> Result<(
         "#,
     )
     .bind(order_id)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
 
     Ok(())

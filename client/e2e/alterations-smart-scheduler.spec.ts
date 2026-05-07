@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 import { signInToBackOffice, openBackofficeSidebarTab } from "./helpers/backofficeSignIn";
+import { apiBase, seedRmsFixture, staffHeaders } from "./helpers/rmsCharge";
 
 const CUSTOMER = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -42,6 +43,133 @@ const ALTERATION = {
     total_units_jacket: 0,
     total_units_pant: 0,
 };
+
+type AlterationApiRow = {
+    id: string;
+    customer_id: string;
+    total_units_jacket: number;
+    total_units_pant: number;
+};
+
+type AlterationItemApiRow = {
+    id: string;
+    alteration_order_id: string;
+    capacity_bucket: "jacket" | "pant" | "other";
+    units: number;
+};
+
+async function loadAlterationById(
+    request: APIRequestContext,
+    customerId: string,
+    alterationId: string,
+): Promise<AlterationApiRow> {
+    const res = await request.get(
+        `${apiBase()}/api/alterations?customer_id=${encodeURIComponent(customerId)}`,
+        {
+            headers: staffHeaders(),
+            failOnStatusCode: false,
+        },
+    );
+    expect(res.status()).toBe(200);
+    const rows = (await res.json()) as AlterationApiRow[];
+    const row = rows.find((entry) => entry.id === alterationId);
+    expect(row).toBeTruthy();
+    return row!;
+}
+
+async function addAlterationItem(
+    request: APIRequestContext,
+    alterationId: string,
+    item: { label: string; capacity_bucket: "jacket" | "pant" | "other"; units: number },
+): Promise<AlterationItemApiRow> {
+    const res = await request.post(`${apiBase()}/api/alterations/${alterationId}/items`, {
+        headers: {
+            ...staffHeaders(),
+            "Content-Type": "application/json",
+        },
+        data: item,
+        failOnStatusCode: false,
+    });
+    expect(res.status()).toBe(200);
+    return (await res.json()) as AlterationItemApiRow;
+}
+
+test.describe("Alteration unit totals API", () => {
+    test("recalculates order unit totals after item add and delete", async ({ request }) => {
+        const fixture = await seedRmsFixture(request, "standard_only", "Alteration Unit Totals");
+
+        const createRes = await request.post(`${apiBase()}/api/alterations`, {
+            headers: {
+                ...staffHeaders(),
+                "Content-Type": "application/json",
+            },
+            data: {
+                customer_id: fixture.customer.id,
+                source_type: "custom_item",
+                item_description: "Customer-owned suit",
+                work_requested: "Unit total reliability check",
+                intake_channel: "standalone",
+            },
+            failOnStatusCode: false,
+        });
+        expect(createRes.status()).toBe(200);
+        const alteration = (await createRes.json()) as AlterationApiRow;
+        expect(alteration.total_units_jacket).toBe(0);
+        expect(alteration.total_units_pant).toBe(0);
+
+        const jacket = await addAlterationItem(request, alteration.id, {
+            label: "Shorten sleeves",
+            capacity_bucket: "jacket",
+            units: 4,
+        });
+        await addAlterationItem(request, alteration.id, {
+            label: "Waist in/out",
+            capacity_bucket: "pant",
+            units: 2,
+        });
+        const other = await addAlterationItem(request, alteration.id, {
+            label: "Steam garment",
+            capacity_bucket: "other",
+            units: 3,
+        });
+
+        await expect
+            .poll(async () => {
+                const row = await loadAlterationById(request, fixture.customer.id, alteration.id);
+                return [row.total_units_jacket, row.total_units_pant];
+            })
+            .toEqual([4, 2]);
+
+        const deleteJacketRes = await request.delete(
+            `${apiBase()}/api/alterations/${alteration.id}/items/${jacket.id}`,
+            {
+                headers: staffHeaders(),
+                failOnStatusCode: false,
+            },
+        );
+        expect(deleteJacketRes.status()).toBe(204);
+
+        await expect
+            .poll(async () => {
+                const row = await loadAlterationById(request, fixture.customer.id, alteration.id);
+                return [row.total_units_jacket, row.total_units_pant];
+            })
+            .toEqual([0, 2]);
+
+        const deleteOtherRes = await request.delete(
+            `${apiBase()}/api/alterations/${alteration.id}/items/${other.id}`,
+            {
+                headers: staffHeaders(),
+                failOnStatusCode: false,
+            },
+        );
+        expect(deleteOtherRes.status()).toBe(204);
+
+        const finalRow = await loadAlterationById(request, fixture.customer.id, alteration.id);
+        expect(finalRow.total_units_jacket).toBe(0);
+        expect(finalRow.total_units_pant).toBe(2);
+    });
+});
 
 test.describe("Smart Alterations Scheduler E2E", () => {
     test.beforeEach(async ({ page }) => {
