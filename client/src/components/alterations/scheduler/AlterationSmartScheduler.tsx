@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Calendar, Clock, CheckCircle2, AlertTriangle, ChevronRight, Info } from "lucide-react";
 import { getBaseUrl } from "../../../lib/apiConfig";
 
@@ -14,11 +14,59 @@ function slotDate(value: string): Date {
   return new Date(`${value}T12:00:00`);
 }
 
+function formatDateKey(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function todayDateKey(): string {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  return formatDateKey(today);
+}
+
+function latestFinishDateKey(dueDate: string): string {
+  const finish = slotDate(toDateKey(dueDate));
+  finish.setDate(finish.getDate() - 1);
+  return formatDateKey(finish);
+}
+
+function formatCapacityDate(value: string): string {
+  const date = slotDate(value);
+  const weekday = WEEKDAY_FORMATTER.format(date);
+  const month = MONTH_FORMATTER.format(date);
+  return `${weekday}, ${month} ${date.getDate()}`;
+}
+
+function unitLabel(count: number, noun: "jacket" | "pant"): string {
+  return `${count} ${noun} unit${count === 1 ? "" : "s"}`;
+}
+
 type SuggestedSlot = {
   date: string;
   score: number;
 };
 
+type CapacityDay = {
+  date: string;
+  jacket_units_used: number;
+  pant_units_used: number;
+  jacket_units_available: number;
+  pant_units_available: number;
+  is_manual_only: boolean;
+  has_staff: boolean;
+};
+
+type CapacityOutlook = {
+  requested: string;
+  nextSafeDay: string | null;
+  overloadedDays: number;
+  noStaffDays: number;
+  hasManualOnlyDay: boolean;
+  selectedUtilization: string | null;
+};
 
 type AlterationSmartSchedulerProps = {
   alterationId: string;
@@ -39,8 +87,11 @@ export default function AlterationSmartScheduler({
   onSlotSelected,
 }: AlterationSmartSchedulerProps) {
   const [slots, setSlots] = useState<SuggestedSlot[]>([]);
+  const [capacity, setCapacity] = useState<CapacityDay[]>([]);
   const [loading, setLoading] = useState(false);
+  const [capacityLoading, setCapacityLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [capacityError, setCapacityError] = useState<string | null>(null);
 
   const fetchSlots = useCallback(async () => {
     setLoading(true);
@@ -69,11 +120,90 @@ export default function AlterationSmartScheduler({
     }
   }, [dueDate, jacketUnits, pantUnits, apiAuth]);
 
+  const fetchCapacity = useCallback(async () => {
+    if (!dueDate) return;
+    const start = todayDateKey();
+    const end = latestFinishDateKey(dueDate);
+    if (end < start) {
+      setCapacity([]);
+      return;
+    }
+
+    setCapacityLoading(true);
+    setCapacityError(null);
+    try {
+      const q = new URLSearchParams({ start, end });
+      const res = await fetch(`${baseUrl}/api/alterations/capacity?${q}`, {
+        headers: apiAuth(),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as CapacityDay[];
+        setCapacity([...data].sort((a, b) => a.date.localeCompare(b.date)));
+      } else {
+        setCapacity([]);
+        setCapacityError("Capacity outlook is unavailable right now.");
+      }
+    } catch {
+      setCapacity([]);
+      setCapacityError("Capacity outlook is unavailable right now.");
+    } finally {
+      setCapacityLoading(false);
+    }
+  }, [apiAuth, dueDate]);
+
   useEffect(() => {
     if (dueDate && (jacketUnits > 0 || pantUnits > 0)) {
       fetchSlots();
     }
   }, [fetchSlots, dueDate, jacketUnits, pantUnits]);
+
+  useEffect(() => {
+    if (dueDate) {
+      fetchCapacity();
+    }
+  }, [dueDate, fetchCapacity]);
+
+  const capacityOutlook = useMemo<CapacityOutlook | null>(() => {
+    if (!dueDate || capacity.length === 0) return null;
+    const nextSafe = capacity.find(
+      (day) =>
+        day.has_staff &&
+        !day.is_manual_only &&
+        day.jacket_units_available >= jacketUnits &&
+        day.pant_units_available >= pantUnits,
+    );
+    const overloadedDays = capacity.filter(
+      (day) =>
+        day.has_staff &&
+        !day.is_manual_only &&
+        (day.jacket_units_available < jacketUnits ||
+          day.pant_units_available < pantUnits),
+    ).length;
+    const noStaffDays = capacity.filter((day) => !day.has_staff).length;
+    const selectedDay = currentFittingAt
+      ? capacity.find((day) => day.date === toDateKey(currentFittingAt))
+      : null;
+    const selectedUtilization = selectedDay
+      ? `Selected day: ${selectedDay.jacket_units_used}/${
+          selectedDay.jacket_units_used + selectedDay.jacket_units_available
+        } jacket units, ${selectedDay.pant_units_used}/${
+          selectedDay.pant_units_used + selectedDay.pant_units_available
+        } pant units booked.`
+      : null;
+
+    return {
+      requested: `Requested work: ${unitLabel(jacketUnits, "jacket")}, ${unitLabel(
+        pantUnits,
+        "pant",
+      )}.`,
+      nextSafeDay: nextSafe ? `Next safe day: ${formatCapacityDate(nextSafe.date)}.` : null,
+      overloadedDays,
+      noStaffDays,
+      hasManualOnlyDay: capacity.some((day) => day.is_manual_only),
+      selectedUtilization,
+    };
+  }, [capacity, currentFittingAt, dueDate, jacketUnits, pantUnits]);
 
   const selectSlot = (date: string) => {
     onSlotSelected(date);
@@ -100,6 +230,49 @@ export default function AlterationSmartScheduler({
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl border border-blue-500/10 bg-blue-500/5 p-4">
+        <div className="flex items-center gap-2">
+          <Info className="w-4 h-4 text-blue-400" />
+          <h3 className="text-sm font-semibold text-white/90">Capacity Outlook</h3>
+        </div>
+        {capacityLoading ? (
+          <p className="mt-3 text-[11px] font-medium text-white/40">
+            Loading capacity outlook…
+          </p>
+        ) : capacityError ? (
+          <p className="mt-3 text-[11px] font-medium text-yellow-100/70">
+            {capacityError}
+          </p>
+        ) : capacityOutlook ? (
+          <ul className="mt-3 space-y-2 text-[11px] font-medium text-blue-100/70">
+            <li>{capacityOutlook.requested}</li>
+            {capacityOutlook.nextSafeDay ? <li>{capacityOutlook.nextSafeDay}</li> : null}
+            {capacityOutlook.overloadedDays > 0 ? (
+              <li>
+                {capacityOutlook.overloadedDays} day
+                {capacityOutlook.overloadedDays === 1 ? " is" : "s are"} over capacity in this
+                window.
+              </li>
+            ) : null}
+            {capacityOutlook.noStaffDays > 0 ? (
+              <li>
+                {capacityOutlook.noStaffDays} day
+                {capacityOutlook.noStaffDays === 1 ? " has" : "s have"} no alterations staff
+                scheduled.
+              </li>
+            ) : null}
+            {capacityOutlook.hasManualOnlyDay ? <li>Thursdays require manual review.</li> : null}
+            {capacityOutlook.selectedUtilization ? (
+              <li>{capacityOutlook.selectedUtilization}</li>
+            ) : null}
+          </ul>
+        ) : (
+          <p className="mt-3 text-[11px] font-medium text-white/40">
+            No capacity days are available before the due date.
+          </p>
+        )}
+      </div>
+
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white/90 flex items-center gap-2">
           <Clock className="w-4 h-4 text-purple-400" />

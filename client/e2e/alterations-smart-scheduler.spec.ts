@@ -243,8 +243,42 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                 status: 200,
                 contentType: "application/json",
                 body: JSON.stringify([
-                    { date: "2026-05-15", used_jacket: 5, used_pant: 2, max_jacket: 28, max_pant: 24, is_manual_only: false },
-                    { date: "2026-05-16", used_jacket: 10, used_pant: 5, max_jacket: 28, max_pant: 24, is_manual_only: false },
+                    {
+                        date: "2026-05-14",
+                        jacket_units_used: 12,
+                        pant_units_used: 4,
+                        jacket_units_available: 16,
+                        pant_units_available: 20,
+                        is_manual_only: true,
+                        has_staff: true,
+                    },
+                    {
+                        date: "2026-05-15",
+                        jacket_units_used: 5,
+                        pant_units_used: 2,
+                        jacket_units_available: 23,
+                        pant_units_available: 22,
+                        is_manual_only: false,
+                        has_staff: true,
+                    },
+                    {
+                        date: "2026-05-16",
+                        jacket_units_used: 27,
+                        pant_units_used: 23,
+                        jacket_units_available: 1,
+                        pant_units_available: 1,
+                        is_manual_only: false,
+                        has_staff: true,
+                    },
+                    {
+                        date: "2026-05-17",
+                        jacket_units_used: 0,
+                        pant_units_used: 0,
+                        jacket_units_available: 0,
+                        pant_units_available: 0,
+                        is_manual_only: false,
+                        has_staff: false,
+                    },
                 ]),
             });
         });
@@ -313,14 +347,23 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await page.getByRole("button", { name: "2. Schedule Slot", exact: true }).click();
 
         // Phase 2: Schedule
+        await expect(page.getByRole("heading", { name: "Capacity Outlook" })).toBeVisible();
+        await expect(page.getByText("Requested work: 4 jacket units, 2 pant units.")).toBeVisible();
+        await expect(page.getByText("Next safe day: Friday, May 15.")).toBeVisible();
+        await expect(page.getByText("1 day is over capacity in this window.")).toBeVisible();
+        await expect(page.getByText("1 day has no alterations staff scheduled.")).toBeVisible();
+        await expect(page.getByText("Thursdays require manual review.")).toBeVisible();
         await expect(page.getByText("Smart Slot Suggestions")).toBeVisible();
         
         // Select the first suggestion (May 15)
-        await page.getByText("Friday").first().click();
+        await page.getByRole("button", { name: /Friday/i }).first().click();
 
         // Verify card updated
         await expect(page.getByText("Fitting Scheduled")).toBeVisible();
         await expect(page.getByText("5/15/2026")).toBeVisible();
+        await expect(
+            page.getByText("Selected day: 5/28 jacket units, 2/24 pant units booked."),
+        ).toBeVisible();
     });
 
     test("surfaces alteration status in Wedding Hub member list", async ({ page }) => {
