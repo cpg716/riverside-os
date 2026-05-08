@@ -669,6 +669,7 @@ pub async fn execute_counterpoint_inventory_batch(
     };
 
     let mut matched_issue_keys = Vec::new();
+    let mut matched_row_count = 0;
     let mut unmatched_issues = Vec::new();
     for row in &payload.rows {
         let sku = row.sku.trim();
@@ -680,6 +681,7 @@ pub async fn execute_counterpoint_inventory_batch(
             || matched_skus.contains(&sku.to_lowercase());
         let external_key = key.clone().unwrap_or_else(|| sku.to_string());
         if matched {
+            matched_row_count += 1;
             matched_issue_keys.push(external_key.clone());
             if let Some((parent_key, _)) = external_key.split_once('|') {
                 let parent_key = parent_key.trim();
@@ -698,7 +700,7 @@ pub async fn execute_counterpoint_inventory_batch(
         }
     }
 
-    let updated = matched_issue_keys.len() as i32;
+    let updated = matched_row_count;
     let skipped = (payload.rows.len() as i32) - updated;
 
     tx.commit().await?;
@@ -9819,7 +9821,8 @@ mod tests {
 
         let suffix = Uuid::new_v4().simple().to_string();
         let sku = format!("CP-INV-MISS-SKU-{suffix}");
-        let cp_key = format!("CP-INV-MISS-ITEM-{suffix}");
+        let cp_parent_key = format!("CP-INV-MISS-ITEM-{suffix}");
+        let cp_key = format!("{cp_parent_key}|RED|42");
         let payload = || CounterpointInventoryPayload {
             rows: vec![CounterpointInventoryRow {
                 sku: sku.clone(),

@@ -2448,6 +2448,12 @@ CREATE INDEX idx_product_catalog_audit_product_created ON public.product_catalog
 CREATE INDEX idx_product_variants_barcode_lower ON public.product_variants USING btree (lower(TRIM(BOTH FROM barcode))) WHERE ((barcode IS NOT NULL) AND (TRIM(BOTH FROM barcode) <> ''::text));
 
 --
+-- Name: idx_product_variants_sku_lower_trim; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_product_variants_sku_lower_trim ON public.product_variants USING btree (lower(TRIM(BOTH FROM sku)));
+
+--
 -- Name: idx_product_variants_nuorder_id; Type: INDEX; Schema: public; Owner: -
 --
 
