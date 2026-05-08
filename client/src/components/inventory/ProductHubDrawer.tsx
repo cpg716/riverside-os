@@ -55,6 +55,11 @@ interface VendorOption {
   name: string;
 }
 
+interface CategoryOption {
+  id: string;
+  name: string;
+}
+
 interface ProductHubStats {
   total_units_on_hand: number;
   total_reserved_units: number;
@@ -333,6 +338,14 @@ function parseRosieCleanupSuggestion(answer: string): RosieCleanupSuggestion {
   };
 }
 
+function normalizeCleanupValue(value: string | null | undefined) {
+  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function firstCleanupValue(suggestion: RosieCleanupSuggestionCard) {
+  return (suggestion.suggested_value ?? suggestion.reference_value ?? "").trim();
+}
+
 export default function ProductHubDrawer({
   isOpen,
   onClose,
@@ -353,6 +366,7 @@ export default function ProductHubDrawer({
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [vendorMenuOpen, setVendorMenuOpen] = useState(false);
   const [vendorQuery, setVendorQuery] = useState("");
   const [vendorSaving, setVendorSaving] = useState(false);
@@ -372,6 +386,7 @@ export default function ProductHubDrawer({
     useState<RosieCleanupSuggestion | null>(null);
   const [cleanupSuggestionLoading, setCleanupSuggestionLoading] = useState(false);
   const [cleanupSuggestionError, setCleanupSuggestionError] = useState<string | null>(null);
+  const [cleanupApplyingKey, setCleanupApplyingKey] = useState<string | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!productId) return;
@@ -463,15 +478,23 @@ export default function ProductHubDrawer({
   useEffect(() => {
     if (!isOpen || !productId) return;
     void (async () => {
-      const res = await fetch(`${baseUrl}/api/vendors`, {
-        headers: apiAuth(),
-      });
-      if (!res.ok) {
+      const headers = apiAuth();
+      const [vendorRes, categoryRes] = await Promise.all([
+        fetch(`${baseUrl}/api/vendors`, { headers }),
+        fetch(`${baseUrl}/api/categories`, { headers }),
+      ]);
+      if (!vendorRes.ok) {
         setVendors([]);
-        return;
+      } else {
+        const data = (await vendorRes.json()) as { id: string; name: string }[];
+        setVendors(Array.isArray(data) ? data.map((v) => ({ id: v.id, name: v.name })) : []);
       }
-      const data = (await res.json()) as { id: string; name: string }[];
-      setVendors(Array.isArray(data) ? data.map((v) => ({ id: v.id, name: v.name })) : []);
+      if (!categoryRes.ok) {
+        setCategories([]);
+      } else {
+        const data = (await categoryRes.json()) as { id: string; name: string }[];
+        setCategories(Array.isArray(data) ? data.map((c) => ({ id: c.id, name: c.name })) : []);
+      }
     })();
   }, [isOpen, productId, baseUrl, apiAuth]);
 
@@ -540,6 +563,117 @@ export default function ProductHubDrawer({
       }
     } finally {
       setVendorSaving(false);
+    }
+  };
+
+  const getCleanupApplyPlan = (suggestion: RosieCleanupSuggestionCard) => {
+    const scope = normalizeCleanupValue(suggestion.scope);
+    const value = firstCleanupValue(suggestion);
+    if (!value) {
+      return {
+        label: "Suggested only",
+        reason: "ROSIE did not provide a direct value to apply.",
+        apply: null as (() => Promise<boolean>) | null,
+      };
+    }
+
+    if (scope.includes("product display name") || scope === "product name") {
+      const currentName = hub?.product.name ?? "";
+      if (normalizeCleanupValue(currentName) === normalizeCleanupValue(value)) {
+        return {
+          label: "Already matches",
+          reason: "The current product name already matches this suggestion.",
+          apply: null as (() => Promise<boolean>) | null,
+        };
+      }
+      return {
+        label: "Apply product name",
+        reason: "Updates only the product display name.",
+        apply: () =>
+          patchProductModel({
+            name: value,
+          }),
+      };
+    }
+
+    if (scope.includes("category")) {
+      const category = categories.find(
+        (candidate) => normalizeCleanupValue(candidate.name) === normalizeCleanupValue(value),
+      );
+      if (!category) {
+        return {
+          label: "Suggested only",
+          reason: "Category applies only when it exactly matches an existing ROS category.",
+          apply: null as (() => Promise<boolean>) | null,
+        };
+      }
+      if (hub?.product.category_id === category.id) {
+        return {
+          label: "Already matches",
+          reason: "The product is already assigned to this category.",
+          apply: null as (() => Promise<boolean>) | null,
+        };
+      }
+      return {
+        label: "Apply category",
+        reason: "Assigns an existing ROS category only.",
+        apply: () =>
+          patchProductModel({
+            category_id: category.id,
+          }),
+      };
+    }
+
+    if (scope.includes("supplier") || scope.includes("vendor")) {
+      const vendor = vendors.find(
+        (candidate) => normalizeCleanupValue(candidate.name) === normalizeCleanupValue(value),
+      );
+      if (!vendor) {
+        return {
+          label: "Suggested only",
+          reason: "Supplier applies only when it exactly matches an existing ROS vendor.",
+          apply: null as (() => Promise<boolean>) | null,
+        };
+      }
+      if (hub?.product.primary_vendor_id === vendor.id) {
+        return {
+          label: "Already matches",
+          reason: "The product is already assigned to this vendor.",
+          apply: null as (() => Promise<boolean>) | null,
+        };
+      }
+      return {
+        label: "Apply vendor",
+        reason: "Assigns an existing ROS vendor only.",
+        apply: () =>
+          patchProductModel({
+            primary_vendor_id: vendor.id,
+          }),
+      };
+    }
+
+    return {
+      label: "Suggested only",
+      reason: "This cleanup type is review-only until a safe product API supports it.",
+      apply: null as (() => Promise<boolean>) | null,
+    };
+  };
+
+  const applyCleanupSuggestion = async (
+    suggestion: RosieCleanupSuggestionCard,
+    index: number,
+  ) => {
+    const plan = getCleanupApplyPlan(suggestion);
+    if (!plan.apply) return;
+    const key = `${suggestion.scope}-${index}`;
+    setCleanupApplyingKey(key);
+    try {
+      const ok = await plan.apply();
+      if (ok) {
+        toast("Cleanup suggestion applied.", "success");
+      }
+    } finally {
+      setCleanupApplyingKey(null);
     }
   };
 
@@ -1121,34 +1255,58 @@ export default function ProductHubDrawer({
                       {cleanupSuggestion.summary}
                     </p>
                     <div className="grid gap-3 lg:grid-cols-2">
-                      {cleanupSuggestion.suggestions.map((suggestion, index) => (
-                        <div
-                          key={`${suggestion.scope}-${index}`}
-                          className="ui-metric-cell ui-tint-success px-4 py-3"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                              {suggestion.scope}
+                      {cleanupSuggestion.suggestions.map((suggestion, index) => {
+                        const plan = getCleanupApplyPlan(suggestion);
+                        const key = `${suggestion.scope}-${index}`;
+                        const applying = cleanupApplyingKey === key;
+                        return (
+                          <div
+                            key={key}
+                            className="ui-metric-cell ui-tint-success px-4 py-3"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                {suggestion.scope}
+                              </p>
+                              <span className="text-[10px] font-black uppercase tracking-widest text-app-success">
+                                {Math.round(suggestion.confidence * 100)}%
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm font-semibold text-app-text">
+                              {suggestion.suggested_value ?? "No direct value suggestion"}
                             </p>
-                            <span className="text-[10px] font-black uppercase tracking-widest text-app-success">
-                              {Math.round(suggestion.confidence * 100)}%
-                            </span>
+                            <p className="mt-2 text-xs text-app-text-muted">
+                              {suggestion.rationale}
+                            </p>
+                            {suggestion.evidence.length > 0 ? (
+                              <ul className="mt-2 space-y-1 text-[11px] text-app-text-muted">
+                                {suggestion.evidence.map((item) => (
+                                  <li key={item}>{item}</li>
+                                ))}
+                              </ul>
+                            ) : null}
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              {plan.apply ? (
+                                <button
+                                  type="button"
+                                  disabled={applying}
+                                  onClick={() => void applyCleanupSuggestion(suggestion, index)}
+                                  className="ui-btn-primary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                  {applying ? "Applying…" : plan.label}
+                                </button>
+                              ) : (
+                                <span className="rounded-full border border-app-border bg-app-surface-2 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                  {plan.label}
+                                </span>
+                              )}
+                              <span className="text-[11px] font-semibold text-app-text-muted">
+                                {plan.reason}
+                              </span>
+                            </div>
                           </div>
-                          <p className="mt-2 text-sm font-semibold text-app-text">
-                            {suggestion.suggested_value ?? "No direct value suggestion"}
-                          </p>
-                          <p className="mt-2 text-xs text-app-text-muted">
-                            {suggestion.rationale}
-                          </p>
-                          {suggestion.evidence.length > 0 ? (
-                            <ul className="mt-2 space-y-1 text-[11px] text-app-text-muted">
-                              {suggestion.evidence.map((item) => (
-                                <li key={item}>{item}</li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ) : null}

@@ -535,12 +535,16 @@ pub struct InventoryCleanupSummary {
     pub duplicate_vendor_upc_groups: i64,
     pub products_missing_category: i64,
     pub products_missing_primary_vendor: i64,
+    pub active_counterpoint_b_sku_aliases: i64,
     pub lightspeed_reference_available: bool,
     pub lightspeed_reference_b_sku_count: i64,
+    pub cleanup_ready: bool,
     pub normalization_matched_products: i64,
     pub products_needing_normalization: i64,
     pub normalization_mismatch_count: i64,
     pub rosie_review_suggested_products: i64,
+    pub top_normalization_candidate_product_id: Option<Uuid>,
+    pub top_normalization_candidate_product_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1614,6 +1618,24 @@ async fn get_cleanup_summary(
                AND ref.normalized_sku = alias.normalized_alias
             WHERE alias.alias_type = 'counterpoint_b_sku'
               AND alias.status = 'active'
+        ),
+        normalization_product_summary AS (
+            SELECT
+                product_id,
+                SUM(mismatch_count)::bigint AS mismatch_count,
+                COUNT(*)::bigint AS matched_aliases
+            FROM normalization_matches
+            GROUP BY product_id
+        ),
+        top_normalization_candidate AS (
+            SELECT
+                p.id AS product_id,
+                p.name AS product_name
+            FROM normalization_product_summary summary
+            INNER JOIN products p ON p.id = summary.product_id
+            WHERE summary.mismatch_count > 0
+            ORDER BY summary.mismatch_count DESC, summary.matched_aliases DESC, p.name ASC
+            LIMIT 1
         )
         SELECT
             (
@@ -1654,6 +1676,12 @@ async fn get_cleanup_summary(
                 WHERE p.is_active = true
                   AND p.primary_vendor_id IS NULL
             ) AS products_missing_primary_vendor,
+            COALESCE((
+                SELECT COUNT(*)::bigint
+                FROM product_variant_barcode_aliases alias
+                WHERE alias.alias_type = 'counterpoint_b_sku'
+                  AND alias.status = 'active'
+            ), 0)::bigint AS active_counterpoint_b_sku_aliases,
             EXISTS(SELECT 1 FROM active_batch) AS lightspeed_reference_available,
             COALESCE((
                 SELECT COUNT(*)::bigint
@@ -1661,24 +1689,41 @@ async fn get_cleanup_summary(
                 INNER JOIN active_batch batch ON batch.id = ref.batch_id
                 WHERE ref.normalized_sku ~ '^b-[0-9]+$'
             ), 0)::bigint AS lightspeed_reference_b_sku_count,
+            (
+                EXISTS(
+                    SELECT 1
+                    FROM product_variant_barcode_aliases alias
+                    WHERE alias.alias_type = 'counterpoint_b_sku'
+                      AND alias.status = 'active'
+                )
+                AND EXISTS(SELECT 1 FROM active_batch)
+            ) AS cleanup_ready,
             COALESCE((
                 SELECT COUNT(DISTINCT product_id)::bigint
                 FROM normalization_matches
             ), 0)::bigint AS normalization_matched_products,
             COALESCE((
-                SELECT COUNT(DISTINCT product_id)::bigint
-                FROM normalization_matches
+                SELECT COUNT(*)::bigint
+                FROM normalization_product_summary
                 WHERE mismatch_count > 0
             ), 0)::bigint AS products_needing_normalization,
             COALESCE((
                 SELECT SUM(mismatch_count)::bigint
-                FROM normalization_matches
+                FROM normalization_product_summary
             ), 0)::bigint AS normalization_mismatch_count,
             COALESCE((
-                SELECT COUNT(DISTINCT product_id)::bigint
-                FROM normalization_matches
+                SELECT COUNT(*)::bigint
+                FROM normalization_product_summary
                 WHERE mismatch_count > 0
-            ), 0)::bigint AS rosie_review_suggested_products
+            ), 0)::bigint AS rosie_review_suggested_products,
+            (
+                SELECT product_id
+                FROM top_normalization_candidate
+            ) AS top_normalization_candidate_product_id,
+            (
+                SELECT product_name
+                FROM top_normalization_candidate
+            ) AS top_normalization_candidate_product_name
         "#,
     )
     .fetch_one(&state.db)

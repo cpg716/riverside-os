@@ -152,12 +152,16 @@ interface InventoryCleanupSummary {
   duplicate_vendor_upc_groups: number;
   products_missing_category: number;
   products_missing_primary_vendor: number;
+  active_counterpoint_b_sku_aliases: number;
   lightspeed_reference_available: boolean;
   lightspeed_reference_b_sku_count: number;
+  cleanup_ready: boolean;
   normalization_matched_products: number;
   products_needing_normalization: number;
   normalization_mismatch_count: number;
   rosie_review_suggested_products: number;
+  top_normalization_candidate_product_id: string | null;
+  top_normalization_candidate_product_name: string | null;
 }
 
 function money(v: string | number) {
@@ -754,6 +758,10 @@ export default function InventoryControlBoard({
   const cleanupReviewItems = useMemo(() => {
     if (!cleanupSummary) return [];
     return [
+      cleanupSummary.cleanup_ready
+        ? "Cleanup reference data is ready for Product Hub review."
+        : "Cleanup is not ready: rebuild Counterpoint aliases and import the Lightspeed reference in Settings → Counterpoint.",
+      `${cleanupSummary.active_counterpoint_b_sku_aliases} active Counterpoint B-SKU aliases are available.`,
       cleanupSummary.lightspeed_reference_available
         ? `${cleanupSummary.lightspeed_reference_b_sku_count} Lightspeed reference B-SKUs are available for cleanup comparison.`
         : "Lightspeed normalization reference is not loaded.",
@@ -776,7 +784,11 @@ export default function InventoryControlBoard({
       cleanupSummary.products_missing_primary_vendor > 0 ||
       cleanupSummary.products_needing_normalization > 0 ||
       cleanupSummary.rosie_review_suggested_products > 0 ||
+      !cleanupSummary.cleanup_ready ||
       !cleanupSummary.lightspeed_reference_available);
+  const cleanupCandidateProductId = cleanupSummary?.top_normalization_candidate_product_id ?? null;
+  const cleanupCandidateProductName =
+    cleanupSummary?.top_normalization_candidate_product_name ?? "Cleanup candidate";
 
   const groupedRowsByVendor = useMemo(() => {
     if (!groupByPrimaryVendor) return null;
@@ -1516,9 +1528,28 @@ export default function InventoryControlBoard({
 
           {showCleanupReview ? (
             <div className="ui-card ui-tint-neutral px-4 py-4">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                Inventory Cleanup Review
-              </p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                    Inventory Cleanup Review
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    Counterpoint Sync prepares references. Product Hub handles review and safe applies.
+                  </p>
+                </div>
+                {cleanupCandidateProductId ? (
+                  <button
+                    type="button"
+                    className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    onClick={() => {
+                      setHubProductId(cleanupCandidateProductId);
+                      setHubSeedTitle(cleanupCandidateProductName);
+                    }}
+                  >
+                    Review next product
+                  </button>
+                ) : null}
+              </div>
               <ul className="mt-4 space-y-2 text-sm font-semibold text-app-text">
                 {cleanupReviewItems.map((item) => (
                   <li

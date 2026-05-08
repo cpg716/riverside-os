@@ -136,6 +136,32 @@ interface CounterpointRegistryHealthSummary {
   latest_ingest_at: string | null;
 }
 
+interface CounterpointBarcodeAliasHealthSummary {
+  total_aliases: number;
+  active_aliases: number;
+  duplicate_active_alias_conflicts: number;
+  latest_created_at: string | null;
+  by_type: CounterpointQuarantineCount[];
+  by_status: CounterpointQuarantineCount[];
+}
+
+interface LightspeedNormalizationReferenceBatchSummary {
+  id: string;
+  source_file_name: string;
+  source_file_hash: string;
+  row_count: number;
+  status: string;
+  imported_at: string;
+}
+
+interface LightspeedNormalizationReferenceHealthSummary {
+  active_batch: LightspeedNormalizationReferenceBatchSummary | null;
+  row_count: number;
+  b_sku_count: number;
+  duplicate_b_sku_groups: number;
+  latest_imported_at: string | null;
+}
+
 interface CounterpointQuarantineRowsResponse {
   rows: CounterpointQuarantineRow[];
 }
@@ -669,6 +695,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [quarantineRows, setQuarantineRows] = useState<CounterpointQuarantineRow[]>([]);
   const [registryHealth, setRegistryHealth] =
     useState<CounterpointRegistryHealthSummary | null>(null);
+  const [aliasHealth, setAliasHealth] =
+    useState<CounterpointBarcodeAliasHealthSummary | null>(null);
+  const [lightspeedReferenceHealth, setLightspeedReferenceHealth] =
+    useState<LightspeedNormalizationReferenceHealthSummary | null>(null);
   const [quarantineLoading, setQuarantineLoading] = useState(false);
 
   const [categoryRows, setCategoryRows] = useState<CategoryMapRow[]>([]);
@@ -961,8 +991,12 @@ export default function CounterpointSyncSettingsPanel(props?: {
     setQuarantineLoading(true);
     try {
       const headers = backofficeHeaders() as Record<string, string>;
-      const [registryRes, summaryRes, rowsRes] = await Promise.all([
+      const [registryRes, aliasRes, lightspeedRes, summaryRes, rowsRes] = await Promise.all([
         fetch(`${baseUrl}/api/settings/counterpoint-sync/registry-health`, { headers }),
+        fetch(`${baseUrl}/api/settings/counterpoint-sync/aliases/health`, { headers }),
+        fetch(`${baseUrl}/api/settings/counterpoint-sync/lightspeed-reference/health`, {
+          headers,
+        }),
         fetch(`${baseUrl}/api/settings/counterpoint-sync/quarantine/summary`, { headers }),
         fetch(`${baseUrl}/api/settings/counterpoint-sync/quarantine/rows?limit=25`, {
           headers,
@@ -972,6 +1006,18 @@ export default function CounterpointSyncSettingsPanel(props?: {
         setRegistryHealth((await registryRes.json()) as CounterpointRegistryHealthSummary);
       } else {
         setRegistryHealth(null);
+      }
+      if (aliasRes.ok) {
+        setAliasHealth((await aliasRes.json()) as CounterpointBarcodeAliasHealthSummary);
+      } else {
+        setAliasHealth(null);
+      }
+      if (lightspeedRes.ok) {
+        setLightspeedReferenceHealth(
+          (await lightspeedRes.json()) as LightspeedNormalizationReferenceHealthSummary,
+        );
+      } else {
+        setLightspeedReferenceHealth(null);
       }
       if (summaryRes.ok) {
         setQuarantineSummary((await summaryRes.json()) as CounterpointQuarantineSummary);
@@ -986,6 +1032,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
       }
     } catch {
       setRegistryHealth(null);
+      setAliasHealth(null);
+      setLightspeedReferenceHealth(null);
       setQuarantineSummary(null);
       setQuarantineRows([]);
     } finally {
@@ -1365,6 +1413,13 @@ export default function CounterpointSyncSettingsPanel(props?: {
     { label: "Warnings", value: quarantineSummary?.warning_records ?? 0, tone: "text-amber-600" },
     { label: "Info", value: quarantineSummary?.info_records ?? 0, tone: "text-app-text-muted" },
   ];
+  const aliasReady =
+    (aliasHealth?.active_aliases ?? 0) > 0 &&
+    (aliasHealth?.duplicate_active_alias_conflicts ?? 0) === 0;
+  const lightspeedReady =
+    !!lightspeedReferenceHealth?.active_batch &&
+    (lightspeedReferenceHealth?.b_sku_count ?? 0) > 0;
+  const cleanupReady = aliasReady && lightspeedReady;
   const registryStatusLabel = !registryHealth
     ? "Unknown"
     : registryHealth.status === "healthy"
@@ -4189,6 +4244,81 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     ? formatDate(registryHealth.latest_ingest_at)
                     : "None recorded"}
                 </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Cleanup Readiness
+                </h4>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  Counterpoint Sync prepares aliases and Lightspeed reference data. Inventory and Product Hub consume the prepared data.
+                </p>
+              </div>
+              <span
+                className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                  cleanupReady
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                }`}
+              >
+                {cleanupReady ? "Ready" : "Not ready"}
+              </span>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+              <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  B-SKU aliases
+                </p>
+                <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                  {quarantineLoading ? "…" : fmtNum(aliasHealth?.active_aliases ?? 0)}
+                </p>
+                <p className={`mt-1 text-[10px] ${aliasReady ? "text-emerald-600" : "text-app-warning"}`}>
+                  {aliasReady ? "Active aliases are available." : "Run the alias rebuild command before cleanup review."}
+                </p>
+              </div>
+              <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Lightspeed reference
+                </p>
+                <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                  {quarantineLoading ? "…" : fmtNum(lightspeedReferenceHealth?.b_sku_count ?? 0)}
+                </p>
+                <p className={`mt-1 text-[10px] ${lightspeedReady ? "text-emerald-600" : "text-app-warning"}`}>
+                  {lightspeedReady
+                    ? `Active batch: ${lightspeedReferenceHealth?.active_batch?.source_file_name ?? "loaded"}`
+                    : "Import the Lightspeed reference CSV before cleanup review."}
+                </p>
+              </div>
+              <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Reference checks
+                </p>
+                <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                  {fmtNum(
+                    (aliasHealth?.duplicate_active_alias_conflicts ?? 0) +
+                      (lightspeedReferenceHealth?.duplicate_b_sku_groups ?? 0),
+                  )}
+                </p>
+                <p className="mt-1 text-[10px] text-app-text-muted">
+                  Duplicate active aliases plus duplicate Lightspeed B-SKU groups.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 rounded-lg border border-app-border bg-app-bg/60 p-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Required local bridge commands
+              </p>
+              <div className="mt-2 grid gap-2 text-[11px] text-app-text">
+                <code className="block overflow-x-auto rounded-md bg-black/5 px-2 py-1">
+                  node counterpoint-bridge/index.mjs aliases persist --csv export2026-05-07.csv --replace
+                </code>
+                <code className="block overflow-x-auto rounded-md bg-black/5 px-2 py-1">
+                  node counterpoint-bridge/index.mjs lightspeed-reference import --csv "product-export (5).csv" --replace
+                </code>
               </div>
             </div>
           </div>
