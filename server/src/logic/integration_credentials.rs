@@ -26,6 +26,16 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
     },
     IntegrationCredentialMapping {
         integration_key: "helcim",
+        credential_key: "terminal_1_device_code",
+        env_key: "HELCIM_TERMINAL_1_DEVICE_CODE",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "helcim",
+        credential_key: "terminal_2_device_code",
+        env_key: "HELCIM_TERMINAL_2_DEVICE_CODE",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "helcim",
         credential_key: "register_1_device_code",
         env_key: "HELCIM_REGISTER_1_DEVICE_CODE",
     },
@@ -593,4 +603,35 @@ pub async fn configured_integration_credentials(
         .into_iter()
         .filter_map(|row| row.try_get::<String, _>("credential_key").ok())
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        credential_keys_for_integration, env_key_for, is_supported_integration_credential,
+    };
+
+    #[test]
+    fn helcim_terminal_device_code_credentials_are_supported() {
+        let keys = credential_keys_for_integration("helcim");
+
+        assert!(keys.contains(&"terminal_1_device_code"));
+        assert!(keys.contains(&"terminal_2_device_code"));
+        assert!(is_supported_integration_credential(
+            "helcim",
+            "terminal_1_device_code"
+        ));
+        assert!(is_supported_integration_credential(
+            "helcim",
+            "terminal_2_device_code"
+        ));
+        assert_eq!(
+            env_key_for("helcim", "terminal_1_device_code"),
+            Some("HELCIM_TERMINAL_1_DEVICE_CODE")
+        );
+        assert_eq!(
+            env_key_for("helcim", "terminal_2_device_code"),
+            Some("HELCIM_TERMINAL_2_DEVICE_CODE")
+        );
+    }
 }
