@@ -25,17 +25,17 @@ use crate::logic::counterpoint_sync::{
     execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
     execute_counterpoint_vendor_item_batch, get_counterpoint_barcode_alias_health_summary,
     get_counterpoint_ingest_quarantine_summary, get_counterpoint_registry_health_summary,
-    list_counterpoint_ingest_quarantine_rows, preflight_counterpoint_barcode_aliases,
-    validate_counterpoint_catalog_identity_preflight,
-    validate_counterpoint_inventory_identity_preflight, CounterpointBarcodeAliasPreflightPayload,
-    CounterpointCatalogPayload, CounterpointCategoryMastersPayload,
-    CounterpointCustomerNotesPayload, CounterpointCustomersPayload,
-    CounterpointFidelityDiagnosticPayload, CounterpointGiftCardsPayload,
-    CounterpointInventoryPayload, CounterpointLoyaltyHistPayload, CounterpointOpenDocsPayload,
-    CounterpointSlsRepStubPayload, CounterpointSnapshotSourceMetricsPayload,
-    CounterpointStaffPayload, CounterpointStoreCreditOpeningPayload, CounterpointSyncError,
-    CounterpointTicketsPayload, CounterpointVendorItemsPayload, CounterpointVendorsPayload,
-    HeartbeatPayload,
+    list_counterpoint_ingest_quarantine_rows, persist_counterpoint_barcode_aliases,
+    preflight_counterpoint_barcode_aliases, validate_counterpoint_catalog_identity_preflight,
+    validate_counterpoint_inventory_identity_preflight, CounterpointBarcodeAliasPersistPayload,
+    CounterpointBarcodeAliasPreflightPayload, CounterpointCatalogPayload,
+    CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
+    CounterpointCustomersPayload, CounterpointFidelityDiagnosticPayload,
+    CounterpointGiftCardsPayload, CounterpointInventoryPayload, CounterpointLoyaltyHistPayload,
+    CounterpointOpenDocsPayload, CounterpointSlsRepStubPayload,
+    CounterpointSnapshotSourceMetricsPayload, CounterpointStaffPayload,
+    CounterpointStoreCreditOpeningPayload, CounterpointSyncError, CounterpointTicketsPayload,
+    CounterpointVendorItemsPayload, CounterpointVendorsPayload, HeartbeatPayload,
 };
 use crate::middleware;
 
@@ -440,6 +440,18 @@ async fn cp_aliases_preflight(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers)?;
     preflight_counterpoint_barcode_aliases(&state.db, payload)
+        .await
+        .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
+        .map_err(cp_err)
+}
+
+async fn cp_aliases_persist(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CounterpointBarcodeAliasPersistPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    persist_counterpoint_barcode_aliases(&state.db, payload)
         .await
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
         .map_err(cp_err)
@@ -1468,6 +1480,7 @@ pub fn router() -> Router<AppState> {
             .route("/catalog/preflight", post(cp_catalog_preflight))
             .route("/catalog", post(cp_catalog))
             .route("/aliases/preflight", post(cp_aliases_preflight))
+            .route("/aliases/persist", post(cp_aliases_persist))
             .route("/gift-cards", post(cp_gift_cards))
             .route("/tickets", post(cp_tickets))
             .route("/store-credit-opening", post(cp_store_credit_opening))

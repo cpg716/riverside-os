@@ -488,6 +488,7 @@ function injectStoreCreditCustomerExistsClause(sqlText, storeCreditOn, existsInn
 const DISCOVER_MODE =
   process.argv.includes("discover") || String(process.env.DISCOVER ?? "").toLowerCase() === "1";
 const PREFLIGHT_MODE = process.argv[2] === "preflight";
+const ALIASES_MODE = process.argv[2] === "aliases";
 
 const ROS_BASE_URL = (process.env.ROS_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const SYNC_TOKEN = process.env.COUNTERPOINT_SYNC_TOKEN ?? "";
@@ -609,7 +610,7 @@ const CP_RECEIVING_HISTORY_QUERY = expandImportSince(process.env.CP_RECEIVING_HI
 const CP_TICKET_NOTES_QUERY = expandImportSince(process.env.CP_TICKET_NOTES_QUERY ?? "");
 const BRIDGE_VERSION = "0.7.3";
 
-if (!PREFLIGHT_MODE) {
+if (!PREFLIGHT_MODE && !ALIASES_MODE) {
   console.info(
     `[env] effective mode RUN_ONCE=${RUN_ONCE ? "1" : "0"} WAIT_AFTER_RUN_ONCE=${WAIT_AFTER_RUN_ONCE ? "1" : "0"} ` +
       `SYNC_LOYALTY_HIST=${SYNC_LOYALTY_HIST ? "1" : "0"} CP_GFC_HIST_QUERY=${CP_GFC_HIST_QUERY.trim() ? "set" : "empty"} ` +
@@ -617,7 +618,7 @@ if (!PREFLIGHT_MODE) {
   );
 }
 
-if (!PREFLIGHT_MODE && (SYNC_LOYALTY_HIST || CP_LOYALTY_HIST_QUERY.trim() || CP_GFC_HIST_QUERY.trim() || CP_TICKET_GIFT_QUERY.trim())) {
+if (!PREFLIGHT_MODE && !ALIASES_MODE && (SYNC_LOYALTY_HIST || CP_LOYALTY_HIST_QUERY.trim() || CP_GFC_HIST_QUERY.trim() || CP_TICKET_GIFT_QUERY.trim())) {
   console.error(
     "[cutover-safety] Snapshot-only cutover requires SYNC_LOYALTY_HIST=0 and empty CP_LOYALTY_HIST_QUERY, CP_GFC_HIST_QUERY, and CP_TICKET_GIFT_QUERY.",
   );
@@ -1432,6 +1433,20 @@ function csvPreflightAliasRow(row) {
   };
 }
 
+function sha256Hex(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+async function hashFileSha256(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
 async function loadInventoryPreflightCsv(csvPath) {
   const stream = fs.createReadStream(csvPath, { encoding: "utf8" });
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -1489,7 +1504,11 @@ async function loadAliasPreflightCsv(csvPath) {
     headers.forEach((header, idx) => {
       row[header] = values[idx] ?? "";
     });
-    rows.push(csvPreflightAliasRow(row));
+    rows.push({
+      ...csvPreflightAliasRow(row),
+      source_row_number: lineNumber,
+      source_row_hash: sha256Hex(line),
+    });
   }
 
   if (!headers) {
@@ -1616,6 +1635,38 @@ function printAliasPreflightReport(csvPath, payloadRows, report) {
   }
 }
 
+function printAliasPersistReport(csvPath, payloadRows, report) {
+  const summary = report?.summary ?? {};
+  console.log("");
+  console.log("Counterpoint barcode alias persistence");
+  console.log(`CSV: ${csvPath}`);
+  console.log(`Rows read: ${payloadRows.length}`);
+  console.log("");
+  console.log("Mapping used:");
+  console.log("- B-SKU alias candidate <- CSV sku");
+  console.log("- family_key <- CSV tags");
+  console.log("- option_values <- CSV variant_option_one_value, variant_option_two_value, variant_option_three_value");
+  console.log("- source_file_name/hash and source_row_number/hash from CSV file");
+  console.log("- posts only to /api/sync/counterpoint/aliases/persist");
+  console.log("");
+  console.log("Persistence summary:");
+  console.log(`- dry run: ${summary.dry_run ? "yes" : "no"}`);
+  console.log(`- replace existing counterpoint_b_sku aliases: ${summary.replace ? "yes" : "no"}`);
+  console.log(`- total rows checked: ${summary.total_rows ?? 0}`);
+  console.log(`- mappable aliases: ${summary.mappable_aliases ?? 0}`);
+  console.log(`- would insert aliases: ${summary.would_insert_aliases ?? 0}`);
+  console.log(`- inserted aliases: ${summary.inserted_aliases ?? 0}`);
+  console.log(`- deleted existing counterpoint_b_sku aliases: ${summary.deleted_existing_counterpoint_b_sku_aliases ?? 0}`);
+  console.log(`- already existing identical aliases: ${summary.already_existing_identical_aliases ?? 0}`);
+  console.log(`- skipped duplicate B-SKU rows: ${summary.skipped_duplicate_b_sku ?? 0}`);
+  console.log(`- skipped ambiguous variant matches: ${summary.skipped_ambiguous_variant_match ?? 0}`);
+  console.log(`- skipped no ROS variant match: ${summary.skipped_no_ros_variant_match ?? 0}`);
+  console.log(`- skipped missing family: ${summary.skipped_missing_family ?? 0}`);
+  console.log(`- skipped invalid/non-B SKU rows: ${summary.skipped_invalid_non_b_sku ?? 0}`);
+  console.log(`- skipped existing barcode conflicts: ${summary.skipped_existing_barcode_conflict ?? 0}`);
+  console.log(`- active alias conflicts: ${summary.conflicts ?? 0}`);
+}
+
 async function runPreflightCommand() {
   const entity = process.argv[3];
   const csvArg = preflightArg("--csv");
@@ -1659,6 +1710,45 @@ async function runPreflightCommand() {
   );
 
   printInventoryPreflightReport(csvPath, rows, headers, unavailableItemKeyReason, report);
+}
+
+async function runAliasesCommand() {
+  const action = process.argv[3];
+  const csvArg = preflightArg("--csv");
+  const dryRun = process.argv.includes("--dry-run");
+  const replace = process.argv.includes("--replace");
+  if (action !== "persist" || !csvArg) {
+    console.error("Usage: node index.mjs aliases persist --csv <path> [--replace] [--dry-run]");
+    process.exit(1);
+  }
+  if (!SYNC_TOKEN.trim()) {
+    console.error("Set COUNTERPOINT_SYNC_TOKEN");
+    process.exit(1);
+  }
+
+  const csvPath = path.resolve(process.cwd(), csvArg);
+  bridgeHostnameCached = os.hostname();
+  const { rows } = await loadAliasPreflightCsv(csvPath);
+  const report = await rosFetch(
+    "/api/sync/counterpoint/aliases/persist",
+    {
+      source_file_name: path.basename(csvPath),
+      source_file_hash: await hashFileSha256(csvPath),
+      dry_run: dryRun,
+      replace,
+      rows,
+    },
+    "POST",
+    {
+      ...bridgeIngestHeaders(),
+      "x-bridge-command": [
+        "aliases persist csv",
+        replace ? "replace" : null,
+        dryRun ? "dry-run" : null,
+      ].filter(Boolean).join(" "),
+    },
+  );
+  printAliasPersistReport(csvPath, rows, report);
 }
 
 async function sendHeartbeat(phase, currentEntity) {
@@ -3882,6 +3972,10 @@ function getOrderedSyncSteps(poolOverride) {
 async function main() {
   if (PREFLIGHT_MODE) {
     await runPreflightCommand();
+    process.exit(0);
+  }
+  if (ALIASES_MODE) {
+    await runAliasesCommand();
     process.exit(0);
   }
 
