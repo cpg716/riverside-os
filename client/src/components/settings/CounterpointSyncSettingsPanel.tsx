@@ -124,6 +124,18 @@ interface CounterpointQuarantineRow {
   created_at: string;
 }
 
+interface CounterpointRegistryHealthSummary {
+  status: "healthy" | "warning" | "needs_review" | string;
+  counterpoint_products: number;
+  counterpoint_variants: number;
+  variants_with_counterpoint_item_key: number;
+  variants_missing_counterpoint_item_key: number;
+  duplicate_normalized_sku_values: number;
+  duplicate_counterpoint_item_key_values: number;
+  quarantine_record_count: number;
+  latest_ingest_at: string | null;
+}
+
 interface CounterpointQuarantineRowsResponse {
   rows: CounterpointQuarantineRow[];
 }
@@ -655,6 +667,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [quarantineSummary, setQuarantineSummary] =
     useState<CounterpointQuarantineSummary | null>(null);
   const [quarantineRows, setQuarantineRows] = useState<CounterpointQuarantineRow[]>([]);
+  const [registryHealth, setRegistryHealth] =
+    useState<CounterpointRegistryHealthSummary | null>(null);
   const [quarantineLoading, setQuarantineLoading] = useState(false);
 
   const [categoryRows, setCategoryRows] = useState<CategoryMapRow[]>([]);
@@ -947,12 +961,18 @@ export default function CounterpointSyncSettingsPanel(props?: {
     setQuarantineLoading(true);
     try {
       const headers = backofficeHeaders() as Record<string, string>;
-      const [summaryRes, rowsRes] = await Promise.all([
+      const [registryRes, summaryRes, rowsRes] = await Promise.all([
+        fetch(`${baseUrl}/api/settings/counterpoint-sync/registry-health`, { headers }),
         fetch(`${baseUrl}/api/settings/counterpoint-sync/quarantine/summary`, { headers }),
         fetch(`${baseUrl}/api/settings/counterpoint-sync/quarantine/rows?limit=25`, {
           headers,
         }),
       ]);
+      if (registryRes.ok) {
+        setRegistryHealth((await registryRes.json()) as CounterpointRegistryHealthSummary);
+      } else {
+        setRegistryHealth(null);
+      }
       if (summaryRes.ok) {
         setQuarantineSummary((await summaryRes.json()) as CounterpointQuarantineSummary);
       } else {
@@ -965,6 +985,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
         setQuarantineRows([]);
       }
     } catch {
+      setRegistryHealth(null);
       setQuarantineSummary(null);
       setQuarantineRows([]);
     } finally {
@@ -1343,6 +1364,69 @@ export default function CounterpointSyncSettingsPanel(props?: {
     },
     { label: "Warnings", value: quarantineSummary?.warning_records ?? 0, tone: "text-amber-600" },
     { label: "Info", value: quarantineSummary?.info_records ?? 0, tone: "text-app-text-muted" },
+  ];
+  const registryStatusLabel = !registryHealth
+    ? "Unknown"
+    : registryHealth.status === "healthy"
+      ? "Healthy"
+      : registryHealth.status === "warning"
+        ? "Warning"
+        : "Needs review";
+  const registryStatusTone = !registryHealth
+    ? "border-app-border bg-app-bg/60 text-app-text-muted"
+    : registryHealth.status === "healthy"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : registryHealth.status === "warning"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-red-200 bg-red-50 text-red-700";
+  const registryHealthRows = [
+    {
+      label: "CP products",
+      value: registryHealth?.counterpoint_products,
+      tone: "text-app-text",
+    },
+    {
+      label: "CP variants",
+      value: registryHealth?.counterpoint_variants,
+      tone: "text-app-text",
+    },
+    {
+      label: "With item key",
+      value: registryHealth?.variants_with_counterpoint_item_key,
+      tone: "text-emerald-600",
+    },
+    {
+      label: "Missing item key",
+      value: registryHealth?.variants_missing_counterpoint_item_key,
+      tone:
+        (registryHealth?.variants_missing_counterpoint_item_key ?? 0) > 0
+          ? "text-amber-600"
+          : "text-app-text",
+    },
+    {
+      label: "Duplicate SKUs",
+      value: registryHealth?.duplicate_normalized_sku_values,
+      tone:
+        (registryHealth?.duplicate_normalized_sku_values ?? 0) > 0
+          ? "text-app-danger"
+          : "text-app-text",
+    },
+    {
+      label: "Duplicate item keys",
+      value: registryHealth?.duplicate_counterpoint_item_key_values,
+      tone:
+        (registryHealth?.duplicate_counterpoint_item_key_values ?? 0) > 0
+          ? "text-app-danger"
+          : "text-app-text",
+    },
+    {
+      label: "Needs review",
+      value: registryHealth?.quarantine_record_count,
+      tone:
+        (registryHealth?.quarantine_record_count ?? 0) > 0
+          ? "text-app-warning"
+          : "text-app-text",
+    },
   ];
   const migrationPreflight = bridgeLive?.migrationPreflight ?? null;
   const enabledEntities = migrationPreflight?.import_scope.enabled_entities ?? [];
@@ -4066,6 +4150,46 @@ export default function CounterpointSyncSettingsPanel(props?: {
               <p className="mt-1 text-[10px] text-app-text-muted">
                 Source: <code>counterpoint_ingest_quarantine</code>
               </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Registry Health
+                </h4>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  Read-only structure check for the landed Counterpoint registry.
+                </p>
+              </div>
+              <span
+                className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${registryStatusTone}`}
+              >
+                {registryHealth ? registryStatusLabel : "Unknown"}
+              </span>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-8">
+              {registryHealthRows.map((row) => (
+                <div key={row.label} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    {row.label}
+                  </p>
+                  <p className={`mt-2 text-lg font-black tabular-nums ${row.tone}`}>
+                    {quarantineLoading ? "…" : fmtNum(row.value)}
+                  </p>
+                </div>
+              ))}
+              <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Latest ingest
+                </p>
+                <p className="mt-2 text-xs font-black text-app-text">
+                  {registryHealth?.latest_ingest_at
+                    ? formatDate(registryHealth.latest_ingest_at)
+                    : "None recorded"}
+                </p>
+              </div>
             </div>
           </div>
 

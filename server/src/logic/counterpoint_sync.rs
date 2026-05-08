@@ -232,6 +232,19 @@ pub struct CounterpointIngestQuarantineRow {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CounterpointRegistryHealthSummary {
+    pub status: String,
+    pub counterpoint_products: i64,
+    pub counterpoint_variants: i64,
+    pub variants_with_counterpoint_item_key: i64,
+    pub variants_missing_counterpoint_item_key: i64,
+    pub duplicate_normalized_sku_values: i64,
+    pub duplicate_counterpoint_item_key_values: i64,
+    pub quarantine_record_count: i64,
+    pub latest_ingest_at: Option<DateTime<Utc>>,
+}
+
 struct CounterpointInventoryQuarantineFilter {
     payload: CounterpointInventoryPayload,
     records: Vec<CounterpointIngestQuarantineRecord>,
@@ -1070,6 +1083,97 @@ pub async fn list_counterpoint_ingest_quarantine_rows(
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+pub async fn get_counterpoint_registry_health_summary(
+    pool: &PgPool,
+) -> Result<CounterpointRegistryHealthSummary, CounterpointSyncError> {
+    let counts: (
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        Option<DateTime<Utc>>,
+    ) = sqlx::query_as(
+        r#"
+        WITH counterpoint_products AS (
+            SELECT p.id
+            FROM products p
+            WHERE p.data_source = 'counterpoint'
+        ),
+        counterpoint_variants AS (
+            SELECT
+                pv.id,
+                NULLIF(LOWER(TRIM(pv.sku)), '') AS normalized_sku,
+                NULLIF(TRIM(pv.counterpoint_item_key), '') AS normalized_counterpoint_item_key
+            FROM product_variants pv
+            INNER JOIN products p ON p.id = pv.product_id
+            WHERE p.data_source = 'counterpoint'
+               OR NULLIF(TRIM(pv.counterpoint_item_key), '') IS NOT NULL
+        ),
+        duplicate_normalized_skus AS (
+            SELECT normalized_sku
+            FROM counterpoint_variants
+            WHERE normalized_sku IS NOT NULL
+            GROUP BY normalized_sku
+            HAVING COUNT(*) > 1
+        ),
+        duplicate_counterpoint_item_keys AS (
+            SELECT normalized_counterpoint_item_key
+            FROM counterpoint_variants
+            WHERE normalized_counterpoint_item_key IS NOT NULL
+            GROUP BY normalized_counterpoint_item_key
+            HAVING COUNT(*) > 1
+        )
+        SELECT
+            (SELECT COUNT(*)::bigint FROM counterpoint_products) AS counterpoint_products,
+            (SELECT COUNT(*)::bigint FROM counterpoint_variants) AS counterpoint_variants,
+            (
+                SELECT COUNT(*)::bigint
+                FROM counterpoint_variants
+                WHERE normalized_counterpoint_item_key IS NOT NULL
+            ) AS variants_with_counterpoint_item_key,
+            (
+                SELECT COUNT(*)::bigint
+                FROM counterpoint_variants
+                WHERE normalized_counterpoint_item_key IS NULL
+            ) AS variants_missing_counterpoint_item_key,
+            (SELECT COUNT(*)::bigint FROM duplicate_normalized_skus) AS duplicate_normalized_sku_values,
+            (SELECT COUNT(*)::bigint FROM duplicate_counterpoint_item_keys) AS duplicate_counterpoint_item_key_values,
+            (SELECT COUNT(*)::bigint FROM counterpoint_ingest_quarantine) AS quarantine_record_count,
+            (
+                SELECT MAX(COALESCE(last_ok_at, updated_at))
+                FROM counterpoint_sync_runs
+                WHERE entity IN ('catalog', 'inventory')
+                  AND (last_ok_at IS NOT NULL OR records_processed IS NOT NULL)
+            ) AS latest_ingest_at
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let status = if counts.4 > 0 || counts.5 > 0 || counts.6 > 0 {
+        "needs_review"
+    } else if counts.1 == 0 || counts.3 > 0 {
+        "warning"
+    } else {
+        "healthy"
+    };
+
+    Ok(CounterpointRegistryHealthSummary {
+        status: status.to_string(),
+        counterpoint_products: counts.0,
+        counterpoint_variants: counts.1,
+        variants_with_counterpoint_item_key: counts.2,
+        variants_missing_counterpoint_item_key: counts.3,
+        duplicate_normalized_sku_values: counts.4,
+        duplicate_counterpoint_item_key_values: counts.5,
+        quarantine_record_count: counts.6,
+        latest_ingest_at: counts.7,
+    })
 }
 
 fn is_identifier_like_text(raw: &str) -> bool {
