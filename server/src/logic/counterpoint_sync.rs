@@ -245,6 +245,16 @@ pub struct CounterpointRegistryHealthSummary {
     pub latest_ingest_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CounterpointBarcodeAliasHealthSummary {
+    pub total_aliases: i64,
+    pub active_aliases: i64,
+    pub duplicate_active_alias_conflicts: i64,
+    pub latest_created_at: Option<DateTime<Utc>>,
+    pub by_type: Vec<CounterpointIngestQuarantineCount>,
+    pub by_status: Vec<CounterpointIngestQuarantineCount>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct CounterpointBarcodeAliasPreflightRow {
     pub sku: String,
@@ -1487,6 +1497,69 @@ pub async fn get_counterpoint_registry_health_summary(
         duplicate_counterpoint_item_key_values: counts.5,
         quarantine_record_count: counts.6,
         latest_ingest_at: counts.7,
+    })
+}
+
+pub async fn get_counterpoint_barcode_alias_health_summary(
+    pool: &PgPool,
+) -> Result<CounterpointBarcodeAliasHealthSummary, CounterpointSyncError> {
+    let totals: (i64, i64, i64, Option<DateTime<Utc>>) = sqlx::query_as(
+        r#"
+        WITH duplicate_active_aliases AS (
+            SELECT normalized_alias
+            FROM product_variant_barcode_aliases
+            WHERE status = 'active'
+            GROUP BY normalized_alias
+            HAVING COUNT(*) > 1
+        )
+        SELECT
+            COUNT(*)::bigint AS total_aliases,
+            COUNT(*) FILTER (WHERE status = 'active')::bigint AS active_aliases,
+            (SELECT COUNT(*)::bigint FROM duplicate_active_aliases) AS duplicate_active_alias_conflicts,
+            MAX(created_at) AS latest_created_at
+        FROM product_variant_barcode_aliases
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let by_type: Vec<CounterpointIngestQuarantineCount> = sqlx::query_as(
+        r#"
+        SELECT alias_type AS key, COUNT(*)::bigint AS count
+        FROM product_variant_barcode_aliases
+        GROUP BY alias_type
+        ORDER BY alias_type
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let by_status: Vec<CounterpointIngestQuarantineCount> = sqlx::query_as(
+        r#"
+        SELECT status AS key, COUNT(*)::bigint AS count
+        FROM product_variant_barcode_aliases
+        GROUP BY status
+        ORDER BY
+            CASE status
+                WHEN 'active' THEN 1
+                WHEN 'quarantined' THEN 2
+                WHEN 'replaced' THEN 3
+                WHEN 'rejected' THEN 4
+                ELSE 5
+            END,
+            status
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(CounterpointBarcodeAliasHealthSummary {
+        total_aliases: totals.0,
+        active_aliases: totals.1,
+        duplicate_active_alias_conflicts: totals.2,
+        latest_created_at: totals.3,
+        by_type,
+        by_status,
     })
 }
 
@@ -9483,6 +9556,54 @@ mod tests {
         .expect("ensure counterpoint ingest quarantine table");
     }
 
+    async fn ensure_product_variant_barcode_aliases_table(pool: &PgPool) {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS public.product_variant_barcode_aliases (
+                id bigserial PRIMARY KEY,
+                variant_id uuid NOT NULL REFERENCES public.product_variants(id) ON DELETE CASCADE,
+                alias_value text NOT NULL,
+                normalized_alias text GENERATED ALWAYS AS (lower(TRIM(BOTH FROM alias_value))) STORED,
+                alias_type text NOT NULL,
+                source_system text NOT NULL,
+                source_file_name text,
+                source_file_hash text,
+                source_row_number integer,
+                source_row_hash text,
+                counterpoint_item_key text,
+                family_key text,
+                match_method text NOT NULL,
+                status text DEFAULT 'active'::text NOT NULL,
+                created_at timestamp with time zone DEFAULT now() NOT NULL,
+                CONSTRAINT product_variant_barcode_alias_value_chk CHECK (TRIM(BOTH FROM alias_value) <> ''::text),
+                CONSTRAINT product_variant_barcode_alias_type_chk CHECK (
+                    alias_type = ANY (ARRAY['counterpoint_b_sku'::text, 'upc'::text, 'ean'::text, 'vendor_upc'::text, 'manual'::text])
+                ),
+                CONSTRAINT product_variant_barcode_alias_status_chk CHECK (
+                    status = ANY (ARRAY['active'::text, 'quarantined'::text, 'replaced'::text, 'rejected'::text])
+                ),
+                CONSTRAINT product_variant_barcode_alias_source_row_number_chk CHECK (
+                    source_row_number IS NULL OR source_row_number > 0
+                ),
+                CONSTRAINT product_variant_barcode_alias_normalized_chk CHECK (normalized_alias <> ''::text)
+            )
+            "#,
+        )
+        .execute(pool)
+        .await
+        .expect("ensure product variant barcode aliases table");
+        sqlx::query(
+            r#"
+            CREATE UNIQUE INDEX IF NOT EXISTS product_variant_barcode_aliases_active_alias_uidx
+            ON public.product_variant_barcode_aliases (normalized_alias)
+            WHERE status = 'active'::text
+            "#,
+        )
+        .execute(pool)
+        .await
+        .expect("ensure active alias unique index");
+    }
+
     async fn load_counterpoint_config(pool: &PgPool) -> serde_json::Value {
         sqlx::query_scalar(
             "SELECT COALESCE(counterpoint_config, '{}'::jsonb) FROM store_settings WHERE id = 1",
@@ -9804,6 +9925,108 @@ mod tests {
             .execute(&pool)
             .await
             .expect("delete alias preflight product");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_barcode_alias_health_reports_counts_without_scan_changes() {
+        let pool = connect_test_db().await;
+        ensure_product_variant_barcode_aliases_table(&pool).await;
+
+        let suffix = numeric_identity_suffix();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let active_alias = format!("B-{suffix}1");
+        let rejected_alias = format!("B-{suffix}2");
+        let cp_key = format!("I-{suffix}|STYLE|SIZE");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (
+                id, catalog_handle, name, base_retail_price, base_cost, is_active, data_source
+            )
+            VALUES ($1, $2, $3, $4, $5, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("I-{suffix}"))
+        .bind(format!("Counterpoint Alias Health Fixture {suffix}"))
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert alias health product fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, '{}'::jsonb, 0, $3)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&cp_key)
+        .execute(&pool)
+        .await
+        .expect("insert alias health variant fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variant_barcode_aliases (
+                variant_id, alias_value, alias_type, source_system,
+                source_file_name, source_file_hash, source_row_number, source_row_hash,
+                counterpoint_item_key, family_key, match_method, status
+            )
+            VALUES
+                ($1, $2, 'counterpoint_b_sku', 'counterpoint', 'alias-test.csv', $4, 1, $5, $6, $7, 'preflight_family_options', 'active'),
+                ($1, $3, 'counterpoint_b_sku', 'counterpoint', 'alias-test.csv', $4, 2, $8, $6, $7, 'preflight_family_options', 'rejected')
+            "#,
+        )
+        .bind(variant_id)
+        .bind(&active_alias)
+        .bind(&rejected_alias)
+        .bind(format!("alias-health-file-{suffix}"))
+        .bind(format!("alias-health-row-{suffix}-1"))
+        .bind(&cp_key)
+        .bind(format!("I-{suffix}"))
+        .bind(format!("alias-health-row-{suffix}-2"))
+        .execute(&pool)
+        .await
+        .expect("insert alias health rows");
+
+        let health = get_counterpoint_barcode_alias_health_summary(&pool)
+            .await
+            .expect("barcode alias health summary");
+        assert!(health.total_aliases >= 2);
+        assert!(health.active_aliases >= 1);
+        assert_eq!(health.duplicate_active_alias_conflicts, 0);
+        assert!(health
+            .by_type
+            .iter()
+            .any(|row| row.key == "counterpoint_b_sku" && row.count >= 2));
+        assert!(health
+            .by_status
+            .iter()
+            .any(|row| row.key == "active" && row.count >= 1));
+        assert!(health
+            .by_status
+            .iter()
+            .any(|row| row.key == "rejected" && row.count >= 1));
+
+        let stored_barcode: Option<String> =
+            sqlx::query_scalar("SELECT barcode FROM product_variants WHERE id = $1")
+                .bind(variant_id)
+                .fetch_one(&pool)
+                .await
+                .expect("read variant barcode");
+        assert_eq!(stored_barcode, None);
+
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("delete alias health product cascade");
     }
 
     #[test]

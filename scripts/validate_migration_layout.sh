@@ -15,6 +15,7 @@ expected=(
   "008_indexes_constraints_triggers.sql"
   "009_promo_gift_cards.sql"
   "010_counterpoint_ingest_quarantine.sql"
+  "011_product_variant_barcode_aliases.sql"
 )
 
 active=()
@@ -68,4 +69,4 @@ if rg -n "INSERT INTO (public\\.)?(staff|staff_role_permission|staff_permission|
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-010 only."
+echo "Migration layout OK: active baseline 001-011 only."

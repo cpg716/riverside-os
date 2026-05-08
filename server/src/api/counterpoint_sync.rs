@@ -23,9 +23,10 @@ use crate::logic::counterpoint_sync::{
     execute_counterpoint_open_doc_batch, execute_counterpoint_sls_rep_stub_batch,
     execute_counterpoint_staff_batch, execute_counterpoint_store_credit_opening_batch,
     execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
-    execute_counterpoint_vendor_item_batch, get_counterpoint_ingest_quarantine_summary,
-    get_counterpoint_registry_health_summary, list_counterpoint_ingest_quarantine_rows,
-    preflight_counterpoint_barcode_aliases, validate_counterpoint_catalog_identity_preflight,
+    execute_counterpoint_vendor_item_batch, get_counterpoint_barcode_alias_health_summary,
+    get_counterpoint_ingest_quarantine_summary, get_counterpoint_registry_health_summary,
+    list_counterpoint_ingest_quarantine_rows, preflight_counterpoint_barcode_aliases,
+    validate_counterpoint_catalog_identity_preflight,
     validate_counterpoint_inventory_identity_preflight, CounterpointBarcodeAliasPreflightPayload,
     CounterpointCatalogPayload, CounterpointCategoryMastersPayload,
     CounterpointCustomerNotesPayload, CounterpointCustomersPayload,
@@ -961,6 +962,22 @@ async fn settings_registry_health(
     }
 }
 
+async fn settings_alias_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    match get_counterpoint_barcode_alias_health_summary(&state.db).await {
+        Ok(summary) => Ok(Json(serde_json::to_value(summary).unwrap_or_default())),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )),
+    }
+}
+
 async fn settings_quarantine_rows(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1491,6 +1508,7 @@ pub fn settings_router() -> Router<AppState> {
         .route("/reset-baseline", post(settings_reset_execute))
         .route("/request-run", post(settings_request_run))
         .route("/registry-health", get(settings_registry_health))
+        .route("/aliases/health", get(settings_alias_health))
         .route("/quarantine/summary", get(settings_quarantine_summary))
         .route("/quarantine/rows", get(settings_quarantine_rows))
         .route("/issues/{issue_id}/resolve", patch(settings_resolve_issue))
