@@ -23,7 +23,8 @@ use crate::logic::counterpoint_sync::{
     execute_counterpoint_open_doc_batch, execute_counterpoint_sls_rep_stub_batch,
     execute_counterpoint_staff_batch, execute_counterpoint_store_credit_opening_batch,
     execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
-    execute_counterpoint_vendor_item_batch, CounterpointCatalogPayload,
+    execute_counterpoint_vendor_item_batch, validate_counterpoint_catalog_identity_preflight,
+    validate_counterpoint_inventory_identity_preflight, CounterpointCatalogPayload,
     CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
     CounterpointCustomersPayload, CounterpointFidelityDiagnosticPayload,
     CounterpointGiftCardsPayload, CounterpointInventoryPayload, CounterpointLoyaltyHistPayload,
@@ -326,6 +327,17 @@ async fn cp_inventory(
     }
 }
 
+async fn cp_inventory_preflight(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CounterpointInventoryPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    validate_counterpoint_inventory_identity_preflight(&payload)
+        .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
+        .map_err(cp_err)
+}
+
 async fn cp_category_masters(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -404,6 +416,17 @@ async fn cp_catalog(
             Err(cp_err(e))
         }
     }
+}
+
+async fn cp_catalog_preflight(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CounterpointCatalogPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    validate_counterpoint_catalog_identity_preflight(&payload)
+        .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
+        .map_err(cp_err)
 }
 
 async fn cp_gift_cards(
@@ -1346,8 +1369,10 @@ pub fn router() -> Router<AppState> {
             .route("/ack-request", post(cp_ack_request))
             .route("/request/complete", post(cp_complete_request))
             .route("/customers", post(cp_customers))
+            .route("/inventory/preflight", post(cp_inventory_preflight))
             .route("/inventory", post(cp_inventory))
             .route("/category-masters", post(cp_category_masters))
+            .route("/catalog/preflight", post(cp_catalog_preflight))
             .route("/catalog", post(cp_catalog))
             .route("/gift-cards", post(cp_gift_cards))
             .route("/tickets", post(cp_tickets))

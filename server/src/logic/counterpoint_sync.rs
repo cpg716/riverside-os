@@ -5,7 +5,7 @@
 //! Ticket and open-doc transactions are only inserted after **every** line resolves to a variant
 //! (no partial transactions with mismatched totals).
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::path::PathBuf;
 
@@ -131,6 +131,50 @@ pub struct CounterpointInventorySummary {
     pub skipped: i32,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct CounterpointIdentityPreflightReference {
+    pub row_number: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cell_number: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointIdentityPreflightIssue {
+    pub issue_type: String,
+    pub severity: String,
+    pub message: String,
+    pub affected_row_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalized_sku: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counterpoint_item_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_key: Option<String>,
+    pub references: Vec<CounterpointIdentityPreflightReference>,
+    pub values: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointIdentityPreflightSummary {
+    pub entity: String,
+    pub total_rows: usize,
+    pub variant_rows_checked: usize,
+    pub has_errors: bool,
+    pub issue_count: usize,
+    pub affected_row_count: usize,
+    pub invalid_sku_rows: usize,
+    pub duplicate_normalized_b_sku_values: usize,
+    pub duplicate_counterpoint_item_key_values: usize,
+    pub conflicting_sku_family_values: usize,
+    pub conflicting_sku_counterpoint_item_key_values: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointIdentityPreflightReport {
+    pub summary: CounterpointIdentityPreflightSummary,
+    pub issues: Vec<CounterpointIdentityPreflightIssue>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CounterpointReceivingRow {
     pub vend_no: String,
@@ -173,6 +217,274 @@ fn compact_upper(raw: &str) -> String {
         .filter(|c| !c.is_whitespace())
         .flat_map(char::to_uppercase)
         .collect()
+}
+
+const COUNTERPOINT_IDENTITY_PREFLIGHT_EXAMPLE_LIMIT: usize = 50;
+
+#[derive(Debug)]
+struct CounterpointIdentityPreflightRow {
+    reference: CounterpointIdentityPreflightReference,
+    normalized_sku: Option<String>,
+    counterpoint_item_key: Option<String>,
+    family_key: Option<String>,
+}
+
+fn normalize_identity_key(raw: &str) -> Option<String> {
+    let normalized = collapse_whitespace(raw).to_uppercase();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn is_valid_counterpoint_b_sku(normalized_sku: &str) -> bool {
+    let Some(rest) = normalized_sku.strip_prefix("B-") else {
+        return false;
+    };
+    !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn normalize_counterpoint_family_key(key: &str) -> Option<String> {
+    key.split('|').next().and_then(normalize_identity_key)
+}
+
+fn limited_refs(
+    rows: &[&CounterpointIdentityPreflightRow],
+) -> Vec<CounterpointIdentityPreflightReference> {
+    rows.iter()
+        .take(COUNTERPOINT_IDENTITY_PREFLIGHT_EXAMPLE_LIMIT)
+        .map(|row| row.reference.clone())
+        .collect()
+}
+
+fn limited_values(values: &BTreeSet<String>) -> Vec<String> {
+    values
+        .iter()
+        .take(COUNTERPOINT_IDENTITY_PREFLIGHT_EXAMPLE_LIMIT)
+        .cloned()
+        .collect()
+}
+
+fn grouped_issue(
+    issue_type: &str,
+    message: String,
+    rows: &[&CounterpointIdentityPreflightRow],
+    normalized_sku: Option<String>,
+    counterpoint_item_key: Option<String>,
+    family_key: Option<String>,
+    values: BTreeSet<String>,
+) -> CounterpointIdentityPreflightIssue {
+    CounterpointIdentityPreflightIssue {
+        issue_type: issue_type.into(),
+        severity: "error".into(),
+        message,
+        affected_row_count: rows.len(),
+        normalized_sku,
+        counterpoint_item_key,
+        family_key,
+        references: limited_refs(rows),
+        values: limited_values(&values),
+    }
+}
+
+fn build_counterpoint_identity_preflight_report(
+    entity: &str,
+    total_rows: usize,
+    rows: Vec<CounterpointIdentityPreflightRow>,
+) -> CounterpointIdentityPreflightReport {
+    let mut issues = Vec::new();
+    let mut invalid_sku_rows = 0;
+    let mut duplicate_normalized_b_sku_values = 0;
+    let mut duplicate_counterpoint_item_key_values = 0;
+    let mut conflicting_sku_family_values = 0;
+    let mut conflicting_sku_counterpoint_item_key_values = 0;
+    let mut affected_refs = BTreeSet::new();
+    let mut invalid_rows = Vec::new();
+    let mut invalid_values = BTreeSet::new();
+
+    let mut rows_by_sku: BTreeMap<String, Vec<&CounterpointIdentityPreflightRow>> = BTreeMap::new();
+    let mut rows_by_key: BTreeMap<String, Vec<&CounterpointIdentityPreflightRow>> = BTreeMap::new();
+
+    for row in &rows {
+        if let Some(sku) = row.normalized_sku.as_deref() {
+            rows_by_sku.entry(sku.to_string()).or_default().push(row);
+        }
+        if let Some(key) = row.counterpoint_item_key.as_deref() {
+            rows_by_key.entry(key.to_string()).or_default().push(row);
+        }
+    }
+
+    for row in &rows {
+        let invalid = row
+            .normalized_sku
+            .as_deref()
+            .map(|sku| !is_valid_counterpoint_b_sku(sku))
+            .unwrap_or(true);
+        if invalid {
+            invalid_sku_rows += 1;
+            affected_refs.insert((row.reference.row_number, row.reference.cell_number));
+            invalid_rows.push(row);
+            if let Some(sku) = row.normalized_sku.clone() {
+                invalid_values.insert(sku);
+            }
+        }
+    }
+    if !invalid_rows.is_empty() {
+        issues.push(grouped_issue(
+            "invalid_generated_or_non_b_sku",
+            "Incoming variant rows contain blank, generated, or non-Counterpoint B- SKUs.".into(),
+            &invalid_rows,
+            None,
+            None,
+            None,
+            invalid_values,
+        ));
+    }
+
+    for (sku, sku_rows) in &rows_by_sku {
+        if !is_valid_counterpoint_b_sku(sku) || sku_rows.len() <= 1 {
+            continue;
+        }
+        duplicate_normalized_b_sku_values += 1;
+        for row in sku_rows {
+            affected_refs.insert((row.reference.row_number, row.reference.cell_number));
+        }
+        let keys = sku_rows
+            .iter()
+            .filter_map(|row| row.counterpoint_item_key.clone())
+            .collect();
+        issues.push(grouped_issue(
+            "duplicate_normalized_b_sku",
+            "Multiple incoming variant rows share the same normalized B- SKU.".into(),
+            sku_rows,
+            Some(sku.clone()),
+            None,
+            None,
+            keys,
+        ));
+    }
+
+    for (key, key_rows) in &rows_by_key {
+        if key_rows.len() <= 1 {
+            continue;
+        }
+        duplicate_counterpoint_item_key_values += 1;
+        for row in key_rows {
+            affected_refs.insert((row.reference.row_number, row.reference.cell_number));
+        }
+        let skus = key_rows
+            .iter()
+            .filter_map(|row| row.normalized_sku.clone())
+            .collect();
+        issues.push(grouped_issue(
+            "duplicate_counterpoint_item_key",
+            "Multiple incoming variant rows share the same Counterpoint item key.".into(),
+            key_rows,
+            None,
+            Some(key.clone()),
+            None,
+            skus,
+        ));
+    }
+
+    for (sku, sku_rows) in &rows_by_sku {
+        let families = sku_rows
+            .iter()
+            .filter_map(|row| row.family_key.clone())
+            .collect::<BTreeSet<_>>();
+        if families.len() > 1 {
+            conflicting_sku_family_values += 1;
+            for row in sku_rows {
+                affected_refs.insert((row.reference.row_number, row.reference.cell_number));
+            }
+            issues.push(grouped_issue(
+                "conflicting_sku_family_mapping",
+                "One normalized SKU maps to multiple Counterpoint family/item keys.".into(),
+                sku_rows,
+                Some(sku.clone()),
+                None,
+                None,
+                families,
+            ));
+        }
+
+        let keys = sku_rows
+            .iter()
+            .filter_map(|row| row.counterpoint_item_key.clone())
+            .collect::<BTreeSet<_>>();
+        if keys.len() > 1 {
+            conflicting_sku_counterpoint_item_key_values += 1;
+            for row in sku_rows {
+                affected_refs.insert((row.reference.row_number, row.reference.cell_number));
+            }
+            issues.push(grouped_issue(
+                "conflicting_sku_counterpoint_item_key_mapping",
+                "One normalized SKU maps to multiple Counterpoint variant keys.".into(),
+                sku_rows,
+                Some(sku.clone()),
+                None,
+                None,
+                keys,
+            ));
+        }
+    }
+
+    CounterpointIdentityPreflightReport {
+        summary: CounterpointIdentityPreflightSummary {
+            entity: entity.into(),
+            total_rows,
+            variant_rows_checked: rows.len(),
+            has_errors: !issues.is_empty(),
+            issue_count: issues.len(),
+            affected_row_count: affected_refs.len(),
+            invalid_sku_rows,
+            duplicate_normalized_b_sku_values,
+            duplicate_counterpoint_item_key_values,
+            conflicting_sku_family_values,
+            conflicting_sku_counterpoint_item_key_values,
+        },
+        issues,
+    }
+}
+
+pub fn validate_counterpoint_inventory_identity_preflight(
+    payload: &CounterpointInventoryPayload,
+) -> Result<CounterpointIdentityPreflightReport, CounterpointSyncError> {
+    if payload.rows.is_empty() {
+        return Err(CounterpointSyncError::InvalidPayload(
+            "rows cannot be empty".into(),
+        ));
+    }
+
+    let rows = payload
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(idx, row)| {
+            let counterpoint_item_key = trim_opt(&row.counterpoint_item_key)
+                .as_deref()
+                .and_then(normalize_identity_key);
+            let family_key = counterpoint_item_key
+                .as_deref()
+                .and_then(normalize_counterpoint_family_key);
+            CounterpointIdentityPreflightRow {
+                reference: CounterpointIdentityPreflightReference {
+                    row_number: idx + 1,
+                    cell_number: None,
+                },
+                normalized_sku: normalize_identity_key(&row.sku),
+                counterpoint_item_key,
+                family_key,
+            }
+        })
+        .collect();
+
+    Ok(build_counterpoint_identity_preflight_report(
+        "inventory",
+        payload.rows.len(),
+        rows,
+    ))
 }
 
 fn is_identifier_like_text(raw: &str) -> bool {
@@ -4997,6 +5309,54 @@ pub struct CatalogUpsertSummary {
     pub name_quality_warnings: i32,
 }
 
+pub fn validate_counterpoint_catalog_identity_preflight(
+    payload: &CounterpointCatalogPayload,
+) -> Result<CounterpointIdentityPreflightReport, CounterpointSyncError> {
+    if payload.rows.is_empty() {
+        return Err(CounterpointSyncError::InvalidPayload(
+            "rows cannot be empty".into(),
+        ));
+    }
+
+    let mut rows = Vec::new();
+    for (row_idx, row) in payload.rows.iter().enumerate() {
+        let item_no = normalize_identity_key(&row.item_no);
+        let is_grid = row.is_grid.unwrap_or(!row.cells.is_empty());
+        if !is_grid || row.cells.is_empty() {
+            let sku = trim_opt(&row.barcode).unwrap_or_else(|| row.item_no.trim().to_string());
+            rows.push(CounterpointIdentityPreflightRow {
+                reference: CounterpointIdentityPreflightReference {
+                    row_number: row_idx + 1,
+                    cell_number: None,
+                },
+                normalized_sku: normalize_identity_key(&sku),
+                counterpoint_item_key: item_no.clone(),
+                family_key: item_no.clone(),
+            });
+            continue;
+        }
+
+        for (cell_idx, cell) in row.cells.iter().enumerate() {
+            let counterpoint_item_key = normalize_identity_key(&cell.counterpoint_item_key);
+            rows.push(CounterpointIdentityPreflightRow {
+                reference: CounterpointIdentityPreflightReference {
+                    row_number: row_idx + 1,
+                    cell_number: Some(cell_idx + 1),
+                },
+                normalized_sku: normalize_identity_key(&cell.sku),
+                family_key: item_no.clone(),
+                counterpoint_item_key,
+            });
+        }
+    }
+
+    Ok(build_counterpoint_identity_preflight_report(
+        "catalog",
+        payload.rows.len(),
+        rows,
+    ))
+}
+
 pub async fn execute_counterpoint_catalog_batch(
     pool: &PgPool,
     payload: CounterpointCatalogPayload,
@@ -7978,6 +8338,157 @@ mod tests {
             .iter()
             .find(|row| row.key == key)
             .expect("cutover visibility row")
+    }
+
+    fn preflight_issue_types(report: &CounterpointIdentityPreflightReport) -> HashSet<&str> {
+        report
+            .issues
+            .iter()
+            .map(|issue| issue.issue_type.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn counterpoint_inventory_identity_preflight_reports_collisions_without_writes() {
+        let payload = CounterpointInventoryPayload {
+            rows: vec![
+                CounterpointInventoryRow {
+                    sku: "B-100".into(),
+                    stock_on_hand: 1,
+                    counterpoint_item_key: Some("I-100|RED".into()),
+                    unit_cost: None,
+                },
+                CounterpointInventoryRow {
+                    sku: " b-100 ".into(),
+                    stock_on_hand: 2,
+                    counterpoint_item_key: Some("I-200|BLUE".into()),
+                    unit_cost: None,
+                },
+                CounterpointInventoryRow {
+                    sku: "12345".into(),
+                    stock_on_hand: 3,
+                    counterpoint_item_key: Some("I-300".into()),
+                    unit_cost: None,
+                },
+                CounterpointInventoryRow {
+                    sku: "B-400".into(),
+                    stock_on_hand: 4,
+                    counterpoint_item_key: Some("I-400|A".into()),
+                    unit_cost: None,
+                },
+                CounterpointInventoryRow {
+                    sku: "B-401".into(),
+                    stock_on_hand: 5,
+                    counterpoint_item_key: Some("I-400|A".into()),
+                    unit_cost: None,
+                },
+            ],
+            sync: None,
+        };
+
+        let report = validate_counterpoint_inventory_identity_preflight(&payload)
+            .expect("inventory preflight report");
+        let issue_types = preflight_issue_types(&report);
+
+        assert_eq!(report.summary.entity, "inventory");
+        assert_eq!(report.summary.total_rows, 5);
+        assert_eq!(report.summary.variant_rows_checked, 5);
+        assert!(report.summary.has_errors);
+        assert_eq!(report.summary.invalid_sku_rows, 1);
+        assert_eq!(report.summary.duplicate_normalized_b_sku_values, 1);
+        assert_eq!(report.summary.duplicate_counterpoint_item_key_values, 1);
+        assert_eq!(report.summary.conflicting_sku_family_values, 1);
+        assert_eq!(
+            report.summary.conflicting_sku_counterpoint_item_key_values,
+            1
+        );
+        assert!(issue_types.contains("invalid_generated_or_non_b_sku"));
+        assert!(issue_types.contains("duplicate_normalized_b_sku"));
+        assert!(issue_types.contains("duplicate_counterpoint_item_key"));
+        assert!(issue_types.contains("conflicting_sku_family_mapping"));
+        assert!(issue_types.contains("conflicting_sku_counterpoint_item_key_mapping"));
+    }
+
+    fn catalog_cell(key: &str, sku: &str) -> CatalogCellRow {
+        CatalogCellRow {
+            counterpoint_item_key: key.into(),
+            sku: sku.into(),
+            barcode: None,
+            variation_label: None,
+            variation_values: None,
+            stock_on_hand: None,
+            reorder_point: None,
+            retail_price: None,
+            prc_2: None,
+            prc_3: None,
+            unit_cost: None,
+        }
+    }
+
+    fn catalog_row(
+        item_no: &str,
+        barcode: Option<&str>,
+        cells: Vec<CatalogCellRow>,
+    ) -> CounterpointCatalogRow {
+        let is_grid = !cells.is_empty();
+        CounterpointCatalogRow {
+            item_no: item_no.into(),
+            description: None,
+            long_description: None,
+            brand: None,
+            category: None,
+            vendor_no: None,
+            retail_price: None,
+            prc_2: None,
+            prc_3: None,
+            unit_cost: None,
+            is_grid: Some(is_grid),
+            variation_axes: None,
+            barcode: barcode.map(str::to_string),
+            cells,
+        }
+    }
+
+    #[test]
+    fn counterpoint_catalog_identity_preflight_reports_variant_identity_conflicts() {
+        let payload = CounterpointCatalogPayload {
+            rows: vec![
+                catalog_row(
+                    "I-100",
+                    None,
+                    vec![
+                        catalog_cell("I-100|RED", "B-500"),
+                        catalog_cell("I-100|BLUE", "B-500"),
+                    ],
+                ),
+                catalog_row("I-200", None, vec![catalog_cell("I-200|RED", "B-500")]),
+                catalog_row("I-300", None, Vec::new()),
+                catalog_row("I-400", None, vec![catalog_cell("I-100|RED", "B-501")]),
+            ],
+            sync: None,
+        };
+
+        let report =
+            validate_counterpoint_catalog_identity_preflight(&payload).expect("catalog preflight");
+        let issue_types = preflight_issue_types(&report);
+
+        assert_eq!(report.summary.entity, "catalog");
+        assert_eq!(report.summary.total_rows, 4);
+        assert_eq!(report.summary.variant_rows_checked, 5);
+        assert!(report.summary.has_errors);
+        assert_eq!(report.summary.invalid_sku_rows, 1);
+        assert_eq!(report.summary.duplicate_normalized_b_sku_values, 1);
+        assert_eq!(report.summary.duplicate_counterpoint_item_key_values, 1);
+        assert_eq!(report.summary.conflicting_sku_family_values, 1);
+        assert_eq!(
+            report.summary.conflicting_sku_counterpoint_item_key_values,
+            1
+        );
+        assert!(issue_types.contains("invalid_generated_or_non_b_sku"));
+        assert!(issue_types.contains("duplicate_normalized_b_sku"));
+        assert!(issue_types.contains("duplicate_counterpoint_item_key"));
+        assert!(issue_types.contains("conflicting_sku_family_mapping"));
+        assert!(issue_types.contains("conflicting_sku_counterpoint_item_key_mapping"));
     }
 
     #[test]
