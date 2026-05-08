@@ -108,7 +108,7 @@ At pickup (`POST /api/transactions/{transaction_id}/pickup`):
 
 ## Saved Card for Balance
 
-When a transaction is created with Ship fulfillment, the customer can save a card for charging the balance at pickup.
+When a transaction is created with Ship fulfillment, the customer can use a Helcim-saved card for charging the balance at pickup. ROS stores provider-safe references and masked metadata only; staff must not enter PAN or CVV into ROS.
 
 ### Storage
 
@@ -117,9 +117,9 @@ When a transaction is created with Ship fulfillment, the customer can save a car
 
 ### Checkout Flow
 
-1. **TransactionReviewModal**: Select saved card OR enter new card
-2. **Saved to transaction**: card_payment_method_id stored at checkout
-3. **At pickup**: Charge saved card for remaining balance + shipping
+1. **TransactionReviewModal**: Select a Helcim-saved card when available.
+2. **Saved to transaction**: provider-safe payment reference stored at checkout.
+3. **At pickup**: Charge the saved Helcim token for remaining balance + shipping.
 
 ---
 

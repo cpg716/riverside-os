@@ -324,7 +324,7 @@ const HelcimSettingsPanel: React.FC = () => {
               : missingConfig.length
                 ? `Missing configuration: ${missingConfig.join(", ")}`
                 : terminalReady
-                  ? "Helcim API access, terminal device codes, and payment update signing are configured."
+                  ? "Helcim API access and terminal device codes are configured. Webhook updates are optional for local POS."
                   : "Helcim API access is configured. Add Terminal 1 and Terminal 2 device codes only if ROS will start in-store terminal payments."}
           </p>
         </div>
@@ -379,7 +379,7 @@ const HelcimSettingsPanel: React.FC = () => {
                   : "Not ready"
               }
               ready={Boolean(helcimStatus?.live_terminal_payments_ready)}
-              detail="Requires API token, Terminal 1, Terminal 2, and payment update signing secret."
+              detail="Requires API token, Terminal 1, and Terminal 2. Webhook updates are optional for local POS."
             />
             <ConfigRow
               label="Terminal routing"
@@ -388,14 +388,15 @@ const HelcimSettingsPanel: React.FC = () => {
               detail="Routing follows Riverside register policy. Daily readiness and in-use state live in Payments."
             />
             <ConfigRow
-              label="Payment update signing secret"
+              label="Optional webhook signing secret"
               value={
                 helcimStatus?.webhook_secret_configured
                   ? "Configured on server"
                   : "Not configured"
               }
               ready={Boolean(helcimStatus?.webhook_secret_configured)}
-              detail="Used to verify Helcim payment updates before ROS records them."
+              detail="Only needed if Helcim can reach a public ROS webhook URL."
+              warnWhenNotReady={false}
             />
             <ConfigRow
               label="API host"
@@ -474,8 +475,8 @@ const HelcimSettingsPanel: React.FC = () => {
                 },
                 {
                   key: "webhook_secret",
-                  label: "Payment update signing secret",
-                  help: "Required to verify Helcim payment updates before ROS records them.",
+                  label: "Optional webhook signing secret",
+                  help: "Only needed if Helcim can reach a public ROS webhook URL.",
                 },
                 {
                   key: "api_base_url",

@@ -816,7 +816,7 @@ pub async fn runtime_diagnostics_snapshot(
         .map(|value| !looks_placeholder(value))
         .unwrap_or(false);
     let helcim_terminals_ok = helcim_terminal_1_ok && helcim_terminal_2_ok;
-    let helcim_live_ready = helcim_token_ok && helcim_terminals_ok && helcim_webhook_ok;
+    let helcim_live_ready = helcim_token_ok && helcim_terminals_ok;
     let helcim_value = if helcim_live_ready {
         "Configured"
     } else if helcim_token_ok || helcim_terminal_1_ok || helcim_terminal_2_ok || helcim_webhook_ok {
@@ -825,7 +825,7 @@ pub async fn runtime_diagnostics_snapshot(
         "Not configured"
     };
     let helcim_detail = format!(
-        "API token {} • terminals {} • webhook {}",
+        "API token {} • terminals {} • optional webhook {}",
         if helcim_token_ok {
             "present"
         } else {

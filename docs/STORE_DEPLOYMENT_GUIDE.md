@@ -372,8 +372,11 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 - [ ] Reader visible/healthy in store payment settings.
 - [ ] Terminal 1 device code saved in **Settings → Helcim** or `HELCIM_TERMINAL_1_DEVICE_CODE`.
 - [ ] Terminal 2 device code saved in **Settings → Helcim** or `HELCIM_TERMINAL_2_DEVICE_CODE`.
-- [ ] Helcim payment update signing secret saved in **Settings → Helcim** or `HELCIM_WEBHOOK_SECRET`.
-- [ ] Card-present payment intent path validated with supervised test.
+- [ ] Optional: Helcim webhook signing secret saved only if ROS has a public HTTPS webhook URL.
+- [ ] Card Reader path validated: ROS sends the amount to the selected terminal and records the approved Helcim attempt.
+- [ ] Manual Card / phone-order path validated: ROS sends the amount to the selected terminal and staff key the card on the terminal, not in ROS.
+- [ ] Card Refund path validated with an original Helcim transaction id: ROS sends the refund to the selected terminal and records the approved refund as a negative card tender.
+- [ ] Saved Card path validated with a customer Helcim vault card: ROS charges the token and stores only safe provider metadata.
 - [ ] Reader disconnect/failure fallback procedure trained.
 - [ ] Refund/credit reconciliation path verified in reports and logs.
 

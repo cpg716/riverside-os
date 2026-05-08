@@ -97,13 +97,6 @@ fn validate_helcim_environment(strict_production: bool) -> Result<(), Box<dyn st
                 "Strict production requires HELCIM_TERMINAL_2_DEVICE_CODE to be configured".into(),
             );
         }
-        if webhook_secret
-            .as_deref()
-            .map(helcim_value_looks_placeholder)
-            .unwrap_or(true)
-        {
-            return Err("Strict production requires HELCIM_WEBHOOK_SECRET to be configured".into());
-        }
     } else {
         if helcim_value_looks_placeholder(&api_token) && !simulator_enabled {
             tracing::warn!(
@@ -121,7 +114,7 @@ fn validate_helcim_environment(strict_production: bool) -> Result<(), Box<dyn st
 
     if webhook_secret.is_none() {
         tracing::warn!(
-            "HELCIM_WEBHOOK_SECRET is not configured; live Helcim terminal payments are not ready and inbound payment updates will be rejected"
+            "HELCIM_WEBHOOK_SECRET is not configured; optional Helcim webhook updates will be rejected, but local terminal polling can still be used"
         );
     }
 

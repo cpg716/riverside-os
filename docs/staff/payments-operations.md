@@ -43,6 +43,19 @@ If Helcim has not provided a value, ROS shows **Fee not ready** or **Net not rea
 
 If there are no card payments yet, the tab shows **No payments yet today**. Run sync later after card activity begins.
 
+## Register card payments
+
+Use the POS checkout drawer for live card collection.
+
+- **Card Reader** sends the sale amount to the selected Helcim terminal for tap, insert, or swipe.
+- **Manual Card** is for phone orders. It still uses the selected Helcim terminal; staff key the card on the terminal. Do not type card numbers or CVV into ROS notes, references, search fields, or support chats.
+- **Saved Card** charges a Helcim-saved card token for the selected customer. ROS shows masked card details when Helcim returns them, but staff should never copy or expose the token.
+- **Card Refund** appears for refund/negative checkout totals. ROS sends the refund to the selected Helcim terminal and records it only after Helcim approval.
+
+Terminal selection is in the checkout drawer header. Register #1 defaults to **Terminal 1**, Register #2 defaults to **Terminal 2**, and Register #3/#4 must choose an available terminal. A green dot means the selected terminal path is ready; a red dot means configuration, routing, or terminal availability needs attention.
+
+The **Payment Status** panel shows whether a terminal transaction was sent, is waiting for approval, approved, declined, canceled, expired, or returned an error code. Do not complete the sale until the Helcim attempt is approved and appears as an applied payment.
+
 ## Batches
 
 Use **Batches** to review Helcim processor batches.

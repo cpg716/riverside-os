@@ -94,7 +94,7 @@ Environment variables:
 | `DATABASE_URL` | `postgresql://postgres:password@localhost:5433/riverside_os` | Must match Docker `db` host port (**5433** avoids conflict with native Postgres on 5432; see `server/.env.example`) |
 | `HELCIM_API_TOKEN` | unset | Deployment fallback for Helcim API token. Routine Helcim credentials should be saved in Backoffice Settings. The API token is enough for Helcim batch/transaction/fee reads. |
 | `HELCIM_TERMINAL_1_DEVICE_CODE` / `HELCIM_TERMINAL_2_DEVICE_CODE` | unset | Deployment fallback for Terminal 1 and Terminal 2 Helcim device codes. Routine terminal setup should be saved in Backoffice Settings. Terminal payments use the terminal assigned to the active register session. |
-| `HELCIM_WEBHOOK_SECRET` | unset | Deployment fallback for Helcim webhook signing secret. Routine webhook secret setup should be saved in Backoffice Settings. When unset, inbound Helcim webhook verification is rejected and live terminal readiness is blocked. |
+| `HELCIM_WEBHOOK_SECRET` | unset | Optional deployment fallback for Helcim webhook signing secret. Only needed when Helcim can reach a public ROS webhook URL; local terminal payments can use polling without it. |
 | `RIVERSIDE_CREDENTIALS_KEY` | unset | Root encryption key for Backoffice-managed integration credentials, including QBO client credentials and OAuth tokens. Must be non-default and at least 32 characters before credentials can be saved. `QBO_TOKEN_ENC_KEY` remains accepted as a transitional fallback. |
 | `RIVERSIDE_BACKUP_DIR` | `backups` | Local backup directory. Strict production requires this to be set to an absolute, durable path; Settings and ROS Dev Center show the effective path. |
 | `VITE_API_BASE` | unset → same-origin in browser/PWA, else `http://127.0.0.1:3000` fallback for non-HTTP shells | API origin for client; set explicitly for production when UI and API are on different origins |
@@ -121,6 +121,8 @@ Environment variables:
 | `RIVERSIDE_LLAMA_UPSTREAM` | _(unset)_ | **Planned** (**ROSIE**): Axum BFF upstream for **`POST /api/help/rosie/v1/chat/completions`** — **`docs/PLAN_LOCAL_LLM_HELP.md`** § Ship decision |
 | `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **Planned** (**ROSIE**): Tauri **direct** loopback vs **Axum** fallback — same doc; full table **`DEVELOPER.md`** |
 | `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | `7` | Optional; local hour (0–23) for admin morning notification digest — **`DEVELOPER.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`** |
+
+Helcim POS uses the terminal hardware path for **Card Reader**, phone-order **Manual Card** keyed entry, and terminal refunds. HelcimPay.js remains the public web-checkout/browser-hosted path, not the local POS manual-entry path.
 
 Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, configured Helcim credentials through Backoffice Settings, an absolute **`RIVERSIDE_BACKUP_DIR`**, and a non-default **`RIVERSIDE_CREDENTIALS_KEY`** before integration credentials can be saved. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory.
 

@@ -12,6 +12,7 @@ interface DetailDrawerProps {
   subtitle?: ReactNode;
   noPadding?: boolean;
   children: ReactNode;
+  headerActions?: ReactNode;
   actions?: ReactNode;
   /** Extra classes on the title (e.g. checkout accent). */
   titleClassName?: string;
@@ -34,6 +35,7 @@ export default function DetailDrawer({
   title,
   subtitle,
   children,
+  headerActions,
   actions,
   titleClassName = "",
   panelMaxClassName = "max-w-xl",
@@ -95,14 +97,17 @@ export default function DetailDrawer({
                   </div>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="ui-touch-target shrink-0 rounded-xl text-app-text-muted transition-colors hover:bg-app-surface"
-                aria-label="Close drawer"
-              >
-                <X size={18} aria-hidden />
-              </button>
+              <div className="flex shrink-0 items-start gap-2">
+                {headerActions}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="ui-touch-target shrink-0 rounded-xl text-app-text-muted transition-colors hover:bg-app-surface"
+                  aria-label="Close drawer"
+                >
+                  <X size={18} aria-hidden />
+                </button>
+              </div>
             </div>
 
             {actions ? (
