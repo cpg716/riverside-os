@@ -29,7 +29,7 @@ pub enum CounterpointSyncError {
     Database(#[from] sqlx::Error),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct SyncCursorIn {
     pub entity: String,
     #[serde(default)]
@@ -108,7 +108,7 @@ pub struct CounterpointCustomersPayload {
     pub sync: Option<SyncCursorIn>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CounterpointInventoryRow {
     pub sku: String,
     pub stock_on_hand: i32,
@@ -118,7 +118,7 @@ pub struct CounterpointInventoryRow {
     pub unit_cost: Option<Decimal>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CounterpointInventoryPayload {
     pub rows: Vec<CounterpointInventoryRow>,
     #[serde(default)]
@@ -129,6 +129,7 @@ pub struct CounterpointInventoryPayload {
 pub struct CounterpointInventorySummary {
     pub updated: i32,
     pub skipped: i32,
+    pub quarantined: i32,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -194,6 +195,17 @@ pub struct CounterpointIdentityPreflightSummary {
 pub struct CounterpointIdentityPreflightReport {
     pub summary: CounterpointIdentityPreflightSummary,
     pub issues: Vec<CounterpointIdentityPreflightIssue>,
+}
+
+struct CounterpointInventoryQuarantineFilter {
+    payload: CounterpointInventoryPayload,
+    total_rows: usize,
+    quarantined: i32,
+}
+
+struct CounterpointCatalogQuarantineFilter {
+    payload: CounterpointCatalogPayload,
+    quarantined: i32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -678,6 +690,22 @@ fn build_counterpoint_identity_preflight_report(
     }
 }
 
+fn quarantined_preflight_refs(
+    report: &CounterpointIdentityPreflightReport,
+) -> HashSet<(usize, Option<usize>)> {
+    report
+        .issues
+        .iter()
+        .filter(|issue| issue.should_quarantine)
+        .flat_map(|issue| {
+            issue
+                .references
+                .iter()
+                .map(|reference| (reference.row_number, reference.cell_number))
+        })
+        .collect()
+}
+
 pub fn validate_counterpoint_inventory_identity_preflight(
     payload: &CounterpointInventoryPayload,
 ) -> Result<CounterpointIdentityPreflightReport, CounterpointSyncError> {
@@ -718,6 +746,35 @@ pub fn validate_counterpoint_inventory_identity_preflight(
         payload.rows.len(),
         rows,
     ))
+}
+
+fn filter_inventory_payload_for_quarantine(
+    payload: CounterpointInventoryPayload,
+) -> Result<CounterpointInventoryQuarantineFilter, CounterpointSyncError> {
+    let report = validate_counterpoint_inventory_identity_preflight(&payload)?;
+    let quarantined_refs = quarantined_preflight_refs(&report);
+    let total_rows = payload.rows.len();
+    let sync = payload.sync;
+    let mut quarantined = 0;
+    let rows = payload
+        .rows
+        .into_iter()
+        .enumerate()
+        .filter_map(|(idx, row)| {
+            if quarantined_refs.contains(&(idx + 1, None)) {
+                quarantined += 1;
+                None
+            } else {
+                Some(row)
+            }
+        })
+        .collect();
+
+    Ok(CounterpointInventoryQuarantineFilter {
+        payload: CounterpointInventoryPayload { rows, sync },
+        total_rows,
+        quarantined,
+    })
 }
 
 fn is_identifier_like_text(raw: &str) -> bool {
@@ -1110,6 +1167,34 @@ pub async fn execute_counterpoint_inventory_batch(
         ));
     }
 
+    let filtered = filter_inventory_payload_for_quarantine(payload)?;
+    let total_rows = filtered.total_rows;
+    let quarantined = filtered.quarantined;
+    let payload = filtered.payload;
+
+    if payload.rows.is_empty() {
+        let updated = 0;
+        let skipped = total_rows as i32;
+        if let Some(ref s) = payload.sync {
+            if s.entity == "inventory" {
+                let _ = record_sync_run(
+                    pool,
+                    "inventory",
+                    s.cursor.as_deref(),
+                    true,
+                    Some(updated + skipped),
+                    None,
+                )
+                .await;
+            }
+        }
+        return Ok(CounterpointInventorySummary {
+            updated,
+            skipped,
+            quarantined,
+        });
+    }
+
     let mut tx = pool.begin().await?;
 
     // 1. Separate items by how we resolve them (key vs sku)
@@ -1246,7 +1331,7 @@ pub async fn execute_counterpoint_inventory_batch(
     }
 
     let updated = matched_row_count;
-    let skipped = (payload.rows.len() as i32) - updated;
+    let skipped = (total_rows as i32) - updated;
 
     tx.commit().await?;
 
@@ -1271,7 +1356,11 @@ pub async fn execute_counterpoint_inventory_batch(
         }
     }
 
-    Ok(CounterpointInventorySummary { updated, skipped })
+    Ok(CounterpointInventorySummary {
+        updated,
+        skipped,
+        quarantined,
+    })
 }
 
 pub async fn execute_counterpoint_receiving_batch(
@@ -5465,7 +5554,7 @@ pub async fn execute_counterpoint_category_masters_batch(
 // Catalog upsert (IM_ITEM + IM_INV_CELL → products + product_variants)
 // ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CounterpointCatalogRow {
     pub item_no: String,
     #[serde(default)]
@@ -5500,7 +5589,7 @@ pub struct CounterpointCatalogRow {
     pub cells: Vec<CatalogCellRow>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CatalogCellRow {
     pub counterpoint_item_key: String,
     pub sku: String,
@@ -5525,7 +5614,7 @@ pub struct CatalogCellRow {
     pub unit_cost: Option<Decimal>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CounterpointCatalogPayload {
     pub rows: Vec<CounterpointCatalogRow>,
     #[serde(default)]
@@ -5540,6 +5629,7 @@ pub struct CatalogUpsertSummary {
     pub variants_updated: i32,
     pub skipped: i32,
     pub name_quality_warnings: i32,
+    pub quarantined: i32,
 }
 
 pub fn validate_counterpoint_catalog_identity_preflight(
@@ -5601,6 +5691,52 @@ pub fn validate_counterpoint_catalog_identity_preflight(
     ))
 }
 
+fn filter_catalog_payload_for_quarantine(
+    payload: CounterpointCatalogPayload,
+) -> Result<CounterpointCatalogQuarantineFilter, CounterpointSyncError> {
+    let report = validate_counterpoint_catalog_identity_preflight(&payload)?;
+    let quarantined_refs = quarantined_preflight_refs(&report);
+    let sync = payload.sync;
+    let mut quarantined = 0;
+    let mut rows = Vec::new();
+
+    for (row_idx, mut row) in payload.rows.into_iter().enumerate() {
+        let row_number = row_idx + 1;
+        if quarantined_refs.contains(&(row_number, None)) {
+            quarantined += 1;
+            continue;
+        }
+
+        let is_grid = row.is_grid.unwrap_or(!row.cells.is_empty());
+        if is_grid && !row.cells.is_empty() {
+            let original_cell_count = row.cells.len();
+            row.cells = row
+                .cells
+                .into_iter()
+                .enumerate()
+                .filter_map(|(cell_idx, cell)| {
+                    if quarantined_refs.contains(&(row_number, Some(cell_idx + 1))) {
+                        None
+                    } else {
+                        Some(cell)
+                    }
+                })
+                .collect();
+            quarantined += (original_cell_count - row.cells.len()) as i32;
+            if row.cells.is_empty() {
+                continue;
+            }
+        }
+
+        rows.push(row);
+    }
+
+    Ok(CounterpointCatalogQuarantineFilter {
+        payload: CounterpointCatalogPayload { rows, sync },
+        quarantined,
+    })
+}
+
 pub async fn execute_counterpoint_catalog_batch(
     pool: &PgPool,
     payload: CounterpointCatalogPayload,
@@ -5609,6 +5745,35 @@ pub async fn execute_counterpoint_catalog_batch(
         return Err(CounterpointSyncError::InvalidPayload(
             "rows cannot be empty".into(),
         ));
+    }
+
+    let filtered = filter_catalog_payload_for_quarantine(payload)?;
+    let payload = filtered.payload;
+    let quarantined = filtered.quarantined;
+    if payload.rows.is_empty() {
+        let summary = CatalogUpsertSummary {
+            products_created: 0,
+            products_updated: 0,
+            variants_created: 0,
+            variants_updated: 0,
+            skipped: quarantined,
+            name_quality_warnings: 0,
+            quarantined,
+        };
+        if let Some(ref s) = payload.sync {
+            if s.entity == "catalog" {
+                let _ = record_sync_run(
+                    pool,
+                    "catalog",
+                    s.cursor.as_deref(),
+                    true,
+                    Some(summary.skipped),
+                    None,
+                )
+                .await;
+            }
+        }
+        return Ok(summary);
     }
 
     // High-performance cache for vendor and category maps
@@ -5626,8 +5791,9 @@ pub async fn execute_counterpoint_catalog_batch(
         products_updated: 0,
         variants_created: 0,
         variants_updated: 0,
-        skipped: 0,
+        skipped: quarantined,
         name_quality_warnings: 0,
+        quarantined,
     };
     let mut name_quality_issues = Vec::new();
 
@@ -8741,6 +8907,10 @@ mod tests {
         }
     }
 
+    fn numeric_identity_suffix() -> String {
+        (Uuid::new_v4().as_u128() % 1_000_000_000_000u128).to_string()
+    }
+
     #[test]
     fn counterpoint_catalog_identity_preflight_reports_variant_identity_conflicts() {
         let payload = CounterpointCatalogPayload {
@@ -8798,6 +8968,204 @@ mod tests {
         assert!(duplicate_sku.should_quarantine);
         assert_eq!(duplicate_sku.normalized_sku.as_deref(), Some("B-500"));
         assert_eq!(duplicate_sku.sample_rows[0].option_values, vec!["RED"]);
+    }
+
+    #[tokio::test]
+    async fn counterpoint_inventory_ingest_quarantines_unsafe_rows_before_writes() {
+        let pool = connect_test_db().await;
+        let suffix = numeric_identity_suffix();
+        let product_id = Uuid::new_v4();
+        let clean_sku = format!("B-{suffix}10");
+        let duplicate_sku = format!("B-{suffix}11");
+        let generated_sku = format!("9{suffix}");
+        let clean_key = format!("I-{suffix}|KEEP");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, catalog_handle, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, 0, 0, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("I-{suffix}"))
+        .bind(format!("Quarantine Guard Inventory {suffix}"))
+        .execute(&pool)
+        .await
+        .expect("insert quarantine inventory product");
+
+        for (sku, key) in [
+            (clean_sku.as_str(), Some(clean_key.as_str())),
+            (duplicate_sku.as_str(), None),
+            (generated_sku.as_str(), None),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO product_variants (
+                    product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+                )
+                VALUES ($1, $2, '{}'::jsonb, 0, $3)
+                "#,
+            )
+            .bind(product_id)
+            .bind(sku)
+            .bind(key)
+            .execute(&pool)
+            .await
+            .expect("insert quarantine inventory variant");
+        }
+
+        let payload = CounterpointInventoryPayload {
+            rows: vec![
+                CounterpointInventoryRow {
+                    sku: clean_sku.clone(),
+                    stock_on_hand: 7,
+                    counterpoint_item_key: Some(clean_key.clone()),
+                    unit_cost: None,
+                },
+                CounterpointInventoryRow {
+                    sku: duplicate_sku.clone(),
+                    stock_on_hand: 9,
+                    counterpoint_item_key: None,
+                    unit_cost: None,
+                },
+                CounterpointInventoryRow {
+                    sku: format!(" {} ", duplicate_sku.to_lowercase()),
+                    stock_on_hand: 10,
+                    counterpoint_item_key: None,
+                    unit_cost: None,
+                },
+                CounterpointInventoryRow {
+                    sku: generated_sku.clone(),
+                    stock_on_hand: 11,
+                    counterpoint_item_key: None,
+                    unit_cost: None,
+                },
+            ],
+            sync: None,
+        };
+
+        let summary = execute_counterpoint_inventory_batch(&pool, payload)
+            .await
+            .expect("quarantine guarded inventory ingest");
+        let clean_stock: i32 =
+            sqlx::query_scalar("SELECT stock_on_hand FROM product_variants WHERE sku = $1")
+                .bind(&clean_sku)
+                .fetch_one(&pool)
+                .await
+                .expect("load clean stock");
+        let duplicate_stock: i32 =
+            sqlx::query_scalar("SELECT stock_on_hand FROM product_variants WHERE sku = $1")
+                .bind(&duplicate_sku)
+                .fetch_one(&pool)
+                .await
+                .expect("load duplicate stock");
+        let generated_stock: i32 =
+            sqlx::query_scalar("SELECT stock_on_hand FROM product_variants WHERE sku = $1")
+                .bind(&generated_sku)
+                .fetch_one(&pool)
+                .await
+                .expect("load generated stock");
+
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup quarantine inventory product");
+
+        assert_eq!(summary.updated, 1);
+        assert_eq!(summary.skipped, 3);
+        assert_eq!(summary.quarantined, 3);
+        assert_eq!(clean_stock, 7);
+        assert_eq!(duplicate_stock, 0);
+        assert_eq!(generated_stock, 0);
+    }
+
+    #[tokio::test]
+    async fn counterpoint_catalog_ingest_quarantines_unsafe_cells_before_writes() {
+        let pool = connect_test_db().await;
+        let suffix = numeric_identity_suffix();
+        let item_one = format!("I-{suffix}1");
+        let item_two = format!("I-{suffix}2");
+        let item_three = format!("I-{suffix}3");
+        let clean_sku = format!("B-{suffix}10");
+        let duplicate_sku = format!("B-{suffix}11");
+
+        let mut row_one = catalog_row(
+            &item_one,
+            None,
+            vec![
+                catalog_cell(&format!("{item_one}|KEEP"), &clean_sku),
+                catalog_cell(&format!("{item_one}|DUP"), &duplicate_sku),
+            ],
+        );
+        row_one.description = Some("Quarantine Guard Catalog One".into());
+        let mut row_two = catalog_row(
+            &item_two,
+            None,
+            vec![catalog_cell(&format!("{item_two}|DUP"), &duplicate_sku)],
+        );
+        row_two.description = Some("Quarantine Guard Catalog Two".into());
+        let mut row_three = catalog_row(&item_three, None, Vec::new());
+        row_three.description = Some("Quarantine Guard Catalog Parent".into());
+
+        let payload = CounterpointCatalogPayload {
+            rows: vec![row_one, row_two, row_three],
+            sync: None,
+        };
+
+        let summary = execute_counterpoint_catalog_batch(&pool, payload)
+            .await
+            .expect("quarantine guarded catalog ingest");
+        let item_one_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE catalog_handle = $1)")
+                .bind(&item_one)
+                .fetch_one(&pool)
+                .await
+                .expect("check item one");
+        let item_two_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE catalog_handle = $1)")
+                .bind(&item_two)
+                .fetch_one(&pool)
+                .await
+                .expect("check item two");
+        let item_three_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE catalog_handle = $1)")
+                .bind(&item_three)
+                .fetch_one(&pool)
+                .await
+                .expect("check item three");
+        let clean_variant_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM product_variants WHERE sku = $1)")
+                .bind(&clean_sku)
+                .fetch_one(&pool)
+                .await
+                .expect("check clean variant");
+        let duplicate_variant_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM product_variants WHERE sku = $1)")
+                .bind(&duplicate_sku)
+                .fetch_one(&pool)
+                .await
+                .expect("check duplicate variant");
+
+        sqlx::query("DELETE FROM products WHERE catalog_handle = ANY($1)")
+            .bind(&vec![
+                item_one.clone(),
+                item_two.clone(),
+                item_three.clone(),
+            ])
+            .execute(&pool)
+            .await
+            .expect("cleanup quarantine catalog products");
+
+        assert_eq!(summary.products_created, 2);
+        assert_eq!(summary.variants_created, 2);
+        assert_eq!(summary.skipped, 2);
+        assert_eq!(summary.quarantined, 2);
+        assert!(item_one_exists);
+        assert!(!item_two_exists);
+        assert!(item_three_exists);
+        assert!(clean_variant_exists);
+        assert!(!duplicate_variant_exists);
     }
 
     #[test]
@@ -10639,9 +11007,9 @@ mod tests {
             .expect("temporarily resolve preexisting inventory issues");
         }
 
-        let suffix = Uuid::new_v4().simple().to_string();
-        let sku = format!("CP-INV-MISS-SKU-{suffix}");
-        let cp_parent_key = format!("CP-INV-MISS-ITEM-{suffix}");
+        let suffix = numeric_identity_suffix();
+        let sku = format!("B-{suffix}90");
+        let cp_parent_key = format!("I-{suffix}90");
         let cp_key = format!("{cp_parent_key}|RED|42");
         let payload = || CounterpointInventoryPayload {
             rows: vec![CounterpointInventoryRow {
