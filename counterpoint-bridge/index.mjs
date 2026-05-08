@@ -1420,6 +1420,18 @@ function csvPreflightInventoryRow(row) {
   return out;
 }
 
+function csvPreflightAliasRow(row) {
+  return {
+    sku: String(row.sku ?? "").trim(),
+    family_key: String(row.tags ?? "").trim() || null,
+    option_values: [
+      row.variant_option_one_value,
+      row.variant_option_two_value,
+      row.variant_option_three_value,
+    ].map((value) => String(value ?? "").trim()).filter(Boolean),
+  };
+}
+
 async function loadInventoryPreflightCsv(csvPath) {
   const stream = fs.createReadStream(csvPath, { encoding: "utf8" });
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -1456,6 +1468,46 @@ async function loadInventoryPreflightCsv(csvPath) {
     : "No stable counterpoint_item_key column found; item-key validation is unavailable for this CSV.";
 
   return { rows, headers, unavailableItemKeyReason };
+}
+
+async function loadAliasPreflightCsv(csvPath) {
+  const stream = fs.createReadStream(csvPath, { encoding: "utf8" });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  let headers = null;
+  const rows = [];
+  let lineNumber = 0;
+
+  for await (const line of rl) {
+    lineNumber++;
+    if (lineNumber === 1) {
+      headers = parseCsvLine(line).map(normalizeCsvHeader);
+      continue;
+    }
+    if (!headers) continue;
+    const values = parseCsvLine(line);
+    const row = {};
+    headers.forEach((header, idx) => {
+      row[header] = values[idx] ?? "";
+    });
+    rows.push(csvPreflightAliasRow(row));
+  }
+
+  if (!headers) {
+    throw new Error(`CSV is empty: ${csvPath}`);
+  }
+  for (const required of [
+    "sku",
+    "tags",
+    "variant_option_one_value",
+    "variant_option_two_value",
+    "variant_option_three_value",
+  ]) {
+    if (!headers.includes(required)) {
+      throw new Error(`CSV missing required column: ${required}`);
+    }
+  }
+
+  return { rows, headers };
 }
 
 function countIssuesByType(issues) {
@@ -1515,11 +1567,61 @@ function printInventoryPreflightReport(csvPath, payloadRows, headers, unavailabl
   }
 }
 
+function printAliasPreflightReport(csvPath, payloadRows, report) {
+  const summary = report?.summary ?? {};
+  const examples = report?.examples ?? [];
+
+  console.log("");
+  console.log("Counterpoint barcode alias preflight");
+  console.log(`CSV: ${csvPath}`);
+  console.log(`Rows read: ${payloadRows.length}`);
+  console.log("");
+  console.log("Mapping used:");
+  console.log("- B-SKU alias candidate <- CSV sku");
+  console.log("- family_key <- CSV tags");
+  console.log("- option_values <- CSV variant_option_one_value, variant_option_two_value, variant_option_three_value");
+  console.log("- posts only to /api/sync/counterpoint/aliases/preflight");
+  console.log("");
+  console.log("Preflight summary:");
+  console.log(`- total rows checked: ${summary.total_rows ?? 0}`);
+  console.log(`- mappable aliases: ${summary.mappable ?? 0}`);
+  console.log(`- duplicate B-SKU rows: ${summary.duplicate_b_sku ?? 0}`);
+  console.log(`- ambiguous variant matches: ${summary.ambiguous_variant_match ?? 0}`);
+  console.log(`- no ROS variant match: ${summary.no_ros_variant_match ?? 0}`);
+  console.log(`- missing family: ${summary.missing_family ?? 0}`);
+  console.log(`- invalid/non-B SKU rows: ${summary.invalid_non_b_sku ?? 0}`);
+  console.log(`- existing barcode conflicts: ${summary.existing_barcode_conflict ?? 0}`);
+
+  if (examples.length > 0) {
+    console.log("");
+    console.log("Examples:");
+    const byClassification = new Map();
+    for (const example of examples) {
+      const key = String(example.classification ?? "unknown");
+      if (!byClassification.has(key)) byClassification.set(key, []);
+      byClassification.get(key).push(example);
+    }
+    for (const [classification, groupedExamples] of [...byClassification.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      console.log(`- ${classification}:`);
+      for (const example of groupedExamples.slice(0, 3)) {
+        const parts = [
+          `row ${example.row_number}`,
+          example.b_sku,
+          example.family_key ? `family ${example.family_key}` : null,
+          example.counterpoint_item_key ? `variant ${example.counterpoint_item_key}` : null,
+        ].filter(Boolean);
+        console.log(`  - ${parts.join(" | ")}: ${example.message}`);
+      }
+    }
+  }
+}
+
 async function runPreflightCommand() {
   const entity = process.argv[3];
   const csvArg = preflightArg("--csv");
-  if (entity !== "inventory" || !csvArg) {
+  if (!["inventory", "aliases"].includes(entity) || !csvArg) {
     console.error("Usage: node index.mjs preflight inventory --csv <path>");
+    console.error("   or: node index.mjs preflight aliases --csv <path>");
     process.exit(1);
   }
   if (!SYNC_TOKEN.trim()) {
@@ -1528,9 +1630,24 @@ async function runPreflightCommand() {
   }
 
   const csvPath = path.resolve(process.cwd(), csvArg);
-  const { rows, headers, unavailableItemKeyReason } = await loadInventoryPreflightCsv(csvPath);
   bridgeHostnameCached = os.hostname();
 
+  if (entity === "aliases") {
+    const { rows } = await loadAliasPreflightCsv(csvPath);
+    const report = await rosFetch(
+      "/api/sync/counterpoint/aliases/preflight",
+      { rows },
+      "POST",
+      {
+        ...bridgeIngestHeaders(),
+        "x-bridge-command": "preflight aliases csv",
+      },
+    );
+    printAliasPreflightReport(csvPath, rows, report);
+    return;
+  }
+
+  const { rows, headers, unavailableItemKeyReason } = await loadInventoryPreflightCsv(csvPath);
   const report = await rosFetch(
     "/api/sync/counterpoint/inventory/preflight",
     { rows },

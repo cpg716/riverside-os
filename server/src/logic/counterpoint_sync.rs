@@ -245,6 +245,53 @@ pub struct CounterpointRegistryHealthSummary {
     pub latest_ingest_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct CounterpointBarcodeAliasPreflightRow {
+    pub sku: String,
+    #[serde(default)]
+    pub family_key: Option<String>,
+    #[serde(default)]
+    pub option_values: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CounterpointBarcodeAliasPreflightPayload {
+    pub rows: Vec<CounterpointBarcodeAliasPreflightRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointBarcodeAliasPreflightSummary {
+    pub total_rows: usize,
+    pub mappable: usize,
+    pub duplicate_b_sku: usize,
+    pub ambiguous_variant_match: usize,
+    pub no_ros_variant_match: usize,
+    pub missing_family: usize,
+    pub invalid_non_b_sku: usize,
+    pub existing_barcode_conflict: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointBarcodeAliasPreflightExample {
+    pub row_number: usize,
+    pub classification: String,
+    pub b_sku: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_key: Option<String>,
+    pub option_values: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_variant_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counterpoint_item_key: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointBarcodeAliasPreflightReport {
+    pub summary: CounterpointBarcodeAliasPreflightSummary,
+    pub examples: Vec<CounterpointBarcodeAliasPreflightExample>,
+}
+
 struct CounterpointInventoryQuarantineFilter {
     payload: CounterpointInventoryPayload,
     records: Vec<CounterpointIngestQuarantineRecord>,
@@ -422,6 +469,31 @@ fn option_values_from_variation_values(
             .collect(),
         _ => Vec::new(),
     }
+}
+
+fn normalized_alias_option_values(values: &[String]) -> Vec<String> {
+    let mut normalized = values
+        .iter()
+        .filter_map(|value| normalize_identity_key(value))
+        .filter(|value| value != "_")
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized
+}
+
+fn normalized_counterpoint_variant_option_values(
+    counterpoint_item_key: Option<&str>,
+    variation_values: Option<&serde_json::Value>,
+    variation_label: Option<&str>,
+) -> Vec<String> {
+    let mut option_values = option_values_from_counterpoint_item_key(counterpoint_item_key);
+    if option_values.is_empty() {
+        option_values = option_values_from_variation_values(variation_values);
+    }
+    if option_values.is_empty() {
+        option_values = option_values_from_variation_label(variation_label);
+    }
+    normalized_alias_option_values(&option_values)
 }
 
 fn limited_refs(
@@ -922,6 +994,248 @@ pub fn validate_counterpoint_inventory_identity_preflight(
         payload.rows.len(),
         rows,
     ))
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct CounterpointBarcodeAliasVariantCandidate {
+    variant_id: Uuid,
+    catalog_handle: Option<String>,
+    barcode: Option<String>,
+    counterpoint_item_key: Option<String>,
+    variation_label: Option<String>,
+    variation_values: Option<serde_json::Value>,
+}
+
+fn push_alias_preflight_example(
+    examples: &mut Vec<CounterpointBarcodeAliasPreflightExample>,
+    row_number: usize,
+    classification: &str,
+    row: &CounterpointBarcodeAliasPreflightRow,
+    matched_variant: Option<&CounterpointBarcodeAliasVariantCandidate>,
+    message: &str,
+) {
+    if examples
+        .iter()
+        .filter(|example| example.classification == classification)
+        .count()
+        >= COUNTERPOINT_IDENTITY_PREFLIGHT_EXAMPLE_LIMIT
+    {
+        return;
+    }
+    examples.push(CounterpointBarcodeAliasPreflightExample {
+        row_number,
+        classification: classification.into(),
+        b_sku: row.sku.trim().to_string(),
+        family_key: row.family_key.as_deref().and_then(normalize_identity_key),
+        option_values: normalized_alias_option_values(&row.option_values),
+        matched_variant_id: matched_variant.map(|variant| variant.variant_id),
+        counterpoint_item_key: matched_variant
+            .and_then(|variant| variant.counterpoint_item_key.clone()),
+        message: message.into(),
+    });
+}
+
+pub async fn preflight_counterpoint_barcode_aliases(
+    pool: &PgPool,
+    payload: CounterpointBarcodeAliasPreflightPayload,
+) -> Result<CounterpointBarcodeAliasPreflightReport, CounterpointSyncError> {
+    if payload.rows.is_empty() {
+        return Err(CounterpointSyncError::InvalidPayload(
+            "rows cannot be empty".into(),
+        ));
+    }
+
+    let variants: Vec<CounterpointBarcodeAliasVariantCandidate> = sqlx::query_as(
+        r#"
+        SELECT
+            pv.id AS variant_id,
+            p.catalog_handle,
+            pv.barcode,
+            pv.counterpoint_item_key,
+            pv.variation_label,
+            pv.variation_values
+        FROM product_variants pv
+        JOIN products p ON p.id = pv.product_id
+        WHERE p.data_source = 'counterpoint'
+           OR NULLIF(TRIM(pv.counterpoint_item_key), '') IS NOT NULL
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut variants_by_family_options: HashMap<
+        (String, Vec<String>),
+        Vec<CounterpointBarcodeAliasVariantCandidate>,
+    > = HashMap::new();
+    for variant in variants {
+        let family_key = variant
+            .catalog_handle
+            .as_deref()
+            .and_then(normalize_identity_key)
+            .or_else(|| {
+                variant
+                    .counterpoint_item_key
+                    .as_deref()
+                    .and_then(normalize_counterpoint_family_key)
+            });
+        let Some(family_key) = family_key else {
+            continue;
+        };
+        let option_values = normalized_counterpoint_variant_option_values(
+            variant.counterpoint_item_key.as_deref(),
+            variant.variation_values.as_ref(),
+            variant.variation_label.as_deref(),
+        );
+        variants_by_family_options
+            .entry((family_key, option_values))
+            .or_default()
+            .push(variant);
+    }
+
+    let sku_counts = payload
+        .rows
+        .iter()
+        .filter_map(|row| normalize_identity_key(&row.sku))
+        .filter(|sku| is_valid_counterpoint_b_sku(sku))
+        .fold(HashMap::<String, usize>::new(), |mut counts, sku| {
+            *counts.entry(sku).or_default() += 1;
+            counts
+        });
+
+    let mut summary = CounterpointBarcodeAliasPreflightSummary {
+        total_rows: payload.rows.len(),
+        mappable: 0,
+        duplicate_b_sku: 0,
+        ambiguous_variant_match: 0,
+        no_ros_variant_match: 0,
+        missing_family: 0,
+        invalid_non_b_sku: 0,
+        existing_barcode_conflict: 0,
+    };
+    let mut examples = Vec::new();
+
+    for (idx, row) in payload.rows.iter().enumerate() {
+        let row_number = idx + 1;
+        let Some(normalized_sku) = normalize_identity_key(&row.sku) else {
+            summary.invalid_non_b_sku += 1;
+            push_alias_preflight_example(
+                &mut examples,
+                row_number,
+                "invalid_non_b_sku",
+                row,
+                None,
+                "CSV row has a blank SKU and cannot become a barcode alias.",
+            );
+            continue;
+        };
+        if !is_valid_counterpoint_b_sku(&normalized_sku) {
+            summary.invalid_non_b_sku += 1;
+            push_alias_preflight_example(
+                &mut examples,
+                row_number,
+                "invalid_non_b_sku",
+                row,
+                None,
+                "CSV row SKU is not a normalized Counterpoint B- barcode.",
+            );
+            continue;
+        }
+        if sku_counts.get(&normalized_sku).copied().unwrap_or_default() > 1 {
+            summary.duplicate_b_sku += 1;
+            push_alias_preflight_example(
+                &mut examples,
+                row_number,
+                "duplicate_b_sku",
+                row,
+                None,
+                "CSV B-SKU appears on multiple rows and must not be mapped automatically.",
+            );
+            continue;
+        }
+        let Some(family_key) = row.family_key.as_deref().and_then(normalize_identity_key) else {
+            summary.missing_family += 1;
+            push_alias_preflight_example(
+                &mut examples,
+                row_number,
+                "missing_family",
+                row,
+                None,
+                "CSV row is missing an I- family key in tags.",
+            );
+            continue;
+        };
+        if !is_counterpoint_parent_item_sku(&family_key) {
+            summary.missing_family += 1;
+            push_alias_preflight_example(
+                &mut examples,
+                row_number,
+                "missing_family",
+                row,
+                None,
+                "CSV row family key is not a Counterpoint I- item number.",
+            );
+            continue;
+        }
+
+        let option_values = normalized_alias_option_values(&row.option_values);
+        let Some(candidates) = variants_by_family_options.get(&(family_key, option_values)) else {
+            summary.no_ros_variant_match += 1;
+            push_alias_preflight_example(
+                &mut examples,
+                row_number,
+                "no_ros_variant_match",
+                row,
+                None,
+                "No ROS Counterpoint variant matches this family and option structure.",
+            );
+            continue;
+        };
+        if candidates.len() != 1 {
+            summary.ambiguous_variant_match += 1;
+            push_alias_preflight_example(
+                &mut examples,
+                row_number,
+                "ambiguous_variant_match",
+                row,
+                candidates.first(),
+                "More than one ROS variant matches this family and option structure.",
+            );
+            continue;
+        }
+
+        let candidate = &candidates[0];
+        if let Some(existing_barcode) = candidate
+            .barcode
+            .as_deref()
+            .and_then(normalize_identity_key)
+        {
+            if existing_barcode != normalized_sku {
+                summary.ambiguous_variant_match += 1;
+                summary.existing_barcode_conflict += 1;
+                push_alias_preflight_example(
+                    &mut examples,
+                    row_number,
+                    "ambiguous_variant_match",
+                    row,
+                    Some(candidate),
+                    "ROS variant already has a different barcode value.",
+                );
+                continue;
+            }
+        }
+
+        summary.mappable += 1;
+        push_alias_preflight_example(
+            &mut examples,
+            row_number,
+            "mappable",
+            row,
+            Some(candidate),
+            "CSV B-SKU can be safely mapped as a read-only alias candidate.",
+        );
+    }
+
+    Ok(CounterpointBarcodeAliasPreflightReport { summary, examples })
 }
 
 fn filter_inventory_payload_for_quarantine(
@@ -9367,6 +9681,129 @@ mod tests {
 
     fn numeric_identity_suffix() -> String {
         (Uuid::new_v4().as_u128() % 1_000_000_000_000u128).to_string()
+    }
+
+    #[tokio::test]
+    async fn counterpoint_barcode_alias_preflight_maps_only_deterministic_variants() {
+        let pool = connect_test_db().await;
+        let suffix = numeric_identity_suffix();
+        let item_no = format!("I-{suffix}");
+        let product_id = Uuid::new_v4();
+        let mappable_variant_id = Uuid::new_v4();
+        let ambiguous_variant_one_id = Uuid::new_v4();
+        let ambiguous_variant_two_id = Uuid::new_v4();
+        let mappable_key = format!("{item_no}|STYLE1|40|RED");
+        let ambiguous_key_one = format!("{item_no}|STYLE2|42|BLUE");
+        let ambiguous_key_two = format!("{item_no}|BLUE|STYLE2|42");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (
+                id, catalog_handle, name, base_retail_price, base_cost, is_active, data_source
+            )
+            VALUES ($1, $2, $3, $4, $5, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(&item_no)
+        .bind(format!("Counterpoint Alias Fixture {suffix}"))
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert alias preflight product fixture");
+
+        for (variant_id, key) in [
+            (mappable_variant_id, &mappable_key),
+            (ambiguous_variant_one_id, &ambiguous_key_one),
+            (ambiguous_variant_two_id, &ambiguous_key_two),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO product_variants (
+                    id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+                )
+                VALUES ($1, $2, $3, '{}'::jsonb, 0, $4)
+                "#,
+            )
+            .bind(variant_id)
+            .bind(product_id)
+            .bind(key)
+            .bind(key)
+            .execute(&pool)
+            .await
+            .expect("insert alias preflight variant fixture");
+        }
+
+        let report = preflight_counterpoint_barcode_aliases(
+            &pool,
+            CounterpointBarcodeAliasPreflightPayload {
+                rows: vec![
+                    CounterpointBarcodeAliasPreflightRow {
+                        sku: format!("B-{suffix}1"),
+                        family_key: Some(item_no.clone()),
+                        option_values: vec!["STYLE1".into(), "RED".into(), "40".into()],
+                    },
+                    CounterpointBarcodeAliasPreflightRow {
+                        sku: format!("B-{suffix}2"),
+                        family_key: Some(item_no.clone()),
+                        option_values: vec!["STYLE1".into(), "RED".into(), "40".into()],
+                    },
+                    CounterpointBarcodeAliasPreflightRow {
+                        sku: format!("B-{suffix}2"),
+                        family_key: Some(item_no.clone()),
+                        option_values: vec!["STYLE2".into(), "BLUE".into(), "42".into()],
+                    },
+                    CounterpointBarcodeAliasPreflightRow {
+                        sku: format!("B-{suffix}3"),
+                        family_key: Some(item_no.clone()),
+                        option_values: vec!["MISSING".into()],
+                    },
+                    CounterpointBarcodeAliasPreflightRow {
+                        sku: format!("B-{suffix}4"),
+                        family_key: None,
+                        option_values: vec!["STYLE1".into()],
+                    },
+                    CounterpointBarcodeAliasPreflightRow {
+                        sku: format!("B-{suffix}5"),
+                        family_key: Some(item_no.clone()),
+                        option_values: vec!["STYLE2".into(), "BLUE".into(), "42".into()],
+                    },
+                    CounterpointBarcodeAliasPreflightRow {
+                        sku: "12345".into(),
+                        family_key: Some(item_no.clone()),
+                        option_values: vec!["STYLE1".into()],
+                    },
+                ],
+            },
+        )
+        .await
+        .expect("barcode alias preflight report");
+
+        assert_eq!(report.summary.total_rows, 7);
+        assert_eq!(report.summary.mappable, 1);
+        assert_eq!(report.summary.duplicate_b_sku, 2);
+        assert_eq!(report.summary.no_ros_variant_match, 1);
+        assert_eq!(report.summary.missing_family, 1);
+        assert_eq!(report.summary.ambiguous_variant_match, 1);
+        assert_eq!(report.summary.invalid_non_b_sku, 1);
+        assert_eq!(report.summary.existing_barcode_conflict, 0);
+        assert!(report.examples.iter().any(|example| {
+            example.classification == "mappable"
+                && example.matched_variant_id == Some(mappable_variant_id)
+                && example.counterpoint_item_key.as_deref() == Some(mappable_key.as_str())
+        }));
+
+        sqlx::query("DELETE FROM product_variants WHERE product_id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("delete alias preflight variants");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("delete alias preflight product");
     }
 
     #[test]
