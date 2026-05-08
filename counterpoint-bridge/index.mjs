@@ -489,6 +489,7 @@ const DISCOVER_MODE =
   process.argv.includes("discover") || String(process.env.DISCOVER ?? "").toLowerCase() === "1";
 const PREFLIGHT_MODE = process.argv[2] === "preflight";
 const ALIASES_MODE = process.argv[2] === "aliases";
+const NORMALIZATION_MODE = process.argv[2] === "normalization";
 
 const ROS_BASE_URL = (process.env.ROS_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const SYNC_TOKEN = process.env.COUNTERPOINT_SYNC_TOKEN ?? "";
@@ -610,7 +611,7 @@ const CP_RECEIVING_HISTORY_QUERY = expandImportSince(process.env.CP_RECEIVING_HI
 const CP_TICKET_NOTES_QUERY = expandImportSince(process.env.CP_TICKET_NOTES_QUERY ?? "");
 const BRIDGE_VERSION = "0.7.3";
 
-if (!PREFLIGHT_MODE && !ALIASES_MODE) {
+if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE) {
   console.info(
     `[env] effective mode RUN_ONCE=${RUN_ONCE ? "1" : "0"} WAIT_AFTER_RUN_ONCE=${WAIT_AFTER_RUN_ONCE ? "1" : "0"} ` +
       `SYNC_LOYALTY_HIST=${SYNC_LOYALTY_HIST ? "1" : "0"} CP_GFC_HIST_QUERY=${CP_GFC_HIST_QUERY.trim() ? "set" : "empty"} ` +
@@ -618,7 +619,7 @@ if (!PREFLIGHT_MODE && !ALIASES_MODE) {
   );
 }
 
-if (!PREFLIGHT_MODE && !ALIASES_MODE && (SYNC_LOYALTY_HIST || CP_LOYALTY_HIST_QUERY.trim() || CP_GFC_HIST_QUERY.trim() || CP_TICKET_GIFT_QUERY.trim())) {
+if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE && (SYNC_LOYALTY_HIST || CP_LOYALTY_HIST_QUERY.trim() || CP_GFC_HIST_QUERY.trim() || CP_TICKET_GIFT_QUERY.trim())) {
   console.error(
     "[cutover-safety] Snapshot-only cutover requires SYNC_LOYALTY_HIST=0 and empty CP_LOYALTY_HIST_QUERY, CP_GFC_HIST_QUERY, and CP_TICKET_GIFT_QUERY.",
   );
@@ -1433,6 +1434,30 @@ function csvPreflightAliasRow(row) {
   };
 }
 
+function csvNormalizationPreviewRow(row, lineNumber) {
+  return {
+    sku: String(row.sku ?? "").trim(),
+    handle: String(row.handle ?? "").trim() || null,
+    name: String(row.name ?? "").trim() || null,
+    product_category: String(row.product_category ?? "").trim() || null,
+    supplier_name: String(row.supplier_name ?? "").trim() || null,
+    supplier_code: String(row.supplier_code ?? "").trim() || null,
+    brand_name: String(row.brand_name ?? "").trim() || null,
+    tags: String(row.tags ?? "").trim() || null,
+    variant_options: [
+      [row.variant_option_one_name, row.variant_option_one_value],
+      [row.variant_option_two_name, row.variant_option_two_value],
+      [row.variant_option_three_name, row.variant_option_three_value],
+    ]
+      .map(([name, value]) => ({
+        name: String(name ?? "").trim() || null,
+        value: String(value ?? "").trim() || null,
+      }))
+      .filter((option) => option.value),
+    source_row_number: lineNumber,
+  };
+}
+
 function sha256Hex(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -1523,6 +1548,48 @@ async function loadAliasPreflightCsv(csvPath) {
   ]) {
     if (!headers.includes(required)) {
       throw new Error(`CSV missing required column: ${required}`);
+    }
+  }
+
+  return { rows, headers };
+}
+
+async function loadLightspeedNormalizationCsv(csvPath) {
+  const stream = fs.createReadStream(csvPath, { encoding: "utf8" });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  let headers = null;
+  const rows = [];
+  let lineNumber = 0;
+
+  for await (const line of rl) {
+    lineNumber++;
+    if (lineNumber === 1) {
+      headers = parseCsvLine(line).map(normalizeCsvHeader);
+      continue;
+    }
+    if (!headers || line.trim() === "") continue;
+    const values = parseCsvLine(line);
+    const row = {};
+    headers.forEach((header, idx) => {
+      row[header] = values[idx] ?? "";
+    });
+    rows.push(csvNormalizationPreviewRow(row, lineNumber));
+  }
+
+  if (!headers) {
+    throw new Error(`CSV is empty: ${csvPath}`);
+  }
+  for (const required of [
+    "sku",
+    "handle",
+    "name",
+    "product_category",
+    "supplier_name",
+    "supplier_code",
+    "tags",
+  ]) {
+    if (!headers.includes(required)) {
+      throw new Error(`Lightspeed CSV missing required column: ${required}`);
     }
   }
 
@@ -1667,6 +1734,70 @@ function printAliasPersistReport(csvPath, payloadRows, report) {
   console.log(`- active alias conflicts: ${summary.conflicts ?? 0}`);
 }
 
+function printNormalizationPreviewReport(csvPath, payloadRows, report) {
+  const summary = report?.summary ?? {};
+  const candidates = report?.candidates ?? [];
+  const excluded = report?.excluded_examples ?? [];
+
+  console.log("");
+  console.log("Counterpoint / Lightspeed normalization preview");
+  console.log(`Lightspeed CSV: ${csvPath}`);
+  console.log(`Rows read: ${payloadRows.length}`);
+  console.log("");
+  console.log("Source authority:");
+  console.log(`- ${report?.source_authority ?? "Lightspeed is normalization reference only."}`);
+  console.log("");
+  console.log("Mapping used:");
+  console.log("- match key <- active product_variant_barcode_aliases counterpoint_b_sku alias");
+  console.log("- Lightspeed SKU reference <- CSV sku");
+  console.log("- Lightspeed handle/group reference <- CSV handle");
+  console.log("- Lightspeed product name <- CSV name");
+  console.log("- Lightspeed category reference <- CSV product_category");
+  console.log("- Lightspeed supplier reference <- CSV supplier_name, supplier_code");
+  console.log("- Lightspeed option reference <- CSV variant_option_*_name/value");
+  console.log("- excludes quantity, cost, retail price, tax, accounting, and identity fields");
+  console.log("- posts only to /api/sync/counterpoint/normalization/preview");
+  console.log("");
+  console.log("Preview summary:");
+  console.log(`- total Lightspeed rows: ${summary.total_lightspeed_rows ?? 0}`);
+  console.log(`- Lightspeed B-SKU rows: ${summary.lightspeed_b_sku_rows ?? 0}`);
+  console.log(`- matched aliases: ${summary.matched_aliases ?? 0}`);
+  console.log(`- clean candidates suitable for AI suggestion: ${summary.clean_candidates ?? 0}`);
+  console.log(`- excluded rows: ${summary.excluded_rows ?? 0}`);
+  console.log(`- duplicate Lightspeed B-SKU rows: ${summary.duplicate_lightspeed_b_sku_rows ?? 0}`);
+  console.log(`- invalid/non-B SKU rows: ${summary.invalid_non_b_sku_rows ?? 0}`);
+  console.log(`- no active ROS alias rows: ${summary.no_active_alias_rows ?? 0}`);
+  console.log(`- duplicate active alias conflict rows: ${summary.duplicate_active_alias_conflict_rows ?? 0}`);
+  console.log(`- product name differences: ${summary.name_differences ?? 0}`);
+  console.log(`- category differences: ${summary.category_differences ?? 0}`);
+  console.log(`- supplier differences: ${summary.supplier_differences ?? 0}`);
+  console.log(`- variant label/value differences: ${summary.variant_option_differences ?? 0}`);
+
+  if (candidates.length > 0) {
+    console.log("");
+    console.log("Candidate examples:");
+    for (const candidate of candidates.slice(0, 5)) {
+      const diffs = Object.entries(candidate.differences ?? {})
+        .filter(([, value]) => value)
+        .map(([key]) => key)
+        .join(", ") || "none";
+      console.log(
+        `- row ${candidate.row_number ?? "?"} | ${candidate.b_sku} | ${candidate.ros_product_name} | differences: ${diffs}`,
+      );
+    }
+  }
+
+  if (excluded.length > 0) {
+    console.log("");
+    console.log("Excluded examples:");
+    for (const example of excluded.slice(0, 10)) {
+      console.log(
+        `- row ${example.row_number ?? "?"} | ${example.b_sku || "blank"} | ${example.reason}: ${example.message}`,
+      );
+    }
+  }
+}
+
 async function runPreflightCommand() {
   const entity = process.argv[3];
   const csvArg = preflightArg("--csv");
@@ -1710,6 +1841,36 @@ async function runPreflightCommand() {
   );
 
   printInventoryPreflightReport(csvPath, rows, headers, unavailableItemKeyReason, report);
+}
+
+async function runNormalizationCommand() {
+  const action = process.argv[3];
+  const csvArg = preflightArg("--lightspeed-csv");
+  if (action !== "preview" || !csvArg) {
+    console.error('Usage: node index.mjs normalization preview --lightspeed-csv "product-export (5).csv"');
+    process.exit(1);
+  }
+  if (!SYNC_TOKEN.trim()) {
+    console.error("Set COUNTERPOINT_SYNC_TOKEN");
+    process.exit(1);
+  }
+
+  const csvPath = path.resolve(process.cwd(), csvArg);
+  bridgeHostnameCached = os.hostname();
+  const { rows } = await loadLightspeedNormalizationCsv(csvPath);
+  const report = await rosFetch(
+    "/api/sync/counterpoint/normalization/preview",
+    {
+      source_file_name: path.basename(csvPath),
+      rows,
+    },
+    "POST",
+    {
+      ...bridgeIngestHeaders(),
+      "x-bridge-command": "normalization preview lightspeed csv",
+    },
+  );
+  printNormalizationPreviewReport(csvPath, rows, report);
 }
 
 async function runAliasesCommand() {
@@ -3976,6 +4137,10 @@ async function main() {
   }
   if (ALIASES_MODE) {
     await runAliasesCommand();
+    process.exit(0);
+  }
+  if (NORMALIZATION_MODE) {
+    await runNormalizationCommand();
     process.exit(0);
   }
 

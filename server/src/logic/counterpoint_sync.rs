@@ -352,6 +352,116 @@ pub struct CounterpointBarcodeAliasPersistReport {
     pub preflight_summary: CounterpointBarcodeAliasPreflightSummary,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct CounterpointNormalizationPreviewOption {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CounterpointNormalizationPreviewRow {
+    pub sku: String,
+    #[serde(default)]
+    pub handle: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub product_category: Option<String>,
+    #[serde(default)]
+    pub supplier_name: Option<String>,
+    #[serde(default)]
+    pub supplier_code: Option<String>,
+    #[serde(default)]
+    pub brand_name: Option<String>,
+    #[serde(default)]
+    pub tags: Option<String>,
+    #[serde(default)]
+    pub variant_options: Vec<CounterpointNormalizationPreviewOption>,
+    #[serde(default)]
+    pub source_row_number: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CounterpointNormalizationPreviewPayload {
+    #[serde(default)]
+    pub source_file_name: Option<String>,
+    pub rows: Vec<CounterpointNormalizationPreviewRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointNormalizationPreviewSummary {
+    pub total_lightspeed_rows: usize,
+    pub lightspeed_b_sku_rows: usize,
+    pub matched_aliases: usize,
+    pub clean_candidates: usize,
+    pub excluded_rows: usize,
+    pub duplicate_lightspeed_b_sku_rows: usize,
+    pub invalid_non_b_sku_rows: usize,
+    pub no_active_alias_rows: usize,
+    pub duplicate_active_alias_conflict_rows: usize,
+    pub name_differences: usize,
+    pub category_differences: usize,
+    pub supplier_differences: usize,
+    pub variant_option_differences: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointNormalizationVariantOptionOut {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub value: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointNormalizationDifferenceFlags {
+    pub product_name: bool,
+    pub category: bool,
+    pub supplier: bool,
+    pub variant_options: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointNormalizationCandidateExample {
+    pub row_number: Option<i32>,
+    pub b_sku: String,
+    pub variant_id: Uuid,
+    pub product_id: Uuid,
+    pub counterpoint_item_key: Option<String>,
+    pub family_key: Option<String>,
+    pub lightspeed_handle: Option<String>,
+    pub ros_product_name: String,
+    pub lightspeed_product_name: Option<String>,
+    pub ros_category: Option<String>,
+    pub lightspeed_category: Option<String>,
+    pub ros_supplier_name: Option<String>,
+    pub ros_supplier_code: Option<String>,
+    pub lightspeed_supplier_name: Option<String>,
+    pub lightspeed_supplier_code: Option<String>,
+    pub ros_variant_options: Vec<CounterpointNormalizationVariantOptionOut>,
+    pub lightspeed_variant_options: Vec<CounterpointNormalizationVariantOptionOut>,
+    pub differences: CounterpointNormalizationDifferenceFlags,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointNormalizationExcludedExample {
+    pub row_number: Option<i32>,
+    pub b_sku: String,
+    pub reason: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointNormalizationPreviewReport {
+    pub source_file_name: Option<String>,
+    pub source_authority: String,
+    pub excluded_fields: Vec<String>,
+    pub summary: CounterpointNormalizationPreviewSummary,
+    pub candidates: Vec<CounterpointNormalizationCandidateExample>,
+    pub excluded_examples: Vec<CounterpointNormalizationExcludedExample>,
+}
+
 struct CounterpointInventoryQuarantineFilter {
     payload: CounterpointInventoryPayload,
     records: Vec<CounterpointIngestQuarantineRecord>,
@@ -1528,6 +1638,411 @@ pub async fn persist_counterpoint_barcode_aliases(
         },
         preflight_summary,
     })
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct NormalizationAliasMatchRow {
+    normalized_alias: String,
+    alias_count: i64,
+    variant_id: Uuid,
+    product_id: Uuid,
+    counterpoint_item_key: Option<String>,
+    family_key: Option<String>,
+    product_name: String,
+    catalog_handle: Option<String>,
+    variation_axes: Vec<String>,
+    variation_values: serde_json::Value,
+    variation_label: Option<String>,
+    category_name: Option<String>,
+    primary_vendor_name: Option<String>,
+    primary_vendor_code: Option<String>,
+}
+
+pub async fn preview_counterpoint_lightspeed_normalization_candidates(
+    pool: &PgPool,
+    payload: CounterpointNormalizationPreviewPayload,
+) -> Result<CounterpointNormalizationPreviewReport, CounterpointSyncError> {
+    const EXAMPLE_LIMIT: usize = 50;
+
+    let mut rows_by_sku: BTreeMap<String, Vec<CounterpointNormalizationPreviewRow>> =
+        BTreeMap::new();
+    let mut invalid_non_b_sku_rows = 0usize;
+    let mut lightspeed_b_sku_rows = 0usize;
+    let mut excluded_examples = Vec::new();
+
+    for row in payload.rows.iter().cloned() {
+        let normalized_sku = normalize_identity_key(&row.sku);
+        let Some(normalized_sku) = normalized_sku else {
+            invalid_non_b_sku_rows += 1;
+            push_normalization_excluded_example(
+                &mut excluded_examples,
+                EXAMPLE_LIMIT,
+                row.source_row_number,
+                "",
+                "invalid_non_b_sku",
+                "Lightspeed row SKU is blank and cannot be matched to a Counterpoint B-SKU alias.",
+            );
+            continue;
+        };
+        if !is_valid_counterpoint_b_sku(&normalized_sku) {
+            invalid_non_b_sku_rows += 1;
+            push_normalization_excluded_example(
+                &mut excluded_examples,
+                EXAMPLE_LIMIT,
+                row.source_row_number,
+                &normalized_sku,
+                "invalid_non_b_sku",
+                "Lightspeed row SKU is not a Counterpoint B-SKU; it is normalization reference only and was excluded.",
+            );
+            continue;
+        }
+        lightspeed_b_sku_rows += 1;
+        rows_by_sku.entry(normalized_sku).or_default().push(row);
+    }
+
+    let duplicate_lightspeed_b_sku_rows: usize = rows_by_sku
+        .values()
+        .filter(|rows| rows.len() > 1)
+        .map(Vec::len)
+        .sum();
+    for (sku, rows) in rows_by_sku.iter().filter(|(_, rows)| rows.len() > 1) {
+        for row in rows {
+            push_normalization_excluded_example(
+                &mut excluded_examples,
+                EXAMPLE_LIMIT,
+                row.source_row_number,
+                sku,
+                "duplicate_lightspeed_b_sku",
+                "Lightspeed reference has more than one row for this B-SKU, so no normalization candidate was produced.",
+            );
+        }
+    }
+
+    let unique_skus = rows_by_sku
+        .iter()
+        .filter_map(|(sku, rows)| (rows.len() == 1).then(|| sku.to_ascii_lowercase()))
+        .collect::<Vec<_>>();
+
+    let alias_rows: Vec<NormalizationAliasMatchRow> = if unique_skus.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as(
+            r#"
+            WITH active_aliases AS (
+                SELECT
+                    a.normalized_alias,
+                    COUNT(*) OVER (PARTITION BY a.normalized_alias) AS alias_count,
+                    a.variant_id,
+                    COALESCE(a.counterpoint_item_key, pv.counterpoint_item_key) AS counterpoint_item_key,
+                    COALESCE(a.family_key, p.catalog_handle) AS family_key,
+                    pv.variation_values,
+                    pv.variation_label,
+                    p.id AS product_id,
+                    p.name AS product_name,
+                    p.catalog_handle,
+                    COALESCE(p.variation_axes, ARRAY[]::text[]) AS variation_axes,
+                    c.name AS category_name,
+                    v.name AS primary_vendor_name,
+                    v.vendor_code AS primary_vendor_code
+                FROM product_variant_barcode_aliases a
+                INNER JOIN product_variants pv ON pv.id = a.variant_id
+                INNER JOIN products p ON p.id = pv.product_id
+                LEFT JOIN categories c ON c.id = p.category_id
+                LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+                WHERE a.status = 'active'
+                  AND a.alias_type = 'counterpoint_b_sku'
+                  AND p.is_active = TRUE
+                  AND NULLIF(TRIM(COALESCE(pv.counterpoint_item_key, '')), '') IS NOT NULL
+                  AND a.normalized_alias = ANY($1::text[])
+            )
+            SELECT
+                normalized_alias,
+                alias_count,
+                variant_id,
+                product_id,
+                counterpoint_item_key,
+                family_key,
+                product_name,
+                catalog_handle,
+                variation_axes,
+                variation_values,
+                variation_label,
+                category_name,
+                primary_vendor_name,
+                primary_vendor_code
+            FROM active_aliases
+            ORDER BY normalized_alias
+            "#,
+        )
+        .bind(&unique_skus)
+        .fetch_all(pool)
+        .await?
+    };
+
+    let mut alias_by_sku: HashMap<String, NormalizationAliasMatchRow> = HashMap::new();
+    let mut duplicate_alias_skus = HashSet::new();
+    for alias in alias_rows {
+        let key = alias.normalized_alias.clone();
+        if alias.alias_count > 1 || alias_by_sku.insert(key.clone(), alias).is_some() {
+            duplicate_alias_skus.insert(key);
+        }
+    }
+
+    let mut candidates = Vec::new();
+    let mut matched_aliases = 0usize;
+    let mut clean_candidates = 0usize;
+    let mut no_active_alias_rows = 0usize;
+    let mut duplicate_active_alias_conflict_rows = 0usize;
+    let mut name_differences = 0usize;
+    let mut category_differences = 0usize;
+    let mut supplier_differences = 0usize;
+    let mut variant_option_differences = 0usize;
+
+    for (upper_sku, rows) in rows_by_sku.iter().filter(|(_, rows)| rows.len() == 1) {
+        let row = &rows[0];
+        let lookup_sku = upper_sku.to_ascii_lowercase();
+        if duplicate_alias_skus.contains(&lookup_sku) {
+            duplicate_active_alias_conflict_rows += 1;
+            push_normalization_excluded_example(
+                &mut excluded_examples,
+                EXAMPLE_LIMIT,
+                row.source_row_number,
+                upper_sku,
+                "duplicate_active_alias_conflict",
+                "ROS has more than one active Counterpoint B-SKU alias for this value; no normalization candidate was produced.",
+            );
+            continue;
+        }
+
+        let Some(alias) = alias_by_sku.get(&lookup_sku) else {
+            no_active_alias_rows += 1;
+            push_normalization_excluded_example(
+                &mut excluded_examples,
+                EXAMPLE_LIMIT,
+                row.source_row_number,
+                upper_sku,
+                "no_active_alias",
+                "No active ROS Counterpoint B-SKU alias exists for this Lightspeed reference row.",
+            );
+            continue;
+        };
+
+        matched_aliases += 1;
+        clean_candidates += 1;
+
+        let lightspeed_options = lightspeed_normalization_options(&row.variant_options);
+        let ros_options = ros_normalization_options(
+            &alias.variation_axes,
+            &alias.variation_values,
+            alias.counterpoint_item_key.as_deref(),
+            alias.variation_label.as_deref(),
+        );
+        let product_name_diff =
+            normalization_reference_diff(Some(alias.product_name.as_str()), row.name.as_deref());
+        let category_diff = normalization_reference_diff(
+            alias.category_name.as_deref(),
+            row.product_category.as_deref(),
+        );
+        let supplier_diff = normalization_reference_diff(
+            alias.primary_vendor_name.as_deref(),
+            row.supplier_name.as_deref(),
+        ) || normalization_reference_diff(
+            alias.primary_vendor_code.as_deref(),
+            row.supplier_code.as_deref(),
+        );
+        let variant_diff = !lightspeed_options.is_empty()
+            && normalized_option_values_for_comparison(&ros_options)
+                != normalized_option_values_for_comparison(&lightspeed_options);
+
+        name_differences += usize::from(product_name_diff);
+        category_differences += usize::from(category_diff);
+        supplier_differences += usize::from(supplier_diff);
+        variant_option_differences += usize::from(variant_diff);
+
+        if candidates.len() < EXAMPLE_LIMIT {
+            candidates.push(CounterpointNormalizationCandidateExample {
+                row_number: row.source_row_number,
+                b_sku: upper_sku.clone(),
+                variant_id: alias.variant_id,
+                product_id: alias.product_id,
+                counterpoint_item_key: alias.counterpoint_item_key.clone(),
+                family_key: alias
+                    .family_key
+                    .clone()
+                    .or_else(|| alias.catalog_handle.clone()),
+                lightspeed_handle: trim_opt(&row.handle),
+                ros_product_name: alias.product_name.clone(),
+                lightspeed_product_name: trim_opt(&row.name),
+                ros_category: alias.category_name.clone(),
+                lightspeed_category: trim_opt(&row.product_category),
+                ros_supplier_name: alias.primary_vendor_name.clone(),
+                ros_supplier_code: alias.primary_vendor_code.clone(),
+                lightspeed_supplier_name: trim_opt(&row.supplier_name),
+                lightspeed_supplier_code: trim_opt(&row.supplier_code),
+                ros_variant_options: ros_options,
+                lightspeed_variant_options: lightspeed_options,
+                differences: CounterpointNormalizationDifferenceFlags {
+                    product_name: product_name_diff,
+                    category: category_diff,
+                    supplier: supplier_diff,
+                    variant_options: variant_diff,
+                },
+            });
+        }
+    }
+
+    let excluded_rows = invalid_non_b_sku_rows
+        + duplicate_lightspeed_b_sku_rows
+        + no_active_alias_rows
+        + duplicate_active_alias_conflict_rows;
+
+    Ok(CounterpointNormalizationPreviewReport {
+        source_file_name: trim_opt(&payload.source_file_name),
+        source_authority:
+            "Lightspeed normalization reference only; Counterpoint/ROS identity remains authoritative."
+                .to_string(),
+        excluded_fields: vec![
+            "quantity".to_string(),
+            "cost".to_string(),
+            "retail_price".to_string(),
+            "tax".to_string(),
+            "accounting".to_string(),
+            "identity_fields".to_string(),
+        ],
+        summary: CounterpointNormalizationPreviewSummary {
+            total_lightspeed_rows: payload.rows.len(),
+            lightspeed_b_sku_rows,
+            matched_aliases,
+            clean_candidates,
+            excluded_rows,
+            duplicate_lightspeed_b_sku_rows,
+            invalid_non_b_sku_rows,
+            no_active_alias_rows,
+            duplicate_active_alias_conflict_rows,
+            name_differences,
+            category_differences,
+            supplier_differences,
+            variant_option_differences,
+        },
+        candidates,
+        excluded_examples,
+    })
+}
+
+fn push_normalization_excluded_example(
+    examples: &mut Vec<CounterpointNormalizationExcludedExample>,
+    limit: usize,
+    row_number: Option<i32>,
+    b_sku: &str,
+    reason: &str,
+    message: &str,
+) {
+    if examples.len() >= limit {
+        return;
+    }
+    examples.push(CounterpointNormalizationExcludedExample {
+        row_number,
+        b_sku: b_sku.to_string(),
+        reason: reason.to_string(),
+        message: message.to_string(),
+    });
+}
+
+fn normalization_compare_key(raw: Option<&str>) -> Option<String> {
+    raw.map(collapse_whitespace)
+        .map(|value| value.trim_matches(['“', '”', '"', '\'']).trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase())
+}
+
+fn normalization_reference_diff(ros_value: Option<&str>, reference_value: Option<&str>) -> bool {
+    let Some(reference) = normalization_compare_key(reference_value) else {
+        return false;
+    };
+    normalization_compare_key(ros_value).as_deref() != Some(reference.as_str())
+}
+
+fn lightspeed_normalization_options(
+    options: &[CounterpointNormalizationPreviewOption],
+) -> Vec<CounterpointNormalizationVariantOptionOut> {
+    options
+        .iter()
+        .filter_map(|option| {
+            let value = trim_opt(&option.value)?;
+            Some(CounterpointNormalizationVariantOptionOut {
+                name: trim_opt(&option.name),
+                value,
+            })
+        })
+        .collect()
+}
+
+fn ros_normalization_options(
+    variation_axes: &[String],
+    variation_values: &serde_json::Value,
+    counterpoint_item_key: Option<&str>,
+    variation_label: Option<&str>,
+) -> Vec<CounterpointNormalizationVariantOptionOut> {
+    if let serde_json::Value::Object(map) = variation_values {
+        let mut options = Vec::new();
+        let mut seen = HashSet::new();
+        for axis in variation_axes {
+            if let Some(value) = map.get(axis).and_then(json_scalar_to_string) {
+                seen.insert(axis.clone());
+                options.push(CounterpointNormalizationVariantOptionOut {
+                    name: Some(axis.clone()),
+                    value,
+                });
+            }
+        }
+        for (key, value) in map {
+            if seen.contains(key) {
+                continue;
+            }
+            if let Some(value) = json_scalar_to_string(value) {
+                options.push(CounterpointNormalizationVariantOptionOut {
+                    name: Some(key.clone()),
+                    value,
+                });
+            }
+        }
+        if !options.is_empty() {
+            return options;
+        }
+    }
+
+    let fallback_values = normalized_counterpoint_variant_option_values(
+        counterpoint_item_key,
+        Some(variation_values),
+        variation_label,
+    );
+    fallback_values
+        .into_iter()
+        .enumerate()
+        .map(|(idx, value)| CounterpointNormalizationVariantOptionOut {
+            name: variation_axes.get(idx).cloned(),
+            value,
+        })
+        .collect()
+}
+
+fn json_scalar_to_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(value) => trim_str_opt(Some(value)),
+        serde_json::Value::Number(value) => Some(value.to_string()),
+        serde_json::Value::Bool(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn normalized_option_values_for_comparison(
+    options: &[CounterpointNormalizationVariantOptionOut],
+) -> Vec<String> {
+    options
+        .iter()
+        .filter_map(|option| normalize_identity_key(&option.value))
+        .filter(|value| value != "_" && value != "*")
+        .collect()
 }
 
 fn filter_inventory_payload_for_quarantine(
@@ -10515,6 +11030,216 @@ mod tests {
             .execute(&pool)
             .await
             .expect("delete alias persist products cascade");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_lightspeed_normalization_preview_is_read_only_and_deterministic() {
+        let pool = connect_test_db().await;
+        ensure_product_variant_barcode_aliases_table(&pool).await;
+
+        let suffix = numeric_identity_suffix();
+        let category_id = Uuid::new_v4();
+        let vendor_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let item_no = format!("I-{suffix}");
+        let counterpoint_item_key = format!("{item_no}|KIDW|36S");
+        let alias = format!("B-{suffix}1");
+        let duplicate_alias = format!("B-{suffix}2");
+        let no_match_alias = format!("B-{suffix}3");
+
+        sqlx::query("INSERT INTO categories (id, name) VALUES ($1, $2)")
+            .bind(category_id)
+            .bind(format!("ROS Suits {suffix}"))
+            .execute(&pool)
+            .await
+            .expect("insert normalization preview category");
+        sqlx::query(
+            "INSERT INTO vendors (id, name, vendor_code, is_active) VALUES ($1, $2, $3, TRUE)",
+        )
+        .bind(vendor_id)
+        .bind(format!("Peerless ROS {suffix}"))
+        .bind(format!("PEER-{suffix}"))
+        .execute(&pool)
+        .await
+        .expect("insert normalization preview vendor");
+        sqlx::query(
+            r#"
+            INSERT INTO products (
+                id, category_id, primary_vendor_id, catalog_handle, name,
+                base_retail_price, base_cost, variation_axes, is_active, data_source
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, ARRAY['Model', 'Size']::text[], TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(category_id)
+        .bind(vendor_id)
+        .bind(&item_no)
+        .bind(format!("Counterpoint Suit {suffix}"))
+        .bind(Decimal::new(45000, 2))
+        .bind(Decimal::new(14700, 2))
+        .execute(&pool)
+        .await
+        .expect("insert normalization preview product");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, $4, 0, $3)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&counterpoint_item_key)
+        .bind(serde_json::json!({ "Model": "KIDW", "Size": "36S" }))
+        .execute(&pool)
+        .await
+        .expect("insert normalization preview variant");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variant_barcode_aliases (
+                variant_id, alias_value, alias_type, source_system, source_file_name,
+                source_row_number, counterpoint_item_key, family_key, match_method, status
+            )
+            VALUES ($1, $2, 'counterpoint_b_sku', 'counterpoint_csv', 'normalization-test.csv',
+                2, $3, $4, 'preflight_family_options', 'active')
+            "#,
+        )
+        .bind(variant_id)
+        .bind(&alias)
+        .bind(&counterpoint_item_key)
+        .bind(&item_no)
+        .execute(&pool)
+        .await
+        .expect("insert normalization preview alias");
+
+        let report = preview_counterpoint_lightspeed_normalization_candidates(
+            &pool,
+            CounterpointNormalizationPreviewPayload {
+                source_file_name: Some("lightspeed-test.csv".into()),
+                rows: vec![
+                    CounterpointNormalizationPreviewRow {
+                        sku: alias.clone(),
+                        handle: Some(format!("lightspeed-suit-{suffix}")),
+                        name: Some(format!("Lightspeed Suit {suffix}")),
+                        product_category: Some("SUIT".into()),
+                        supplier_name: Some(format!("Peerless Clothing {suffix}")),
+                        supplier_code: Some(format!("KIDW{suffix}")),
+                        brand_name: None,
+                        tags: Some(item_no.clone()),
+                        variant_options: vec![
+                            CounterpointNormalizationPreviewOption {
+                                name: Some("Model".into()),
+                                value: Some("KIDW".into()),
+                            },
+                            CounterpointNormalizationPreviewOption {
+                                name: Some("Size".into()),
+                                value: Some("36S".into()),
+                            },
+                        ],
+                        source_row_number: Some(2),
+                    },
+                    CounterpointNormalizationPreviewRow {
+                        sku: duplicate_alias.clone(),
+                        handle: None,
+                        name: None,
+                        product_category: None,
+                        supplier_name: None,
+                        supplier_code: None,
+                        brand_name: None,
+                        tags: None,
+                        variant_options: vec![],
+                        source_row_number: Some(3),
+                    },
+                    CounterpointNormalizationPreviewRow {
+                        sku: duplicate_alias.clone(),
+                        handle: None,
+                        name: None,
+                        product_category: None,
+                        supplier_name: None,
+                        supplier_code: None,
+                        brand_name: None,
+                        tags: None,
+                        variant_options: vec![],
+                        source_row_number: Some(4),
+                    },
+                    CounterpointNormalizationPreviewRow {
+                        sku: no_match_alias,
+                        handle: None,
+                        name: None,
+                        product_category: None,
+                        supplier_name: None,
+                        supplier_code: None,
+                        brand_name: None,
+                        tags: None,
+                        variant_options: vec![],
+                        source_row_number: Some(5),
+                    },
+                    CounterpointNormalizationPreviewRow {
+                        sku: "12345".into(),
+                        handle: None,
+                        name: None,
+                        product_category: None,
+                        supplier_name: None,
+                        supplier_code: None,
+                        brand_name: None,
+                        tags: None,
+                        variant_options: vec![],
+                        source_row_number: Some(6),
+                    },
+                ],
+            },
+        )
+        .await
+        .expect("normalization preview report");
+
+        assert_eq!(report.summary.total_lightspeed_rows, 5);
+        assert_eq!(report.summary.lightspeed_b_sku_rows, 4);
+        assert_eq!(report.summary.matched_aliases, 1);
+        assert_eq!(report.summary.clean_candidates, 1);
+        assert_eq!(report.summary.duplicate_lightspeed_b_sku_rows, 2);
+        assert_eq!(report.summary.no_active_alias_rows, 1);
+        assert_eq!(report.summary.invalid_non_b_sku_rows, 1);
+        assert_eq!(report.summary.name_differences, 1);
+        assert_eq!(report.summary.category_differences, 1);
+        assert_eq!(report.summary.supplier_differences, 1);
+        assert_eq!(report.summary.variant_option_differences, 0);
+        assert_eq!(report.candidates.len(), 1);
+        assert_eq!(report.candidates[0].variant_id, variant_id);
+        assert!(report
+            .excluded_examples
+            .iter()
+            .any(|example| example.reason == "duplicate_lightspeed_b_sku"));
+        assert!(report
+            .excluded_examples
+            .iter()
+            .any(|example| example.reason == "no_active_alias"));
+
+        let stored_barcode: Option<String> =
+            sqlx::query_scalar("SELECT barcode FROM product_variants WHERE id = $1")
+                .bind(variant_id)
+                .fetch_one(&pool)
+                .await
+                .expect("read variant barcode after normalization preview");
+        assert_eq!(stored_barcode, None);
+
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("delete normalization preview product cascade");
+        sqlx::query("DELETE FROM vendors WHERE id = $1")
+            .bind(vendor_id)
+            .execute(&pool)
+            .await
+            .expect("delete normalization preview vendor");
+        sqlx::query("DELETE FROM categories WHERE id = $1")
+            .bind(category_id)
+            .execute(&pool)
+            .await
+            .expect("delete normalization preview category");
     }
 
     #[test]
