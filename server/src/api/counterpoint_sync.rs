@@ -25,6 +25,7 @@ use crate::logic::counterpoint_sync::{
     execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
     execute_counterpoint_vendor_item_batch, get_counterpoint_barcode_alias_health_summary,
     get_counterpoint_ingest_quarantine_summary, get_counterpoint_registry_health_summary,
+    get_lightspeed_normalization_reference_health, import_lightspeed_normalization_reference,
     list_counterpoint_ingest_quarantine_rows, persist_counterpoint_barcode_aliases,
     preflight_counterpoint_barcode_aliases,
     preview_counterpoint_lightspeed_normalization_candidates,
@@ -38,7 +39,7 @@ use crate::logic::counterpoint_sync::{
     CounterpointSlsRepStubPayload, CounterpointSnapshotSourceMetricsPayload,
     CounterpointStaffPayload, CounterpointStoreCreditOpeningPayload, CounterpointSyncError,
     CounterpointTicketsPayload, CounterpointVendorItemsPayload, CounterpointVendorsPayload,
-    HeartbeatPayload,
+    HeartbeatPayload, LightspeedNormalizationReferenceImportPayload,
 };
 use crate::middleware;
 
@@ -467,6 +468,18 @@ async fn cp_normalization_preview(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     validate_sync_token(&state, &headers)?;
     preview_counterpoint_lightspeed_normalization_candidates(&state.db, payload)
+        .await
+        .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
+        .map_err(cp_err)
+}
+
+async fn cp_lightspeed_reference_import(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<LightspeedNormalizationReferenceImportPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    import_lightspeed_normalization_reference(&state.db, payload)
         .await
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
         .map_err(cp_err)
@@ -1005,6 +1018,22 @@ async fn settings_alias_health(
     }
 }
 
+async fn settings_lightspeed_reference_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    match get_lightspeed_normalization_reference_health(&state.db).await {
+        Ok(summary) => Ok(Json(serde_json::to_value(summary).unwrap_or_default())),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )),
+    }
+}
+
 async fn settings_quarantine_rows(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1497,6 +1526,10 @@ pub fn router() -> Router<AppState> {
             .route("/aliases/preflight", post(cp_aliases_preflight))
             .route("/aliases/persist", post(cp_aliases_persist))
             .route("/normalization/preview", post(cp_normalization_preview))
+            .route(
+                "/lightspeed-reference/import",
+                post(cp_lightspeed_reference_import),
+            )
             .route("/gift-cards", post(cp_gift_cards))
             .route("/tickets", post(cp_tickets))
             .route("/store-credit-opening", post(cp_store_credit_opening))
@@ -1538,6 +1571,10 @@ pub fn settings_router() -> Router<AppState> {
         .route("/request-run", post(settings_request_run))
         .route("/registry-health", get(settings_registry_health))
         .route("/aliases/health", get(settings_alias_health))
+        .route(
+            "/lightspeed-reference/health",
+            get(settings_lightspeed_reference_health),
+        )
         .route("/quarantine/summary", get(settings_quarantine_summary))
         .route("/quarantine/rows", get(settings_quarantine_rows))
         .route("/issues/{issue_id}/resolve", patch(settings_resolve_issue))

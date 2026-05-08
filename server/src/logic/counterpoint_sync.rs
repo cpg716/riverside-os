@@ -390,6 +390,66 @@ pub struct CounterpointNormalizationPreviewPayload {
     pub rows: Vec<CounterpointNormalizationPreviewRow>,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct LightspeedNormalizationReferenceImportRow {
+    pub sku: String,
+    #[serde(default)]
+    pub handle: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub product_category: Option<String>,
+    #[serde(default)]
+    pub supplier_name: Option<String>,
+    #[serde(default)]
+    pub supplier_code: Option<String>,
+    #[serde(default)]
+    pub brand_name: Option<String>,
+    #[serde(default)]
+    pub tags: Option<String>,
+    #[serde(default)]
+    pub variant_options: Vec<CounterpointNormalizationPreviewOption>,
+    pub source_row_number: i32,
+    pub source_row_hash: String,
+    pub raw_row: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct LightspeedNormalizationReferenceImportPayload {
+    pub source_file_name: String,
+    pub source_file_hash: String,
+    #[serde(default)]
+    pub replace: bool,
+    pub rows: Vec<LightspeedNormalizationReferenceImportRow>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct LightspeedNormalizationReferenceBatchSummary {
+    pub id: Uuid,
+    pub source_file_name: String,
+    pub source_file_hash: String,
+    pub row_count: i32,
+    pub status: String,
+    pub imported_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LightspeedNormalizationReferenceHealthSummary {
+    pub active_batch: Option<LightspeedNormalizationReferenceBatchSummary>,
+    pub row_count: i64,
+    pub b_sku_count: i64,
+    pub duplicate_b_sku_groups: i64,
+    pub latest_imported_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LightspeedNormalizationReferenceImportSummary {
+    pub active_batch: LightspeedNormalizationReferenceBatchSummary,
+    pub inserted_rows: usize,
+    pub replaced_existing_batches: bool,
+    pub health: LightspeedNormalizationReferenceHealthSummary,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CounterpointNormalizationPreviewSummary {
     pub total_lightspeed_rows: usize,
@@ -2357,6 +2417,221 @@ pub async fn get_counterpoint_barcode_alias_health_summary(
         latest_created_at: totals.3,
         by_type,
         by_status,
+    })
+}
+
+pub async fn import_lightspeed_normalization_reference(
+    pool: &PgPool,
+    payload: LightspeedNormalizationReferenceImportPayload,
+) -> Result<LightspeedNormalizationReferenceImportSummary, CounterpointSyncError> {
+    let source_file_name = trim_str_opt(Some(&payload.source_file_name)).ok_or_else(|| {
+        CounterpointSyncError::InvalidPayload("source_file_name cannot be blank".into())
+    })?;
+    let source_file_hash = trim_str_opt(Some(&payload.source_file_hash)).ok_or_else(|| {
+        CounterpointSyncError::InvalidPayload("source_file_hash cannot be blank".into())
+    })?;
+    if payload.rows.is_empty() {
+        return Err(CounterpointSyncError::InvalidPayload(
+            "rows cannot be empty".into(),
+        ));
+    }
+
+    let mut seen_row_numbers = HashSet::new();
+    let mut seen_row_hashes = HashSet::new();
+    for row in &payload.rows {
+        if row.source_row_number <= 0 {
+            return Err(CounterpointSyncError::InvalidPayload(
+                "source_row_number must be positive".into(),
+            ));
+        }
+        if !seen_row_numbers.insert(row.source_row_number) {
+            return Err(CounterpointSyncError::InvalidPayload(format!(
+                "duplicate source_row_number {}",
+                row.source_row_number
+            )));
+        }
+        let row_hash = trim_str_opt(Some(&row.source_row_hash)).ok_or_else(|| {
+            CounterpointSyncError::InvalidPayload(format!(
+                "source_row_hash cannot be blank for row {}",
+                row.source_row_number
+            ))
+        })?;
+        if !seen_row_hashes.insert(row_hash) {
+            return Err(CounterpointSyncError::InvalidPayload(format!(
+                "duplicate source_row_hash for row {}",
+                row.source_row_number
+            )));
+        }
+        if trim_str_opt(Some(&row.sku)).is_none() {
+            return Err(CounterpointSyncError::InvalidPayload(format!(
+                "sku cannot be blank for row {}",
+                row.source_row_number
+            )));
+        }
+    }
+
+    let active_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM lightspeed_normalization_batches WHERE status = 'active')",
+    )
+    .fetch_one(pool)
+    .await?;
+    if active_exists && !payload.replace {
+        return Err(CounterpointSyncError::InvalidPayload(
+            "an active Lightspeed normalization reference batch already exists; rerun with --replace"
+                .into(),
+        ));
+    }
+
+    let mut tx = pool.begin().await?;
+    if payload.replace {
+        sqlx::query("DELETE FROM lightspeed_normalization_batches")
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    let batch: LightspeedNormalizationReferenceBatchSummary = sqlx::query_as(
+        r#"
+        INSERT INTO lightspeed_normalization_batches (
+            source_file_name,
+            source_file_hash,
+            row_count,
+            status
+        )
+        VALUES ($1, $2, $3, 'active')
+        RETURNING id, source_file_name, source_file_hash, row_count, status, imported_at
+        "#,
+    )
+    .bind(&source_file_name)
+    .bind(&source_file_hash)
+    .bind(payload.rows.len() as i32)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let mut inserted_rows = 0usize;
+    for chunk in payload.rows.chunks(3_000) {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            INSERT INTO lightspeed_normalization_reference_rows (
+                batch_id,
+                source_row_number,
+                source_row_hash,
+                sku,
+                handle,
+                product_name,
+                product_category,
+                supplier_name,
+                supplier_code,
+                brand_name,
+                tags,
+                variant_option_one_name,
+                variant_option_one_value,
+                variant_option_two_name,
+                variant_option_two_value,
+                variant_option_three_name,
+                variant_option_three_value,
+                raw_row
+            )
+            "#,
+        );
+        builder.push_values(chunk, |mut row_builder, row| {
+            let option = |idx: usize| row.variant_options.get(idx);
+            row_builder
+                .push_bind(batch.id)
+                .push_bind(row.source_row_number)
+                .push_bind(trim_str_opt(Some(&row.source_row_hash)))
+                .push_bind(row.sku.trim())
+                .push_bind(trim_str_opt(row.handle.as_deref()))
+                .push_bind(trim_str_opt(row.name.as_deref()))
+                .push_bind(trim_str_opt(row.product_category.as_deref()))
+                .push_bind(trim_str_opt(row.supplier_name.as_deref()))
+                .push_bind(trim_str_opt(row.supplier_code.as_deref()))
+                .push_bind(trim_str_opt(row.brand_name.as_deref()))
+                .push_bind(trim_str_opt(row.tags.as_deref()))
+                .push_bind(option(0).and_then(|option| trim_str_opt(option.name.as_deref())))
+                .push_bind(option(0).and_then(|option| trim_str_opt(option.value.as_deref())))
+                .push_bind(option(1).and_then(|option| trim_str_opt(option.name.as_deref())))
+                .push_bind(option(1).and_then(|option| trim_str_opt(option.value.as_deref())))
+                .push_bind(option(2).and_then(|option| trim_str_opt(option.name.as_deref())))
+                .push_bind(option(2).and_then(|option| trim_str_opt(option.value.as_deref())))
+                .push_bind(&row.raw_row);
+        });
+        inserted_rows += builder.build().execute(&mut *tx).await?.rows_affected() as usize;
+    }
+
+    tx.commit().await?;
+    let health = get_lightspeed_normalization_reference_health(pool).await?;
+
+    Ok(LightspeedNormalizationReferenceImportSummary {
+        active_batch: batch,
+        inserted_rows,
+        replaced_existing_batches: payload.replace,
+        health,
+    })
+}
+
+pub async fn get_lightspeed_normalization_reference_health(
+    pool: &PgPool,
+) -> Result<LightspeedNormalizationReferenceHealthSummary, CounterpointSyncError> {
+    let active_batch: Option<LightspeedNormalizationReferenceBatchSummary> = sqlx::query_as(
+        r#"
+        SELECT id, source_file_name, source_file_hash, row_count, status, imported_at
+        FROM lightspeed_normalization_batches
+        WHERE status = 'active'
+        ORDER BY imported_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(batch) = active_batch else {
+        let latest_imported_at: Option<DateTime<Utc>> =
+            sqlx::query_scalar("SELECT MAX(imported_at) FROM lightspeed_normalization_batches")
+                .fetch_one(pool)
+                .await?;
+        return Ok(LightspeedNormalizationReferenceHealthSummary {
+            active_batch: None,
+            row_count: 0,
+            b_sku_count: 0,
+            duplicate_b_sku_groups: 0,
+            latest_imported_at,
+        });
+    };
+
+    let counts: (i64, i64, i64) = sqlx::query_as(
+        r#"
+        WITH active_rows AS (
+            SELECT normalized_sku
+            FROM lightspeed_normalization_reference_rows
+            WHERE batch_id = $1
+        ),
+        b_sku_rows AS (
+            SELECT normalized_sku
+            FROM active_rows
+            WHERE normalized_sku ~ '^b-[0-9]+$'
+        ),
+        duplicate_b_skus AS (
+            SELECT normalized_sku
+            FROM b_sku_rows
+            GROUP BY normalized_sku
+            HAVING COUNT(*) > 1
+        )
+        SELECT
+            (SELECT COUNT(*)::bigint FROM active_rows) AS row_count,
+            (SELECT COUNT(*)::bigint FROM b_sku_rows) AS b_sku_count,
+            (SELECT COUNT(*)::bigint FROM duplicate_b_skus) AS duplicate_b_sku_groups
+        "#,
+    )
+    .bind(batch.id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(LightspeedNormalizationReferenceHealthSummary {
+        latest_imported_at: Some(batch.imported_at),
+        active_batch: Some(batch),
+        row_count: counts.0,
+        b_sku_count: counts.1,
+        duplicate_b_sku_groups: counts.2,
     })
 }
 

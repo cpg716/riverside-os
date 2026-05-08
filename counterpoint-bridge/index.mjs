@@ -374,6 +374,7 @@ function loadDotEnv() {
     if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
       v = v.slice(1, -1);
     }
+    if (process.env[k] != null) continue;
     process.env[k] = v;
   }
   console.info(`[env] loaded ${p}`);
@@ -490,6 +491,7 @@ const DISCOVER_MODE =
 const PREFLIGHT_MODE = process.argv[2] === "preflight";
 const ALIASES_MODE = process.argv[2] === "aliases";
 const NORMALIZATION_MODE = process.argv[2] === "normalization";
+const LIGHTSPEED_REFERENCE_MODE = process.argv[2] === "lightspeed-reference";
 
 const ROS_BASE_URL = (process.env.ROS_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const SYNC_TOKEN = process.env.COUNTERPOINT_SYNC_TOKEN ?? "";
@@ -611,7 +613,7 @@ const CP_RECEIVING_HISTORY_QUERY = expandImportSince(process.env.CP_RECEIVING_HI
 const CP_TICKET_NOTES_QUERY = expandImportSince(process.env.CP_TICKET_NOTES_QUERY ?? "");
 const BRIDGE_VERSION = "0.7.3";
 
-if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE) {
+if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE && !LIGHTSPEED_REFERENCE_MODE) {
   console.info(
     `[env] effective mode RUN_ONCE=${RUN_ONCE ? "1" : "0"} WAIT_AFTER_RUN_ONCE=${WAIT_AFTER_RUN_ONCE ? "1" : "0"} ` +
       `SYNC_LOYALTY_HIST=${SYNC_LOYALTY_HIST ? "1" : "0"} CP_GFC_HIST_QUERY=${CP_GFC_HIST_QUERY.trim() ? "set" : "empty"} ` +
@@ -619,7 +621,7 @@ if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE) {
   );
 }
 
-if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE && (SYNC_LOYALTY_HIST || CP_LOYALTY_HIST_QUERY.trim() || CP_GFC_HIST_QUERY.trim() || CP_TICKET_GIFT_QUERY.trim())) {
+if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE && !LIGHTSPEED_REFERENCE_MODE && (SYNC_LOYALTY_HIST || CP_LOYALTY_HIST_QUERY.trim() || CP_GFC_HIST_QUERY.trim() || CP_TICKET_GIFT_QUERY.trim())) {
   console.error(
     "[cutover-safety] Snapshot-only cutover requires SYNC_LOYALTY_HIST=0 and empty CP_LOYALTY_HIST_QUERY, CP_GFC_HIST_QUERY, and CP_TICKET_GIFT_QUERY.",
   );
@@ -1434,7 +1436,7 @@ function csvPreflightAliasRow(row) {
   };
 }
 
-function csvNormalizationPreviewRow(row, lineNumber) {
+function csvNormalizationPreviewRow(row, lineNumber, rawLine = null) {
   return {
     sku: String(row.sku ?? "").trim(),
     handle: String(row.handle ?? "").trim() || null,
@@ -1455,6 +1457,8 @@ function csvNormalizationPreviewRow(row, lineNumber) {
       }))
       .filter((option) => option.value),
     source_row_number: lineNumber,
+    source_row_hash: sha256Hex(rawLine ?? JSON.stringify(row)),
+    raw_row: row,
   };
 }
 
@@ -1573,7 +1577,7 @@ async function loadLightspeedNormalizationCsv(csvPath) {
     headers.forEach((header, idx) => {
       row[header] = values[idx] ?? "";
     });
-    rows.push(csvNormalizationPreviewRow(row, lineNumber));
+    rows.push(csvNormalizationPreviewRow(row, lineNumber, line));
   }
 
   if (!headers) {
@@ -1798,6 +1802,31 @@ function printNormalizationPreviewReport(csvPath, payloadRows, report) {
   }
 }
 
+function printLightspeedReferenceImportReport(csvPath, payloadRows, report) {
+  const health = report?.health ?? {};
+  const activeBatch = report?.active_batch ?? health?.active_batch ?? {};
+
+  console.log("");
+  console.log("Lightspeed normalization reference import");
+  console.log(`Lightspeed CSV: ${csvPath}`);
+  console.log(`Rows read: ${payloadRows.length}`);
+  console.log("");
+  console.log("Reference rules:");
+  console.log("- imports Lightspeed rows as normalization reference only");
+  console.log("- does not mutate products, variants, aliases, inventory, cost, price, tax, or accounting");
+  console.log("- marks one Lightspeed reference batch active");
+  console.log("- posts only to /api/sync/counterpoint/lightspeed-reference/import");
+  console.log("");
+  console.log("Import summary:");
+  console.log(`- source file: ${activeBatch.source_file_name ?? "unknown"}`);
+  console.log(`- replace existing reference batches: ${report?.replaced_existing_batches ? "yes" : "no"}`);
+  console.log(`- inserted rows: ${report?.inserted_rows ?? 0}`);
+  console.log(`- active batch row count: ${health.row_count ?? 0}`);
+  console.log(`- B-SKU rows: ${health.b_sku_count ?? 0}`);
+  console.log(`- duplicate B-SKU groups: ${health.duplicate_b_sku_groups ?? 0}`);
+  console.log(`- latest import timestamp: ${health.latest_imported_at ?? activeBatch.imported_at ?? "none"}`);
+}
+
 async function runPreflightCommand() {
   const entity = process.argv[3];
   const csvArg = preflightArg("--csv");
@@ -1910,6 +1939,42 @@ async function runAliasesCommand() {
     },
   );
   printAliasPersistReport(csvPath, rows, report);
+}
+
+async function runLightspeedReferenceCommand() {
+  const action = process.argv[3];
+  const csvArg = preflightArg("--csv");
+  const replace = process.argv.includes("--replace");
+  if (action !== "import" || !csvArg) {
+    console.error('Usage: node index.mjs lightspeed-reference import --csv "product-export (5).csv" [--replace]');
+    process.exit(1);
+  }
+  if (!SYNC_TOKEN.trim()) {
+    console.error("Set COUNTERPOINT_SYNC_TOKEN");
+    process.exit(1);
+  }
+
+  const csvPath = path.resolve(process.cwd(), csvArg);
+  bridgeHostnameCached = os.hostname();
+  const { rows } = await loadLightspeedNormalizationCsv(csvPath);
+  const report = await rosFetch(
+    "/api/sync/counterpoint/lightspeed-reference/import",
+    {
+      source_file_name: path.basename(csvPath),
+      source_file_hash: await hashFileSha256(csvPath),
+      replace,
+      rows,
+    },
+    "POST",
+    {
+      ...bridgeIngestHeaders(),
+      "x-bridge-command": [
+        "lightspeed reference import csv",
+        replace ? "replace" : null,
+      ].filter(Boolean).join(" "),
+    },
+  );
+  printLightspeedReferenceImportReport(csvPath, rows, report);
 }
 
 async function sendHeartbeat(phase, currentEntity) {
@@ -4141,6 +4206,10 @@ async function main() {
   }
   if (NORMALIZATION_MODE) {
     await runNormalizationCommand();
+    process.exit(0);
+  }
+  if (LIGHTSPEED_REFERENCE_MODE) {
+    await runLightspeedReferenceCommand();
     process.exit(0);
   }
 
