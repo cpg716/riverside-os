@@ -33,6 +33,31 @@ Review **Settings → Counterpoint → Status** while the bridge is running on t
 
 Treat those values as the real import scope for the migration record.
 
+### Source file roles for inventory and catalog identity
+
+Counterpoint Sync database/import remains the authoritative inventory source for ROS. Do not treat every CSV in the repo as having the same authority level:
+
+- **`export2026-05-07.csv`** is a flattened Counterpoint inventory/SKU export. It is useful for inventory SKU preflight and duplicate barcode/SKU detection, but it is not safe for authoritative catalog identity preflight because it does not contain a stable Counterpoint variant/cell key.
+- **`product-export (5).csv`** is a Lightspeed normalization reference only. Use it to assist naming, handles, option labels, and other normalization review. Do not trust Lightspeed quantities, costs, or accounting values for Counterpoint-owned inventory.
+- **Raw Counterpoint `IM_ITEM` + `IM_INV_CELL` exports** are required for true catalog identity preflight. Include enough raw fields to preserve product family identity, variant/cell identity, option values, SKU/barcode, category, supplier, and price/cost context.
+
+Identity rules:
+
+- **`ITEM_NO` / `I-#####`** is the Counterpoint product family identity.
+- A Counterpoint cell/item key is the variant identity when available.
+- **`B-` SKU / barcode** is a validated alternate identity. It must not be treated as blindly authoritative when duplicate groups or matrix conflicts exist.
+- A Lightspeed handle is a normalization alias only; it is not Counterpoint product identity.
+
+Known real-file findings from `export2026-05-07.csv`:
+
+- `502,760` rows checked by inventory preflight.
+- `2` duplicate B-SKU groups.
+- `25` blocking affected rows.
+- `704` non-B/generated rows.
+- `99` quarantine affected rows.
+
+Safety rule: duplicate B-SKU groups must be quarantined before writes. Lightspeed quantities, costs, and accounting values must not be trusted for Counterpoint Sync.
+
 ## Repeat import rehearsal checklist
 
 Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the issue before continuing if any required item cannot be confirmed.
