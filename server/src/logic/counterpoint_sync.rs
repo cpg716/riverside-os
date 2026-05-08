@@ -29,7 +29,7 @@ pub enum CounterpointSyncError {
     Database(#[from] sqlx::Error),
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SyncCursorIn {
     pub entity: String,
     #[serde(default)]
@@ -108,7 +108,7 @@ pub struct CounterpointCustomersPayload {
     pub sync: Option<SyncCursorIn>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CounterpointInventoryRow {
     pub sku: String,
     pub stock_on_hand: i32,
@@ -169,6 +169,8 @@ pub struct CounterpointIdentityPreflightIssue {
     pub references: Vec<CounterpointIdentityPreflightReference>,
     pub sample_rows: Vec<CounterpointIdentityPreflightSampleRow>,
     pub values: Vec<String>,
+    #[serde(skip)]
+    all_references: Vec<CounterpointIdentityPreflightReference>,
 }
 
 #[derive(Debug, Serialize)]
@@ -199,13 +201,28 @@ pub struct CounterpointIdentityPreflightReport {
 
 struct CounterpointInventoryQuarantineFilter {
     payload: CounterpointInventoryPayload,
+    records: Vec<CounterpointIngestQuarantineRecord>,
     total_rows: usize,
     quarantined: i32,
 }
 
 struct CounterpointCatalogQuarantineFilter {
     payload: CounterpointCatalogPayload,
+    records: Vec<CounterpointIngestQuarantineRecord>,
     quarantined: i32,
+}
+
+struct CounterpointIngestQuarantineRecord {
+    ingest_type: &'static str,
+    issue_type: String,
+    severity: String,
+    message: String,
+    normalized_sku: Option<String>,
+    counterpoint_item_key: Option<String>,
+    family_key: Option<String>,
+    option_values: Vec<String>,
+    source_reference: serde_json::Value,
+    source_row: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -370,6 +387,12 @@ fn limited_refs(
         .collect()
 }
 
+fn all_refs(
+    rows: &[&CounterpointIdentityPreflightRow],
+) -> Vec<CounterpointIdentityPreflightReference> {
+    rows.iter().map(|row| row.reference.clone()).collect()
+}
+
 fn limited_sample_rows(
     rows: &[&CounterpointIdentityPreflightRow],
 ) -> Vec<CounterpointIdentityPreflightSampleRow> {
@@ -420,6 +443,7 @@ fn grouped_issue(
         references: limited_refs(rows),
         sample_rows: limited_sample_rows(rows),
         values: limited_values(&values),
+        all_references: all_refs(rows),
     }
 }
 
@@ -697,13 +721,119 @@ fn quarantined_preflight_refs(
         .issues
         .iter()
         .filter(|issue| issue.should_quarantine)
-        .flat_map(|issue| {
-            issue
-                .references
-                .iter()
-                .map(|reference| (reference.row_number, reference.cell_number))
-        })
+        .flat_map(|issue| issue.all_references.iter())
+        .map(|reference| (reference.row_number, reference.cell_number))
         .collect()
+}
+
+fn reference_json(reference: &CounterpointIdentityPreflightReference) -> serde_json::Value {
+    serde_json::json!({
+        "row_number": reference.row_number,
+        "cell_number": reference.cell_number,
+    })
+}
+
+fn inventory_quarantine_record_fields(
+    row: &CounterpointInventoryRow,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Vec<String>,
+    serde_json::Value,
+) {
+    let counterpoint_item_key = trim_opt(&row.counterpoint_item_key)
+        .as_deref()
+        .and_then(normalize_identity_key);
+    let family_key = counterpoint_item_key
+        .as_deref()
+        .and_then(normalize_counterpoint_family_key);
+    let option_values = option_values_from_counterpoint_item_key(counterpoint_item_key.as_deref());
+    (
+        normalize_identity_key(&row.sku),
+        counterpoint_item_key,
+        family_key,
+        option_values,
+        serde_json::to_value(row).unwrap_or_else(|_| serde_json::json!({})),
+    )
+}
+
+fn catalog_quarantine_record_fields(
+    row: &CounterpointCatalogRow,
+    cell_number: Option<usize>,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Vec<String>,
+    serde_json::Value,
+) {
+    let item_no = normalize_identity_key(&row.item_no);
+    if let Some(cell_number) = cell_number {
+        if let Some(cell) = row.cells.get(cell_number.saturating_sub(1)) {
+            let counterpoint_item_key = normalize_identity_key(&cell.counterpoint_item_key);
+            let mut option_values =
+                option_values_from_variation_values(cell.variation_values.as_ref());
+            if option_values.is_empty() {
+                option_values = option_values_from_variation_label(cell.variation_label.as_deref());
+            }
+            if option_values.is_empty() {
+                option_values =
+                    option_values_from_counterpoint_item_key(counterpoint_item_key.as_deref());
+            }
+            return (
+                normalize_identity_key(&cell.sku),
+                counterpoint_item_key,
+                item_no,
+                option_values,
+                serde_json::json!({
+                    "item_no": row.item_no,
+                    "description": row.description,
+                    "category": row.category,
+                    "vendor_no": row.vendor_no,
+                    "cell": cell,
+                }),
+            );
+        }
+    }
+
+    let sku = trim_opt(&row.barcode).unwrap_or_else(|| row.item_no.trim().to_string());
+    (
+        normalize_identity_key(&sku),
+        item_no.clone(),
+        item_no,
+        Vec::new(),
+        serde_json::to_value(row).unwrap_or_else(|_| serde_json::json!({})),
+    )
+}
+
+fn build_inventory_quarantine_records(
+    payload: &CounterpointInventoryPayload,
+    report: &CounterpointIdentityPreflightReport,
+) -> Vec<CounterpointIngestQuarantineRecord> {
+    let mut records = Vec::new();
+    for issue in report.issues.iter().filter(|issue| issue.should_quarantine) {
+        for reference in &issue.all_references {
+            let Some(row) = payload.rows.get(reference.row_number.saturating_sub(1)) else {
+                continue;
+            };
+            let (normalized_sku, counterpoint_item_key, family_key, option_values, source_row) =
+                inventory_quarantine_record_fields(row);
+            records.push(CounterpointIngestQuarantineRecord {
+                ingest_type: "inventory",
+                issue_type: issue.issue_type.clone(),
+                severity: issue.severity.clone(),
+                message: issue.message.clone(),
+                normalized_sku,
+                counterpoint_item_key,
+                family_key,
+                option_values,
+                source_reference: reference_json(reference),
+                source_row,
+            });
+        }
+    }
+    records
 }
 
 pub fn validate_counterpoint_inventory_identity_preflight(
@@ -752,6 +882,7 @@ fn filter_inventory_payload_for_quarantine(
     payload: CounterpointInventoryPayload,
 ) -> Result<CounterpointInventoryQuarantineFilter, CounterpointSyncError> {
     let report = validate_counterpoint_inventory_identity_preflight(&payload)?;
+    let records = build_inventory_quarantine_records(&payload, &report);
     let quarantined_refs = quarantined_preflight_refs(&report);
     let total_rows = payload.rows.len();
     let sync = payload.sync;
@@ -772,9 +903,47 @@ fn filter_inventory_payload_for_quarantine(
 
     Ok(CounterpointInventoryQuarantineFilter {
         payload: CounterpointInventoryPayload { rows, sync },
+        records,
         total_rows,
         quarantined,
     })
+}
+
+async fn persist_counterpoint_ingest_quarantine_records(
+    pool: &PgPool,
+    records: &[CounterpointIngestQuarantineRecord],
+) -> Result<(), CounterpointSyncError> {
+    if records.is_empty() {
+        return Ok(());
+    }
+
+    let mut tx = pool.begin().await?;
+    for record in records {
+        sqlx::query(
+            r#"
+            INSERT INTO counterpoint_ingest_quarantine (
+                ingest_type, issue_type, severity, message,
+                normalized_sku, counterpoint_item_key, family_key,
+                option_values, source_reference, source_row
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            "#,
+        )
+        .bind(record.ingest_type)
+        .bind(&record.issue_type)
+        .bind(&record.severity)
+        .bind(&record.message)
+        .bind(&record.normalized_sku)
+        .bind(&record.counterpoint_item_key)
+        .bind(&record.family_key)
+        .bind(serde_json::to_value(&record.option_values).unwrap_or_else(|_| serde_json::json!([])))
+        .bind(&record.source_reference)
+        .bind(&record.source_row)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 fn is_identifier_like_text(raw: &str) -> bool {
@@ -1170,6 +1339,7 @@ pub async fn execute_counterpoint_inventory_batch(
     let filtered = filter_inventory_payload_for_quarantine(payload)?;
     let total_rows = filtered.total_rows;
     let quarantined = filtered.quarantined;
+    persist_counterpoint_ingest_quarantine_records(pool, &filtered.records).await?;
     let payload = filtered.payload;
 
     if payload.rows.is_empty() {
@@ -5554,7 +5724,7 @@ pub async fn execute_counterpoint_category_masters_batch(
 // Catalog upsert (IM_ITEM + IM_INV_CELL → products + product_variants)
 // ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CounterpointCatalogRow {
     pub item_no: String,
     #[serde(default)]
@@ -5589,7 +5759,7 @@ pub struct CounterpointCatalogRow {
     pub cells: Vec<CatalogCellRow>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CatalogCellRow {
     pub counterpoint_item_key: String,
     pub sku: String,
@@ -5691,10 +5861,40 @@ pub fn validate_counterpoint_catalog_identity_preflight(
     ))
 }
 
+fn build_catalog_quarantine_records(
+    payload: &CounterpointCatalogPayload,
+    report: &CounterpointIdentityPreflightReport,
+) -> Vec<CounterpointIngestQuarantineRecord> {
+    let mut records = Vec::new();
+    for issue in report.issues.iter().filter(|issue| issue.should_quarantine) {
+        for reference in &issue.all_references {
+            let Some(row) = payload.rows.get(reference.row_number.saturating_sub(1)) else {
+                continue;
+            };
+            let (normalized_sku, counterpoint_item_key, family_key, option_values, source_row) =
+                catalog_quarantine_record_fields(row, reference.cell_number);
+            records.push(CounterpointIngestQuarantineRecord {
+                ingest_type: "catalog",
+                issue_type: issue.issue_type.clone(),
+                severity: issue.severity.clone(),
+                message: issue.message.clone(),
+                normalized_sku,
+                counterpoint_item_key,
+                family_key,
+                option_values,
+                source_reference: reference_json(reference),
+                source_row,
+            });
+        }
+    }
+    records
+}
+
 fn filter_catalog_payload_for_quarantine(
     payload: CounterpointCatalogPayload,
 ) -> Result<CounterpointCatalogQuarantineFilter, CounterpointSyncError> {
     let report = validate_counterpoint_catalog_identity_preflight(&payload)?;
+    let records = build_catalog_quarantine_records(&payload, &report);
     let quarantined_refs = quarantined_preflight_refs(&report);
     let sync = payload.sync;
     let mut quarantined = 0;
@@ -5733,6 +5933,7 @@ fn filter_catalog_payload_for_quarantine(
 
     Ok(CounterpointCatalogQuarantineFilter {
         payload: CounterpointCatalogPayload { rows, sync },
+        records,
         quarantined,
     })
 }
@@ -5750,6 +5951,7 @@ pub async fn execute_counterpoint_catalog_batch(
     let filtered = filter_catalog_payload_for_quarantine(payload)?;
     let payload = filtered.payload;
     let quarantined = filtered.quarantined;
+    persist_counterpoint_ingest_quarantine_records(pool, &filtered.records).await?;
     if payload.rows.is_empty() {
         let summary = CatalogUpsertSummary {
             products_created: 0,
@@ -8711,6 +8913,32 @@ mod tests {
             .expect("connect test database")
     }
 
+    async fn ensure_counterpoint_ingest_quarantine_table(pool: &PgPool) {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS public.counterpoint_ingest_quarantine (
+                id bigserial PRIMARY KEY,
+                ingest_type text NOT NULL,
+                issue_type text NOT NULL,
+                severity text NOT NULL,
+                message text NOT NULL,
+                normalized_sku text,
+                counterpoint_item_key text,
+                family_key text,
+                option_values jsonb DEFAULT '[]'::jsonb NOT NULL,
+                source_reference jsonb DEFAULT '{}'::jsonb NOT NULL,
+                source_row jsonb DEFAULT '{}'::jsonb NOT NULL,
+                created_at timestamp with time zone DEFAULT now() NOT NULL,
+                CONSTRAINT counterpoint_ingest_quarantine_ingest_type_chk
+                    CHECK (ingest_type = ANY (ARRAY['inventory'::text, 'catalog'::text]))
+            )
+            "#,
+        )
+        .execute(pool)
+        .await
+        .expect("ensure counterpoint ingest quarantine table");
+    }
+
     async fn load_counterpoint_config(pool: &PgPool) -> serde_json::Value {
         sqlx::query_scalar(
             "SELECT COALESCE(counterpoint_config, '{}'::jsonb) FROM store_settings WHERE id = 1",
@@ -8973,6 +9201,7 @@ mod tests {
     #[tokio::test]
     async fn counterpoint_inventory_ingest_quarantines_unsafe_rows_before_writes() {
         let pool = connect_test_db().await;
+        ensure_counterpoint_ingest_quarantine_table(&pool).await;
         let suffix = numeric_identity_suffix();
         let product_id = Uuid::new_v4();
         let clean_sku = format!("B-{suffix}10");
@@ -9065,7 +9294,40 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("load generated stock");
+        let quarantine_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_ingest_quarantine
+            WHERE ingest_type = 'inventory'
+              AND normalized_sku = ANY($1)
+            "#,
+        )
+        .bind(&vec![duplicate_sku.clone(), generated_sku.clone()])
+        .fetch_one(&pool)
+        .await
+        .expect("count inventory quarantine records");
+        let duplicate_issue_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_ingest_quarantine
+            WHERE ingest_type = 'inventory'
+              AND issue_type = 'duplicate_normalized_b_sku'
+              AND severity = 'BLOCKING'
+              AND normalized_sku = $1
+            "#,
+        )
+        .bind(&duplicate_sku)
+        .fetch_one(&pool)
+        .await
+        .expect("count duplicate inventory quarantine records");
 
+        sqlx::query(
+            "DELETE FROM counterpoint_ingest_quarantine WHERE ingest_type = 'inventory' AND normalized_sku = ANY($1)",
+        )
+        .bind(&vec![duplicate_sku.clone(), generated_sku.clone()])
+        .execute(&pool)
+        .await
+        .expect("cleanup inventory quarantine records");
         sqlx::query("DELETE FROM products WHERE id = $1")
             .bind(product_id)
             .execute(&pool)
@@ -9078,11 +9340,14 @@ mod tests {
         assert_eq!(clean_stock, 7);
         assert_eq!(duplicate_stock, 0);
         assert_eq!(generated_stock, 0);
+        assert_eq!(quarantine_count, 3);
+        assert_eq!(duplicate_issue_count, 2);
     }
 
     #[tokio::test]
     async fn counterpoint_catalog_ingest_quarantines_unsafe_cells_before_writes() {
         let pool = connect_test_db().await;
+        ensure_counterpoint_ingest_quarantine_table(&pool).await;
         let suffix = numeric_identity_suffix();
         let item_one = format!("I-{suffix}1");
         let item_two = format!("I-{suffix}2");
@@ -9146,7 +9411,41 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("check duplicate variant");
+        let quarantine_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_ingest_quarantine
+            WHERE ingest_type = 'catalog'
+              AND normalized_sku = $1
+            "#,
+        )
+        .bind(&duplicate_sku)
+        .fetch_one(&pool)
+        .await
+        .expect("count catalog quarantine records");
+        let source_metadata_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_ingest_quarantine
+            WHERE ingest_type = 'catalog'
+              AND normalized_sku = $1
+              AND source_reference ? 'row_number'
+              AND source_reference ? 'cell_number'
+              AND source_row ? 'cell'
+            "#,
+        )
+        .bind(&duplicate_sku)
+        .fetch_one(&pool)
+        .await
+        .expect("count catalog quarantine metadata");
 
+        sqlx::query(
+            "DELETE FROM counterpoint_ingest_quarantine WHERE ingest_type = 'catalog' AND normalized_sku = $1",
+        )
+        .bind(&duplicate_sku)
+        .execute(&pool)
+        .await
+        .expect("cleanup catalog quarantine records");
         sqlx::query("DELETE FROM products WHERE catalog_handle = ANY($1)")
             .bind(&vec![
                 item_one.clone(),
@@ -9166,6 +9465,8 @@ mod tests {
         assert!(item_three_exists);
         assert!(clean_variant_exists);
         assert!(!duplicate_variant_exists);
+        assert_eq!(quarantine_count, 6);
+        assert_eq!(source_metadata_count, 6);
     }
 
     #[test]
