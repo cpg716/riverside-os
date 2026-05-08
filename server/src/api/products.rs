@@ -10,7 +10,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{FromRow, QueryBuilder};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -535,6 +535,12 @@ pub struct InventoryCleanupSummary {
     pub duplicate_vendor_upc_groups: i64,
     pub products_missing_category: i64,
     pub products_missing_primary_vendor: i64,
+    pub lightspeed_reference_available: bool,
+    pub lightspeed_reference_b_sku_count: i64,
+    pub normalization_matched_products: i64,
+    pub products_needing_normalization: i64,
+    pub normalization_mismatch_count: i64,
+    pub rosie_review_suggested_products: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -746,6 +752,65 @@ pub struct ProductHubResponse {
     pub stats: ProductHubStats,
     pub po_summary: ProductPoSummary,
     pub variants: Vec<HubVariantRow>,
+    pub normalization_review: ProductNormalizationReview,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ProductNormalizationReferenceOption {
+    pub name: Option<String>,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProductNormalizationReviewComparison {
+    pub variant_id: Uuid,
+    pub ros_sku: String,
+    pub counterpoint_b_sku: String,
+    pub lightspeed_handle: Option<String>,
+    pub ros_product_name: String,
+    pub lightspeed_product_name: Option<String>,
+    pub ros_category_name: Option<String>,
+    pub lightspeed_category: Option<String>,
+    pub ros_supplier_name: Option<String>,
+    pub lightspeed_supplier_name: Option<String>,
+    pub lightspeed_supplier_code: Option<String>,
+    pub ros_options: Value,
+    pub lightspeed_options: Vec<ProductNormalizationReferenceOption>,
+    pub differences: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProductNormalizationReview {
+    pub reference_available: bool,
+    pub matched_alias_count: i64,
+    pub mismatch_count: i64,
+    pub needs_normalization: bool,
+    pub lightspeed_reference_available: bool,
+    pub rosie_review_suggested: bool,
+    pub comparisons: Vec<ProductNormalizationReviewComparison>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct ProductNormalizationReferenceRow {
+    variant_id: Uuid,
+    ros_sku: String,
+    ros_product_name: String,
+    ros_category_name: Option<String>,
+    ros_supplier_name: Option<String>,
+    ros_options: Value,
+    counterpoint_b_sku: String,
+    lightspeed_handle: Option<String>,
+    lightspeed_product_name: Option<String>,
+    lightspeed_category: Option<String>,
+    lightspeed_supplier_name: Option<String>,
+    lightspeed_supplier_code: Option<String>,
+    option_one_name: Option<String>,
+    option_one_value: Option<String>,
+    option_two_name: Option<String>,
+    option_two_value: Option<String>,
+    option_three_name: Option<String>,
+    option_three_value: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1478,6 +1543,78 @@ async fn get_cleanup_summary(
 
     let summary = sqlx::query_as::<_, InventoryCleanupSummary>(
         r#"
+        WITH active_batch AS (
+            SELECT id
+            FROM lightspeed_normalization_batches
+            WHERE status = 'active'
+            ORDER BY imported_at DESC
+            LIMIT 1
+        ),
+        normalization_matches AS (
+            SELECT
+                p.id AS product_id,
+                (
+                    CASE
+                        WHEN ref.product_name IS NOT NULL
+                         AND lower(regexp_replace(trim(p.name), '\s+', ' ', 'g'))
+                             <> lower(regexp_replace(trim(ref.product_name), '\s+', ' ', 'g'))
+                        THEN 1 ELSE 0
+                    END +
+                    CASE
+                        WHEN ref.product_category IS NOT NULL
+                         AND lower(regexp_replace(trim(COALESCE(c.name, '')), '\s+', ' ', 'g'))
+                             <> lower(regexp_replace(trim(ref.product_category), '\s+', ' ', 'g'))
+                        THEN 1 ELSE 0
+                    END +
+                    CASE
+                        WHEN ref.supplier_name IS NOT NULL
+                         AND lower(regexp_replace(trim(COALESCE(v.name, '')), '\s+', ' ', 'g'))
+                             <> lower(regexp_replace(trim(ref.supplier_name), '\s+', ' ', 'g'))
+                        THEN 1 ELSE 0
+                    END +
+                    CASE
+                        WHEN ref.variant_option_one_value IS NOT NULL
+                         AND NOT EXISTS (
+                            SELECT 1
+                            FROM jsonb_each_text(pv.variation_values) opt(key, value)
+                            WHERE lower(trim(opt.key)) = lower(trim(COALESCE(ref.variant_option_one_name, opt.key)))
+                              AND lower(trim(opt.value)) = lower(trim(ref.variant_option_one_value))
+                         )
+                        THEN 1 ELSE 0
+                    END +
+                    CASE
+                        WHEN ref.variant_option_two_value IS NOT NULL
+                         AND NOT EXISTS (
+                            SELECT 1
+                            FROM jsonb_each_text(pv.variation_values) opt(key, value)
+                            WHERE lower(trim(opt.key)) = lower(trim(COALESCE(ref.variant_option_two_name, opt.key)))
+                              AND lower(trim(opt.value)) = lower(trim(ref.variant_option_two_value))
+                         )
+                        THEN 1 ELSE 0
+                    END +
+                    CASE
+                        WHEN ref.variant_option_three_value IS NOT NULL
+                         AND NOT EXISTS (
+                            SELECT 1
+                            FROM jsonb_each_text(pv.variation_values) opt(key, value)
+                            WHERE lower(trim(opt.key)) = lower(trim(COALESCE(ref.variant_option_three_name, opt.key)))
+                              AND lower(trim(opt.value)) = lower(trim(ref.variant_option_three_value))
+                         )
+                        THEN 1 ELSE 0
+                    END
+                )::bigint AS mismatch_count
+            FROM product_variant_barcode_aliases alias
+            INNER JOIN product_variants pv ON pv.id = alias.variant_id
+            INNER JOIN products p ON p.id = pv.product_id AND p.is_active = true
+            LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+            INNER JOIN active_batch batch ON true
+            INNER JOIN lightspeed_normalization_reference_rows ref
+                ON ref.batch_id = batch.id
+               AND ref.normalized_sku = alias.normalized_alias
+            WHERE alias.alias_type = 'counterpoint_b_sku'
+              AND alias.status = 'active'
+        )
         SELECT
             (
                 SELECT COUNT(*)::bigint
@@ -1516,7 +1653,32 @@ async fn get_cleanup_summary(
                 FROM products p
                 WHERE p.is_active = true
                   AND p.primary_vendor_id IS NULL
-            ) AS products_missing_primary_vendor
+            ) AS products_missing_primary_vendor,
+            EXISTS(SELECT 1 FROM active_batch) AS lightspeed_reference_available,
+            COALESCE((
+                SELECT COUNT(*)::bigint
+                FROM lightspeed_normalization_reference_rows ref
+                INNER JOIN active_batch batch ON batch.id = ref.batch_id
+                WHERE ref.normalized_sku ~ '^b-[0-9]+$'
+            ), 0)::bigint AS lightspeed_reference_b_sku_count,
+            COALESCE((
+                SELECT COUNT(DISTINCT product_id)::bigint
+                FROM normalization_matches
+            ), 0)::bigint AS normalization_matched_products,
+            COALESCE((
+                SELECT COUNT(DISTINCT product_id)::bigint
+                FROM normalization_matches
+                WHERE mismatch_count > 0
+            ), 0)::bigint AS products_needing_normalization,
+            COALESCE((
+                SELECT SUM(mismatch_count)::bigint
+                FROM normalization_matches
+            ), 0)::bigint AS normalization_mismatch_count,
+            COALESCE((
+                SELECT COUNT(DISTINCT product_id)::bigint
+                FROM normalization_matches
+                WHERE mismatch_count > 0
+            ), 0)::bigint AS rosie_review_suggested_products
         "#,
     )
     .fetch_one(&state.db)
@@ -2340,6 +2502,213 @@ async fn get_product_hub(
     Ok(Json(hub))
 }
 
+fn normalize_cleanup_value(value: Option<&str>) -> Option<String> {
+    let normalized = value
+        .unwrap_or("")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    (!normalized.is_empty()).then_some(normalized)
+}
+
+fn lightspeed_options_from_row(
+    row: &ProductNormalizationReferenceRow,
+) -> Vec<ProductNormalizationReferenceOption> {
+    [
+        (&row.option_one_name, &row.option_one_value),
+        (&row.option_two_name, &row.option_two_value),
+        (&row.option_three_name, &row.option_three_value),
+    ]
+    .into_iter()
+    .filter_map(|(name, value)| {
+        if name
+            .as_deref()
+            .and_then(|raw| normalize_cleanup_value(Some(raw)))
+            .is_none()
+            && value
+                .as_deref()
+                .and_then(|raw| normalize_cleanup_value(Some(raw)))
+                .is_none()
+        {
+            return None;
+        }
+        Some(ProductNormalizationReferenceOption {
+            name: name.clone(),
+            value: value.clone(),
+        })
+    })
+    .collect()
+}
+
+fn option_differs(
+    ros_options: &Value,
+    reference_option: &ProductNormalizationReferenceOption,
+) -> bool {
+    let Some(reference_value) = normalize_cleanup_value(reference_option.value.as_deref()) else {
+        return false;
+    };
+    let Some(values) = ros_options.as_object() else {
+        return true;
+    };
+    let by_key: HashMap<String, String> = values
+        .iter()
+        .filter_map(|(key, value)| {
+            Some((
+                normalize_cleanup_value(Some(key))?,
+                normalize_cleanup_value(value.as_str())?,
+            ))
+        })
+        .collect();
+
+    if let Some(reference_name) = normalize_cleanup_value(reference_option.name.as_deref()) {
+        return by_key.get(&reference_name) != Some(&reference_value);
+    }
+
+    !by_key.values().any(|value| value == &reference_value)
+}
+
+async fn load_product_normalization_review(
+    pool: &sqlx::PgPool,
+    product_id: Uuid,
+) -> Result<ProductNormalizationReview, ProductError> {
+    let reference_available: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM lightspeed_normalization_batches WHERE status = 'active')",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let mut notes = vec![
+        "Counterpoint/ROS identity remains authoritative.".to_string(),
+        "Lightspeed values are normalization reference only.".to_string(),
+        "SKU, barcode, quantity, cost, price, tax, accounting, item keys, and handles are not editable here.".to_string(),
+    ];
+    if !reference_available {
+        notes.push("No active Lightspeed normalization reference batch is loaded.".to_string());
+        return Ok(ProductNormalizationReview {
+            reference_available: false,
+            matched_alias_count: 0,
+            mismatch_count: 0,
+            needs_normalization: false,
+            lightspeed_reference_available: false,
+            rosie_review_suggested: false,
+            comparisons: vec![],
+            notes,
+        });
+    }
+
+    let rows = sqlx::query_as::<_, ProductNormalizationReferenceRow>(
+        r#"
+        WITH active_batch AS (
+            SELECT id
+            FROM lightspeed_normalization_batches
+            WHERE status = 'active'
+            ORDER BY imported_at DESC
+            LIMIT 1
+        )
+        SELECT
+            pv.id AS variant_id,
+            pv.sku AS ros_sku,
+            p.name AS ros_product_name,
+            c.name AS ros_category_name,
+            v.name AS ros_supplier_name,
+            pv.variation_values AS ros_options,
+            alias.alias_value AS counterpoint_b_sku,
+            ref.handle AS lightspeed_handle,
+            ref.product_name AS lightspeed_product_name,
+            ref.product_category AS lightspeed_category,
+            ref.supplier_name AS lightspeed_supplier_name,
+            ref.supplier_code AS lightspeed_supplier_code,
+            ref.variant_option_one_name AS option_one_name,
+            ref.variant_option_one_value AS option_one_value,
+            ref.variant_option_two_name AS option_two_name,
+            ref.variant_option_two_value AS option_two_value,
+            ref.variant_option_three_name AS option_three_name,
+            ref.variant_option_three_value AS option_three_value
+        FROM product_variants pv
+        INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+        INNER JOIN product_variant_barcode_aliases alias
+            ON alias.variant_id = pv.id
+           AND alias.alias_type = 'counterpoint_b_sku'
+           AND alias.status = 'active'
+        INNER JOIN active_batch batch ON true
+        INNER JOIN lightspeed_normalization_reference_rows ref
+            ON ref.batch_id = batch.id
+           AND ref.normalized_sku = alias.normalized_alias
+        WHERE pv.product_id = $1
+        ORDER BY ref.handle NULLS LAST, ref.source_row_number
+        LIMIT 40
+        "#,
+    )
+    .bind(product_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut mismatch_count = 0i64;
+    let mut comparisons = Vec::with_capacity(rows.len());
+    for row in rows {
+        let lightspeed_options = lightspeed_options_from_row(&row);
+        let mut differences = Vec::new();
+        if normalize_cleanup_value(Some(&row.ros_product_name))
+            != normalize_cleanup_value(row.lightspeed_product_name.as_deref())
+            && normalize_cleanup_value(row.lightspeed_product_name.as_deref()).is_some()
+        {
+            differences.push("product display name".to_string());
+        }
+        if normalize_cleanup_value(row.ros_category_name.as_deref())
+            != normalize_cleanup_value(row.lightspeed_category.as_deref())
+            && normalize_cleanup_value(row.lightspeed_category.as_deref()).is_some()
+        {
+            differences.push("category".to_string());
+        }
+        if normalize_cleanup_value(row.ros_supplier_name.as_deref())
+            != normalize_cleanup_value(row.lightspeed_supplier_name.as_deref())
+            && normalize_cleanup_value(row.lightspeed_supplier_name.as_deref()).is_some()
+        {
+            differences.push("supplier display".to_string());
+        }
+        if lightspeed_options
+            .iter()
+            .any(|option| option_differs(&row.ros_options, option))
+        {
+            differences.push("variant option label/value".to_string());
+        }
+
+        mismatch_count += differences.len() as i64;
+        comparisons.push(ProductNormalizationReviewComparison {
+            variant_id: row.variant_id,
+            ros_sku: row.ros_sku,
+            counterpoint_b_sku: row.counterpoint_b_sku,
+            lightspeed_handle: row.lightspeed_handle,
+            ros_product_name: row.ros_product_name,
+            lightspeed_product_name: row.lightspeed_product_name,
+            ros_category_name: row.ros_category_name,
+            lightspeed_category: row.lightspeed_category,
+            ros_supplier_name: row.ros_supplier_name,
+            lightspeed_supplier_name: row.lightspeed_supplier_name,
+            lightspeed_supplier_code: row.lightspeed_supplier_code,
+            ros_options: row.ros_options,
+            lightspeed_options,
+            differences,
+        });
+    }
+
+    let matched_alias_count = comparisons.len() as i64;
+    let needs_normalization = mismatch_count > 0;
+    Ok(ProductNormalizationReview {
+        reference_available: true,
+        matched_alias_count,
+        mismatch_count,
+        needs_normalization,
+        lightspeed_reference_available: true,
+        rosie_review_suggested: needs_normalization && matched_alias_count > 0,
+        comparisons,
+        notes,
+    })
+}
+
 async fn fetch_product_hub(
     state: &AppState,
     headers: &HeaderMap,
@@ -2548,6 +2917,7 @@ async fn fetch_product_hub(
             recent_lines: vec![],
         }
     };
+    let normalization_review = load_product_normalization_review(&state.db, product_id).await?;
 
     Ok(ProductHubResponse {
         product,
@@ -2564,6 +2934,7 @@ async fn fetch_product_hub(
         },
         po_summary,
         variants,
+        normalization_review,
     })
 }
 
@@ -3216,8 +3587,9 @@ async fn get_variant(
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_skus_do_not_exist, patch_product_model, validate_create_product_payload,
-        CreateProductRequest, CreateVariantInput, PatchProductModelRequest, ProductError,
+        ensure_skus_do_not_exist, load_product_normalization_review, patch_product_model,
+        validate_create_product_payload, CreateProductRequest, CreateVariantInput,
+        PatchProductModelRequest, ProductError,
     };
     use crate::api::{store_account_rate::StoreAccountRateState, AppState};
     use crate::auth::permissions::CATALOG_EDIT;
@@ -3268,7 +3640,9 @@ mod tests {
     async fn connect_test_db() -> PgPool {
         let database_url = std::env::var("TEST_DATABASE_URL")
             .or_else(|_| std::env::var("DATABASE_URL"))
-            .expect("TEST_DATABASE_URL or DATABASE_URL must be set for tests");
+            .unwrap_or_else(|_| {
+                "postgresql://postgres:password@localhost:5433/riverside_os".into()
+            });
         PgPool::connect(&database_url)
             .await
             .expect("connect test database")
@@ -3522,6 +3896,200 @@ mod tests {
             Err(ProductError::InvalidPayload(message))
             if message == format!("sku already exists: {}", sku)
         ));
+    }
+
+    #[tokio::test]
+    async fn rosie_product_cleanup_review_is_read_only_and_uses_lightspeed_reference() {
+        let pool = connect_test_db().await;
+        let test_id = Uuid::new_v4();
+        let category_id = Uuid::new_v4();
+        let vendor_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let b_sku = format!("B-{}", &test_id.simple().to_string()[..7]);
+        let source_hash = format!("rosie-product-cleanup-{test_id}");
+
+        sqlx::query("INSERT INTO categories (id, name) VALUES ($1, $2)")
+            .bind(category_id)
+            .bind(format!(
+                "ROS Cleanup Category {}",
+                &test_id.simple().to_string()[..6]
+            ))
+            .execute(&pool)
+            .await
+            .expect("insert cleanup category");
+        sqlx::query("INSERT INTO vendors (id, name, vendor_code) VALUES ($1, $2, $3)")
+            .bind(vendor_id)
+            .bind(format!(
+                "ROS Cleanup Vendor {}",
+                &test_id.simple().to_string()[..6]
+            ))
+            .bind(format!("RC{}", &test_id.simple().to_string()[..4]))
+            .execute(&pool)
+            .await
+            .expect("insert cleanup vendor");
+        sqlx::query(
+            r#"
+            INSERT INTO products (
+                id, name, category_id, primary_vendor_id, base_retail_price, base_cost, is_active
+            )
+            VALUES ($1, 'ROS Legacy Coat', $2, $3, 100.00, 50.00, TRUE)
+            "#,
+        )
+        .bind(product_id)
+        .bind(category_id)
+        .bind(vendor_id)
+        .execute(&pool)
+        .await
+        .expect("insert cleanup product");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand
+            )
+            VALUES ($1, $2, $3, '{"Color":"Black","Size":"42R"}'::jsonb, 0)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(format!("CP-{}", test_id.simple()))
+        .execute(&pool)
+        .await
+        .expect("insert cleanup variant");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variant_barcode_aliases (
+                variant_id, alias_value, alias_type, source_system, match_method, status
+            )
+            VALUES ($1, $2, 'counterpoint_b_sku', 'counterpoint_csv', 'test', 'active')
+            "#,
+        )
+        .bind(variant_id)
+        .bind(&b_sku)
+        .execute(&pool)
+        .await
+        .expect("insert cleanup alias");
+
+        let existing_batch: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM lightspeed_normalization_batches WHERE status = 'active' LIMIT 1",
+        )
+        .fetch_optional(&pool)
+        .await
+        .expect("load active reference batch");
+        let (batch_id, created_batch) = match existing_batch {
+            Some(id) => (id, false),
+            None => {
+                let id: Uuid = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO lightspeed_normalization_batches (
+                        source_file_name, source_file_hash, row_count, status
+                    )
+                    VALUES ('rosie-product-cleanup-test.csv', $1, 1, 'active')
+                    RETURNING id
+                    "#,
+                )
+                .bind(&source_hash)
+                .fetch_one(&pool)
+                .await
+                .expect("insert cleanup reference batch");
+                (id, true)
+            }
+        };
+        let row_number: i32 = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(MAX(source_row_number), 0)::int + 1
+            FROM lightspeed_normalization_reference_rows
+            WHERE batch_id = $1
+            "#,
+        )
+        .bind(batch_id)
+        .fetch_one(&pool)
+        .await
+        .expect("allocate reference row number");
+        sqlx::query(
+            r#"
+            INSERT INTO lightspeed_normalization_reference_rows (
+                batch_id,
+                source_row_number,
+                source_row_hash,
+                sku,
+                handle,
+                product_name,
+                product_category,
+                supplier_name,
+                variant_option_one_name,
+                variant_option_one_value,
+                raw_row
+            )
+            VALUES (
+                $1, $2, $3, $4, 'ls-coat', 'Lightspeed Clean Coat',
+                'Formal Jackets', 'Lightspeed Vendor', 'Size', '42R', '{}'::jsonb
+            )
+            "#,
+        )
+        .bind(batch_id)
+        .bind(row_number)
+        .bind(&source_hash)
+        .bind(&b_sku)
+        .execute(&pool)
+        .await
+        .expect("insert cleanup reference row");
+
+        let before_name: String = sqlx::query_scalar("SELECT name FROM products WHERE id = $1")
+            .bind(product_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load product before cleanup review");
+        let review = load_product_normalization_review(&pool, product_id)
+            .await
+            .expect("load cleanup review");
+        let after_name: String = sqlx::query_scalar("SELECT name FROM products WHERE id = $1")
+            .bind(product_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load product after cleanup review");
+
+        assert_eq!(before_name, after_name);
+        assert!(review.reference_available);
+        assert_eq!(review.matched_alias_count, 1);
+        assert!(review.needs_normalization);
+        assert!(review.rosie_review_suggested);
+        assert!(review.comparisons[0]
+            .differences
+            .contains(&"product display name".to_string()));
+        assert!(review.comparisons[0]
+            .differences
+            .contains(&"category".to_string()));
+
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup product");
+        sqlx::query(
+            "DELETE FROM lightspeed_normalization_reference_rows WHERE source_row_hash = $1",
+        )
+        .bind(&source_hash)
+        .execute(&pool)
+        .await
+        .expect("cleanup reference row");
+        if created_batch {
+            sqlx::query("DELETE FROM lightspeed_normalization_batches WHERE id = $1")
+                .bind(batch_id)
+                .execute(&pool)
+                .await
+                .expect("cleanup reference batch");
+        }
+        sqlx::query("DELETE FROM vendors WHERE id = $1")
+            .bind(vendor_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup vendor");
+        sqlx::query("DELETE FROM categories WHERE id = $1")
+            .bind(category_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup category");
     }
 
     #[tokio::test]

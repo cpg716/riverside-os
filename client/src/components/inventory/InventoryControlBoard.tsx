@@ -152,6 +152,12 @@ interface InventoryCleanupSummary {
   duplicate_vendor_upc_groups: number;
   products_missing_category: number;
   products_missing_primary_vendor: number;
+  lightspeed_reference_available: boolean;
+  lightspeed_reference_b_sku_count: number;
+  normalization_matched_products: number;
+  products_needing_normalization: number;
+  normalization_mismatch_count: number;
+  rosie_review_suggested_products: number;
 }
 
 function money(v: string | number) {
@@ -748,6 +754,13 @@ export default function InventoryControlBoard({
   const cleanupReviewItems = useMemo(() => {
     if (!cleanupSummary) return [];
     return [
+      cleanupSummary.lightspeed_reference_available
+        ? `${cleanupSummary.lightspeed_reference_b_sku_count} Lightspeed reference B-SKUs are available for cleanup comparison.`
+        : "Lightspeed normalization reference is not loaded.",
+      `${cleanupSummary.normalization_matched_products} product families have matched Counterpoint aliases.`,
+      `${cleanupSummary.products_needing_normalization} product families need normalization review.`,
+      `${cleanupSummary.normalization_mismatch_count} deterministic ROS ↔ Lightspeed differences are visible.`,
+      `${cleanupSummary.rosie_review_suggested_products} product families are ready for ROSIE review.`,
       `${cleanupSummary.duplicate_barcode_groups} duplicate barcode groups need review.`,
       `${cleanupSummary.duplicate_vendor_upc_groups} duplicate vendor UPC groups need review.`,
       `${cleanupSummary.products_missing_category} active items are missing a category.`,
@@ -760,7 +773,10 @@ export default function InventoryControlBoard({
     (cleanupSummary.duplicate_barcode_groups > 0 ||
       cleanupSummary.duplicate_vendor_upc_groups > 0 ||
       cleanupSummary.products_missing_category > 0 ||
-      cleanupSummary.products_missing_primary_vendor > 0);
+      cleanupSummary.products_missing_primary_vendor > 0 ||
+      cleanupSummary.products_needing_normalization > 0 ||
+      cleanupSummary.rosie_review_suggested_products > 0 ||
+      !cleanupSummary.lightspeed_reference_available);
 
   const groupedRowsByVendor = useMemo(() => {
     if (!groupByPrimaryVendor) return null;

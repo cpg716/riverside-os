@@ -3,7 +3,6 @@ import { ChevronsUpDown, X, ShoppingBag } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { VariationsWorkspace, type HubVariant } from "./VariationsWorkspace";
 import { useToast } from "../ui/ToastProviderLogic";
-import ConfirmationModal from "../ui/ConfirmationModal";
 import {
   formatMoney,
   formatUsdFromCents,
@@ -13,8 +12,11 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
+  rosieChatCompletions,
   rosieProductCatalogAnalyze,
   rosieProductCatalogSuggest,
+  type RosieChatCompletionRequest,
+  type RosieChatCompletionResponse,
   type RosieProductCatalogAnalysisResponse,
   type RosieProductCatalogSuggestionResponse,
 } from "../../lib/rosie";
@@ -101,6 +103,39 @@ interface ProductPoSummary {
   recent_lines: ProductPoSummaryLine[];
 }
 
+interface ProductNormalizationReferenceOption {
+  name: string | null;
+  value: string | null;
+}
+
+interface ProductNormalizationReviewComparison {
+  variant_id: string;
+  ros_sku: string;
+  counterpoint_b_sku: string;
+  lightspeed_handle: string | null;
+  ros_product_name: string;
+  lightspeed_product_name: string | null;
+  ros_category_name: string | null;
+  lightspeed_category: string | null;
+  ros_supplier_name: string | null;
+  lightspeed_supplier_name: string | null;
+  lightspeed_supplier_code: string | null;
+  ros_options: Record<string, unknown>;
+  lightspeed_options: ProductNormalizationReferenceOption[];
+  differences: string[];
+}
+
+interface ProductNormalizationReview {
+  reference_available: boolean;
+  matched_alias_count: number;
+  mismatch_count: number;
+  needs_normalization: boolean;
+  lightspeed_reference_available: boolean;
+  rosie_review_suggested: boolean;
+  comparisons: ProductNormalizationReviewComparison[];
+  notes: string[];
+}
+
 interface ProductHubResponse {
   product: ProductHubProduct;
   /** Present on current API; fallback for older servers. */
@@ -109,6 +144,7 @@ interface ProductHubResponse {
   stats: ProductHubStats;
   po_summary: ProductPoSummary;
   variants: HubApiVariant[];
+  normalization_review?: ProductNormalizationReview;
 }
 
 interface TimelineEvent {
@@ -126,6 +162,21 @@ interface ProductHubDrawerProps {
   /** Shown in header while loading. */
   seedTitle?: string;
   onHubMutated?: () => void;
+}
+
+interface RosieCleanupSuggestionCard {
+  scope: string;
+  current_value: string | null;
+  reference_value: string | null;
+  suggested_value: string | null;
+  rationale: string;
+  confidence: number;
+  evidence: string[];
+}
+
+interface RosieCleanupSuggestion {
+  summary: string;
+  suggestions: RosieCleanupSuggestionCard[];
 }
 
 function money(v: string | number) {
@@ -146,6 +197,140 @@ function formatEventKind(kind: string) {
     return "Catalog update";
   }
   return kind.replace(/_/g, " ");
+}
+
+function compactValue(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : "—";
+}
+
+function formatOptionMap(value: Record<string, unknown>) {
+  const entries = Object.entries(value)
+    .map(([key, raw]) => `${key}: ${String(raw ?? "—")}`)
+    .filter(Boolean);
+  return entries.length > 0 ? entries.join(" · ") : "—";
+}
+
+function formatReferenceOptions(options: ProductNormalizationReferenceOption[]) {
+  const entries = options
+    .map((option) =>
+      [option.name, option.value]
+        .map((part) => part?.trim())
+        .filter(Boolean)
+        .join(": "),
+    )
+    .filter(Boolean);
+  return entries.length > 0 ? entries.join(" · ") : "—";
+}
+
+function extractRosieAnswer(completion: RosieChatCompletionResponse | string) {
+  if (typeof completion === "string") return completion.trim();
+  for (const value of [completion.answer, completion.content, completion.response]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  for (const choice of completion.choices ?? []) {
+    const message = choice.message?.content;
+    if (typeof message === "string" && message.trim()) return message.trim();
+    if (typeof choice.message?.text === "string" && choice.message.text.trim()) {
+      return choice.message.text.trim();
+    }
+    if (Array.isArray(message)) {
+      const text = message
+        .map((part) => part.text)
+        .filter((part): part is string => Boolean(part?.trim()))
+        .join("\n")
+        .trim();
+      if (text) return text;
+    }
+    if (typeof choice.text === "string" && choice.text.trim()) return choice.text.trim();
+    if (typeof choice.content === "string" && choice.content.trim()) return choice.content.trim();
+  }
+  return "";
+}
+
+function parseRosieCleanupSuggestion(answer: string): RosieCleanupSuggestion {
+  const jsonText = answer.match(/\{[\s\S]*\}/)?.[0] ?? answer;
+  const parsed = JSON.parse(jsonText) as Partial<RosieCleanupSuggestion> & Record<string, unknown>;
+  const forbiddenFields = [
+    "sku",
+    "barcode",
+    "quantity",
+    "cost",
+    "price",
+    "tax",
+    "accounting",
+    "counterpoint_item_key",
+    "catalog_handle",
+    "merge",
+    "delete",
+  ];
+  const normalizedForbiddenFields = new Set(forbiddenFields);
+  const suggestions = Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
+  const containsForbiddenKey = (value: unknown): string | null => {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const nested = containsForbiddenKey(item);
+        if (nested) return nested;
+      }
+      return null;
+    }
+    if (typeof value !== "object" || value === null) return null;
+    for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+      const normalizedKey = key.trim().toLowerCase();
+      if (normalizedForbiddenFields.has(normalizedKey)) return normalizedKey;
+      const nested = containsForbiddenKey(nestedValue);
+      if (nested) return nested;
+    }
+    return null;
+  };
+  const forbidden =
+    containsForbiddenKey(parsed) ??
+    (suggestions.length > 0
+      ? forbiddenFields.find((field) =>
+          suggestions.some((item) => {
+            const scope = String((item as Partial<RosieCleanupSuggestionCard>).scope ?? "")
+              .trim()
+              .toLowerCase();
+            return scope.includes(field);
+          }),
+        )
+      : null);
+  if (forbidden) {
+    throw new Error(`ROSIE suggested a protected field (${forbidden}). Review blocked.`);
+  }
+  const cleanedSuggestions = suggestions.slice(0, 6).map((item) => {
+    const candidate = item as Partial<RosieCleanupSuggestionCard>;
+    return {
+      scope: String(candidate.scope ?? "cleanup suggestion"),
+      current_value:
+        typeof candidate.current_value === "string" ? candidate.current_value : null,
+      reference_value:
+        typeof candidate.reference_value === "string" ? candidate.reference_value : null,
+      suggested_value:
+        typeof candidate.suggested_value === "string" ? candidate.suggested_value : null,
+      rationale: String(candidate.rationale ?? "Review against the evidence before applying later."),
+      confidence:
+        typeof candidate.confidence === "number"
+          ? Math.max(0, Math.min(1, candidate.confidence))
+          : 0,
+      evidence: Array.isArray(candidate.evidence)
+        ? candidate.evidence
+            .map((value) => String(value))
+            .filter((value) => value.trim())
+            .slice(0, 4)
+        : [],
+    };
+  });
+  if (cleanedSuggestions.length === 0) {
+    throw new Error("ROSIE did not return any structured cleanup suggestions.");
+  }
+  return {
+    summary:
+      typeof parsed.summary === "string" && parsed.summary.trim()
+        ? parsed.summary.trim()
+        : "ROSIE returned review-only cleanup notes.",
+    suggestions: cleanedSuggestions,
+  };
 }
 
 export default function ProductHubDrawer({
@@ -183,8 +368,10 @@ export default function ProductHubDrawer({
     useState<RosieProductCatalogSuggestionResponse | null>(null);
   const [catalogSuggestionLoading, setCatalogSuggestionLoading] = useState(false);
   const [catalogSuggestionError, setCatalogSuggestionError] = useState<string | null>(null);
-  const [catalogSuggestionConfirmOpen, setCatalogSuggestionConfirmOpen] = useState(false);
-  const [catalogSuggestionApplying, setCatalogSuggestionApplying] = useState(false);
+  const [cleanupSuggestion, setCleanupSuggestion] =
+    useState<RosieCleanupSuggestion | null>(null);
+  const [cleanupSuggestionLoading, setCleanupSuggestionLoading] = useState(false);
+  const [cleanupSuggestionError, setCleanupSuggestionError] = useState<string | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!productId) return;
@@ -267,9 +454,11 @@ export default function ProductHubDrawer({
     void loadHub();
     void loadTimeline();
     void loadCatalogAnalysis();
-    void loadCatalogSuggestion();
+    setCatalogSuggestion(null);
+    setCleanupSuggestion(null);
+    setCleanupSuggestionError(null);
     setTab("general");
-  }, [isOpen, productId, loadHub, loadTimeline, loadCatalogAnalysis, loadCatalogSuggestion]);
+  }, [isOpen, productId, loadHub, loadTimeline, loadCatalogAnalysis]);
 
   useEffect(() => {
     if (!isOpen || !productId) return;
@@ -421,39 +610,95 @@ export default function ProductHubDrawer({
     }
   };
 
-  const applyCatalogSuggestion = async () => {
-    if (!hub || !catalogSuggestion?.suggested_parent_title) return;
-    setCatalogSuggestionApplying(true);
+  const generateCleanupSuggestion = async () => {
+    if (!hub?.normalization_review?.needs_normalization) return;
+    setCleanupSuggestionLoading(true);
+    setCleanupSuggestionError(null);
     try {
-      const body: Record<string, unknown> = {
-        name: catalogSuggestion.suggested_parent_title,
-        audit_source: "rosie",
-        audit_note: "Applied ROSIE catalog normalization suggestion from Product Hub",
-        audit_confidence: catalogSuggestion.suggestion_confidence,
+      const evidence = hub.normalization_review.comparisons
+        .filter((comparison) => comparison.differences.length > 0)
+        .slice(0, 8)
+        .map((comparison) => ({
+          differences: comparison.differences,
+          ros: {
+            product_name: comparison.ros_product_name,
+            category: comparison.ros_category_name,
+            supplier: comparison.ros_supplier_name,
+            options: comparison.ros_options,
+          },
+          lightspeed_reference: {
+            product_name: comparison.lightspeed_product_name,
+            category: comparison.lightspeed_category,
+            supplier: comparison.lightspeed_supplier_name,
+            options: comparison.lightspeed_options,
+            handle: comparison.lightspeed_handle,
+          },
+        }));
+      const cleanupCompletionPayload: RosieChatCompletionRequest & {
+        chat_template_kwargs: { enable_thinking: boolean };
+      } = {
+        model: "gemma-4-e4b",
+        temperature: 0.1,
+        max_tokens: 900,
+        chat_template_kwargs: { enable_thinking: false },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are ROSIE, Riverside OS's local inventory cleanup assistant. Return only strict JSON. Suggestions are review-only and must never modify identity, barcode, stock, cost, price, tax, accounting, item keys, handles, product merges, or deletes.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              task: "Suggest review-only product cleanup from deterministic ROS vs Lightspeed normalization evidence.",
+              allowed_scopes: [
+                "product display name",
+                "category suggestion",
+                "supplier display cleanup",
+                "variant option label/value cleanup",
+                "mismatch explanation",
+              ],
+              required_schema: {
+                summary: "string",
+                suggestions: [
+                  {
+                    scope: "string",
+                    current_value: "string|null",
+                    reference_value: "string|null",
+                    suggested_value: "string|null",
+                    rationale: "string",
+                    confidence: "number 0..1",
+                    evidence: ["string"],
+                  },
+                ],
+              },
+              product_family: {
+                product_id: hub.product.id,
+                ros_name: hub.product.name,
+                ros_category: hub.product.category_name,
+                ros_supplier: hub.product.primary_vendor_name,
+              },
+              evidence,
+            }),
+          },
+        ],
       };
-
-      const supplierCode = catalogAnalysis?.parsed_fields.supplier_code?.trim();
-      if (supplierCode && supplierCode !== (hub.product.nuorder_product_id ?? "").trim()) {
-        body.catalog_handle = supplierCode;
-      }
-
-      const suggestedBrand = catalogAnalysis?.parsed_fields.brand?.trim();
-      const currentBrand = (hub.product.brand ?? "").trim();
-      if (suggestedBrand && suggestedBrand !== currentBrand) {
-        body.brand = suggestedBrand;
-      }
-
-      const ok = await patchProductModel(body);
-      if (!ok) return;
-
-      await Promise.all([loadCatalogAnalysis(), loadCatalogSuggestion()]);
-      if (tab === "history") {
-        await loadTimeline();
-      }
-      setCatalogSuggestionConfirmOpen(false);
-      toast("ROSIE catalog suggestion applied.", "success");
+      const completion = await rosieChatCompletions(
+        cleanupCompletionPayload,
+        { headers: apiAuth() },
+      );
+      const answer = extractRosieAnswer(completion);
+      if (!answer) throw new Error("ROSIE did not return a cleanup suggestion.");
+      setCleanupSuggestion(parseRosieCleanupSuggestion(answer));
+    } catch (error) {
+      setCleanupSuggestion(null);
+      setCleanupSuggestionError(
+        error instanceof Error
+          ? error.message
+          : "ROSIE cleanup suggestion is unavailable right now.",
+      );
     } finally {
-      setCatalogSuggestionApplying(false);
+      setCleanupSuggestionLoading(false);
     }
   };
 
@@ -502,17 +747,11 @@ export default function ProductHubDrawer({
     : [];
   const currentParentTitle = hub?.product.name ?? "";
   const suggestedParentTitle = catalogSuggestion?.suggested_parent_title ?? null;
-  const suggestedBrand = catalogAnalysis?.parsed_fields.brand?.trim() ?? "";
-  const currentBrand = (hub?.product.brand ?? "").trim();
-  const suggestedSupplierCode = catalogAnalysis?.parsed_fields.supplier_code?.trim() ?? "";
-  const currentSupplierCode = (hub?.product.nuorder_product_id ?? "").trim();
-  const canApplyCatalogSuggestion =
-    Boolean(hub) &&
-    Boolean(
-      (suggestedParentTitle && suggestedParentTitle !== currentParentTitle) ||
-        (suggestedBrand && suggestedBrand !== currentBrand) ||
-        (suggestedSupplierCode && suggestedSupplierCode !== currentSupplierCode),
-    );
+  const normalizationReview = hub?.normalization_review;
+  const normalizationExamples =
+    normalizationReview?.comparisons
+      .filter((comparison) => comparison.differences.length > 0)
+      .slice(0, 6) ?? [];
 
   const hubVariants: HubVariant[] =
     hub?.variants?.map((v) => ({
@@ -754,6 +993,176 @@ export default function ProductHubDrawer({
                     </dd>
                   </div>
                 </dl>
+              </section>
+
+              <section className="ui-panel ui-tint-info p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                      Lightspeed cleanup reference
+                    </h3>
+                    <p className="mt-1 text-xs text-app-text-muted">
+                      Review-only comparison using Counterpoint aliases and the active Lightspeed reference batch.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void generateCleanupSuggestion()}
+                    disabled={
+                      cleanupSuggestionLoading ||
+                      !normalizationReview?.rosie_review_suggested
+                    }
+                    className="ui-btn-secondary rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                  >
+                    {cleanupSuggestionLoading ? "Asking ROSIE…" : "Generate ROSIE suggestion"}
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="ui-metric-cell ui-tint-neutral px-3 py-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      Matched aliases
+                    </p>
+                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                      {normalizationReview?.matched_alias_count ?? 0}
+                    </p>
+                  </div>
+                  <div className="ui-metric-cell ui-tint-warning px-3 py-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      Difference count
+                    </p>
+                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                      {normalizationReview?.mismatch_count ?? 0}
+                    </p>
+                  </div>
+                  <div className="ui-metric-cell ui-tint-neutral px-3 py-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      Review state
+                    </p>
+                    <p className="mt-1 text-sm font-black text-app-text">
+                      {normalizationReview?.needs_normalization
+                        ? "ROSIE review suggested"
+                        : normalizationReview?.reference_available
+                          ? "No differences found"
+                          : "Reference missing"}
+                    </p>
+                  </div>
+                </div>
+
+                {!normalizationReview?.reference_available ? (
+                  <p className="mt-4 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-sm font-semibold text-app-text">
+                    No active Lightspeed reference batch is loaded.
+                  </p>
+                ) : normalizationExamples.length === 0 ? (
+                  <p className="mt-4 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-sm font-semibold text-app-text">
+                    No review differences were found for this product family.
+                  </p>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {normalizationExamples.map((comparison) => (
+                      <div
+                        key={`${comparison.variant_id}-${comparison.counterpoint_b_sku}`}
+                        className="rounded-xl border border-app-border bg-app-surface-2 px-4 py-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            {comparison.differences.join(" · ")}
+                          </p>
+                          <span className="rounded-full border border-app-border bg-app-surface px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                            {comparison.counterpoint_b_sku}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
+                          <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              ROS canonical
+                            </p>
+                            <p className="mt-1 font-semibold text-app-text">
+                              {compactValue(comparison.ros_product_name)}
+                            </p>
+                            <p className="text-app-text-muted">
+                              {compactValue(comparison.ros_category_name)} ·{" "}
+                              {compactValue(comparison.ros_supplier_name)}
+                            </p>
+                            <p className="mt-1 text-app-text-muted">
+                              {formatOptionMap(comparison.ros_options)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              Lightspeed reference
+                            </p>
+                            <p className="mt-1 font-semibold text-app-text">
+                              {compactValue(comparison.lightspeed_product_name)}
+                            </p>
+                            <p className="text-app-text-muted">
+                              {compactValue(comparison.lightspeed_category)} ·{" "}
+                              {compactValue(comparison.lightspeed_supplier_name)}
+                            </p>
+                            <p className="mt-1 text-app-text-muted">
+                              {formatReferenceOptions(comparison.lightspeed_options)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {cleanupSuggestionError ? (
+                  <div className="ui-panel ui-tint-warning mt-4 px-4 py-3 text-sm text-app-text">
+                    {cleanupSuggestionError}
+                  </div>
+                ) : null}
+
+                {cleanupSuggestion ? (
+                  <div className="mt-4 space-y-3">
+                    <p className="text-sm font-semibold text-app-text">
+                      {cleanupSuggestion.summary}
+                    </p>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {cleanupSuggestion.suggestions.map((suggestion, index) => (
+                        <div
+                          key={`${suggestion.scope}-${index}`}
+                          className="ui-metric-cell ui-tint-success px-4 py-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              {suggestion.scope}
+                            </p>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-success">
+                              {Math.round(suggestion.confidence * 100)}%
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm font-semibold text-app-text">
+                            {suggestion.suggested_value ?? "No direct value suggestion"}
+                          </p>
+                          <p className="mt-2 text-xs text-app-text-muted">
+                            {suggestion.rationale}
+                          </p>
+                          {suggestion.evidence.length > 0 ? (
+                            <ul className="mt-2 space-y-1 text-[11px] text-app-text-muted">
+                              {suggestion.evidence.map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {(normalizationReview?.notes ?? []).map((note) => (
+                    <span
+                      key={note}
+                      className="rounded-full border border-app-border bg-app-surface-2 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted"
+                    >
+                      {note}
+                    </span>
+                  ))}
+                </div>
               </section>
 
               <section className="rounded-2xl border border-app-border bg-app-surface p-5">
@@ -1301,20 +1710,8 @@ export default function ProductHubDrawer({
                       </div>
                     ) : null}
 
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={!canApplyCatalogSuggestion || catalogSuggestionApplying}
-                        onClick={() => setCatalogSuggestionConfirmOpen(true)}
-                        className="ui-btn-primary rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-widest disabled:opacity-50"
-                      >
-                        Apply parent suggestion
-                      </button>
-                      {!canApplyCatalogSuggestion ? (
-                        <span className="rounded-full border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                          Nothing safe to apply
-                        </span>
-                      ) : null}
+                    <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                      Review only. Product changes are not applied from ROSIE in this workflow.
                     </div>
                   </div>
                 ) : null}
@@ -1405,16 +1802,6 @@ export default function ProductHubDrawer({
           )}
         </>
       )}
-      <ConfirmationModal
-        isOpen={catalogSuggestionConfirmOpen}
-        onClose={() => setCatalogSuggestionConfirmOpen(false)}
-        onConfirm={() => void applyCatalogSuggestion()}
-        title="Apply ROSIE catalog suggestion"
-        message={`Apply ROSIE's product title suggestion?\n\nCurrent: ${currentParentTitle || "—"}\nSuggested: ${suggestedParentTitle || "—"}\n\nRiverside will save the product update and keep a support record.`}
-        confirmLabel="Apply suggestion"
-        variant="info"
-        loading={catalogSuggestionApplying}
-      />
     </DetailDrawer>
   );
 }
