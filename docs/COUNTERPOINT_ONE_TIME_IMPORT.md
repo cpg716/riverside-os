@@ -58,6 +58,46 @@ Known real-file findings from `export2026-05-07.csv`:
 
 Safety rule: duplicate B-SKU groups must be quarantined before writes. Lightspeed quantities, costs, and accounting values must not be trusted for Counterpoint Sync.
 
+### Pre-launch guarded import workflow
+
+Use this order for the guarded authoritative import before launch:
+
+1. Validate migration layout and ledger:
+   ```bash
+   RIVERSIDE_DB_NAME=riverside_os bash scripts/migration-status-docker.sh
+   ```
+2. Validate the active schema contract:
+   ```bash
+   RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh
+   ```
+3. Run inventory/SKU preflight from the flattened Counterpoint CSV:
+   ```bash
+   node counterpoint-bridge/index.mjs preflight inventory --csv export2026-05-07.csv
+   ```
+4. Review preflight severity output before ingest:
+   - **INFO**: context-only rows such as parent/catalog identities.
+   - **WARNING**: rows that are not trusted as sellable variant inventory, such as generated/service/non-B rows.
+   - **QUARANTINE**: unsafe rows skipped from writes but safe for the rest of the batch to continue.
+   - **BLOCKING**: identity collisions, such as duplicate B-SKU groups or conflicting variant identity, that must not write.
+5. Review `counterpoint_ingest_quarantine` after any guarded ingest attempt. Quarantine rows are review-only records and do not drive live inventory writes.
+6. Ingest catalog first from authoritative Counterpoint catalog/cell data, then ingest inventory quantities after variants exist.
+
+Expected behavior:
+
+- Duplicate B-SKU groups never write to live catalog or inventory rows.
+- Unsafe rows persist to `counterpoint_ingest_quarantine` for review.
+- Clean rows continue through the existing ingest path.
+- Counterpoint remains authoritative for inventory ownership.
+- Lightspeed exports remain normalization-only references and must not be used for quantities, costs, accounting, or product identity.
+
+Current known `export2026-05-07.csv` inventory preflight findings:
+
+- `502,760` rows checked.
+- `2` duplicate B-SKU groups.
+- `25` blocking affected rows.
+- `704` non-B/generated rows.
+- `99` quarantine affected rows.
+
 ## Repeat import rehearsal checklist
 
 Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the issue before continuing if any required item cannot be confirmed.
