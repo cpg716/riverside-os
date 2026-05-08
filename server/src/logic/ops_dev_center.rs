@@ -796,31 +796,36 @@ pub async fn runtime_diagnostics_snapshot(
     let strict_production = env_truthy("RIVERSIDE_STRICT_PRODUCTION");
 
     let helcim_token = nonempty_env("HELCIM_API_TOKEN");
-    let helcim_register_1_device = nonempty_env("HELCIM_REGISTER_1_DEVICE_CODE");
-    let helcim_register_2_device = nonempty_env("HELCIM_REGISTER_2_DEVICE_CODE");
+    let helcim_terminal_1_device = nonempty_env("HELCIM_TERMINAL_1_DEVICE_CODE");
+    let helcim_terminal_2_device = nonempty_env("HELCIM_TERMINAL_2_DEVICE_CODE");
     let helcim_webhook = nonempty_env("HELCIM_WEBHOOK_SECRET");
     let helcim_token_ok = helcim_token
         .as_deref()
         .map(|value| !looks_placeholder(value))
         .unwrap_or(false);
-    let helcim_register_1_ok = helcim_register_1_device
+    let helcim_terminal_1_ok = helcim_terminal_1_device
         .as_deref()
         .map(|value| !looks_placeholder(value))
         .unwrap_or(false);
-    let helcim_register_2_ok = helcim_register_2_device
+    let helcim_terminal_2_ok = helcim_terminal_2_device
         .as_deref()
         .map(|value| !looks_placeholder(value))
         .unwrap_or(false);
-    let helcim_terminals_ok = helcim_register_1_ok && helcim_register_2_ok;
-    let helcim_value = if helcim_token_ok && helcim_terminals_ok {
+    let helcim_webhook_ok = helcim_webhook
+        .as_deref()
+        .map(|value| !looks_placeholder(value))
+        .unwrap_or(false);
+    let helcim_terminals_ok = helcim_terminal_1_ok && helcim_terminal_2_ok;
+    let helcim_live_ready = helcim_token_ok && helcim_terminals_ok && helcim_webhook_ok;
+    let helcim_value = if helcim_live_ready {
         "Configured"
-    } else if helcim_token_ok || helcim_register_1_ok || helcim_register_2_ok {
+    } else if helcim_token_ok || helcim_terminal_1_ok || helcim_terminal_2_ok || helcim_webhook_ok {
         "Partial"
     } else {
         "Not configured"
     };
     let helcim_detail = format!(
-        "API token {} • register terminals {} • webhook {}",
+        "API token {} • terminals {} • webhook {}",
         if helcim_token_ok {
             "present"
         } else {
@@ -828,16 +833,12 @@ pub async fn runtime_diagnostics_snapshot(
         },
         if helcim_terminals_ok {
             "present"
-        } else if helcim_register_1_ok || helcim_register_2_ok {
+        } else if helcim_terminal_1_ok || helcim_terminal_2_ok {
             "partial"
         } else {
             "missing"
         },
-        if helcim_webhook
-            .as_deref()
-            .map(|value| !looks_placeholder(value))
-            .unwrap_or(false)
-        {
+        if helcim_webhook_ok {
             "signed"
         } else if helcim_webhook.is_some() {
             "configured-invalid"
@@ -845,11 +846,7 @@ pub async fn runtime_diagnostics_snapshot(
             "not configured"
         }
     );
-    let helcim_severity = if helcim_token_ok && helcim_terminals_ok {
-        "info"
-    } else {
-        "warning"
-    };
+    let helcim_severity = if helcim_live_ready { "info" } else { "warning" };
 
     let shippo = load_effective_shippo_config(pool).await?;
     let (shippo_value, shippo_detail, shippo_severity) = if !shippo.store.enabled {

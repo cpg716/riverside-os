@@ -114,12 +114,13 @@ Webhook intake:
 
 - Terminal device and card-terminal endpoints are read-only except `ping`.
 - `ping` checks whether the Helcim device is reachable/listening and does not create payment attempts, payment transactions, allocations, settlement rows, or reconciliation records.
-- Device codes are configured through Settings -> Helcim or deployment fallbacks. Daily readiness belongs in Payments -> Health.
+- Device codes are configured through Settings -> Helcim as Terminal 1 / Terminal 2 or through `HELCIM_TERMINAL_1_DEVICE_CODE` / `HELCIM_TERMINAL_2_DEVICE_CODE`. Daily readiness belongs in Payments -> Health.
 - ROS can initiate terminal purchase attempts and terminal refund attempts for configured devices, but Helcim dashboard remains required for hardware enrollment, pairing, and provider-side device assignment.
 
 ## Webhook behavior
 
 - Inbound Helcim webhooks require signature verification and timestamp freshness before processing.
+- Live terminal readiness requires `HELCIM_WEBHOOK_SECRET`; missing payment update signing blocks live terminal readiness.
 - Accepted events are stored in `helcim_event_log` before mutation.
 - Stored payloads are redacted for card-sensitive fields.
 - Duplicate events do not re-enter processing once already processed or ignored.
@@ -128,17 +129,17 @@ Webhook intake:
 
 ## Settlement and deposits
 
-- Batch and transaction sync stores provider batch headers and batch membership separately from ROS payment rows.
+- Batch and transaction sync stores redacted provider batch headers and batch membership separately from ROS payment rows.
 - Fee and net values are applied only when Helcim explicitly provides them. Missing values are tracked as not ready, not estimated and not treated as zero.
 - Reconciliation issues compare ROS payment truth against Helcim processor truth and record staff review history.
 - Actual bank deposits are external evidence entered or imported into ROS for matching. Matching expected Helcim batches to actual deposits does not create QBO deposits, post bank-feed transactions, or mutate processor/payment amounts.
 
 ## Credentials and PCI boundary
 
-- Helcim API token, terminal codes, and webhook secret are saved through encrypted integration credentials or deployment fallbacks.
+- Helcim API token, Terminal 1 / Terminal 2 device codes, and webhook secret are saved through encrypted integration credentials or current deployment env names.
 - Client-facing config/status responses expose readiness only, not raw secrets.
 - ROS must not store PAN or CVV. Stored card data is limited to provider-safe token references and masked metadata.
-- Webhook payload storage redacts card-sensitive fields.
+- Webhook, storefront confirmation, settlement sync, and provider error storage redact card-sensitive fields.
 
 ## Out of scope unless explicitly adopted
 

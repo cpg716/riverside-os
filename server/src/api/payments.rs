@@ -135,8 +135,9 @@ impl IntoResponse for PaymentError {
             PaymentError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             PaymentError::Conflict(m) => (StatusCode::CONFLICT, m),
             PaymentError::ProviderError(e) => {
-                tracing::error!(error = %e, "Provider error in payments");
-                (StatusCode::BAD_GATEWAY, staff_safe_provider_error(&e))
+                let staff_message = staff_safe_provider_error(&e);
+                tracing::error!(error = %staff_message, "Provider error in payments");
+                (StatusCode::BAD_GATEWAY, staff_message)
             }
         };
         (status, Json(json!({ "error": msg }))).into_response()
@@ -144,11 +145,18 @@ impl IntoResponse for PaymentError {
 }
 
 fn staff_safe_provider_error(message: &str) -> String {
-    let trimmed = message.trim();
-    if trimmed.is_empty() {
+    let redacted = helcim::redact_provider_text(message);
+    if redacted.trim().is_empty() {
         return "Payment provider request failed.".to_string();
     }
-    trimmed.chars().take(1000).collect()
+    redacted.chars().take(1000).collect()
+}
+
+fn persisted_provider_error(message: &str) -> String {
+    helcim::redact_provider_text(message)
+        .chars()
+        .take(500)
+        .collect()
 }
 
 pub fn router() -> Router<AppState> {
@@ -358,8 +366,6 @@ pub struct PatchHelcimConfigRequest {
     pub api_token: Option<String>,
     pub terminal_1_device_code: Option<String>,
     pub terminal_2_device_code: Option<String>,
-    pub register_1_device_code: Option<String>,
-    pub register_2_device_code: Option<String>,
     pub webhook_secret: Option<String>,
     pub api_base_url: Option<String>,
     pub simulator_enabled: Option<bool>,
@@ -1316,16 +1322,8 @@ async fn patch_helcim_config(
         .map_err(map_pay_session)?;
 
     let api_token = clean_optional_secret(payload.api_token, "API token")?;
-    let terminal_1_device_code = clean_optional_device_code(
-        payload
-            .terminal_1_device_code
-            .or(payload.register_1_device_code),
-    )?;
-    let terminal_2_device_code = clean_optional_device_code(
-        payload
-            .terminal_2_device_code
-            .or(payload.register_2_device_code),
-    )?;
+    let terminal_1_device_code = clean_optional_device_code(payload.terminal_1_device_code)?;
+    let terminal_2_device_code = clean_optional_device_code(payload.terminal_2_device_code)?;
     let webhook_secret = clean_optional_secret(payload.webhook_secret, "Signing secret")?;
     let api_base_url = clean_optional_api_base_url(payload.api_base_url)?;
 
@@ -3975,6 +3973,7 @@ async fn upsert_helcim_processor_settlement_data(
 ) -> Result<(), PaymentError> {
     let mut batch_ids: BTreeMap<String, Uuid> = BTreeMap::new();
     for batch in &processor_data.batches {
+        let redacted_raw_payload = helcim::redact_provider_payload(&batch.raw_payload);
         let batch_uuid: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO payment_provider_batches (
@@ -4037,7 +4036,7 @@ async fn upsert_helcim_processor_settlement_data(
         .bind(batch.fee_amount.map(|amount| amount.round_dp(2)))
         .bind(batch.net_amount.map(|amount| amount.round_dp(2)))
         .bind(batch.transaction_count)
-        .bind(&batch.raw_payload)
+        .bind(&redacted_raw_payload)
         .fetch_one(&mut **tx)
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -4046,6 +4045,7 @@ async fn upsert_helcim_processor_settlement_data(
     }
 
     for transaction in &processor_data.transactions {
+        let redacted_raw_payload = helcim::redact_provider_payload(&transaction.raw_payload);
         let batch_uuid = if let Some(batch_uuid) = batch_ids.get(&transaction.provider_batch_id) {
             *batch_uuid
         } else {
@@ -4183,7 +4183,7 @@ async fn upsert_helcim_processor_settlement_data(
         .bind(transaction.net_amount.map(|amount| amount.round_dp(2)))
         .bind(match_status)
         .bind(match_type.as_deref())
-        .bind(&transaction.raw_payload)
+        .bind(&redacted_raw_payload)
         .execute(&mut **tx)
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6042,6 +6042,7 @@ async fn start_helcim_purchase(
         Ok(response) => response,
         Err(e) => {
             let message = e.to_string();
+            let persisted_message = persisted_provider_error(&message);
             sqlx::query(
                 r#"
                 UPDATE payment_provider_attempts
@@ -6050,7 +6051,7 @@ async fn start_helcim_purchase(
                 "#,
             )
             .bind(attempt_id)
-            .bind(message.chars().take(500).collect::<String>())
+            .bind(persisted_message)
             .execute(&state.db)
             .await
             .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6064,6 +6065,7 @@ async fn start_helcim_purchase(
             .text()
             .await
             .unwrap_or_else(|_| "Helcim purchase request failed".to_string());
+        let persisted_message = persisted_provider_error(&message);
         sqlx::query(
             r#"
             UPDATE payment_provider_attempts
@@ -6073,7 +6075,7 @@ async fn start_helcim_purchase(
         )
         .bind(attempt_id)
         .bind(&status)
-        .bind(message.chars().take(500).collect::<String>())
+        .bind(persisted_message)
         .execute(&state.db)
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6254,6 +6256,7 @@ async fn start_helcim_terminal_refund(
             .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
         }
         Err(error) => {
+            let persisted_message = persisted_provider_error(&error);
             sqlx::query(
                 r#"
                 UPDATE payment_provider_attempts
@@ -6262,7 +6265,7 @@ async fn start_helcim_terminal_refund(
                 "#,
             )
             .bind(attempt_id)
-            .bind(error.chars().take(500).collect::<String>())
+            .bind(persisted_message)
             .execute(&state.db)
             .await
             .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6380,6 +6383,7 @@ async fn process_helcim_card_token_purchase(
     {
         Ok(transaction) => transaction,
         Err(error) => {
+            let persisted_message = persisted_provider_error(&error);
             sqlx::query(
                 r#"
                 UPDATE payment_provider_attempts
@@ -6391,7 +6395,7 @@ async fn process_helcim_card_token_purchase(
                 "#,
             )
             .bind(attempt_id)
-            .bind(error.chars().take(500).collect::<String>())
+            .bind(persisted_message)
             .execute(&state.db)
             .await
             .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6402,6 +6406,10 @@ async fn process_helcim_card_token_purchase(
     let status = transaction.normalized_status();
     let provider_transaction_id = transaction.transaction_id_string();
     let raw_audit_reference = transaction.audit_reference();
+    let warning = transaction
+        .warning
+        .as_deref()
+        .map(helcim::redact_provider_text);
     sqlx::query(
         r#"
         UPDATE payment_provider_attempts
@@ -6419,7 +6427,7 @@ async fn process_helcim_card_token_purchase(
     .bind(&status)
     .bind(provider_transaction_id)
     .bind(raw_audit_reference)
-    .bind(transaction.warning.clone())
+    .bind(warning)
     .execute(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6489,6 +6497,7 @@ async fn process_helcim_card_refund(
         {
             Ok(transaction) => transaction,
             Err(error) => {
+                let persisted_message = persisted_provider_error(&error);
                 sqlx::query(
                     r#"
                 UPDATE payment_provider_attempts
@@ -6500,7 +6509,7 @@ async fn process_helcim_card_refund(
                 "#,
                 )
                 .bind(attempt_id)
-                .bind(error.chars().take(500).collect::<String>())
+                .bind(persisted_message)
                 .execute(&state.db)
                 .await
                 .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6510,6 +6519,10 @@ async fn process_helcim_card_refund(
 
     let status = transaction.normalized_status();
     let provider_transaction_id = transaction.transaction_id_string();
+    let warning = transaction
+        .warning
+        .as_deref()
+        .map(helcim::redact_provider_text);
     sqlx::query(
         r#"
         UPDATE payment_provider_attempts
@@ -6527,7 +6540,7 @@ async fn process_helcim_card_refund(
     .bind(status)
     .bind(provider_transaction_id)
     .bind(transaction.audit_reference())
-    .bind(transaction.warning)
+    .bind(warning)
     .execute(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6595,6 +6608,7 @@ async fn process_helcim_card_reverse(
         {
             Ok(transaction) => transaction,
             Err(error) => {
+                let persisted_message = persisted_provider_error(&error);
                 sqlx::query(
                     r#"
                 UPDATE payment_provider_attempts
@@ -6606,7 +6620,7 @@ async fn process_helcim_card_reverse(
                 "#,
                 )
                 .bind(attempt_id)
-                .bind(error.chars().take(500).collect::<String>())
+                .bind(persisted_message)
                 .execute(&state.db)
                 .await
                 .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6616,6 +6630,10 @@ async fn process_helcim_card_reverse(
 
     let status = transaction.normalized_status();
     let provider_transaction_id = transaction.transaction_id_string();
+    let warning = transaction
+        .warning
+        .as_deref()
+        .map(helcim::redact_provider_text);
     sqlx::query(
         r#"
         UPDATE payment_provider_attempts
@@ -6633,7 +6651,7 @@ async fn process_helcim_card_reverse(
     .bind(status)
     .bind(provider_transaction_id)
     .bind(transaction.audit_reference())
-    .bind(transaction.warning)
+    .bind(warning)
     .execute(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -6807,7 +6825,9 @@ async fn confirm_helcim_pay(
         value_string(&payload.data, "transactionId").ok_or_else(|| {
             PaymentError::InvalidPayload("Helcim transaction id is missing".to_string())
         })?;
-    let warning = value_string(&payload.data, "warning");
+    let warning = value_string(&payload.data, "warning")
+        .as_deref()
+        .map(helcim::redact_provider_text);
 
     sqlx::query(
         r#"

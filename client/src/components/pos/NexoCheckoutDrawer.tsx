@@ -33,13 +33,11 @@ interface PaymentProviderSettings {
     enabled: boolean;
     terminal_1_device_configured?: boolean;
     terminal_2_device_configured?: boolean;
-    register_1_device_configured: boolean;
-    register_2_device_configured: boolean;
+    terminal_payments_ready: boolean;
+    live_terminal_payments_ready: boolean;
     simulator_enabled?: boolean;
     terminal_1_device_code_suffix?: string | null;
     terminal_2_device_code_suffix?: string | null;
-    register_1_device_code_suffix?: string | null;
-    register_2_device_code_suffix?: string | null;
     api_base_host: string;
     missing_config: string[];
   };
@@ -1102,6 +1100,10 @@ export default function NexoCheckoutDrawer({
         toast("Helcim is not configured in Settings.", "error");
         return;
       }
+      if (tab === "card_terminal" && !providerSettings.helcim.terminal_payments_ready) {
+        toast("Helcim terminal payments are not ready. Confirm Terminal 1, Terminal 2, and payment update signing secret in Settings.", "error");
+        return;
+      }
       if (amtCents <= 0) {
         toast("Helcim refunds are not enabled yet.", "error");
         return;
@@ -1624,6 +1626,13 @@ export default function NexoCheckoutDrawer({
                                 Helcim is selected but missing configuration in Settings.
                               </p>
                             )}
+                          {providerSettings?.active_provider === "helcim" &&
+                            providerSettings.helcim.enabled &&
+                            !providerSettings.helcim.terminal_payments_ready && (
+                              <p className="mt-1 font-bold text-app-warning">
+                                Helcim terminal payments need Terminal 1, Terminal 2, and payment update signing secret in Settings.
+                              </p>
+                            )}
                         </div>
                         {helcimAttempt?.status === "pending" && (
                           <button
@@ -1873,6 +1882,7 @@ export default function NexoCheckoutDrawer({
                               providerSettingsError !== null ||
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
+                                  !providerSettings.helcim.terminal_payments_ready ||
                                   registerLaneUnavailable ||
                                   !registerTerminalRoute ||
                                   !selectedTerminalKey ||

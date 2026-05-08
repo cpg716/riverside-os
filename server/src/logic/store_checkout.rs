@@ -834,6 +834,7 @@ async fn confirm_helcim_payment(
     let provider_transaction_id = value_string(raw_data, "transactionId").ok_or_else(|| {
         StoreCheckoutError::Invalid("Helcim transaction id is missing".to_string())
     })?;
+    let redacted_raw_data = helcim::redact_provider_payload(raw_data);
     sqlx::query(
         r#"
         UPDATE store_checkout_payment_attempt
@@ -851,7 +852,7 @@ async fn confirm_helcim_payment(
     .bind(&input.provider_payment_id)
     .bind(status)
     .bind(&provider_transaction_id)
-    .bind(raw_data.to_string())
+    .bind(redacted_raw_data.to_string())
     .execute(pool)
     .await?;
 

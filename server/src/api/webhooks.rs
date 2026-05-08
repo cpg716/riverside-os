@@ -11,7 +11,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use hmac::{Hmac, Mac};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
 use subtle::ConstantTimeEq;
@@ -218,40 +218,6 @@ fn helcim_payload_hash(body: &[u8]) -> String {
     hex::encode(Sha256::digest(body))
 }
 
-fn redact_helcim_payload(value: &Value) -> Value {
-    match value {
-        Value::Object(object) => {
-            let mut redacted = Map::new();
-            for (key, value) in object {
-                let normalized = key.to_ascii_lowercase();
-                if matches!(
-                    normalized.as_str(),
-                    "cardnumber"
-                        | "carddata"
-                        | "cardtoken"
-                        | "cvv"
-                        | "cvc"
-                        | "pan"
-                        | "expiry"
-                        | "expirydate"
-                        | "secrettoken"
-                        | "checkouttoken"
-                ) || normalized.contains("card_number")
-                    || normalized.contains("card_token")
-                    || normalized.contains("secret")
-                {
-                    redacted.insert(key.clone(), Value::String("[REDACTED]".to_string()));
-                } else {
-                    redacted.insert(key.clone(), redact_helcim_payload(value));
-                }
-            }
-            Value::Object(redacted)
-        }
-        Value::Array(values) => Value::Array(values.iter().map(redact_helcim_payload).collect()),
-        _ => value.clone(),
-    }
-}
-
 fn helcim_webhook_action(event_type: &str) -> HelcimWebhookAction {
     match event_type {
         "cardTransaction" => HelcimWebhookAction::CardTransaction,
@@ -344,7 +310,7 @@ async fn record_helcim_event(
     .bind(event_type)
     .bind(verification.webhook_timestamp)
     .bind(helcim_payload_hash(body))
-    .bind(redact_helcim_payload(payload))
+    .bind(helcim::redact_provider_payload(payload))
     .fetch_one(db)
     .await
 }
@@ -1133,7 +1099,7 @@ mod tests {
             }
         });
 
-        let redacted = redact_helcim_payload(&payload);
+        let redacted = helcim::redact_provider_payload(&payload);
 
         assert_eq!(redacted["data"]["cardNumber"], "[REDACTED]");
         assert_eq!(redacted["data"]["cardToken"], "[REDACTED]");

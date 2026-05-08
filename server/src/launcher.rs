@@ -53,11 +53,15 @@ fn validate_helcim_environment(strict_production: bool) -> Result<(), Box<dyn st
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_default();
-    let register_1_device_code = std::env::var("HELCIM_REGISTER_1_DEVICE_CODE")
+    let terminal_1_device_code = std::env::var("HELCIM_TERMINAL_1_DEVICE_CODE")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let register_2_device_code = std::env::var("HELCIM_REGISTER_2_DEVICE_CODE")
+    let terminal_2_device_code = std::env::var("HELCIM_TERMINAL_2_DEVICE_CODE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let webhook_secret = std::env::var("HELCIM_WEBHOOK_SECRET")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
@@ -75,23 +79,30 @@ fn validate_helcim_environment(strict_production: bool) -> Result<(), Box<dyn st
         if helcim_value_looks_placeholder(&api_token) {
             return Err("Strict production requires HELCIM_API_TOKEN to be configured".into());
         }
-        if register_1_device_code
+        if terminal_1_device_code
             .as_deref()
             .map(helcim_value_looks_placeholder)
             .unwrap_or(true)
         {
             return Err(
-                "Strict production requires HELCIM_REGISTER_1_DEVICE_CODE to be configured".into(),
+                "Strict production requires HELCIM_TERMINAL_1_DEVICE_CODE to be configured".into(),
             );
         }
-        if register_2_device_code
+        if terminal_2_device_code
             .as_deref()
             .map(helcim_value_looks_placeholder)
             .unwrap_or(true)
         {
             return Err(
-                "Strict production requires HELCIM_REGISTER_2_DEVICE_CODE to be configured".into(),
+                "Strict production requires HELCIM_TERMINAL_2_DEVICE_CODE to be configured".into(),
             );
+        }
+        if webhook_secret
+            .as_deref()
+            .map(helcim_value_looks_placeholder)
+            .unwrap_or(true)
+        {
+            return Err("Strict production requires HELCIM_WEBHOOK_SECRET to be configured".into());
         }
     } else {
         if helcim_value_looks_placeholder(&api_token) && !simulator_enabled {
@@ -99,22 +110,18 @@ fn validate_helcim_environment(strict_production: bool) -> Result<(), Box<dyn st
                 "HELCIM_API_TOKEN is missing or placeholder; live Helcim payments will be unavailable until configured"
             );
         }
-        if (register_1_device_code.is_none() || register_2_device_code.is_none())
+        if (terminal_1_device_code.is_none() || terminal_2_device_code.is_none())
             && !simulator_enabled
         {
             tracing::warn!(
-                "Helcim Register #1 or Register #2 terminal code is missing; terminal payments require a configured terminal code for the active register"
+                "HELCIM_TERMINAL_1_DEVICE_CODE or HELCIM_TERMINAL_2_DEVICE_CODE is missing; live terminal payments require both terminal device codes"
             );
         }
     }
 
-    if std::env::var("HELCIM_WEBHOOK_SECRET")
-        .ok()
-        .map(|value| value.trim().is_empty())
-        .unwrap_or(true)
-    {
+    if webhook_secret.is_none() {
         tracing::warn!(
-            "HELCIM_WEBHOOK_SECRET is not configured; Helcim terminal webhook verification will reject inbound webhooks"
+            "HELCIM_WEBHOOK_SECRET is not configured; live Helcim terminal payments are not ready and inbound payment updates will be rejected"
         );
     }
 

@@ -1760,6 +1760,11 @@ async fn process_refund(
         {
             Ok(transaction) => transaction,
             Err(error) => {
+                let persisted_message = helcim::redact_provider_text(&error)
+                    .chars()
+                    .take(500)
+                    .collect::<String>();
+                let staff_message = helcim::redact_provider_text(&error);
                 sqlx::query(
                     r#"
                     UPDATE payment_provider_attempts
@@ -1771,12 +1776,12 @@ async fn process_refund(
                     "#,
                 )
                 .bind(provider_attempt_id)
-                .bind(error.chars().take(500).collect::<String>())
+                .bind(persisted_message)
                 .execute(&mut *tx)
                 .await?;
                 tx.commit().await?;
                 return Err(TransactionError::BadGateway(format!(
-                    "Helcim refund failed: {error}"
+                    "Helcim refund failed: {staff_message}"
                 )));
             }
         };
@@ -1785,7 +1790,10 @@ async fn process_refund(
         let refund_provider_payment_id = refund_transaction.transaction_id_string();
         let refund_provider_status = refund_transaction.provider_status();
         let refund_audit_reference = refund_transaction.audit_reference();
-        let refund_warning = refund_transaction.warning.clone();
+        let refund_warning = refund_transaction
+            .warning
+            .as_deref()
+            .map(helcim::redact_provider_text);
 
         sqlx::query(
             r#"

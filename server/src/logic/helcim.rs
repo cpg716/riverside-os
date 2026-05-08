@@ -25,14 +25,12 @@ pub struct HelcimConfigStatus {
     pub api_token_configured: bool,
     pub terminal_1_device_configured: bool,
     pub terminal_2_device_configured: bool,
-    pub register_1_device_configured: bool,
-    pub register_2_device_configured: bool,
+    pub terminal_payments_ready: bool,
+    pub live_terminal_payments_ready: bool,
     pub simulator_enabled: bool,
     pub webhook_secret_configured: bool,
     pub terminal_1_device_code_suffix: Option<String>,
     pub terminal_2_device_code_suffix: Option<String>,
-    pub register_1_device_code_suffix: Option<String>,
-    pub register_2_device_code_suffix: Option<String>,
     pub api_base_host: String,
     pub missing_config: Vec<String>,
 }
@@ -240,10 +238,8 @@ pub struct HelcimDevicesQuery {
 impl HelcimConfig {
     pub fn from_env() -> Self {
         let api_token = non_empty_env("HELCIM_API_TOKEN");
-        let terminal_1_device_code = non_empty_env("HELCIM_TERMINAL_1_DEVICE_CODE")
-            .or_else(|| non_empty_env("HELCIM_REGISTER_1_DEVICE_CODE"));
-        let terminal_2_device_code = non_empty_env("HELCIM_TERMINAL_2_DEVICE_CODE")
-            .or_else(|| non_empty_env("HELCIM_REGISTER_2_DEVICE_CODE"));
+        let terminal_1_device_code = non_empty_env("HELCIM_TERMINAL_1_DEVICE_CODE");
+        let terminal_2_device_code = non_empty_env("HELCIM_TERMINAL_2_DEVICE_CODE");
         let api_base_url = non_empty_env("HELCIM_API_BASE_URL")
             .unwrap_or_else(|| DEFAULT_HELCIM_API_BASE_URL.to_string());
 
@@ -308,30 +304,78 @@ impl HelcimConfig {
     pub fn status(&self) -> HelcimConfigStatus {
         let mut missing_config = Vec::new();
         let simulator_enabled = self.simulator_enabled();
-        if !simulator_enabled && self.api_token.is_none() {
+        let api_token_configured = self.api_token.is_some();
+        let terminal_1_device_configured =
+            self.device_code_for_terminal_key("terminal_1").is_some();
+        let terminal_2_device_configured =
+            self.device_code_for_terminal_key("terminal_2").is_some();
+        let webhook_secret_configured = non_empty_env("HELCIM_WEBHOOK_SECRET").is_some();
+        let live_terminal_payments_ready = api_token_configured
+            && terminal_1_device_configured
+            && terminal_2_device_configured
+            && webhook_secret_configured;
+
+        if !simulator_enabled && !api_token_configured {
             missing_config.push("HELCIM_API_TOKEN is not configured".to_string());
+        }
+        if !simulator_enabled && !terminal_1_device_configured {
+            missing_config.push("HELCIM_TERMINAL_1_DEVICE_CODE is not configured".to_string());
+        }
+        if !simulator_enabled && !terminal_2_device_configured {
+            missing_config.push("HELCIM_TERMINAL_2_DEVICE_CODE is not configured".to_string());
+        }
+        if !simulator_enabled && !webhook_secret_configured {
+            missing_config.push("HELCIM_WEBHOOK_SECRET is not configured".to_string());
         }
 
         HelcimConfigStatus {
             enabled: self.enabled(),
-            api_token_configured: self.api_token.is_some(),
-            terminal_1_device_configured: self.device_code_for_terminal_key("terminal_1").is_some(),
-            terminal_2_device_configured: self.device_code_for_terminal_key("terminal_2").is_some(),
-            register_1_device_configured: self.device_code_for_register_lane(1).is_some(),
-            register_2_device_configured: self.device_code_for_register_lane(2).is_some(),
+            api_token_configured,
+            terminal_1_device_configured,
+            terminal_2_device_configured,
+            terminal_payments_ready: simulator_enabled || live_terminal_payments_ready,
+            live_terminal_payments_ready,
             simulator_enabled,
-            webhook_secret_configured: non_empty_env("HELCIM_WEBHOOK_SECRET").is_some(),
+            webhook_secret_configured,
             terminal_1_device_code_suffix: self
                 .device_code_for_terminal_key("terminal_1")
                 .map(mask_suffix),
             terminal_2_device_code_suffix: self
                 .device_code_for_terminal_key("terminal_2")
                 .map(mask_suffix),
-            register_1_device_code_suffix: self.device_code_for_register_lane(1).map(mask_suffix),
-            register_2_device_code_suffix: self.device_code_for_register_lane(2).map(mask_suffix),
             api_base_host: api_base_host(&self.api_base_url),
             missing_config,
         }
+    }
+}
+
+pub fn redact_provider_payload(value: &Value) -> Value {
+    match value {
+        Value::Object(object) => {
+            let mut redacted = serde_json::Map::new();
+            for (key, value) in object {
+                if helcim_field_is_sensitive(key) {
+                    redacted.insert(key.clone(), Value::String("[REDACTED]".to_string()));
+                } else {
+                    redacted.insert(key.clone(), redact_provider_payload(value));
+                }
+            }
+            Value::Object(redacted)
+        }
+        Value::Array(values) => Value::Array(values.iter().map(redact_provider_payload).collect()),
+        _ => value.clone(),
+    }
+}
+
+pub fn redact_provider_text(message: &str) -> String {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(value) => redact_provider_payload(&value).to_string(),
+        Err(_) => redact_sensitive_text_fragments(trimmed),
     }
 }
 
@@ -1257,7 +1301,7 @@ async fn response_error_message(context: &str, response: reqwest::Response) -> S
         .get("hour-limit-remaining")
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    let message = response.text().await.unwrap_or_default();
+    let message = redact_provider_text(&response.text().await.unwrap_or_default());
     let mut detail = format!("{context} returned HTTP {status}");
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         detail.push_str("; Helcim rate limit reached");
@@ -1283,6 +1327,95 @@ fn normalized_device_code(code: &str) -> Result<String, String> {
         return Err("Helcim device code must be 1 to 4 alphanumeric characters".to_string());
     }
     Ok(code)
+}
+
+fn helcim_field_is_sensitive(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase();
+
+    matches!(
+        normalized.as_str(),
+        "cardnumber"
+            | "carddata"
+            | "cardtoken"
+            | "cvv"
+            | "cvc"
+            | "pan"
+            | "primaryaccountnumber"
+            | "expiry"
+            | "expirydate"
+            | "secrettoken"
+            | "checkouttoken"
+            | "track1"
+            | "track2"
+            | "trackdata"
+            | "magstripe"
+            | "emv"
+            | "rawemv"
+            | "rawemvdata"
+            | "ksn"
+            | "pinblock"
+    ) || normalized.contains("cardtoken")
+        || normalized.contains("cardnumber")
+        || normalized.contains("secret")
+        || normalized.contains("cvv")
+        || normalized.contains("cvc")
+        || normalized.contains("trackdata")
+        || normalized.contains("magstripe")
+        || normalized.contains("rawemv")
+        || normalized.contains("pinblock")
+}
+
+fn redact_sensitive_text_fragments(message: &str) -> String {
+    let mut redacted = String::with_capacity(message.len());
+    let mut digits = String::new();
+
+    for character in message.chars() {
+        if character.is_ascii_digit() {
+            digits.push(character);
+            continue;
+        }
+
+        flush_digit_run(&mut redacted, &mut digits);
+        redacted.push(character);
+    }
+
+    flush_digit_run(&mut redacted, &mut digits);
+    redacted
+}
+
+fn flush_digit_run(output: &mut String, digits: &mut String) {
+    if digits.is_empty() {
+        return;
+    }
+    if digits.len() >= 12 && digits.len() <= 19 && luhn_check(digits) {
+        output.push_str("[REDACTED]");
+    } else {
+        output.push_str(digits);
+    }
+    digits.clear();
+}
+
+fn luhn_check(value: &str) -> bool {
+    let mut sum = 0;
+    let mut double = false;
+
+    for digit in value.chars().rev().filter_map(|c| c.to_digit(10)) {
+        let mut contribution = digit;
+        if double {
+            contribution *= 2;
+            if contribution > 9 {
+                contribution -= 9;
+            }
+        }
+        sum += contribution;
+        double = !double;
+    }
+
+    sum > 0 && sum % 10 == 0
 }
 
 pub fn normalize_accepted_purchase(
@@ -1470,5 +1603,40 @@ mod tests {
         assert_eq!(transactions[1].provider_batch_id, "fallback-batch");
         assert_eq!(transactions[1].fee_amount, None);
         assert_eq!(transactions[1].net_amount, None);
+    }
+
+    #[test]
+    fn redacts_sensitive_provider_payload_fields_without_removing_safe_card_metadata() {
+        let payload = json!({
+            "transactionId": 123,
+            "cardNumber": "4111111111111111",
+            "cardToken": "tok_123",
+            "cardF6L4": "4111111111",
+            "trackData": "%B4111111111111111^CARD/TEST^",
+            "nested": {
+                "cvv": "123",
+                "transactionAmount": "10.00"
+            }
+        });
+
+        let redacted = redact_provider_payload(&payload);
+
+        assert_eq!(redacted["cardNumber"], "[REDACTED]");
+        assert_eq!(redacted["cardToken"], "[REDACTED]");
+        assert_eq!(redacted["trackData"], "[REDACTED]");
+        assert_eq!(redacted["nested"]["cvv"], "[REDACTED]");
+        assert_eq!(redacted["cardF6L4"], "4111111111");
+        assert_eq!(redacted["nested"]["transactionAmount"], "10.00");
+    }
+
+    #[test]
+    fn redacts_provider_error_text_pan_runs() {
+        let redacted =
+            redact_provider_text("Helcim error body card=4111111111111111 status=declined");
+
+        assert_eq!(
+            redacted,
+            "Helcim error body card=[REDACTED] status=declined"
+        );
     }
 }

@@ -36,16 +36,6 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
     },
     IntegrationCredentialMapping {
         integration_key: "helcim",
-        credential_key: "register_1_device_code",
-        env_key: "HELCIM_REGISTER_1_DEVICE_CODE",
-    },
-    IntegrationCredentialMapping {
-        integration_key: "helcim",
-        credential_key: "register_2_device_code",
-        env_key: "HELCIM_REGISTER_2_DEVICE_CODE",
-    },
-    IntegrationCredentialMapping {
-        integration_key: "helcim",
         credential_key: "webhook_secret",
         env_key: "HELCIM_WEBHOOK_SECRET",
     },

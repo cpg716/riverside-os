@@ -19,14 +19,12 @@ interface HelcimProviderStatus {
   api_token_configured: boolean;
   terminal_1_device_configured?: boolean;
   terminal_2_device_configured?: boolean;
-  register_1_device_configured: boolean;
-  register_2_device_configured: boolean;
+  terminal_payments_ready: boolean;
+  live_terminal_payments_ready: boolean;
   simulator_enabled: boolean;
   webhook_secret_configured: boolean;
   terminal_1_device_code_suffix?: string | null;
   terminal_2_device_code_suffix?: string | null;
-  register_1_device_code_suffix?: string | null;
-  register_2_device_code_suffix?: string | null;
   api_base_host: string;
   missing_config: string[];
 }
@@ -174,7 +172,8 @@ const HelcimSettingsPanel: React.FC = () => {
   }
 
   const missingConfig = helcimStatus?.missing_config ?? [];
-  const apiConfigured = Boolean(helcimStatus?.enabled);
+  const apiConfigured = Boolean(helcimStatus?.api_token_configured);
+  const terminalReady = Boolean(helcimStatus?.terminal_payments_ready);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -299,10 +298,10 @@ const HelcimSettingsPanel: React.FC = () => {
               value={
                 helcimLoading
                   ? "Checking..."
-                  : helcimStatus?.terminal_1_device_configured || helcimStatus?.register_1_device_configured
-                    ? `T1 •••• ${helcimStatus.terminal_1_device_code_suffix ?? helcimStatus.register_1_device_code_suffix ?? "set"}`
-                    : helcimStatus?.terminal_2_device_configured || helcimStatus?.register_2_device_configured
-                      ? `T2 •••• ${helcimStatus.terminal_2_device_code_suffix ?? helcimStatus.register_2_device_code_suffix ?? "set"}`
+                  : helcimStatus?.terminal_1_device_configured
+                    ? `T1 •••• ${helcimStatus.terminal_1_device_code_suffix ?? "set"}`
+                    : helcimStatus?.terminal_2_device_configured
+                      ? `T2 •••• ${helcimStatus.terminal_2_device_code_suffix ?? "set"}`
                       : "Not configured"
               }
             />
@@ -324,11 +323,8 @@ const HelcimSettingsPanel: React.FC = () => {
               ? helcimError
               : missingConfig.length
                 ? `Missing configuration: ${missingConfig.join(", ")}`
-                : helcimStatus?.terminal_1_device_configured ||
-                    helcimStatus?.terminal_2_device_configured ||
-                    helcimStatus?.register_1_device_configured ||
-                    helcimStatus?.register_2_device_configured
-                  ? "Helcim API access and terminal payments are configured."
+                : terminalReady
+                  ? "Helcim API access, terminal device codes, and payment update signing are configured."
                   : "Helcim API access is configured. Add Terminal 1 and Terminal 2 device codes only if ROS will start in-store terminal payments."}
           </p>
         </div>
@@ -358,22 +354,32 @@ const HelcimSettingsPanel: React.FC = () => {
             <ConfigRow
               label="Terminal 1 device code"
               value={
-                helcimStatus?.terminal_1_device_configured || helcimStatus?.register_1_device_configured
-                  ? `Configured •••• ${helcimStatus.terminal_1_device_code_suffix ?? helcimStatus.register_1_device_code_suffix ?? "set"}`
+                helcimStatus?.terminal_1_device_configured
+                  ? `Configured •••• ${helcimStatus.terminal_1_device_code_suffix ?? "set"}`
                   : "Not configured"
               }
-              ready={Boolean(helcimStatus?.terminal_1_device_configured || helcimStatus?.register_1_device_configured)}
+              ready={Boolean(helcimStatus?.terminal_1_device_configured)}
               detail="Used by Register #1 by default and available to Registers #3/#4 when selected."
             />
             <ConfigRow
               label="Terminal 2 device code"
               value={
-                helcimStatus?.terminal_2_device_configured || helcimStatus?.register_2_device_configured
-                  ? `Configured •••• ${helcimStatus.terminal_2_device_code_suffix ?? helcimStatus.register_2_device_code_suffix ?? "set"}`
+                helcimStatus?.terminal_2_device_configured
+                  ? `Configured •••• ${helcimStatus.terminal_2_device_code_suffix ?? "set"}`
                   : "Not configured"
               }
-              ready={Boolean(helcimStatus?.terminal_2_device_configured || helcimStatus?.register_2_device_configured)}
+              ready={Boolean(helcimStatus?.terminal_2_device_configured)}
               detail="Used by Register #2 by default and available to Registers #3/#4 when selected."
+            />
+            <ConfigRow
+              label="Live terminal payments"
+              value={
+                helcimStatus?.live_terminal_payments_ready
+                  ? "Ready"
+                  : "Not ready"
+              }
+              ready={Boolean(helcimStatus?.live_terminal_payments_ready)}
+              detail="Requires API token, Terminal 1, Terminal 2, and payment update signing secret."
             />
             <ConfigRow
               label="Terminal routing"
