@@ -487,6 +487,7 @@ function injectStoreCreditCustomerExistsClause(sqlText, storeCreditOn, existsInn
 /** Read-only probe: `node index.mjs discover` — needs SQL_CONNECTION_STRING only (no ROS token). */
 const DISCOVER_MODE =
   process.argv.includes("discover") || String(process.env.DISCOVER ?? "").toLowerCase() === "1";
+const PREFLIGHT_MODE = process.argv[2] === "preflight";
 
 const ROS_BASE_URL = (process.env.ROS_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const SYNC_TOKEN = process.env.COUNTERPOINT_SYNC_TOKEN ?? "";
@@ -608,13 +609,15 @@ const CP_RECEIVING_HISTORY_QUERY = expandImportSince(process.env.CP_RECEIVING_HI
 const CP_TICKET_NOTES_QUERY = expandImportSince(process.env.CP_TICKET_NOTES_QUERY ?? "");
 const BRIDGE_VERSION = "0.7.3";
 
-console.info(
-  `[env] effective mode RUN_ONCE=${RUN_ONCE ? "1" : "0"} WAIT_AFTER_RUN_ONCE=${WAIT_AFTER_RUN_ONCE ? "1" : "0"} ` +
-    `SYNC_LOYALTY_HIST=${SYNC_LOYALTY_HIST ? "1" : "0"} CP_GFC_HIST_QUERY=${CP_GFC_HIST_QUERY.trim() ? "set" : "empty"} ` +
-    `CP_TICKET_GIFT_QUERY=${CP_TICKET_GIFT_QUERY.trim() ? "set" : "empty"}`,
-);
+if (!PREFLIGHT_MODE) {
+  console.info(
+    `[env] effective mode RUN_ONCE=${RUN_ONCE ? "1" : "0"} WAIT_AFTER_RUN_ONCE=${WAIT_AFTER_RUN_ONCE ? "1" : "0"} ` +
+      `SYNC_LOYALTY_HIST=${SYNC_LOYALTY_HIST ? "1" : "0"} CP_GFC_HIST_QUERY=${CP_GFC_HIST_QUERY.trim() ? "set" : "empty"} ` +
+      `CP_TICKET_GIFT_QUERY=${CP_TICKET_GIFT_QUERY.trim() ? "set" : "empty"}`,
+  );
+}
 
-if (SYNC_LOYALTY_HIST || CP_LOYALTY_HIST_QUERY.trim() || CP_GFC_HIST_QUERY.trim() || CP_TICKET_GIFT_QUERY.trim()) {
+if (!PREFLIGHT_MODE && (SYNC_LOYALTY_HIST || CP_LOYALTY_HIST_QUERY.trim() || CP_GFC_HIST_QUERY.trim() || CP_TICKET_GIFT_QUERY.trim())) {
   console.error(
     "[cutover-safety] Snapshot-only cutover requires SYNC_LOYALTY_HIST=0 and empty CP_LOYALTY_HIST_QUERY, CP_GFC_HIST_QUERY, and CP_TICKET_GIFT_QUERY.",
   );
@@ -1361,6 +1364,184 @@ async function rosPost(entityKey, body) {
     }
   }
   return await rosFetch(directUrl, body, "POST", hdr);
+}
+
+function parseCsvLine(line) {
+  const fields = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === "," && !inQuotes) {
+      fields.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current);
+  return fields;
+}
+
+function normalizeCsvHeader(header) {
+  return String(header ?? "")
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function preflightArg(name) {
+  const args = process.argv.slice(2);
+  const idx = args.indexOf(name);
+  if (idx < 0) return null;
+  return args[idx + 1] ?? null;
+}
+
+function parseIntegerQuantity(raw) {
+  const n = Number.parseFloat(String(raw ?? "").trim());
+  if (!Number.isFinite(n)) return 0;
+  return Math.trunc(n);
+}
+
+function csvPreflightInventoryRow(row) {
+  const out = {
+    sku: String(row.sku ?? "").trim(),
+    stock_on_hand: parseIntegerQuantity(row.inventory_main_outlet),
+  };
+  const unitCost = String(row.supply_price ?? "").trim();
+  if (unitCost) out.unit_cost = unitCost;
+  return out;
+}
+
+async function loadInventoryPreflightCsv(csvPath) {
+  const stream = fs.createReadStream(csvPath, { encoding: "utf8" });
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  let headers = null;
+  const rows = [];
+  let lineNumber = 0;
+
+  for await (const line of rl) {
+    lineNumber++;
+    if (lineNumber === 1) {
+      headers = parseCsvLine(line).map(normalizeCsvHeader);
+      continue;
+    }
+    if (!headers) continue;
+    const values = parseCsvLine(line);
+    const row = {};
+    headers.forEach((header, idx) => {
+      row[header] = values[idx] ?? "";
+    });
+    rows.push(csvPreflightInventoryRow(row));
+  }
+
+  if (!headers) {
+    throw new Error(`CSV is empty: ${csvPath}`);
+  }
+  for (const required of ["sku", "inventory_main_outlet", "supply_price"]) {
+    if (!headers.includes(required)) {
+      throw new Error(`CSV missing required column: ${required}`);
+    }
+  }
+
+  const unavailableItemKeyReason = headers.includes("counterpoint_item_key")
+    ? null
+    : "No stable counterpoint_item_key column found; item-key validation is unavailable for this CSV.";
+
+  return { rows, headers, unavailableItemKeyReason };
+}
+
+function countIssuesByType(issues) {
+  const counts = {};
+  for (const issue of issues ?? []) {
+    const key = String(issue.issue_type ?? "unknown");
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function duplicateBskuExamples(issues) {
+  return (issues ?? [])
+    .filter((issue) => issue.issue_type === "duplicate_normalized_b_sku")
+    .map((issue) => issue.normalized_sku)
+    .filter(Boolean)
+    .slice(0, 25);
+}
+
+function printInventoryPreflightReport(csvPath, payloadRows, headers, unavailableItemKeyReason, report) {
+  const summary = report?.summary ?? {};
+  const issueCounts = countIssuesByType(report?.issues);
+  const duplicateExamples = duplicateBskuExamples(report?.issues);
+
+  console.log("");
+  console.log("Counterpoint inventory identity preflight");
+  console.log(`CSV: ${csvPath}`);
+  console.log(`Rows read: ${payloadRows.length}`);
+  console.log("");
+  console.log("Mapping used:");
+  console.log("- sku <- CSV sku");
+  console.log("- stock_on_hand <- CSV inventory_main_outlet");
+  console.log("- unit_cost <- CSV supply_price");
+  if (unavailableItemKeyReason) {
+    console.log(`- counterpoint_item_key omitted (${unavailableItemKeyReason})`);
+  } else if (headers.includes("counterpoint_item_key")) {
+    console.log("- counterpoint_item_key <- CSV counterpoint_item_key");
+  }
+  console.log("");
+  console.log("Preflight summary:");
+  console.log(`- total rows checked: ${summary.variant_rows_checked ?? summary.total_rows ?? 0}`);
+  console.log(`- duplicate B-SKU values: ${summary.duplicate_normalized_b_sku_values ?? 0}`);
+  console.log(`- duplicate counterpoint item key values: ${unavailableItemKeyReason ? "unavailable" : (summary.duplicate_counterpoint_item_key_values ?? 0)}`);
+  console.log(`- blank/generated/non-B SKU rows: ${summary.invalid_sku_rows ?? 0}`);
+  console.log(`- SKU-to-family conflicts: ${unavailableItemKeyReason ? "unavailable" : (summary.conflicting_sku_family_values ?? 0)}`);
+  console.log(`- SKU-to-counterpoint item key conflicts: ${unavailableItemKeyReason ? "unavailable" : (summary.conflicting_sku_counterpoint_item_key_values ?? 0)}`);
+  console.log(`- total issues: ${summary.issue_count ?? 0}`);
+  console.log(`- affected rows: ${summary.affected_row_count ?? 0}`);
+  console.log("");
+  console.log("Issue type counts:");
+  for (const [issueType, count] of Object.entries(issueCounts).sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`- ${issueType}: ${count}`);
+  }
+  if (duplicateExamples.length > 0) {
+    console.log("");
+    console.log(`Duplicate B-SKU examples: ${duplicateExamples.join(", ")}`);
+  }
+}
+
+async function runPreflightCommand() {
+  const entity = process.argv[3];
+  const csvArg = preflightArg("--csv");
+  if (entity !== "inventory" || !csvArg) {
+    console.error("Usage: node index.mjs preflight inventory --csv <path>");
+    process.exit(1);
+  }
+  if (!SYNC_TOKEN.trim()) {
+    console.error("Set COUNTERPOINT_SYNC_TOKEN");
+    process.exit(1);
+  }
+
+  const csvPath = path.resolve(process.cwd(), csvArg);
+  const { rows, headers, unavailableItemKeyReason } = await loadInventoryPreflightCsv(csvPath);
+  bridgeHostnameCached = os.hostname();
+
+  const report = await rosFetch(
+    "/api/sync/counterpoint/inventory/preflight",
+    { rows },
+    "POST",
+    {
+      ...bridgeIngestHeaders(),
+      "x-bridge-command": "preflight inventory csv",
+    },
+  );
+
+  printInventoryPreflightReport(csvPath, rows, headers, unavailableItemKeyReason, report);
 }
 
 async function sendHeartbeat(phase, currentEntity) {
@@ -3582,6 +3763,11 @@ function getOrderedSyncSteps(poolOverride) {
 }
 
 async function main() {
+  if (PREFLIGHT_MODE) {
+    await runPreflightCommand();
+    process.exit(0);
+  }
+
   if (DISCOVER_MODE) {
     if (!CONN.trim()) {
       console.error("Set SQL_CONNECTION_STRING in .env (COUNTERPOINT_SYNC_TOKEN not required for discover).");
