@@ -199,6 +199,39 @@ pub struct CounterpointIdentityPreflightReport {
     pub issues: Vec<CounterpointIdentityPreflightIssue>,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct CounterpointIngestQuarantineCount {
+    pub key: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointIngestQuarantineSummary {
+    pub total_records: i64,
+    pub info_records: i64,
+    pub warning_records: i64,
+    pub quarantine_records: i64,
+    pub blocking_records: i64,
+    pub latest_created_at: Option<DateTime<Utc>>,
+    pub by_severity: Vec<CounterpointIngestQuarantineCount>,
+    pub by_ingest_type: Vec<CounterpointIngestQuarantineCount>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct CounterpointIngestQuarantineRow {
+    pub id: i64,
+    pub ingest_type: String,
+    pub issue_type: String,
+    pub severity: String,
+    pub message: String,
+    pub normalized_sku: Option<String>,
+    pub counterpoint_item_key: Option<String>,
+    pub family_key: Option<String>,
+    pub option_values: serde_json::Value,
+    pub source_reference: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
 struct CounterpointInventoryQuarantineFilter {
     payload: CounterpointInventoryPayload,
     records: Vec<CounterpointIngestQuarantineRecord>,
@@ -944,6 +977,99 @@ async fn persist_counterpoint_ingest_quarantine_records(
     }
     tx.commit().await?;
     Ok(())
+}
+
+pub async fn get_counterpoint_ingest_quarantine_summary(
+    pool: &PgPool,
+) -> Result<CounterpointIngestQuarantineSummary, CounterpointSyncError> {
+    let totals: (i64, i64, i64, i64, i64, Option<DateTime<Utc>>) = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*)::bigint AS total_records,
+            COUNT(*) FILTER (WHERE severity = 'INFO')::bigint AS info_records,
+            COUNT(*) FILTER (WHERE severity = 'WARNING')::bigint AS warning_records,
+            COUNT(*) FILTER (WHERE severity = 'QUARANTINE')::bigint AS quarantine_records,
+            COUNT(*) FILTER (WHERE severity = 'BLOCKING')::bigint AS blocking_records,
+            MAX(created_at) AS latest_created_at
+        FROM counterpoint_ingest_quarantine
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    let by_severity: Vec<CounterpointIngestQuarantineCount> = sqlx::query_as(
+        r#"
+        SELECT severity AS key, COUNT(*)::bigint AS count
+        FROM counterpoint_ingest_quarantine
+        GROUP BY severity
+        ORDER BY
+            CASE severity
+                WHEN 'BLOCKING' THEN 1
+                WHEN 'QUARANTINE' THEN 2
+                WHEN 'WARNING' THEN 3
+                WHEN 'INFO' THEN 4
+                ELSE 5
+            END,
+            severity
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let by_ingest_type: Vec<CounterpointIngestQuarantineCount> = sqlx::query_as(
+        r#"
+        SELECT ingest_type AS key, COUNT(*)::bigint AS count
+        FROM counterpoint_ingest_quarantine
+        GROUP BY ingest_type
+        ORDER BY ingest_type
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(CounterpointIngestQuarantineSummary {
+        total_records: totals.0,
+        info_records: totals.1,
+        warning_records: totals.2,
+        quarantine_records: totals.3,
+        blocking_records: totals.4,
+        latest_created_at: totals.5,
+        by_severity,
+        by_ingest_type,
+    })
+}
+
+pub async fn list_counterpoint_ingest_quarantine_rows(
+    pool: &PgPool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<CounterpointIngestQuarantineRow>, CounterpointSyncError> {
+    let limit = limit.clamp(1, 200);
+    let offset = offset.max(0);
+    let rows = sqlx::query_as(
+        r#"
+        SELECT
+            id,
+            ingest_type,
+            issue_type,
+            severity,
+            message,
+            normalized_sku,
+            counterpoint_item_key,
+            family_key,
+            option_values,
+            source_reference,
+            created_at
+        FROM counterpoint_ingest_quarantine
+        ORDER BY created_at DESC, id DESC
+        LIMIT $1 OFFSET $2
+        "#,
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
 }
 
 fn is_identifier_like_text(raw: &str) -> bool {

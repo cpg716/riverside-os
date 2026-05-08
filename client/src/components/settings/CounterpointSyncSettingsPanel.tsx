@@ -32,12 +32,20 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
-type HubTab = "status" | "inbound" | "categories" | "payments" | "gifts" | "staff";
+type HubTab =
+  | "status"
+  | "import-console"
+  | "inbound"
+  | "categories"
+  | "payments"
+  | "gifts"
+  | "staff";
 type CounterpointStatusSection = "connect" | "signoff" | "details" | "advanced";
 
 function isHubTab(value: string | null): value is HubTab {
   return (
     value === "status" ||
+    value === "import-console" ||
     value === "inbound" ||
     value === "categories" ||
     value === "payments" ||
@@ -84,6 +92,40 @@ interface SyncStatusResponse {
   token_configured: boolean;
   counterpoint_staging_enabled?: boolean;
   staging_pending_count?: number;
+}
+
+interface CounterpointQuarantineCount {
+  key: string;
+  count: number;
+}
+
+interface CounterpointQuarantineSummary {
+  total_records: number;
+  info_records: number;
+  warning_records: number;
+  quarantine_records: number;
+  blocking_records: number;
+  latest_created_at: string | null;
+  by_severity: CounterpointQuarantineCount[];
+  by_ingest_type: CounterpointQuarantineCount[];
+}
+
+interface CounterpointQuarantineRow {
+  id: number;
+  ingest_type: string;
+  issue_type: string;
+  severity: string;
+  message: string;
+  normalized_sku: string | null;
+  counterpoint_item_key: string | null;
+  family_key: string | null;
+  option_values: unknown;
+  source_reference: unknown;
+  created_at: string;
+}
+
+interface CounterpointQuarantineRowsResponse {
+  rows: CounterpointQuarantineRow[];
 }
 
 interface CounterpointResetCountRow {
@@ -459,6 +501,12 @@ function formatEntityLabel(entity: string): string {
   );
 }
 
+function formatReviewLabel(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function diffMinutes(aIso: string | null | undefined, bIso: string | null | undefined): number | null {
   if (!aIso || !bIso) return null;
   const a = new Date(aIso).getTime();
@@ -604,6 +652,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
     useState<CounterpointInventoryCatalogVerificationSnapshot | null>(null);
   const [inventoryCatalogVerificationLoading, setInventoryCatalogVerificationLoading] =
     useState(false);
+  const [quarantineSummary, setQuarantineSummary] =
+    useState<CounterpointQuarantineSummary | null>(null);
+  const [quarantineRows, setQuarantineRows] = useState<CounterpointQuarantineRow[]>([]);
+  const [quarantineLoading, setQuarantineLoading] = useState(false);
 
   const [categoryRows, setCategoryRows] = useState<CategoryMapRow[]>([]);
   const [paymentRows, setPaymentRows] = useState<PaymentMapRow[]>([]);
@@ -890,6 +942,36 @@ export default function CounterpointSyncSettingsPanel(props?: {
     }
   }, [baseUrl, backofficeHeaders, hasPermission]);
 
+  const fetchQuarantineReview = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    setQuarantineLoading(true);
+    try {
+      const headers = backofficeHeaders() as Record<string, string>;
+      const [summaryRes, rowsRes] = await Promise.all([
+        fetch(`${baseUrl}/api/settings/counterpoint-sync/quarantine/summary`, { headers }),
+        fetch(`${baseUrl}/api/settings/counterpoint-sync/quarantine/rows?limit=25`, {
+          headers,
+        }),
+      ]);
+      if (summaryRes.ok) {
+        setQuarantineSummary((await summaryRes.json()) as CounterpointQuarantineSummary);
+      } else {
+        setQuarantineSummary(null);
+      }
+      if (rowsRes.ok) {
+        const data = (await rowsRes.json()) as CounterpointQuarantineRowsResponse;
+        setQuarantineRows(data.rows ?? []);
+      } else {
+        setQuarantineRows([]);
+      }
+    } catch {
+      setQuarantineSummary(null);
+      setQuarantineRows([]);
+    } finally {
+      setQuarantineLoading(false);
+    }
+  }, [baseUrl, backofficeHeaders, hasPermission]);
+
   const fetchCategoriesForPicker = useCallback(async () => {
     try {
       const res = await fetch(`${baseUrl}/api/categories`, {
@@ -969,6 +1051,12 @@ export default function CounterpointSyncSettingsPanel(props?: {
   useEffect(() => {
     if (tab === "inbound") void fetchBatches();
   }, [tab, fetchBatches]);
+
+  useEffect(() => {
+    if (tab !== "import-console") return;
+    void fetchStatus({ quiet: true });
+    void fetchQuarantineReview();
+  }, [tab, fetchStatus, fetchQuarantineReview]);
 
   useEffect(() => {
     if (tab === "categories" || tab === "payments" || tab === "gifts" || tab === "staff") {
@@ -1245,6 +1333,17 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
   const stagingOn = status?.counterpoint_staging_enabled === true;
   const pendingN = status?.staging_pending_count ?? 0;
+  const quarantineTotal = quarantineSummary?.total_records ?? 0;
+  const quarantineSeverityRows = [
+    { label: "Blocked", value: quarantineSummary?.blocking_records ?? 0, tone: "text-app-danger" },
+    {
+      label: "Needs review",
+      value: quarantineSummary?.quarantine_records ?? 0,
+      tone: "text-app-warning",
+    },
+    { label: "Warnings", value: quarantineSummary?.warning_records ?? 0, tone: "text-amber-600" },
+    { label: "Info", value: quarantineSummary?.info_records ?? 0, tone: "text-app-text-muted" },
+  ];
   const migrationPreflight = bridgeLive?.migrationPreflight ?? null;
   const enabledEntities = migrationPreflight?.import_scope.enabled_entities ?? [];
   const nonIdempotentEntities = migrationPreflight?.non_idempotent_entities ?? [];
@@ -1570,6 +1669,21 @@ export default function CounterpointSyncSettingsPanel(props?: {
         <span className="inline-flex items-center gap-1.5">
           <LayoutDashboard className="h-3.5 w-3.5" aria-hidden />
           Status
+        </span>
+      </button>
+      <button
+        type="button"
+        className={tabBtn(tab === "import-console")}
+        onClick={() => setTab("import-console")}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Database className="h-3.5 w-3.5" aria-hidden />
+          Import Console
+          {(quarantineSummary?.total_records ?? 0) > 0 ? (
+            <span className="ui-pill bg-amber-500/20 px-1.5 py-0 text-amber-800 dark:text-amber-100">
+              {fmtNum(quarantineSummary?.total_records ?? 0)}
+            </span>
+          ) : null}
         </span>
       </button>
       <button type="button" className={tabBtn(tab === "inbound")} onClick={() => setTab("inbound")}>
@@ -3897,6 +4011,195 @@ export default function CounterpointSyncSettingsPanel(props?: {
 	            </p>
           )}
         </>
+      )}
+
+      {tab === "import-console" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-3">
+            <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Sync Health
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                {status ? stateIcon(status.windows_sync_state) : <Clock className="h-5 w-5 text-app-text-muted" />}
+                <div>
+                  <p className={`text-sm font-black uppercase tracking-widest ${status ? stateColor(status.windows_sync_state) : "text-app-text-muted"}`}>
+                    {status?.windows_sync_state ?? "Unknown"}
+                  </p>
+                  <p className="text-[10px] text-app-text-muted">
+                    {status?.last_seen_at ? formatDate(status.last_seen_at) : "No recent bridge heartbeat"}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Needs Review
+              </p>
+              <p className="mt-2 text-2xl font-black text-app-warning tabular-nums">
+                {quarantineLoading ? "…" : fmtNum(quarantineTotal)}
+              </p>
+              <p className="mt-1 text-[10px] text-app-text-muted">
+                Rows skipped from live writes and saved for review.
+              </p>
+            </div>
+            <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Blocked Rows
+              </p>
+              <p className="mt-2 text-2xl font-black text-app-danger tabular-nums">
+                {quarantineLoading ? "…" : fmtNum(quarantineSummary?.blocking_records ?? 0)}
+              </p>
+              <p className="mt-1 text-[10px] text-app-text-muted">
+                Duplicate or conflicting identity rows did not write to inventory.
+              </p>
+            </div>
+            <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Latest Review Row
+              </p>
+              <p className="mt-2 text-sm font-black text-app-text">
+                {quarantineSummary?.latest_created_at
+                  ? formatDate(quarantineSummary.latest_created_at)
+                  : "None recorded"}
+              </p>
+              <p className="mt-1 text-[10px] text-app-text-muted">
+                Source: <code>counterpoint_ingest_quarantine</code>
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.4fr] gap-4">
+            <div className="space-y-4">
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Review Counts
+                    </h4>
+                    <p className="mt-1 text-xs text-app-text-muted">
+                      Counts are read-only. Clean rows continue through the existing import path.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={quarantineLoading}
+                    onClick={() => void fetchQuarantineReview()}
+                    className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${quarantineLoading ? "animate-spin" : ""}`} aria-hidden />
+                    Refresh
+                  </button>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {quarantineSeverityRows.map((row) => (
+                    <div key={row.label} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        {row.label}
+                      </p>
+                      <p className={`mt-2 text-lg font-black tabular-nums ${row.tone}`}>
+                        {fmtNum(row.value)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {(quarantineSummary?.by_ingest_type ?? []).map((row) => (
+                    <div key={row.key} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        {formatReviewLabel(row.key)}
+                      </p>
+                      <p className="mt-2 text-lg font-black text-app-text tabular-nums">
+                        {fmtNum(row.count)}
+                      </p>
+                    </div>
+                  ))}
+                  {(quarantineSummary?.by_ingest_type.length ?? 0) === 0 ? (
+                    <p className="col-span-2 text-xs text-app-text-muted">No review rows recorded.</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Import Safety Context
+                </h4>
+                <div className="mt-3 grid gap-2 text-xs text-app-text-muted">
+                  <p>
+                    Counterpoint is authoritative for pre-launch inventory ownership. Lightspeed exports are normalization-only references.
+                  </p>
+                  <p>
+                    Duplicate B-SKU groups and conflicting identity rows are skipped from live writes and saved for review.
+                  </p>
+                  <p>
+                    Runbook: <code>docs/COUNTERPOINT_ONE_TIME_IMPORT.md</code>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-app-border bg-app-surface-2/40 overflow-hidden">
+              <div className="border-b border-app-border bg-app-bg/40 px-4 py-3">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Recent Rows Needing Review
+                </h4>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  This table does not approve, retry, import, or apply rows.
+                </p>
+              </div>
+              <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+                <table className="w-full min-w-[760px] text-left text-xs">
+                  <thead className="sticky top-0 bg-app-surface-2 border-b border-app-border">
+                    <tr className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      <th className="px-3 py-2">When</th>
+                      <th className="px-3 py-2">Review</th>
+                      <th className="px-3 py-2">Source</th>
+                      <th className="px-3 py-2">SKU</th>
+                      <th className="px-3 py-2">Family</th>
+                      <th className="px-3 py-2">Message</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-app-border">
+                    {quarantineRows.map((row) => (
+                      <tr key={row.id}>
+                        <td className="px-3 py-2 text-[10px] text-app-text-muted whitespace-nowrap">
+                          {formatDate(row.created_at)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`font-black uppercase tracking-wider ${
+                            row.severity === "BLOCKING"
+                              ? "text-app-danger"
+                              : row.severity === "QUARANTINE"
+                                ? "text-app-warning"
+                                : "text-amber-600"
+                          }`}>
+                            {row.severity === "BLOCKING" ? "Blocked" : "Needs review"}
+                          </span>
+                          <p className="mt-1 text-[10px] text-app-text-muted">
+                            {formatReviewLabel(row.issue_type)}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2 capitalize">{row.ingest_type}</td>
+                        <td className="px-3 py-2 font-mono text-[10px]">
+                          {row.normalized_sku ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[10px]">
+                          {row.family_key ?? row.counterpoint_item_key ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-app-text-muted">{row.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {quarantineRows.length === 0 ? (
+                  <p className="p-4 text-xs text-app-text-muted">
+                    No recent rows need review.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {tab === "inbound" && (
