@@ -104,6 +104,34 @@ export type RosieToolResult = {
   result: unknown;
 };
 
+export type RosieInsightSurface =
+  | "customer_snapshot"
+  | "transaction_readiness"
+  | "inventory_cleanup";
+
+export type RosieInsightMode = "summary" | "explain" | "next_steps";
+
+export type RosieInsightFacts = {
+  title: string;
+  bullets?: { id: string; label: string; severity?: string }[];
+  metrics?: { id: string; label: string; value: string; tone?: string }[];
+  warnings?: string[];
+  disclaimers?: string[];
+};
+
+export type RosieInsightSummaryRequest = {
+  surface: RosieInsightSurface;
+  mode: RosieInsightMode;
+  facts: RosieInsightFacts;
+  allowed_actions?: { id: string; label: string; target: string }[];
+};
+
+export type RosieInsightSummaryResponse = {
+  status: "available" | "unavailable";
+  bullets: { text: string; source_fact_ids: string[]; tone?: string }[];
+  suggested_actions?: { id: string; label: string }[];
+};
+
 export type RosieProductCatalogParsedFields = {
   vendor?: string | null;
   brand?: string | null;
@@ -1370,6 +1398,44 @@ export async function askRosieGroundedHelp(
     tool_results: context.tool_results,
     completion,
   };
+}
+
+export async function requestRosieInsightSummary(
+  request: RosieInsightSummaryRequest,
+  options?: {
+    headers?: Record<string, string>;
+    settings?: RosieSettings;
+  },
+): Promise<RosieInsightSummaryResponse> {
+  const settings = normalizeRosieSettings(options?.settings ?? loadLocalRosieSettings());
+  if (!settings.enabled) {
+    return { status: "unavailable", bullets: [] };
+  }
+
+  try {
+    const response = await fetch(`${getBaseUrl()}/api/help/rosie/v1/insight-summary`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options?.headers ?? {}),
+      },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      return { status: "unavailable", bullets: [] };
+    }
+    const json = (await response.json().catch(() => null)) as RosieInsightSummaryResponse | null;
+    if (!json || json.status !== "available") {
+      return { status: "unavailable", bullets: [] };
+    }
+    return {
+      status: "available",
+      bullets: (json.bullets ?? []).slice(0, 3),
+      suggested_actions: (json.suggested_actions ?? []).slice(0, 3),
+    };
+  } catch {
+    return { status: "unavailable", bullets: [] };
+  }
 }
 
 export async function getRosieIntelligenceStatus(

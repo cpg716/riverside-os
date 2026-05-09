@@ -24,6 +24,7 @@ async function openWorkspace(
 test("workspace quality summaries expose lightweight completeness signals", async ({
   page,
 }) => {
+  const insightRequests: Record<string, unknown>[] = [];
   await page.route("**/api/categories", async (route) => {
     await route.fulfill({
       status: 200,
@@ -90,7 +91,26 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
         duplicate_vendor_upc_groups: 3,
         products_missing_category: 4,
         products_missing_primary_vendor: 5,
+        active_counterpoint_b_sku_aliases: 6,
+        lightspeed_reference_available: true,
+        lightspeed_reference_b_sku_count: 7,
+        cleanup_ready: true,
+        normalization_matched_products: 8,
+        products_needing_normalization: 9,
+        normalization_mismatch_count: 10,
+        rosie_review_suggested_products: 9,
+        top_normalization_candidate_product_id: null,
+        top_normalization_candidate_product_name: null,
       }),
+    });
+  });
+
+  await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
+    insightRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ status: "unavailable", bullets: [] }),
     });
   });
 
@@ -177,6 +197,24 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
   await expect(page.getByText("3 duplicate vendor UPC groups need review.")).toBeVisible();
   await expect(page.getByText("4 active items are missing a category.")).toBeVisible();
   await expect(page.getByText("5 active items are missing a primary vendor.")).toBeVisible();
+  expect(insightRequests).toHaveLength(0);
+  await page
+    .getByTestId("rosie-insight-summary-inventory_cleanup")
+    .getByRole("button", { name: /rosie insight/i })
+    .click();
+  await expect(page.getByText("ROSIE thinking...")).toHaveCount(0);
+  expect(insightRequests).toHaveLength(1);
+  expect(insightRequests[0]).toMatchObject({
+    surface: "inventory_cleanup",
+    facts: {
+      title: "Inventory Cleanup Review",
+      bullets: expect.arrayContaining([
+        expect.objectContaining({ label: "2 duplicate barcode groups need review." }),
+        expect.objectContaining({ label: "5 active items are missing a primary vendor." }),
+      ]),
+    },
+  });
+  await expect(page.getByTestId("rosie-insight-summary-inventory_cleanup").locator("li")).toHaveCount(0);
 
   await openWorkspace(
     page,

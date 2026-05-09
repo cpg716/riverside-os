@@ -173,6 +173,23 @@ test.describe("Orders detail drawer and POS handoff", () => {
   }) => {
     const order = await createSpecialOrder(request, "BO");
     await createLinkedOverdueAlteration(request, order);
+    const insightRequests: Record<string, unknown>[] = [];
+    await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
+      insightRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "available",
+          bullets: [
+            { text: "Balance and pickup work are both visible blockers.", source_fact_ids: ["blocker-0", "blocker-1"] },
+            { text: "Linked alteration status is already part of the readiness facts.", source_fact_ids: ["blocker-2"] },
+            { text: "Use the deterministic blocker list as the source of truth.", source_fact_ids: ["blocker-0"] },
+            { text: "This fourth model bullet should stay hidden.", source_fact_ids: ["blocker-1"] },
+          ],
+        }),
+      });
+    });
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
@@ -204,6 +221,27 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(drawer).toContainText("1 pickup line is still open.");
     await expect(drawer).toContainText("1 linked alteration is overdue.");
     await expect(drawer).toContainText("Still Open");
+    expect(insightRequests).toHaveLength(0);
+    await drawer
+      .getByTestId("rosie-insight-summary-transaction_readiness")
+      .getByRole("button", { name: /rosie insight/i })
+      .click();
+    await expect(drawer.getByText("Balance and pickup work are both visible blockers.")).toBeVisible();
+    await expect(drawer.getByText("Linked alteration status is already part of the readiness facts.")).toBeVisible();
+    await expect(drawer.getByText("Use the deterministic blocker list as the source of truth.")).toBeVisible();
+    await expect(drawer.getByText("This fourth model bullet should stay hidden.")).toHaveCount(0);
+    expect(insightRequests).toHaveLength(1);
+    expect(insightRequests[0]).toMatchObject({
+      surface: "transaction_readiness",
+      facts: {
+        title: "Readiness Check",
+        bullets: expect.arrayContaining([
+          expect.objectContaining({ label: expect.stringContaining("Balance due before release") }),
+          expect.objectContaining({ label: "1 pickup line is still open." }),
+          expect.objectContaining({ label: "1 linked alteration is overdue." }),
+        ]),
+      },
+    });
 
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();
 

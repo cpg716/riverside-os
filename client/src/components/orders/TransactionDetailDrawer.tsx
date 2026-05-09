@@ -29,6 +29,7 @@ import DetailDrawer from "../layout/DetailDrawer";
 import ReceiptSummaryModal from "../pos/ReceiptSummaryModal";
 import type { FulfillmentKind } from "../pos/types";
 import VariantSearchInput from "../ui/VariantSearchInput";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 
 function fmtMoney(v: string | number): string {
   return formatUsdFromCents(parseMoneyToCents(v));
@@ -1123,6 +1124,26 @@ export default function TransactionDetailDrawer({
                     No release blockers found from current order details.
                   </p>
                 )}
+                <RosieInsightSummary
+                  surface="transaction_readiness"
+                  title="Readiness Check"
+                  getHeaders={auth}
+                  facts={{
+                    title: "Readiness Check",
+                    bullets: [
+                      ...readinessCheck.blockers.map((label, index) => ({
+                        id: `blocker-${index}`,
+                        label,
+                        severity: "warning",
+                      })),
+                      ...readinessCheck.warnings.map((label, index) => ({
+                        id: `warning-${index}`,
+                        label,
+                        severity: "info",
+                      })),
+                    ],
+                  }}
+                />
               </section>
             ) : null}
 

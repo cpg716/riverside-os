@@ -27,6 +27,7 @@ import {
 import ProductHubDrawer from "./ProductHubDrawer";
 import InventoryBulkBar from "./InventoryBulkBar";
 import { getInventoryTagPrintConfig, openInventoryTagsWindow } from "./labelPrint";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 import { apiUrl } from "../../lib/apiUrl";
 import { useScanner } from "../../hooks/useScanner";
 import { playScanSuccess, playScanError } from "../../lib/scanSounds";
@@ -1560,6 +1561,21 @@ export default function InventoryControlBoard({
                   </li>
                 ))}
               </ul>
+              <RosieInsightSummary
+                surface="inventory_cleanup"
+                title="Inventory Cleanup Review"
+                getHeaders={apiAuth}
+                facts={{
+                  title: "Inventory Cleanup Review",
+                  bullets: cleanupReviewItems.map((item, index) => ({
+                    id: `cleanup-${index}`,
+                    label: item,
+                    severity: item.includes("not ready") || item.includes("not loaded")
+                      ? "warning"
+                      : "info",
+                  })),
+                }}
+              />
             </div>
           ) : null}
         </div>

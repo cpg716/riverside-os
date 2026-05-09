@@ -33,6 +33,9 @@ use crate::logic::rosie_speech;
 use crate::middleware;
 use crate::models::DbStaffRole;
 
+#[path = "../logic/rosie_insight_summary.rs"]
+mod rosie_insight_summary;
+
 fn build_rosie_upstream_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(5))
@@ -1648,6 +1651,10 @@ pub fn router() -> Router<AppState> {
         .route("/manuals/{manual_id}", get(get_manual))
         .route("/rosie/v1/tool-context", post(rosie_tool_context))
         .route("/rosie/v1/chat/completions", post(rosie_chat_completions))
+        .route(
+            "/rosie/v1/insight-summary",
+            post(post_rosie_insight_summary),
+        )
         .route("/rosie/v1/runtime-status", get(rosie_runtime_status))
         .route("/rosie/v1/voice/transcribe", post(rosie_voice_transcribe))
         .route("/rosie/v1/voice/synthesize", post(rosie_voice_synthesize))
@@ -1877,6 +1884,67 @@ async fn rosie_chat_completions(
     })?;
 
     Ok((status, Json(payload)).into_response())
+}
+
+async fn post_rosie_insight_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<rosie_insight_summary::RosieInsightSummaryRequest>,
+) -> Result<Json<rosie_insight_summary::RosieInsightSummaryResponse>, Response> {
+    let _viewer = resolve_help_viewer(&state, &headers).await?;
+    if let Err(message) = rosie_insight_summary::validate_request(&body) {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": message })),
+        )
+            .into_response());
+    }
+
+    let upstream = match std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+    {
+        Some(upstream) => upstream,
+        None => return Ok(Json(rosie_insight_summary::unavailable_response())),
+    };
+    let upstream_url = format!("{upstream}/v1/chat/completions");
+    let upstream_client = match build_rosie_upstream_client() {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::warn!(%error, %upstream_url, "rosie insight upstream client init failed");
+            return Ok(Json(rosie_insight_summary::unavailable_response()));
+        }
+    };
+    let payload = rosie_insight_summary::build_completion_payload(&body);
+    let response =
+        match send_rosie_upstream_chat_request(&upstream_client, &upstream_url, &payload).await {
+            Ok(response) => response,
+            Err(error) => {
+                tracing::warn!(%error, %upstream_url, "rosie insight upstream request failed");
+                return Ok(Json(rosie_insight_summary::unavailable_response()));
+            }
+        };
+    if !response.status().is_success() {
+        tracing::warn!(
+            status = %response.status(),
+            %upstream_url,
+            "rosie insight upstream returned non-success"
+        );
+        return Ok(Json(rosie_insight_summary::unavailable_response()));
+    }
+    let completion = match response.json::<Value>().await {
+        Ok(payload) => payload,
+        Err(error) => {
+            tracing::warn!(%error, %upstream_url, "rosie insight upstream response parse failed");
+            return Ok(Json(rosie_insight_summary::unavailable_response()));
+        }
+    };
+
+    Ok(Json(rosie_insight_summary::parse_completion_response(
+        &body,
+        &completion,
+    )))
 }
 
 async fn rosie_runtime_status(

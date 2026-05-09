@@ -35,6 +35,7 @@ import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 import {
   type CustomerLifecycleState,
 } from "./customerLifecycle";
@@ -2358,6 +2359,19 @@ export function CustomerRelationshipHubDrawer({
                   </li>
                 ))}
               </ul>
+              <RosieInsightSummary
+                surface="customer_snapshot"
+                title="Customer Snapshot"
+                getHeaders={apiAuth}
+                facts={{
+                  title: "Customer Snapshot",
+                  bullets: hub.snapshot_items.slice(0, 7).map((item, index) => ({
+                    id: `snapshot-${index}`,
+                    label: item.label,
+                    severity: item.severity,
+                  })),
+                }}
+              />
             </section>
           ) : null}
 

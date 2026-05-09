@@ -387,9 +387,23 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
 }) => {
   test.setTimeout(120_000);
   let profilePatch: Record<string, unknown> | null = null;
+  const insightRequests: Record<string, unknown>[] = [];
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await mockCustomersDrawerApis(page);
+  await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
+    insightRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "available",
+        bullets: [
+          { text: "Open order is the main visible follow-up.", source_fact_ids: ["snapshot-0"] },
+        ],
+      }),
+    });
+  });
   await page.route(`**/api/customers/${CUSTOMER_ROW.id}`, async (route) => {
     if (route.request().method() !== "PATCH") {
       await route.continue();
@@ -436,6 +450,24 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
     dialog.getByText(/operational contact: text and email/i),
   ).toBeVisible();
   await expect(dialog.getByText("Recent sale with Chris G")).toBeVisible();
+  expect(insightRequests).toHaveLength(0);
+  await dialog
+    .getByTestId("rosie-insight-summary-customer_snapshot")
+    .getByRole("button", { name: /rosie insight/i })
+    .click();
+  await expect(dialog.getByText("Open order is the main visible follow-up.")).toBeVisible();
+  expect(insightRequests).toHaveLength(1);
+  expect(insightRequests[0]).toMatchObject({
+    surface: "customer_snapshot",
+    mode: "summary",
+    facts: {
+      title: "Customer Snapshot",
+      bullets: expect.arrayContaining([
+        { id: "snapshot-0", label: "1 open order", severity: "info" },
+      ]),
+    },
+  });
+  expect(JSON.stringify(insightRequests[0])).not.toContain("Purchased 2 items");
   await expect(dialog.getByLabel(/automatic discount/i)).toHaveValue("12.50");
   await expect(dialog.getByLabel(/^tax id$/i)).toHaveValue("NY-EXEMPT-123");
 
