@@ -201,6 +201,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [invGlLabel, setInvGlLabel] = useState("INV_ASSET · not mapped");
   const [freightGlLabel, setFreightGlLabel] = useState("Freight cost · not mapped");
+  const [glanceUnavailable, setGlanceUnavailable] = useState(false);
   const [useVendorUpc, setUseVendorUpc] = useState(false);
   const [scanMode, setScanMode] = useState<ScanMode>("laser");
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
@@ -224,19 +225,27 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   // ── GL labels ──────────────────────────────────────────────────────────────
 
   const refreshGlance = useCallback(async () => {
-    const h = apiAuth();
-    const [accRes, mapRes] = await Promise.all([
-      fetch(`${BASE_URL}/api/qbo/accounts-cache`, { headers: h }),
-      fetch(`${BASE_URL}/api/qbo/mappings`, { headers: h }),
-    ]);
-    if (!accRes.ok || !mapRes.ok) return;
-    const accounts = (await accRes.json()) as { id: string; name: string }[];
-    const mappings = (await mapRes.json()) as { internal_key: string; qbo_account_id: string | null }[];
-    const byId = new Map(accounts.map((a) => [a.id, a.name]));
-    const invId = mappings.find((m) => m.internal_key === "INV_ASSET")?.qbo_account_id;
-    const frId = mappings.find((m) => m.internal_key === "COGS_FREIGHT")?.qbo_account_id;
-    if (invId && byId.has(invId)) setInvGlLabel(byId.get(invId)!);
-    if (frId && byId.has(frId)) setFreightGlLabel(byId.get(frId)!);
+    try {
+      const h = apiAuth();
+      const [accRes, mapRes] = await Promise.all([
+        fetch(`${BASE_URL}/api/qbo/accounts-cache`, { headers: h }),
+        fetch(`${BASE_URL}/api/qbo/mappings`, { headers: h }),
+      ]);
+      if (!accRes.ok || !mapRes.ok) {
+        setGlanceUnavailable(true);
+        return;
+      }
+      const accounts = (await accRes.json()) as { id: string; name: string }[];
+      const mappings = (await mapRes.json()) as { internal_key: string; qbo_account_id: string | null }[];
+      const byId = new Map(accounts.map((a) => [a.id, a.name]));
+      const invId = mappings.find((m) => m.internal_key === "INV_ASSET")?.qbo_account_id;
+      const frId = mappings.find((m) => m.internal_key === "COGS_FREIGHT")?.qbo_account_id;
+      if (invId && byId.has(invId)) setInvGlLabel(byId.get(invId)!);
+      if (frId && byId.has(frId)) setFreightGlLabel(byId.get(frId)!);
+      setGlanceUnavailable(false);
+    } catch {
+      setGlanceUnavailable(true);
+    }
   }, [apiAuth]);
 
   // ── Load PO ─────────────────────────────────────────────────────────────────
@@ -963,6 +972,12 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
               <div className="space-y-1">
                 <p className="text-[10px] font-bold text-app-text-muted">Asset: <span className="text-app-text font-black">{invGlLabel}</span></p>
                 <p className="text-[10px] font-bold text-app-text-muted">Freight: <span className="text-app-text font-black">{freightGlLabel}</span></p>
+                {glanceUnavailable && (
+                  <p className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600">
+                    <AlertCircle size={12} className="shrink-0" />
+                    Account status could not refresh.
+                  </p>
+                )}
               </div>
             </div>
           </div>

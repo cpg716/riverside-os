@@ -6,7 +6,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
-import { Truck, ListFilter, Sparkles, Plus } from "lucide-react";
+import { AlertTriangle, Clock, Truck, ListFilter, Sparkles, Plus } from "lucide-react";
 import DashboardGridCard from "../ui/DashboardGridCard";
 
 interface PurchaseOrder {
@@ -78,27 +78,37 @@ export default function PurchaseOrderPanel({
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendorId, setVendorId] = useState("");
   const [selectedPo, setSelectedPo] = useState<string>("");
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersLoadError, setOrdersLoadError] = useState<string | null>(null);
   const [variantId, setVariantId] = useState("");
   const [qty, setQty] = useState(1);
   const [unitCost, setUnitCost] = useState("0.00");
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
   const [nonInventoryNeeds, setNonInventoryNeeds] = useState<WeddingNonInventoryItem[]>([]);
 
-  const refresh = useCallback(() => {
-    fetch(apiUrl(baseUrl, "/api/purchase-orders"), {
-      headers: backofficeHeaders() as Record<string, string>,
-    })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        const list = Array.isArray(data) ? data : [];
-        setOrders(list);
-        if (!selectedPo && list.length > 0) setSelectedPo(list[0].id);
-      })
-      .catch(() => setOrders([]));
+  const refresh = useCallback(async () => {
+    setOrdersLoading(true);
+    setOrdersLoadError(null);
+    try {
+      const res = await fetch(apiUrl(baseUrl, "/api/purchase-orders"), {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (!res.ok) {
+        throw new Error("purchase_orders_load_failed");
+      }
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      setOrders(list);
+      if (!selectedPo && list.length > 0) setSelectedPo(list[0].id);
+    } catch {
+      setOrdersLoadError("Vendor paperwork could not load right now. Try again in a moment.");
+    } finally {
+      setOrdersLoading(false);
+    }
   }, [backofficeHeaders, selectedPo]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
 
   useEffect(() => {
@@ -153,7 +163,7 @@ export default function PurchaseOrderPanel({
     if (typeof created.id === "string" && created.id.trim().length > 0) {
       setSelectedPo(created.id);
     }
-    refresh();
+    void refresh();
   };
 
   const createDirectInvoice = async () => {
@@ -175,7 +185,7 @@ export default function PurchaseOrderPanel({
     if (typeof created.id === "string" && created.id.trim().length > 0) {
       setSelectedPo(created.id);
     }
-    refresh();
+    void refresh();
   };
 
   const addLine = async () => {
@@ -206,7 +216,7 @@ export default function PurchaseOrderPanel({
       return;
     }
     toast("PO line added", "success");
-    refresh();
+    void refresh();
   };
 
   const submitPo = async () => {
@@ -221,7 +231,7 @@ export default function PurchaseOrderPanel({
       return;
     }
     toast("Purchase order submitted", "success");
-    refresh();
+    void refresh();
   };
 
   const selected = orders.find((o) => o.id === selectedPo);
@@ -250,7 +260,7 @@ export default function PurchaseOrderPanel({
           onClose={() => setReceivingPoId(null)}
           onComplete={() => {
             setReceivingPoId(null);
-            refresh();
+            void refresh();
           }}
         />
       )}
@@ -309,6 +319,18 @@ export default function PurchaseOrderPanel({
               : "If the shipment arrived without an order, select the vendor and create a Direct Invoice. If there is no vendor yet, add the vendor in Vendors first."}
           </p>
         </div>
+        {ordersLoadError && (
+          <div className="mb-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-semibold text-amber-700 dark:text-amber-200">
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+              <div>
+                <p className="font-black uppercase tracking-widest text-[10px]">Vendor paperwork unavailable</p>
+                <p className="mt-1 normal-case tracking-normal">{ordersLoadError}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-hidden rounded-[2.5rem] border border-app-border/40 bg-app-bg/10 backdrop-blur-md">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -322,7 +344,24 @@ export default function PurchaseOrderPanel({
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-border/40">
-                {orders.length === 0 ? (
+                {ordersLoading && orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-12 text-center">
+                      <Clock size={32} className="mx-auto mb-3 text-app-text-muted opacity-60" />
+                      <p className="text-sm font-black text-app-text">Loading vendor paperwork</p>
+                    </td>
+                  </tr>
+                ) : ordersLoadError && orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-12 text-center">
+                      <AlertTriangle size={32} className="mx-auto mb-3 text-amber-600 opacity-80" />
+                      <p className="text-sm font-black text-app-text">Vendor paperwork could not load.</p>
+                      <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                        Try again in a moment before starting a new receiving document.
+                      </p>
+                    </td>
+                  </tr>
+                ) : orders.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-12 text-center">
                       <p className="text-sm font-black text-app-text">

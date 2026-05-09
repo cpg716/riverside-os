@@ -385,6 +385,8 @@ export default function OrdersWorkspace({
   const canRefund = hasPermission("orders.refund_process");
 
   const [transactionRows, setTransactionRows] = useState<TransactionRow[]>([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionsLoadError, setTransactionsLoadError] = useState<string | null>(null);
   const [pipelineStats, setPipelineStats] =
     useState<TransactionPipelineStats | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -457,6 +459,8 @@ export default function OrdersWorkspace({
   }, []);
 
   const loadTransactions = useCallback(async () => {
+    setTransactionsLoading(true);
+    setTransactionsLoadError(null);
     const params = new URLSearchParams();
     params.set("limit", String(limit));
     params.set("offset", String(page * limit));
@@ -468,13 +472,20 @@ export default function OrdersWorkspace({
     if (dateFrom) params.set("date_from", new Date(dateFrom).toISOString());
     if (dateTo) params.set("date_to", new Date(dateTo).toISOString());
 
-    const res = await fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
-      headers: backofficeHeaders(),
-    });
-    if (res.ok) {
-       const data = await res.json();
-       setTransactionRows(data.items);
-       setTotalCount(data.total_count);
+    try {
+      const res = await fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
+        headers: backofficeHeaders(),
+      });
+      if (!res.ok) {
+        throw new Error("transactions_load_failed");
+      }
+      const data = await res.json();
+      setTransactionRows(Array.isArray(data.items) ? data.items : []);
+      setTotalCount(typeof data.total_count === "number" ? data.total_count : 0);
+    } catch {
+      setTransactionsLoadError("Transaction records could not load right now. Try again in a moment.");
+    } finally {
+      setTransactionsLoading(false);
     }
   }, [baseUrl, backofficeHeaders, page, debouncedSearch, kindFilter, paymentFilter, salespersonFilter, dateFrom, dateTo, section]);
 
@@ -1080,6 +1091,18 @@ export default function OrdersWorkspace({
                 </select>
             </div>
 
+            {transactionsLoadError && (
+              <div className="mx-3 mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-semibold text-amber-700 dark:text-amber-200">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-black uppercase tracking-widest text-[10px]">Transactions unavailable</p>
+                    <p className="mt-1 normal-case tracking-normal">{transactionsLoadError}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-3 p-3 xl:hidden">
               {transactionRows.map((r) => (
                 <OrderMobileCard
@@ -1102,7 +1125,13 @@ export default function OrdersWorkspace({
                   }}
                 />
               ))}
-              {transactionRows.length === 0 && (
+              {transactionsLoading && transactionRows.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-8 text-center text-app-text-muted">
+                  <Clock size={40} className="mx-auto mb-3 opacity-50" />
+                  <p className="text-sm font-black uppercase tracking-widest italic">Loading transaction records</p>
+                </div>
+              )}
+              {!transactionsLoading && !transactionsLoadError && transactionRows.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-8 text-center text-app-text-muted">
                   <Search size={40} className="mx-auto mb-3 opacity-50" />
                   <p className="text-sm font-black uppercase tracking-widest italic">No matching records found</p>
@@ -1150,7 +1179,13 @@ export default function OrdersWorkspace({
               </tbody>
             </table>
 
-              {transactionRows.length === 0 && (
+              {transactionsLoading && transactionRows.length === 0 && (
+                <div className="flex flex-col items-center justify-center p-16 text-center text-app-text-muted">
+                  <Clock size={48} className="mb-4 opacity-70" />
+                  <p className="text-sm font-black uppercase tracking-widest italic">Loading transaction records</p>
+                </div>
+              )}
+              {!transactionsLoading && !transactionsLoadError && transactionRows.length === 0 && (
                 <div className="flex flex-col items-center justify-center p-16 text-center text-app-text-muted">
                   <Search size={48} className="mb-4 opacity-70" />
                   <p className="text-sm font-black uppercase tracking-widest italic">No matching records found</p>
