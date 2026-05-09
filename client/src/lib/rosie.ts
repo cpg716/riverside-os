@@ -110,7 +110,10 @@ export type RosieInsightSurface =
   | "inventory_cleanup"
   | "capacity_outlook"
   | "counterpoint_status"
-  | "daily_operational_briefing";
+  | "daily_operational_briefing"
+  | "receiving_review"
+  | "product_cleanup_review"
+  | "follow_up_opportunities";
 
 export type RosieInsightMode = "summary" | "explain" | "next_steps";
 

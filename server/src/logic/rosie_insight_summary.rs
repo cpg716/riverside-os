@@ -15,6 +15,9 @@ pub enum RosieInsightSurface {
     CapacityOutlook,
     CounterpointStatus,
     DailyOperationalBriefing,
+    ReceivingReview,
+    ProductCleanupReview,
+    FollowUpOpportunities,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -109,6 +112,9 @@ impl RosieInsightSurface {
             Self::CapacityOutlook => "Capacity Outlook",
             Self::CounterpointStatus => "Counterpoint Status",
             Self::DailyOperationalBriefing => "Daily Operational Briefing",
+            Self::ReceivingReview => "Receiving Review",
+            Self::ProductCleanupReview => "Product Cleanup Review",
+            Self::FollowUpOpportunities => "Follow-Up Opportunities",
         }
     }
 }
@@ -434,6 +440,9 @@ mod tests {
             "capacity_outlook",
             "counterpoint_status",
             "daily_operational_briefing",
+            "receiving_review",
+            "product_cleanup_review",
+            "follow_up_opportunities",
         ] {
             let payload = json!({
                 "surface": surface,

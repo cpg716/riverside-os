@@ -1124,6 +1124,93 @@ export function CustomerRelationshipHubDrawer({
         : missingProfileFields.email
           ? "Add email to complete this profile."
           : "";
+  const followUpInsightFacts = useMemo(() => {
+    if (!hub) {
+      return {
+        title: "Follow-Up Opportunities",
+        bullets: [],
+        disclaimers: [],
+      };
+    }
+    const operationalChannels = [
+      profileDraft.transactional_sms_opt_in ? "SMS" : null,
+      profileDraft.transactional_email_opt_in ? "email" : null,
+    ].filter(Boolean);
+    const marketingChannels = [
+      profileDraft.marketing_sms_opt_in ? "SMS" : null,
+      profileDraft.marketing_email_opt_in ? "email" : null,
+    ].filter(Boolean);
+    const bullets = [
+      {
+        id: "contact-preferences",
+        label:
+          operationalChannels.length > 0
+            ? `Operational contact enabled by ${operationalChannels.join(" and ")}.`
+            : "No operational contact channel is enabled.",
+        severity: operationalChannels.length > 0 ? "info" : "warning",
+      },
+      {
+        id: "marketing-preferences",
+        label:
+          marketingChannels.length > 0
+            ? `Marketing opt-in enabled by ${marketingChannels.join(" and ")}.`
+            : "No marketing contact channel is enabled.",
+        severity: marketingChannels.length > 0 ? "info" : "warning",
+      },
+      {
+        id: "contact-review-required",
+        label: "Staff must review contact preferences before any customer follow-up.",
+        severity: "warning",
+      },
+      {
+        id: "lifecycle",
+        label: `Customer lifecycle is ${hub.stats.lifecycle_state}.`,
+        severity: hub.stats.lifecycle_state === "issue" ? "warning" : "info",
+      },
+      {
+        id: "last-activity",
+        label: `Last visible activity: ${lastVisitLabel(hub.stats.days_since_last_visit)}.`,
+        severity: "info",
+      },
+      {
+        id: "open-work",
+        label: `Open work shown here: ${openSummary.orders ?? 0} orders, ${openSummary.layaways ?? 0} layaways, ${openSummary.alterations ?? 0} alterations.`,
+        severity:
+          (openSummary.orders ?? 0) > 0 || (openSummary.layaways ?? 0) > 0 || (openSummary.alterations ?? 0) > 0
+            ? "info"
+            : "success",
+      },
+      ...hub.snapshot_items
+        .filter((item) =>
+          /balance|wedding|open order|alteration|recent sale/i.test(item.label),
+        )
+        .slice(0, 4)
+        .map((item, index) => ({
+          id: `visible-snapshot-${index}`,
+          label: item.label,
+          severity: item.severity,
+        })),
+    ];
+
+    return {
+      title: "Follow-Up Opportunities",
+      bullets,
+      disclaimers: [
+        operationalChannels.length === 0
+          ? "No operational contact channel is enabled; review contact preferences before any outreach."
+          : "Explain visible follow-up facts only. Do not draft messages, send outreach, create reminders, or create tasks.",
+      ],
+    };
+  }, [
+    hub,
+    openSummary.alterations,
+    openSummary.layaways,
+    openSummary.orders,
+    profileDraft.marketing_email_opt_in,
+    profileDraft.marketing_sms_opt_in,
+    profileDraft.transactional_email_opt_in,
+    profileDraft.transactional_sms_opt_in,
+  ]);
 
   const openHubStatTarget = (target: HubTab | "profile_missing") => {
     if (target === "profile_missing") {
@@ -2371,6 +2458,28 @@ export function CustomerRelationshipHubDrawer({
                     severity: item.severity,
                   })),
                 }}
+              />
+            </section>
+          ) : null}
+
+          {showHubSummary ? (
+            <section
+              data-testid="follow-up-opportunities-card"
+              className="rounded-2xl border border-app-border bg-app-surface-2/90 p-4"
+            >
+              <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                Follow-Up Opportunities
+              </h3>
+              <p className="text-xs font-semibold leading-relaxed text-app-text-muted">
+                ROSIE can explain visible contact and open-work signals only. Staff still decides
+                whether any outreach is appropriate.
+              </p>
+              <RosieInsightSummary
+                surface="follow_up_opportunities"
+                title="Follow-Up Opportunities"
+                mode="explain"
+                getHeaders={apiAuth}
+                facts={followUpInsightFacts}
               />
             </section>
           ) : null}

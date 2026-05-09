@@ -98,6 +98,15 @@ test.describe("Inventory receiving operator verification", () => {
     const product = await createSingleVariantProduct(request, suffix);
     const draftPo = await createDraftPurchaseOrder(request, vendor.id);
     await addPurchaseOrderLine(request, draftPo.id, product.variantId, 1);
+    const insightRequests: Record<string, unknown>[] = [];
+    await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
+      insightRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "unavailable", bullets: [] }),
+      });
+    });
 
     const stockBefore = await getInventoryIntelligence(request, product.variantId);
 
@@ -126,6 +135,28 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(page.getByText(/^count & invoice$/i).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/^post inventory$/i).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/next: count & invoice/i)).toBeVisible({ timeout: 10_000 });
+    expect(insightRequests).toHaveLength(0);
+    await page
+      .getByTestId("rosie-insight-summary-receiving_review")
+      .getByRole("button", { name: /rosie insight/i })
+      .click();
+    await expect(page.getByText("ROSIE thinking...")).toHaveCount(0);
+    expect(insightRequests).toHaveLength(1);
+    expect(insightRequests[0]).toMatchObject({
+      surface: "receiving_review",
+      mode: "explain",
+      facts: {
+        title: "Receiving Review",
+        bullets: expect.arrayContaining([
+          expect.objectContaining({ id: "receiving-context" }),
+          expect.objectContaining({ id: "receiving-units" }),
+        ]),
+        disclaimers: expect.arrayContaining([
+          "Explain visible receiving checks only. ROSIE cannot approve receiving, change quantities, or post inventory.",
+        ]),
+      },
+    });
+    expect(JSON.stringify(insightRequests[0])).not.toContain(product.sku);
 
     const receivingRow = page.locator("tr").filter({ hasText: product.sku }).first();
     const receivingNowInput = receivingRow.getByRole("spinbutton");

@@ -392,14 +392,21 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
   await page.setViewportSize({ width: 1440, height: 900 });
   await mockCustomersDrawerApis(page);
   await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
-    insightRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+    const requestBody = route.request().postDataJSON() as Record<string, unknown>;
+    insightRequests.push(requestBody);
+    const surface = requestBody.surface;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
         status: "available",
         bullets: [
-          { text: "Open order is the main visible follow-up.", source_fact_ids: ["snapshot-0"] },
+          surface === "follow_up_opportunities"
+            ? {
+                text: "Operational contact is available, but staff still owns outreach.",
+                source_fact_ids: ["contact-preferences"],
+              }
+            : { text: "Open order is the main visible follow-up.", source_fact_ids: ["snapshot-0"] },
         ],
       }),
     });
@@ -468,6 +475,41 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
     },
   });
   expect(JSON.stringify(insightRequests[0])).not.toContain("Purchased 2 items");
+  await expect(dialog.getByTestId("follow-up-opportunities-card")).toBeVisible();
+  await dialog
+    .getByTestId("rosie-insight-summary-follow_up_opportunities")
+    .getByRole("button", { name: /rosie insight/i })
+    .click();
+  await expect(
+    dialog.getByText("Operational contact is available, but staff still owns outreach."),
+  ).toBeVisible();
+  expect(insightRequests).toHaveLength(2);
+  expect(insightRequests[1]).toMatchObject({
+    surface: "follow_up_opportunities",
+    mode: "explain",
+    facts: {
+      title: "Follow-Up Opportunities",
+      bullets: expect.arrayContaining([
+        expect.objectContaining({
+          id: "contact-preferences",
+          label: "Operational contact enabled by SMS and email.",
+        }),
+        expect.objectContaining({
+          id: "marketing-preferences",
+          label: "Marketing opt-in enabled by email.",
+        }),
+        expect.objectContaining({
+          id: "contact-review-required",
+          label: "Staff must review contact preferences before any customer follow-up.",
+        }),
+      ]),
+      disclaimers: expect.arrayContaining([
+        "Explain visible follow-up facts only. Do not draft messages, send outreach, create reminders, or create tasks.",
+      ]),
+    },
+  });
+  expect(JSON.stringify(insightRequests[1])).not.toContain("html_body");
+  expect(JSON.stringify(insightRequests[1])).not.toContain("Purchased 2 items");
   await expect(dialog.getByLabel(/automatic discount/i)).toHaveValue("12.50");
   await expect(dialog.getByLabel(/^tax id$/i)).toHaveValue("NY-EXEMPT-123");
 

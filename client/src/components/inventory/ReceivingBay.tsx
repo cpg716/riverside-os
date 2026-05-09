@@ -24,6 +24,7 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 
 const BASE_URL = getBaseUrl();
 
@@ -393,6 +394,93 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       ),
     [lines],
   );
+  const invoiceMissing = invoiceNum.trim() === "";
+  const receivingInsightFacts = useMemo(() => {
+    const totalOrdered = lines.reduce((sum, line) => sum + line.qty_ordered, 0);
+    const totalPreviouslyReceived = lines.reduce(
+      (sum, line) => sum + line.qty_previously_received,
+      0,
+    );
+    const totalReceivingNow = lines.reduce(
+      (sum, line) => sum + line.qty_receiving,
+      0,
+    );
+    const remainingBeforeReceipt = Math.max(0, totalOrdered - totalPreviouslyReceived);
+    const facts: { id: string; label: string; severity?: string }[] = [];
+
+    if (detail) {
+      facts.push({
+        id: "receiving-context",
+        label: `Receiving ${detail.po_number} for ${detail.vendor_name} (${detail.status}).`,
+        severity: "info",
+      });
+    }
+    facts.push({
+      id: "receiving-units",
+      label: `${totalReceivingNow} of ${remainingBeforeReceipt} remaining units are staged across ${receivingLineCount} receipt lines.`,
+      severity: totalReceivingNow > 0 ? "info" : "warning",
+    });
+    facts.push({
+      id: "receiving-history",
+      label: `${totalPreviouslyReceived} of ${totalOrdered} ordered units were already received before this receipt.`,
+      severity: "info",
+    });
+    if (receivingClosed) {
+      facts.push({
+        id: "receiving-closed",
+        label: "This document cannot receive stock from the current state.",
+        severity: "warning",
+      });
+    }
+    if (costAlertLines.length > 0) {
+      facts.push({
+        id: "cost-variance",
+        label: `${costAlertLines.length} receipt lines are more than 5% different from prior cost.`,
+        severity: "warning",
+      });
+    }
+    if (feedback?.type === "error" || feedback?.type === "warning") {
+      facts.push({
+        id: "scan-warning",
+        label:
+          feedback.type === "error"
+            ? "Current scan warning: scanned code did not match this purchase order."
+            : "Current scan warning: scanned line is already at its receiving limit.",
+        severity: feedback.type === "error" ? "warning" : "info",
+      });
+    }
+    if (invoiceMissing && totalReceivingNow > 0) {
+      facts.push({
+        id: "invoice-missing",
+        label: "Receipt is staged without an invoice number.",
+        severity: "warning",
+      });
+    }
+    facts.push({
+      id: "scan-mode",
+      label: useVendorUpc
+        ? "Scan matching checks vendor UPC before SKU for this vendor."
+        : "Scan matching uses SKU for this vendor.",
+      severity: "info",
+    });
+
+    return {
+      title: "Receiving Review",
+      bullets: facts,
+      disclaimers: [
+        "Explain visible receiving checks only. ROSIE cannot approve receiving, change quantities, or post inventory.",
+      ],
+    };
+  }, [
+    costAlertLines.length,
+    detail,
+    feedback,
+    invoiceMissing,
+    lines,
+    receivingClosed,
+    receivingLineCount,
+    useVendorUpc,
+  ]);
   const hasReceiptDraft =
     receivingLineCount > 0 ||
     scanCount > 0 ||
@@ -462,7 +550,6 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
     !receivingClosed && receivingWorkflowIndex < RECEIVING_WORKFLOW_STEPS.length - 1
       ? RECEIVING_WORKFLOW_STEPS[receivingWorkflowIndex + 1]
       : null;
-  const invoiceMissing = invoiceNum.trim() === "";
 
   // ── Render: Error ──────────────────────────────────────────────────────────
 
@@ -682,6 +769,18 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           </div>
         </div>
       )}
+
+      <div className="border-b border-app-border bg-app-surface px-4 py-3 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <RosieInsightSummary
+            surface="receiving_review"
+            title="Receiving Review"
+            mode="explain"
+            getHeaders={apiAuth}
+            facts={receivingInsightFacts}
+          />
+        </div>
+      </div>
 
       <div className="border-b border-app-border bg-app-surface px-4 py-4 sm:px-6">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

@@ -199,16 +199,16 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
   await expect(page.getByText("5 active items are missing a primary vendor.")).toBeVisible();
   expect(insightRequests).toHaveLength(0);
   await page
-    .getByTestId("rosie-insight-summary-inventory_cleanup")
+    .getByTestId("rosie-insight-summary-product_cleanup_review")
     .getByRole("button", { name: /rosie insight/i })
     .click();
   await expect(page.getByText("ROSIE thinking...")).toHaveCount(0);
   expect(insightRequests).toHaveLength(1);
   expect(insightRequests[0]).toMatchObject({
-    surface: "inventory_cleanup",
+    surface: "product_cleanup_review",
     mode: "explain",
     facts: {
-      title: "Inventory Cleanup Review",
+      title: "Product Cleanup Review",
       bullets: expect.arrayContaining([
         expect.objectContaining({ label: "2 duplicate barcode groups need review." }),
         expect.objectContaining({ label: "5 active items are missing a primary vendor." }),
@@ -218,7 +218,8 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
       ]),
     },
   });
-  await expect(page.getByTestId("rosie-insight-summary-inventory_cleanup").locator("li")).toHaveCount(0);
+  expect(JSON.stringify(insightRequests[0])).not.toContain("SKU-QUALITY-1");
+  await expect(page.getByTestId("rosie-insight-summary-product_cleanup_review").locator("li")).toHaveCount(0);
 
   await openWorkspace(
     page,

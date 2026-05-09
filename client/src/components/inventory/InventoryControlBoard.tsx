@@ -774,6 +774,9 @@ export default function InventoryControlBoard({
       `${cleanupSummary.duplicate_vendor_upc_groups} duplicate vendor UPC groups need review.`,
       `${cleanupSummary.products_missing_category} active items are missing a category.`,
       `${cleanupSummary.products_missing_primary_vendor} active items are missing a primary vendor.`,
+      cleanupSummary.top_normalization_candidate_product_name
+        ? `Top cleanup review candidate: ${cleanupSummary.top_normalization_candidate_product_name}.`
+        : "No top cleanup review candidate is currently summarized.",
     ];
   }, [cleanupSummary]);
 
@@ -1562,12 +1565,12 @@ export default function InventoryControlBoard({
                 ))}
               </ul>
               <RosieInsightSummary
-                surface="inventory_cleanup"
-                title="Inventory Cleanup Review"
+                surface="product_cleanup_review"
+                title="Product Cleanup Review"
                 mode="explain"
                 getHeaders={apiAuth}
                 facts={{
-                  title: "Inventory Cleanup Review",
+                  title: "Product Cleanup Review",
                   bullets: cleanupReviewItems.map((item, index) => ({
                     id: `cleanup-${index}`,
                     label: item,
