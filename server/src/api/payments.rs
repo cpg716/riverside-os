@@ -345,6 +345,7 @@ pub struct HelcimTerminalStatus {
     pub configured: bool,
     pub device_code_suffix: Option<String>,
     pub in_use_by_register_lane: Option<i16>,
+    pub active_attempt_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1076,9 +1077,9 @@ async fn helcim_terminal_routing_status(
     pool: &PgPool,
     config: &helcim::HelcimConfig,
 ) -> Result<HelcimTerminalRoutingStatus, PaymentError> {
-    let pending_rows: Vec<(Option<String>, Option<i16>)> = sqlx::query_as(
+    let pending_rows: Vec<(Option<String>, Option<i16>, Uuid)> = sqlx::query_as(
         r#"
-        SELECT selected_terminal_key, rs.register_lane
+        SELECT selected_terminal_key, rs.register_lane, ppa.id
         FROM payment_provider_attempts ppa
         LEFT JOIN register_sessions rs ON rs.id = ppa.register_session_id
         WHERE ppa.provider = 'helcim'
@@ -1091,25 +1092,29 @@ async fn helcim_terminal_routing_status(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
-    let in_use_by_register: BTreeMap<String, i16> = pending_rows
+    let in_use_by_register: BTreeMap<String, (i16, Uuid)> = pending_rows
         .into_iter()
-        .filter_map(|(key, lane)| Some((key?, lane?)))
+        .filter_map(|(key, lane, attempt_id)| Some((key?, (lane?, attempt_id))))
         .collect();
     let terminals = ["terminal_1", "terminal_2"]
         .into_iter()
-        .map(|key| HelcimTerminalStatus {
-            key: key.to_string(),
-            label: match key {
-                "terminal_1" => "Terminal 1",
-                "terminal_2" => "Terminal 2",
-                _ => key,
+        .map(|key| {
+            let active = in_use_by_register.get(key);
+            HelcimTerminalStatus {
+                key: key.to_string(),
+                label: match key {
+                    "terminal_1" => "Terminal 1",
+                    "terminal_2" => "Terminal 2",
+                    _ => key,
+                }
+                .to_string(),
+                configured: config.device_code_for_terminal_key(key).is_some(),
+                device_code_suffix: config
+                    .device_code_for_terminal_key(key)
+                    .map(mask_terminal_suffix),
+                in_use_by_register_lane: active.map(|(lane, _)| *lane),
+                active_attempt_id: active.map(|(_, attempt_id)| *attempt_id),
             }
-            .to_string(),
-            configured: config.device_code_for_terminal_key(key).is_some(),
-            device_code_suffix: config
-                .device_code_for_terminal_key(key)
-                .map(mask_terminal_suffix),
-            in_use_by_register_lane: in_use_by_register.get(key).copied(),
         })
         .collect();
     let registers = [1_i16, 2, 3, 4]

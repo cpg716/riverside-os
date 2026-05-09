@@ -37,10 +37,10 @@ export default function WeddingShell({
   }, [onExitWeddingMode, returnLabel, setSlotContent]);
 
   return (
-    <div className="flex flex-1 flex-col bg-app-bg font-sans antialiased">
+    <div className="flex min-h-0 flex-1 flex-col bg-app-bg font-sans antialiased">
 
       {/* Scrollable region: standalone app relied on body scroll; here the shell must own vertical scroll */}
-      <div className="flex-1">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <Suspense
           fallback={
             <div className="flex min-h-[40vh] items-center justify-center p-8 text-center text-sm font-semibold text-app-text-muted">

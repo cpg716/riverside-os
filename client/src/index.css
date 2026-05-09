@@ -266,7 +266,8 @@ html[data-theme="dark"] :where(
     border: 1px solid color-mix(in srgb, var(--app-border) 74%, transparent);
     background: var(--app-surface);
     border-radius: 1rem;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: visible;
     isolation: isolate;
     @apply shadow-[0_20px_42px_-32px_rgba(15,23,42,0.24),0_8px_18px_-18px_rgba(15,23,42,0.12)];
   }

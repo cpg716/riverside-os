@@ -1346,7 +1346,7 @@ function AppShell({
   const content = (
     <BackofficeSignInGate>
       <div
-        className="flex min-w-0 flex-1"
+        className="flex min-h-0 min-w-0 flex-1"
         data-testid="app-shell-state"
         data-active-tab={activeTab}
         data-pos-mode={posMode ? "true" : "false"}
@@ -1422,7 +1422,7 @@ function AppShell({
             }}
           />
         ) : (
-          <div className="flex min-w-0 flex-1">
+          <div className="flex min-h-0 min-w-0 flex-1">
             <Sidebar
               activeTab={activeTab}
               onTabChange={(tab) => {

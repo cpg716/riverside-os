@@ -46,6 +46,7 @@ interface PaymentProviderSettings {
       label: string;
       configured: boolean;
       in_use_by_register_lane?: number | null;
+      active_attempt_id?: string | null;
     }>;
     registers: Array<{
       register_lane: number;
@@ -446,6 +447,11 @@ export default function NexoCheckoutDrawer({
     ? terminalStatuses.find((terminal) => terminal.key === selectedTerminalKey)
     : null;
   const selectedTerminalInUseBy = selectedTerminalStatus?.in_use_by_register_lane;
+  const selectedTerminalInUseByCurrentRegister =
+    selectedTerminalInUseBy != null && registerLane != null && selectedTerminalInUseBy === registerLane;
+  const selectedTerminalInUseByOtherRegister =
+    selectedTerminalInUseBy != null && !selectedTerminalInUseByCurrentRegister;
+  const selectedTerminalActiveAttemptId = selectedTerminalStatus?.active_attempt_id ?? null;
   const terminalSelectionReady =
     providerSettings?.active_provider === "helcim" &&
     providerSettings.helcim.enabled &&
@@ -454,7 +460,7 @@ export default function NexoCheckoutDrawer({
     Boolean(registerTerminalRoute) &&
     Boolean(selectedTerminalKey) &&
     Boolean(selectedTerminalStatus?.configured) &&
-    !selectedTerminalInUseBy &&
+    !selectedTerminalInUseByOtherRegister &&
     (!selectedTerminalNeedsOverride || terminalOverrideConfirmed);
   const terminalStatusText = providerSettingsLoading
     ? "Checking"
@@ -470,8 +476,10 @@ export default function NexoCheckoutDrawer({
               ? "Routing missing"
               : !selectedTerminalKey
                 ? "Choose terminal"
-                : selectedTerminalInUseBy
+                : selectedTerminalInUseByOtherRegister
                   ? `In use R${selectedTerminalInUseBy}`
+                  : selectedTerminalInUseByCurrentRegister
+                    ? "Active here"
                   : selectedTerminalNeedsOverride && !terminalOverrideConfirmed
                     ? "Confirm terminal"
                     : "Ready";
@@ -903,6 +911,22 @@ export default function NexoCheckoutDrawer({
     [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, toast],
   );
 
+  useEffect(() => {
+    if (!isOpen || !selectedTerminalInUseByCurrentRegister || !selectedTerminalActiveAttemptId) {
+      return;
+    }
+    if (helcimAttempt?.id === selectedTerminalActiveAttemptId) {
+      return;
+    }
+    void refreshHelcimAttempt(selectedTerminalActiveAttemptId);
+  }, [
+    helcimAttempt?.id,
+    isOpen,
+    refreshHelcimAttempt,
+    selectedTerminalActiveAttemptId,
+    selectedTerminalInUseByCurrentRegister,
+  ]);
+
   const simulateHelcimAttempt = useCallback(
     async (attemptId: string, outcome: "approve" | "decline" | "cancel") => {
       setHelcimAttemptLoading(true);
@@ -954,6 +978,20 @@ export default function NexoCheckoutDrawer({
     },
     [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, toast],
   );
+
+  const handlePendingTerminalCancel = useCallback(() => {
+    if (!helcimAttempt || helcimAttempt.status !== "pending") return;
+    if (providerSettings?.helcim.simulator_enabled) {
+      void simulateHelcimAttempt(helcimAttempt.id, "cancel");
+      return;
+    }
+    const label = helcimAttempt.selected_terminal_key
+      ? terminalLabel(helcimAttempt.selected_terminal_key)
+      : selectedTerminalKey
+        ? terminalLabel(selectedTerminalKey)
+        : "the terminal";
+    toast(`Cancel on ${label}, then tap Check. Riverside will release the terminal when Helcim reports the cancel.`, "info");
+  }, [helcimAttempt, providerSettings?.helcim.simulator_enabled, selectedTerminalKey, simulateHelcimAttempt, toast]);
 
   const chargeSavedHelcimCard = useCallback(
     async (amtCents: number) => {
@@ -1088,6 +1126,10 @@ export default function NexoCheckoutDrawer({
       }
       if (!selectedTerminalKey) {
         toast("Choose Terminal 1 or Terminal 2 before starting card payment.", "error");
+        return;
+      }
+      if (selectedTerminalInUseByOtherRegister) {
+        toast(`Selected terminal is in use by Register #${selectedTerminalInUseBy}.`, "error");
         return;
       }
       if (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) {
@@ -1308,7 +1350,7 @@ export default function NexoCheckoutDrawer({
     setGiftCardCode("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard]);
+  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -1393,14 +1435,24 @@ export default function NexoCheckoutDrawer({
               <p className="mt-1 text-sm font-black text-app-text">{terminalStatusText}</p>
             </div>
             {helcimAttempt?.status === "pending" && (
-              <button
-                type="button"
-                disabled={helcimAttemptLoading}
-                onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
-                className="min-h-9 rounded-lg border border-app-border bg-app-bg px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted disabled:opacity-50"
-              >
-                {helcimAttemptLoading ? "Checking" : "Check"}
-              </button>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  disabled={helcimAttemptLoading}
+                  onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
+                  className="min-h-9 rounded-lg border border-app-border bg-app-bg px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted disabled:opacity-50"
+                >
+                  {helcimAttemptLoading ? "Checking" : "Check"}
+                </button>
+                <button
+                  type="button"
+                  disabled={helcimAttemptLoading}
+                  onClick={handlePendingTerminalCancel}
+                  className="min-h-9 rounded-lg border border-app-danger/25 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
             )}
           </div>
 
@@ -1425,15 +1477,17 @@ export default function NexoCheckoutDrawer({
                 registerLaneUnavailable ||
                 !registerTerminalRoute ||
                 !configured ||
-                Boolean(inUseBy) ||
+                (inUseBy != null && inUseBy !== registerLane) ||
                 helcimAttempt?.status === "pending";
               const isDefault = registerTerminalRoute?.default_terminal_key === key;
               const statusText = registerLaneUnavailable
                 ? "Register unavailable"
                 : !configured
                   ? "Not configured"
-                  : inUseBy
-                    ? `In use by Register #${inUseBy}`
+                  : inUseBy != null && inUseBy === registerLane
+                    ? "Active on this register"
+                    : inUseBy
+                      ? `In use by Register #${inUseBy}`
                     : "Ready";
               return (
                 <button
@@ -1541,11 +1595,11 @@ export default function NexoCheckoutDrawer({
       contentContained
       headerActions={terminalHeaderAction}
       footer={
-        <div className="flex flex-col items-center justify-between gap-4 border-t border-app-border bg-app-surface p-4 sm:flex-row sm:gap-6 sm:p-5">
-            <div className="flex items-center gap-8">
+        <div className="flex flex-col items-center justify-between gap-3 bg-app-surface sm:flex-row sm:gap-5">
+            <div className="flex items-center gap-6">
                <div className="flex flex-col">
                   <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500 mb-1 leading-none">Balance Due</span>
-                  <span className={`text-5xl font-black tabular-nums tracking-tighter italic ${balanceSettled ? "text-emerald-500" : "text-app-text"}`}>
+                  <span className={`text-4xl font-black tabular-nums tracking-tighter italic sm:text-5xl ${balanceSettled ? "text-emerald-500" : "text-app-text"}`}>
                     ${centsToFixed2(Math.abs(tab === "cash" ? cashRounding.rounded : remainingCents))}
                   </span>
                   {tab === "cash" && cashRounding.adjustment !== 0 && (
@@ -1570,7 +1624,7 @@ export default function NexoCheckoutDrawer({
                 <button
                   type="button"
                   onClick={() => setIsTaxExempt(!isTaxExempt)}
-                  className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 transition-all ${
+                  className={`flex min-h-10 items-center gap-2 rounded-xl border px-3 transition-all ${
                     isTaxExempt 
                       ? "border-rose-500 bg-rose-500/10 text-rose-600 shadow-sm" 
                       : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-input-border"
@@ -1619,7 +1673,7 @@ export default function NexoCheckoutDrawer({
                   data-testid="pos-finalize-checkout"
                   title={completeDisabledReason}
                   onClick={handleFinalize}
-                  className={`flex h-14 w-full items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black uppercase tracking-[0.2em] transition-all sm:min-w-[210px] sm:w-auto ${
+                  className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black uppercase tracking-[0.2em] transition-all sm:min-w-[210px] sm:w-auto ${
                     canFinalize 
                       ? "bg-app-accent text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-[0.98]" 
                       : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
@@ -1728,8 +1782,8 @@ export default function NexoCheckoutDrawer({
             </div>
           )}
 
-        <div className="flex min-h-0 flex-1 flex-col p-3 sm:p-5">
-          <div className="flex min-h-0 flex-1 flex-col items-stretch gap-4 lg:flex-row lg:items-start lg:justify-center lg:gap-5">
+        <div className="flex min-h-0 flex-1 flex-col p-3 sm:p-4">
+          <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 lg:flex-row lg:items-start lg:justify-center lg:gap-4">
             
             {/* 1. Tender Tabs Matrix (Left) */}
             <div className="w-full shrink-0 pb-1 lg:w-48 lg:pb-4">
@@ -1755,9 +1809,9 @@ export default function NexoCheckoutDrawer({
               </div>
             </div>
 
-            <div className="flex-1 min-w-0 flex flex-col gap-4">
-              <div className="bg-app-surface border border-app-border rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col">
-                <div className="mb-5 flex flex-col gap-3 border-b border-app-border pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex-1 min-w-0 flex flex-col gap-3">
+              <div className="bg-app-surface border border-app-border rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col">
+                <div className="mb-3 flex flex-col gap-3 border-b border-app-border pb-3 sm:flex-row sm:items-end sm:justify-between">
                   <div className="flex flex-col gap-2">
                     <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted leading-none opacity-60">
                       Amount to Collect
@@ -1872,6 +1926,7 @@ export default function NexoCheckoutDrawer({
                         onChange={setKeypad}
                         showDecimal
                         maxDigits={12}
+                        compact
                         className="w-full"
                       />
                     </div>
@@ -1942,7 +1997,7 @@ export default function NexoCheckoutDrawer({
                           busy
                         }
                         onClick={() => void applyAmountToTab(keypadCents)}
-                        className="h-14 rounded-xl bg-emerald-600 text-white font-black uppercase italic tracking-widest shadow-md hover:brightness-110 active:translate-y-0.5 disabled:opacity-30 transition-all text-xs border-b-4 border-emerald-800"
+                        className="h-12 rounded-xl bg-emerald-600 text-white font-black uppercase italic tracking-widest shadow-md hover:brightness-110 active:translate-y-0.5 disabled:opacity-30 transition-all text-xs border-b-4 border-emerald-800"
                       >
                         Add Payment
                       </button>
@@ -1952,12 +2007,12 @@ export default function NexoCheckoutDrawer({
                           type="button"
                           disabled={keypadCents <= 0 || busy}
                           onClick={() => applyDepositFromKeypad()}
-                          className="h-14 rounded-xl bg-indigo-600 text-white font-black uppercase italic tracking-widest shadow-md hover:brightness-110 active:translate-y-0.5 disabled:opacity-30 transition-all text-xs border-b-4 border-indigo-800"
+                          className="h-12 rounded-xl bg-indigo-600 text-white font-black uppercase italic tracking-widest shadow-md hover:brightness-110 active:translate-y-0.5 disabled:opacity-30 transition-all text-xs border-b-4 border-indigo-800"
                         >
                           Set Deposit
                         </button>
                       ) : (
-                        <div className="h-14 rounded-xl border border-app-border/40 bg-app-bg opacity-30 flex items-center justify-center">
+                        <div className="h-12 rounded-xl border border-app-border/40 bg-app-bg opacity-30 flex items-center justify-center">
                           <span className="text-[8px] font-black uppercase opacity-40">Retail Only</span>
                         </div>
                       )}
@@ -1981,15 +2036,15 @@ export default function NexoCheckoutDrawer({
                           </p>
                         </div>
                         {!customerId ? (
-                          <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm font-semibold text-amber-700">
+                          <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-sm font-semibold text-amber-700">
                             Attach a customer before using RMS Charge.
                           </div>
                         ) : rmsLoading ? (
-                          <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
+                          <div className="rounded-xl border border-app-border bg-app-bg p-3 text-sm text-app-text-muted">
                             Checking RMS Charge…
                           </div>
                         ) : rmsResolve?.resolution_status === "blocked" ? (
-                          <div className="rounded-xl border border-rose-300/40 bg-rose-500/10 p-4 text-sm font-semibold text-rose-700">
+                          <div className="rounded-xl border border-rose-300/40 bg-rose-500/10 p-3 text-sm font-semibold text-rose-700">
                             {rmsResolve.blocking_error?.message ?? "RMS Charge is unavailable for this customer."}
                           </div>
                         ) : rmsResolve?.resolution_status === "multiple" ? (
@@ -2025,7 +2080,7 @@ export default function NexoCheckoutDrawer({
                           </div>
                         ) : rmsSelectedAccount ? (
                           <div className="space-y-3">
-                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
                               <div className="flex items-center justify-between gap-4">
                                 <div>
                                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -2069,7 +2124,7 @@ export default function NexoCheckoutDrawer({
                               </div>
                             </div>
 
-                            <label className="block rounded-xl border border-app-border bg-app-bg px-4 py-3">
+                            <label className="block rounded-xl border border-app-border bg-app-bg px-3 py-2">
                               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                                 Reference Number
                               </span>
@@ -2082,7 +2137,7 @@ export default function NexoCheckoutDrawer({
                             </label>
 
                             <div className="space-y-2">
-                              <div className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-bg px-4 py-3">
+                              <div className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-bg px-3 py-2">
                                 <div>
                                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                                     Selected Program
@@ -2331,14 +2386,24 @@ export default function NexoCheckoutDrawer({
                            </div>
                          </div>
                          {helcimAttempt.status === "pending" && (
-                           <button
-                             type="button"
-                             disabled={helcimAttemptLoading}
-                             onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
-                             className="min-h-9 shrink-0 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:bg-white/10 disabled:opacity-50"
-                           >
-                             {helcimAttemptLoading ? "Checking" : "Check"}
-                           </button>
+                           <div className="flex shrink-0 flex-col gap-2">
+                             <button
+                               type="button"
+                               disabled={helcimAttemptLoading}
+                               onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
+                               className="min-h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:bg-white/10 disabled:opacity-50"
+                             >
+                               {helcimAttemptLoading ? "Checking" : "Check"}
+                             </button>
+                             <button
+                               type="button"
+                               disabled={helcimAttemptLoading}
+                               onClick={handlePendingTerminalCancel}
+                               className="min-h-9 rounded-lg border border-rose-400/25 bg-rose-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-rose-200 transition-colors hover:bg-rose-400/15 disabled:opacity-50"
+                             >
+                               Cancel
+                             </button>
+                           </div>
                          )}
                        </div>
                      </div>
