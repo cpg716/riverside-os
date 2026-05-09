@@ -768,11 +768,11 @@ fn limited_values(values: &BTreeSet<String>) -> Vec<String> {
         .collect()
 }
 
-fn grouped_issue(
-    issue_type: &str,
+struct GroupedIssueArgs<'rows, 'row> {
+    issue_type: &'static str,
     severity: CounterpointIdentityPreflightSeverity,
     message: String,
-    rows: &[&CounterpointIdentityPreflightRow],
+    rows: &'rows [&'row CounterpointIdentityPreflightRow],
     normalized_sku: Option<String>,
     counterpoint_item_key: Option<String>,
     family_key: Option<String>,
@@ -780,22 +780,24 @@ fn grouped_issue(
     affects_ingest_rows: bool,
     should_quarantine: bool,
     safe_to_continue_other_rows: bool,
-) -> CounterpointIdentityPreflightIssue {
+}
+
+fn grouped_issue(args: GroupedIssueArgs<'_, '_>) -> CounterpointIdentityPreflightIssue {
     CounterpointIdentityPreflightIssue {
-        issue_type: issue_type.into(),
-        severity: severity.as_str().into(),
-        message,
-        affected_row_count: rows.len(),
-        affects_ingest_rows,
-        should_quarantine,
-        safe_to_continue_other_rows,
-        normalized_sku,
-        counterpoint_item_key,
-        family_key,
-        references: limited_refs(rows),
-        sample_rows: limited_sample_rows(rows),
-        values: limited_values(&values),
-        all_references: all_refs(rows),
+        issue_type: args.issue_type.into(),
+        severity: args.severity.as_str().into(),
+        message: args.message,
+        affected_row_count: args.rows.len(),
+        affects_ingest_rows: args.affects_ingest_rows,
+        should_quarantine: args.should_quarantine,
+        safe_to_continue_other_rows: args.safe_to_continue_other_rows,
+        normalized_sku: args.normalized_sku,
+        counterpoint_item_key: args.counterpoint_item_key,
+        family_key: args.family_key,
+        references: limited_refs(args.rows),
+        sample_rows: limited_sample_rows(args.rows),
+        values: limited_values(&args.values),
+        all_references: all_refs(args.rows),
     }
 }
 
@@ -858,66 +860,69 @@ fn build_counterpoint_identity_preflight_report(
         }
     }
     if !blank_sku_rows.is_empty() {
-        issues.push(grouped_issue(
-            "blank_sku",
-            CounterpointIdentityPreflightSeverity::Quarantine,
-            "Incoming variant rows contain blank SKUs and cannot be matched deterministically."
-                .into(),
-            &blank_sku_rows,
-            None,
-            None,
-            None,
-            BTreeSet::new(),
-            true,
-            true,
-            true,
-        ));
+        issues.push(grouped_issue(GroupedIssueArgs {
+            issue_type: "blank_sku",
+            severity: CounterpointIdentityPreflightSeverity::Quarantine,
+            message:
+                "Incoming variant rows contain blank SKUs and cannot be matched deterministically."
+                    .into(),
+            rows: &blank_sku_rows,
+            normalized_sku: None,
+            counterpoint_item_key: None,
+            family_key: None,
+            values: BTreeSet::new(),
+            affects_ingest_rows: true,
+            should_quarantine: true,
+            safe_to_continue_other_rows: true,
+        }));
     }
     if !generated_or_service_rows.is_empty() {
-        issues.push(grouped_issue(
-            "generated_or_service_non_b_sku",
-            CounterpointIdentityPreflightSeverity::Warning,
-            "Incoming rows contain generated, service, or catalog non-B SKUs.".into(),
-            &generated_or_service_rows,
-            None,
-            None,
-            None,
-            generated_or_service_values,
-            true,
-            true,
-            true,
-        ));
+        issues.push(grouped_issue(GroupedIssueArgs {
+            issue_type: "generated_or_service_non_b_sku",
+            severity: CounterpointIdentityPreflightSeverity::Warning,
+            message: "Incoming rows contain generated, service, or catalog non-B SKUs.".into(),
+            rows: &generated_or_service_rows,
+            normalized_sku: None,
+            counterpoint_item_key: None,
+            family_key: None,
+            values: generated_or_service_values,
+            affects_ingest_rows: true,
+            should_quarantine: true,
+            safe_to_continue_other_rows: true,
+        }));
     }
     if !parent_item_rows.is_empty() {
-        issues.push(grouped_issue(
-            "parent_item_sku",
-            CounterpointIdentityPreflightSeverity::Info,
-            "Incoming rows contain Counterpoint parent item numbers rather than sellable B- SKUs."
-                .into(),
-            &parent_item_rows,
-            None,
-            None,
-            None,
-            parent_item_values,
-            false,
-            false,
-            true,
-        ));
+        issues.push(grouped_issue(GroupedIssueArgs {
+            issue_type: "parent_item_sku",
+            severity: CounterpointIdentityPreflightSeverity::Info,
+            message:
+                "Incoming rows contain Counterpoint parent item numbers rather than sellable B- SKUs."
+                    .into(),
+            rows: &parent_item_rows,
+            normalized_sku: None,
+            counterpoint_item_key: None,
+            family_key: None,
+            values: parent_item_values,
+            affects_ingest_rows: false,
+            should_quarantine: false,
+            safe_to_continue_other_rows: true,
+        }));
     }
     if !invalid_non_b_rows.is_empty() {
-        issues.push(grouped_issue(
-            "invalid_non_b_sku",
-            CounterpointIdentityPreflightSeverity::Quarantine,
-            "Incoming variant rows contain non-Counterpoint B- SKUs that require review.".into(),
-            &invalid_non_b_rows,
-            None,
-            None,
-            None,
-            invalid_non_b_values,
-            true,
-            true,
-            true,
-        ));
+        issues.push(grouped_issue(GroupedIssueArgs {
+            issue_type: "invalid_non_b_sku",
+            severity: CounterpointIdentityPreflightSeverity::Quarantine,
+            message: "Incoming variant rows contain non-Counterpoint B- SKUs that require review."
+                .into(),
+            rows: &invalid_non_b_rows,
+            normalized_sku: None,
+            counterpoint_item_key: None,
+            family_key: None,
+            values: invalid_non_b_values,
+            affects_ingest_rows: true,
+            should_quarantine: true,
+            safe_to_continue_other_rows: true,
+        }));
     }
 
     for (sku, sku_rows) in &rows_by_sku {
@@ -932,19 +937,19 @@ fn build_counterpoint_identity_preflight_report(
             .iter()
             .filter_map(|row| row.counterpoint_item_key.clone())
             .collect();
-        issues.push(grouped_issue(
-            "duplicate_normalized_b_sku",
-            CounterpointIdentityPreflightSeverity::Blocking,
-            "Multiple incoming variant rows share the same normalized B- SKU.".into(),
-            sku_rows,
-            Some(sku.clone()),
-            None,
-            None,
-            keys,
-            true,
-            true,
-            true,
-        ));
+        issues.push(grouped_issue(GroupedIssueArgs {
+            issue_type: "duplicate_normalized_b_sku",
+            severity: CounterpointIdentityPreflightSeverity::Blocking,
+            message: "Multiple incoming variant rows share the same normalized B- SKU.".into(),
+            rows: sku_rows,
+            normalized_sku: Some(sku.clone()),
+            counterpoint_item_key: None,
+            family_key: None,
+            values: keys,
+            affects_ingest_rows: true,
+            should_quarantine: true,
+            safe_to_continue_other_rows: true,
+        }));
     }
 
     for (key, key_rows) in &rows_by_key {
@@ -959,19 +964,19 @@ fn build_counterpoint_identity_preflight_report(
             .iter()
             .filter_map(|row| row.normalized_sku.clone())
             .collect();
-        issues.push(grouped_issue(
-            "duplicate_counterpoint_item_key",
-            CounterpointIdentityPreflightSeverity::Blocking,
-            "Multiple incoming variant rows share the same Counterpoint item key.".into(),
-            key_rows,
-            None,
-            Some(key.clone()),
-            None,
-            skus,
-            true,
-            true,
-            true,
-        ));
+        issues.push(grouped_issue(GroupedIssueArgs {
+            issue_type: "duplicate_counterpoint_item_key",
+            severity: CounterpointIdentityPreflightSeverity::Blocking,
+            message: "Multiple incoming variant rows share the same Counterpoint item key.".into(),
+            rows: key_rows,
+            normalized_sku: None,
+            counterpoint_item_key: Some(key.clone()),
+            family_key: None,
+            values: skus,
+            affects_ingest_rows: true,
+            should_quarantine: true,
+            safe_to_continue_other_rows: true,
+        }));
     }
 
     for (sku, sku_rows) in &rows_by_sku {
@@ -984,19 +989,20 @@ fn build_counterpoint_identity_preflight_report(
             for row in sku_rows {
                 affected_refs.insert((row.reference.row_number, row.reference.cell_number));
             }
-            issues.push(grouped_issue(
-                "conflicting_sku_family_mapping",
-                CounterpointIdentityPreflightSeverity::Blocking,
-                "One normalized SKU maps to multiple Counterpoint family/item keys.".into(),
-                sku_rows,
-                Some(sku.clone()),
-                None,
-                None,
-                families,
-                true,
-                true,
-                true,
-            ));
+            issues.push(grouped_issue(GroupedIssueArgs {
+                issue_type: "conflicting_sku_family_mapping",
+                severity: CounterpointIdentityPreflightSeverity::Blocking,
+                message: "One normalized SKU maps to multiple Counterpoint family/item keys."
+                    .into(),
+                rows: sku_rows,
+                normalized_sku: Some(sku.clone()),
+                counterpoint_item_key: None,
+                family_key: None,
+                values: families,
+                affects_ingest_rows: true,
+                should_quarantine: true,
+                safe_to_continue_other_rows: true,
+            }));
         }
 
         let keys = sku_rows
@@ -1008,19 +1014,19 @@ fn build_counterpoint_identity_preflight_report(
             for row in sku_rows {
                 affected_refs.insert((row.reference.row_number, row.reference.cell_number));
             }
-            issues.push(grouped_issue(
-                "conflicting_sku_counterpoint_item_key_mapping",
-                CounterpointIdentityPreflightSeverity::Blocking,
-                "One normalized SKU maps to multiple Counterpoint variant keys.".into(),
-                sku_rows,
-                Some(sku.clone()),
-                None,
-                None,
-                keys,
-                true,
-                true,
-                true,
-            ));
+            issues.push(grouped_issue(GroupedIssueArgs {
+                issue_type: "conflicting_sku_counterpoint_item_key_mapping",
+                severity: CounterpointIdentityPreflightSeverity::Blocking,
+                message: "One normalized SKU maps to multiple Counterpoint variant keys.".into(),
+                rows: sku_rows,
+                normalized_sku: Some(sku.clone()),
+                counterpoint_item_key: None,
+                family_key: None,
+                values: keys,
+                affects_ingest_rows: true,
+                should_quarantine: true,
+                safe_to_continue_other_rows: true,
+            }));
         }
     }
 
@@ -1780,7 +1786,8 @@ pub async fn preview_counterpoint_lightspeed_normalization_candidates(
 
     let unique_skus = rows_by_sku
         .iter()
-        .filter_map(|(sku, rows)| (rows.len() == 1).then(|| sku.to_ascii_lowercase()))
+        .filter(|(_, rows)| rows.len() == 1)
+        .map(|(sku, _)| sku.to_ascii_lowercase())
         .collect::<Vec<_>>();
 
     let alias_rows: Vec<NormalizationAliasMatchRow> = if unique_skus.is_empty() {
@@ -3750,19 +3757,10 @@ pub async fn get_sync_status(
                         host,
                         activity_seen,
                     )
-                } else if phase == "syncing" {
-                    (
-                        "syncing".into(),
-                        None,
-                        phase,
-                        entity,
-                        ver,
-                        host,
-                        activity_seen,
-                    )
-                } else if latest_run_activity
-                    .map(|run_activity| run_activity > seen)
-                    .unwrap_or(false)
+                } else if phase == "syncing"
+                    || latest_run_activity
+                        .map(|run_activity| run_activity > seen)
+                        .unwrap_or(false)
                 {
                     (
                         "syncing".into(),
@@ -11680,7 +11678,7 @@ mod tests {
               AND normalized_sku = ANY($1)
             "#,
         )
-        .bind(&vec![duplicate_sku.clone(), generated_sku.clone()])
+        .bind(vec![duplicate_sku.clone(), generated_sku.clone()])
         .fetch_one(&pool)
         .await
         .expect("count inventory quarantine records");
@@ -11702,7 +11700,7 @@ mod tests {
         sqlx::query(
             "DELETE FROM counterpoint_ingest_quarantine WHERE ingest_type = 'inventory' AND normalized_sku = ANY($1)",
         )
-        .bind(&vec![duplicate_sku.clone(), generated_sku.clone()])
+        .bind(vec![duplicate_sku.clone(), generated_sku.clone()])
         .execute(&pool)
         .await
         .expect("cleanup inventory quarantine records");
@@ -11825,11 +11823,7 @@ mod tests {
         .await
         .expect("cleanup catalog quarantine records");
         sqlx::query("DELETE FROM products WHERE catalog_handle = ANY($1)")
-            .bind(&vec![
-                item_one.clone(),
-                item_two.clone(),
-                item_three.clone(),
-            ])
+            .bind(vec![item_one.clone(), item_two.clone(), item_three.clone()])
             .execute(&pool)
             .await
             .expect("cleanup quarantine catalog products");
@@ -13051,7 +13045,7 @@ mod tests {
               AND external_key = ANY($1)
             "#,
         )
-        .bind(&vec![
+        .bind(vec![
             "catalog_price_cost_fields",
             "catalog_category_vendor_fields",
             "catalog_variant_label_fields",
