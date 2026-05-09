@@ -453,6 +453,7 @@ mod tests {
     async fn insert_inventory_variant(pool: &PgPool) -> Uuid {
         let product_id = Uuid::new_v4();
         let variant_id = Uuid::new_v4();
+        let sku = format!("MTX-{}-42R", &variant_id.simple().to_string()[..8]);
         sqlx::query(
             r#"
             INSERT INTO products (id, name, base_retail_price, base_cost, is_active)
@@ -468,11 +469,12 @@ mod tests {
             INSERT INTO product_variants (
                 id, product_id, sku, variation_values, variation_label, stock_on_hand, reserved_stock
             )
-            VALUES ($1, $2, 'MTX-42R', '{"size":"42R"}'::jsonb, '42R', 6, 2)
+            VALUES ($1, $2, $3, '{"size":"42R"}'::jsonb, '42R', 6, 2)
             "#,
         )
         .bind(variant_id)
         .bind(product_id)
+        .bind(sku)
         .execute(pool)
         .await
         .expect("insert test variant");
@@ -547,6 +549,7 @@ mod tests {
     async fn insert_catalog_ambiguous_product(pool: &PgPool) -> Uuid {
         let vendor_id = Uuid::new_v4();
         let product_id = Uuid::new_v4();
+        let sku_token = product_id.simple().to_string()[..8].to_ascii_uppercase();
         sqlx::query(
             r#"
             INSERT INTO vendors (id, name, vendor_code)
@@ -594,12 +597,16 @@ mod tests {
                     jsonb_build_object('color', $4, 'size', $5),
                     CONCAT($4, ' / ', $5),
                     2
-                )
-                "#,
+            )
+            "#,
             )
             .bind(Uuid::new_v4())
             .bind(product_id)
-            .bind(format!("AMB-{}-{}", color.to_ascii_uppercase(), size))
+            .bind(format!(
+                "AMB-{sku_token}-{}-{}",
+                color.to_ascii_uppercase(),
+                size
+            ))
             .bind(color)
             .bind(size)
             .execute(pool)
