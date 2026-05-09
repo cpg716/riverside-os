@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Sparkles } from "lucide-react";
 import {
   requestRosieInsightSummary,
   type RosieInsightFacts,
+  type RosieInsightSummaryRequest,
   type RosieInsightMode,
   type RosieInsightSurface,
   type RosieInsightSummaryResponse,
@@ -13,6 +14,7 @@ type RosieInsightSummaryProps = {
   title: string;
   facts: RosieInsightFacts;
   mode?: RosieInsightMode;
+  allowedActions?: RosieInsightSummaryRequest["allowed_actions"];
   getHeaders?: () => Record<string, string>;
   className?: string;
 };
@@ -22,11 +24,16 @@ export default function RosieInsightSummary({
   title,
   facts,
   mode = "summary",
+  allowedActions = [],
   getHeaders,
   className = "",
 }: RosieInsightSummaryProps) {
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<RosieInsightSummaryResponse | null>(null);
+  const factsHash = useMemo(
+    () => JSON.stringify({ surface, mode, facts, allowedActions }),
+    [allowedActions, facts, mode, surface],
+  );
   const hasFacts = useMemo(
     () =>
       Boolean(facts.title.trim()) &&
@@ -38,6 +45,10 @@ export default function RosieInsightSummary({
     [facts],
   );
 
+  useEffect(() => {
+    setResponse(null);
+  }, [factsHash]);
+
   const loadInsight = useCallback(async () => {
     if (!hasFacts || loading) return;
     setLoading(true);
@@ -46,13 +57,13 @@ export default function RosieInsightSummary({
         surface,
         mode,
         facts,
-        allowed_actions: [],
+        allowed_actions: allowedActions,
       },
       { headers: getHeaders?.() },
     );
     setResponse(result.status === "available" ? result : null);
     setLoading(false);
-  }, [facts, getHeaders, hasFacts, loading, mode, surface]);
+  }, [allowedActions, facts, getHeaders, hasFacts, loading, mode, surface]);
 
   if (!hasFacts) return null;
 

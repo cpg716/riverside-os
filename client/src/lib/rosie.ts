@@ -107,7 +107,9 @@ export type RosieToolResult = {
 export type RosieInsightSurface =
   | "customer_snapshot"
   | "transaction_readiness"
-  | "inventory_cleanup";
+  | "inventory_cleanup"
+  | "capacity_outlook"
+  | "counterpoint_status";
 
 export type RosieInsightMode = "summary" | "explain" | "next_steps";
 

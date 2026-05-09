@@ -1564,6 +1564,7 @@ export default function InventoryControlBoard({
               <RosieInsightSummary
                 surface="inventory_cleanup"
                 title="Inventory Cleanup Review"
+                mode="explain"
                 getHeaders={apiAuth}
                 facts={{
                   title: "Inventory Cleanup Review",
@@ -1574,6 +1575,9 @@ export default function InventoryControlBoard({
                       ? "warning"
                       : "info",
                   })),
+                  disclaimers: [
+                    "Explain cleanup counts and review priority only. Product Hub handles review and safe applies.",
+                  ],
                 }}
               />
             </div>

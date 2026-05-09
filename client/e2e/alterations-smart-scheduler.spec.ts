@@ -321,6 +321,44 @@ test.describe("Smart Alterations Scheduler E2E", () => {
     });
 
     test("can plan work items and schedule a slot using the smart scheduler", async ({ page }) => {
+        const insightRequests: Record<string, unknown>[] = [];
+        await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
+            insightRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({
+                    status: "available",
+                    bullets:
+                        insightRequests.length === 1
+                            ? [
+                                  {
+                                      text: "Friday is the first visible safe capacity day.",
+                                      source_fact_ids: ["capacity-next-safe-day"],
+                                  },
+                                  {
+                                      text: "The overloaded and no-staff days need staff awareness.",
+                                      source_fact_ids: ["capacity-overloaded-days", "capacity-no-staff-days"],
+                                  },
+                                  {
+                                      text: "Manual Thursday review remains deterministic.",
+                                      source_fact_ids: ["capacity-manual-only-day"],
+                                  },
+                                  {
+                                      text: "This fourth capacity bullet should stay hidden.",
+                                      source_fact_ids: ["capacity-requested"],
+                                  },
+                              ]
+                            : [
+                                  {
+                                      text: "Selected-day utilization is now part of the visible capacity facts.",
+                                      source_fact_ids: ["capacity-selected-utilization"],
+                                  },
+                              ],
+                }),
+            });
+        });
+
         await openBackofficeSidebarTab(page, "alterations");
         
         const garmentCard = page.getByTestId("alteration-workbench-card").filter({
@@ -354,6 +392,38 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await expect(page.getByText("1 day has no alterations staff scheduled.")).toBeVisible();
         await expect(page.getByText("Thursdays require manual review.")).toBeVisible();
         await expect(page.getByText("Smart Slot Suggestions")).toBeVisible();
+        expect(insightRequests).toHaveLength(0);
+        await page
+            .getByTestId("rosie-insight-summary-capacity_outlook")
+            .getByRole("button", { name: /rosie insight/i })
+            .click();
+        await expect(page.getByText("Friday is the first visible safe capacity day.")).toBeVisible();
+        await expect(page.getByText("The overloaded and no-staff days need staff awareness.")).toBeVisible();
+        await expect(page.getByText("Manual Thursday review remains deterministic.")).toBeVisible();
+        await expect(page.getByText("This fourth capacity bullet should stay hidden.")).toHaveCount(0);
+        expect(insightRequests).toHaveLength(1);
+        expect(insightRequests[0]).toMatchObject({
+            surface: "capacity_outlook",
+            mode: "explain",
+            facts: {
+                title: "Capacity Outlook",
+                bullets: expect.arrayContaining([
+                    expect.objectContaining({
+                        id: "capacity-requested",
+                        label: "Requested work: 4 jacket units, 2 pant units.",
+                    }),
+                    expect.objectContaining({
+                        id: "capacity-next-safe-day",
+                        label: "Next safe day: Friday, May 15.",
+                    }),
+                    expect.objectContaining({
+                        id: "capacity-overloaded-days",
+                        label: "1 day is over capacity in this window.",
+                    }),
+                ]),
+            },
+        });
+        expect(JSON.stringify(insightRequests[0])).not.toContain("jacket_units_used");
         
         // Select the first suggestion (May 15)
         await page.getByRole("button", { name: /Friday/i }).first().click();
@@ -364,6 +434,26 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await expect(
             page.getByText("Selected day: 5/28 jacket units, 2/24 pant units booked."),
         ).toBeVisible();
+        await expect(page.getByText("Friday is the first visible safe capacity day.")).toHaveCount(0);
+        await page
+            .getByTestId("rosie-insight-summary-capacity_outlook")
+            .getByRole("button", { name: /rosie insight/i })
+            .click();
+        await expect(
+            page.getByText("Selected-day utilization is now part of the visible capacity facts."),
+        ).toBeVisible();
+        expect(insightRequests).toHaveLength(2);
+        expect(insightRequests[1]).toMatchObject({
+            surface: "capacity_outlook",
+            facts: {
+                bullets: expect.arrayContaining([
+                    expect.objectContaining({
+                        id: "capacity-selected-utilization",
+                        label: "Selected day: 5/28 jacket units, 2/24 pant units booked.",
+                    }),
+                ]),
+            },
+        });
     });
 
     test("surfaces alteration status in Wedding Hub member list", async ({ page }) => {

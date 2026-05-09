@@ -206,11 +206,15 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
   expect(insightRequests).toHaveLength(1);
   expect(insightRequests[0]).toMatchObject({
     surface: "inventory_cleanup",
+    mode: "explain",
     facts: {
       title: "Inventory Cleanup Review",
       bullets: expect.arrayContaining([
         expect.objectContaining({ label: "2 duplicate barcode groups need review." }),
         expect.objectContaining({ label: "5 active items are missing a primary vendor." }),
+      ]),
+      disclaimers: expect.arrayContaining([
+        "Explain cleanup counts and review priority only. Product Hub handles review and safe applies.",
       ]),
     },
   });

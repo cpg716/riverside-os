@@ -12,6 +12,8 @@ pub enum RosieInsightSurface {
     CustomerSnapshot,
     TransactionReadiness,
     InventoryCleanup,
+    CapacityOutlook,
+    CounterpointStatus,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -103,6 +105,8 @@ impl RosieInsightSurface {
             Self::CustomerSnapshot => "Customer Snapshot",
             Self::TransactionReadiness => "Transaction Readiness Check",
             Self::InventoryCleanup => "Inventory Cleanup Review",
+            Self::CapacityOutlook => "Capacity Outlook",
+            Self::CounterpointStatus => "Counterpoint Status",
         }
     }
 }
@@ -420,6 +424,27 @@ mod tests {
     }
 
     #[test]
+    fn help_rosie_insight_accepts_supported_phase_two_surfaces() {
+        for surface in [
+            "customer_snapshot",
+            "transaction_readiness",
+            "inventory_cleanup",
+            "capacity_outlook",
+            "counterpoint_status",
+        ] {
+            let payload = json!({
+                "surface": surface,
+                "mode": "summary",
+                "facts": { "title": "Supported", "bullets": [{ "id": "a", "label": "A" }] }
+            });
+            assert!(
+                serde_json::from_value::<RosieInsightSummaryRequest>(payload).is_ok(),
+                "{surface} should deserialize"
+            );
+        }
+    }
+
+    #[test]
     fn help_rosie_insight_validates_structured_facts_are_present() {
         let mut request = request();
         assert!(validate_request(&request).is_ok());
@@ -468,7 +493,7 @@ mod tests {
     #[test]
     fn help_rosie_insight_unsupported_surface_or_mode_is_rejected_by_deserialization() {
         let unsupported_surface = json!({
-            "surface": "capacity_outlook",
+            "surface": "daily_operational_briefing",
             "mode": "summary",
             "facts": { "title": "Nope", "bullets": [{ "id": "a", "label": "A" }] }
         });

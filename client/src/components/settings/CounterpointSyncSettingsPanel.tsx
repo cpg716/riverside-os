@@ -31,6 +31,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 
 type HubTab =
   | "status"
@@ -1770,6 +1771,52 @@ export default function CounterpointSyncSettingsPanel(props?: {
       onRefresh: fetchInventoryVerification,
     },
   ];
+  const issueSeveritySummary = Object.entries(
+    (status?.recent_issues ?? []).reduce<Record<string, number>>((acc, issue) => {
+      const key = issue.severity?.trim() || "unknown";
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {}),
+  )
+    .map(([severity, count]) => `${fmtNum(count)} ${severity.toLowerCase()}`)
+    .join(", ");
+  const counterpointInsightFacts = {
+    title: "Counterpoint Sign-off Explanation",
+    bullets: [
+      ...signoffBlockers.map((label, index) => ({
+        id: `counterpoint-blocker-${index}`,
+        label,
+        severity: "warning",
+      })),
+      ...signoffWarnings.map((label, index) => ({
+        id: `counterpoint-warning-${index}`,
+        label,
+        severity: "info",
+      })),
+      ...signoffChecklistRows.map((row) => ({
+        id: `counterpoint-check-${row.key}`,
+        label:
+          row.warningCount == null
+            ? `${row.label}: ${row.value}; needs refresh.`
+            : row.warningCount > 0
+              ? `${row.label}: ${row.value}; ${fmtNum(row.warningCount)} ${row.warningLabel}.`
+              : `${row.label}: ${row.value}; no warnings shown.`,
+        severity: row.warningCount == null || row.warningCount > 0 ? "warning" : "success",
+      })),
+      ...(unresolvedIssueCount > 0
+        ? [{
+            id: "counterpoint-unresolved-issues",
+            label: `${fmtNum(unresolvedIssueCount)} unresolved sync issue(s) remain${
+              issueSeveritySummary ? ` by severity: ${issueSeveritySummary}` : ""
+            }.`,
+            severity: "warning",
+          }]
+        : []),
+    ],
+    disclaimers: [
+      "Explain the displayed Counterpoint checks only. Do not approve sign-off, reconcile, or declare cutover safe.",
+    ],
+  };
 
   const formatVerificationStatus = (statusValue: string) => {
     if (statusValue === "missing_in_ros") return "Missing in ROS";
@@ -2422,6 +2469,19 @@ export default function CounterpointSyncSettingsPanel(props?: {
                           ))}
                         </div>
                       </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Explains displayed checks only
+                      </p>
+                      <RosieInsightSummary
+                        surface="counterpoint_status"
+                        title="Counterpoint Sign-off"
+                        mode="explain"
+                        getHeaders={() => backofficeHeaders() as Record<string, string>}
+                        facts={counterpointInsightFacts}
+                      />
                     </div>
 
                     <div className="mt-4 overflow-x-auto overscroll-x-contain rounded-xl border border-app-border [-webkit-overflow-scrolling:touch]">
