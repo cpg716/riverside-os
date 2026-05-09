@@ -74,6 +74,21 @@ If runtime code, env notes, or workstation setup drift from this file, this file
 - Must still use the same governed ROSIE tool path
 - Approval status: Approved fallback/dev fallback
 
+### Insight summaries
+- Shared ROSIE insight summaries use the OpenAI-compatible `llama-server` endpoint configured by `RIVERSIDE_LLAMA_UPSTREAM`.
+- Gemma 4 E4B can spend the response budget in `reasoning_content` and return empty `message.content`; ROSIE insight summaries require usable `message.content`.
+- Start the local Gemma Host for insight work with reasoning disabled:
+
+```bash
+RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server
+```
+
+- Confirm `GET /health` returns `200`.
+- Confirm `GET /v1/models` reports `google_gemma-4-E4B-it-Q4_K_M.gguf`.
+- Confirm `POST /api/help/rosie/v1/insight-summary` returns `status: "available"` with 1-3 bullets for a deterministic fact payload.
+- If the model is healthy but the insight response is still `unavailable`, check for empty `message.content` caused by reasoning output.
+- Restart stale API processes after pulling a branch that changes ROSIE routes.
+
 ### STT fallback
 - Engine: `whisper.cpp` `whisper-cli`
 - Expected fallback model: `ggml-small.en.bin`
