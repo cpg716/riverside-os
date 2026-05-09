@@ -3096,7 +3096,7 @@ pub async fn execute_counterpoint_inventory_batch(
         sqlx::query(
             r#"
             UPDATE product_variants AS v
-            SET 
+            SET
                 stock_on_hand = u.soh,
                 cost_override = COALESCE(u.cost, v.cost_override)
             FROM UNNEST($1::text[], $2::int[], $3::numeric[]) AS u(key, soh, cost)
@@ -3116,7 +3116,7 @@ pub async fn execute_counterpoint_inventory_batch(
         sqlx::query(
             r#"
             UPDATE product_variants AS v
-            SET 
+            SET
                 stock_on_hand = u.soh,
                 cost_override = COALESCE(u.cost, v.cost_override),
                 counterpoint_item_key = COALESCE(v.counterpoint_item_key, u.key)
@@ -8650,8 +8650,8 @@ pub async fn execute_counterpoint_ticket_batch(
         // This handles cases where tickets have C- but DB doesn't, or vice versa
         let rows: Vec<(String, Uuid)> = sqlx::query_as(
             r#"
-            SELECT customer_code, id FROM customers 
-            WHERE customer_code = ANY($1) 
+            SELECT customer_code, id FROM customers
+            WHERE customer_code = ANY($1)
                OR customer_code IN (SELECT 'C-' || c FROM unnest($1::text[]) c)
                OR customer_code IN (SELECT substring(c from 3) FROM unnest($1::text[]) c WHERE c LIKE 'C-%')
             "#
@@ -8816,7 +8816,7 @@ pub async fn execute_counterpoint_ticket_batch(
             INSERT INTO transactions (
                 customer_id, counterpoint_ticket_ref,
                 is_counterpoint_import, status, booked_at, total_price,
-                amount_paid, balance_due, processed_by_staff_id, 
+                amount_paid, balance_due, processed_by_staff_id,
                 primary_salesperson_id, notes
             )
             VALUES ($1, $2, TRUE, $3::order_status, $4, $5, $6, $7, $8, $9, $10)
@@ -8948,10 +8948,10 @@ pub async fn execute_counterpoint_ticket_batch(
                 state_tax, local_tax, applied_spiff, calculated_commission,
                 counterpoint_reason_code
             )
-            SELECT 
-                u.tid, u.pid, u.vid, u.sid, 'takeaway'::fulfillment_type, 
+            SELECT
+                u.tid, u.pid, u.vid, u.sid, 'takeaway'::fulfillment_type,
                 u.qty, u.price, u.cost, 0, 0, 0, 0, u.reason
-            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::numeric[], $6::numeric[], $7::numeric[], $8::text[]) 
+            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::numeric[], $6::numeric[], $7::numeric[], $8::text[])
               AS u(tid, pid, vid, sid, qty, price, cost, reason)
             "#,
         )
