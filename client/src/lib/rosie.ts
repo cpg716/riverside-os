@@ -109,7 +109,8 @@ export type RosieInsightSurface =
   | "transaction_readiness"
   | "inventory_cleanup"
   | "capacity_outlook"
-  | "counterpoint_status";
+  | "counterpoint_status"
+  | "daily_operational_briefing";
 
 export type RosieInsightMode = "summary" | "explain" | "next_steps";
 
@@ -132,6 +133,36 @@ export type RosieInsightSummaryResponse = {
   status: "available" | "unavailable";
   bullets: { text: string; source_fact_ids: string[]; tone?: string }[];
   suggested_actions?: { id: string; label: string }[];
+};
+
+export type RosieSearchShortcutId =
+  | "open_orders"
+  | "inventory_cleanup"
+  | "alterations_queue"
+  | "pickup_queue"
+  | "daily_sales";
+
+export type RosieSearchIntentRequest = {
+  query: string;
+  available_shortcuts: {
+    id: RosieSearchShortcutId;
+    label: string;
+    description: string;
+  }[];
+  deterministic_context?: {
+    exact_sku_found?: boolean;
+    result_counts?: Partial<
+      Record<
+        "customers" | "orders" | "products" | "shipments" | "weddings" | "alterations",
+        number
+      >
+    >;
+  };
+};
+
+export type RosieSearchIntentResponse = {
+  status: "available" | "unavailable";
+  shortcut_ids: RosieSearchShortcutId[];
 };
 
 export type RosieProductCatalogParsedFields = {
@@ -1437,6 +1468,46 @@ export async function requestRosieInsightSummary(
     };
   } catch {
     return { status: "unavailable", bullets: [] };
+  }
+}
+
+export async function requestRosieSearchIntent(
+  request: RosieSearchIntentRequest,
+  options?: {
+    headers?: Record<string, string>;
+    settings?: RosieSettings;
+  },
+): Promise<RosieSearchIntentResponse> {
+  const settings = normalizeRosieSettings(options?.settings ?? loadLocalRosieSettings());
+  if (!settings.enabled) {
+    return { status: "unavailable", shortcut_ids: [] };
+  }
+
+  const allowedIds = new Set(request.available_shortcuts.map((shortcut) => shortcut.id));
+  try {
+    const response = await fetch(`${getBaseUrl()}/api/help/rosie/v1/search-intent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options?.headers ?? {}),
+      },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      return { status: "unavailable", shortcut_ids: [] };
+    }
+    const json = (await response.json().catch(() => null)) as RosieSearchIntentResponse | null;
+    if (!json || json.status !== "available") {
+      return { status: "unavailable", shortcut_ids: [] };
+    }
+    return {
+      status: "available",
+      shortcut_ids: (json.shortcut_ids ?? [])
+        .filter((id): id is RosieSearchShortcutId => allowedIds.has(id))
+        .slice(0, 3),
+    };
+  } catch {
+    return { status: "unavailable", shortcut_ids: [] };
   }
 }
 

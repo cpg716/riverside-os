@@ -52,6 +52,78 @@ test.describe("PWA layout — phone (375×667, iPhone 8 preset)", () => {
     await search.fill("suit");
     await expect(page.getByRole("listbox", { name: "Search results" })).toBeVisible();
   });
+
+  test("ROSIE search intent appends allowlisted shortcuts only after typing", async ({ page }) => {
+    await signInToBackOffice(page);
+    await page.route("**/api/customers/search?*", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/api/inventory/scan/**", async (route) => {
+      await route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+    });
+    await page.route("**/api/products/control-board?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ rows: [] }),
+      });
+    });
+    await page.route("**/api/transactions?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [] }),
+      });
+    });
+    await page.route("**/api/shipments?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [] }),
+      });
+    });
+    await page.route("**/api/weddings/parties?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: [] }),
+      });
+    });
+    await page.route("**/api/alterations?*", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+
+    const intentBodies: unknown[] = [];
+    await page.route("**/api/help/rosie/v1/search-intent", async (route) => {
+      intentBodies.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "available",
+          shortcut_ids: ["inventory_cleanup", "daily_sales", "unsupported"],
+        }),
+      });
+    });
+
+    await page.getByRole("button", { name: /open universal search/i }).click();
+    expect(intentBodies).toHaveLength(0);
+
+    const search = page.getByRole("combobox", { name: /universal search/i });
+    await search.fill("cleanup review");
+    await expect(page.getByText("Suggested Searches")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Inventory Cleanup Review")).toBeVisible();
+    await expect(page.getByText("Daily Sales")).toBeVisible();
+    await expect(page.getByText("unsupported")).toHaveCount(0);
+    expect(intentBodies).toHaveLength(1);
+    expect(intentBodies[0]).toMatchObject({
+      query: "cleanup review",
+      available_shortcuts: expect.arrayContaining([
+        expect.objectContaining({ id: "inventory_cleanup" }),
+        expect.objectContaining({ id: "daily_sales" }),
+      ]),
+    });
+  });
 });
 
 test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {

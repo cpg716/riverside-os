@@ -17,6 +17,10 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import type { SidebarTabId } from "./sidebarSections";
+import {
+  requestRosieSearchIntent,
+  type RosieSearchShortcutId,
+} from "../../lib/rosie";
 
 function cn(...inputs: Array<string | false | null | undefined>) {
   return twMerge(clsx(inputs));
@@ -85,7 +89,7 @@ interface ProductSearchGroup {
   matchedSkus: string[];
 }
 
-type SearchShortcutIntent = "open_orders";
+type SearchShortcutIntent = RosieSearchShortcutId;
 
 interface SearchShortcut {
   intent: SearchShortcutIntent;
@@ -135,6 +139,57 @@ function normalizedShortcutQuery(q: string): string {
     .replace(/\s+/g, " ");
 }
 
+const SEARCH_SHORTCUTS: Record<SearchShortcutIntent, SearchShortcut> = {
+  open_orders: {
+    intent: "open_orders",
+    key: "shortcut:open_orders",
+    title: "Open Orders",
+    subtitle: "Go to the open orders workspace.",
+    tab: "orders",
+    section: "open",
+  },
+  inventory_cleanup: {
+    intent: "inventory_cleanup",
+    key: "shortcut:inventory_cleanup",
+    title: "Inventory Cleanup Review",
+    subtitle: "Open the inventory intelligence review.",
+    tab: "inventory",
+    section: "intelligence",
+  },
+  alterations_queue: {
+    intent: "alterations_queue",
+    key: "shortcut:alterations_queue",
+    title: "Alterations Queue",
+    subtitle: "Open active alterations work.",
+    tab: "alterations",
+    section: "queue",
+  },
+  pickup_queue: {
+    intent: "pickup_queue",
+    key: "shortcut:pickup_queue",
+    title: "Pickup Queue",
+    subtitle: "Open fulfillment pickup work.",
+    tab: "home",
+    section: "fulfillment",
+  },
+  daily_sales: {
+    intent: "daily_sales",
+    key: "shortcut:daily_sales",
+    title: "Daily Sales",
+    subtitle: "Open today's sales activity.",
+    tab: "home",
+    section: "daily-sales",
+  },
+};
+
+const ROSIE_SEARCH_SHORTCUT_IDS: SearchShortcutIntent[] = [
+  "open_orders",
+  "inventory_cleanup",
+  "alterations_queue",
+  "pickup_queue",
+  "daily_sales",
+];
+
 function buildSearchShortcuts(q: string, canNavigate: boolean): SearchShortcut[] {
   if (!canNavigate) return [];
   const normalized = normalizedShortcutQuery(q);
@@ -150,16 +205,18 @@ function buildSearchShortcuts(q: string, canNavigate: boolean): SearchShortcut[]
 
   if (!wantsOpenOrders) return [];
 
-  return [
-    {
-      intent: "open_orders",
-      key: "shortcut:open_orders",
-      title: "Open Orders",
-      subtitle: "Go to the open orders workspace.",
-      tab: "orders",
-      section: "open",
-    },
-  ];
+  return [SEARCH_SHORTCUTS.open_orders];
+}
+
+function mergeSearchShortcuts(
+  deterministic: SearchShortcut[],
+  rosieShortcutIds: SearchShortcutIntent[],
+): SearchShortcut[] {
+  const seen = new Set(deterministic.map((shortcut) => shortcut.intent));
+  const rosieShortcuts = rosieShortcutIds
+    .map((id) => SEARCH_SHORTCUTS[id])
+    .filter((shortcut) => shortcut && !seen.has(shortcut.intent));
+  return [...deterministic, ...rosieShortcuts];
 }
 
 function groupProductRows(
@@ -249,11 +306,13 @@ export default function GlobalCommandSearch({
   const [shipments, setShipments] = useState<ShipmentSearchHit[]>([]);
   const [weddings, setWeddings] = useState<WeddingSearchHit[]>([]);
   const [alterations, setAlterations] = useState<AlterationSearchHit[]>([]);
+  const [rosieShortcutIds, setRosieShortcutIds] = useState<SearchShortcutIntent[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [commandHintVisible, setCommandHintVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeSearchQueryRef = useRef("");
 
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(
@@ -271,6 +330,7 @@ export default function GlobalCommandSearch({
     setShipments([]);
     setWeddings([]);
     setAlterations([]);
+    setRosieShortcutIds([]);
     setLoading(false);
   }, []);
 
@@ -286,8 +346,12 @@ export default function GlobalCommandSearch({
 
   const isPosVariant = variant === "pos";
   const shortcuts = useMemo(
-    () => buildSearchShortcuts(query, Boolean(onNavigateToTab)),
-    [onNavigateToTab, query],
+    () =>
+      mergeSearchShortcuts(
+        buildSearchShortcuts(query, Boolean(onNavigateToTab)),
+        rosieShortcutIds,
+      ),
+    [onNavigateToTab, query, rosieShortcutIds],
   );
 
   const resultEntries = useMemo<SearchResultEntry[]>(
@@ -440,10 +504,12 @@ export default function GlobalCommandSearch({
       setShipments([]);
       setWeddings([]);
       setAlterations([]);
+      setRosieShortcutIds([]);
       setLoading(false);
       return;
     }
 
+    activeSearchQueryRef.current = q;
     setLoading(true);
     setCustomers([]);
     setSkuHit(null);
@@ -452,14 +518,28 @@ export default function GlobalCommandSearch({
     setShipments([]);
     setWeddings([]);
     setAlterations([]);
+    setRosieShortcutIds([]);
     const requests: Promise<void>[] = [];
+    let exactSkuFound = false;
+    const resultCounts = {
+      customers: 0,
+      orders: 0,
+      products: 0,
+      shipments: 0,
+      weddings: 0,
+      alterations: 0,
+    };
 
     requests.push(
       fetch(
         `${baseUrl}/api/customers/search?q=${encodeURIComponent(q)}&limit=${GLOBAL_SEARCH_CUSTOMER_PAGE}&offset=0`,
         { headers: apiAuth() },
       ).then(async (res) => {
-        if (res.ok) setCustomers((await res.json()) as Customer[]);
+        if (res.ok) {
+          const data = (await res.json()) as Customer[];
+          resultCounts.customers = data.length;
+          setCustomers(data);
+        }
       }),
     );
 
@@ -470,6 +550,7 @@ export default function GlobalCommandSearch({
         }).then(async (res) => {
           if (res.ok) {
             const data = (await res.json()) as { sku: string; name: string };
+            exactSkuFound = true;
             setSkuHit({ sku: data.sku, name: data.name });
           }
         }),
@@ -483,7 +564,9 @@ export default function GlobalCommandSearch({
       ).then(async (res) => {
         if (res.ok) {
           const data = (await res.json()) as { rows: ControlBoardRow[] };
-          setProducts(groupProductRows(data.rows ?? [], GLOBAL_SEARCH_PRODUCT_CAP));
+          const grouped = groupProductRows(data.rows ?? [], GLOBAL_SEARCH_PRODUCT_CAP);
+          resultCounts.products = grouped.length;
+          setProducts(grouped);
         }
       }),
     );
@@ -495,7 +578,9 @@ export default function GlobalCommandSearch({
       ).then(async (res) => {
         if (res.ok) {
           const data = (await res.json()) as { items?: OrderSearchHit[] };
-          setOrders(data.items ?? []);
+          const items = data.items ?? [];
+          resultCounts.orders = items.length;
+          setOrders(items);
         }
       }),
     );
@@ -506,7 +591,9 @@ export default function GlobalCommandSearch({
       }).then(async (res) => {
         if (res.ok) {
           const data = (await res.json()) as { items?: ShipmentSearchHit[] };
-          setShipments(data.items ?? []);
+          const items = data.items ?? [];
+          resultCounts.shipments = items.length;
+          setShipments(items);
         }
       }),
     );
@@ -518,7 +605,9 @@ export default function GlobalCommandSearch({
       ).then(async (res) => {
         if (res.ok) {
           const data = (await res.json()) as { data?: WeddingSearchHit[] };
-          setWeddings(data.data ?? []);
+          const items = data.data ?? [];
+          resultCounts.weddings = items.length;
+          setWeddings(items);
         }
       }),
     );
@@ -529,7 +618,9 @@ export default function GlobalCommandSearch({
       }).then(async (res) => {
         if (res.ok) {
           const data = (await res.json()) as AlterationSearchHit[];
-          setAlterations(data.filter((row) => row.status !== "picked_up").slice(0, 8));
+          const items = data.filter((row) => row.status !== "picked_up").slice(0, 8);
+          resultCounts.alterations = items.length;
+          setAlterations(items);
         }
       }),
     );
@@ -539,7 +630,27 @@ export default function GlobalCommandSearch({
     } finally {
       setLoading(false);
     }
-  }, [apiAuth]);
+
+    if (!onNavigateToTab || q.length < 3 || activeSearchQueryRef.current !== q) return;
+    const response = await requestRosieSearchIntent(
+      {
+        query: q,
+        available_shortcuts: ROSIE_SEARCH_SHORTCUT_IDS.map((id) => ({
+          id,
+          label: SEARCH_SHORTCUTS[id].title,
+          description: SEARCH_SHORTCUTS[id].subtitle,
+        })),
+        deterministic_context: {
+          exact_sku_found: exactSkuFound,
+          result_counts: resultCounts,
+        },
+      },
+      { headers: apiAuth() },
+    );
+    if (activeSearchQueryRef.current === q) {
+      setRosieShortcutIds(response.status === "available" ? response.shortcut_ids : []);
+    }
+  }, [apiAuth, onNavigateToTab]);
 
   const openPalette = useCallback((seed = "") => {
     setOpen(true);
@@ -557,6 +668,7 @@ export default function GlobalCommandSearch({
       setShipments([]);
       setWeddings([]);
       setAlterations([]);
+      setRosieShortcutIds([]);
       setLoading(false);
       return;
     }

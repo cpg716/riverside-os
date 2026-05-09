@@ -54,4 +54,58 @@ test.describe("Morning Compass coach", () => {
       page.getByRole("heading", { name: /action board/i }),
     ).toBeVisible({ timeout: 20_000 });
   });
+
+  test("daily briefing ROSIE insight is button-triggered and uses structured facts", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    const insightBodies: unknown[] = [];
+    await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
+      const body = route.request().postDataJSON() as {
+        surface?: string;
+        facts?: {
+          bullets?: { id?: string; label?: string }[];
+          metrics?: unknown[];
+        };
+      };
+      insightBodies.push(body);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "available",
+          bullets: [
+            { text: "Pickup and alteration counts are visible.", source_fact_ids: ["fulfillment-summary"] },
+            { text: "Inventory alerts are summarized from the card.", source_fact_ids: ["inventory-alerts"] },
+            { text: "Staff follow-up load stays staff-facing.", source_fact_ids: ["staff-followup"] },
+            { text: "This fourth bullet should not render.", source_fact_ids: ["morning-queue"] },
+          ],
+        }),
+      });
+    });
+
+    await signInToBackOffice(page);
+    const operationsButton = page
+      .getByRole("navigation", { name: "Main Navigation" })
+      .getByRole("button", { name: /^operations(\s+bo)?$/i });
+    await expect(operationsButton).toBeVisible({ timeout: 15_000 });
+    await operationsButton.click();
+
+    const insight = page.getByTestId("rosie-insight-summary-daily_operational_briefing");
+    await expect(insight).toBeVisible({ timeout: 20_000 });
+    expect(insightBodies).toHaveLength(0);
+
+    await insight.getByRole("button", { name: /today at riverside rosie insight/i }).click();
+    await expect(insight.locator("li")).toHaveCount(3);
+    expect(insightBodies).toHaveLength(1);
+    expect(insightBodies[0]).toMatchObject({
+      surface: "daily_operational_briefing",
+      mode: "summary",
+    });
+    const request = insightBodies[0] as {
+      facts?: { bullets?: { id?: string; label?: string }[]; metrics?: unknown[] };
+    };
+    expect(request.facts?.metrics ?? []).toHaveLength(0);
+    expect(request.facts?.bullets?.every((fact) => fact.id && fact.label)).toBe(true);
+  });
 });

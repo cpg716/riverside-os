@@ -35,6 +35,8 @@ use crate::models::DbStaffRole;
 
 #[path = "../logic/rosie_insight_summary.rs"]
 mod rosie_insight_summary;
+#[path = "../logic/rosie_search_intent.rs"]
+mod rosie_search_intent;
 
 fn build_rosie_upstream_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
@@ -1655,6 +1657,7 @@ pub fn router() -> Router<AppState> {
             "/rosie/v1/insight-summary",
             post(post_rosie_insight_summary),
         )
+        .route("/rosie/v1/search-intent", post(post_rosie_search_intent))
         .route("/rosie/v1/runtime-status", get(rosie_runtime_status))
         .route("/rosie/v1/voice/transcribe", post(rosie_voice_transcribe))
         .route("/rosie/v1/voice/synthesize", post(rosie_voice_synthesize))
@@ -1942,6 +1945,68 @@ async fn post_rosie_insight_summary(
     };
 
     Ok(Json(rosie_insight_summary::parse_completion_response(
+        &body,
+        &completion,
+    )))
+}
+
+async fn post_rosie_search_intent(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<rosie_search_intent::RosieSearchIntentRequest>,
+) -> Result<Json<rosie_search_intent::RosieSearchIntentResponse>, Response> {
+    let _viewer = resolve_help_viewer(&state, &headers).await?;
+    if let Err(message) = rosie_search_intent::validate_request(&body) {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": message })),
+        )
+            .into_response());
+    }
+
+    let upstream = match std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+    {
+        Some(upstream) => upstream,
+        None => return Ok(Json(rosie_search_intent::unavailable_response())),
+    };
+    let upstream_url = format!("{upstream}/v1/chat/completions");
+    let upstream_client = match build_rosie_upstream_client() {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::warn!(%error, %upstream_url, "rosie search intent upstream client init failed");
+            return Ok(Json(rosie_search_intent::unavailable_response()));
+        }
+    };
+    let payload = rosie_search_intent::build_completion_payload(&body);
+    let response = match send_rosie_upstream_chat_request(&upstream_client, &upstream_url, &payload)
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(%error, %upstream_url, "rosie search intent upstream request failed");
+            return Ok(Json(rosie_search_intent::unavailable_response()));
+        }
+    };
+    if !response.status().is_success() {
+        tracing::warn!(
+            status = %response.status(),
+            %upstream_url,
+            "rosie search intent upstream returned non-success"
+        );
+        return Ok(Json(rosie_search_intent::unavailable_response()));
+    }
+    let completion = match response.json::<Value>().await {
+        Ok(payload) => payload,
+        Err(error) => {
+            tracing::warn!(%error, %upstream_url, "rosie search intent upstream response parse failed");
+            return Ok(Json(rosie_search_intent::unavailable_response()));
+        }
+    };
+
+    Ok(Json(rosie_search_intent::parse_completion_response(
         &body,
         &completion,
     )))

@@ -14,6 +14,7 @@ pub enum RosieInsightSurface {
     InventoryCleanup,
     CapacityOutlook,
     CounterpointStatus,
+    DailyOperationalBriefing,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -107,6 +108,7 @@ impl RosieInsightSurface {
             Self::InventoryCleanup => "Inventory Cleanup Review",
             Self::CapacityOutlook => "Capacity Outlook",
             Self::CounterpointStatus => "Counterpoint Status",
+            Self::DailyOperationalBriefing => "Daily Operational Briefing",
         }
     }
 }
@@ -431,6 +433,7 @@ mod tests {
             "inventory_cleanup",
             "capacity_outlook",
             "counterpoint_status",
+            "daily_operational_briefing",
         ] {
             let payload = json!({
                 "surface": surface,
@@ -493,7 +496,7 @@ mod tests {
     #[test]
     fn help_rosie_insight_unsupported_surface_or_mode_is_rejected_by_deserialization() {
         let unsupported_surface = json!({
-            "surface": "daily_operational_briefing",
+            "surface": "suggested_searches",
             "mode": "summary",
             "facts": { "title": "Nope", "bullets": [{ "id": "a", "label": "A" }] }
         });

@@ -23,6 +23,7 @@ import { staffAvatarUrl } from "../../lib/staffAvatars";
 import CompassMemberDetailDrawer from "./CompassMemberDetailDrawer";
 import DashboardStatsCard from "../ui/DashboardStatsCard";
 import DashboardGridCard from "../ui/DashboardGridCard";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   useNotificationCenter,
@@ -964,6 +965,75 @@ export default function OperationalHome({
     taskMeOpen.length,
   ]);
 
+  const dailyBriefingFacts = useMemo(
+    () => ({
+      title: "Today at Riverside",
+      bullets: [
+        ...todayDecisionTakeaways.map((item) => ({
+          id: `today-${item.id}`,
+          label: `${item.label}: ${item.detail}`,
+          severity: item.tone,
+        })),
+        ...topIssues.map((issue) => ({
+          id: `issue-${issue.id}`,
+          label: `${issue.label}: ${issue.detail}`,
+          severity: issue.tone,
+        })),
+        ...decisionTakeaways.map((item) => ({
+          id: `decision-${item.id}`,
+          label: `${item.label}: ${item.detail}`,
+          severity: item.tone,
+        })),
+        {
+          id: "fulfillment-summary",
+          label: `Pickup queue: ${fulfillmentStats.total} pending, ${fulfillmentStats.ready} ready, ${fulfillmentStats.blocked} blocked, ${fulfillmentStats.rush} rush.`,
+          severity: fulfillmentStats.blocked > 0 || fulfillmentStats.rush > 0 ? "warn" : "default",
+        },
+        {
+          id: "alterations-summary",
+          label: `Alterations: ${alterationStats.totalOpen} open, ${alterationStats.overdue} overdue, ${alterationStats.dueToday} due today, ${alterationStats.ready} ready.`,
+          severity: alterationStats.overdue > 0 ? "danger" : alterationStats.dueToday > 0 ? "warn" : "default",
+        },
+        {
+          id: "staff-followup",
+          label: `Staff follow-up: ${taskMeOpen.length} open tasks and ${activeNotifications.length} inbox items.`,
+          severity: activeNotifications.length > 8 ? "warn" : "default",
+        },
+        {
+          id: "inventory-alerts",
+          label: `Inventory alerts: ${lowStockNotifications.length} low-stock alerts and ${issueNotifications.length} issue alerts.`,
+          severity: issueNotifications.length > 0 ? "warn" : "default",
+        },
+        {
+          id: "morning-queue",
+          label: `Morning queue: ${suggestedMorningQueue.length} deterministic items surfaced for review.`,
+          severity: "default",
+        },
+      ].slice(0, 12),
+      disclaimers: [
+        "Summarize displayed operational facts only. Do not recommend outreach, scheduling, fulfillment, inventory, payment, or accounting actions.",
+      ],
+    }),
+    [
+      activeNotifications.length,
+      alterationStats.dueToday,
+      alterationStats.overdue,
+      alterationStats.ready,
+      alterationStats.totalOpen,
+      decisionTakeaways,
+      fulfillmentStats.blocked,
+      fulfillmentStats.ready,
+      fulfillmentStats.rush,
+      fulfillmentStats.total,
+      issueNotifications.length,
+      lowStockNotifications.length,
+      suggestedMorningQueue.length,
+      taskMeOpen.length,
+      todayDecisionTakeaways,
+      topIssues,
+    ],
+  );
+
 
   if (activeSection === "daily-sales") {
     return (
@@ -1142,6 +1212,20 @@ export default function OperationalHome({
            ariaLabel="Open Podium Inbox"
          />
       </div>
+
+      <DashboardGridCard
+        title="Today at Riverside"
+        subtitle="Optional ROSIE summary of the operational facts already shown here"
+        icon={Activity}
+      >
+        <RosieInsightSummary
+          surface="daily_operational_briefing"
+          title="Today at Riverside"
+          facts={dailyBriefingFacts}
+          getHeaders={taskAuth}
+          className="mt-0"
+        />
+      </DashboardGridCard>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <DashboardGridCard
