@@ -52,17 +52,22 @@ export default function RosieInsightSummary({
   const loadInsight = useCallback(async () => {
     if (!hasFacts || loading) return;
     setLoading(true);
-    const result = await requestRosieInsightSummary(
-      {
-        surface,
-        mode,
-        facts,
-        allowed_actions: allowedActions,
-      },
-      { headers: getHeaders?.() },
-    );
-    setResponse(result.status === "available" ? result : null);
-    setLoading(false);
+    try {
+      const result = await requestRosieInsightSummary(
+        {
+          surface,
+          mode,
+          facts,
+          allowed_actions: allowedActions,
+        },
+        { headers: getHeaders?.() },
+      );
+      setResponse(result.status === "available" ? result : null);
+    } catch {
+      setResponse(null);
+    } finally {
+      setLoading(false);
+    }
   }, [allowedActions, facts, getHeaders, hasFacts, loading, mode, surface]);
 
   if (!hasFacts) return null;

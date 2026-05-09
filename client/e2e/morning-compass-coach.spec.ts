@@ -108,4 +108,45 @@ test.describe("Morning Compass coach", () => {
     expect(request.facts?.metrics ?? []).toHaveLength(0);
     expect(request.facts?.bullets?.every((fact) => fact.id && fact.label)).toBe(true);
   });
+
+  test("daily briefing ROSIE insight returns to idle when ROSIE is slow", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    let insightRequests = 0;
+    await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
+      insightRequests += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      try {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            status: "available",
+            bullets: [
+              { text: "This late response should stay hidden.", source_fact_ids: ["late"] },
+            ],
+          }),
+        });
+      } catch {
+        // The client is expected to abort optional insight requests before this returns.
+      }
+    });
+
+    await signInToBackOffice(page);
+    const operationsButton = page
+      .getByRole("navigation", { name: "Main Navigation" })
+      .getByRole("button", { name: /^operations(\s+bo)?$/i });
+    await expect(operationsButton).toBeVisible({ timeout: 15_000 });
+    await operationsButton.click();
+
+    const insight = page.getByTestId("rosie-insight-summary-daily_operational_briefing");
+    await expect(insight).toBeVisible({ timeout: 20_000 });
+    const insightButton = insight.getByRole("button", { name: /today at riverside rosie insight/i });
+
+    await insightButton.click();
+    await expect(insightButton).toContainText("ROSIE insight", { timeout: 6_000 });
+    await expect(insight.locator("li")).toHaveCount(0);
+    expect(insightRequests).toBe(1);
+  });
 });

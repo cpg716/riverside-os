@@ -331,6 +331,7 @@ export type RosieSpeechPlayback = {
 
 const ROSIE_SETTINGS_STORAGE_KEY = "ros.rosie.settings.v1";
 const ROSIE_KOKORO_VOICE_COUNT = 53;
+const ROSIE_OPTIONAL_INSIGHT_TIMEOUT_MS = 3500;
 
 export const DEFAULT_ROSIE_VOICE = "5";
 
@@ -443,6 +444,18 @@ export function loadLocalRosieSettings(): RosieSettings {
   } catch {
     return DEFAULT_ROSIE_SETTINGS;
   }
+}
+
+function createRosieOptionalTimeoutSignal(timeoutMs: number): {
+  signal: AbortSignal;
+  clear: () => void;
+} {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    signal: controller.signal,
+    clear: () => globalThis.clearTimeout(timeoutId),
+  };
 }
 
 export function saveLocalRosieSettings(settings: RosieSettings): RosieSettings {
@@ -1448,9 +1461,11 @@ export async function requestRosieInsightSummary(
     return { status: "unavailable", bullets: [] };
   }
 
+  const timeout = createRosieOptionalTimeoutSignal(ROSIE_OPTIONAL_INSIGHT_TIMEOUT_MS);
   try {
     const response = await fetch(`${getBaseUrl()}/api/help/rosie/v1/insight-summary`, {
       method: "POST",
+      signal: timeout.signal,
       headers: {
         "Content-Type": "application/json",
         ...(options?.headers ?? {}),
@@ -1471,6 +1486,8 @@ export async function requestRosieInsightSummary(
     };
   } catch {
     return { status: "unavailable", bullets: [] };
+  } finally {
+    timeout.clear();
   }
 }
 
