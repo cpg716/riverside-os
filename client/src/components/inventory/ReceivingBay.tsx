@@ -779,18 +779,6 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
         </div>
       )}
 
-      <div className="border-b border-app-border bg-app-surface px-4 py-3 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <RosieInsightSummary
-            surface="receiving_review"
-            title="Receiving Review"
-            mode="explain"
-            getHeaders={apiAuth}
-            facts={receivingInsightFacts}
-          />
-        </div>
-      </div>
-
       <div className="border-b border-app-border bg-app-surface px-4 py-4 sm:px-6">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap gap-3">
@@ -844,6 +832,19 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
               </p>
             ) : null}
           </div>
+        </div>
+      </div>
+
+      <div className="border-b border-app-border bg-app-surface px-4 py-3 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <RosieInsightSummary
+            surface="receiving_review"
+            title="Receiving Review"
+            mode="explain"
+            getHeaders={apiAuth}
+            facts={receivingInsightFacts}
+            className="mt-0"
+          />
         </div>
       </div>
 

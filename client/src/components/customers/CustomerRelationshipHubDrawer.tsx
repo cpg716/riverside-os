@@ -2465,14 +2465,14 @@ export function CustomerRelationshipHubDrawer({
           {showHubSummary ? (
             <section
               data-testid="follow-up-opportunities-card"
-              className="rounded-2xl border border-app-border bg-app-surface-2/90 p-4"
+              className="border-t border-app-border pt-3"
             >
-              <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+              <h3 className="mb-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                 Follow-Up Opportunities
               </h3>
               <p className="text-xs font-semibold leading-relaxed text-app-text-muted">
-                ROSIE can explain visible contact and open-work signals only. Staff still decides
-                whether any outreach is appropriate.
+                Optional explanation of visible contact and open-work signals. Staff still decides
+                whether outreach is appropriate.
               </p>
               <RosieInsightSummary
                 surface="follow_up_opportunities"

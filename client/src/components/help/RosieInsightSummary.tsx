@@ -76,14 +76,14 @@ export default function RosieInsightSummary({
 
   return (
     <div
-      className={`mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 ${className}`}
+      className={`${className || "mt-3"} border-t border-app-border/70 pt-2`}
       data-testid={`rosie-insight-summary-${surface}`}
     >
       <button
         type="button"
         onClick={() => void loadInsight()}
         disabled={loading}
-        className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition hover:text-app-accent disabled:opacity-60"
+        className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition hover:text-app-accent disabled:opacity-60"
         aria-label={`${title} ROSIE insight`}
       >
         <Sparkles size={13} aria-hidden />

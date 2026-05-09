@@ -2471,21 +2471,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       </div>
                     </div>
 
-                    <div className="mt-4">
-                      <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Explains displayed checks only
-                      </p>
-                      <RosieInsightSummary
-                        surface="counterpoint_status"
-                        title="Counterpoint Sign-off"
-                        mode="explain"
-                        getHeaders={() => backofficeHeaders() as Record<string, string>}
-                        facts={counterpointInsightFacts}
-                      />
-                    </div>
-
-                    <div className="mt-4 overflow-x-auto overscroll-x-contain rounded-xl border border-app-border [-webkit-overflow-scrolling:touch]">
-                      <table className="w-full min-w-[860px] text-left text-xs">
+	                    <div className="mt-4 overflow-x-auto overscroll-x-contain rounded-xl border border-app-border [-webkit-overflow-scrolling:touch]">
+	                      <table className="w-full min-w-[860px] text-left text-xs">
                         <thead>
                           <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
 	                            <th className="px-4 py-2">Entity</th>
@@ -2528,10 +2515,23 @@ export default function CounterpointSyncSettingsPanel(props?: {
                               </td>
                             </tr>
                           ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+	                        </tbody>
+	                      </table>
+	                    </div>
+
+	                    <div className="mt-4">
+	                      <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+	                        Optional explanation of displayed checks only
+	                      </p>
+	                      <RosieInsightSummary
+	                        surface="counterpoint_status"
+	                        title="Counterpoint Sign-off"
+	                        mode="explain"
+	                        getHeaders={() => backofficeHeaders() as Record<string, string>}
+	                        facts={counterpointInsightFacts}
+	                      />
+	                    </div>
+	                  </div>
                 </>
               )}
 

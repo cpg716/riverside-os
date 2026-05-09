@@ -1213,20 +1213,6 @@ export default function OperationalHome({
          />
       </div>
 
-      <DashboardGridCard
-        title="Today at Riverside"
-        subtitle="Optional ROSIE summary of the operational facts already shown here"
-        icon={Activity}
-      >
-        <RosieInsightSummary
-          surface="daily_operational_briefing"
-          title="Today at Riverside"
-          facts={dailyBriefingFacts}
-          getHeaders={taskAuth}
-          className="mt-0"
-        />
-      </DashboardGridCard>
-
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <DashboardGridCard
           title="What Changed Today"
@@ -1270,7 +1256,7 @@ export default function OperationalHome({
               todayDecisionTakeaways.map((item) => (
                 <div
                   key={item.id}
-                    className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${
+                  className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${
                     item.tone === "good"
                       ? "border-app-success/16 bg-app-success/10"
                       : item.tone === "warn"
@@ -1288,6 +1274,12 @@ export default function OperationalHome({
               ))
             )}
           </div>
+          <RosieInsightSummary
+            surface="daily_operational_briefing"
+            title="Today at Riverside"
+            facts={dailyBriefingFacts}
+            getHeaders={taskAuth}
+          />
         </DashboardGridCard>
 
         <DashboardGridCard
