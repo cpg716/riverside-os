@@ -23,7 +23,6 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { 
   type AppliedPaymentLine, 
   type CheckoutOperatorContext, 
-  type GiftCardType,
   type NexoTenderTab
 } from "./types";
 
@@ -347,23 +346,6 @@ export interface NexoCheckoutDrawerProps {
   onOpenSplitDeposit?: () => void;
 }
 
-const GIFT_CARD_TYPES: GiftCardType[] = [
-  "paid_liability",
-  "loyalty_giveaway",
-  "donated_giveaway",
-  "promo_gift_card",
-];
-
-function giftCardTypeLabel(t: GiftCardType): string {
-  switch (t) {
-    case "paid_liability": return "Paid";
-    case "loyalty_giveaway": return "Loyalty";
-    case "donated_giveaway": return "Donated";
-    case "promo_gift_card": return "Promo";
-    default: return t;
-  }
-}
-
 export default function NexoCheckoutDrawer({
   isOpen,
   onClose,
@@ -401,8 +383,8 @@ export default function NexoCheckoutDrawer({
 
   const [tab, setTab] = useState<NexoTenderTab>("card_terminal");
   const [keypad, setKeypad] = useState("");
-  const [giftCardSubType, setGiftCardSubType] = useState<GiftCardType | null>("paid_liability");
   const [giftCardCode, setGiftCardCode] = useState("");
+  const giftCardInputRef = useRef<HTMLInputElement | null>(null);
   const [checkNumber, setCheckNumber] = useState("");
   const [refundOriginalTransactionId, setRefundOriginalTransactionId] = useState("");
   const [providerSettings, setProviderSettings] = useState<PaymentProviderSettings | null>(null);
@@ -428,6 +410,15 @@ export default function NexoCheckoutDrawer({
   const [rmsSummary, setRmsSummary] = useState<RmsChargeAccountSummary | null>(null);
   const [rmsLoading, setRmsLoading] = useState(false);
   const [rmsProgramPickerOpen, setRmsProgramPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || tab !== "gift_card") return;
+    const frame = window.requestAnimationFrame(() => {
+      giftCardInputRef.current?.focus();
+      giftCardInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen, tab]);
   const pendingHelcimCentsRef = useRef<number>(0);
   const pendingHelcimTenderRef = useRef<{
     method: "card_terminal" | "card_manual" | "card_credit";
@@ -1239,12 +1230,11 @@ export default function NexoCheckoutDrawer({
       {
         id: newId(),
         method: meta.method,
-        sub_type: tab === "gift_card" ? (giftCardSubType ?? "paid_liability") : undefined,
         gift_card_code: tab === "gift_card" ? giftCardCode.trim() : undefined,
         amountCents: amtCents,
         label:
           tab === "gift_card"
-            ? `Gift Card (${giftCardTypeLabel(giftCardSubType ?? "paid_liability")})`
+            ? "Gift Card"
             : tab === "rms_charge"
               ? `RMS Charge Sale${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label ? ` • ${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label}` : ""}`
               : meta.label,
@@ -1318,7 +1308,7 @@ export default function NexoCheckoutDrawer({
     setGiftCardCode("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardSubType, giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard]);
+  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -1979,18 +1969,16 @@ export default function NexoCheckoutDrawer({
                   tab === "check" ||
                   tab === "rms_charge" ||
                   (rmsPaymentCollectionMode && ["cash", "check"].includes(tab))) && (
-                  <div className="mt-6 max-h-[42vh] overflow-y-auto border-t border-app-border pt-6 pr-1 animate-in slide-in-from-top-2 sm:max-h-[32vh]">
+                  <div className="mt-4 border-t border-app-border pt-4 animate-in slide-in-from-top-2">
                     {tab === "rms_charge" && (
-                      <div className="space-y-3">
-                        <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3">
+                      <div className="space-y-2">
+                        <div className="rounded-xl border border-app-border bg-app-bg px-3 py-2">
                           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                             RMS Charge
                           </p>
-                          <div className="mt-2 space-y-1.5 text-[11px] font-medium leading-relaxed text-app-text-muted">
-                            <p>Use this when the customer is charging today's sale to approved private label credit.</p>
-                            <p>Choose an eligible program before adding the payment line.</p>
-                            <p>RMS Charge payments are separate from normal cash or check tenders.</p>
-                          </div>
+                          <p className="mt-1 text-[11px] font-semibold leading-snug text-app-text-muted">
+                            Charge today's sale to approved private-label credit. Choose an eligible program before adding payment.
+                          </p>
                         </div>
                         {!customerId ? (
                           <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm font-semibold text-amber-700">
@@ -2244,15 +2232,17 @@ export default function NexoCheckoutDrawer({
                     )}
 
                     {tab === "gift_card" && (
-                      <div className="flex flex-col sm:flex-row gap-4">
-                        <div className="flex w-full gap-1 rounded-xl border border-app-border bg-app-bg p-1 sm:w-72">
-                          {GIFT_CARD_TYPES.map(t => (
-                            <button key={t} type="button" onClick={() => setGiftCardSubType(t)} className={`min-h-11 flex-1 rounded-lg text-xs font-black uppercase tracking-wide transition-all ${giftCardSubType === t ? "bg-app-accent text-white" : "text-app-text-muted hover:text-app-text"}`}>{giftCardTypeLabel(t)}</button>
-                          ))}
-                        </div>
-                        <div className="relative flex-1">
+                      <div className="flex flex-col gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Scan Gift Card</span>
+                        <div className="relative">
                           <ScanLine size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted" />
-                          <input value={giftCardCode} onChange={e => setGiftCardCode(e.target.value.toUpperCase())} placeholder="GIFT CARD CODE" className="ui-input h-10 w-full pl-12 pr-4 rounded-xl bg-app-bg border border-app-border text-xs font-black tracking-widest uppercase focus:border-app-accent" />
+                          <input
+                            ref={giftCardInputRef}
+                            value={giftCardCode}
+                            onChange={e => setGiftCardCode(e.target.value.toUpperCase())}
+                            placeholder="GIFT CARD #"
+                            className="ui-input h-14 w-full rounded-xl border border-app-border bg-app-bg pl-12 pr-4 text-lg font-black uppercase tracking-widest focus:border-app-accent"
+                          />
                         </div>
                       </div>
                     )}
