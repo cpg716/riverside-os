@@ -1000,6 +1000,8 @@ async fn post_seed_qbo_tax_mapping(
             ('E2E_CASH_ROUNDING', 'E2E Cash Rounding', 'Income', 'E2E-4090', true),
             ('E2E_DEPOSIT_LIABILITY', 'E2E Customer Deposit Liability', 'Other Current Liability', 'E2E-2200', true),
             ('E2E_STORE_CREDIT_LIABILITY', 'E2E Store Credit Liability', 'Other Current Liability', 'E2E-2300', true),
+            ('E2E_GIFT_CARD_LIABILITY', 'E2E Gift Card Liability', 'Other Current Liability', 'E2E-2400', true),
+            ('E2E_LOYALTY_EXPENSE', 'E2E Loyalty and Promotion Expense', 'Expense', 'E2E-5100', true),
             ('E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', 'Income', 'E2E-4050', true)
         ON CONFLICT (id) DO UPDATE
         SET name = EXCLUDED.name,
@@ -1021,6 +1023,8 @@ async fn post_seed_qbo_tax_mapping(
             ('tax', 'SALES_TAX', 'E2E_SALES_TAX', 'E2E Sales Tax Payable', CURRENT_TIMESTAMP),
             ('liability_deposit', 'default', 'E2E_DEPOSIT_LIABILITY', 'E2E Customer Deposit Liability', CURRENT_TIMESTAMP),
             ('liability_store_credit', 'default', 'E2E_STORE_CREDIT_LIABILITY', 'E2E Store Credit Liability', CURRENT_TIMESTAMP),
+            ('liability_gift_card', 'default', 'E2E_GIFT_CARD_LIABILITY', 'E2E Gift Card Liability', CURRENT_TIMESTAMP),
+            ('expense_loyalty', 'default', 'E2E_LOYALTY_EXPENSE', 'E2E Loyalty and Promotion Expense', CURRENT_TIMESTAMP),
             ('income_forfeited_deposit', 'default', 'E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', CURRENT_TIMESTAMP)
         ON CONFLICT (source_type, source_id) DO UPDATE
         SET qbo_account_id = EXCLUDED.qbo_account_id,

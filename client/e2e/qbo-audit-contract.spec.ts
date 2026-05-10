@@ -18,6 +18,18 @@ type CreatedQboProduct = {
   unitCost: string;
 };
 
+type GiftCardLoadLineMeta = {
+  product_id: string;
+  variant_id: string;
+  sku: string;
+};
+
+type GiftCardSubtype =
+  | "paid_liability"
+  | "loyalty_giveaway"
+  | "donated_giveaway"
+  | "promo_gift_card";
+
 type CheckoutResponse = {
   transaction_id: string;
   display_id?: string;
@@ -214,6 +226,8 @@ async function checkoutQboProduct(
     amountPaid?: string;
     appliedDepositAmount?: string;
     paymentMethod?: string;
+    giftCardCode?: string;
+    giftCardSubType?: GiftCardSubtype;
   },
 ): Promise<CheckoutResponse> {
   const tax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
@@ -229,6 +243,12 @@ async function checkoutQboProduct(
   };
   if (options.appliedDepositAmount) {
     paymentSplit.applied_deposit_amount = options.appliedDepositAmount;
+  }
+  if (options.giftCardCode) {
+    paymentSplit.gift_card_code = options.giftCardCode;
+  }
+  if (options.giftCardSubType) {
+    paymentSplit.sub_type = options.giftCardSubType;
   }
   const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
     headers: {
@@ -286,6 +306,100 @@ async function createQboCustomer(request: APIRequestContext): Promise<CustomerRe
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
   return JSON.parse(bodyText) as CustomerResponse;
+}
+
+async function fetchGiftCardLoadLineMeta(request: APIRequestContext): Promise<GiftCardLoadLineMeta> {
+  const res = await request.get(`${apiBase()}/api/pos/gift-card-load-line-meta`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  const body = JSON.parse(bodyText) as GiftCardLoadLineMeta | null;
+  expect(body).toBeTruthy();
+  return body as GiftCardLoadLineMeta;
+}
+
+async function checkoutPurchasedGiftCardLoad(
+  request: APIRequestContext,
+  options: {
+    sessionId: string;
+    sessionToken: string;
+    operatorStaffId: string;
+    code: string;
+    amount: string;
+  },
+): Promise<CheckoutResponse> {
+  const meta = await fetchGiftCardLoadLineMeta(request);
+  const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": options.sessionId,
+      "x-riverside-pos-session-token": options.sessionToken,
+    },
+    data: {
+      session_id: options.sessionId,
+      operator_staff_id: options.operatorStaffId,
+      primary_salesperson_id: options.operatorStaffId,
+      customer_id: null,
+      payment_method: "cash",
+      total_price: options.amount,
+      amount_paid: options.amount,
+      checkout_client_id: crypto.randomUUID(),
+      items: [
+        {
+          product_id: meta.product_id,
+          variant_id: meta.variant_id,
+          fulfillment: "takeaway",
+          quantity: 1,
+          unit_price: options.amount,
+          unit_cost: "0.00",
+          state_tax: "0.00",
+          local_tax: "0.00",
+          salesperson_id: options.operatorStaffId,
+          price_override_reason: "pos_gift_card_load",
+          original_unit_price: "0.00",
+          gift_card_load_code: options.code,
+        },
+      ],
+      payment_splits: [{ payment_method: "cash", amount: options.amount }],
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as CheckoutResponse;
+}
+
+async function issueGiftCardForQbo(
+  request: APIRequestContext,
+  options: {
+    code: string;
+    amount: string;
+    kind: Exclude<GiftCardSubtype, "paid_liability">;
+  },
+) {
+  const endpoint =
+    options.kind === "loyalty_giveaway"
+      ? "issue-loyalty-load"
+      : options.kind === "donated_giveaway"
+        ? "issue-donated"
+        : "issue-promo";
+  const res = await request.post(`${apiBase()}/api/gift-cards/${endpoint}`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      code: options.code,
+      amount: options.amount,
+      event_name: "E2E QBO promo event",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
 async function fetchTransactionDetail(
@@ -975,6 +1089,138 @@ test.describe("QBO audit contract", () => {
       (row) => row.transaction_id === openDepositCheckout.transaction_id,
     );
     expect(moneyToCents(openDepositContributor?.amount)).toBe(parseMoneyToCents(transactionTotal));
+  });
+
+  test("gift card subtypes post to their intended QBO accounts", async ({ request }) => {
+    test.setTimeout(120_000);
+    const dateOffset = 300 + Math.trunc(Date.now() % 4000);
+    const activityDate = futureUtcDate(dateOffset);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    const unitTax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
+    const transactionTotal = totalFor("110.00", unitTax.stateTax, unitTax.localTax);
+    const purchasedLoadAmount = "500.00";
+    const suffix = uniqueSuffix("gc-qbo");
+    const cards: Array<{
+      code: string;
+      subType: GiftCardSubtype;
+      expectedAccount: string;
+      expectedMemo: string;
+      transactionId?: string;
+    }> = [
+      {
+        code: `GC-PAID-${suffix}`,
+        subType: "paid_liability",
+        expectedAccount: "E2E_GIFT_CARD_LIABILITY",
+        expectedMemo: "Gift card redemption (liability)",
+      },
+      {
+        code: `GC-LOYALTY-${suffix}`,
+        subType: "loyalty_giveaway",
+        expectedAccount: "E2E_LOYALTY_EXPENSE",
+        expectedMemo: "Gift card redemption (loyalty/promo expense)",
+      },
+      {
+        code: `GC-DONATED-${suffix}`,
+        subType: "donated_giveaway",
+        expectedAccount: "E2E_LOYALTY_EXPENSE",
+        expectedMemo: "Gift card redemption (loyalty/promo expense)",
+      },
+      {
+        code: `GC-PROMO-${suffix}`,
+        subType: "promo_gift_card",
+        expectedAccount: "E2E_LOYALTY_EXPENSE",
+        expectedMemo: "Gift card redemption (loyalty/promo expense)",
+      },
+    ];
+
+    await seedQboMappings(request, product.categoryId, activityDate);
+    const purchasedLoad = await checkoutPurchasedGiftCardLoad(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      code: cards[0]!.code,
+      amount: purchasedLoadAmount,
+    });
+    await assignQboDate(request, purchasedLoad.transaction_id, activityDate);
+    for (const card of cards.slice(1)) {
+      await issueGiftCardForQbo(request, {
+        code: card.code,
+        amount: transactionTotal,
+        kind: card.subType as Exclude<GiftCardSubtype, "paid_liability">,
+      });
+    }
+
+    for (const card of cards) {
+      const checkout = await checkoutQboProduct(request, {
+        product,
+        sessionId,
+        sessionToken,
+        operatorStaffId,
+        paymentMethod: "gift_card",
+        giftCardCode: card.code,
+        giftCardSubType: card.subType,
+      });
+      card.transactionId = checkout.transaction_id;
+      await assignQboDate(request, checkout.transaction_id, activityDate);
+
+      const artifacts = await getTransactionArtifacts(request, checkout.transaction_id);
+      expect(artifacts.allocation_rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            target_transaction_id: checkout.transaction_id,
+            payment_method: "gift_card",
+            amount_allocated: transactionTotal,
+            payment_amount: transactionTotal,
+          }),
+        ]),
+      );
+      expect(artifacts.payment_rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            payment_method: "gift_card",
+            metadata: expect.objectContaining({
+              sub_type: card.subType,
+              gift_card_code: card.code.toUpperCase(),
+            }),
+          }),
+        ]),
+      );
+    }
+
+    const proposal = await proposeJournal(request, activityDate);
+    expect(proposal.payload.totals?.balanced).toBe(true);
+    const loadLine = proposal.payload.lines.find(
+      (line) =>
+        line.memo === "Purchased gift card liability issued" &&
+        line.qbo_account_id === "E2E_GIFT_CARD_LIABILITY",
+    );
+    expect(moneyToCents(loadLine?.credit)).toBe(parseMoneyToCents(purchasedLoadAmount));
+
+    for (const card of cards) {
+      const lineIndex = proposal.payload.lines.findIndex(
+        (line) =>
+          line.memo === card.expectedMemo &&
+          line.qbo_account_id === card.expectedAccount &&
+          line.detail?.some(
+            (detail) =>
+              detail.payment_method === "gift_card" && detail.sub_type === card.subType,
+          ),
+      );
+      expect(lineIndex).toBeGreaterThanOrEqual(0);
+      expect(moneyToCents(proposal.payload.lines[lineIndex]?.debit)).toBe(
+        parseMoneyToCents(transactionTotal),
+      );
+
+      const drilldown = await fetchQboDrilldown(request, proposal.id, lineIndex);
+      const contributor = drilldown.contributors?.find(
+        (row) => row.transaction_id === card.transactionId,
+      );
+      expect(moneyToCents(contributor?.amount)).toBe(parseMoneyToCents(transactionTotal));
+    }
+
+    expect(proposal.payload.lines.some((line) => line.memo === "Tenders — gift_card")).toBe(false);
   });
 
   test("layaways stay transaction-scoped and post deposit, pickup, and forfeiture journals", async ({
