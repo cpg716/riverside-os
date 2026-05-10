@@ -275,8 +275,8 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           setUseVendorUpc(hub.use_vendor_upc ?? false);
         }
       }
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : "Failed to load PO");
+    } catch {
+      setLoadError("Purchase order details could not load right now.");
     }
   }, [poId, apiAuth]);
 
@@ -566,15 +566,50 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
     return createPortal(
       <div className="fixed inset-0 z-[100] flex flex-col bg-app-bg font-sans">
         <div className="flex items-center justify-between bg-app-text px-6 py-4 text-white">
-          <p className="text-sm font-bold text-red-300">{loadError}</p>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 hover:bg-white/15"
+            className="ml-auto rounded-lg p-2 hover:bg-white/15"
             aria-label="Close"
           >
             <X size={22} />
           </button>
+        </div>
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="w-full max-w-lg rounded-3xl border border-amber-500/30 bg-app-surface p-6 text-center shadow-xl">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600">
+              <AlertCircle size={26} aria-hidden />
+            </div>
+            <h3 className="mt-4 text-lg font-black text-app-text">
+              Vendor paperwork could not open
+            </h3>
+            <p className="mt-2 text-sm font-semibold text-app-text-muted">
+              {loadError}
+            </p>
+            <p className="mt-3 text-sm font-semibold text-app-text">
+              Receiving has not posted any inventory from this window.
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-app-text-muted">
+              Try again, or close this screen and reopen the vendor paperwork
+              from Receive Stock.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => void loadPo()}
+                className="rounded-2xl bg-app-accent px-5 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/20 transition hover:brightness-110 active:scale-95"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-2xl border border-app-border bg-app-surface px-5 py-3 text-[10px] font-black uppercase tracking-widest text-app-text transition hover:border-app-accent hover:text-app-accent"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       </div>,
       root
