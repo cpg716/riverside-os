@@ -1,5 +1,5 @@
 import { getBaseUrl, getBaseUrlDiagnostics } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -156,6 +156,16 @@ type GuardedActionKey =
 
 const baseUrl = getBaseUrl();
 
+type SupportFeedKey =
+  | "overview"
+  | "runtime"
+  | "stations"
+  | "alerts"
+  | "audit"
+  | "bugs";
+
+type SupportFeedErrors = Partial<Record<SupportFeedKey, boolean>>;
+
 function fmtTs(v: string | null): string {
   if (!v) return "-";
   const d = new Date(v);
@@ -296,6 +306,14 @@ function PageControls({
   );
 }
 
+function DegradedNotice({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-warning">
+      {children}
+    </p>
+  );
+}
+
 export default function RosDevCenterPanel({
   bugReportsDeepLinkId = null,
   onBugReportsDeepLinkConsumed,
@@ -316,6 +334,7 @@ export default function RosDevCenterPanel({
     useState<RuntimeDiagnosticsSnapshot | null>(null);
   const [e2eHealth, setE2eHealth] = useState<E2eHealthSnapshot | null>(null);
   const [e2eHealthLoading, setE2eHealthLoading] = useState(false);
+  const [feedErrors, setFeedErrors] = useState<SupportFeedErrors>({});
 
   const [actionBusy, setActionBusy] = useState<GuardedActionKey | null>(null);
   const [actionReason, setActionReason] = useState("");
@@ -362,34 +381,53 @@ export default function RosDevCenterPanel({
   const loadAll = useCallback(async () => {
     if (!canView) return;
     setLoading(true);
+    const headers = backofficeHeaders() as Record<string, string>;
+    const fetchJson = async <T,>(
+      key: SupportFeedKey,
+      path: string,
+    ): Promise<{ key: SupportFeedKey; ok: true; data: T } | { key: SupportFeedKey; ok: false }> => {
+      try {
+        const res = await fetch(`${baseUrl}${path}`, { headers });
+        if (!res.ok) return { key, ok: false };
+        return { key, ok: true, data: (await res.json()) as T };
+      } catch {
+        return { key, ok: false };
+      }
+    };
+
     try {
-      const headers = backofficeHeaders() as Record<string, string>;
-      const [o, r, s, a, au, b] = await Promise.all([
-        fetch(`${baseUrl}/api/ops/overview`, { headers }),
-        fetch(`${baseUrl}/api/ops/runtime-diagnostics`, { headers }),
-        fetch(`${baseUrl}/api/ops/stations`, { headers }),
-        fetch(`${baseUrl}/api/ops/alerts`, { headers }),
-        fetch(`${baseUrl}/api/ops/audit-log`, { headers }),
-        fetch(`${baseUrl}/api/ops/bugs/overview`, { headers }),
+      const results = await Promise.all([
+        fetchJson<OpsHealthSnapshot>("overview", "/api/ops/overview"),
+        fetchJson<RuntimeDiagnosticsSnapshot>(
+          "runtime",
+          "/api/ops/runtime-diagnostics",
+        ),
+        fetchJson<StationRow[]>("stations", "/api/ops/stations"),
+        fetchJson<AlertEventRow[]>("alerts", "/api/ops/alerts"),
+        fetchJson<ActionAuditRow[]>("audit", "/api/ops/audit-log"),
+        fetchJson<BugOverviewRow[]>("bugs", "/api/ops/bugs/overview"),
       ]);
 
-      if (!o.ok || !r.ok || !s.ok || !a.ok || !au.ok || !b.ok) {
-      toast("Could not load Support Center data", "error");
-        return;
+      const nextErrors: SupportFeedErrors = {};
+      for (const result of results) {
+        if (!result.ok) {
+          nextErrors[result.key] = true;
+          continue;
+        }
+        if (result.key === "overview") setOverview(result.data as OpsHealthSnapshot);
+        if (result.key === "runtime") {
+          setRuntimeDiagnostics(result.data as RuntimeDiagnosticsSnapshot);
+        }
+        if (result.key === "stations") setStations(result.data as StationRow[]);
+        if (result.key === "alerts") setAlerts(result.data as AlertEventRow[]);
+        if (result.key === "audit") setAuditRows(result.data as ActionAuditRow[]);
+        if (result.key === "bugs") setBugsOverview(result.data as BugOverviewRow[]);
       }
-
-      setOverview((await o.json()) as OpsHealthSnapshot);
-      setRuntimeDiagnostics((await r.json()) as RuntimeDiagnosticsSnapshot);
-      setStations((await s.json()) as StationRow[]);
-      setAlerts((await a.json()) as AlertEventRow[]);
-      setAuditRows((await au.json()) as ActionAuditRow[]);
-      setBugsOverview((await b.json()) as BugOverviewRow[]);
-    } catch {
-      toast("Network error loading Support Center", "error");
+      setFeedErrors(nextErrors);
     } finally {
       setLoading(false);
     }
-  }, [backofficeHeaders, canView, toast]);
+  }, [backofficeHeaders, canView]);
 
   useEffect(() => {
     void loadAll();
@@ -614,6 +652,13 @@ export default function RosDevCenterPanel({
         </button>
       </header>
 
+      {feedErrors.overview ? (
+        <DegradedNotice>
+          Overview details could not refresh. Showing the last available support
+          summary where possible.
+        </DegradedNotice>
+      ) : null}
+
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="ui-card p-5">
           <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -669,6 +714,14 @@ export default function RosDevCenterPanel({
             Support Details
           </h3>
         </div>
+        {feedErrors.runtime ? (
+          <div className="mb-4">
+            <DegradedNotice>
+              Runtime details could not refresh. Other support tools remain
+              available.
+            </DegradedNotice>
+          </div>
+        ) : null}
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           <div className="ui-metric-cell ui-tint-info p-4">
             <div className="flex items-start justify-between gap-3">
@@ -924,6 +977,13 @@ export default function RosDevCenterPanel({
             Integration Health
           </h3>
         </div>
+        {feedErrors.overview ? (
+          <div className="mb-4">
+            <DegradedNotice>
+              Integration health could not refresh with the latest overview.
+            </DegradedNotice>
+          </div>
+        ) : null}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {(overview?.integrations ?? []).map((item) => (
             <div key={item.key} className="ui-metric-cell ui-tint-neutral p-4">
@@ -956,6 +1016,14 @@ export default function RosDevCenterPanel({
             {stations.length} stations
           </span>
         </div>
+        {feedErrors.stations ? (
+          <div className="mb-4">
+            <DegradedNotice>
+              Station details could not refresh. Showing the last available
+              station list.
+            </DegradedNotice>
+          </div>
+        ) : null}
         <PageControls
           label="Stations"
           page={stationPage}
@@ -1020,6 +1088,14 @@ export default function RosDevCenterPanel({
             {openAlerts.length} active alerts
           </span>
         </div>
+        {feedErrors.alerts ? (
+          <div className="mb-4">
+            <DegradedNotice>
+              Alert details could not refresh. Showing the last available alert
+              list.
+            </DegradedNotice>
+          </div>
+        ) : null}
         <PageControls
           label="Alerts"
           page={alertPage}
@@ -1211,6 +1287,14 @@ export default function RosDevCenterPanel({
             Action Audit
           </h3>
         </div>
+        {feedErrors.audit ? (
+          <div className="mb-4">
+            <DegradedNotice>
+              Action history could not refresh. Protected actions still record
+              audit details on the server.
+            </DegradedNotice>
+          </div>
+        ) : null}
         <div className="space-y-2">
           {auditRows.slice(0, 15).map((row) => (
             <div key={row.id} className="ui-metric-cell ui-tint-neutral px-3 py-2">
@@ -1239,6 +1323,14 @@ export default function RosDevCenterPanel({
             Bug Incident Links
           </h3>
         </div>
+        {feedErrors.bugs ? (
+          <div className="mb-4">
+            <DegradedNotice>
+              Bug incident links could not refresh. The Bug Manager below
+              remains the source of truth.
+            </DegradedNotice>
+          </div>
+        ) : null}
 
         {canRunActions && (
           <div className="mb-6 grid grid-cols-1 gap-3 rounded-xl border border-app-border p-4 lg:grid-cols-4">

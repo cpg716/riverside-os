@@ -12,6 +12,10 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import {
+  redactDiagnosticText,
+  redactDiagnosticValue,
+} from "../../lib/clientDiagnostics";
 
 const baseUrl = getBaseUrl();
 
@@ -63,7 +67,7 @@ type ErrorEventRow = {
 };
 
 function downloadJson(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
+  const blob = new Blob([JSON.stringify(redactDiagnosticValue(data), null, 2)], {
     type: "application/json",
   });
   const url = URL.createObjectURL(blob);
@@ -75,7 +79,9 @@ function downloadJson(filename: string, data: unknown) {
 }
 
 function downloadTextFile(filename: string, text: string) {
-  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const blob = new Blob([redactDiagnosticText(text)], {
+    type: "text/plain;charset=utf-8",
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -114,6 +120,14 @@ function downloadPng(filename: string, base64: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function sanitizeDetail(detail: Detail): Detail {
+  return redactDiagnosticValue(detail) as Detail;
+}
+
+function sanitizeErrorEvent(event: ErrorEventRow): ErrorEventRow {
+  return redactDiagnosticValue(event) as ErrorEventRow;
 }
 
 function statusPillClass(status: BugStatus): string {
@@ -203,7 +217,7 @@ export default function BugReportsSettingsPanel({
         return;
       }
       const data = (await res.json()) as ListRow[];
-      setRows(data);
+      setRows(redactDiagnosticValue(data) as ListRow[]);
     } catch {
       toast("Network error loading bug reports", "error");
     } finally {
@@ -224,7 +238,7 @@ export default function BugReportsSettingsPanel({
         return;
       }
       const data = (await res.json()) as ErrorEventRow[];
-      setErrorEvents(data);
+      setErrorEvents(data.map(sanitizeErrorEvent));
     } catch {
       toast("Network error loading error events", "error");
     } finally {
@@ -246,7 +260,7 @@ export default function BugReportsSettingsPanel({
         toast("Could not load report", "error");
         return;
       }
-      const d = (await res.json()) as Detail;
+      const d = sanitizeDetail((await res.json()) as Detail);
       setDetail(d);
       setDraftNotes(d.resolver_notes ?? "");
       setDraftUrl(d.external_url ?? "");
@@ -280,7 +294,7 @@ export default function BugReportsSettingsPanel({
         toast(j.error ?? "Could not update report", "error");
         return;
       }
-      const d = (await res.json()) as Detail;
+      const d = sanitizeDetail((await res.json()) as Detail);
       setDetail(d);
       setDraftNotes(d.resolver_notes ?? "");
       setDraftUrl(d.external_url ?? "");
@@ -314,7 +328,7 @@ export default function BugReportsSettingsPanel({
         toast(j.error ?? "Could not update error event", "error");
         return;
       }
-      const updated = (await res.json()) as ErrorEventRow;
+      const updated = sanitizeErrorEvent((await res.json()) as ErrorEventRow);
       setErrorEvents((prev) =>
         prev.map((event) => (event.id === id ? updated : event)),
       );

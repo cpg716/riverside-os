@@ -153,6 +153,33 @@ async function waitForRegisterReady(page: Page): Promise<void> {
   });
 }
 
+async function fillOpeningFloatIfPresent(
+  registerDialog: Locator,
+  cartShell: Locator,
+): Promise<void> {
+  if (await cartShell.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const floatInput = registerDialog
+    .locator("input[type='number']:not(:disabled)")
+    .first();
+  if (!(await floatInput.isVisible({ timeout: 3_000 }).catch(() => false))) {
+    return;
+  }
+
+  await floatInput.scrollIntoViewIfNeeded().catch(() => {});
+  await floatInput.fill("200", { timeout: 3_000 }).catch(async () => {
+    if (await cartShell.isVisible().catch(() => false)) {
+      return;
+    }
+    const value = await floatInput.inputValue({ timeout: 1_000 }).catch(() => "");
+    if (!value.trim()) {
+      throw new Error("Opening float input was visible but not ready to accept a value.");
+    }
+  });
+}
+
 export async function ensurePosRegisterSessionOpen(
   page: Page,
   options?: {
@@ -214,7 +241,17 @@ export async function ensurePosRegisterSessionOpen(
 
   if (await openPrimaryRegisterButton.isVisible().catch(() => false)) {
     await openPrimaryRegisterButton.click();
-    await expect(registerDialog).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(
+        async () =>
+          (await cartShell.isVisible().catch(() => false)) ||
+          (await registerDialog.isVisible().catch(() => false)),
+        {
+          timeout: 15_000,
+          message: "Register did not show cart or open-register dialog",
+        },
+      )
+      .toBeTruthy();
   }
 
   if (!(await registerDialog.isVisible().catch(() => false))) {
@@ -228,13 +265,10 @@ export async function ensurePosRegisterSessionOpen(
 
   const laneSelect = registerDialog.getByLabel(/terminal #|physical register number/i);
   if (await laneSelect.isVisible().catch(() => false)) {
-    await laneSelect.selectOption("1");
+    await laneSelect.selectOption("1", { timeout: 3_000 }).catch(() => {});
   }
 
-  const floatInput = registerDialog.locator("input[type='number']").first();
-  if (await floatInput.isVisible().catch(() => false)) {
-    await floatInput.fill("200");
-  }
+  await fillOpeningFloatIfPresent(registerDialog, cartShell);
 
   const pin1 = registerDialog.getByTestId("pin-key-1");
   await expect(pin1).toBeVisible({ timeout: 15_000 });

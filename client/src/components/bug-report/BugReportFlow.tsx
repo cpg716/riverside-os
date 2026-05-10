@@ -11,6 +11,7 @@ import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
   buildClientErrorCaptureMeta,
   getClientDiagnosticLogText,
+  redactDiagnosticText,
 } from "../../lib/clientDiagnostics";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 
@@ -143,19 +144,21 @@ export default function BugReportFlow({
       toast("Describe the issue and what you were doing", "error");
       return;
     }
+    const safeSummary = redactDiagnosticText(summ);
+    const safeSteps = redactDiagnosticText(st);
     setBusy(true);
     try {
       const consoleLog = getClientDiagnosticLogText();
       const meta = await buildClientErrorCaptureMeta({
         captureType: "manual_bug_report",
-        message: summ,
+        message: safeSummary,
         extra: {
           client_semver: CLIENT_SEMVER,
           git_short: GIT_SHORT,
           ros_navigation: navigationContext ?? null,
           include_capture: includeCapture,
-          steps_context: st,
-          summary: summ,
+          steps_context: safeSteps,
+          summary: safeSummary,
         },
       });
       const res = await fetch(`${baseUrl}/api/bug-reports`, {
@@ -165,8 +168,8 @@ export default function BugReportFlow({
           ...(mergedPosStaffHeaders(backofficeHeaders) as Record<string, string>),
         },
         body: JSON.stringify({
-          summary: summ,
-          steps_context: st,
+          summary: safeSummary,
+          steps_context: safeSteps,
           client_console_log: consoleLog,
           client_meta: meta,
           include_screenshot: includeCapture,

@@ -21,7 +21,7 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   retries: isCi ? 1 : 0,
-  reporter: [["list"]],
+  reporter: [["list"], ["json", { outputFile: "test-results/results.json" }]],
   webServer:
     !isCi && autoBootLocalStack && usingLocalViteBase
       ? {

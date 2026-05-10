@@ -5,13 +5,14 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { sessionPollAuthHeaders } from "../../lib/posRegisterAuth";
 import {
   buildClientErrorCaptureMeta,
+  redactDiagnosticText,
 } from "../../lib/clientDiagnostics";
 
 const baseUrl = getBaseUrl();
 const recentErrorEventKeys = new Map<string, number>();
 
 function recordErrorToastEvent(message: string) {
-  const trimmed = message.trim();
+  const trimmed = redactDiagnosticText(message).trim();
   if (!trimmed) return;
   const now = Date.now();
   const key = trimmed.toLowerCase().slice(0, 240);
@@ -22,7 +23,9 @@ function recordErrorToastEvent(message: string) {
   const headers = sessionPollAuthHeaders();
   if (!headers["x-riverside-staff-code"]) return;
 
-  const route = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const route = redactDiagnosticText(
+    `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  );
   void (async () => {
     const clientMeta = await buildClientErrorCaptureMeta({
       captureType: "toast_error_event",

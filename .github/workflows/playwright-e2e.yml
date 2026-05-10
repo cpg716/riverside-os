@@ -237,6 +237,7 @@ jobs:
           name: playwright-report-blocking
           path: |
             client/test-results/
+            client/test-results/results.json
             client/playwright-report/
             /tmp/ros-server.log
             /tmp/fake-corecard.log
@@ -650,6 +651,7 @@ jobs:
           name: playwright-report-nightly
           path: |
             client/test-results/
+            client/test-results/results.json
             client/playwright-report/
             /tmp/ros-server.log
             /tmp/fake-corecard.log
