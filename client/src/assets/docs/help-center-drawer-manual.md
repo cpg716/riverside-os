@@ -1,58 +1,66 @@
 ---
 id: help-center-drawer
-title: "Help Center Drawer (help)"
+title: "Help Center Drawer"
 order: 1011
-summary: "Draft maintainer scaffold for client/src/components/help/HelpCenterDrawer.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Find staff manuals, print the current help section, and ask ROSIE for sourced help."
 source: client/src/components/help/HelpCenterDrawer.tsx
-last_scanned: 2026-04-27
-tags: help-center-drawer, component, auto-scaffold
-status: draft
+last_scanned: 2026-05-10
+tags: help-center-drawer, help, rosie, print
+status: approved
 ---
 
-# Help Center Drawer (help)
-
-<!-- help:component-source -->
-_Linked component: `client/src/components/help/HelpCenterDrawer.tsx`._
-<!-- /help:component-source -->
+# Help Center Drawer
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Help Center is the in-app place for staff manuals, workflow search, and optional ROSIE help.
 
-## When to use it
+Deterministic help articles are primary. ROSIE can explain approved help content, but staff should follow the visible workflow facts and system messages on the screen.
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+## How to use it
 
-## Before you start
+1. Open Help from the top bar.
+2. Search or choose a manual in Browse mode.
+3. Print the current help article when a paper copy is needed.
+4. Ask ROSIE only when an optional sourced explanation would help.
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+## Open Help
 
-## Steps
+Select the **Help** icon from the top bar. The drawer opens without leaving the current workspace.
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+Use **Browse** to read manuals, **Ask ROSIE** for a sourced answer, or **Chat with ROSIE** when the station has ROSIE enabled.
+
+## Search manuals
+
+Type into the search box to find matching help sections. If live search is unavailable, Help Center falls back to saved help content on the station and shows a quiet message.
+
+## Print the current help section
+
+When a manual is open, select **Print** to print only the viewed help article.
+
+Printed help includes:
+
+- the help title
+- the help body
+- images already present in the help article
+
+Printed help does not include:
+
+- the app sidebar or top bar
+- Help Center navigation and search controls
+- ROSIE chat controls
+- unrelated app chrome
+
+The print action uses the browser print window. It does not create a PDF inside Riverside OS.
+
+## Ask ROSIE
+
+ROSIE help is optional. It should return quickly or fall back quietly if the local model host is slow or unavailable. ROSIE does not replace the manual or the current screen state.
+
+Use sources to open the exact manual section ROSIE used.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
-
-## What happens next
-
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
-
-## Related workflows
-
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/help-center-drawer/` and replace this example with governed screenshots.
-
-![Example](../images/help/help-center-drawer/example.png)
-
+- If a manual cannot load, use search or try again later.
+- If ROSIE is unavailable, continue with the staff manual and visible workflow controls.
+- Do not paste passwords, Access PINs, card numbers, or private customer notes into ROSIE.

@@ -1,41 +1,46 @@
 ---
 id: pos-receipt-summary-modal
-title: "Receipt Summary Modal (pos)"
+title: "Receipt Preview and Delivery"
 order: 1068
-summary: "Use this screen after a completed sale to print, retry, or send the receipt."
+summary: "Preview, print, text, or email the completed sale receipt."
 source: client/src/components/pos/ReceiptSummaryModal.tsx
-last_scanned: 2026-04-22
+last_scanned: 2026-05-10
 tags: pos-receipt-summary-modal, pos, receipt, printing
+status: approved
 ---
 
-# Receipt Summary Modal (pos)
-
-<!-- help:component-source -->
-_Linked component: `client/src/components/pos/ReceiptSummaryModal.tsx`._
-<!-- /help:component-source -->
+# Receipt Preview and Delivery
 
 ## What this is
 
-This is the post-sale receipt screen shown after checkout succeeds. It confirms that the sale is complete, then lets staff print, view, text, or email the customer receipt. Gift receipts open in a separate selection window so the main completion screen stays focused on finishing the sale.
+The sale complete receipt preview shows the customer receipt after checkout. It should match the Receipt Builder style closely enough that staff can trust what will print, email, or text.
 
 ## How to use it
 
-1. Confirm the sale total and tender summary.
-2. Use **Print receipt**, **Text receipt**, or **Email receipt** for the standard customer copy.
-3. Use **View receipt** to preview the receipt and choose **Receipt printer** or **Reports printer** from the preview window.
-4. Use **Gift receipt** only when a gift copy is needed. Select the included lines, then choose print, text, or email inside that window.
-5. If a customer is attached, phone and email prefill from the customer profile. Staff may edit them for this receipt and use **Save** when the profile should be updated.
-6. If printing fails, read the warning panel carefully. The sale is already complete even if the printer did not respond.
-7. Use **Retry** or **Check station printer** before starting the next customer if the printer path is the problem.
+1. Review the sale total, tender, and transaction number on the sale complete screen.
+2. Choose print, view, text, email, gift receipt, or reports printer based on the customer request.
+3. Confirm the preview or printer path shows the formatted receipt before handing it off.
 
-## Tips
+## Actions
 
-- A print failure does not undo the completed transaction.
-- The warning panel is telling you about receipt delivery only, not payment failure.
-- If the printer check passes after a failure, retry printing from this screen before moving on.
+- **Print receipt** sends the customer receipt to the station receipt printer.
+- **View receipt** opens the preview.
+- **Text receipt** and **Email receipt** send the customer copy when the sale has the needed customer contact information.
+- **Gift receipt** prints a gift copy without exposing normal payment detail.
+- **Reports printer** opens the formatted receipt for the workstation report printer path.
 
-## Screenshots
+## Receipt preview
 
-Use governed screenshots from `../images/help/pos-receipt-summary-modal/` when this manual is refreshed so receipt-delivery examples stay aligned with the live UI.
+The preview is intentionally narrow and receipt-like. It uses the same receipt content that the customer should receive by print, text, or email.
 
-![Example](../images/help/pos-receipt-summary-modal/example.png)
+If the reports printer opens a blank page, retry from the receipt preview and report the transaction number to support. The report-printer window should contain the formatted receipt, not a white page.
+
+## Walk-in sales
+
+If no customer is attached, the sale complete screen explains that SMS or email delivery requires a customer on file. Staff can still print or view the receipt.
+
+## What to watch for
+
+- Confirm the receipt total, paid amount, tender, and status before handing the receipt to the customer.
+- Use gift receipt only when the customer asks for one.
+- Do not use screenshots of receipts as customer delivery unless support asks for troubleshooting evidence.

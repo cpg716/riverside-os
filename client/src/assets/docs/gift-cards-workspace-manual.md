@@ -2,94 +2,51 @@
 id: gift-cards-workspace
 title: "Gift Cards Workspace"
 order: 1010
-summary: "Back Office gift card guide for looking up cards, issuing donated or promo cards, and voiding cards safely."
+summary: "Look up cards, issue purchased, donated, loyalty, or promo cards, and review liability-safe activity."
 source: client/src/components/gift-cards/GiftCardsWorkspace.tsx
-last_scanned: 2026-04-21
-tags: gift-cards, back-office, staff-manual
+last_scanned: 2026-05-10
+tags: gift-cards, back-office, staff-manual, promo
+status: approved
 ---
 
 # Gift Cards Workspace
 
-The Gift Cards workspace is the Back Office control surface for managing the store's gift card liability and promotional card issuance.
-
-![Gift Cards Workspace Main List](../images/help/gift-cards-workspace/main.png)
-
 ## What this is
 
-Use this workspace to look up card balances, review transaction history, issue donated or promo cards, and void cards when necessary.
-
-> [!IMPORTANT]
-> Purchased gift cards must be sold or reloaded from the **Register** to ensure correct financial recording. This workspace is for administrative management and promotional issuance only.
-
-## What this screen is for
-
-- Review open cards and current liability totals.
-- Look up a card by code, kind, or status.
-- Review recent activity for the selected card.
-- Issue a donated/giveaway card.
-- Issue a promo gift card for a named event.
-- Void a card when a manager has approved it.
-
-## What this screen is not for
-
-- Regular register redemption during checkout.
-- Customer-paid purchased gift card sales or reloads. Use **Register → Gift Card** so the sale, tender, card event, and gift card liability stay together.
-- Loyalty reward issuance from the monthly loyalty flow.
-- Manual balance corrections without approval.
-
-## Card kinds
-
-- **Purchased**: customer-paid gift cards sold from Register. These increase gift card liability when sold/loaded and reduce gift card liability when redeemed.
-- **Loyalty reward**: rewards issued from the loyalty workflow. These are not purchased-card liabilities.
-- **Donated / giveaway**: promotional cards. These do not use the purchased gift card liability path.
-- **Promo gift card**: event or giveaway cards with a required event name. These expire after one year and are expensed like loyalty/promo value when redeemed.
+Gift Cards Workspace is the Back Office surface for looking up cards, reviewing balances, issuing new cards, and handling non-sale gift card workflows.
 
 ## How to use it
 
-### Refresh card list
+1. Look up the card or choose the approved issue workflow.
+2. Confirm the card subtype before issuing or reviewing activity.
+3. Review balance and history before taking action.
+4. Use checkout for redemption.
 
-1. Open **Gift Cards** in Back Office.
-2. Select filters if needed.
-3. Select a card row to open its detail panel.
-4. Click **Refresh Cards** to reload the current list.
+## Gift card types
 
-## What the detail panel shows
+Riverside OS tracks gift card subtype because accounting treatment differs.
 
-- Current balance and original value
-- Status and expiration date
-- Linked customer, if any
-- Notes
-- Recent activity such as issued, loaded, used at checkout, refunded to card, and voided
+- **Purchased gift cards** represent customer-paid liability.
+- **Loyalty gift cards** are issued from loyalty or reward workflows.
+- **Donated gift cards** are issued for approved donation use.
+- **Promo gift cards** are promotional and should remain distinguishable from purchased cards.
 
-### Issue a donated card
+## Issue a card
 
-1. Open **Issue Donated**.
-2. Enter the card code and amount.
-3. Add notes that explain why the card was issued.
-4. Confirm the new card appears in the list.
+Use the correct issue workflow for the card type. Do not use a purchased card path for a donation, loyalty reward, or promotion.
 
-### Issue a promo gift card
+Promo and donated cards should only be issued when the store has approved the reason.
 
-1. Open **Issue Promo**.
-2. Enter the card code, amount, and event name.
-3. Link the customer if the promo card is assigned to one person.
-4. Add notes if finance/support needs more context.
-5. Confirm the new card appears in the list with the event name.
+## Redeem a card
 
-### Void a card
+Gift card redemption happens in checkout. The sale should apply the card as gift card tender and leave auditable evidence for the remaining balance.
 
-1. Find the card in the list.
-2. Confirm you have the right code and balance.
-3. Use **Void** only when policy allows it.
-4. Refresh the list and confirm the card is no longer active.
+## QBO evidence
 
-## Checkout reminder
+QBO proposals should keep gift card subtype evidence clear. Purchased, loyalty, donated, and promo gift cards should follow their intended accounting path.
 
-When a cashier redeems a gift card in checkout, Riverside matches the card type from the real card record. If the cashier picks the wrong gift card type, checkout blocks the payment and tells them which type to use.
+## What to watch for
 
-## Tips
-
-- Treat gift cards like cash.
-- If a customer says the balance is wrong, compare the card and the event history before changing anything.
-- Use notes on donated cards so finance and support can tell why the card exists.
-- Use clear event names on promo cards so accounting can match the card to the event or giveaway.
+- Confirm the card number and balance before taking action.
+- Do not void a card unless the customer and reason are clear.
+- Do not treat promo or donated cards as purchased gift card liability.

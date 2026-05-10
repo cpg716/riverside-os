@@ -1,58 +1,65 @@
 ---
 id: bug-report-flow
-title: "Bug Report Flow (bug-report)"
+title: "Bug Report Flow"
 order: 1001
-summary: "Draft maintainer scaffold for client/src/components/bug-report/BugReportFlow.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "How staff send a useful, redacted bug report from Riverside OS."
 source: client/src/components/bug-report/BugReportFlow.tsx
-last_scanned: 2026-04-27
-tags: bug-report-flow, component, auto-scaffold
-status: draft
+last_scanned: 2026-05-10
+tags: bug-report-flow, support, diagnostics, privacy
+status: approved
 ---
 
-# Bug Report Flow (bug-report)
-
-<!-- help:component-source -->
-_Linked component: `client/src/components/bug-report/BugReportFlow.tsx`._
-<!-- /help:component-source -->
+# Bug Report Flow
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Use the bug report flow when something in Riverside OS blocks work, looks wrong, or needs a developer to review the workstation state.
+
+The report is built for support. It keeps useful context such as the current route, browser details, screen size, recent non-sensitive console messages, correlation ID, and an optional screenshot. It redacts obvious sensitive values before the report is submitted or downloaded.
+
+## How to use it
+
+1. Open **Report a Bug** from Help or Support.
+2. Describe what staff were trying to do and what happened instead.
+3. Attach a screenshot only when the visible screen helps support.
+4. Submit or download the redacted report.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use **Report a Bug** when staff can still operate but need to capture evidence before the issue disappears.
 
-## Before you start
+Use it for:
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- a button, drawer, checkout step, or report that does not behave as expected
+- a degraded dashboard or failed load state that needs follow-up
+- a receipt, printer, terminal, customer, order, or inventory screen that is hard to explain later
+- a repeatable problem that support should investigate with the exact screen context
 
-## Steps
+## Before you send
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+- Include what you were trying to do.
+- Include the customer, transaction, product, or workstation context only when it is needed to investigate.
+- Do not type Access PINs, passwords, card numbers, or private notes into the description.
+- Add a screenshot when the visible screen helps explain the issue.
 
-## What to watch for
+## Send a report
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+1. Open **Help** or **Support** and choose **Report a Bug**.
+2. Describe the issue in plain language.
+3. Confirm the screen and workflow shown in the report are the right ones.
+4. Attach a screenshot if the visual state matters.
+5. Submit the report.
+
+## Download a report
+
+Use the download option when support asks for a local copy or when the workstation cannot submit the report. The downloaded report uses the same redaction path as submitted reports.
+
+## Privacy notes
+
+Riverside OS removes obvious Authorization headers, bearer tokens, JWT-looking strings, cookies, session values, PIN-like fields, passwords, secrets, token fields, and API key fields from diagnostic payloads.
+
+If a sensitive value was typed into a normal description field, remove it before submitting.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
-
-## Related workflows
-
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/bug-report-flow/` and replace this example with governed screenshots.
-
-![Example](../images/help/bug-report-flow/example.png)
-
+Support reviews the report with the captured route, workstation context, recent safe console lines, screenshot when included, and correlation ID. Staff should keep working normally unless the screen itself says the workflow is blocked.

@@ -1,40 +1,49 @@
 ---
 id: inventory-purchase-order-panel
-title: "Purchase Order Panel (inventory)"
+title: "Purchase Orders and Vendor Paperwork"
 order: 1023
-summary: "Create purchase orders or direct invoices, submit standard POs, and open Receive Stock with checked vendor and line rules."
+summary: "Create, review, refresh, and receive purchase orders or vendor paperwork."
 source: client/src/components/inventory/PurchaseOrderPanel.tsx
-last_scanned: 2026-04-20
+last_scanned: 2026-05-10
 tags: inventory-purchase-order-panel, inventory, purchase-orders, vendors
+status: approved
 ---
 
-# Purchase Order Panel (inventory)
-
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/PurchaseOrderPanel.tsx`._
-<!-- /help:component-source -->
+# Purchase Orders and Vendor Paperwork
 
 ## What this is
 
-Use **Purchase Orders** to build standard vendor orders or direct-invoice receipts before moving into **Receive Stock**.
+Purchase Orders is the inventory surface for vendor paperwork. Staff use it to create purchase orders, review paperwork, and open Receive Stock.
 
 ## How to use it
 
-1. Select the correct **vendor** before creating a document.
-2. Use **New PO** for a standard order that will be submitted to the vendor.
-3. Use **Direct Invoice** when merchandise arrived with invoice paperwork but no pre-built PO.
-4. Add lines with a valid SKU, quantity greater than zero, and a non-negative unit cost.
-5. For standard POs, click **Submit PO** before receiving.
-6. Open **Receive Stock** to post stock from the finalized receipt.
+1. Open Purchase Orders from Inventory.
+2. Wait for vendor paperwork to load or review any failed-load warning.
+3. Select the correct paperwork and open Receive Stock when ready.
+4. Retry refresh before receiving if stale-paperwork copy appears.
 
-## Validation rules
+## Vendor paperwork states
 
-- The selected vendor must exist and still be active.
-- Standard POs must contain at least one line before they can be submitted.
-- PO lines can only be added while the document is still in **draft**.
-- If a product already has a different **primary vendor**, ROS blocks adding that SKU to the wrong vendor’s PO.
+Riverside OS separates three states:
 
-## Tips
+- **Loading:** paperwork is still being fetched.
+- **Failed load:** paperwork could not load and staff should retry.
+- **Successful empty:** no vendor paperwork is ready.
 
-- If the system says a SKU belongs to a different primary vendor, check the product hub before forcing procurement through the wrong supplier.
-- Direct invoices skip the separate submit step, but they still require the same line and vendor checks.
+The empty message only appears after a successful empty response.
+
+## Stale refresh warning
+
+If paperwork loaded successfully once and a later refresh fails, the existing rows stay visible. A quiet warning explains that vendor paperwork may not be current and that the screen is showing the last successfully loaded results.
+
+Retry refresh before receiving when this warning appears.
+
+## Open Receive Stock
+
+Select the correct paperwork and open **Receive Stock**. Review the receiving drawer before posting stock.
+
+## What to watch for
+
+- Do not treat stale rows as newly confirmed paperwork.
+- If vendor paperwork cannot load at all, retry or ask a manager before receiving.
+- Do not create duplicate purchase orders just because a refresh failed.

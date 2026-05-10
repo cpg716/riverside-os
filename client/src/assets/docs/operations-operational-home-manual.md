@@ -1,64 +1,47 @@
 ---
 id: operations-operational-home
-title: "Operations Home (Action Board)"
+title: "Operations Home"
 order: 1047
-summary: "Store-wide action board for triage: tracking daily movement, wedding party health, alterations, and priority pickup queues."
+summary: "Store-wide action board for daily changes, attention items, degraded feeds, and optional daily briefing."
 source: client/src/components/operations/OperationalHome.tsx
+last_scanned: 2026-05-10
 tags: operations, dashboard, action-board, triage, weddings, alterations
 status: approved
 ---
 
-# Operations Home (Action Board)
-
-Operations is the central triage area for Riverside OS. Use it to quickly identify what changed today and what needs your immediate attention.
-
-![Operations Home / Action Board](../images/help/operations-operational-home/main.png)
+# Operations Home
 
 ## What this is
 
-The **Action Board** is designed for store managers and leads to oversee the live state of the store. It aggregates data from Weddings, Alterations, Sales, and the Pickup Queue into a single, high-level summary.
-
-## When to use it
-
-- At the start of a shift to review the day's goals.
-- To check the "health" of active wedding parties.
-- To see which garments are overdue in Alterations.
-- To triage customer messages in the Podium Inbox.
-
-## Key Sections
-
-### 1. What Changed Today
-This section provides a plain-language summary of store activity, including:
-- **Booked Sales**: Total value of new transactions rung today.
-- **Pickups**: Number of garments/orders fulfilled.
-- **Wedding Activity**: New parties booked or registered.
-- **Appointments**: Count of scheduled fittings and consultations.
-
-### 2. Wedding Health Heatmap
-A visual representation of all active wedding parties. Red or Amber indicators signal that a party has missing measurements, overdue payments, or unfulfilled garments close to the event date.
-
-### 3. What Needs Attention
-A prioritized list of "Blocked" or "Stalled" workflows. This includes orders missing vendor confirmations, failed payment syncs, or overdue tasks.
-
-### 4. Alterations Snapshot
-A high-level view of the tailoring queue. Tap the card to jump into the full **Alterations Hub** for detailed management.
+Operations Home is the staff action board for the day. It keeps deterministic operational facts first: what changed, what needs attention, and where staff should go next.
 
 ## How to use it
 
-1. Open **Operations** from the sidebar.
-2. Review the **Action Board** for any red alerts or overdue items.
-3. Use the **Sub-sections** for deeper triage:
-   - **Daily Sales**: Review register totals and individual transaction logs.
-   - **Pickup Queue**: Follow up on orders that are ready for the customer.
-   - **Podium Inbox**: Respond to customer SMS and email threads.
+1. Review **What Changed Today** for movement since the last shift.
+2. Review **What Needs Attention** for blockers and warnings.
+3. Follow the visible action links into the owning workflow.
+4. Use Daily Operational Briefing only after the deterministic cards are understood.
+
+## What to check first
+
+Start with **What Changed Today** and **What Needs Attention**. These cards show current operational signals such as movement, blockers, warnings, weddings, alterations, pickups, and inventory work.
+
+Successful **no issues** states are different from failed feeds. If a feed cannot load, Operations Home shows a quiet degraded indicator instead of looking calm or empty.
+
+## Daily Operational Briefing
+
+Daily Operational Briefing is optional. It appears below deterministic operational content and should explain the facts already on the screen.
+
+If ROSIE is slow or unavailable, the briefing request times out or falls back quietly. Staff should keep using the deterministic cards and workflow links.
+
+## Degraded feeds
+
+A degraded indicator means that one part of the dashboard could not refresh. Use the visible cards that did load, then retry or report the degraded feed if it affects the shift.
+
+Do not assume the store has no blockers just because a degraded feed is quiet.
 
 ## What to watch for
 
-- **Data Basis**: Operations data is typically shown on a **Booked** basis (when the action occurred), which may differ from the **Recognition** basis used in final financial reports.
-- **Action Required**: If a wedding party is "Red" on the heatmap, click the party name to open the **Wedding Relationship Hub** and resolve the issue.
-
-## Related workflows
-
-- [Alterations Workspace](manual:alterations-workspace)
-- [Wedding Relationship Hub](manual:customers-customer-relationship-hub-drawer)
-- [Pickup Queue](manual:operations-fulfillment-command-center)
+- Use blockers before warnings.
+- Follow the card action links instead of searching manually when a next action is shown.
+- Treat ROSIE as an explanation layer, not the source of sign-off.

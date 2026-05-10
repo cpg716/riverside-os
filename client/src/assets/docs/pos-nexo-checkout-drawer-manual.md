@@ -1,61 +1,54 @@
 ---
 id: pos-nexo-checkout-drawer
-title: "Nexo Checkout Drawer (pos)"
+title: "Checkout & Payment"
 order: 1061
-summary: "Guide to the high-level checkout flow, focusing on Helcim card processing."
+summary: "Collect payment, monitor Helcim terminal status, and complete a sale from the POS checkout drawer."
 source: client/src/components/pos/NexoCheckoutDrawer.tsx
-last_scanned: 2026-04-11
-tags: pos, checkout, helcim, card, payment
+last_scanned: 2026-05-10
+tags: pos, checkout, helcim, card, payment, receipt
+status: approved
 ---
 
-# Checkout & Payment (Nexo)
-
-The Checkout Drawer is the final step for every sale. It handles tender collection, receipt generation, and real-time Helcim integration.
-
-![Payment Ledger / Checkout Drawer](../images/help/pos/nexo-checkout-drawer.png)
+# Checkout & Payment
 
 ## What this is
 
-Use the **Checkout** side panel to collect payments, apply deposits, and finalize the transaction. It is designed to guide the cashier through the correct tender sequence for Retail, Order, and Wedding sales.
-
-## What this is
-
-Use this drawer to collect tender, finish checkout, and hand the customer into receipt delivery.
+The checkout drawer collects payment, shows the remaining balance due, and completes the sale. It keeps payment status visible while the cart stays in the background.
 
 ## How to use it
 
-1. Review the cart totals and apply any final discounts.
-2. Select the customer's preferred **Payment Method**.
-3. Follow the specific prompts for that tender (e.g., swipe card, enter cash amount, or scan check).
-4. Tap **"Finalize Order"** to complete the transaction and print receipts.
+1. Select the payment method the customer is using.
+2. Confirm the balance due and choose full balance or split payment.
+3. Collect the tender and watch the payment status panel.
+4. Complete the sale only after the drawer shows the payment rules are satisfied.
 
-## Credit card processing (Helcim)
+## Payment methods
 
-Riverside OS collects integrated card payments through Helcim terminal checkout.
+Choose the tender type on the left, then collect the amount in the center panel.
 
-### Terminal (Card Reader)
-Staff initiate the payment from ROS, and the customer taps, swipes, or inserts their card on the physical Reader.
-- **Auto-Reconcile**: The terminal automatically communicates the success status and fee data back to ROS.
+- **Card reader** sends the payment to the selected Helcim terminal.
+- **Manual card** is for approved keyed-card workflows.
+- **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable.
+- Store credit and open deposit redemptions are not treated as cash or card tender revenue.
 
-## Refunds & Exchanges
+## Terminal display
 
-- **Card Refunds**: If an order was originally paid via Helcim, the refund can be processed through the Helcim return flow.
-- **Exchanges**: If the customer is returning an item and buying another, the drawer will show the **Net Balance Due** or **Refund Due**.
+The terminal badge shows **Terminal: #** and a small **change terminal** hint. Use that control when the lane should send card payments to a different terminal.
 
-## RMS Charge rules
+If a card attempt is canceled and retried, use the current checkout status before sending another request. A message that a Helcim attempt does not belong to the register session means the pending terminal attempt no longer matches the active checkout attempt. Cancel the stale attempt, confirm the till is still open, then send a fresh card request.
 
-When staff use `RMS Charge`, RiversideOS follows the existing financing rules already enforced by checkout:
+## Keypad and amount controls
 
-- an attached Riverside customer is required first
-- Riverside must resolve the linked RMS account before a charge or RMS payment can continue
-- new RMS charges require an eligible plan selection
-- RMS payment collection posts against the selected RMS account and should not be treated like a normal retail cash or check payment on the sale
+Use **Full balance** for the normal path. Use **Split payment** only when the customer is paying with more than one tender.
 
-## Tips
+The amount keypad is sized for register use while keeping the payment status, sale summary, and balance due visible. Any instructions for the selected tender should remain visible below the keypad without needing to scroll.
 
-- **Split Tenders**: You can split a single order across multiple payment methods (e.g., $100 Cash + $200 Card). ROS will track the fees for the card portion only.
-- **Receipts**: After a successful Helcim payment, you can send an SMS or Email receipt via the **Receipt Summary** modal.
+## Completing the sale
 
-## What happens next
+The **Complete sale** button stays unavailable until the payment rules are satisfied. After completion, Riverside OS opens the sale complete screen with print, view, text, email, and gift receipt actions.
 
-After checkout succeeds, continue to the receipt summary screen to print, retry, or send the receipt.
+## What to watch for
+
+- Do not close the drawer while a terminal request is waiting unless you intend to cancel that payment attempt.
+- If a terminal is offline or mismatched, fix the terminal selection before retrying.
+- If a customer changes tender type, confirm the balance due before collecting the next payment.

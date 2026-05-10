@@ -1,58 +1,64 @@
 ---
 id: settings-ros-dev-center-panel
-title: "Ros Dev Center Panel (settings)"
+title: "ROS Dev Center"
 order: 1115
-summary: "Draft maintainer scaffold for client/src/components/settings/RosDevCenterPanel.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Developer and support diagnostics for checking Riverside OS health safely."
 source: client/src/components/settings/RosDevCenterPanel.tsx
-last_scanned: 2026-04-27
-tags: settings-ros-dev-center-panel, component, auto-scaffold
-status: draft
+last_scanned: 2026-05-10
+tags: settings-ros-dev-center-panel, support, diagnostics, dev-center
+status: approved
 ---
 
-# Ros Dev Center Panel (settings)
-
-<!-- help:component-source -->
-_Linked component: `client/src/components/settings/RosDevCenterPanel.tsx`._
-<!-- /help:component-source -->
+# ROS Dev Center
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+ROS Dev Center is the protected diagnostics area for managers, support, and developers. It is not a daily staff workflow.
+
+Use it to review health, recent incidents, guarded operations, and diagnostic history without leaving Riverside OS.
+
+## How to use it
+
+1. Open ROS Dev Center from the protected settings area.
+2. Review available diagnostics and any degraded feed indicators.
+3. Share report IDs, routes, or correlation IDs with support.
+4. Run protected actions only when a manager or developer asks for them.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use ROS Dev Center when:
 
-## Before you start
+- support asks for workstation or app health
+- a bug report needs deeper diagnostic context
+- a guarded maintenance action needs manager review
+- one operational feed is degraded and you need to see what is still available
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+## Degraded diagnostics
 
-## Steps
+Diagnostic feeds load independently. If one feed fails, the rest of the Dev Center should still render useful information with a quiet degraded message for the failed feed.
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+That means a missing incident feed should not hide available audit history, protected actions, or system status.
+
+## Protected actions
+
+Only use protected operations when a manager or developer has asked for them. These actions are audit-sensitive and should remain traceable.
+
+Before running any protected action:
+
+- confirm the target workflow
+- confirm the expected result
+- avoid running maintenance during live checkout unless support says it is safe
+
+## What to share with support
+
+Share the report ID, route, correlation ID, degraded feed name, and visible error wording. Do not share Access PINs, passwords, tokens, card data, or private customer notes.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- A degraded diagnostics feed does not mean every support feed is unavailable.
+- Protected actions are audit-sensitive and should not be run casually.
+- Staff-facing workflows should be rechecked after support says a fix is ready.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
-
-## Related workflows
-
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/settings-ros-dev-center-panel/` and replace this example with governed screenshots.
-
-![Example](../images/help/settings-ros-dev-center-panel/example.png)
-
+After support reviews the diagnostic evidence, return to the staff workflow and confirm the screen now behaves normally.

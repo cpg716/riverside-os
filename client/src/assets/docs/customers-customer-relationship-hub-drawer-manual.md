@@ -2,97 +2,56 @@
 id: customers-customer-relationship-hub-drawer
 title: "Customer Relationship Hub"
 order: 1004
-summary: "Review customer history, profile details, messages, measurements, orders, shipments, and weddings without mixing in RMS support actions."
+summary: "Review customer profile, snapshot, orders, alterations, loyalty, messages, measurements, and timeline."
 source: client/src/components/customers/CustomerRelationshipHubDrawer.tsx
-last_scanned: 2026-04-21
+last_scanned: 2026-05-10
 tags: customers, relationship-hub, support, profile
+status: approved
 ---
 
 # Customer Relationship Hub
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/customers/CustomerRelationshipHubDrawer.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
-This drawer is the main customer review surface in Back Office and mirrored POS workflows.
+Customer Relationship Hub is the drawer for one customer. It brings profile facts, customer snapshot, transactions, alterations, loyalty, messages, measurements, and timeline context into one place.
 
-Use it when staff need to understand the customer as a person and account holder:
-
-- profile and contact details
-- timeline notes and customer history
-- wedding linkage
-- orders and transactions
-- shipments
-- measurements
-- message history
-
-This drawer is not the place to work RMS exceptions or reconciliation. Use `RMS Charge` for financing-account operations.
-
-## Tabs and what they mean
-
-- `Profile`
-  Contact details, opt-ins, VIP status, joint account linkage, and customer notes.
-- `Messages`
-  Podium thread review and message follow-up when configured.
-- `Transactions`
-  Sale history for the customer.
-- `Orders`
-  Order-linked history and order follow-up entry points.
-- `Shipments`
-  Shipment status and shipment drill-in for this customer.
-- `Measurements`
-  Stored measurement records and fitting details.
-- `Weddings`
-  Wedding party linkage and wedding-related shortcuts.
-
-## What the summary area tells you
-
-At the top of the drawer, staff may see:
-
-- lifecycle state
-- VIP status
-- loyalty points
-- balance due
-- store credit
-- open deposit balance
-- active wedding linkage
-- lifetime sales
-- profile completeness
-- last visit timing
-
-These are customer-review signals. They help staff understand the account quickly before taking the next action.
-
-Lifecycle is derived from the customer's current order, shipment, wedding, and activity signals already in RiversideOS. It is meant to answer the simple question: what stage is this customer in right now?
+Deterministic customer facts stay primary. Optional ROSIE customer snapshot insight appears after the visible profile and snapshot facts.
 
 ## How to use it
 
-1. Open the customer record and confirm you have the correct person before editing anything.
-2. Review the summary area first to understand open balances, loyalty status, and recent activity.
-3. Move into the tab that matches the task, such as profile cleanup, shipments, measurements, or wedding linkage.
-4. Leave the drawer only when the task clearly belongs in a different workflow like RMS Charge or a full order follow-up.
+1. Confirm the customer name and contact details.
+2. Review Customer Snapshot and profile facts.
+3. Open the needed tab for orders, alterations, loyalty, messages, measurements, or timeline.
+4. Treat degraded section messages as missing data until that section reloads.
 
-## When to stay here versus move to RMS Charge
+## Customer Snapshot
 
-Stay in the relationship hub when you need to:
+Customer Snapshot summarizes current customer context, recent activity, important relationship details, and next steps. Use it to orient yourself before opening deeper tabs.
 
-- confirm who the customer is
-- review account history
-- look at orders, shipments, or weddings
-- update profile details
-- review notes or communication history
+## Tabs and sub-sections
 
-Move to `RMS Charge` when you need to:
+Each sub-section distinguishes:
 
-- confirm a linked RMS account
-- review RMS purchase or payment posting
-- link or unlink RMS accounts
-- work RMS exceptions
-- review RMS reconciliation
+- **Loading:** the customer data is still being fetched.
+- **Failed sub-load:** that section could not load and shows a quiet degraded message.
+- **Successful empty:** the section loaded and has no matching records.
 
-## Tips
+This applies to transaction or order history, alterations, loyalty activity, messages, measurements, and timeline.
 
-- Start by confirming the customer record first.
-- Use the customer hub to understand the full account before changing anything.
-- If the issue is specifically about financing account behavior, switch to `RMS Charge` instead of trying to solve it here.
+## Working with degraded sections
+
+If one section is degraded, use the sections that are still loaded. Do not assume there are no orders, messages, measurements, or loyalty events when the section says it could not load.
+
+Retry or reopen the drawer if the missing section matters before helping the customer.
+
+## ROSIE customer insight
+
+ROSIE insight is optional and secondary. It should explain visible customer facts and should not replace staff review of the profile, tabs, and customer history.
+
+If ROSIE is unavailable, the hub remains usable.
+
+## What to watch for
+
+- Confirm the customer name and contact details before taking action.
+- Keep private notes and sensitive customer information out of screenshots or bug reports unless support specifically needs them.
+- Use the visible transaction and alteration records as the source of truth.

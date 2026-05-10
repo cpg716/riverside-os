@@ -1,79 +1,55 @@
 ---
 id: inventory-control-board
-title: "Inventory Control Board (inventory)"
+title: "Inventory Control Board"
 order: 1016
-summary: "High-density SKU discovery surface for catalog search, filtering, product hub access, and controlled inventory maintenance."
+summary: "Find inventory, page through product rows, open Product Hub, and review readiness or cleanup issues."
 source: client/src/components/inventory/InventoryControlBoard.tsx
-last_scanned: 2026-04-21
+last_scanned: 2026-05-10
 tags: inventory-control-board, inventory, control-board, catalog
+status: approved
 ---
 
-# Inventory Control Board (inventory)
-
-![Inventory List / Control Board](../images/help/inventory-control-board/main.png)
-
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/InventoryControlBoard.tsx`._
-<!-- /help:component-source -->
+# Inventory Control Board
 
 ## What this is
 
-Use **Inventory List** as the main SKU browse and control surface for searching inventory, filtering large catalogs, opening the **Product hub**, and printing retail price tags with as little friction as possible.
+Inventory Control Board is the main staff surface for finding products, reviewing stock, and opening Product Hub.
 
-## When to use it
-
-Use this board when you need to:
-
-1. Find a product quickly by SKU, product name, vendor, or category.
-2. Open the **Product hub** to review availability, pricing, history, or variations.
-3. Print one or more **retail price tags** for the floor without going through receiving.
-4. Start from a filtered or selected list when several products need tags at once.
-
-## Before you start
-
-- Confirm you are working with the correct product and variation before printing.
-- Use the Zebra LP2844 retail price-tag stock that matches your station.
-- Treat this board as a browse-and-review surface. If the product arrived on a PO or direct invoice and you want the received quantity to drive the tag count, use **Receive Stock** instead.
+The product list is primary. Item Readiness and Inventory Cleanup Review sit below the inventory list so staff can search, filter, and page through products before reviewing cleanup work.
 
 ## How to use it
 
-1. Search by SKU, product name, vendor, or category filters.
-2. Click the printer action on a row to open the **retail price tag review** dialog.
-3. Review every variation the product includes. Riverside defaults to one tag per variation unless you change the quantities.
-4. Use the quick actions when they help:
-   - `Use staged qty` restores the prefilled quantity for each row.
-   - `Set all to 1` is the fastest way to print one tag per variation.
-   - `Clear all` lets you zero out the batch and build it back intentionally.
-5. Confirm **Print retail price tags** to send the job to the Zebra station, or to the print preview when direct print is unavailable.
-6. Open the **Product hub** when you need matrix, history, pricing, or vendor-linked corrections before printing.
+1. Search or filter the inventory list.
+2. Review the first 20 rows and use **Load More Inventory** when you need more results.
+3. Open a product row for Product Hub details and actions.
+4. Use Item Readiness or Inventory Cleanup Review after reviewing the list.
+
+## Search and filters
+
+Use the main search field for product name, SKU, item number, or variation text. Use vendor, category, stock, label, high value, web, and department filters to narrow the list.
+
+The list shows 20 items at a time. Select **Load More Inventory** to keep paging through results without losing the current filters.
+
+## Open Product Hub
+
+Select a product row to open the Product Hub drawer. Product Hub contains general information, variations, history, labels, damage, return-to-vendor, and other item actions.
+
+## Item Readiness
+
+Item Readiness shows visible inventory that is missing fields needed for purchasing, selling, or reporting.
+
+The readiness cards are action cards. Select a card, such as **Category Missing** or **Vendor Missing**, to open the filtered list of items that need that fix.
+
+Use the list first, then fix items in Product Hub.
+
+## Inventory Cleanup Review
+
+Inventory Cleanup Review summarizes Counterpoint and Lightspeed reference cleanup signals. It explains whether cleanup is ready and which references or aliases are available.
+
+This review is informational. Use Product Hub and Counterpoint Settings for the actual review and safe apply workflows.
 
 ## What to watch for
 
-- The review dialog is variation-aware. Do not assume a single product row means a single printed tag.
-- A quantity of `0` skips that variation.
-- If the result is missing, confirm the exact SKU first and then widen filters instead of relying on broad fuzzy search alone.
-- If a SKU looks wrong for a vendor, open the **Product hub** before printing or purchasing.
-- Treat receiving as a procurement workflow, not as an inline stock-edit workflow from this board.
-
-## What happens next
-
-- Riverside sends the selected retail price tags to the Zebra LP2844 when the direct print path is available.
-- If direct print is unavailable, Riverside opens the print preview instead so the batch can still be completed.
-- Printed variations are marked as shelf-labeled so the team has a better signal that tags were already produced.
-
-## Related workflows
-
-- Use **Product Hub Drawer** when you want to print from the product detail surface instead of the browse list.
-- Use **Receive Stock** when the correct tag quantity should come from what was actually received on a PO or direct invoice.
-
-## Workflow notes
-
-- This board is optimized for lookup, review, and controlled maintenance, not for inbound receipt posting.
-- Low-stock and replenishment signals depend on the current catalog and variant settings.
-- If you need to correct live on-hand after a full count, use **Physical count** review/publish rather than casual manual edits.
-- The `Catalog Completeness` summary is a lightweight quality signal for the current filtered view. It calls out visible templates that are missing a brand, category, or primary vendor so staff can clean up the core identity fields before purchasing or merchandising work depends on them.
-
-## Tips
-
-- For the fastest floor workflow, filter the list, print the tags you need, and only open Product Hub when something looks off.
-- Use bulk selection when you need to print several retail price-tag batches from the same filtered view.
+- A true empty result means the current filters returned no matching inventory.
+- A failed load should show a degraded state rather than pretending the inventory is empty.
+- Do not treat readiness counts as automatic changes. Staff still review and apply fixes deliberately.

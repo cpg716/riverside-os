@@ -1,58 +1,56 @@
 ---
 id: settings-bug-reports-settings-panel
-title: "Bug Reports Settings Panel (settings)"
+title: "Bug Reports Settings"
 order: 1086
-summary: "Draft maintainer scaffold for client/src/components/settings/BugReportsSettingsPanel.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Review submitted bug reports and support diagnostics without exposing sensitive values."
 source: client/src/components/settings/BugReportsSettingsPanel.tsx
-last_scanned: 2026-04-27
-tags: settings-bug-reports-settings-panel, component, auto-scaffold
-status: draft
+last_scanned: 2026-05-10
+tags: settings-bug-reports-settings-panel, support, diagnostics
+status: approved
 ---
 
-# Bug Reports Settings Panel (settings)
-
-<!-- help:component-source -->
-_Linked component: `client/src/components/settings/BugReportsSettingsPanel.tsx`._
-<!-- /help:component-source -->
+# Bug Reports Settings
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Bug Reports Settings is the support review area for submitted reports and diagnostic incidents.
+
+It helps managers and support staff see what was reported, which workstation or route was involved, and whether the captured diagnostics are enough to reproduce the problem.
+
+## How to use it
+
+1. Open Bug Reports Settings from the protected settings area.
+2. Select the report or incident needing review.
+3. Check the route, summary, redacted diagnostics, and screenshot when present.
+4. Share the report ID or correlation ID with support when needed.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use this panel when:
 
-## Before you start
+- staff submitted a bug report from the app
+- support needs the latest report details
+- a diagnostic incident needs review
+- a developer asks for the report ID, route, or correlation ID
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+## What to review
 
-## Steps
+- **Report summary:** what staff said happened.
+- **Workflow context:** route, surface, browser, viewport, and workstation metadata.
+- **Recent safe diagnostics:** redacted console and error context.
+- **Screenshot:** only when staff attached one.
+- **Incident status:** whether the report still needs follow-up.
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+## Privacy behavior
 
-## What to watch for
+Diagnostics are redacted before they are submitted or downloaded. Authorization headers, bearer tokens, JWT-looking strings, cookies, session values, Access PIN-like fields, passwords, secrets, token fields, and API key fields should not appear in report evidence.
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+If a report includes sensitive text typed by a person into a description, treat it as private and remove or replace it before sharing.
+
+## Degraded diagnostics
+
+If one support feed cannot load, the panel should still show the other available report information. A quiet degraded message means that only part of the diagnostic history is unavailable.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
-
-## Related workflows
-
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/settings-bug-reports-settings-panel/` and replace this example with governed screenshots.
-
-![Example](../images/help/settings-bug-reports-settings-panel/example.png)
-
+Use the report details to reproduce the issue or hand the report ID to support. Do not mark an incident resolved until the staff-facing workflow has been checked again.

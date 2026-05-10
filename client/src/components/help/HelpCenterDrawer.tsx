@@ -4,7 +4,17 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
-import { Bot, CircleHelp, MessagesSquare, Mic, SendHorizonal, Square, Volume2, X } from "lucide-react";
+import {
+  Bot,
+  CircleHelp,
+  MessagesSquare,
+  Mic,
+  Printer,
+  SendHorizonal,
+  Square,
+  Volume2,
+  X,
+} from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -102,6 +112,15 @@ function markdownToSpeechText(markdown: string): string {
     .replace(/#+\s+/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function escapePrintHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function HelpMarkdownBody({
@@ -401,6 +420,7 @@ export default function HelpCenterDrawer({
   const voiceCaptureRef = useRef<RosieVoiceCaptureSession | null>(null);
   const speechPlaybackRef = useRef<RosieSpeechPlayback | null>(null);
   const rosieChatEndRef = useRef<HTMLDivElement | null>(null);
+  const activeManualContentRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -579,6 +599,100 @@ export default function HelpCenterDrawer({
       manual && displayMarkdown ? parseHelpToc(displayMarkdown, manual.title) : [];
     return { activeManual: manual, toc: tableOfContents };
   }, [activeManualId, activeTitle, displayMarkdown]);
+
+  const printViewedHelp = useCallback(() => {
+    if (!activeManual || !displayMarkdown || !activeManualContentRef.current) return;
+    const printWindow = window.open("", "_blank", "width=900,height=1100");
+    if (!printWindow) return;
+
+    const contentHtml = activeManualContentRef.current.innerHTML;
+    printWindow.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapePrintHtml(activeTitle)}</title>
+  <style>
+    body {
+      margin: 0;
+      background: #ffffff;
+      color: #111827;
+      font-family: Inter, Arial, sans-serif;
+      line-height: 1.5;
+    }
+    main {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 32px 36px;
+    }
+    h1, h2, h3 {
+      break-after: avoid;
+      color: #111827;
+      letter-spacing: 0;
+    }
+    h1 {
+      margin: 0 0 20px;
+      font-size: 28px;
+    }
+    h2 {
+      margin-top: 28px;
+      font-size: 20px;
+    }
+    h3 {
+      margin-top: 20px;
+      font-size: 16px;
+    }
+    p, li {
+      font-size: 13px;
+    }
+    img {
+      max-width: 100%;
+      height: auto;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      border: 1px solid #d1d5db;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    pre, code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    pre {
+      white-space: pre-wrap;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    a {
+      color: #111827;
+      text-decoration: underline;
+    }
+    button {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${escapePrintHtml(activeTitle)}</h1>
+    ${contentHtml}
+  </main>
+</body>
+</html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => printWindow.print(), 100);
+  }, [activeManual, activeTitle, displayMarkdown]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQ(searchQ.trim()), 320);
@@ -1046,22 +1160,35 @@ export default function HelpCenterDrawer({
               <span className="text-xs text-app-text-muted">Searching…</span>
             ) : null}
           </div>
-          {effectiveList.length > 1 ? (
-            <select
-              className="ui-input max-w-xs text-sm"
-              value={activeManualId}
-              onChange={(e) => {
-                setActiveManualId(e.target.value);
-                setResultRows(null);
-              }}
-            >
-              {effectiveList.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.title}
-                </option>
-              ))}
-            </select>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {effectiveList.length > 1 ? (
+              <select
+                className="ui-input max-w-xs text-sm"
+                value={activeManualId}
+                onChange={(e) => {
+                  setActiveManualId(e.target.value);
+                  setResultRows(null);
+                }}
+              >
+                {effectiveList.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.title}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {(!resultRows || resultRows.length === 0) && activeManual && displayMarkdown ? (
+              <button
+                type="button"
+                data-testid="help-center-print-current"
+                onClick={printViewedHelp}
+                className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-border/20"
+              >
+                <Printer size={14} aria-hidden />
+                Print
+              </button>
+            ) : null}
+          </div>
           {manualList === null && isOpen ? (
             <p className="text-xs text-app-text-muted">Loading manuals…</p>
           ) : null}
@@ -1515,7 +1642,10 @@ export default function HelpCenterDrawer({
                   ))}
                 </ul>
               </nav>
-              <div className="help-center-prose min-h-0 flex-1 overflow-y-auto px-4 py-4 text-sm text-app-text">
+              <div
+                ref={activeManualContentRef}
+                className="help-center-prose min-h-0 flex-1 overflow-y-auto px-4 py-4 text-sm text-app-text"
+              >
                 {activeManual && displayMarkdown ? (
                   <HelpMarkdownBody
                     manualId={activeManual.id}

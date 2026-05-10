@@ -1,50 +1,57 @@
 ---
 id: qbo-workspace
-title: "QBO Workspace (qbo)"
+title: "QBO Workspace"
 order: 1082
-summary: "Central hub for QuickBooks Online integration: credentials, staging queue, and journal synchronization."
+summary: "Review QuickBooks Online staging, balanced proposals, drilldown evidence, and liability tender treatment."
 source: client/src/components/qbo/QboWorkspace.tsx
-last_scanned: 2026-04-11
+last_scanned: 2026-05-10
 tags: qbo, quickbooks, accounting, journal, staging, finance
+status: approved
 ---
 
-# QBO Workspace (qbo)
+# QBO Workspace
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/qbo/QboWorkspace.tsx`._
-<!-- /help:component-source -->
+## What this is
 
-The **QBO Bridge** is the financial gateway between Riverside OS sales data and your QuickBooks Online general ledger. It uses a "Staging & Approval" workflow to ensure data integrity before any entries are synced to your live books.
-
-## Workflow overview
-
-The standard operational rhythm follows three steps:
-1. **Connection**: Ensure your OAuth token is active and valid.
-2. **Mappings**: Define which Riverside accounts (Tenders, Categories, Fees) map to which QBO Chart of Account IDs.
-3. **Staging**: Propose a daily journal, review the lines, and sync to QBO.
+QBO Workspace is the review and staging area for QuickBooks Online journal proposals. It is designed for auditability before anything is synced to the accounting system.
 
 ## How to use it
 
-### 1. Connection tab
-- **Authorization**: If the status shows "inactive," you must re-authorize Riverside to access your QBO company.
-- **Environment**: Set this to "Production" for live syncing or "Sandbox" for testing.
+1. Open the proposal for the accounting date being reviewed.
+2. Confirm the proposal is balanced.
+3. Review drilldown evidence for sales, refunds, gift cards, store credit, and open deposits.
+4. Sync only after the proposal and evidence match the expected activity.
 
-### 2. Staging & History tab
-This is where the daily work happens.
-1. **Pick a Date**: Select the business day you want to summarize (usually yesterday).
-2. **Propose Journal**: ROS will scan all transactions for that date and build a balanced journal entry.
-3. **Review Lines**: Click any journal line to see the "Drill-down" — this shows exactly which orders or inventory moves contributed to that dollar amount.
-4. **Approve & Sync**: Once reviewed, mark the row as **Approved**. Only approved rows can be **Synced** to QuickBooks.
+## Review proposals
 
-## Critical reconciliation patterns
+Review the proposal date, totals, journal lines, balance status, and drilldown evidence before syncing.
 
-### Merchant Clearing Account
-For Merchant card transactions, ROS posts a **Clearing Account pattern**. This means the Gross amount is debited to a clearing account, and Fees are recorded separately. This allows you to match bundled bank deposits by "transferring" the net value from the clearing account to your checking account.
+Refund-day proposals should remain balanced and show refund or outflow tender evidence when a processed refund exists.
 
-### Variance Reporting
-If a proposed journal does not balance (Debits ≠ Credits), it will be flagged as "Faulty." This usually indicates a missing account mapping or a corrupted transaction.
+## Returns and refunds
 
-## Tips
+Returned items should reduce effective quantity in QBO drilldown evidence. Revenue drilldown should reflect the quantity after returns, not the original sold quantity.
 
-- **Audit Log**: The "Access Log" at the bottom of the page tracks which staff members proposed, approved, or synced journals to ensure accountability.
-- **Refresh Cache**: If you added a new account in QuickBooks, use the "Refresh QBO Accounts" button in the Mappings tab to pull the new ID into Riverside.
+Processing a cash refund should leave negative payment or allocation evidence and close or update the refund queue.
+
+## Store credit and open deposits
+
+Store credit and open deposit redemptions are liability-release activity. They should not be treated as cash or card tender revenue.
+
+Manual store-credit adjustments are audit-sensitive and should only post to QBO when the configured accounting path intentionally includes them.
+
+## Gift card subtypes
+
+Purchased, loyalty, donated, and promo gift cards have different accounting intent. Review the QBO evidence to confirm each subtype follows the expected liability, loyalty, donation, or promotional path.
+
+Promo gift cards are operationally different from purchased gift cards and should remain visible in evidence.
+
+## Counterpoint imports
+
+Historical imported Counterpoint activity should remain auditable but should not contaminate current ROS QBO proposals.
+
+## What to watch for
+
+- Do not sync an unbalanced proposal.
+- Confirm refund and liability evidence before syncing days with returns, store credit, deposits, or gift card activity.
+- If drilldown evidence does not match the visible transaction history, stop and ask for accounting review.

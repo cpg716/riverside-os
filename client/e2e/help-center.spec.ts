@@ -83,6 +83,21 @@ test("opens Help from Back Office header", async ({ page }) => {
   await expect(page.getByPlaceholder("Search manuals…")).toBeVisible();
 });
 
+test("prints the currently viewed Help section", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await expect(page.getByRole("dialog", { name: /help/i })).toBeVisible();
+
+  const popupPromise = page.waitForEvent("popup");
+  await page.getByTestId("help-center-print-current").click();
+  const printPage = await popupPromise;
+
+  await expect(printPage.locator("body")).toContainText("Register (POS)");
+  await expect(printPage.locator("body")).toContainText("staff guide");
+  await expect(printPage.getByTestId("help-center-search")).toHaveCount(0);
+});
+
 test("opens Help from POS top bar", async ({ page }) => {
   await signInToBackOffice(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });

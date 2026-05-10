@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-05-04T23:55:47.491Z",
+  "generated_at": "2026-05-10T06:36:08.254Z",
   "standard_version": "help-manual-standard-v1",
-  "published_manual_count": 61,
-  "draft_manual_count": 106,
+  "published_manual_count": 66,
+  "draft_manual_count": 101,
   "manuals": [
     {
       "id": "pos",
@@ -316,8 +316,8 @@
     },
     {
       "id": "bug-report-flow",
-      "title": "Bug Report Flow (bug-report)",
-      "status": "draft",
+      "title": "Bug Report Flow",
+      "status": "approved",
       "source_path": "client/src/assets/docs/bug-report-flow-manual.md",
       "required_buckets": [
         {
@@ -350,13 +350,11 @@
         {
           "key": "related",
           "label": "Related workflows",
-          "present": true
+          "present": false
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 9,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
@@ -476,12 +474,12 @@
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": true
+          "present": false
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
@@ -492,7 +490,9 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
+      ]
     },
     {
       "id": "customers-workspace",
@@ -749,7 +749,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
@@ -757,15 +757,17 @@
           "present": false
         }
       ],
-      "numbered_steps": 12,
+      "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
+      ]
     },
     {
       "id": "help-center-drawer",
-      "title": "Help Center Drawer (help)",
-      "status": "draft",
+      "title": "Help Center Drawer",
+      "status": "approved",
       "source_path": "client/src/assets/docs/help-center-drawer-manual.md",
       "required_buckets": [
         {
@@ -788,25 +790,25 @@
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": true
+          "present": false
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
           "label": "Related workflows",
-          "present": true
+          "present": false
         }
       ],
       "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
+      ]
     },
     {
       "id": "inventory-batch-command-bar",
@@ -1038,7 +1040,7 @@
     },
     {
       "id": "inventory-control-board",
-      "title": "Inventory Control Board (inventory)",
+      "title": "Inventory Control Board",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-control-board-manual.md",
       "required_buckets": [
@@ -1062,23 +1064,25 @@
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": true
+          "present": false
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
           "label": "Related workflows",
-          "present": true
+          "present": false
         }
       ],
-      "numbered_steps": 10,
+      "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
+      ]
     },
     {
       "id": "inventory-intelligence-panel",
@@ -1354,7 +1358,7 @@
     },
     {
       "id": "inventory-purchase-order-panel",
-      "title": "Purchase Order Panel (inventory)",
+      "title": "Purchase Orders and Vendor Paperwork",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-purchase-order-panel-manual.md",
       "required_buckets": [
@@ -1391,7 +1395,7 @@
           "present": false
         }
       ],
-      "numbered_steps": 6,
+      "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
       "warnings": [
@@ -1400,7 +1404,7 @@
     },
     {
       "id": "inventory-receiving-bay",
-      "title": "Receive Stock (inventory)",
+      "title": "Receive Stock",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-receiving-bay-manual.md",
       "required_buckets": [
@@ -1424,12 +1428,12 @@
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": true
+          "present": false
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
@@ -1437,10 +1441,12 @@
           "present": false
         }
       ],
-      "numbered_steps": 11,
+      "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
+      ]
     },
     {
       "id": "inventory-universal-importer",
@@ -2670,7 +2676,7 @@
     },
     {
       "id": "operations-operational-home",
-      "title": "Operations Home (Action Board)",
+      "title": "Operations Home",
       "status": "approved",
       "source_path": "client/src/assets/docs/operations-operational-home-manual.md",
       "required_buckets": [
@@ -2694,7 +2700,7 @@
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": true
+          "present": false
         },
         {
           "key": "outcome",
@@ -2704,13 +2710,15 @@
         {
           "key": "related",
           "label": "Related workflows",
-          "present": true
+          "present": false
         }
       ],
-      "numbered_steps": 3,
+      "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
+      ]
     },
     {
       "id": "operations-reviews-operations-section",
@@ -3590,7 +3598,7 @@
     },
     {
       "id": "pos-nexo-checkout-drawer",
-      "title": "Nexo Checkout Drawer (pos)",
+      "title": "Checkout & Payment",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-nexo-checkout-drawer-manual.md",
       "required_buckets": [
@@ -3619,7 +3627,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
@@ -3630,7 +3638,9 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
+      ]
     },
     {
       "id": "pos-shipping-manual",
@@ -4042,7 +4052,7 @@
     },
     {
       "id": "pos-receipt-summary-modal",
-      "title": "Receipt Summary Modal (pos)",
+      "title": "Receipt Preview and Delivery",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-receipt-summary-modal-manual.md",
       "required_buckets": [
@@ -4079,7 +4089,7 @@
           "present": false
         }
       ],
-      "numbered_steps": 7,
+      "numbered_steps": 3,
       "placeholder_hits": [],
       "errors": [],
       "warnings": [
@@ -4772,7 +4782,7 @@
     },
     {
       "id": "qbo-workspace",
-      "title": "QBO Workspace (qbo)",
+      "title": "QBO Workspace",
       "status": "approved",
       "source_path": "client/src/assets/docs/qbo-workspace-manual.md",
       "required_buckets": [
@@ -4809,7 +4819,7 @@
           "present": false
         }
       ],
-      "numbered_steps": 7,
+      "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
       "warnings": [
@@ -4952,8 +4962,8 @@
     },
     {
       "id": "settings-bug-reports-settings-panel",
-      "title": "Bug Reports Settings Panel (settings)",
-      "status": "draft",
+      "title": "Bug Reports Settings",
+      "status": "approved",
       "source_path": "client/src/assets/docs/settings-bug-reports-settings-panel-manual.md",
       "required_buckets": [
         {
@@ -4986,19 +4996,17 @@
         {
           "key": "related",
           "label": "Related workflows",
-          "present": true
+          "present": false
         }
       ],
       "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
     {
       "id": "settings-counterpoint-sync-settings-panel",
-      "title": "Counterpoint Sync Settings Panel (settings)",
+      "title": "Counterpoint Sync and Sign-Off",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md",
       "required_buckets": [
@@ -5035,7 +5043,7 @@
           "present": false
         }
       ],
-      "numbered_steps": 22,
+      "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
       "warnings": [
@@ -6318,8 +6326,8 @@
     },
     {
       "id": "settings-ros-dev-center-panel",
-      "title": "Ros Dev Center Panel (settings)",
-      "status": "draft",
+      "title": "ROS Dev Center",
+      "status": "approved",
       "source_path": "client/src/assets/docs/settings-ros-dev-center-panel-manual.md",
       "required_buckets": [
         {
@@ -6352,13 +6360,11 @@
         {
           "key": "related",
           "label": "Related workflows",
-          "present": true
+          "present": false
         }
       ],
       "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
@@ -6410,8 +6416,8 @@
     },
     {
       "id": "settings-rosie-settings-panel",
-      "title": "Rosie Settings Panel (settings)",
-      "status": "draft",
+      "title": "ROSIE Settings",
+      "status": "approved",
       "source_path": "client/src/assets/docs/settings-rosie-settings-panel-manual.md",
       "required_buckets": [
         {
@@ -6439,18 +6445,16 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
           "label": "Related workflows",
-          "present": true
+          "present": false
         }
       ],
       "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
