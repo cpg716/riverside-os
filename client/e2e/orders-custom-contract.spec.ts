@@ -219,17 +219,19 @@ async function fetchCatalogPricing(
       local_tax: string;
       primary_vendor_id?: string | null;
     };
-    return {
-      product_id: body.product_id,
-      variant_id: body.variant_id,
-      tax_category: body.tax_category,
-      sku: body.sku,
-      retail_price: body.standard_retail_price,
-      cost_price: body.unit_cost,
-      state_tax: body.state_tax,
-      local_tax: body.local_tax,
-      primary_vendor_id: body.primary_vendor_id ?? null,
-    };
+    if (body.sku === sku || !KNOWN_CUSTOM_CATALOG[sku]) {
+      return {
+        product_id: body.product_id,
+        variant_id: body.variant_id,
+        tax_category: body.tax_category,
+        sku: body.sku,
+        retail_price: body.standard_retail_price,
+        cost_price: body.unit_cost,
+        state_tax: body.state_tax,
+        local_tax: body.local_tax,
+        primary_vendor_id: body.primary_vendor_id ?? null,
+      };
+    }
   }
 
   const res = await request.get(
