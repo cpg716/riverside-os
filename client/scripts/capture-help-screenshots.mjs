@@ -473,6 +473,72 @@ async function ensurePosSaleCashierSignedIn(page, { staffCode }) {
   await waitForRegisterReady(page);
 }
 
+async function preparePosRegister(page, opts) {
+  await prepareBase(page, opts);
+  await enterPosShell(page);
+  await ensurePosRegisterSessionOpen(page, opts);
+  await openPosRegisterTabIfNeeded(page);
+  await ensurePosSaleCashierSignedIn(page, opts);
+  await page.getByTestId("pos-product-search").waitFor({
+    state: "visible",
+    timeout: 15000,
+  });
+}
+
+async function addGiftCardLoadLine(page) {
+  await page.getByTestId("pos-action-gift-card").click();
+  const dialog = page.getByRole("dialog", { name: /gift card/i });
+  await dialog.waitFor({ state: "visible", timeout: 15000 });
+  await dialog.getByRole("button", { name: "5", exact: true }).click();
+  await dialog.getByRole("button", { name: "0", exact: true }).click();
+  await dialog.getByLabel(/card code/i).fill(`HELP-GC-${Date.now()}`);
+  await dialog.getByRole("button", { name: /add to cart/i }).click();
+  await dialog.waitFor({ state: "hidden", timeout: 15000 });
+  await page.getByText(/gift card/i).first().waitFor({
+    state: "visible",
+    timeout: 15000,
+  });
+}
+
+async function preparePosRegisterWithPaymentLine(page, opts) {
+  await preparePosRegister(page, opts);
+  await addGiftCardLoadLine(page);
+}
+
+async function openCheckoutDrawer(page) {
+  await page.getByTestId("pos-pay-button").click();
+  const orderReviewContinue = page.getByRole("button", { name: /continue to payment/i });
+  if (await orderReviewContinue.isVisible().catch(() => false)) {
+    await orderReviewContinue.click();
+  }
+  const walkInDialog = page.getByRole("dialog", { name: /checkout as walk-in/i });
+  if (await walkInDialog.isVisible().catch(() => false)) {
+    await walkInDialog.getByRole("button", { name: /confirm walk-in/i }).click();
+  }
+  const drawer = page.getByRole("dialog", { name: /checkout/i });
+  await drawer.waitFor({ state: "visible", timeout: 20000 });
+}
+
+async function addFullCashPayment(page) {
+  const drawer = page.getByRole("dialog", { name: /checkout/i });
+  await drawer.getByRole("button", { name: /^cash$/i }).click();
+  await drawer.getByRole("button", { name: /full balance/i }).click();
+  await drawer.getByRole("button", { name: /add payment/i }).click();
+  await drawer.getByTestId("pos-finalize-checkout").waitFor({
+    state: "visible",
+    timeout: 15000,
+  });
+}
+
+async function completePosSale(page) {
+  const drawer = page.getByRole("dialog", { name: /checkout/i });
+  await drawer.getByTestId("pos-finalize-checkout").click();
+  await page.getByRole("heading", { name: /sale complete/i }).waitFor({
+    state: "visible",
+    timeout: 30000,
+  });
+}
+
 async function seedRmsFixture(api, body) {
   const response = await api.post("/api/test-support/rms/seed-fixture", {
     data: body,
@@ -483,9 +549,20 @@ async function seedRmsFixture(api, body) {
   return response.json();
 }
 
+async function dismissNotifications(page) {
+  const dismissButtons = page.getByRole("button", { name: /dismiss notification/i });
+  for (let i = 0; i < 8; i += 1) {
+    const count = await dismissButtons.count().catch(() => 0);
+    if (count === 0) return;
+    await dismissButtons.first().click().catch(() => {});
+    await page.waitForTimeout(100);
+  }
+}
+
 async function capture(page, spec) {
   const out = absOutput(spec.output);
   ensureParentDir(out);
+  await dismissNotifications(page);
   await page.waitForTimeout(400);
   await page.screenshot({ path: out, fullPage: true });
   return out;
@@ -536,12 +613,50 @@ async function runSpec(page, api, spec, opts) {
       return capture(page, spec);
     }
     case "pos-cart-empty": {
-      await prepareBase(page, opts);
-      await enterPosShell(page);
-      await ensurePosRegisterSessionOpen(page, opts);
-      await openPosRegisterTabIfNeeded(page);
-      await ensurePosSaleCashierSignedIn(page, opts);
-      await page.getByTestId("pos-product-search").waitFor({
+      await preparePosRegister(page, opts);
+      return capture(page, spec);
+    }
+    case "pos-cart-with-line": {
+      await preparePosRegisterWithPaymentLine(page, opts);
+      return capture(page, spec);
+    }
+    case "pos-checkout-drawer": {
+      await preparePosRegisterWithPaymentLine(page, opts);
+      await openCheckoutDrawer(page);
+      return capture(page, spec);
+    }
+    case "pos-receipt-summary": {
+      await preparePosRegisterWithPaymentLine(page, opts);
+      await openCheckoutDrawer(page);
+      await addFullCashPayment(page);
+      await completePosSale(page);
+      return capture(page, spec);
+    }
+    case "pos-receipt-preview": {
+      await preparePosRegisterWithPaymentLine(page, opts);
+      await openCheckoutDrawer(page);
+      await addFullCashPayment(page);
+      await completePosSale(page);
+      await page.getByRole("button", { name: /view receipt/i }).click();
+      await page.locator('[aria-labelledby="receipt-preview-dialog-title"]').waitFor({
+        state: "visible",
+        timeout: 20000,
+      });
+      return capture(page, spec);
+    }
+    case "pos-exchange-return-wizard": {
+      await preparePosRegister(page, opts);
+      await page.getByTestId("pos-exchange-wizard-trigger").click();
+      await page.getByTestId("pos-exchange-wizard-dialog").waitFor({
+        state: "visible",
+        timeout: 15000,
+      });
+      return capture(page, spec);
+    }
+    case "pos-wedding-lookup": {
+      await preparePosRegister(page, opts);
+      await page.getByRole("button", { name: /^wedding$/i }).click();
+      await page.getByRole("heading", { name: /wedding lookup/i }).waitFor({
         state: "visible",
         timeout: 15000,
       });

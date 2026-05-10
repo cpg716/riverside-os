@@ -89,21 +89,19 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 
 ---
 
-## Suit or component swap
+## Exchange / return
 
-Use this when a customer already paid on **this open register session** and you need to change which SKU is on the order (for example, swap jacket size after a fitting).
+Use this when a customer is exchanging or returning items tied to a completed transaction. The wizard keeps the return, replacement sale, manager approval, and register-session checks together.
 
-1. On the **Register** screen, select **Swap** (suit swap).
-2. In the **Suit swap wizard**, paste or type the **order ID** (UUID) for the sale.
-3. Select **Load order**. The order must have payment tied to this register session.
-4. Select the **line** you are changing.
-5. Enter or scan the **replacement SKU**.
-6. Add an optional **note** for the file.
-7. Select **Confirm swap**. When finished, close the wizard.
+1. On the **Register** screen, select **Exchange / Return**.
+2. Search or enter the completed transaction.
+3. Choose the line being returned or exchanged.
+4. Follow the wizard instructions for refund, replacement sale, or manager approval.
+5. Complete any replacement checkout before handing the customer their final receipt.
 
-Inventory and bookkeeping follow server rules for takeaway vs order vs wedding lines; ask a lead if you are unsure.
+Inventory and bookkeeping follow server rules for takeaway, order, and wedding lines; ask a lead if you are unsure.
 
-![Suit swap wizard](../images/help/pos/pos-suit-swap-wizard.png)
+![Exchange and return wizard](../images/help/pos/exchange-return-wizard.png)
 
 ---
 
@@ -120,6 +118,16 @@ Inventory and bookkeeping follow server rules for takeaway vs order vs wedding l
 8. If you need to hold the transaction for another cashier, use **Park Sale** and enter the label in the Riverside prompt instead of a browser dialog.
 
 ![Payment ledger during checkout](../images/help/pos/nexo-checkout-drawer.png)
+
+## Receipt delivery
+
+The **Sale Complete** screen is the receipt handoff point after checkout. Use it to print the customer receipt, view the formatted receipt, send by text or email when a customer is attached, or print a gift receipt when needed.
+
+![Sale complete receipt actions](../images/help/pos/receipt-summary.png)
+
+Select **View Receipt** to inspect the same formatted receipt layout used for customer delivery and the report-printer view.
+
+![Formatted receipt preview](../images/help/pos/receipt-preview.png)
 
 ---
 

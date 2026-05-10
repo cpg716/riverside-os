@@ -33,6 +33,36 @@ export const HELP_SCREENSHOT_SPECS = [
     output: "client/src/assets/images/help/pos/cart-empty.png",
   },
   {
+    id: "pos-cart-with-lines",
+    kind: "pos-cart-with-line",
+    output: "client/src/assets/images/help/pos/cart-with-lines.png",
+  },
+  {
+    id: "pos-checkout-drawer",
+    kind: "pos-checkout-drawer",
+    output: "client/src/assets/images/help/pos/nexo-checkout-drawer.png",
+  },
+  {
+    id: "pos-receipt-summary",
+    kind: "pos-receipt-summary",
+    output: "client/src/assets/images/help/pos/receipt-summary.png",
+  },
+  {
+    id: "pos-receipt-preview",
+    kind: "pos-receipt-preview",
+    output: "client/src/assets/images/help/pos/receipt-preview.png",
+  },
+  {
+    id: "pos-exchange-return-wizard",
+    kind: "pos-exchange-return-wizard",
+    output: "client/src/assets/images/help/pos/exchange-return-wizard.png",
+  },
+  {
+    id: "pos-wedding-lookup",
+    kind: "pos-wedding-lookup",
+    output: "client/src/assets/images/help/pos/wedding-lookup-drawer.png",
+  },
+  {
     id: "reports-catalog",
     kind: "workspace-tab",
     tab: "reports",
