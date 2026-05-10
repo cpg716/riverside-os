@@ -1430,10 +1430,15 @@ async fn staging_drilldown(
                 r#"
                 SELECT
                     oi.transaction_id,
-                    SUM((oi.unit_price * oi.quantity)::numeric(14,2)) AS amount
+                    SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)) AS amount
                 FROM transaction_lines oi
                 INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
+                LEFT JOIN (
+                    SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                    FROM transaction_return_lines
+                    GROUP BY transaction_line_id
+                ) orl ON orl.transaction_line_id = oi.id
                 WHERE o.status::text NOT IN ('cancelled')
                   AND {line_recognition_ts} IS NOT NULL
                   AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
@@ -1451,10 +1456,15 @@ async fn staging_drilldown(
                 r#"
                 SELECT
                     oi.transaction_id,
-                    SUM((oi.unit_price * oi.quantity)::numeric(14,2)) AS amount
+                    SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)) AS amount
                 FROM transaction_lines oi
                 INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
+                LEFT JOIN (
+                    SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                    FROM transaction_return_lines
+                    GROUP BY transaction_line_id
+                ) orl ON orl.transaction_line_id = oi.id
                 WHERE o.status::text NOT IN ('cancelled')
                   AND {line_recognition_ts} IS NOT NULL
                   AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
@@ -1503,9 +1513,14 @@ async fn staging_drilldown(
                     SELECT
                         oi.transaction_id,
                         p.category_id,
-                        SUM((oi.unit_price * oi.quantity)::numeric(14,2)) AS cat_net
+                        SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)) AS cat_net
                     FROM transaction_lines oi
                     INNER JOIN products p ON p.id = oi.product_id
+                    LEFT JOIN (
+                        SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                        FROM transaction_return_lines
+                        GROUP BY transaction_line_id
+                    ) orl ON orl.transaction_line_id = oi.id
                     INNER JOIN fulfilled_orders fo ON fo.id = oi.transaction_id
                     GROUP BY oi.transaction_id, p.category_id
                 ),

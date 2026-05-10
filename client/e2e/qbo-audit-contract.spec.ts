@@ -4,6 +4,7 @@ import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
   apiBase,
   ensureSessionAuth,
+  getTransactionArtifacts,
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
@@ -29,7 +30,28 @@ type CustomerResponse = {
 type TransactionDetail = {
   transaction_display_id: string;
   total_price: string;
+  amount_paid: string;
   balance_due: string;
+  items: Array<{
+    transaction_line_id: string;
+    sku: string;
+    quantity: number;
+    quantity_returned: number;
+  }>;
+};
+
+type RefundQueueRow = {
+  transaction_id: string;
+  amount_due: string;
+  amount_refunded: string;
+  is_open: boolean;
+};
+
+type QboDrilldown = {
+  contributors?: Array<{
+    transaction_id: string;
+    amount: string | number;
+  }>;
 };
 
 type TransactionListResponse = {
@@ -76,6 +98,17 @@ function futureUtcDate(offsetDays: number): string {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + offsetDays);
   return date.toISOString().slice(0, 10);
+}
+
+function currentStoreDate(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 function moneyToCents(value: string | number | undefined): number {
@@ -173,12 +206,16 @@ async function checkoutQboProduct(
     operatorStaffId: string;
     customerId?: string | null;
     fulfillment?: "takeaway" | "layaway";
+    quantity?: number;
     amountPaid?: string;
     appliedDepositAmount?: string;
   },
 ): Promise<CheckoutResponse> {
   const tax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
-  const total = totalFor("110.00", tax.stateTax, tax.localTax);
+  const quantity = options.quantity ?? 1;
+  const total = centsToFixed2(
+    parseMoneyToCents(totalFor("110.00", tax.stateTax, tax.localTax)) * quantity,
+  );
   const amountPaid = options.amountPaid ?? total;
   const paymentSplit: Record<string, string> = {
     payment_method: "cash",
@@ -208,7 +245,7 @@ async function checkoutQboProduct(
           product_id: options.product.productId,
           variant_id: options.product.variantId,
           fulfillment: options.fulfillment ?? "takeaway",
-          quantity: 1,
+          quantity,
           unit_price: "110.00",
           unit_cost: options.product.unitCost,
           state_tax: tax.stateTax,
@@ -506,7 +543,234 @@ async function proposeJournal(
   return JSON.parse(bodyText) as QboStagingRow;
 }
 
+async function returnFirstQboLine(
+  request: APIRequestContext,
+  options: {
+    transactionId: string;
+    sessionId: string;
+    sessionToken: string;
+    productSku: string;
+  },
+): Promise<TransactionDetail> {
+  const before = await fetchTransactionDetail(request, options.transactionId);
+  const line = before.items.find((item) => item.sku === options.productSku);
+  expect(line?.transaction_line_id).toBeTruthy();
+
+  const res = await request.post(
+    `${apiBase()}/api/transactions/${options.transactionId}/returns?register_session_id=${encodeURIComponent(options.sessionId)}`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": options.sessionId,
+        "x-riverside-pos-session-token": options.sessionToken,
+      },
+      data: {
+        lines: [
+          {
+            transaction_line_id: line?.transaction_line_id,
+            quantity: 1,
+            reason: "qbo_audit_return",
+          },
+        ],
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as TransactionDetail;
+}
+
+async function fetchRefundsDue(request: APIRequestContext): Promise<RefundQueueRow[]> {
+  const res = await request.get(`${apiBase()}/api/transactions/refunds/due`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as RefundQueueRow[];
+}
+
+async function processCashRefund(
+  request: APIRequestContext,
+  options: {
+    transactionId: string;
+    sessionId: string;
+    amount: string;
+  },
+): Promise<void> {
+  const res = await request.post(
+    `${apiBase()}/api/transactions/${options.transactionId}/refunds/process`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        session_id: options.sessionId,
+        payment_method: "cash",
+        amount: options.amount,
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function fetchQboDrilldown(
+  request: APIRequestContext,
+  stagingId: string,
+  lineIndex: number,
+): Promise<QboDrilldown> {
+  const res = await request.get(
+    `${apiBase()}/api/qbo/staging/${stagingId}/drilldown?line_index=${lineIndex}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as QboDrilldown;
+}
+
 test.describe("QBO audit contract", () => {
+  test("processed refunds post negative tender evidence and returned-line drilldown uses effective quantity", async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const dateOffset = 180 + Math.trunc(Date.now() % 4000);
+    const refundDate = currentStoreDate();
+    const refundOriginalDate = futureUtcDate(dateOffset);
+    const recognitionDate = futureUtcDate(dateOffset + 1);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    const unitTax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
+    const returnedUnitTotal = totalFor("110.00", unitTax.stateTax, unitTax.localTax);
+
+    const refundCheckout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      quantity: 2,
+    });
+    await assignQboDate(request, refundCheckout.transaction_id, refundOriginalDate);
+
+    const returnedDetail = await returnFirstQboLine(request, {
+      transactionId: refundCheckout.transaction_id,
+      sessionId,
+      sessionToken,
+      productSku: product.sku,
+    });
+    const returnedLine = returnedDetail.items.find((item) => item.sku === product.sku);
+    expect(returnedLine?.quantity).toBe(2);
+    expect(returnedLine?.quantity_returned).toBe(1);
+    expect(returnedDetail.total_price).toBe(returnedUnitTotal);
+
+    const refundBefore = (await fetchRefundsDue(request)).find(
+      (row) => row.transaction_id === refundCheckout.transaction_id,
+    );
+    expect(refundBefore?.is_open).toBe(true);
+    expect(refundBefore?.amount_due).toBe(returnedUnitTotal);
+    expect(moneyToCents(refundBefore?.amount_refunded)).toBe(0);
+
+    await processCashRefund(request, {
+      transactionId: refundCheckout.transaction_id,
+      sessionId,
+      amount: returnedUnitTotal,
+    });
+
+    const refundArtifacts = await getTransactionArtifacts(
+      request,
+      refundCheckout.transaction_id,
+    );
+    expect(refundArtifacts.allocation_rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target_transaction_id: refundCheckout.transaction_id,
+          payment_method: "cash",
+          amount_allocated: `-${returnedUnitTotal}`,
+          payment_amount: `-${returnedUnitTotal}`,
+        }),
+      ]),
+    );
+    expect(
+      (await fetchRefundsDue(request)).some(
+        (row) => row.transaction_id === refundCheckout.transaction_id,
+      ),
+    ).toBe(false);
+
+    await seedQboMappings(request, product.categoryId, refundDate);
+    const refundProposal = await proposeJournal(request, refundDate);
+    expect(refundProposal.payload.totals?.balanced).toBe(true);
+    const refundTenderIndex = refundProposal.payload.lines.findIndex(
+      (line) =>
+        line.memo === "Tenders (refund/outflow) — cash" &&
+        line.qbo_account_id === "E2E_CASH",
+    );
+    expect(refundTenderIndex).toBeGreaterThanOrEqual(0);
+    const refundTender = refundProposal.payload.lines[refundTenderIndex];
+    expect(moneyToCents(refundTender?.credit)).toBe(parseMoneyToCents(returnedUnitTotal));
+    const refundTenderDrilldown = await fetchQboDrilldown(
+      request,
+      refundProposal.id,
+      refundTenderIndex,
+    );
+    const refundContributor = refundTenderDrilldown.contributors?.find(
+      (row) => row.transaction_id === refundCheckout.transaction_id,
+    );
+    expect(refundContributor).toBeTruthy();
+    expect(moneyToCents(refundContributor?.amount)).toBe(-parseMoneyToCents(returnedUnitTotal));
+
+    const drilldownCheckout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      quantity: 2,
+    });
+    await returnFirstQboLine(request, {
+      transactionId: drilldownCheckout.transaction_id,
+      sessionId,
+      sessionToken,
+      productSku: product.sku,
+    });
+    await processCashRefund(request, {
+      transactionId: drilldownCheckout.transaction_id,
+      sessionId,
+      amount: returnedUnitTotal,
+    });
+    await assignQboDate(request, drilldownCheckout.transaction_id, recognitionDate);
+    await seedQboMappings(request, product.categoryId, recognitionDate);
+
+    const recognitionProposal = await proposeJournal(request, recognitionDate);
+    expect(recognitionProposal.payload.totals?.balanced).toBe(true);
+    const revenueLineIndex = recognitionProposal.payload.lines.findIndex(
+      (line) =>
+        line.memo.startsWith("Revenue") &&
+        line.qbo_account_id === "E2E_REVENUE" &&
+        line.detail?.some((detail) => detail.category_id === product.categoryId),
+    );
+    expect(revenueLineIndex).toBeGreaterThanOrEqual(0);
+    expect(moneyToCents(recognitionProposal.payload.lines[revenueLineIndex]?.credit)).toBe(
+      parseMoneyToCents("110.00"),
+    );
+    const revenueDrilldown = await fetchQboDrilldown(
+      request,
+      recognitionProposal.id,
+      revenueLineIndex,
+    );
+    const revenueContributor = revenueDrilldown.contributors?.find(
+      (row) => row.transaction_id === drilldownCheckout.transaction_id,
+    );
+    expect(revenueContributor).toBeTruthy();
+    expect(moneyToCents(revenueContributor?.amount)).toBe(parseMoneyToCents("110.00"));
+  });
+
   test("layaways stay transaction-scoped and post deposit, pickup, and forfeiture journals", async ({
     request,
   }) => {
