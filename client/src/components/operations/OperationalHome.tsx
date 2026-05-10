@@ -91,6 +91,16 @@ interface RegisterDaySummary {
   new_wedding_parties_count: number;
 }
 
+type OperationalFeedKey =
+  | "tasks"
+  | "salesHistory"
+  | "todaySummary"
+  | "fulfillment"
+  | "alterations"
+  | "notifications"
+  | "morningCompass"
+  | "activityFeed";
+
 type FulfillmentUrgency = "rush" | "due_soon" | "standard" | "blocked" | "ready";
 
 interface FulfillmentItem {
@@ -247,6 +257,21 @@ function SummaryPill({
       <p className="mt-1 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(1.15rem,1.6vw,1.5rem)] font-black leading-tight text-app-text">
         {value}
       </p>
+    </div>
+  );
+}
+
+function FeedDegradedNotice({ message }: { message: string }) {
+  return (
+    <div className="rounded-2xl border border-app-warning/25 bg-app-warning/10 px-4 py-3 text-sm font-semibold text-app-text">
+      <div className="flex items-start gap-3">
+        <AlertCircle
+          size={16}
+          className="mt-0.5 shrink-0 text-app-warning"
+          aria-hidden
+        />
+        <p className="leading-relaxed">{message}</p>
+      </div>
     </div>
   );
 }
@@ -452,20 +477,43 @@ export default function OperationalHome({
     { id: string; title_snapshot: string; due_date: string | null }[]
   >([]);
   const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
+  const [feedLoadErrors, setFeedLoadErrors] = useState<
+    Partial<Record<OperationalFeedKey, string>>
+  >({});
 
   const taskAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
 
+  const clearFeedLoadError = useCallback((key: OperationalFeedKey) => {
+    setFeedLoadErrors((prev) => {
+      if (prev[key] == null) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const markFeedLoadError = useCallback(
+    (key: OperationalFeedKey, message: string) => {
+      setFeedLoadErrors((prev) =>
+        prev[key] === message ? prev : { ...prev, [key]: message },
+      );
+    },
+    [],
+  );
 
   const loadTasksMe = useCallback(async () => {
-    if (!permissionsLoaded || !hasPermission("tasks.complete")) return;
+    if (!permissionsLoaded || !hasPermission("tasks.complete")) {
+      clearFeedLoadError("tasks");
+      return;
+    }
     try {
       const res = await fetch(`${baseUrl}/api/tasks/me`, {
         headers: taskAuth(),
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error("tasks");
       const data = (await res.json()) as {
         open?: {
           id: string;
@@ -474,10 +522,20 @@ export default function OperationalHome({
         }[];
       };
       setTaskMeOpen(Array.isArray(data.open) ? data.open : []);
+      clearFeedLoadError("tasks");
     } catch {
-      /* ignore */
+      markFeedLoadError(
+        "tasks",
+        "Assigned tasks could not refresh. The task count may be out of date.",
+      );
     }
-  }, [permissionsLoaded, hasPermission, taskAuth]);
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
 
   useEffect(() => {
     void loadTasksMe();
@@ -495,7 +553,10 @@ export default function OperationalHome({
   const [fulfillmentQueue, setFulfillmentQueue] = useState<FulfillmentItem[]>([]);
   const [alterationsQueue, setAlterationsQueue] = useState<AlterationOpsRow[]>([]);
   const loadSalesHistory = useCallback(async () => {
-    if (!permissionsLoaded || !hasPermission("insights.view")) return;
+    if (!permissionsLoaded || !hasPermission("insights.view")) {
+      clearFeedLoadError("salesHistory");
+      return;
+    }
     try {
       const today = new Date();
       const thirtyDaysAgo = new Date();
@@ -507,13 +568,24 @@ export default function OperationalHome({
       const res = await fetch(`${baseUrl}/api/insights/sales-pivot?group_by=date&basis=sale&from=${from}&to=${to}`, {
         headers: taskAuth(),
       });
-      if (res.ok) {
-        const data = await res.json() as { rows: { gross_revenue: string }[] };
-        const history = data.rows.map((r) => ({ value: Number(r.gross_revenue) })).reverse();
-        setSalesHistory(history);
-      }
-    } catch { /* ignore */ }
-  }, [permissionsLoaded, hasPermission, taskAuth]);
+      if (!res.ok) throw new Error("sales-history");
+      const data = await res.json() as { rows: { gross_revenue: string }[] };
+      const history = data.rows.map((r) => ({ value: Number(r.gross_revenue) })).reverse();
+      setSalesHistory(history);
+      clearFeedLoadError("salesHistory");
+    } catch {
+      markFeedLoadError(
+        "salesHistory",
+        "Sales pace could not refresh. Trend details may be out of date.",
+      );
+    }
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
 
   useEffect(() => {
     void loadSalesHistory();
@@ -522,6 +594,7 @@ export default function OperationalHome({
   const loadTodaySummary = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("register.reports")) {
       setTodaySummary(null);
+      clearFeedLoadError("todaySummary");
       return;
     }
     try {
@@ -532,13 +605,22 @@ export default function OperationalHome({
       const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
         headers: taskAuth(),
       });
-      if (res.ok) {
-        setTodaySummary((await res.json()) as RegisterDaySummary);
-      }
+      if (!res.ok) throw new Error("today-summary");
+      setTodaySummary((await res.json()) as RegisterDaySummary);
+      clearFeedLoadError("todaySummary");
     } catch {
-      /* ignore */
+      markFeedLoadError(
+        "todaySummary",
+        "Today’s sales activity could not refresh. Sales cards may be out of date.",
+      );
     }
-  }, [permissionsLoaded, hasPermission, taskAuth]);
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
 
   useEffect(() => {
     void loadTodaySummary();
@@ -547,19 +629,29 @@ export default function OperationalHome({
   const loadFulfillmentQueue = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("orders.view")) {
       setFulfillmentQueue([]);
+      clearFeedLoadError("fulfillment");
       return;
     }
     try {
       const res = await fetch(`${baseUrl}/api/transactions/fulfillment-queue`, {
         headers: taskAuth(),
       });
-      if (res.ok) {
-        setFulfillmentQueue((await res.json()) as FulfillmentItem[]);
-      }
+      if (!res.ok) throw new Error("fulfillment");
+      setFulfillmentQueue((await res.json()) as FulfillmentItem[]);
+      clearFeedLoadError("fulfillment");
     } catch {
-      /* ignore */
+      markFeedLoadError(
+        "fulfillment",
+        "Pickup queue could not refresh. Order counts may be out of date.",
+      );
     }
-  }, [permissionsLoaded, hasPermission, taskAuth]);
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
 
   useEffect(() => {
     void loadFulfillmentQueue();
@@ -568,19 +660,29 @@ export default function OperationalHome({
   const loadAlterationsQueue = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("alterations.manage")) {
       setAlterationsQueue([]);
+      clearFeedLoadError("alterations");
       return;
     }
     try {
       const res = await fetch(`${baseUrl}/api/alterations`, {
         headers: taskAuth(),
       });
-      if (res.ok) {
-        setAlterationsQueue((await res.json()) as AlterationOpsRow[]);
-      }
+      if (!res.ok) throw new Error("alterations");
+      setAlterationsQueue((await res.json()) as AlterationOpsRow[]);
+      clearFeedLoadError("alterations");
     } catch {
-      /* ignore */
+      markFeedLoadError(
+        "alterations",
+        "Alterations could not refresh. Tailoring counts may be out of date.",
+      );
     }
-  }, [permissionsLoaded, hasPermission, taskAuth]);
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
 
   useEffect(() => {
     void loadAlterationsQueue();
@@ -590,17 +692,29 @@ export default function OperationalHome({
   const loadNotifPreview = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("notifications.view")) {
       setNotifPreview([]);
+      clearFeedLoadError("notifications");
       return;
     }
     try {
       const res = await fetch(`${baseUrl}/api/notifications?limit=16`, {
         headers: taskAuth(),
       });
-      if (res.ok) setNotifPreview((await res.json()) as NotificationRow[]);
+      if (!res.ok) throw new Error("notifications");
+      setNotifPreview((await res.json()) as NotificationRow[]);
+      clearFeedLoadError("notifications");
     } catch {
-      /* ignore */
+      markFeedLoadError(
+        "notifications",
+        "Inventory and inbox alerts could not refresh. Alert counts may be out of date.",
+      );
     }
-  }, [permissionsLoaded, hasPermission, taskAuth]);
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
 
   useEffect(() => {
     void loadNotifPreview();
@@ -615,9 +729,11 @@ export default function OperationalHome({
     if (!permissionsLoaded || !hasPermission("weddings.view")) {
       setCompass(null);
       setActivityFeed([]);
+      clearFeedLoadError("morningCompass");
+      clearFeedLoadError("activityFeed");
       return;
     }
-    const [cRes, fRes] = await Promise.all([
+    const [cResult, fResult] = await Promise.allSettled([
       fetch(`${baseUrl}/api/weddings/morning-compass`, {
         headers: taskAuth(),
       }),
@@ -625,27 +741,61 @@ export default function OperationalHome({
         headers: taskAuth(),
       }),
     ]);
-    if (cRes.ok) {
-      const data = (await cRes.json()) as MorningCompassBundle;
-      if (data) {
-        setCompass({
-          ...data,
-          stats: {
-            needs_measure: Number(data.stats?.needs_measure || 0),
-            needs_order: Number(data.stats?.needs_order || 0),
-            overdue_pickups: Number(data.stats?.overdue_pickups || 0),
-          },
-          needs_measure: data.needs_measure || [],
-          needs_order: data.needs_order || [],
-          overdue_pickups: data.overdue_pickups || [],
-          today_floor_staff: Array.isArray(data.today_floor_staff)
-            ? data.today_floor_staff
-            : [],
-        });
+    if (cResult.status === "fulfilled" && cResult.value.ok) {
+      try {
+        const data = (await cResult.value.json()) as MorningCompassBundle;
+        if (data) {
+          setCompass({
+            ...data,
+            stats: {
+              needs_measure: Number(data.stats?.needs_measure || 0),
+              needs_order: Number(data.stats?.needs_order || 0),
+              overdue_pickups: Number(data.stats?.overdue_pickups || 0),
+            },
+            needs_measure: data.needs_measure || [],
+            needs_order: data.needs_order || [],
+            overdue_pickups: data.overdue_pickups || [],
+            today_floor_staff: Array.isArray(data.today_floor_staff)
+              ? data.today_floor_staff
+              : [],
+          });
+        }
+        clearFeedLoadError("morningCompass");
+      } catch {
+        markFeedLoadError(
+          "morningCompass",
+          "Morning priorities could not refresh. Action Board and floor staffing may be out of date.",
+        );
       }
+    } else {
+      markFeedLoadError(
+        "morningCompass",
+        "Morning priorities could not refresh. Action Board and floor staffing may be out of date.",
+      );
     }
-    if (fRes.ok) setActivityFeed((await fRes.json()) as ActivityFeedEntry[]);
-  }, [taskAuth, permissionsLoaded, hasPermission]);
+    if (fResult.status === "fulfilled" && fResult.value.ok) {
+      try {
+        setActivityFeed((await fResult.value.json()) as ActivityFeedEntry[]);
+        clearFeedLoadError("activityFeed");
+      } catch {
+        markFeedLoadError(
+          "activityFeed",
+          "Recent activity could not refresh. The activity list may be out of date.",
+        );
+      }
+    } else {
+      markFeedLoadError(
+        "activityFeed",
+        "Recent activity could not refresh. The activity list may be out of date.",
+      );
+    }
+  }, [
+    taskAuth,
+    permissionsLoaded,
+    hasPermission,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
 
   useEffect(() => {
     void loadMorningBoard();
@@ -754,6 +904,47 @@ export default function OperationalHome({
       tone: "danger" | "warn" | "default";
     }[] = [];
 
+    if (feedLoadErrors.fulfillment) {
+      items.push({
+        id: "pickup-feed",
+        label: "Pickup queue not refreshed",
+        detail: feedLoadErrors.fulfillment,
+        tone: "warn",
+      });
+    }
+    if (feedLoadErrors.alterations) {
+      items.push({
+        id: "alterations-feed",
+        label: "Alterations not refreshed",
+        detail: feedLoadErrors.alterations,
+        tone: "warn",
+      });
+    }
+    if (feedLoadErrors.notifications) {
+      items.push({
+        id: "alerts-feed",
+        label: "Alerts not refreshed",
+        detail: feedLoadErrors.notifications,
+        tone: "warn",
+      });
+    }
+    if (feedLoadErrors.tasks) {
+      items.push({
+        id: "tasks-feed",
+        label: "Tasks not refreshed",
+        detail: feedLoadErrors.tasks,
+        tone: "warn",
+      });
+    }
+    if (feedLoadErrors.morningCompass) {
+      items.push({
+        id: "priorities-feed",
+        label: "Morning priorities not refreshed",
+        detail: feedLoadErrors.morningCompass,
+        tone: "warn",
+      });
+    }
+
     if (fulfillmentStats.blocked > 0) {
       items.push({
         id: "blocked-orders",
@@ -815,6 +1006,11 @@ export default function OperationalHome({
     activeNotifications.length,
     alterationStats.dueToday,
     alterationStats.overdue,
+    feedLoadErrors.alterations,
+    feedLoadErrors.fulfillment,
+    feedLoadErrors.morningCompass,
+    feedLoadErrors.notifications,
+    feedLoadErrors.tasks,
     fulfillmentStats.blocked,
     fulfillmentStats.rush,
     lowStockNotifications,
@@ -845,7 +1041,14 @@ export default function OperationalHome({
       tone: "good" | "warn" | "danger" | "default";
     }[] = [];
 
-    if (todaySummary) {
+    if (feedLoadErrors.todaySummary) {
+      items.push({
+        id: "sales-feed",
+        label: "Sales movement",
+        detail: feedLoadErrors.todaySummary,
+        tone: "warn",
+      });
+    } else if (todaySummary) {
       if (todaySummary.sales_count > 0) {
         items.push({
           id: "sales-movement",
@@ -881,6 +1084,15 @@ export default function OperationalHome({
       }
     }
 
+    if (feedLoadErrors.salesHistory) {
+      items.push({
+        id: "weekly-sales-feed",
+        label: "Weekly sales pace",
+        detail: feedLoadErrors.salesHistory,
+        tone: "warn",
+      });
+    }
+
     if (weeklySalesTakeaway?.deltaLabel) {
       items.push({
         id: "weekly-sales",
@@ -891,7 +1103,12 @@ export default function OperationalHome({
     }
 
     return items.slice(0, 4);
-  }, [todaySummary, weeklySalesTakeaway]);
+  }, [
+    feedLoadErrors.salesHistory,
+    feedLoadErrors.todaySummary,
+    todaySummary,
+    weeklySalesTakeaway,
+  ]);
 
   const decisionTakeaways = useMemo(() => {
     const items: {
@@ -901,7 +1118,14 @@ export default function OperationalHome({
       tone: "good" | "warn" | "danger" | "default";
     }[] = [];
 
-    if (fulfillmentStats.blocked > 0) {
+    if (feedLoadErrors.fulfillment) {
+      items.push({
+        id: "pickup-queue",
+        label: "Pickup queue",
+        detail: feedLoadErrors.fulfillment,
+        tone: "warn",
+      });
+    } else if (fulfillmentStats.blocked > 0) {
       items.push({
         id: "pickup-queue",
         label: "Pickup queue risk",
@@ -924,7 +1148,14 @@ export default function OperationalHome({
       });
     }
 
-    if (lowStockNotifications.length > 0) {
+    if (feedLoadErrors.notifications) {
+      items.push({
+        id: "inventory-alerts",
+        label: "Inventory pressure",
+        detail: feedLoadErrors.notifications,
+        tone: "warn",
+      });
+    } else if (lowStockNotifications.length > 0) {
       items.push({
         id: "inventory-alerts",
         label: "Inventory pressure",
@@ -940,7 +1171,17 @@ export default function OperationalHome({
       });
     }
 
-    if (taskMeOpen.length > 0 || activeNotifications.length > 0) {
+    if (feedLoadErrors.tasks || feedLoadErrors.notifications) {
+      items.push({
+        id: "staff-load",
+        label: "Staff follow-up load",
+        detail:
+          feedLoadErrors.tasks ??
+          feedLoadErrors.notifications ??
+          "Staff follow-up could not refresh.",
+        tone: "warn",
+      });
+    } else if (taskMeOpen.length > 0 || activeNotifications.length > 0) {
       items.push({
         id: "staff-load",
         label: "Staff follow-up load",
@@ -959,6 +1200,9 @@ export default function OperationalHome({
     return items.slice(0, 3);
   }, [
     activeNotifications.length,
+    feedLoadErrors.fulfillment,
+    feedLoadErrors.notifications,
+    feedLoadErrors.tasks,
     fulfillmentStats.blocked,
     fulfillmentStats.ready,
     lowStockNotifications,
@@ -1033,6 +1277,15 @@ export default function OperationalHome({
       topIssues,
     ],
   );
+
+  const failedFeedMessages = Object.values(feedLoadErrors).filter(
+    (message): message is string => Boolean(message),
+  );
+  const hasFeedLoadErrors = failedFeedMessages.length > 0;
+  const actionBoardLoadError =
+    feedLoadErrors.morningCompass ||
+    feedLoadErrors.tasks ||
+    feedLoadErrors.notifications;
 
 
   if (activeSection === "daily-sales") {
@@ -1144,10 +1397,14 @@ export default function OperationalHome({
         </div>
       </div>
 
+      {hasFeedLoadErrors ? (
+        <FeedDegradedNotice message="Some operational feeds did not refresh. Review the marked sections before treating the dashboard as clear." />
+      ) : null}
+
       <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-6">
          <DashboardStatsCard
            title="Today's Sales"
-           value={todaySummary ? money(todaySummary.net_sales) : "$0.00"}
+           value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary ? money(todaySummary.net_sales) : "$0.00"}
            icon={TrendingUp}
            sparklineData={salesHistory}
            trend={{
@@ -1161,7 +1418,7 @@ export default function OperationalHome({
          />
          <DashboardStatsCard
            title="Pending Orders"
-           value={fulfillmentStats.total}
+           value={feedLoadErrors.fulfillment ? "Not loaded" : fulfillmentStats.total}
            icon={ShoppingBag}
            trend={{
              value: fulfillmentStats.ready,
@@ -1174,7 +1431,7 @@ export default function OperationalHome({
          />
          <DashboardStatsCard
            title="Alterations"
-           value={alterationStats.totalOpen}
+           value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.totalOpen}
            icon={Scissors}
            trend={{
              value: alterationStats.ready,
@@ -1187,7 +1444,7 @@ export default function OperationalHome({
          />
          <DashboardStatsCard
            title="Low Stock Alerts"
-           value={lowStockNotifications.length}
+           value={feedLoadErrors.notifications ? "Not loaded" : lowStockNotifications.length}
            icon={Ruler}
            trend={{
              value: issueNotifications.length,
@@ -1200,7 +1457,7 @@ export default function OperationalHome({
          />
          <DashboardStatsCard
            title="Needs Attention"
-           value={Math.max(topIssues.length, activeNotifications.length)}
+           value={hasFeedLoadErrors ? "Review" : Math.max(topIssues.length, activeNotifications.length)}
            icon={AlertCircle}
            trend={{
              value: activeNotifications.length,
@@ -1220,31 +1477,46 @@ export default function OperationalHome({
           icon={TrendingUp}
           className="xl:col-span-5"
         >
+          {feedLoadErrors.todaySummary || feedLoadErrors.salesHistory ? (
+            <FeedDegradedNotice
+              message={
+                feedLoadErrors.todaySummary ??
+                feedLoadErrors.salesHistory ??
+                "Today’s movement could not refresh."
+              }
+            />
+          ) : null}
           <div className="grid grid-cols-2 gap-3">
             <SummaryPill
               label="Net sales"
-              value={todaySummary ? money(todaySummary.net_sales) : "$0.00"}
+              value={
+                feedLoadErrors.todaySummary
+                  ? "Not loaded"
+                  : todaySummary
+                    ? money(todaySummary.net_sales)
+                    : "$0.00"
+              }
               tone="good"
             />
             <SummaryPill
               label="Sales count"
-              value={todaySummary?.sales_count ?? 0}
+              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.sales_count ?? 0}
             />
             <SummaryPill
               label="Pickups"
-              value={todaySummary?.pickup_count ?? 0}
+              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.pickup_count ?? 0}
             />
             <SummaryPill
               label="Online orders"
-              value={todaySummary?.online_order_count ?? 0}
+              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.online_order_count ?? 0}
             />
             <SummaryPill
               label="Appointments"
-              value={todaySummary?.appointment_count ?? 0}
+              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.appointment_count ?? 0}
             />
             <SummaryPill
               label="New weddings"
-              value={todaySummary?.new_wedding_parties_count ?? 0}
+              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.new_wedding_parties_count ?? 0}
             />
           </div>
           <div className="mt-4 space-y-3">
@@ -1353,13 +1625,31 @@ export default function OperationalHome({
           subtitle="Garment work that needs tailoring attention or pickup movement"
           icon={Scissors}
         >
+          {feedLoadErrors.alterations ? (
+            <FeedDegradedNotice message={feedLoadErrors.alterations} />
+          ) : null}
           <div className="grid gap-3 md:grid-cols-4">
-            <SummaryPill label="Overdue" value={alterationStats.overdue} tone={alterationStats.overdue > 0 ? "danger" : "default"} />
-            <SummaryPill label="Due today" value={alterationStats.dueToday} tone={alterationStats.dueToday > 0 ? "warn" : "default"} />
-            <SummaryPill label="Ready pickup" value={alterationStats.ready} tone={alterationStats.ready > 0 ? "good" : "default"} />
-            <SummaryPill label="Total open" value={alterationStats.totalOpen} />
+            <SummaryPill
+              label="Overdue"
+              value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.overdue}
+              tone={alterationStats.overdue > 0 ? "danger" : "default"}
+            />
+            <SummaryPill
+              label="Due today"
+              value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.dueToday}
+              tone={alterationStats.dueToday > 0 ? "warn" : "default"}
+            />
+            <SummaryPill
+              label="Ready pickup"
+              value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.ready}
+              tone={alterationStats.ready > 0 ? "good" : "default"}
+            />
+            <SummaryPill
+              label="Total open"
+              value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.totalOpen}
+            />
           </div>
-          {alterationAttentionRows.length === 0 ? (
+          {feedLoadErrors.alterations ? null : alterationAttentionRows.length === 0 ? (
             <div className="mt-4 rounded-2xl border border-app-border bg-app-surface-3 px-4 py-5 text-sm font-semibold text-app-text-muted">
               No due, overdue, or ready alteration work is active right now.
             </div>
@@ -1425,7 +1715,9 @@ export default function OperationalHome({
             subtitle="Today's priority tasks and directives"
             icon={Zap}
           >
-            {suggestedMorningQueue.length === 0 ? (
+            {actionBoardLoadError ? (
+               <FeedDegradedNotice message={actionBoardLoadError} />
+            ) : suggestedMorningQueue.length === 0 ? (
                <div className="py-20 text-center opacity-30">
                   <Target size={48} className="mx-auto mb-4" />
                   <p className="font-semibold">All priorities cleared</p>
@@ -1472,7 +1764,13 @@ export default function OperationalHome({
             icon={Activity}
           >
             <div className="space-y-6">
-               {activityFeed.slice(0, 10).map((act) => (
+               {feedLoadErrors.activityFeed ? (
+                 <FeedDegradedNotice message={feedLoadErrors.activityFeed} />
+               ) : activityFeed.length === 0 ? (
+                 <div className="py-12 text-center text-sm font-semibold text-app-text-muted">
+                   No recent activity has posted yet.
+                 </div>
+               ) : activityFeed.slice(0, 10).map((act) => (
                  <div key={act.id} className="flex gap-4 group/act">
                    <div className="mt-1">
                       <div className="h-8 w-8 rounded-full bg-app-accent/10 flex items-center justify-center text-app-accent">
@@ -1500,7 +1798,9 @@ export default function OperationalHome({
              icon={Users}
            >
               <div className="space-y-4">
-                 {(compass?.today_floor_staff ?? []).length === 0 ? (
+                 {feedLoadErrors.morningCompass ? (
+                    <FeedDegradedNotice message={feedLoadErrors.morningCompass} />
+                 ) : (compass?.today_floor_staff ?? []).length === 0 ? (
                     <div className="py-12 text-center opacity-30 italic text-xs font-semibold">No staff scheduled for today</div>
                  ) : (
                    compass?.today_floor_staff?.map((staff) => (
