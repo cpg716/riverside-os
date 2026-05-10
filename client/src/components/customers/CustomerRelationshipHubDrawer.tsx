@@ -1,6 +1,7 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   CalendarDays,
   Gift,
   Heart,
@@ -41,6 +42,34 @@ import {
 } from "./customerLifecycle";
 
 const defaultBase = getBaseUrl();
+
+function InlineDegradedState({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-100">
+      <div className="flex items-start gap-3">
+        <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
+        <div className="min-w-0">
+          <p className="font-semibold">{message}</p>
+          {onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-2 text-[10px] font-black uppercase tracking-widest text-amber-800 underline underline-offset-4 dark:text-amber-100"
+            >
+              Try again
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export interface CustomerHubStats {
   lifetime_spend_usd: string;
@@ -444,7 +473,11 @@ export function CustomerRelationshipHubDrawer({
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [timelineLoading, setTimelineLoading] = useState(true);
+  const [timelineLoadError, setTimelineLoadError] = useState<string | null>(
+    null,
+  );
   const [vaultLoading, setVaultLoading] = useState(false);
+  const [vaultLoadError, setVaultLoadError] = useState<string | null>(null);
   const [storeCreditBal, setStoreCreditBal] = useState<string | null>(null);
   const [openDepositBal, setOpenDepositBal] = useState<string | null>(null);
   const [openSummary, setOpenSummary] = useState<CustomerOpenSummary>({
@@ -456,6 +489,9 @@ export function CustomerRelationshipHubDrawer({
   const [loyaltyIssuances, setLoyaltyIssuances] = useState<LoyaltyIssuanceRow[]>([]);
   const [loyaltyCardActivity, setLoyaltyCardActivity] = useState<LoyaltyCardActivity[]>([]);
   const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [loyaltyLoadError, setLoyaltyLoadError] = useState<string | null>(
+    null,
+  );
   const [highlightMissingProfileFields, setHighlightMissingProfileFields] =
     useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -506,12 +542,17 @@ export function CustomerRelationshipHubDrawer({
   >([]);
   const [orderHistoryTotal, setOrderHistoryTotal] = useState(0);
   const [orderHistoryLoading, setOrderHistoryLoading] = useState(false);
+  const [orderHistoryLoadError, setOrderHistoryLoadError] = useState<
+    string | null
+  >(null);
   const [orderHistoryMoreBusy, setOrderHistoryMoreBusy] = useState(false);
   const [customerAlterations, setCustomerAlterations] = useState<
     CustomerAlterationSummary[]
   >([]);
   const [customerAlterationsLoading, setCustomerAlterationsLoading] =
     useState(false);
+  const [customerAlterationsLoadError, setCustomerAlterationsLoadError] =
+    useState<string | null>(null);
   const [customerAlterationsSearch, setCustomerAlterationsSearch] =
     useState("");
   const ordersFilterRef = useRef({ from: "", to: "" });
@@ -534,6 +575,9 @@ export function CustomerRelationshipHubDrawer({
     }[]
   >([]);
   const [podiumThreadLoading, setPodiumThreadLoading] = useState(false);
+  const [podiumThreadLoadError, setPodiumThreadLoadError] = useState<
+    string | null
+  >(null);
   const [smsReplyDraft, setSmsReplyDraft] = useState("");
   const [smsReplyBusy, setSmsReplyBusy] = useState(false);
   const appliedInitialHubTab = useRef<string | null>(null);
@@ -653,6 +697,7 @@ export function CustomerRelationshipHubDrawer({
 
   const loadTimeline = useCallback(async () => {
     setTimelineLoading(true);
+    setTimelineLoadError(null);
     try {
       const res = await fetch(
         `${baseUrl}/api/customers/${customer.id}/timeline`,
@@ -663,8 +708,12 @@ export function CustomerRelationshipHubDrawer({
       if (!res.ok) throw new Error("timeline");
       const data = (await res.json()) as { events: CustomerTimelineEvent[] };
       setTimeline(data.events ?? []);
+      setTimelineLoadError(null);
     } catch {
       setTimeline([]);
+      setTimelineLoadError(
+        "Customer interactions could not load right now. Try again in a moment.",
+      );
     } finally {
       setTimelineLoading(false);
     }
@@ -672,6 +721,7 @@ export function CustomerRelationshipHubDrawer({
 
   const loadVault = useCallback(async () => {
     setVaultLoading(true);
+    setVaultLoadError(null);
     try {
       const res = await fetch(
         `${baseUrl}/api/customers/${customer.id}/measurements`,
@@ -684,8 +734,12 @@ export function CustomerRelationshipHubDrawer({
           history: MeasurementRecord[];
         },
       );
+      setVaultLoadError(null);
     } catch {
       setVault({ latest: null, history: [] });
+      setVaultLoadError(
+        "Measurements could not load right now. Try again in a moment.",
+      );
     } finally {
       setVaultLoading(false);
     }
@@ -719,6 +773,7 @@ export function CustomerRelationshipHubDrawer({
 
   const loadOrderHistoryFirstPage = useCallback(async () => {
     setOrderHistoryLoading(true);
+    setOrderHistoryLoadError(null);
     const { from, to } = ordersFilterRef.current;
     const recordScope: "transactions" | "orders" =
       tab === "orders" ? "orders" : "transactions";
@@ -726,14 +781,19 @@ export function CustomerRelationshipHubDrawer({
       const data = await fetchOrderHistoryPage(0, from, to, recordScope);
       setOrderHistoryRows(data.items);
       setOrderHistoryTotal(data.total_count);
+      setOrderHistoryLoadError(null);
     } catch {
       setOrderHistoryRows([]);
       setOrderHistoryTotal(0);
-      toast("Could not load order history.", "error");
+      setOrderHistoryLoadError(
+        tab === "orders"
+          ? "Customer orders could not load right now. Try again in a moment."
+          : "Customer history could not load right now. Try again in a moment.",
+      );
     } finally {
       setOrderHistoryLoading(false);
     }
-  }, [fetchOrderHistoryPage, tab, toast]);
+  }, [fetchOrderHistoryPage, tab]);
 
   const loadMoreOrderHistory = useCallback(async () => {
     if (orderHistoryRows.length >= orderHistoryTotal) return;
@@ -764,6 +824,7 @@ export function CustomerRelationshipHubDrawer({
 
   const loadCustomerAlterations = useCallback(async () => {
     setCustomerAlterationsLoading(true);
+    setCustomerAlterationsLoadError(null);
     try {
       const params = new URLSearchParams();
       params.set("customer_id", customer.id);
@@ -774,13 +835,16 @@ export function CustomerRelationshipHubDrawer({
       });
       if (!res.ok) throw new Error("alterations");
       setCustomerAlterations((await res.json()) as CustomerAlterationSummary[]);
+      setCustomerAlterationsLoadError(null);
     } catch {
       setCustomerAlterations([]);
-      toast("Could not load customer alterations.", "error");
+      setCustomerAlterationsLoadError(
+        "Customer alterations could not load right now. Try again in a moment.",
+      );
     } finally {
       setCustomerAlterationsLoading(false);
     }
-  }, [apiAuth, baseUrl, customer.id, customerAlterationsSearch, toast]);
+  }, [apiAuth, baseUrl, customer.id, customerAlterationsSearch]);
 
   const loadOpenSummary = useCallback(async () => {
     try {
@@ -828,22 +892,21 @@ export function CustomerRelationshipHubDrawer({
 
   const loadLoyaltyActivity = useCallback(async () => {
     setLoyaltyLoading(true);
+    setLoyaltyLoadError(null);
     try {
       const ledgerRes = await fetch(
         `${baseUrl}/api/loyalty/ledger?customer_id=${encodeURIComponent(customer.id)}`,
         { headers: apiAuth() },
       );
-      const ledger = ledgerRes.ok
-        ? ((await ledgerRes.json()) as LoyaltyLedgerEntry[])
-        : [];
+      if (!ledgerRes.ok) throw new Error("loyalty-ledger");
+      const ledger = (await ledgerRes.json()) as LoyaltyLedgerEntry[];
       setLoyaltyLedger(Array.isArray(ledger) ? ledger : []);
 
       const issuancesRes = await fetch(`${baseUrl}/api/loyalty/recent-issuances`, {
         headers: apiAuth(),
       });
-      const allIssuances = issuancesRes.ok
-        ? ((await issuancesRes.json()) as LoyaltyIssuanceRow[])
-        : [];
+      if (!issuancesRes.ok) throw new Error("loyalty-issuances");
+      const allIssuances = (await issuancesRes.json()) as LoyaltyIssuanceRow[];
       const customerIds = new Set(
         [customer.id, hub?.id, hub?.couple_primary_id].filter(
           (id): id is string => typeof id === "string" && id.trim().length > 0,
@@ -877,10 +940,14 @@ export function CustomerRelationshipHubDrawer({
         }),
       );
       setLoyaltyCardActivity(cardActivity);
+      setLoyaltyLoadError(null);
     } catch {
       setLoyaltyLedger([]);
       setLoyaltyIssuances([]);
       setLoyaltyCardActivity([]);
+      setLoyaltyLoadError(
+        "Loyalty activity could not load right now. Try again in a moment.",
+      );
     } finally {
       setLoyaltyLoading(false);
     }
@@ -928,6 +995,12 @@ export function CustomerRelationshipHubDrawer({
       setLoyaltyLedger([]);
       setLoyaltyIssuances([]);
       setLoyaltyCardActivity([]);
+      setTimelineLoadError(null);
+      setVaultLoadError(null);
+      setOrderHistoryLoadError(null);
+      setCustomerAlterationsLoadError(null);
+      setLoyaltyLoadError(null);
+      setPodiumThreadLoadError(null);
       return;
     }
     if (!permissionsLoaded) {
@@ -940,6 +1013,12 @@ export function CustomerRelationshipHubDrawer({
       setErr("Manager access is needed to open this customer profile.");
       setTimeline([]);
       setTimelineLoading(false);
+      setTimelineLoadError(null);
+      setVaultLoadError(null);
+      setOrderHistoryLoadError(null);
+      setCustomerAlterationsLoadError(null);
+      setLoyaltyLoadError(null);
+      setPodiumThreadLoadError(null);
       setTab("profile");
       setNoteDraft("");
       return;
@@ -951,6 +1030,7 @@ export function CustomerRelationshipHubDrawer({
     } else {
       setTimeline([]);
       setTimelineLoading(false);
+      setTimelineLoadError(null);
     }
     void loadOpenSummary();
     setNoteDraft("");
@@ -1062,19 +1142,21 @@ export function CustomerRelationshipHubDrawer({
 
   const loadPodiumThread = useCallback(async () => {
     setPodiumThreadLoading(true);
+    setPodiumThreadLoadError(null);
     try {
       const res = await fetch(
         `${baseUrl}/api/customers/${customer.id}/podium/messages`,
         { headers: apiAuth() },
       );
-      if (!res.ok) {
-        setPodiumThread([]);
-        return;
-      }
+      if (!res.ok) throw new Error("podium-thread");
       const data = (await res.json()) as typeof podiumThread;
       setPodiumThread(Array.isArray(data) ? data : []);
+      setPodiumThreadLoadError(null);
     } catch {
       setPodiumThread([]);
+      setPodiumThreadLoadError(
+        "Customer messages could not load right now. Try again in a moment.",
+      );
     } finally {
       setPodiumThreadLoading(false);
     }
@@ -1762,6 +1844,11 @@ export function CustomerRelationshipHubDrawer({
                 <p className="text-sm text-app-text-muted">
                   Loading customer interactions…
                 </p>
+              ) : timelineLoadError ? (
+                <InlineDegradedState
+                  message={timelineLoadError}
+                  onRetry={() => void loadTimeline()}
+                />
               ) : timeline.length === 0 ? (
                 <p className="text-sm text-app-text-muted">
                   No customer interactions recorded yet.
@@ -1828,7 +1915,16 @@ export function CustomerRelationshipHubDrawer({
             </p>
           ) : null}
 
-          {orderHistoryRows.length === 0 && !orderHistoryLoading ? (
+          {!orderHistoryLoading && orderHistoryLoadError ? (
+            <InlineDegradedState
+              message={orderHistoryLoadError}
+              onRetry={() => void loadOrderHistoryFirstPage()}
+            />
+          ) : null}
+
+          {orderHistoryRows.length === 0 &&
+          !orderHistoryLoading &&
+          !orderHistoryLoadError ? (
             <p className="text-sm text-app-text-muted">
               No {tab === "transactions" ? "history" : "orders"} in this
               range.
@@ -2064,7 +2160,16 @@ export function CustomerRelationshipHubDrawer({
             </p>
           ) : null}
 
-          {!customerAlterationsLoading && customerAlterations.length === 0 ? (
+          {!customerAlterationsLoading && customerAlterationsLoadError ? (
+            <InlineDegradedState
+              message={customerAlterationsLoadError}
+              onRetry={() => void loadCustomerAlterations()}
+            />
+          ) : null}
+
+          {!customerAlterationsLoading &&
+          !customerAlterationsLoadError &&
+          customerAlterations.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-app-border bg-app-surface-2/70 p-4 text-sm text-app-text-muted">
               No alteration work found for this customer.
             </p>
@@ -2150,10 +2255,26 @@ export function CustomerRelationshipHubDrawer({
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 ["Current points", `${(hub?.stats.loyalty_points ?? 0).toLocaleString()} pts`],
-                ["Historical earned", `${loyaltyEarnedPoints.toLocaleString()} pts`],
-                ["Points used", `${loyaltyUsedPoints.toLocaleString()} pts`],
-                ["Rewards issued", String(loyaltyIssuances.length)],
-                ["Reward card uses", String(loyaltyRewardCardsUsed)],
+                [
+                  "Historical earned",
+                  loyaltyLoadError
+                    ? "Not loaded"
+                    : `${loyaltyEarnedPoints.toLocaleString()} pts`,
+                ],
+                [
+                  "Points used",
+                  loyaltyLoadError
+                    ? "Not loaded"
+                    : `${loyaltyUsedPoints.toLocaleString()} pts`,
+                ],
+                [
+                  "Rewards issued",
+                  loyaltyLoadError ? "Not loaded" : String(loyaltyIssuances.length),
+                ],
+                [
+                  "Reward card uses",
+                  loyaltyLoadError ? "Not loaded" : String(loyaltyRewardCardsUsed),
+                ],
               ].map(([label, value]) => (
                 <div
                   key={label}
@@ -2176,11 +2297,22 @@ export function CustomerRelationshipHubDrawer({
             </p>
           ) : null}
 
+          {!loyaltyLoading && loyaltyLoadError ? (
+            <InlineDegradedState
+              message={loyaltyLoadError}
+              onRetry={() => void loadLoyaltyActivity()}
+            />
+          ) : null}
+
           <section className="rounded-2xl border border-app-border bg-app-surface p-4">
             <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
               Points history
             </h3>
-            {loyaltyLedger.length === 0 && !loyaltyLoading ? (
+            {loyaltyLoadError ? (
+              <p className="text-sm text-app-text-muted">
+                Refresh loyalty activity to show point history.
+              </p>
+            ) : loyaltyLedger.length === 0 && !loyaltyLoading ? (
               <p className="text-sm text-app-text-muted">
                 No loyalty point activity recorded yet.
               </p>
@@ -2232,7 +2364,11 @@ export function CustomerRelationshipHubDrawer({
             <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
               Loyalty gift cards
             </h3>
-            {loyaltyIssuances.length === 0 && !loyaltyLoading ? (
+            {loyaltyLoadError ? (
+              <p className="text-sm text-app-text-muted">
+                Refresh loyalty activity to show reward card history.
+              </p>
+            ) : loyaltyIssuances.length === 0 && !loyaltyLoading ? (
               <p className="text-sm text-app-text-muted">
                 No loyalty reward cards issued for this customer yet.
               </p>
@@ -2809,6 +2945,11 @@ export function CustomerRelationshipHubDrawer({
                   <p className="text-xs text-app-text-muted">
                     Loading messages…
                   </p>
+                ) : podiumThreadLoadError ? (
+                  <InlineDegradedState
+                    message={podiumThreadLoadError}
+                    onRetry={() => void loadPodiumThread()}
+                  />
                 ) : podiumThread.length === 0 ? (
                   <p className="text-xs text-app-text-muted">
                     No messages yet. New SMS or email messages for this customer appear here.
@@ -3066,6 +3207,11 @@ export function CustomerRelationshipHubDrawer({
                 <p className="text-sm text-app-text-muted">
                   Loading measurements…
                 </p>
+              ) : vaultLoadError ? (
+                <InlineDegradedState
+                  message={vaultLoadError}
+                  onRetry={() => void loadVault()}
+                />
               ) : (
                 <>
                   <div ref={printRef} className="space-y-4">
