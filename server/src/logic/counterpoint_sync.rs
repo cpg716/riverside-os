@@ -3613,6 +3613,7 @@ pub struct CounterpointLandingVerificationSummary {
 pub struct CounterpointTransactionReconciliationTotals {
     pub imported_ticket_transactions: i64,
     pub transaction_lines: i64,
+    pub imported_zero_tax_lines: i64,
     pub payments: i64,
     pub transaction_total_sum: String,
     pub payment_amount_sum: String,
@@ -3651,6 +3652,7 @@ pub struct CounterpointOpenDocsVerificationSnapshot {
     pub disclaimer: String,
     pub imported_open_doc_transactions: i64,
     pub imported_open_doc_lines: i64,
+    pub imported_open_doc_zero_tax_lines: i64,
     pub imported_open_doc_payments: i64,
     pub open_docs_with_customer_linked: i64,
     pub open_docs_missing_customer: i64,
@@ -5250,10 +5252,11 @@ pub async fn build_counterpoint_transaction_reconciliation_snapshot(
     let (
         imported_ticket_transactions,
         transaction_lines,
+        imported_zero_tax_lines,
         payments,
         transaction_total_sum,
         payment_amount_sum,
-    ): (i64, i64, i64, Decimal, Decimal) = sqlx::query_as(
+    ): (i64, i64, i64, i64, Decimal, Decimal) = sqlx::query_as(
         r#"
         WITH ticket_tx AS (
             SELECT id, total_price
@@ -5267,6 +5270,13 @@ pub async fn build_counterpoint_transaction_reconciliation_snapshot(
                 FROM transaction_lines tl
                 INNER JOIN ticket_tx t ON t.id = tl.transaction_id
             ) AS transaction_lines,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_lines tl
+                INNER JOIN ticket_tx t ON t.id = tl.transaction_id
+                WHERE COALESCE(tl.state_tax, 0) = 0
+                  AND COALESCE(tl.local_tax, 0) = 0
+            ) AS imported_zero_tax_lines,
             (
                 SELECT COUNT(*)::bigint
                 FROM payment_allocations pa
@@ -5357,6 +5367,7 @@ pub async fn build_counterpoint_transaction_reconciliation_snapshot(
         totals: CounterpointTransactionReconciliationTotals {
             imported_ticket_transactions,
             transaction_lines,
+            imported_zero_tax_lines,
             payments,
             transaction_total_sum: transaction_total_sum.to_string(),
             payment_amount_sum: payment_amount_sum.to_string(),
@@ -5403,13 +5414,14 @@ pub async fn build_counterpoint_open_docs_verification_snapshot(
     let (
         imported_open_doc_transactions,
         imported_open_doc_lines,
+        imported_open_doc_zero_tax_lines,
         imported_open_doc_payments,
         open_docs_with_customer_linked,
         open_docs_missing_customer,
         open_docs_with_zero_lines,
         open_docs_with_zero_payments,
         distinct_staff_attribution_count,
-    ): (i64, i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+    ): (i64, i64, i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
         r#"
         WITH open_doc_tx AS (
             SELECT id, customer_id, processed_by_staff_id, primary_salesperson_id
@@ -5440,6 +5452,13 @@ pub async fn build_counterpoint_open_docs_verification_snapshot(
         SELECT
             (SELECT COUNT(*)::bigint FROM open_doc_tx) AS imported_open_doc_transactions,
             (SELECT COALESCE(SUM(line_count), 0)::bigint FROM line_counts) AS imported_open_doc_lines,
+            (
+                SELECT COUNT(*)::bigint
+                FROM transaction_lines tl
+                INNER JOIN open_doc_tx t ON t.id = tl.transaction_id
+                WHERE COALESCE(tl.state_tax, 0) = 0
+                  AND COALESCE(tl.local_tax, 0) = 0
+            ) AS imported_open_doc_zero_tax_lines,
             (SELECT COALESCE(SUM(payment_count), 0)::bigint FROM payment_counts) AS imported_open_doc_payments,
             (SELECT COUNT(*)::bigint FROM open_doc_tx WHERE customer_id IS NOT NULL) AS open_docs_with_customer_linked,
             (SELECT COUNT(*)::bigint FROM open_doc_tx WHERE customer_id IS NULL) AS open_docs_missing_customer,
@@ -5456,6 +5475,7 @@ pub async fn build_counterpoint_open_docs_verification_snapshot(
         disclaimer: "Open docs represent in-progress orders. This is a structural validation, not financial reconciliation.".into(),
         imported_open_doc_transactions,
         imported_open_doc_lines,
+        imported_open_doc_zero_tax_lines,
         imported_open_doc_payments,
         open_docs_with_customer_linked,
         open_docs_missing_customer,

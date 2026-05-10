@@ -206,6 +206,37 @@ pub async fn propose_daily_journal(
     .fetch_all(pool)
     .await?;
 
+    let (imported_counterpoint_transactions, imported_counterpoint_zero_tax_lines): (i64, i64) =
+        sqlx::query_as(&format!(
+            r#"
+            SELECT
+                COUNT(DISTINCT o.id)::bigint AS imported_counterpoint_transactions,
+                COUNT(oi.id) FILTER (
+                    WHERE COALESCE(oi.state_tax, 0) = 0
+                      AND COALESCE(oi.local_tax, 0) = 0
+                )::bigint AS imported_counterpoint_zero_tax_lines
+            {TL_EFFECTIVE_JOIN}
+            WHERE o.is_forfeited = false
+              AND o.is_counterpoint_import = true
+              AND (o.counterpoint_ticket_ref IS NOT NULL OR o.counterpoint_doc_ref IS NOT NULL)
+              AND {line_recognition_ts} IS NOT NULL
+              AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+              AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
+              AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+              AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+              AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
+            "#
+        ))
+        .bind(activity_date)
+        .fetch_one(pool)
+        .await?;
+
+    if imported_counterpoint_transactions > 0 {
+        warnings.push(format!(
+            "Counterpoint-imported activity is included in this proposal ({imported_counterpoint_transactions} transaction(s)). Historical gross totals are preserved, but imported line tax is non-authoritative; {imported_counterpoint_zero_tax_lines} imported line(s) show zero tax."
+        ));
+    }
+
     #[derive(sqlx::FromRow)]
     struct TenderAgg {
         payment_method: String,

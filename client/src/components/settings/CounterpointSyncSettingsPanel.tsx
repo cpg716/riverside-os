@@ -316,6 +316,7 @@ interface CounterpointLandingVerificationSummary {
 interface CounterpointTransactionReconciliationTotals {
   imported_ticket_transactions: number;
   transaction_lines: number;
+  imported_zero_tax_lines: number;
   payments: number;
   transaction_total_sum: string;
   payment_amount_sum: string;
@@ -350,6 +351,7 @@ interface CounterpointOpenDocsVerificationSnapshot {
   disclaimer: string;
   imported_open_doc_transactions: number;
   imported_open_doc_lines: number;
+  imported_open_doc_zero_tax_lines: number;
   imported_open_doc_payments: number;
   open_docs_with_customer_linked: number;
   open_docs_missing_customer: number;
@@ -1615,6 +1617,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
     migrationPreflight?.staging_enabled
       ? "ROS landed counts may reflect Apply timing instead of the exact bridge send moment when staging is enabled."
       : null,
+    "Imported Counterpoint ticket and open-doc rows preserve gross historical totals; imported line tax is non-authoritative and should not be treated as tax filing proof.",
     "Where available, ROS landed counts use domain proof tables instead of rerun counters. Remaining entities may still use `counterpoint_sync_runs.records_processed`, which can include skipped or already-existing rows."
   ].filter((item): item is string => !!item);
   const resetScopeRows = resetPreview?.reset_scope ?? [];
@@ -1628,6 +1631,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
     (row) => row.confidence !== "direct",
   ).length;
   const transactionReconciliationTotals = transactionReconciliation?.totals ?? null;
+  const importedTicketZeroTaxLines =
+    transactionReconciliationTotals?.imported_zero_tax_lines ?? 0;
   const transactionReconciliationDiff = transactionReconciliationTotals
     ? Number(transactionReconciliationTotals.difference)
     : 0;
@@ -1642,6 +1647,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
     (openDocsVerification?.open_docs_missing_customer ?? 0) +
     (openDocsVerification?.open_docs_with_zero_lines ?? 0) +
     (openDocsVerification?.open_docs_with_zero_payments ?? 0);
+  const importedOpenDocZeroTaxLines =
+    openDocsVerification?.imported_open_doc_zero_tax_lines ?? 0;
   const inventoryCatalogWarningCount =
     (inventoryCatalogVerification?.products_with_identifier_like_name ?? 0) +
     (inventoryCatalogVerification?.variants_missing_sku ?? 0) +
@@ -3068,7 +3075,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
                 {openDocsVerification ? (
                   <>
-                    <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-2 mt-4">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-9 gap-2 mt-4">
                       <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                           Open docs
@@ -3083,6 +3090,14 @@ export default function CounterpointSyncSettingsPanel(props?: {
                         </p>
                         <p className="mt-2 text-lg font-black text-app-text tabular-nums">
                           {fmtNum(openDocsVerification.imported_open_doc_lines)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Zero-tax lines
+                        </p>
+                        <p className="mt-2 text-lg font-black text-amber-700 tabular-nums dark:text-amber-200">
+                          {fmtNum(importedOpenDocZeroTaxLines)}
                         </p>
                       </div>
                       <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
@@ -3179,6 +3194,13 @@ export default function CounterpointSyncSettingsPanel(props?: {
                           missing customer links, zero-line docs, or zero-payment docs.
                         </p>
                       ) : null}
+                      {importedOpenDocZeroTaxLines > 0 ? (
+                        <p className="mt-1 text-amber-700 dark:text-amber-200">
+                          {fmtNum(importedOpenDocZeroTaxLines)} imported open-doc line(s) show zero
+                          tax. Gross order totals are preserved, but imported tax is not filing
+                          proof.
+                        </p>
+                      ) : null}
                     </div>
                   </>
                 ) : !openDocsVerificationLoading ? (
@@ -3226,7 +3248,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
                 {transactionReconciliationTotals ? (
                   <>
-                    <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2 mt-4">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-2 mt-4">
                       <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                           Imported tickets
@@ -3241,6 +3263,14 @@ export default function CounterpointSyncSettingsPanel(props?: {
                         </p>
                         <p className="mt-2 text-lg font-black text-app-text tabular-nums">
                           {fmtNum(transactionReconciliationTotals.transaction_lines)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Zero-tax lines
+                        </p>
+                        <p className="mt-2 text-lg font-black text-amber-700 tabular-nums dark:text-amber-200">
+                          {fmtNum(importedTicketZeroTaxLines)}
                         </p>
                       </div>
                       <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
@@ -3294,6 +3324,13 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
                     <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs text-app-text-muted">
                       <p>{transactionReconciliation?.disclaimer}</p>
+                      {importedTicketZeroTaxLines > 0 ? (
+                        <p className="mt-1 text-amber-700 dark:text-amber-200">
+                          {fmtNum(importedTicketZeroTaxLines)} imported ticket line(s) show zero
+                          tax. Gross ticket totals are preserved, but imported tax is not filing
+                          proof.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">

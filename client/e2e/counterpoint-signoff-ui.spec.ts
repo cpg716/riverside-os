@@ -157,6 +157,7 @@ async function mockCounterpointProofRoutes(page: Page) {
         totals: {
           imported_ticket_transactions: 3,
           transaction_lines: 5,
+          imported_zero_tax_lines: 5,
           payments: 3,
           transaction_total_sum: "1200.00",
           payment_amount_sum: "1199.00",
@@ -177,6 +178,7 @@ async function mockCounterpointProofRoutes(page: Page) {
         disclaimer: "Open document verification checks imported open docs only.",
         imported_open_doc_transactions: 2,
         imported_open_doc_lines: 0,
+        imported_open_doc_zero_tax_lines: 2,
         imported_open_doc_payments: 0,
         open_docs_with_customer_linked: 1,
         open_docs_missing_customer: 1,
@@ -392,6 +394,11 @@ test.describe("Counterpoint sign-off UI", () => {
       panel.getByText("At least one bridge entity still shows an error in the latest visible run."),
     ).toBeVisible();
     await expect(panel.getByText("Limits and caveats")).toBeVisible();
+    await expect(
+      panel.getByText(
+        "Imported Counterpoint ticket and open-doc rows preserve gross historical totals; imported line tax is non-authoritative and should not be treated as tax filing proof.",
+      ),
+    ).toBeVisible();
 
     await expect(panel.getByText("Bridge rows sent")).toBeVisible();
     await expect(panel.getByText("ROS rows landed")).toBeVisible();
