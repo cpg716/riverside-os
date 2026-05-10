@@ -174,21 +174,21 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
         </button>
       </div>
 
-      <div className="w-48 shrink-0 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300">
+      <div className="flex w-40 shrink-0 justify-end gap-1.5 pr-1 opacity-0 transition-all duration-300 group-hover:opacity-100">
         <button
           onClick={() => rowProps.onShowMaintenance(v.id, v.sku, "damaged")}
-          className="group/btn flex items-center gap-2 rounded-xl border border-red-500/10 bg-red-500/5 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-600 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+          className="group/btn inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-red-500/10 bg-red-500/5 px-2.5 py-2 text-[10px] font-black uppercase leading-tight tracking-[0.08em] text-red-600 shadow-sm transition-all hover:bg-red-500 hover:text-white"
         >
-          <AlertTriangle size={14} />
+          <AlertTriangle size={14} className="shrink-0" />
           Damage
         </button>
         <button
           onClick={() =>
             rowProps.onShowMaintenance(v.id, v.sku, "return_to_vendor")
           }
-          className="group/btn flex items-center gap-2 rounded-xl border border-app-accent/10 bg-app-accent/5 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white transition-all shadow-sm"
+          className="group/btn inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-app-accent/10 bg-app-accent/5 px-2.5 py-2 text-[10px] font-black uppercase leading-tight tracking-[0.08em] text-app-accent shadow-sm transition-all hover:bg-app-accent hover:text-white"
         >
-          <Package size={14} />
+          <Package size={14} className="shrink-0" />
           RTV
         </button>
       </div>
@@ -328,7 +328,7 @@ export const VariationsList: React.FC<VariationsListProps> = ({
           <div className="w-28 text-center font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted">
             Web
           </div>
-          <div className="w-48 text-right font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted">
+          <div className="w-40 pr-1 text-right font-black uppercase tracking-[0.16em] text-[10px] text-app-text-muted">
             Actions
           </div>
         </div>

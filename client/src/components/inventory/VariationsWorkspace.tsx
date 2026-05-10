@@ -19,6 +19,7 @@ import { VariationsList } from "./VariationsList";
 import { BatchCommandBar } from "./BatchCommandBar";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import type { VariationsListProps } from "./VariationsList";
+import { openInventoryTagsWindow } from "./labelPrint";
 
 export interface HubVariant {
   id: string;
@@ -65,6 +66,9 @@ function fallbackRowLabel(variant: HubVariant): string {
   return variant.variation_label?.trim() || variant.sku;
 }
 
+const cardActionButtonClass =
+  "inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-center text-[10px] font-black uppercase leading-tight tracking-[0.08em] transition-colors";
+
 export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   productId,
   productTrackLowStock,
@@ -100,7 +104,8 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
 
   // Maintenance State
   const [maintenanceTarget, setMaintenanceTarget] = useState<{
-    variantId: string;
+    variantId?: string;
+    variantIds?: string[];
     sku: string;
     type: "damaged" | "return_to_vendor";
   } | null>(null);
@@ -280,29 +285,37 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     if (!maintenanceTarget) return;
     const qty = parseInt(mtQty, 10);
     if (isNaN(qty) || qty <= 0) return;
+    const targetIds =
+      maintenanceTarget.variantIds ?? (maintenanceTarget.variantId ? [maintenanceTarget.variantId] : []);
+    if (targetIds.length === 0) return;
 
     setSubmittingMt(true);
     try {
-      const res = await fetch(
-        `${baseUrl}/api/products/variants/${maintenanceTarget.variantId}/stock-adjust`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", ...apiAuth() },
-          body: JSON.stringify({
-            quantity_delta: -qty,
-            tx_type: maintenanceTarget.type,
-            notes: mtNote,
-          }),
-        },
+      await Promise.all(
+        targetIds.map(async (variantId) => {
+          const res = await fetch(
+            `${baseUrl}/api/products/variants/${variantId}/stock-adjust`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", ...apiAuth() },
+              body: JSON.stringify({
+                quantity_delta: -qty,
+                tx_type: maintenanceTarget.type,
+                notes: mtNote,
+              }),
+            },
+          );
+          if (!res.ok) throw new Error("Adjustment failed");
+        }),
       );
-      if (!res.ok) throw new Error("Adjustment failed");
       toast(
-        `Successfully moved ${qty} to ${maintenanceTarget.type === "damaged" ? "Damaged" : "RTV"}`,
+        `Moved ${qty} from ${targetIds.length} variation${targetIds.length === 1 ? "" : "s"} to ${maintenanceTarget.type === "damaged" ? "Damaged" : "RTV"}`,
         "success",
       );
       setMaintenanceTarget(null);
       setMtQty("1");
       setMtNote("");
+      setSelectedIds(new Set());
       onVariantUpdated();
     } catch {
       toast("Maintenance operation failed", "error");
@@ -310,6 +323,70 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
       setSubmittingMt(false);
     }
   };
+
+  const handlePrintTags = useCallback(
+    async (variantsToPrint: HubVariant[], successLabel: string) => {
+      if (variantsToPrint.length === 0) {
+        toast("No variations are ready to print.", "info");
+        return;
+      }
+
+      openInventoryTagsWindow(
+        variantsToPrint.map((variant) => ({
+          sku: variant.sku,
+          productName,
+          variation: variant.variation_label ?? "Standard",
+          price: `$${centsToFixed2(parseMoneyToCents(variant.effective_retail))}`,
+        })),
+      );
+
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/products/variants/bulk-mark-shelf-labeled`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...apiAuth(),
+            },
+            body: JSON.stringify({
+              variant_ids: variantsToPrint.map((variant) => variant.id),
+            }),
+          },
+        );
+        if (!res.ok) throw new Error("Tag print status update failed");
+        toast(successLabel, "success");
+        onVariantUpdated();
+      } catch {
+        toast("Tags opened for printing, but Riverside could not mark them as printed.", "error");
+      }
+    },
+    [apiAuth, baseUrl, onVariantUpdated, productName, toast],
+  );
+
+  const handleBulkLabels = useCallback(() => {
+    const variantsToPrint =
+      selectedIds.size > 0
+        ? displayVariants.filter((variant) => selectedIds.has(variant.id))
+        : displayVariants;
+    void handlePrintTags(
+      variantsToPrint,
+      `Inventory tags sent to print for ${variantsToPrint.length} variation${variantsToPrint.length === 1 ? "" : "s"}.`,
+    );
+  }, [displayVariants, handlePrintTags, selectedIds]);
+
+  const handleBatchMaintenance = useCallback(
+    (type: "damaged" | "return_to_vendor") => {
+      const selectedVariants = variants.filter((variant) => selectedIds.has(variant.id));
+      if (selectedVariants.length === 0) return;
+      setMaintenanceTarget({
+        variantIds: selectedVariants.map((variant) => variant.id),
+        sku: `${selectedVariants.length} selected variation${selectedVariants.length === 1 ? "" : "s"}`,
+        type,
+      });
+    },
+    [selectedIds, variants],
+  );
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-500">
@@ -370,7 +447,12 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
               className="ui-input h-10 pl-10 w-48 bg-app-surface/50 border-app-border/40 focus:w-64 transition-all duration-300"
             />
           </div>
-          <button className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-2 transition-colors">
+          <button
+            type="button"
+            onClick={handleBulkLabels}
+            disabled={displayVariants.length === 0}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase leading-tight tracking-[0.1em] text-app-text-muted transition-colors hover:bg-app-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
             <Printer size={14} />
             <span>Bulk Labels</span>
           </button>
@@ -423,36 +505,39 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => void adjustStock(v.id, 1)}
-                  className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-emerald-300 hover:text-emerald-700"
+                  className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-emerald-300 hover:text-emerald-700`}
                 >
                   Adjust +1
                 </button>
                 <button
                   type="button"
                   onClick={() => void patchVariant(v.id, { retail_price_override: null })}
-                  className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-accent hover:text-app-accent"
+                  className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent`}
                 >
                   Clear Price
                 </button>
                 <button
                   type="button"
-                  className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                  onClick={() =>
+                    void handlePrintTags([v], "Inventory tag sent to print.")
+                  }
+                  className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent`}
                   title="Print inventory tag"
                 >
-                  <Printer size={14} className="mr-1 inline" />
+                  <Printer size={14} className="shrink-0" />
                   Print tag
                 </button>
                 <button
                   type="button"
                   onClick={() => setMaintenanceTarget({ variantId: v.id, sku: v.sku, type: "damaged" })}
-                  className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-700"
+                  className={`${cardActionButtonClass} border-red-200 bg-red-50 text-red-700`}
                 >
-                  Damage/Loss
+                  Damage
                 </button>
                 <button
                   type="button"
                   onClick={() => setMaintenanceTarget({ variantId: v.id, sku: v.sku, type: "return_to_vendor" })}
-                  className="col-span-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-accent hover:text-app-accent"
+                  className={`${cardActionButtonClass} col-span-2 border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent`}
                 >
                   Return to Vendor
                 </button>
@@ -816,6 +901,8 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           setBatchStockInput("");
         }}
         onBatchTrackLow={handleBatchTrackLow}
+        onBatchTags={handleBulkLabels}
+        onBatchMaintenance={handleBatchMaintenance}
       />
     </div>
   );

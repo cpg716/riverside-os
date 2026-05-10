@@ -1,5 +1,14 @@
 import React from "react";
-import { DollarSign, Globe, Package, X, Command, Zap } from "lucide-react";
+import {
+  AlertTriangle,
+  Command,
+  DollarSign,
+  Globe,
+  Package,
+  Tags,
+  X,
+  Zap,
+} from "lucide-react";
 
 export interface BatchCommandBarProps {
   selectedCount: number;
@@ -8,6 +17,8 @@ export interface BatchCommandBarProps {
   onBatchWeb: (status: boolean) => void;
   onBatchStock: () => void;
   onBatchTrackLow: (status: boolean) => void;
+  onBatchTags: () => void;
+  onBatchMaintenance: (type: "damaged" | "return_to_vendor") => void;
 }
 
 export const BatchCommandBar: React.FC<BatchCommandBarProps> = ({
@@ -17,6 +28,8 @@ export const BatchCommandBar: React.FC<BatchCommandBarProps> = ({
   onBatchWeb,
   onBatchStock,
   onBatchTrackLow,
+  onBatchTags,
+  onBatchMaintenance,
 }) => {
   if (selectedCount === 0) return null;
 
@@ -64,6 +77,15 @@ export const BatchCommandBar: React.FC<BatchCommandBarProps> = ({
             <span className="text-[10px] font-black uppercase tracking-widest">Stock</span>
           </button>
 
+          <button
+            onClick={onBatchTags}
+            className="flex h-10 items-center justify-center gap-2 rounded-full px-4 text-app-text-muted transition-all duration-200 hover:bg-app-accent/10 hover:text-app-accent"
+            title="Print selected tags"
+          >
+            <Tags size={16} />
+            <span className="text-[10px] font-black uppercase tracking-widest">Tag</span>
+          </button>
+
           <div className="mx-2 h-6 w-px bg-app-border" />
 
           <button
@@ -73,6 +95,24 @@ export const BatchCommandBar: React.FC<BatchCommandBarProps> = ({
           >
             <Zap size={16} />
             <span className="text-[10px] font-black uppercase tracking-widest">Tracking</span>
+          </button>
+
+          <button
+            onClick={() => onBatchMaintenance("return_to_vendor")}
+            className="flex h-10 items-center justify-center gap-2 rounded-full px-4 text-app-text-muted transition-all duration-200 hover:bg-app-accent/10 hover:text-app-accent"
+            title="Return selected variants to vendor"
+          >
+            <Package size={16} />
+            <span className="text-[10px] font-black uppercase tracking-widest">RTV</span>
+          </button>
+
+          <button
+            onClick={() => onBatchMaintenance("damaged")}
+            className="flex h-10 items-center justify-center gap-2 rounded-full px-4 text-app-text-muted transition-all duration-200 hover:bg-app-danger/10 hover:text-app-danger"
+            title="Mark selected variants as damaged"
+          >
+            <AlertTriangle size={16} />
+            <span className="text-[10px] font-black uppercase tracking-widest">Damage</span>
           </button>
         </div>
 
