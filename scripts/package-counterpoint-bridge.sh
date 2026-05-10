@@ -21,7 +21,7 @@ for src in "$ROOT/counterpoint-bridge"/* "$ROOT/counterpoint-bridge"/.[!.]*; do
     node_modules|.env|.counterpoint-bridge-state.json|.DS_Store) continue ;;
   esac
   case "$base" in
-    *.zip) continue ;;
+    *.zip|*.log|counterpoint-schema-report.txt) continue ;;
   esac
   cp -a "$src" "$STAGE/counterpoint-bridge/"
 done
