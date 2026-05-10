@@ -357,7 +357,7 @@ for (const viewport of DRAWER_VIEWPORTS) {
     const dialog = page.getByRole("dialog", { name: /riley harper/i });
     await expect(dialog).toBeVisible({ timeout: 20_000 });
 
-    await dialog.getByRole("button", { name: /^History$/i }).click();
+    await dialog.getByRole("tab", { name: /^History$/i }).click();
     await expect(dialog.getByRole("button", { name: /open transaction/i })).toBeVisible({
       timeout: 20_000,
     });
@@ -369,7 +369,7 @@ for (const viewport of DRAWER_VIEWPORTS) {
       await expect(dialog.getByRole("table")).toBeVisible({ timeout: 10_000 });
     }
 
-    await dialog.getByRole("button", { name: /^measurements$/i }).click();
+    await dialog.getByRole("tab", { name: /^measurements$/i }).click();
     await expect(dialog.getByRole("heading", { name: /^archive$/i })).toBeVisible({
       timeout: 20_000,
     });
@@ -444,7 +444,7 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
     "Measurements",
     "Weddings",
   ]) {
-    await expect(dialog.getByRole("button", { name: new RegExp(`^${label}$`, "i") })).toBeVisible();
+    await expect(dialog.getByRole("tab", { name: new RegExp(`^${label}$`, "i") })).toBeVisible();
   }
   await expect(dialog.getByRole("button", { name: /transaction records/i })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: /wedding links/i })).toHaveCount(0);
@@ -523,12 +523,12 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
     tax_exempt_id: "NY-EXEMPT-999",
   });
 
-  await dialog.getByRole("button", { name: /^History$/i }).click();
+  await dialog.getByRole("tab", { name: /^History$/i }).click();
     await expect(dialog.getByText(/customer notes, visits, and past purchases/i)).toBeVisible();
   await expect(dialog.getByText(/Purchased 2 items/i)).toBeVisible();
   await expect(dialog.getByText(/TXN-9012/i)).toBeVisible();
 
-  await dialog.getByRole("button", { name: /^Loyalty$/i }).click();
+  await dialog.getByRole("tab", { name: /^Loyalty$/i }).click();
   await expect(dialog.getByText(/historical earned/i)).toBeVisible({ timeout: 20_000 });
   await expect(dialog.getByText(/LOYALTY-E2E/i)).toBeVisible();
   await expect(dialog.getByText(/Card used/i)).toBeVisible();
@@ -654,7 +654,7 @@ test("Customer relationship drawer opens linked profiles and keeps timeline lang
   await expect(dialog).toBeVisible({ timeout: 20_000 });
   await expect(dialog.getByText(/linked with CUST-HUB-E2E/i)).toBeVisible();
 
-  await dialog.getByRole("button", { name: /^History$/i }).click();
+  await dialog.getByRole("tab", { name: /^History$/i }).click();
   await expect(dialog.getByText(/Linked profile with Riley Harper/i)).toBeVisible();
   await expect(dialog.getByText(/Purchased 2 items \(TXN-9012\)/i)).toBeVisible();
   await expect(dialog.getByText(/Order 22222222/i)).toHaveCount(0);

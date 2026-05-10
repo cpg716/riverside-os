@@ -502,7 +502,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${searchQuery ? 'text-app-accent' : 'text-app-text-muted'}`} />
             <input
               type="text"
-              placeholder="Meilisearch appointments…"
+              placeholder="Search appointments…"
               data-testid="scheduler-search-input"
               className="ui-input h-10 w-full min-w-0 pl-10 pr-10 text-[11px] font-bold lg:w-64"
               value={searchQuery}

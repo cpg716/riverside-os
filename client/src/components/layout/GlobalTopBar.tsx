@@ -223,10 +223,10 @@ export default function GlobalTopBar({
             {isTailscaleRemote && (
               <div 
                 className="hidden items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-indigo-500 animate-in fade-in slide-in-from-right-2 lg:flex"
-                title="Connected via Tailscale Remote Access"
+                title="Connected via secure remote access"
               >
                 <ShieldCheck size={12} className="shrink-0" />
-                Remote Node
+                Remote Access
               </div>
             )}
             <div className="text-right hidden md:block">

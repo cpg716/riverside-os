@@ -1044,7 +1044,7 @@ export default function ProductHubDrawer({
                             <ul
                               id="vendor-hub-combo-list"
                               role="listbox"
-                              className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-app-border bg-app-surface py-1 shadow-lg"
+                              className="mt-1 max-h-52 w-full overflow-auto rounded-xl border border-app-border bg-app-surface py-1 shadow-lg"
                             >
                               {filteredVendors.length === 0 ? (
                                 <li className="px-3 py-2 text-xs text-app-text-muted">
@@ -1087,7 +1087,7 @@ export default function ProductHubDrawer({
                             }
                             className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50"
                           >
-                            <X size={14} /> Clear
+                            <X size={14} /> Clear vendor
                           </button>
                         ) : null}
                       </div>

@@ -1708,6 +1708,8 @@ export function CustomerRelationshipHubDrawer({
     <button
       key={id}
       type="button"
+      role="tab"
+      aria-selected={tab === id}
       onClick={() => setTab(id)}
       className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-[0.12em] transition-colors ${
         tab === id
@@ -1769,7 +1771,7 @@ export function CustomerRelationshipHubDrawer({
       panelMaxClassName={panelMaxClassName}
       titleClassName="!normal-case !tracking-tight"
       actions={
-        <div className="flex flex-wrap gap-2">
+        <div role="tablist" aria-label="Customer hub sections" className="flex flex-wrap gap-2">
           {tabBtn("profile", "Profile")}
           {canOrdersView ? tabBtn("transactions", "History") : null}
           {canOrdersView ? tabBtn("orders", "Orders") : null}
@@ -2498,48 +2500,57 @@ export function CustomerRelationshipHubDrawer({
                   value: fmtLifetimeCompact(hub.stats.lifetime_spend_usd),
                   target: "transactions" as HubTab,
                   disabled: !canOrdersView,
+                  disabledReason: "Manager access is needed to view transaction history.",
                 },
                 {
                   label: "Open orders",
                   value: openSummary.orders == null ? "View" : String(openSummary.orders),
                   target: "orders" as HubTab,
                   disabled: !canOrdersView,
+                  disabledReason: "Manager access is needed to view customer orders.",
                 },
                 {
                   label: "Open layaways",
                   value: openSummary.layaways == null ? "View" : String(openSummary.layaways),
                   target: "layaways" as HubTab,
                   disabled: !canOrdersView,
+                  disabledReason: "Manager access is needed to view customer layaways.",
                 },
                 {
                   label: "Open alterations",
                   value: openSummary.alterations == null ? "View" : String(openSummary.alterations),
                   target: "alterations" as HubTab,
                   disabled: !canAlterationsView,
+                  disabledReason: "Manager access is needed to view customer alterations.",
                 },
                 {
                   label: "Last visit",
                   value: lastVisitLabel(hub.stats.days_since_last_visit),
                   target: "transactions" as HubTab,
                   disabled: !canOrdersView,
+                  disabledReason: "Manager access is needed to view customer history.",
                 },
                 {
                   label: "Loyalty",
                   value: `${(hub.stats.loyalty_points ?? 0).toLocaleString()} pts`,
                   target: "loyalty" as HubTab,
                   disabled: false,
+                  disabledReason: "",
                 },
                 {
                   label: "Profile",
                   value: hub.profile_complete ? "Complete" : "Incomplete",
                   target: hub.profile_complete ? "profile" as HubTab : "profile_missing" as const,
                   disabled: false,
+                  disabledReason: "",
                 },
-              ].map(({ label, value, target, disabled }) => (
+              ].map(({ label, value, target, disabled, disabledReason }) => (
                 <button
                   key={label}
                   type="button"
                   disabled={disabled}
+                  title={disabled ? disabledReason : undefined}
+                  aria-label={disabled ? `${label}. ${disabledReason}` : undefined}
                   onClick={() => openHubStatTarget(target)}
                   className={`rounded-2xl border px-4 py-3 ${
                     label === "Profile" && hub.profile_complete
