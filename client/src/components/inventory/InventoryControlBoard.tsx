@@ -14,7 +14,6 @@ import {
   LayoutGrid,
   Printer,
   Gem,
-  ArrowUpRight,
   BarChart3,
   Box,
   Globe,
@@ -1278,13 +1277,6 @@ export default function InventoryControlBoard({
         {/* Financial Context */}
         <div className="flex shrink-0 flex-[1.5] items-center justify-end gap-6 border-l border-app-border/20 px-4">
            {renderPriceRange(row.retail_min, row.retail_max)}
-           <div className="hidden 2xl:flex flex-col items-end min-w-[60px]">
-              <div className="flex items-center gap-0.5 text-app-success">
-                <span className="font-mono text-[10px] font-black">+8%</span>
-                <ArrowUpRight size={10} />
-              </div>
-              <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-40">30-day sales</p>
-           </div>
         </div>
 
         {/* Channel Badges */}

@@ -2068,10 +2068,7 @@ function AppMainColumn({
                 if (activeTab === "dashboard") {
                   return (
                     <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-app-text-muted">
-                      <p>
-                        Open Insights from the sidebar to load Metabase in full
-                        view.
-                      </p>
+                      <p>Loading data insights...</p>
                     </div>
                   );
                 }

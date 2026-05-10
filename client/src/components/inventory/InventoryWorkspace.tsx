@@ -240,11 +240,7 @@ export default function InventoryWorkspace({
       "intelligence",
     ];
     if (activeSection && valid.includes(activeSection as InventorySection)) {
-      if (activeSection === "products") {
-        setSection("add");
-      } else {
-        setSection(activeSection as InventorySection);
-      }
+      setSection(activeSection as InventorySection);
     }
   }, [activeSection]);
 

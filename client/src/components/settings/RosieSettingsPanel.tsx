@@ -825,7 +825,7 @@ export default function RosieSettingsPanel() {
                     </strong>
                   </span>
                   <span>
-                    Node available:{" "}
+                    Workstation runtime available:{" "}
                     <strong className="text-app-text">
                       {intelligenceStatus.node_available ? "Yes" : "No"}
                     </strong>
