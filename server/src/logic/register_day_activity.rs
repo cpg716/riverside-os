@@ -608,7 +608,7 @@ pub async fn fetch_register_day_summary(
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             c.customer_code,
-            BOOL_AND(oi.fulfillment::text = 'takeaway') AS is_takeaway,
+            COALESCE(BOOL_AND(oi.fulfillment::text = 'takeaway'), false) AS is_takeaway,
             o.sale_channel::text AS channel,
             (
                 SELECT STRING_AGG(DISTINCT pt.payment_method, ', ' ORDER BY pt.payment_method)
