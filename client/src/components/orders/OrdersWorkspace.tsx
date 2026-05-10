@@ -454,10 +454,6 @@ export default function OrdersWorkspace({
     }
   }, [baseUrl, backofficeHeaders]);
 
-  const loadRefundsDue = useCallback(async () => {
-    // Logic removed to stabilize build
-  }, []);
-
   const loadTransactions = useCallback(async () => {
     setTransactionsLoading(true);
     setTransactionsLoadError(null);
@@ -679,7 +675,6 @@ export default function OrdersWorkspace({
     toast("Transaction cancelled", "info");
     await loadDetail(detail.transaction_id);
     await loadTransactions();
-    void loadRefundsDue();
   };
 
   const deleteLine = async (item: Pick<OrderItem, "order_item_id">) => {
@@ -784,7 +779,6 @@ export default function OrdersWorkspace({
     setReturnQtyDraft({});
     await loadDetail(detail.transaction_id);
     await loadTransactions();
-    void loadRefundsDue();
   };
 
 // linkExchange logic removed for build stabilization
@@ -833,7 +827,6 @@ export default function OrdersWorkspace({
       }
       toast("Refund completed.", "success");
       setRefundModalOpen(false);
-      await loadRefundsDue();
       if (detail?.transaction_id === refundTargetOrderId) await loadDetail(refundTargetOrderId);
       await loadTransactions();
     } finally {
@@ -912,6 +905,68 @@ export default function OrdersWorkspace({
     { label: "Ready pickup", value: pipelineStats?.ready_for_pickup ?? 0, icon: CheckCircle2 },
     { label: "Overdue follow-up", value: pipelineStats?.overdue ?? 0, icon: AlertTriangle },
   ];
+
+  const renderTransactionListState = (layout: "mobile" | "desktop") => {
+    if (transactionRows.length > 0) return null;
+
+    const isMobile = layout === "mobile";
+    const wrapperClass = isMobile
+      ? "rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-8 text-center text-app-text-muted"
+      : "flex flex-col items-center justify-center p-16 text-center text-app-text-muted";
+    const iconSize = isMobile ? 40 : 48;
+
+    if (transactionsLoading) {
+      return (
+        <div className={wrapperClass}>
+          <Clock size={iconSize} className="mx-auto mb-3 opacity-50" />
+          <p className="text-sm font-black uppercase tracking-widest italic">
+            Loading transaction records
+          </p>
+        </div>
+      );
+    }
+
+    if (transactionsLoadError) {
+      return (
+        <div className={wrapperClass}>
+          <AlertTriangle
+            size={iconSize}
+            className="mx-auto mb-3 text-amber-600 opacity-80"
+          />
+          <p className="text-sm font-black uppercase tracking-widest italic text-app-text">
+            Transactions unavailable
+          </p>
+          <p
+            className={cn(
+              "mt-2 text-sm font-medium normal-case tracking-normal text-app-text-muted",
+              !isMobile && "max-w-sm",
+            )}
+          >
+            {transactionsLoadError}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className={wrapperClass}>
+        <Search size={iconSize} className="mx-auto mb-3 opacity-50" />
+        <p className="text-sm font-black uppercase tracking-widest italic">
+          No matching records found
+        </p>
+        <p
+          className={cn(
+            "mt-2 text-sm font-medium normal-case tracking-normal",
+            !isMobile && "max-w-sm text-app-text-muted",
+          )}
+        >
+          {isMobile
+            ? "Try a broader search or clear one of the active filters."
+            : "Try a broader search or clear one of the active filters to bring records back into view."}
+        </p>
+      </div>
+    );
+  };
 
   return (
     <div className="ui-page flex flex-1 flex-col bg-transparent p-0">
@@ -1091,18 +1146,6 @@ export default function OrdersWorkspace({
                 </select>
             </div>
 
-            {transactionsLoadError && (
-              <div className="mx-3 mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-semibold text-amber-700 dark:text-amber-200">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-                  <div>
-                    <p className="font-black uppercase tracking-widest text-[10px]">Transactions unavailable</p>
-                    <p className="mt-1 normal-case tracking-normal">{transactionsLoadError}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div className="grid gap-3 p-3 xl:hidden">
               {transactionRows.map((r) => (
                 <OrderMobileCard
@@ -1125,21 +1168,7 @@ export default function OrdersWorkspace({
                   }}
                 />
               ))}
-              {transactionsLoading && transactionRows.length === 0 && (
-                <div className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-8 text-center text-app-text-muted">
-                  <Clock size={40} className="mx-auto mb-3 opacity-50" />
-                  <p className="text-sm font-black uppercase tracking-widest italic">Loading transaction records</p>
-                </div>
-              )}
-              {!transactionsLoading && !transactionsLoadError && transactionRows.length === 0 && (
-                <div className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-8 text-center text-app-text-muted">
-                  <Search size={40} className="mx-auto mb-3 opacity-50" />
-                  <p className="text-sm font-black uppercase tracking-widest italic">No matching records found</p>
-                  <p className="mt-2 text-sm font-medium normal-case tracking-normal">
-                    Try a broader search or clear one of the active filters.
-                  </p>
-                </div>
-              )}
+              {renderTransactionListState("mobile")}
             </div>
 
             <div className="hidden flex-1 custom-scrollbar overflow-x-auto xl:block">
@@ -1179,21 +1208,7 @@ export default function OrdersWorkspace({
               </tbody>
             </table>
 
-              {transactionsLoading && transactionRows.length === 0 && (
-                <div className="flex flex-col items-center justify-center p-16 text-center text-app-text-muted">
-                  <Clock size={48} className="mb-4 opacity-70" />
-                  <p className="text-sm font-black uppercase tracking-widest italic">Loading transaction records</p>
-                </div>
-              )}
-              {!transactionsLoading && !transactionsLoadError && transactionRows.length === 0 && (
-                <div className="flex flex-col items-center justify-center p-16 text-center text-app-text-muted">
-                  <Search size={48} className="mb-4 opacity-70" />
-                  <p className="text-sm font-black uppercase tracking-widest italic">No matching records found</p>
-                  <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
-                    Try a broader search or clear one of the active filters to bring records back into view.
-                  </p>
-                </div>
-              )}
+              {renderTransactionListState("desktop")}
             </div>
           </div>
         </div>
