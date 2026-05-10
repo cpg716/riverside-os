@@ -122,6 +122,14 @@ function terminalLabel(key: "terminal_1" | "terminal_2"): string {
   return key === "terminal_1" ? "Terminal 1" : "Terminal 2";
 }
 
+function terminalNumber(key: "terminal_1" | "terminal_2"): string {
+  return key === "terminal_1" ? "1" : "2";
+}
+
+function isStaleHelcimSessionError(message: string): boolean {
+  return message.toLowerCase().includes("does not belong to this register session");
+}
+
 function helcimAttemptStatusLabel(status: HelcimAttempt["status"]): string {
   if (status === "pending") return "Waiting for Approval";
   if (status === "approved" || status === "captured") return "Approved";
@@ -867,7 +875,10 @@ export default function NexoCheckoutDrawer({
   }, [isOpen, loadHelcimCards, tab]);
 
   const refreshHelcimAttempt = useCallback(
-    async (attemptId: string) => {
+    async (
+      attemptId: string,
+      options: { quietStaleSession?: boolean } = {},
+    ) => {
       setHelcimAttemptLoading(true);
       try {
         const res = await fetch(
@@ -900,10 +911,18 @@ export default function NexoCheckoutDrawer({
           toast(attempt.error_message ?? "Helcim payment did not complete.", "error");
         }
       } catch (error) {
-        toast(
-          error instanceof Error ? error.message : "Could not check Helcim payment.",
-          "error",
-        );
+        const message =
+          error instanceof Error ? error.message : "Could not check Helcim payment.";
+        if (isStaleHelcimSessionError(message)) {
+          setHelcimAttempt(null);
+          pendingHelcimCentsRef.current = 0;
+          pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+          if (!options.quietStaleSession) {
+            toast("Previous terminal attempt was cleared. Start the card payment again.", "info");
+          }
+          return;
+        }
+        toast(message, "error");
       } finally {
         setHelcimAttemptLoading(false);
       }
@@ -918,7 +937,9 @@ export default function NexoCheckoutDrawer({
     if (helcimAttempt?.id === selectedTerminalActiveAttemptId) {
       return;
     }
-    void refreshHelcimAttempt(selectedTerminalActiveAttemptId);
+    void refreshHelcimAttempt(selectedTerminalActiveAttemptId, {
+      quietStaleSession: true,
+    });
   }, [
     helcimAttempt?.id,
     isOpen,
@@ -1416,11 +1437,11 @@ export default function NexoCheckoutDrawer({
           aria-hidden="true"
         />
         <span className="hidden min-w-0 sm:block">
-          <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-            Terminal
-          </span>
           <span className="block max-w-36 truncate text-[11px] font-black uppercase tracking-wide text-app-text">
-            {selectedTerminalKey ? terminalLabel(selectedTerminalKey) : terminalStatusText}
+            Terminal: {selectedTerminalKey ? `(${terminalNumber(selectedTerminalKey)})` : terminalStatusText}
+          </span>
+          <span className="block text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+            Change terminal
           </span>
         </span>
       </button>
@@ -1920,13 +1941,12 @@ export default function NexoCheckoutDrawer({
                   )}
 
                   <div className="flex justify-center">
-                    <div className="w-full max-w-md">
+                    <div className="w-full max-w-lg">
                       <NumericPinKeypad
                         value={keypad}
                         onChange={setKeypad}
                         showDecimal
                         maxDigits={12}
-                        compact
                         className="w-full"
                       />
                     </div>

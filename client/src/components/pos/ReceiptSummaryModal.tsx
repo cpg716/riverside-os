@@ -647,32 +647,38 @@ export default function ReceiptSummaryModal({
     return res.text();
   };
 
+  const fetchReceiptPreviewMarkup = async (
+    opts?: { gift?: boolean; transactionLineIds?: string[] },
+  ) => {
+    if (!transactionId) throw new Error("Missing transaction.");
+    if (transactionDetail?.receipt_thermal_mode !== "escpos") {
+      return fetchReceiptHtml(opts);
+    }
+    const q = buildReceiptQuery(opts);
+    const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.escpos${q}`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error("Receipt preview could not load.");
+    const payload = (await res.json()) as { receiptline_markdown?: string };
+    if (!payload.receiptline_markdown) {
+      return fetchReceiptHtml(opts);
+    }
+    return String(
+      transform(payload.receiptline_markdown, {
+        cpl: 42,
+        encoding: "cp437",
+      }),
+    );
+  };
+
   const openReceiptPreview = async () => {
     setReceiptPreviewOpen(true);
     setReceiptPreviewLoading(true);
     setReceiptPreviewError(null);
     setReceiptPreviewHtml(null);
     try {
-      if (transactionDetail?.receipt_thermal_mode === "escpos") {
-        const q = buildReceiptQuery();
-        const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.escpos${q}`, {
-          headers: getAuthHeaders(),
-          cache: "no-store",
-        });
-        if (!res.ok) throw new Error("Receipt preview could not load.");
-        const payload = (await res.json()) as { receiptline_markdown?: string };
-        if (payload.receiptline_markdown) {
-          const svg = transform(payload.receiptline_markdown, {
-            cpl: 42,
-            encoding: "cp437",
-          });
-          setReceiptPreviewHtml(svg);
-        } else {
-          setReceiptPreviewHtml(await fetchReceiptHtml());
-        }
-      } else {
-        setReceiptPreviewHtml(await fetchReceiptHtml());
-      }
+      setReceiptPreviewHtml(await fetchReceiptPreviewMarkup());
     } catch (e) {
       console.error("Receipt preview failed", e);
       setReceiptPreviewError("Receipt preview could not load.");
@@ -683,9 +689,8 @@ export default function ReceiptSummaryModal({
 
   const printReceiptOnReportPrinter = async () => {
     try {
-      let content = receiptPreviewHtml ?? (await fetchReceiptHtml());
+      let content = receiptPreviewHtml ?? (await fetchReceiptPreviewMarkup());
       
-      // If it's an SVG (ReceiptLine), wrap it in a basic HTML shell for better printing
       if (content.trim().startsWith("<svg")) {
         content = `
           <!DOCTYPE html>
@@ -695,21 +700,22 @@ export default function ReceiptSummaryModal({
               <style>
                 body { 
                   margin: 0; 
+                  min-height: 100vh;
                   display: flex; 
                   justify-content: center; 
-                  background: white;
+                  background: #f0f0f0;
                 }
                 .receipt-container { 
-                  width: 380px; 
-                  padding: 20px;
+                  width: 360px;
+                  padding: 24px 16px;
                 }
                 svg { 
                   width: 100%; 
                   height: auto; 
                 }
                 @media print {
-                  body { background: none; }
-                  .receipt-container { padding: 0; width: 100%; max-width: 380px; }
+                  body { background: white; }
+                  .receipt-container { padding: 0; width: 80mm; max-width: 80mm; }
                 }
               </style>
             </head>
@@ -722,10 +728,11 @@ export default function ReceiptSummaryModal({
         `;
       }
 
-      const w = window.open("", "_blank", "noopener,noreferrer");
+      const w = window.open("", "_blank");
       if (!w) {
         throw new Error("Popup blocked — allow popups to print the report copy.");
       }
+      w.opener = null;
       w.document.open();
       w.document.write(content);
       w.document.close();
@@ -1209,7 +1216,7 @@ export default function ReceiptSummaryModal({
               </button>
             </div>
             <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_14rem]">
-              <div className="min-h-[28rem] overflow-hidden rounded-2xl border border-app-border bg-white">
+              <div className="min-h-[28rem] overflow-auto rounded-2xl border border-app-border bg-white">
                 {receiptPreviewLoading ? (
                   <div className="flex h-full items-center justify-center text-sm font-bold text-app-text-muted">
                     Loading receipt…
@@ -1219,9 +1226,9 @@ export default function ReceiptSummaryModal({
                     {receiptPreviewError}
                   </div>
                 ) : receiptPreviewHtml?.trim().startsWith("<svg") ? (
-                  <div className="flex h-full items-center justify-center bg-[#f0f0f0] p-4 sm:p-8">
+                  <div className="min-h-full overflow-x-auto rounded-[2rem] bg-[#f0f0f0] p-4 shadow-inner sm:p-6">
                     <div 
-                      className="receiptline-preview w-full max-w-[380px] shadow-2xl [&_svg]:h-auto [&_svg]:w-full"
+                      className="receiptline-preview mx-auto w-full max-w-[360px] [&_svg]:h-auto [&_svg]:w-full"
                       dangerouslySetInnerHTML={{ __html: receiptPreviewHtml }}
                     />
                   </div>
