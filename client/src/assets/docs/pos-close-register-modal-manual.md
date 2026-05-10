@@ -35,3 +35,8 @@ Upon closing, a professional, full-page **Z-Audit Report** is generated.
 ## Tips
 - **No mid-shift "X"**: Mid-shift counts should use the live Dashboard. The Z-close is a permanent shift-ending action.
 - **Hardware Decoupling**: Ensure your **Report Printer** is correctly assigned in Register Settings to avoid routing Z-reports to the thermal receipt printer.
+
+## Related workflows
+
+- [POS Register Dashboard](manual:pos-register-dashboard)
+- [Register Reports](manual:pos-register-reports)

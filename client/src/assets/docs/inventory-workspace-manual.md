@@ -10,10 +10,6 @@ tags: inventory-workspace, inventory, back-office, operations
 
 # Inventory Workspace (inventory)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/InventoryWorkspace.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Use **Back Office → Inventory** as the main operational hub for item lookup, purchase orders, receiving, vendor maintenance, import, and physical count.
@@ -46,3 +42,8 @@ Each subsection is job-based:
 
 - If you are unsure where to adjust quantity, ask whether the change is an **inbound receipt**, a **reconciliation**, or a **catalog correction**.
 - If a workflow needs supplier context, start with a clean vendor record before building the PO.
+
+## Related workflows
+
+- [Inventory Control Board](manual:inventory-control-board)
+- [Receive Stock](manual:inventory-receiving-bay)

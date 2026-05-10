@@ -10,10 +10,6 @@ tags: pos-register-overlay, pos, register, windows
 
 # Register Overlay (pos)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/pos/RegisterOverlay.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 This is the **Register Access** screen shown before the POS cart can be used. It verifies the staff member, opens the correct lane, explains when **Register #1** must already be open, and now shows whether the station is ready for checkout work.
@@ -39,4 +35,7 @@ This is the **Register Access** screen shown before the POS cart can be used. It
 
 Use governed screenshots from `../images/help/pos-register-overlay/` when this manual is refreshed so the station-readiness examples stay aligned with the live UI.
 
-![Example](../images/help/pos-register-overlay/example.png)
+## Related workflows
+
+- [POS Register Dashboard](manual:pos-register-dashboard)
+- [Register Checkout](manual:pos-nexo-checkout-drawer)

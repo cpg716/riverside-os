@@ -10,10 +10,6 @@ tags: inventory-physical-inventory-workspace, inventory, physical-count, reconci
 
 # Physical Inventory Workspace (inventory)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/PhysicalInventoryWorkspace.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Use **Physical count** to run a full-store or category-limited count, review variances, and publish reconciled stock with an audit trail.

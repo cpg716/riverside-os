@@ -10,10 +10,6 @@ tags: customers, podium, messaging, inbox, communications
 
 # Podium Inbox
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/customers/PodiumMessagingInboxSection.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Podium Inbox is the shared list of recent Podium SMS and email conversations.
@@ -30,3 +26,8 @@ In Operations and POS, this surface is for communications follow-up only. It is 
 
 - Use this list to triage communication work quickly from either shell.
 - If you need the full customer record, open the row instead of trying to work from the list alone.
+
+## Related workflows
+
+- [Customers Workspace](manual:customers-workspace)
+- [Customer Relationship Hub](manual:customers-customer-relationship-hub-drawer)

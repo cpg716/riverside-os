@@ -12,8 +12,6 @@ status: approved
 
 The Staff Schedule workspace is the authoritative source for team availability in Riverside OS. It manages when consultants and tailors are working, which in turn controls appointment booking in the Scheduler and task assignments.
 
-![Staff Schedule Overview](../images/help/staff-schedule/main.png)
-
 ## What this is
 
 This workspace is divided into three primary modes to balance long-term planning with daily operational needs:
@@ -106,6 +104,6 @@ When a staff member is sick or on PTO, use the **Individual View** to record the
 ## Related workflows
 
 - [Scheduler Workspace](manual:scheduler-workspace)
-- [Staff Tasks](manual:tasks-team-tasks-drawer)
+- [Operations Home](manual:operations-operational-home)
 - [Team Roster](manual:staff-workspace)
 

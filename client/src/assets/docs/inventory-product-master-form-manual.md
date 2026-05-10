@@ -10,10 +10,6 @@ tags: inventory-product-master-form, inventory, product-master, catalog
 
 # Add Item (inventory)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/ProductMasterForm.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Use **New Item** to create a new item and generate its starting sellable SKUs.
@@ -40,3 +36,8 @@ Brand is optional. Vendor decisions happen through **Vendors**, **Purchase Order
 
 - If you need to change on-hand quantity after creation, use **Receive Stock** or **Physical Inventory** instead of the item form.
 - If a save fails with an existing SKU message, search that SKU in **Inventory List** before trying again.
+
+## Related workflows
+
+- [Inventory Control Board](manual:inventory-control-board)
+- [Product Hub Drawer](manual:inventory-product-hub-drawer)

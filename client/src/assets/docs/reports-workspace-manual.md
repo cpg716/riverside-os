@@ -11,9 +11,7 @@ status: approved
 
 # Reports Workspace (reports)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/reports/ReportsWorkspace.tsx`._
-<!-- /help:component-source -->
+![Reports workspace](../images/help/reports/catalog.png)
 
 ## What this is
 

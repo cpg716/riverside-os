@@ -12,8 +12,6 @@ status: approved
 
 The Weekly Grid View is the primary interactive surface for building and printing your store's weekly agenda. It provides a high-density overview of all staff shifts, store events, and operational warnings.
 
-![Weekly Grid Overview](../images/help/staff-weekly-grid-view/main.png)
-
 ## What this is
 
 This view acts as the "Command Center" for the Weekly Schedule. It allows you to:

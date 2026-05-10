@@ -10,10 +10,6 @@ tags: customers, rms-charge, corecard, support, reconciliation
 
 # RMS Charge Workspace
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/customers/RmsChargeAdminSection.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Use this workspace when a customer has an RMS Charge account and staff need to:

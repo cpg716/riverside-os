@@ -359,7 +359,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-sidebar",
     title: "POS Sidebar",
-    summary: "Use the POS rail to move between register-native workflows like Register, Customers, RMS Charge, Podium Inbox, Shipping, and Layaways without inheriting the broader Back Office subsection tree.",
+    summary: "Use the POS rail to move between Register, Customers, RMS Charge, Podium Inbox, Shipping, Layaways, and other register-side workflows.",
     markdown: manual_41_raw,
     tags: ["pos-sidebar","pos","navigation","register"],
   },

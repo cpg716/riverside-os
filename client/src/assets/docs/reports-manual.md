@@ -10,7 +10,7 @@ tags: reports, analytics, insights, pivot, margin, rbac, search
 
 **Back Office → Reports** shows a **catalog** of read-only reports. Each card is wired to **Riverside** APIs and **your permissions** (not Metabase’s).
 
-![Reports library catalog](../images/help/reports/catalog.png)
+![Reports catalog](../images/help/reports/catalog.png)
 
 ## Who can open it
 

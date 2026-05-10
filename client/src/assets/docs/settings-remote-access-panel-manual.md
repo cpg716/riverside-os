@@ -52,3 +52,8 @@ Use the URL shown in this panel for iPads and other satellite browsers that are 
 - Do not use this panel to enter Helcim keys or other production secrets.
 - Host mode is for the **dedicated Windows host machine**, not for the main register by default and not as a public-web shortcut.
 - If you disconnect Tailscale during a remote session, connected off-site devices will lose access.
+
+## Related workflows
+
+- [Remote Access](manual:remote-access)
+- [ROS Dev Center](manual:settings-ros-dev-center-panel)

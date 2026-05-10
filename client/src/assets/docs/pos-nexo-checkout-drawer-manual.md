@@ -52,3 +52,8 @@ The **Complete sale** button stays unavailable until the payment rules are satis
 - Do not close the drawer while a terminal request is waiting unless you intend to cancel that payment attempt.
 - If a terminal is offline or mismatched, fix the terminal selection before retrying.
 - If a customer changes tender type, confirm the balance due before collecting the next payment.
+
+## Related workflows
+
+- [Receipt Summary](manual:pos-receipt-summary-modal)
+- [Gift Cards Workspace](manual:gift-cards-workspace)

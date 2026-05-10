@@ -11,10 +11,6 @@ status: approved
 
 # Notifications Bell
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/notifications/NotificationCenterBell.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 The bell is Riverside’s shared notification entry point. Use it to see whether anything new needs your attention and to open the full **Communications & Alerts** drawer.

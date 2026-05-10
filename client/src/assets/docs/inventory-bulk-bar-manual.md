@@ -11,10 +11,6 @@ status: approved
 
 # Inventory Bulk Bar (inventory)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/InventoryBulkBar.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Use the **Inventory Bulk Bar** when you have selected one or more products in Inventory List and need to act on that selection without opening every product one by one.

@@ -13,8 +13,6 @@ status: approved
 
 The Product Hub is the single source of truth for a specific SKU. Use it to verify inventory levels, review variations, and print retail price tags.
 
-![Product Hub Drawer](../images/help/inventory-product-hub-drawer/main.png)
-
 ## What this is
 
 Use the **Product Hub** when you need to drill down into the details of a single product. It aggregates live inventory counts, recent movement logs, and purchase order context into one side panel.

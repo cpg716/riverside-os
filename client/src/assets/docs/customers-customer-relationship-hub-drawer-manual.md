@@ -55,3 +55,8 @@ If ROSIE is unavailable, the hub remains usable.
 - Confirm the customer name and contact details before taking action.
 - Keep private notes and sensitive customer information out of screenshots or bug reports unless support specifically needs them.
 - Use the visible transaction and alteration records as the source of truth.
+
+## Related workflows
+
+- [Customers Workspace](manual:customers-workspace)
+- [Orders Workspace](manual:orders-workspace)

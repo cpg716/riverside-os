@@ -55,3 +55,8 @@ Counterpoint ROSIE insight appears below deterministic proof, blockers, warnings
 - Do not sign off on cutover from a ROSIE summary.
 - Confirm imported rows are auditable and distinguishable from current ROS transactions.
 - Review limits and caveats before making migration decisions.
+
+## Related workflows
+
+- [QBO Workspace](manual:qbo-workspace)
+- [Inventory Control Board](manual:inventory-control-board)

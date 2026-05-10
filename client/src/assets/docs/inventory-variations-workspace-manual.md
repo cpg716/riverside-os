@@ -11,10 +11,6 @@ status: approved
 
 # Variations Workspace (inventory)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/VariationsWorkspace.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Use **Variations Workspace** inside Product Hub when you need a matrix-level view of one product’s sizes, colors, or other variation axes and want to act on all or part of that matrix.

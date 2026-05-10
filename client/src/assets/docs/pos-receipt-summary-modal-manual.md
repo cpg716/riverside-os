@@ -44,3 +44,8 @@ If no customer is attached, the sale complete screen explains that SMS or email 
 - Confirm the receipt total, paid amount, tender, and status before handing the receipt to the customer.
 - Use gift receipt only when the customer asks for one.
 - Do not use screenshots of receipts as customer delivery unless support asks for troubleshooting evidence.
+
+## Related workflows
+
+- [Register Checkout](manual:pos-nexo-checkout-drawer)
+- [Receipt Settings](manual:settings-receipt-builder-panel)

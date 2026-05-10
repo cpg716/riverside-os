@@ -11,6 +11,7 @@ status: approved
 
 # Inventory Control Board
 
+![Inventory control board](../images/help/inventory-control-board/main.png)
 ## What this is
 
 Inventory Control Board is the main staff surface for finding products, reviewing stock, and opening Product Hub.
@@ -53,3 +54,8 @@ This review is informational. Use Product Hub and Counterpoint Settings for the 
 - A true empty result means the current filters returned no matching inventory.
 - A failed load should show a degraded state rather than pretending the inventory is empty.
 - Do not treat readiness counts as automatic changes. Staff still review and apply fixes deliberately.
+
+## Related workflows
+
+- [Product Hub Drawer](manual:inventory-product-hub-drawer)
+- [Purchase Orders and Vendor Paperwork](manual:inventory-purchase-order-panel)

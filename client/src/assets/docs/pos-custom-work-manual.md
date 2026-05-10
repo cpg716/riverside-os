@@ -10,8 +10,6 @@ tags: pos, custom-orders, rush, fulfillment
 
 Custom orders are used for made-to-measure (MTM) garments that require specific vendor-form details and individualized pricing.
 
-![Custom Order Booking Modal](../images/help/pos/custom-order-modal.png)
-
 ## What this is
 
 Use the **Custom Order** workflow for garments like HSM Custom Suits or Individualized Shirts. Unlike standard retail items, custom orders capture manufacturing details (lapels, buttons, vents) and can be flagged for **Rush** handling.
@@ -66,3 +64,8 @@ Rush flags help staff spot Custom or other fulfillment orders that need faster f
 1. Review rush orders daily in Orders and related operations views.
 2. Confirm the customer's **Need By Date** against current vendor lead times.
 3. Keep the customer updated if the date changes.
+
+## Related workflows
+
+- [Register Checkout](manual:pos-nexo-checkout-drawer)
+- [Orders Workspace](manual:orders-workspace)

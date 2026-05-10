@@ -45,3 +45,8 @@ Do not assume the store has no blockers just because a degraded feed is quiet.
 - Use blockers before warnings.
 - Follow the card action links instead of searching manually when a next action is shown.
 - Treat ROSIE as an explanation layer, not the source of sign-off.
+
+## Related workflows
+
+- [Inventory Control Board](manual:inventory-control-board)
+- [Customer Relationship Hub](manual:customers-customer-relationship-hub-drawer)

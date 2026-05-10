@@ -11,10 +11,6 @@ status: approved
 
 # Receipt Settings Panel (settings)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/settings/ReceiptBuilderPanel.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Receipt Settings controls what appears on customer receipts. The production path is **Standard Epson**, which uses ReceiptLine markdown for the editable template and prints ESC/POS receipts on Epson TM-m30III-compatible printers.
@@ -60,5 +56,3 @@ New receipt settings apply to future receipt previews, printed receipts, text re
 ## Screenshots
 
 Use governed screenshots from `../images/help/settings-receipt-builder-panel/` when this manual is refreshed.
-
-![Example](../images/help/settings-receipt-builder-panel/example.png)

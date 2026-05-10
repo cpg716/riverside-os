@@ -11,10 +11,6 @@ status: approved
 
 # Commission Reports Panel (staff)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/staff/CommissionPayoutsPanel.tsx`._
-<!-- /help:component-source -->
-
 ## What This Is
 
 Use **Staff → Commissions → Reports** to review commission activity by period.

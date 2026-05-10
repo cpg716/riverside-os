@@ -10,10 +10,6 @@ tags: layout-pos-shell, pos, register, windows
 
 # Pos Shell (layout)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/layout/PosShell.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 This is the main **Register desktop shell** used on the Windows Tauri app after staff sign-in. It keeps the POS rail visible and lets you move between **Dashboard**, **Register**, **Tasks**, and the mirrored customer/order/inventory workspaces without leaving the register environment.
@@ -42,4 +38,7 @@ This is the main **Register desktop shell** used on the Windows Tauri app after 
 
 Use governed screenshots from `../images/help/layout-pos-shell/` when this manual is refreshed so the POS shell visuals stay aligned with the live UI.
 
-![Example](../images/help/layout-pos-shell/example.png)
+## Related workflows
+
+- [POS Sidebar](manual:pos-sidebar)
+- [Register Checkout](manual:pos-nexo-checkout-drawer)

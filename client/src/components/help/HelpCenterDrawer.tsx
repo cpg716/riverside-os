@@ -92,6 +92,87 @@ type DrawerMode = "browse" | "ask" | "conversation";
 
 export type HelpCenterDrawerMode = DrawerMode;
 
+const PINNED_HELP_MANUAL_ORDER = new Map(
+  [
+    "pos",
+    "pos-nexo-checkout-drawer",
+    "pos-receipt-summary-modal",
+    "pos-sidebar",
+    "pos-register-dashboard",
+    "pos-register-reports",
+    "operations-operational-home",
+    "customers-customer-relationship-hub-drawer",
+    "customers-workspace",
+    "orders-workspace",
+    "alterations-workspace",
+    "scheduler-workspace",
+    "inventory-control-board",
+    "inventory-receiving-bay",
+    "inventory-purchase-order-panel",
+    "inventory-product-hub-drawer",
+    "gift-cards-workspace",
+    "qbo-workspace",
+    "settings-counterpoint-sync-settings-panel",
+    "help-center-drawer",
+    "bug-report-flow",
+    "settings-bug-reports-settings-panel",
+    "settings-ros-dev-center-panel",
+    "settings-rosie-settings-panel",
+  ].map((id, index) => [id, index] as const),
+);
+
+function helpManualDomainRank(entry: HelpManualListEntry): number {
+  const text = `${entry.id} ${entry.title}`.toLowerCase();
+  if (text.includes("pos") || text.includes("register") || text.includes("checkout") || text.includes("receipt")) return 10;
+  if (text.includes("operation")) return 20;
+  if (text.includes("customer") || text.includes("podium")) return 30;
+  if (text.includes("order") || text.includes("pickup")) return 40;
+  if (text.includes("alteration") || text.includes("scheduler")) return 50;
+  if (
+    text.includes("inventory") ||
+    text.includes("receiv") ||
+    text.includes("purchase") ||
+    text.includes("product") ||
+    text.includes("vendor") ||
+    text.includes("variation")
+  ) return 60;
+  if (text.includes("gift") || text.includes("loyalty") || text.includes("reward")) return 70;
+  if (text.includes("shipping") || text.includes("shipment")) return 80;
+  if (text.includes("qbo") || text.includes("counterpoint") || text.includes("report") || text.includes("insight")) return 90;
+  if (text.includes("settings") || text.includes("help") || text.includes("rosie") || text.includes("bug") || text.includes("dev")) return 100;
+  return 200;
+}
+
+function orderHelpManuals(entries: HelpManualListEntry[]): HelpManualListEntry[] {
+  return [...entries].sort((a, b) => {
+    const pinnedA = PINNED_HELP_MANUAL_ORDER.get(a.id);
+    const pinnedB = PINNED_HELP_MANUAL_ORDER.get(b.id);
+    if (pinnedA !== undefined || pinnedB !== undefined) {
+      return (pinnedA ?? 10_000) - (pinnedB ?? 10_000);
+    }
+    return (
+      helpManualDomainRank(a) - helpManualDomainRank(b) ||
+      a.title.localeCompare(b.title) ||
+      a.id.localeCompare(b.id)
+    );
+  });
+}
+
+function isDraftHelpMarkdown(markdown: string): boolean {
+  const match = markdown.replace(/^\uFEFF/, "").match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!match) return false;
+  return match[1]
+    .split(/\r?\n/)
+    .some((line) => /^status:\s*['"]?draft['"]?\s*$/i.test(line.trim()));
+}
+
+function cleanHelpMarkdownForDisplay(markdown: string): string {
+  return markdown
+    .replace(/<!--\s*help:component-source\s*-->[\s\S]*?<!--\s*\/help:component-source\s*-->/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .trim();
+}
+
 function extractText(node: unknown): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -456,19 +537,19 @@ export default function HelpCenterDrawer({
         const list = j.manuals ?? [];
         if (cancelled) return;
         if (list.length === 0) throw new Error("empty");
-        setManualList(list);
+        setManualList(orderHelpManuals(list));
         setHelpListSource("api");
       } catch {
         if (cancelled) return;
         const fallback = [...HELP_MANUALS]
+          .filter((m) => !isDraftHelpMarkdown(m.markdown))
           .map((m) => ({
             id: m.id,
             title: m.title,
             summary: m.summary ?? "",
             order: 100,
-          }))
-          .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
-        setManualList(fallback);
+          }));
+        setManualList(orderHelpManuals(fallback));
         setHelpListSource("static");
       }
     })();
@@ -518,7 +599,7 @@ export default function HelpCenterDrawer({
         if (!cancelled && m) {
           setMarkdownById((prev) => ({
             ...prev,
-            [activeManualId]: stripYamlFrontMatter(m.markdown),
+            [activeManualId]: cleanHelpMarkdownForDisplay(stripYamlFrontMatter(m.markdown)),
           }));
         }
       } finally {
@@ -562,7 +643,9 @@ export default function HelpCenterDrawer({
 
   const allowedManualIds = useMemo(() => {
     if (manualList?.length) return new Set(manualList.map((m) => m.id));
-    return new Set(HELP_MANUALS.map((m) => m.id));
+    return new Set(
+      HELP_MANUALS.filter((m) => !isDraftHelpMarkdown(m.markdown)).map((m) => m.id),
+    );
   }, [manualList]);
 
   const localChunks = useMemo(() => {
@@ -570,7 +653,11 @@ export default function HelpCenterDrawer({
     for (const m of HELP_MANUALS) {
       if (!allowedManualIds.has(m.id)) continue;
       out.push(
-        ...buildLocalSearchChunks(m.id, m.title, stripYamlFrontMatter(m.markdown)),
+        ...buildLocalSearchChunks(
+          m.id,
+          m.title,
+          cleanHelpMarkdownForDisplay(stripYamlFrontMatter(m.markdown)),
+        ),
       );
     }
     return out;
@@ -583,11 +670,11 @@ export default function HelpCenterDrawer({
   const displayMarkdown = useMemo(() => {
     if (helpListSource === "api") {
       const c = markdownById[activeManualId];
-      if (c) return c;
+      if (c) return cleanHelpMarkdownForDisplay(c);
       return "";
     }
     const m = helpManualById(activeManualId);
-    return m ? stripYamlFrontMatter(m.markdown) : "";
+    return m ? cleanHelpMarkdownForDisplay(stripYamlFrontMatter(m.markdown)) : "";
   }, [helpListSource, markdownById, activeManualId]);
 
   const { activeManual, toc } = useMemo(() => {
@@ -780,8 +867,14 @@ export default function HelpCenterDrawer({
     const el = document.getElementById(
       `help-${scrollTarget.manualId}-${scrollTarget.slug}`,
     );
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    const container = activeManualContentRef.current;
+    if (el && container) {
+      const top =
+        container.scrollTop +
+        el.getBoundingClientRect().top -
+        container.getBoundingClientRect().top -
+        8;
+      container.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
       setScrollTarget(null);
     }
   }, [scrollTarget, activeManualId, displayMarkdown, resultRows]);
@@ -1098,6 +1191,7 @@ export default function HelpCenterDrawer({
       title={drawerMode === "conversation" ? "ROSIE Chat" : "Help"}
       panelMaxClassName={drawerMode === "conversation" ? "max-w-5xl" : "max-w-3xl"}
       noPadding
+      contentContained
     >
       <div className="flex h-full min-h-0 flex-col">
         <div className="shrink-0 space-y-3 border-b border-app-border bg-app-surface px-4 py-3">
@@ -1107,7 +1201,7 @@ export default function HelpCenterDrawer({
               onClick={() => setDrawerMode("browse")}
               className={`rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-colors ${
                 drawerMode === "browse"
-                  ? "bg-app-text text-white"
+                  ? "bg-app-accent text-white"
                   : "border border-app-border bg-app-surface-2 text-app-text"
               }`}
             >
@@ -1192,7 +1286,7 @@ export default function HelpCenterDrawer({
           {manualList === null && isOpen ? (
             <p className="text-xs text-app-text-muted">Loading manuals…</p>
           ) : null}
-          {helpListSource === "static" ? (
+          {helpListSource === "static" && manualList !== null ? (
             <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
               Using bundled manuals because the live help catalog is unavailable.
             </p>

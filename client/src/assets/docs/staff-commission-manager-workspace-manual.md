@@ -11,10 +11,6 @@ status: approved
 
 # Commission Manager Workspace (staff)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/staff/CommissionManagerWorkspace.tsx`._
-<!-- /help:component-source -->
-
 ## What This Is
 
 Use **Staff → Commissions** for reporting and incentives.

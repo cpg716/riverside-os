@@ -12,7 +12,7 @@ status: approved
 
 The Scheduler is the central hub for managing store appointments, consultations, and fittings. It provides a visual calendar interface to ensure your team is never double-booked.
 
-![Scheduler Calendar View](../images/help/scheduler-workspace/main.png)
+![Scheduler workspace](../images/help/scheduler-workspace/main.png)
 
 ## What this is
 

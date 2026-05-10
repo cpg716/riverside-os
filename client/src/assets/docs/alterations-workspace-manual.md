@@ -12,7 +12,7 @@ status: approved
 
 The Alterations workspace is a garment-based tailoring workbench. It tracks customers, garments, due dates, and work status for every job started at the Register.
 
-![Alterations Workspace Main Queue](../images/help/alterations-workspace/main.png)
+![Alterations workspace](../images/help/alterations-workspace/main.png)
 
 ## What this is
 
@@ -56,5 +56,5 @@ Use this workspace when you need to:
 
 ## Related workflows
 
-- [POS Alteration Intake](manual:pos-alteration-intake-modal)
+- [Register (POS)](manual:pos)
 - [Customers Workspace](manual:customers-workspace)

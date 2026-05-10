@@ -10,10 +10,6 @@ tags: inventory-universal-importer, inventory, import, counterpoint
 
 # Universal Importer (inventory)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/UniversalImporter.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Use **Inventory → Import** for **catalog-only CSV mapping** when you need to add or clean up products, variants, categories, vendor links, retail, or cost from a spreadsheet.

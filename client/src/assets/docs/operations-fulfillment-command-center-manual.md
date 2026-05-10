@@ -10,10 +10,6 @@ tags: operations, pickup-queue, orders, ready-for-pickup, rush
 
 # Pickup Queue
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/operations/FulfillmentCommandCenter.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Pickup Queue is the Operations priority view for order follow-up.
@@ -39,3 +35,8 @@ This is narrower than the full **Orders** workspace. Use it to decide what needs
 - **Ready for Pickup** is about customer release and follow-up.
 - **Rush** and **Due Soon** help staff prioritize same-day and near-term work.
 - **Blocked** is the cleanup list for orders that have stalled and need staff action.
+
+## Related workflows
+
+- [Orders Workspace](manual:orders-workspace)
+- [Operations Home](manual:operations-operational-home)

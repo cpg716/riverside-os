@@ -219,6 +219,12 @@ fn extract_summary(raw: &str) -> String {
     yaml_field(raw, "summary").unwrap_or_default()
 }
 
+fn is_draft_manual(raw: &str) -> bool {
+    yaml_field(raw, "status")
+        .map(|status| status.eq_ignore_ascii_case("draft"))
+        .unwrap_or(false)
+}
+
 fn yaml_field(raw: &str, key: &str) -> Option<String> {
     let t = raw.strip_prefix('\u{feff}').unwrap_or(raw);
     let rest = t.strip_prefix("---")?;
@@ -408,6 +414,9 @@ pub async fn build_visible_manual_list(
             continue;
         }
         let raw = read_bundled_manual_raw(rel)?;
+        if is_draft_manual(&raw) {
+            continue;
+        }
         let bundled_order = extract_order(&raw).unwrap_or(100);
         let order = row.and_then(|r| r.order_override).unwrap_or(bundled_order);
         let (btitle, bsum, _) = bundled_title_summary_order(&raw, manual_id, bundled_order);
@@ -454,6 +463,9 @@ pub async fn build_manual_detail(
         return Ok(None);
     }
     let raw = read_bundled_manual_raw(rel)?;
+    if is_draft_manual(&raw) {
+        return Ok(None);
+    }
     let merged = merged_markdown(&raw, row);
     let display = merged_display_markdown(&merged);
     let bundled_order = extract_order(&raw).unwrap_or(100);

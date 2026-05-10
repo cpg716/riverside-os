@@ -10,10 +10,6 @@ tags: inventory-vendor-hub, inventory, vendors, procurement
 
 # Vendor Hub (inventory)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/VendorHub.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Use **Vendors** to create and maintain vendor records, review vendor codes and buying history, manage optional brand links, and merge duplicate records into one source of truth.
@@ -36,3 +32,8 @@ Use **Vendors** to create and maintain vendor records, review vendor codes and b
 
 - Treat **vendor code** as the integration key for Counterpoint-linked vendors.
 - Merge duplicates before building new POs so receiving and reporting stay attached to one supplier record.
+
+## Related workflows
+
+- [Purchase Orders and Vendor Paperwork](manual:inventory-purchase-order-panel)
+- [Inventory Control Board](manual:inventory-control-board)

@@ -11,6 +11,7 @@ status: approved
 
 # Purchase Orders and Vendor Paperwork
 
+![Purchase Orders and vendor paperwork](../images/help/inventory-purchase-order-panel/main.png)
 ## What this is
 
 Purchase Orders is the inventory surface for vendor paperwork. Staff use it to create purchase orders, review paperwork, and open Receive Stock.
@@ -47,3 +48,8 @@ Select the correct paperwork and open **Receive Stock**. Review the receiving dr
 - Do not treat stale rows as newly confirmed paperwork.
 - If vendor paperwork cannot load at all, retry or ask a manager before receiving.
 - Do not create duplicate purchase orders just because a refresh failed.
+
+## Related workflows
+
+- [Receive Stock](manual:inventory-receiving-bay)
+- [Inventory Control Board](manual:inventory-control-board)

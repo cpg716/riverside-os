@@ -55,3 +55,8 @@ Historical imported Counterpoint activity should remain auditable but should not
 - Do not sync an unbalanced proposal.
 - Confirm refund and liability evidence before syncing days with returns, store credit, deposits, or gift card activity.
 - If drilldown evidence does not match the visible transaction history, stop and ask for accounting review.
+
+## Related workflows
+
+- [Reports](manual:reports)
+- [Counterpoint Sync Settings](manual:settings-counterpoint-sync-settings-panel)

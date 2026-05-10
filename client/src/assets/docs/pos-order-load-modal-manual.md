@@ -10,10 +10,6 @@ tags: pos, orders, pickup, fulfillment
 
 # Customer Orders
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/pos/OrderLoadModal.tsx`._
-<!-- /help:component-source -->
-
 Use this window when a customer already has an open order and staff need to review what is still open.
 
 ## What it shows
@@ -54,3 +50,8 @@ For **Custom** orders, remember:
 - actual vendor cost should be entered when the garment is received
 - the main vendor-form references can be reviewed in the order detail before you continue pickup or payment work
 - order detail may now include size anchors, sleeve or cuff measurements, and vendor order references copied from the HSM or Individualized form
+
+## Related workflows
+
+- [Orders Workspace](manual:orders-workspace)
+- [Register Checkout](manual:pos-nexo-checkout-drawer)

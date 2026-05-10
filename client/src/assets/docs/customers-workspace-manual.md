@@ -10,12 +10,7 @@ tags: customers, support, relationships, duplicate-review
 
 # Customers Workspace
 
-![Customers Workspace](../images/help/customers-workspace/main.png)
-
-<!-- help:component-source -->
-_Linked component: `client/src/components/customers/CustomersWorkspace.tsx`._
-<!-- /help:component-source -->
-
+![Customers workspace](../images/help/customers-workspace/main.png)
 ## What this is
 
 Use this workspace to:

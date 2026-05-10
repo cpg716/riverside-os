@@ -50,3 +50,8 @@ QBO proposals should keep gift card subtype evidence clear. Purchased, loyalty, 
 - Confirm the card number and balance before taking action.
 - Do not void a card unless the customer and reason are clear.
 - Do not treat promo or donated cards as purchased gift card liability.
+
+## Related workflows
+
+- [Register Checkout](manual:pos-nexo-checkout-drawer)
+- [QBO Workspace](manual:qbo-workspace)

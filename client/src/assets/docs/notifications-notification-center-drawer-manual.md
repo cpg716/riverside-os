@@ -11,10 +11,6 @@ status: approved
 
 # Notification Center and Team Announcements
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/notifications/NotificationCenterDrawer.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 The **Communications & Alerts** drawer is Riverside’s in-app notification center. It is where staff review new alerts, reopen earlier activity, and keep their inbox under control during the day.

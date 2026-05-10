@@ -11,10 +11,6 @@ status: approved
 
 # Printers And Scanners Panel (settings)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/settings/PrintersAndScannersPanel.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 This panel stores the current workstation's hardware targets. Back Office and POS use the same local settings, but POS opens a Register Hardware view with lane-focused readiness and test actions.
@@ -56,5 +52,3 @@ The workstation immediately uses the saved local printer targets for receipt, ta
 ## Screenshots
 
 Use governed screenshots from `../images/help/settings-printers-and-scanners-panel/` when this manual is refreshed.
-
-![Example](../images/help/settings-printers-and-scanners-panel/example.png)

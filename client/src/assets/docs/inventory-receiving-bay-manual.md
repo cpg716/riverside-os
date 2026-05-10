@@ -11,6 +11,7 @@ status: approved
 
 # Receive Stock
 
+![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
 ## What this is
 
 Receive Stock is the guided workflow for counting inbound quantities and posting received stock from vendor paperwork.
@@ -51,3 +52,8 @@ The rows remain usable, but staff should retry refresh before posting whenever t
 - Do not post receiving from stale paperwork unless a manager confirms it is acceptable.
 - If QBO or account glance information is unavailable, receiving should continue with a quiet degraded state.
 - If the final post fails, do not re-enter quantities blindly. Confirm whether stock changed before retrying.
+
+## Related workflows
+
+- [Purchase Orders and Vendor Paperwork](manual:inventory-purchase-order-panel)
+- [Inventory Control Board](manual:inventory-control-board)

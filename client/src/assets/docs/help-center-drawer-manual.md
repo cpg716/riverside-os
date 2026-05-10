@@ -11,6 +11,7 @@ status: approved
 
 # Help Center Drawer
 
+![Help Center drawer](../images/help/help-center-drawer/example.png)
 ## What this is
 
 Help Center is the in-app place for staff manuals, workflow search, and optional ROSIE help.
@@ -64,3 +65,8 @@ Use sources to open the exact manual section ROSIE used.
 - If a manual cannot load, use search or try again later.
 - If ROSIE is unavailable, continue with the staff manual and visible workflow controls.
 - Do not paste passwords, Access PINs, card numbers, or private customer notes into ROSIE.
+
+## Related workflows
+
+- [ROSIE Settings](manual:settings-rosie-settings-panel)
+- [Bug Report Flow](manual:bug-report-flow)

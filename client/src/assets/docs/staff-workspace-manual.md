@@ -12,8 +12,6 @@ status: approved
 
 The Team workspace is the central hub for managing your store's roster. Use it to add new employees, manage secure Access PINs, and define what each person can see and do in Riverside OS.
 
-![Staff Roster and Profile Edit](../images/help/staff-workspace/main.png)
-
 ## What this is
 
 This workspace handles the administrative lifecycle of your team. It is divided into the **Team List** (roster overview) and the **Staff Profile** (detailed settings for one person).

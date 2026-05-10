@@ -183,7 +183,18 @@ async function ensureMainNavigationVisible(page) {
 }
 
 async function openBackofficeSidebarTab(page, tabPattern) {
+  await page.keyboard.press("Escape").catch(() => {});
+  await waitForOverlayBackdropsHidden(page).catch(() => {});
   const nav = await ensureMainNavigationVisible(page);
+  const exactId = tabPattern.source.match(/^\^([a-z-]+)\$$/i)?.[1];
+  if (exactId) {
+    const testIdButton = page.getByTestId(`sidebar-nav-${exactId}`);
+    if (await testIdButton.isVisible().catch(() => false)) {
+      await testIdButton.scrollIntoViewIfNeeded().catch(() => {});
+      await testIdButton.click();
+      return testIdButton;
+    }
+  }
   const button = nav.getByRole("button", { name: tabPattern });
   await button.waitFor({ state: "visible", timeout: 15000 });
   await button.scrollIntoViewIfNeeded().catch(() => {});

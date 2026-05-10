@@ -10,10 +10,6 @@ tags: pos-register-dashboard, pos, register, windows
 
 # Register Dashboard (pos)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/pos/RegisterDashboard.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 This is the default home screen many Windows register stations land on after the till opens. It gives staff a quick shift overview and a safe starting point before they jump into the live cart.
@@ -34,4 +30,7 @@ This is the default home screen many Windows register stations land on after the
 
 Use governed screenshots from `../images/help/pos-register-dashboard/` when this manual is refreshed so the dashboard examples match the live station view.
 
-![Example](../images/help/pos-register-dashboard/example.png)
+## Related workflows
+
+- [Register Checkout](manual:pos-nexo-checkout-drawer)
+- [Close Register](manual:pos-close-register-modal)

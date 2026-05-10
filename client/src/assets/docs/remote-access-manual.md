@@ -40,3 +40,8 @@ The host can expose a private Riverside remote path after both of these are true
 - This flow is for **private off-site access**, not public-web deployment
 - disconnecting Tailscale will remove private remote access
 - starting host mode does not ask for Helcim keys in the UI; those belong in the host environment
+
+## Related workflows
+
+- [ROS Dev Center](manual:settings-ros-dev-center-panel)
+- [Help Center Drawer](manual:help-center-drawer)

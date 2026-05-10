@@ -10,9 +10,9 @@ tags: orders, fulfillment, deposits, tracking
 
 # Orders Workspace
 
-![Orders Workspace](../images/help/orders-workspace/main.png)
-
 The Orders workspace is the main place to review non-takeaway orders.
+
+![Orders workspace](../images/help/orders-workspace/main.png)
 
 ## What staff can do here
 
@@ -45,3 +45,8 @@ The Orders workspace is the main place to review non-takeaway orders.
 - The lifecycle panel in order detail is the quickest way to tell whether the order is still waiting on measurements, still carrying a deposit balance, fully paid, or already picked up.
 
 Check the order type before making changes so the right team follows up on it.
+
+## Related workflows
+
+- [Register Checkout](manual:pos-nexo-checkout-drawer)
+- [Customer Relationship Hub](manual:customers-customer-relationship-hub-drawer)

@@ -11,10 +11,6 @@ status: approved
 
 # Procurement Hub (pos)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/pos/ProcurementHub.tsx`._
-<!-- /help:component-source -->
-
 ## What this is
 
 Use **Procurement Hub** in POS mode when staff need a register-friendly way to open purchase orders, direct invoices, and the receiving workflow without leaving the operational shell.
