@@ -58,6 +58,16 @@ jobs:
           Copy-Item -Path (Join-Path $extractDir "llama-server.exe") -Destination "$binaryDir/llama-server-x86_64-pc-windows-msvc.exe" -Force
           Copy-Item -Path (Join-Path $extractDir "*.dll") -Destination $binaryDir -Force
 
+      - name: Smoke ROSIE sidecar package wiring
+        shell: pwsh
+        working-directory: ${{ github.workspace }}
+        env:
+          RIVERSIDE_LLAMA_HOST: 127.0.0.1
+          RIVERSIDE_LLAMA_PORT: 18080
+          RIVERSIDE_LLAMA_EXTRA_ARGS: --reasoning off
+          RIVERSIDE_LLAMA_MODEL_PATH: ${{ runner.temp }}\missing-rosie-model.gguf
+        run: ./scripts/smoke-rosie-sidecar-package.ps1 -AllowMissingModel
+
       - name: Build signed updater bundle
         shell: pwsh
         run: |
