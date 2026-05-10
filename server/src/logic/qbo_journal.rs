@@ -156,6 +156,7 @@ pub async fn propose_daily_journal(
     let mut warnings: Vec<String> = vec![
         format!("Journal uses recognized fulfillment activity on store-local business date {activity_date} ({business_timezone}); shipped orders recognize at label purchase / in-transit / delivered events. Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync."),
         "Gift card: purchased-card sales credit `liability_gift_card` / default, purchased-card redemptions debit that liability, and loyalty/donated redemptions debit `expense_loyalty` / default when checkout stores canonical gift card metadata. Unmapped cases fall back to tender mapping.".to_string(),
+        "Store credit and open deposit redemptions post as liability relief when mapped; they are not cash/card tender revenue.".to_string(),
         "Revenue/COGS/tax for recognized transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate recognition-day nets.".to_string(),
     ];
 
@@ -547,21 +548,29 @@ pub async fn propose_daily_journal(
         let is_loyalty_gc = is_gift_card && gift_card_uses_loyalty_expense(t.sub_type.as_deref());
         let is_rms_financing = is_rms_financing_tender(sid, t.tender_family.as_deref());
         let is_rms_collection = rms_payment_collection_flag(t.rms_charge_collection);
+        let is_store_credit = sid.eq_ignore_ascii_case("store_credit");
+        let is_open_deposit = sid.eq_ignore_ascii_case("open_deposit");
         if is_gift_card && !is_paid_liability_gc && !is_loyalty_gc {
             warnings.push(
                 "Gift card payment missing/unknown card classification; expected purchased, loyalty, donated, or promo card metadata. Falling back to tender mapping."
                     .to_string(),
             );
         }
-        let liability_gc = if is_loyalty_gc {
+        let liability_mapped = if is_open_deposit {
+            qbo_map_name(pool, "liability_deposit", "default").await?
+        } else if is_store_credit {
+            qbo_map_name(pool, "liability_store_credit", "default").await?
+        } else if is_loyalty_gc {
             qbo_map_with_misc_fallback(pool, "expense_loyalty", "default", None).await?
         } else if is_paid_liability_gc {
             qbo_map_with_misc_fallback(pool, "liability_gift_card", "default", None).await?
         } else {
             None
         };
-        let mapped = if let Some(m) = liability_gc.clone() {
+        let mapped = if let Some(m) = liability_mapped.clone() {
             Some(m)
+        } else if is_open_deposit || is_store_credit {
+            None
         } else if is_rms_financing {
             qbo_map_with_misc_fallback(
                 pool,
@@ -575,11 +584,11 @@ pub async fn propose_daily_journal(
         };
         let (aid, aname) = match mapped {
             Some(m) => {
-                if is_loyalty_gc && liability_gc.is_none() {
+                if is_loyalty_gc && liability_mapped.is_none() {
                     warnings.push(
                         "Gift card loyalty/promo redemption uses tender fallback — set `expense_loyalty` / default for expense recognition.".to_string(),
                     );
-                } else if is_paid_liability_gc && liability_gc.is_none() {
+                } else if is_paid_liability_gc && liability_mapped.is_none() {
                     warnings.push(
                         "Gift card tender uses `tender`/`gift_card` account — set `liability_gift_card` / default for liability relief.".to_string(),
                     );
@@ -587,9 +596,21 @@ pub async fn propose_daily_journal(
                 m
             }
             None => {
-                warnings.push(format!(
-                    "No QBO tender mapping for `{sid}`; skipped in journal."
-                ));
+                if is_open_deposit {
+                    warnings.push(
+                        "Open deposit redemption detected but no `liability_deposit` / default mapping exists; liability relief omitted."
+                            .to_string(),
+                    );
+                } else if is_store_credit {
+                    warnings.push(
+                        "Store credit redemption detected but no `liability_store_credit` / default mapping exists; liability relief omitted."
+                            .to_string(),
+                    );
+                } else {
+                    warnings.push(format!(
+                        "No QBO tender mapping for `{sid}`; skipped in journal."
+                    ));
+                }
                 continue;
             }
         };
@@ -600,9 +621,13 @@ pub async fn propose_daily_journal(
             (Decimal::ZERO, abs_amt)
         };
         let memo = if amt < Decimal::ZERO {
-            if is_loyalty_gc && liability_gc.is_some() {
+            if is_open_deposit {
+                "Open deposit redemption reversal (liability)".to_string()
+            } else if is_store_credit {
+                "Store credit redemption reversal (liability)".to_string()
+            } else if is_loyalty_gc && liability_mapped.is_some() {
                 "Gift card (refund / reversal) — loyalty/promo expense".to_string()
-            } else if is_paid_liability_gc && liability_gc.is_some() {
+            } else if is_paid_liability_gc && liability_mapped.is_some() {
                 "Gift card (refund / reversal) — liability".to_string()
             } else if is_rms_financing {
                 "RMS Charge financing (refund / reversal)".to_string()
@@ -611,9 +636,13 @@ pub async fn propose_daily_journal(
             } else {
                 format!("Tenders (refund/outflow) — {sid}")
             }
-        } else if is_loyalty_gc && liability_gc.is_some() {
+        } else if is_open_deposit {
+            "Open deposit redemption (liability)".to_string()
+        } else if is_store_credit {
+            "Store credit redemption (liability)".to_string()
+        } else if is_loyalty_gc && liability_mapped.is_some() {
             "Gift card redemption (loyalty/promo expense)".to_string()
-        } else if is_paid_liability_gc && liability_gc.is_some() {
+        } else if is_paid_liability_gc && liability_mapped.is_some() {
             "Gift card redemption (liability)".to_string()
         } else if is_rms_financing {
             "RMS Charge financing".to_string()
@@ -634,6 +663,7 @@ pub async fn propose_daily_journal(
                 "sub_type": t.sub_type,
                 "tender_family": t.tender_family,
                 "rms_charge_collection": t.rms_charge_collection,
+                "liability_relief": (is_open_deposit || is_store_credit || is_paid_liability_gc) && liability_mapped.is_some(),
                 "amount": amt
             })],
         });

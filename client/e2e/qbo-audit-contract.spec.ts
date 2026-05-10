@@ -90,6 +90,21 @@ type QboStagingRow = {
   };
 };
 
+type CustomerLiabilityLedgers = {
+  store_credit: Array<{
+    amount: string | number;
+    balance_after: string | number;
+    reason: string;
+    transaction_id: string | null;
+  }>;
+  open_deposit: Array<{
+    amount: string | number;
+    balance_after: string | number;
+    reason: string;
+    transaction_id: string | null;
+  }>;
+};
+
 function uniqueSuffix(label: string): string {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -98,17 +113,6 @@ function futureUtcDate(offsetDays: number): string {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + offsetDays);
   return date.toISOString().slice(0, 10);
-}
-
-function currentStoreDate(): string {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 function moneyToCents(value: string | number | undefined): number {
@@ -205,10 +209,11 @@ async function checkoutQboProduct(
     sessionToken: string;
     operatorStaffId: string;
     customerId?: string | null;
-    fulfillment?: "takeaway" | "layaway";
+    fulfillment?: "takeaway" | "layaway" | "special_order";
     quantity?: number;
     amountPaid?: string;
     appliedDepositAmount?: string;
+    paymentMethod?: string;
   },
 ): Promise<CheckoutResponse> {
   const tax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
@@ -217,8 +222,9 @@ async function checkoutQboProduct(
     parseMoneyToCents(totalFor("110.00", tax.stateTax, tax.localTax)) * quantity,
   );
   const amountPaid = options.amountPaid ?? total;
+  const paymentMethod = options.paymentMethod ?? "cash";
   const paymentSplit: Record<string, string> = {
-    payment_method: "cash",
+    payment_method: paymentMethod,
     amount: amountPaid,
   };
   if (options.appliedDepositAmount) {
@@ -236,7 +242,7 @@ async function checkoutQboProduct(
       operator_staff_id: options.operatorStaffId,
       primary_salesperson_id: options.operatorStaffId,
       customer_id: options.customerId ?? null,
-      payment_method: "cash",
+      payment_method: paymentMethod,
       total_price: total,
       amount_paid: amountPaid,
       checkout_client_id: crypto.randomUUID(),
@@ -386,6 +392,46 @@ async function seedQboMappings(
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
+async function seedCustomerLiability(
+  request: APIRequestContext,
+  options: {
+    customerId: string;
+    storeCreditBalance?: string;
+    openDepositBalance?: string;
+  },
+) {
+  const res = await request.post(`${apiBase()}/api/test-support/qbo/seed-customer-liability`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      customer_id: options.customerId,
+      store_credit_balance: options.storeCreditBalance,
+      open_deposit_balance: options.openDepositBalance,
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function fetchCustomerLiabilityLedgers(
+  request: APIRequestContext,
+  customerId: string,
+): Promise<CustomerLiabilityLedgers> {
+  const res = await request.get(
+    `${apiBase()}/api/test-support/qbo/customer-liability-ledgers/${customerId}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as CustomerLiabilityLedgers;
+}
+
 async function assignQboTimestamp(
   request: APIRequestContext,
   transactionId: string,
@@ -412,6 +458,26 @@ async function assignQboDate(
   activityDate: string,
 ) {
   const res = await request.post(`${apiBase()}/api/test-support/qbo/assign-transaction-date`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      transaction_id: transactionId,
+      activity_date: activityDate,
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function assignQboReturnDate(
+  request: APIRequestContext,
+  transactionId: string,
+  activityDate: string,
+) {
+  const res = await request.post(`${apiBase()}/api/test-support/qbo/assign-transaction-return-date`, {
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
@@ -642,9 +708,9 @@ test.describe("QBO audit contract", () => {
   }) => {
     test.setTimeout(120_000);
     const dateOffset = 180 + Math.trunc(Date.now() % 4000);
-    const refundDate = currentStoreDate();
     const refundOriginalDate = futureUtcDate(dateOffset);
-    const recognitionDate = futureUtcDate(dateOffset + 1);
+    const refundDate = futureUtcDate(dateOffset + 1);
+    const recognitionDate = futureUtcDate(dateOffset + 2);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
     const product = await createQboProduct(request, operatorStaffId);
@@ -683,6 +749,7 @@ test.describe("QBO audit contract", () => {
       sessionId,
       amount: returnedUnitTotal,
     });
+    await assignQboReturnDate(request, refundCheckout.transaction_id, refundDate);
 
     const refundArtifacts = await getTransactionArtifacts(
       request,
@@ -769,6 +836,145 @@ test.describe("QBO audit contract", () => {
     );
     expect(revenueContributor).toBeTruthy();
     expect(moneyToCents(revenueContributor?.amount)).toBe(parseMoneyToCents("110.00"));
+  });
+
+  test("store credit and open deposit redemptions post liability relief in QBO", async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const dateOffset = 240 + Math.trunc(Date.now() % 4000);
+    const activityDate = futureUtcDate(dateOffset);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    const customer = await createQboCustomer(request);
+    const unitTax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
+    const transactionTotal = totalFor("110.00", unitTax.stateTax, unitTax.localTax);
+
+    await seedQboMappings(request, product.categoryId, activityDate);
+    await seedCustomerLiability(request, {
+      customerId: customer.id,
+      storeCreditBalance: transactionTotal,
+      openDepositBalance: transactionTotal,
+    });
+
+    const storeCreditCheckout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: customer.id,
+      paymentMethod: "store_credit",
+    });
+    await assignQboDate(request, storeCreditCheckout.transaction_id, activityDate);
+
+    const openDepositCheckout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: customer.id,
+      fulfillment: "special_order",
+      paymentMethod: "open_deposit",
+    });
+    await assignQboDate(request, openDepositCheckout.transaction_id, activityDate);
+    await markPickup(request, openDepositCheckout.transaction_id);
+    await assignQboFulfillmentTimestamp(
+      request,
+      openDepositCheckout.transaction_id,
+      `${activityDate}T15:00:00Z`,
+    );
+
+    const storeCreditArtifacts = await getTransactionArtifacts(
+      request,
+      storeCreditCheckout.transaction_id,
+    );
+    expect(storeCreditArtifacts.allocation_rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target_transaction_id: storeCreditCheckout.transaction_id,
+          payment_method: "store_credit",
+          amount_allocated: transactionTotal,
+          payment_amount: transactionTotal,
+        }),
+      ]),
+    );
+    const openDepositArtifacts = await getTransactionArtifacts(
+      request,
+      openDepositCheckout.transaction_id,
+    );
+    expect(openDepositArtifacts.allocation_rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target_transaction_id: openDepositCheckout.transaction_id,
+          payment_method: "open_deposit",
+          amount_allocated: transactionTotal,
+          payment_amount: transactionTotal,
+        }),
+      ]),
+    );
+
+    const ledgers = await fetchCustomerLiabilityLedgers(request, customer.id);
+    const storeCreditLedger = ledgers.store_credit.find(
+      (row) =>
+        row.reason === "checkout_redemption" &&
+        row.transaction_id === storeCreditCheckout.transaction_id,
+    );
+    expect(moneyToCents(storeCreditLedger?.amount)).toBe(-parseMoneyToCents(transactionTotal));
+    expect(moneyToCents(storeCreditLedger?.balance_after)).toBe(0);
+    const openDepositLedger = ledgers.open_deposit.find(
+      (row) =>
+        row.reason === "checkout_redemption" &&
+        row.transaction_id === openDepositCheckout.transaction_id,
+    );
+    expect(moneyToCents(openDepositLedger?.amount)).toBe(-parseMoneyToCents(transactionTotal));
+    expect(moneyToCents(openDepositLedger?.balance_after)).toBe(0);
+
+    const proposal = await proposeJournal(request, activityDate);
+    expect(proposal.payload.totals?.balanced).toBe(true);
+    const storeCreditLineIndex = proposal.payload.lines.findIndex(
+      (line) =>
+        line.memo === "Store credit redemption (liability)" &&
+        line.qbo_account_id === "E2E_STORE_CREDIT_LIABILITY",
+    );
+    expect(storeCreditLineIndex).toBeGreaterThanOrEqual(0);
+    expect(moneyToCents(proposal.payload.lines[storeCreditLineIndex]?.debit)).toBe(
+      parseMoneyToCents(transactionTotal),
+    );
+    const openDepositLineIndex = proposal.payload.lines.findIndex(
+      (line) =>
+        line.memo === "Open deposit redemption (liability)" &&
+        line.qbo_account_id === "E2E_DEPOSIT_LIABILITY",
+    );
+    expect(openDepositLineIndex).toBeGreaterThanOrEqual(0);
+    expect(moneyToCents(proposal.payload.lines[openDepositLineIndex]?.debit)).toBe(
+      parseMoneyToCents(transactionTotal),
+    );
+    expect(
+      proposal.payload.lines.some(
+        (line) =>
+          line.memo === "Tenders — store_credit" || line.memo === "Tenders — open_deposit",
+      ),
+    ).toBe(false);
+
+    const storeCreditDrilldown = await fetchQboDrilldown(
+      request,
+      proposal.id,
+      storeCreditLineIndex,
+    );
+    const storeCreditContributor = storeCreditDrilldown.contributors?.find(
+      (row) => row.transaction_id === storeCreditCheckout.transaction_id,
+    );
+    expect(moneyToCents(storeCreditContributor?.amount)).toBe(parseMoneyToCents(transactionTotal));
+    const openDepositDrilldown = await fetchQboDrilldown(
+      request,
+      proposal.id,
+      openDepositLineIndex,
+    );
+    const openDepositContributor = openDepositDrilldown.contributors?.find(
+      (row) => row.transaction_id === openDepositCheckout.transaction_id,
+    );
+    expect(moneyToCents(openDepositContributor?.amount)).toBe(parseMoneyToCents(transactionTotal));
   });
 
   test("layaways stay transaction-scoped and post deposit, pickup, and forfeiture journals", async ({

@@ -6,6 +6,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, NaiveDate, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -243,6 +244,27 @@ struct TestSupportAlterationActivityRow {
 struct SeedQboTaxMappingRequest {
     category_id: Uuid,
     activity_date: NaiveDate,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeedQboCustomerLiabilityRequest {
+    customer_id: Uuid,
+    store_credit_balance: Option<Decimal>,
+    open_deposit_balance: Option<Decimal>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct TestSupportLiabilityLedgerRow {
+    amount: Decimal,
+    balance_after: Decimal,
+    reason: String,
+    transaction_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+struct TestSupportCustomerLiabilityLedgers {
+    store_credit: Vec<TestSupportLiabilityLedgerRow>,
+    open_deposit: Vec<TestSupportLiabilityLedgerRow>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -977,6 +999,7 @@ async fn post_seed_qbo_tax_mapping(
             ('E2E_SALES_TAX', 'E2E Sales Tax Payable', 'Other Current Liability', 'E2E-2100', true),
             ('E2E_CASH_ROUNDING', 'E2E Cash Rounding', 'Income', 'E2E-4090', true),
             ('E2E_DEPOSIT_LIABILITY', 'E2E Customer Deposit Liability', 'Other Current Liability', 'E2E-2200', true),
+            ('E2E_STORE_CREDIT_LIABILITY', 'E2E Store Credit Liability', 'Other Current Liability', 'E2E-2300', true),
             ('E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', 'Income', 'E2E-4050', true)
         ON CONFLICT (id) DO UPDATE
         SET name = EXCLUDED.name,
@@ -997,6 +1020,7 @@ async fn post_seed_qbo_tax_mapping(
             ('category_revenue', $1, 'E2E_REVENUE', 'E2E Sales Revenue', CURRENT_TIMESTAMP),
             ('tax', 'SALES_TAX', 'E2E_SALES_TAX', 'E2E Sales Tax Payable', CURRENT_TIMESTAMP),
             ('liability_deposit', 'default', 'E2E_DEPOSIT_LIABILITY', 'E2E Customer Deposit Liability', CURRENT_TIMESTAMP),
+            ('liability_store_credit', 'default', 'E2E_STORE_CREDIT_LIABILITY', 'E2E Store Credit Liability', CURRENT_TIMESTAMP),
             ('income_forfeited_deposit', 'default', 'E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', CURRENT_TIMESTAMP)
         ON CONFLICT (source_type, source_id) DO UPDATE
         SET qbo_account_id = EXCLUDED.qbo_account_id,
@@ -1031,6 +1055,159 @@ async fn post_seed_qbo_tax_mapping(
         "category_id": payload.category_id,
         "activity_date": payload.activity_date
     })))
+}
+
+async fn post_seed_qbo_customer_liability(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<SeedQboCustomerLiabilityRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+
+    let mut tx = state.db.begin().await?;
+
+    if let Some(amount) = payload.store_credit_balance {
+        if amount < Decimal::ZERO {
+            return Err(TestSupportError::BadRequest(
+                "store_credit_balance must be non-negative".to_string(),
+            ));
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO store_credit_accounts (customer_id)
+            VALUES ($1)
+            ON CONFLICT (customer_id) DO NOTHING
+            "#,
+        )
+        .bind(payload.customer_id)
+        .execute(&mut *tx)
+        .await?;
+
+        let account_id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM store_credit_accounts WHERE customer_id = $1 FOR UPDATE",
+        )
+        .bind(payload.customer_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE store_credit_accounts SET balance = $1, updated_at = now() WHERE id = $2",
+        )
+        .bind(amount)
+        .bind(account_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO store_credit_ledger (account_id, amount, balance_after, reason, transaction_id)
+            VALUES ($1, $2, $3, 'e2e_qbo_seed_store_credit', NULL)
+            "#,
+        )
+        .bind(account_id)
+        .bind(amount)
+        .bind(amount)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(amount) = payload.open_deposit_balance {
+        if amount < Decimal::ZERO {
+            return Err(TestSupportError::BadRequest(
+                "open_deposit_balance must be non-negative".to_string(),
+            ));
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO customer_open_deposit_accounts (customer_id)
+            VALUES ($1)
+            ON CONFLICT (customer_id) DO NOTHING
+            "#,
+        )
+        .bind(payload.customer_id)
+        .execute(&mut *tx)
+        .await?;
+
+        let account_id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM customer_open_deposit_accounts WHERE customer_id = $1 FOR UPDATE",
+        )
+        .bind(payload.customer_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE customer_open_deposit_accounts SET balance = $1, updated_at = now() WHERE id = $2",
+        )
+        .bind(amount)
+        .bind(account_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO customer_open_deposit_ledger (
+                account_id, amount, balance_after, reason, transaction_id,
+                payer_customer_id, payer_display_name, wedding_party_id
+            )
+            VALUES ($1, $2, $3, 'e2e_qbo_seed_open_deposit', NULL, NULL, NULL, NULL)
+            "#,
+        )
+        .bind(account_id)
+        .bind(amount)
+        .bind(amount)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "customer_id": payload.customer_id
+    })))
+}
+
+async fn get_qbo_customer_liability_ledgers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<TestSupportCustomerLiabilityLedgers>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+
+    let store_credit = sqlx::query_as::<_, TestSupportLiabilityLedgerRow>(
+        r#"
+        SELECT l.amount, l.balance_after, l.reason, l.transaction_id
+        FROM store_credit_ledger l
+        JOIN store_credit_accounts a ON a.id = l.account_id
+        WHERE a.customer_id = $1
+        ORDER BY l.created_at DESC
+        LIMIT 20
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let open_deposit = sqlx::query_as::<_, TestSupportLiabilityLedgerRow>(
+        r#"
+        SELECT l.amount, l.balance_after, l.reason, l.transaction_id
+        FROM customer_open_deposit_ledger l
+        JOIN customer_open_deposit_accounts a ON a.id = l.account_id
+        WHERE a.customer_id = $1
+        ORDER BY l.created_at DESC
+        LIMIT 20
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(TestSupportCustomerLiabilityLedgers {
+        store_credit,
+        open_deposit,
+    }))
 }
 
 async fn post_assign_qbo_transaction_date(
@@ -1102,6 +1279,66 @@ async fn post_assign_qbo_transaction_date(
         "ok": true,
         "transaction_id": payload.transaction_id,
         "activity_date": payload.activity_date
+    })))
+}
+
+async fn post_assign_qbo_transaction_return_date(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<AssignQboTransactionDateRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+    let timestamp = payload
+        .activity_date
+        .and_hms_opt(15, 0, 0)
+        .ok_or_else(|| TestSupportError::BadRequest("invalid activity_date".to_string()))?
+        .and_utc();
+
+    let mut tx = state.db.begin().await?;
+
+    let updated_returns = sqlx::query(
+        r#"
+        UPDATE transaction_return_lines
+        SET created_at = $2
+        WHERE transaction_id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    let updated_refund_payments = sqlx::query(
+        r#"
+        UPDATE payment_transactions pt
+        SET created_at = $2
+        FROM payment_allocations pa
+        WHERE pa.transaction_id = pt.id
+          AND pa.target_transaction_id = $1
+          AND pa.amount_allocated < 0::numeric
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    if updated_returns == 0 && updated_refund_payments == 0 {
+        return Err(TestSupportError::BadRequest(
+            "transaction return/refund records not found".to_string(),
+        ));
+    }
+
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "transaction_id": payload.transaction_id,
+        "activity_date": payload.activity_date,
+        "updated_returns": updated_returns,
+        "updated_refund_payments": updated_refund_payments
     })))
 }
 
@@ -1470,8 +1707,20 @@ pub fn router() -> Router<AppState> {
         )
         .route("/qbo/seed-tax-mapping", post(post_seed_qbo_tax_mapping))
         .route(
+            "/qbo/seed-customer-liability",
+            post(post_seed_qbo_customer_liability),
+        )
+        .route(
+            "/qbo/customer-liability-ledgers/{customer_id}",
+            get(get_qbo_customer_liability_ledgers),
+        )
+        .route(
             "/qbo/assign-transaction-date",
             post(post_assign_qbo_transaction_date),
+        )
+        .route(
+            "/qbo/assign-transaction-return-date",
+            post(post_assign_qbo_transaction_return_date),
         )
         .route(
             "/qbo/assign-transaction-timestamp",
