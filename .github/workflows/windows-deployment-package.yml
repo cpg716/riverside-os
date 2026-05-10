@@ -24,7 +24,7 @@ jobs:
       LLAMA_CPP_RELEASE: b8994
       LLAMA_CPP_WIN_CPU_ASSET: llama-b8994-bin-win-cpu-x64.zip
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Validate deployment PowerShell scripts
         shell: pwsh
@@ -45,7 +45,7 @@ jobs:
             throw "Deployment PowerShell parse validation failed."
           }
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
@@ -174,12 +174,12 @@ jobs:
             "Deployment package: $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
           }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: riverside-windows-deployment-package
           path: dist/deployment/*.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: tauri-windows-updater-dist
           path: client/updater-dist/

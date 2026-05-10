@@ -15,9 +15,9 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
@@ -34,7 +34,7 @@ jobs:
       - name: Build Tauri bundle
         run: npm run tauri:build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: tauri-windows-bundle
           path: client/src-tauri/target/release/bundle/

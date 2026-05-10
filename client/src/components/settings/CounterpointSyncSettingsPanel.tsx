@@ -2358,20 +2358,6 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   )}
 
                   <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
-                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Migration complete / retire bridge
-                    </h4>
-                    <div className="mt-3 space-y-2 text-xs text-app-text-muted">
-                      {migrationPreflight.retirement_checklist.map((item) => (
-                        <div key={item} className="flex items-start gap-2">
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden />
-                          <p>{item}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -2433,7 +2419,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       </div>
                     </div>
 
-                    <div className="mt-4 space-y-2 text-xs">
+                    <div className="mt-4 grid gap-2 text-xs xl:grid-cols-2">
                       {signoffBlockers.length > 0 ? (
                         <div className="ui-metric-cell ui-tint-danger p-3">
                           <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
@@ -2532,6 +2518,20 @@ export default function CounterpointSyncSettingsPanel(props?: {
 	                      />
 	                    </div>
 	                  </div>
+
+                  <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Migration complete / retire bridge
+                    </h4>
+                    <div className="mt-3 grid gap-2 text-xs text-app-text-muted xl:grid-cols-2">
+                      {migrationPreflight.retirement_checklist.map((item) => (
+                        <div key={item} className="flex items-start gap-2">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden />
+                          <p>{item}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </>
               )}
 
