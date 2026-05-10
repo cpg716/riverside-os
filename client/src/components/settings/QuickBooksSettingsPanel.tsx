@@ -1,10 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, CheckCircle2, RefreshCw, Save } from "lucide-react";
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { useToast } from "../ui/ToastProviderLogic";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import QboMappingMatrix from "../qbo/QboMappingMatrix";
+import {
+  type AccountMapping,
+  buildMatrixInitialFromGranular,
+  matrixKeyToGranular,
+  QBO_MATRIX_CUSTOM_TYPES,
+  QBO_MATRIX_TENDERS,
+} from "../qbo/QboMappingLogic";
 
 interface QuickBooksSettingsPanelProps {
   onOpenQbo: () => void;
@@ -22,7 +30,45 @@ interface QboCredentialsPublic {
   is_active: boolean;
 }
 
+interface QboAccount {
+  id: string;
+  name: string;
+  account_type: string | null;
+  account_number: string | null;
+}
+
+interface CategoryRow {
+  id: string;
+  name: string;
+}
+
+interface GranularMapping {
+  id: string;
+  source_type: string;
+  source_id: string;
+  qbo_account_id: string;
+  qbo_account_name: string;
+}
+
+interface LedgerMapping {
+  id: string;
+  internal_key: string;
+  internal_description: string | null;
+  qbo_account_id: string | null;
+}
+
 const baseUrl = getBaseUrl();
+
+const LEGACY_ROWS: { key: string; description: string }[] = [
+  { key: "REVENUE_CLOTHING", description: "Fallback revenue (unmapped category)" },
+  { key: "REVENUE_FOOTWEAR", description: "Footwear revenue fallback" },
+  { key: "REVENUE_SERVICE", description: "Service / alterations fallback" },
+  { key: "INV_ASSET", description: "Default inventory asset" },
+  { key: "COGS_DEFAULT", description: "Default COGS" },
+  { key: "COGS_FREIGHT", description: "Inbound freight (PO)" },
+  { key: "EXP_SHIPPING", description: "Shipping expense" },
+  { key: "EXP_MERCHANT_FEE", description: "Card processing fees" },
+];
 
 export default function QuickBooksSettingsPanel({
   onOpenQbo,
@@ -35,6 +81,11 @@ export default function QuickBooksSettingsPanel({
   const [realmId, setRealmId] = useState("");
   const [useSandbox, setUseSandbox] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [mappingBusy, setMappingBusy] = useState(false);
+  const [accounts, setAccounts] = useState<QboAccount[]>([]);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [granular, setGranular] = useState<GranularMapping[]>([]);
+  const [ledger, setLedger] = useState<LedgerMapping[]>([]);
 
   const loadCredentials = useCallback(async () => {
     try {
@@ -54,9 +105,34 @@ export default function QuickBooksSettingsPanel({
     }
   }, [backofficeHeaders]);
 
+  const loadMappingData = useCallback(async () => {
+    const h = backofficeHeaders();
+    const [accountsRes, categoriesRes, granularRes, ledgerRes] = await Promise.all([
+      fetch(`${baseUrl}/api/qbo/accounts-cache`, { headers: h }),
+      fetch(`${baseUrl}/api/categories`, { headers: h }),
+      fetch(`${baseUrl}/api/qbo/granular-mappings`, { headers: h }),
+      fetch(`${baseUrl}/api/qbo/mappings`, { headers: h }),
+    ]);
+    if (accountsRes.ok) setAccounts((await accountsRes.json()) as QboAccount[]);
+    if (categoriesRes.ok) setCategories((await categoriesRes.json()) as CategoryRow[]);
+    if (granularRes.ok) setGranular((await granularRes.json()) as GranularMapping[]);
+    if (ledgerRes.ok) setLedger((await ledgerRes.json()) as LedgerMapping[]);
+  }, [backofficeHeaders]);
+
   useEffect(() => {
     void loadCredentials();
-  }, [loadCredentials]);
+    void loadMappingData();
+  }, [loadCredentials, loadMappingData]);
+
+  const accountNameById = useMemo(
+    () => new Map(accounts.map((a) => [a.id, a.name])),
+    [accounts],
+  );
+
+  const initialMatrixMappings = useMemo(
+    () => buildMatrixInitialFromGranular(granular),
+    [granular],
+  );
 
   const saveCredentials = async () => {
     if (busy) return;
@@ -85,6 +161,86 @@ export default function QuickBooksSettingsPanel({
     } finally {
       setBusy(false);
     }
+  };
+
+  const refreshAccounts = async () => {
+    setMappingBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/qbo/accounts-cache/refresh`, {
+        method: "POST",
+        headers: backofficeHeaders(),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        count?: number;
+      };
+      if (!res.ok) throw new Error(j.error ?? "Could not refresh accounts");
+      await loadMappingData();
+      toast(
+        `QuickBooks accounts refreshed${typeof j.count === "number" ? ` (${j.count} accounts)` : ""}.`,
+        "success",
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not refresh accounts", "error");
+    } finally {
+      setMappingBusy(false);
+    }
+  };
+
+  const saveMatrixMappings = async (m: Record<string, AccountMapping>) => {
+    const errors: string[] = [];
+    await Promise.all(
+      Object.values(m).map(async (val) => {
+        const parsed = matrixKeyToGranular(val.ros_id);
+        if (!parsed || !val.qbo_account_id.trim()) return;
+        const name =
+          accountNameById.get(val.qbo_account_id) ?? val.qbo_account_name;
+        const res = await fetch(`${baseUrl}/api/qbo/granular-mappings`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify({
+            source_type: parsed.source_type,
+            source_id: parsed.source_id,
+            qbo_account_id: val.qbo_account_id,
+            qbo_account_name: name,
+          }),
+        });
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          errors.push(j.error ?? val.ros_id);
+        }
+      }),
+    );
+    if (errors.length > 0) {
+      toast(errors[0] ?? "Could not save mappings", "error");
+      return;
+    }
+    await loadMappingData();
+    toast("QuickBooks mappings saved.", "success");
+  };
+
+  const saveLegacy = async (internal_key: string, qbo_account_id: string) => {
+    const row = LEGACY_ROWS.find((r) => r.key === internal_key);
+    const res = await fetch(`${baseUrl}/api/qbo/mappings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(backofficeHeaders() as Record<string, string>),
+      },
+      body: JSON.stringify({
+        internal_key,
+        internal_description: row?.description,
+        qbo_account_id,
+      }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(j.error ?? "Could not save fallback mapping");
+    }
+    await loadMappingData();
   };
 
   if (!credentials) {
@@ -274,6 +430,114 @@ export default function QuickBooksSettingsPanel({
           </div>
         </div>
       </form>
+
+      <section className="space-y-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-black uppercase tracking-tight text-app-text">
+              QBO account mapping
+            </h3>
+            <p className="mt-1 max-w-3xl text-sm font-medium text-app-text-muted">
+              Map Riverside categories, tenders, tax, deposits, and gift-card
+              liability accounts here. The QBO workspace uses these settings
+              when staging and sending daily journals.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={mappingBusy}
+            onClick={() => void refreshAccounts()}
+            className="ui-btn-secondary min-h-11 gap-2 px-5 disabled:opacity-50"
+          >
+            <RefreshCw
+              size={15}
+              className={mappingBusy ? "animate-spin" : ""}
+              aria-hidden
+            />
+            Refresh QBO accounts
+          </button>
+        </div>
+
+        {accounts.length === 0 ? (
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-app-text">
+            No QuickBooks accounts are cached yet. Confirm the connection above,
+            authorize QuickBooks, then refresh accounts here before mapping.
+          </div>
+        ) : null}
+
+        <QboMappingMatrix
+          categories={categories}
+          customTypes={QBO_MATRIX_CUSTOM_TYPES}
+          tenders={QBO_MATRIX_TENDERS}
+          accounts={accounts}
+          initialMappings={initialMatrixMappings}
+          onSave={async (m: Record<string, AccountMapping>) => {
+            try {
+              await saveMatrixMappings(m);
+            } catch (e) {
+              toast(e instanceof Error ? e.message : "Could not save mappings", "error");
+              throw e;
+            }
+          }}
+        />
+
+        <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface-2 shadow-sm">
+          <div className="border-b border-app-border px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Global fallback mappings
+          </div>
+          <table className="w-full text-left text-sm">
+            <thead className="bg-app-surface text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              <tr>
+                <th className="px-4 py-2">Key</th>
+                <th className="px-4 py-2">Account</th>
+                <th className="px-4 py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-app-border">
+              {LEGACY_ROWS.map((row) => {
+                const mapped = ledger.find((m) => m.internal_key === row.key);
+                const val = mapped?.qbo_account_id ?? "";
+                return (
+                  <tr key={row.key}>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-xs font-bold">{row.key}</div>
+                      <p className="text-[10px] text-app-text-muted">{row.description}</p>
+                    </td>
+                    <td className="px-4 py-2">
+                      <select
+                        value={val}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (!v) return;
+                          void saveLegacy(row.key, v).catch((ex) =>
+                            toast(
+                              ex instanceof Error
+                                ? ex.message
+                                : "Could not save fallback mapping",
+                              "error",
+                            ),
+                          );
+                        }}
+                        className="ui-input w-full max-w-xs py-1.5 text-xs font-semibold"
+                      >
+                        <option value="">Select...</option>
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-2 text-right text-[10px] text-app-text-muted">
+                      {val ? accountNameById.get(val) : "-"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
