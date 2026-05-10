@@ -70,6 +70,8 @@ export default function PurchaseOrderPanel({
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
   const consumedInitialPo = useRef(false);
+  const ordersLoadedOnce = useRef(false);
+  const lastLoadedOrders = useRef<PurchaseOrder[]>([]);
 
   useEffect(() => {
     consumedInitialPo.current = false;
@@ -80,6 +82,7 @@ export default function PurchaseOrderPanel({
   const [selectedPo, setSelectedPo] = useState<string>("");
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersLoadError, setOrdersLoadError] = useState<string | null>(null);
+  const [ordersShowingStale, setOrdersShowingStale] = useState(false);
   const [variantId, setVariantId] = useState("");
   const [qty, setQty] = useState(1);
   const [unitCost, setUnitCost] = useState("0.00");
@@ -89,6 +92,7 @@ export default function PurchaseOrderPanel({
   const refresh = useCallback(async () => {
     setOrdersLoading(true);
     setOrdersLoadError(null);
+    setOrdersShowingStale(false);
     try {
       const res = await fetch(apiUrl(baseUrl, "/api/purchase-orders"), {
         headers: backofficeHeaders() as Record<string, string>,
@@ -98,10 +102,19 @@ export default function PurchaseOrderPanel({
       }
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
+      ordersLoadedOnce.current = true;
+      lastLoadedOrders.current = list;
       setOrders(list);
       if (!selectedPo && list.length > 0) setSelectedPo(list[0].id);
     } catch {
-      setOrdersLoadError("Vendor paperwork could not load right now. Try again in a moment.");
+      const hasStaleRows =
+        ordersLoadedOnce.current && lastLoadedOrders.current.length > 0;
+      setOrdersShowingStale(hasStaleRows);
+      setOrdersLoadError(
+        hasStaleRows
+          ? "Could not refresh the latest paperwork. Showing the last successfully loaded results."
+          : "Vendor paperwork could not load right now. Try again in a moment.",
+      );
     } finally {
       setOrdersLoading(false);
     }
@@ -324,7 +337,11 @@ export default function PurchaseOrderPanel({
             <div className="flex items-start gap-3">
               <AlertTriangle size={18} className="mt-0.5 shrink-0" />
               <div>
-                <p className="font-black uppercase tracking-widest text-[10px]">Vendor paperwork unavailable</p>
+                <p className="font-black uppercase tracking-widest text-[10px]">
+                  {ordersShowingStale
+                    ? "Vendor paperwork may not be current"
+                    : "Vendor paperwork unavailable"}
+                </p>
                 <p className="mt-1 normal-case tracking-normal">{ordersLoadError}</p>
               </div>
             </div>
