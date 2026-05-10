@@ -23,6 +23,7 @@ import {
 } from "../../lib/printerBridge";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
+import { centsToFixed2 } from "../../lib/money";
 import type { OrderPaymentCartLine } from "./types";
 
 export interface ReceiptSummaryModalProps {
@@ -34,6 +35,7 @@ export interface ReceiptSummaryModalProps {
   /** Required: POS + staff merged headers for `/api/transactions/*`. */
   getAuthHeaders: () => Record<string, string>;
   orderPaymentLines?: OrderPaymentCartLine[];
+  cashChangeDueCents?: number;
 }
 
 type OrderCustomer = {
@@ -93,6 +95,7 @@ export default function ReceiptSummaryModal({
   registerSessionId,
   getAuthHeaders,
   orderPaymentLines = [],
+  cashChangeDueCents = 0,
 }: ReceiptSummaryModalProps) {
   const { toast } = useToast();
   const [printing, setPrinting] = useState(false);
@@ -886,6 +889,16 @@ export default function ReceiptSummaryModal({
                 </p>
                 <p className="mt-1 text-xs font-bold text-app-text">
                   {loadedGiftCards.join(", ")}
+                </p>
+              </div>
+            ) : null}
+            {cashChangeDueCents > 0 ? (
+              <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-left">
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
+                  Change Due
+                </p>
+                <p className="mt-1 text-xl font-black tabular-nums text-app-text">
+                  ${centsToFixed2(cashChangeDueCents)}
                 </p>
               </div>
             ) : null}

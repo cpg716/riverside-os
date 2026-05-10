@@ -1287,6 +1287,26 @@ export default function OperationalHome({
     feedLoadErrors.tasks ||
     feedLoadErrors.notifications;
 
+  const openOperationalSignal = useCallback((id: string) => {
+    if (id.includes("alteration")) {
+      onNavigateMetric?.({ tab: "alterations", section: "queue" });
+      return;
+    }
+    if (id.includes("inventory") || id.includes("stock")) {
+      onNavigateMetric?.({ tab: "inventory", section: "intelligence" });
+      return;
+    }
+    if (id.includes("pickup") || id.includes("order") || id.includes("fulfillment")) {
+      onNavigateMetric?.({ tab: "home", section: "fulfillment" });
+      return;
+    }
+    if (id.includes("task") && taskMeOpen[0]?.id) {
+      setTaskDrawerId(taskMeOpen[0].id);
+      return;
+    }
+    openDrawer();
+  }, [onNavigateMetric, openDrawer, taskMeOpen]);
+
 
   if (activeSection === "daily-sales") {
     return (
@@ -1567,9 +1587,11 @@ export default function OperationalHome({
           ) : (
             <div className="space-y-3">
               {topIssues.map((issue) => (
-                <div
+                <button
+                  type="button"
                   key={issue.id}
-                  className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${
+                  onClick={() => openOperationalSignal(issue.id)}
+                  className={`w-full rounded-2xl border px-4 py-3 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] transition-colors hover:border-app-input-border hover:bg-app-surface-3 ${
                     issue.tone === "danger"
                       ? "border-app-danger/16 bg-app-danger/10"
                       : issue.tone === "warn"
@@ -1583,7 +1605,7 @@ export default function OperationalHome({
                   <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">
                     {issue.detail}
                   </p>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -1597,9 +1619,11 @@ export default function OperationalHome({
         >
           <div className="space-y-3">
             {decisionTakeaways.map((item) => (
-              <div
+              <button
+                type="button"
                 key={item.id}
-                className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${
+                onClick={() => openOperationalSignal(item.id)}
+                className={`w-full rounded-2xl border px-4 py-3 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] transition-colors hover:border-app-input-border hover:bg-app-surface-3 ${
                   item.tone === "good"
                     ? "border-app-success/16 bg-app-success/10"
                     : item.tone === "warn"
@@ -1613,7 +1637,7 @@ export default function OperationalHome({
                 <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">
                   {item.detail}
                 </p>
-              </div>
+              </button>
             ))}
           </div>
         </DashboardGridCard>
@@ -1797,7 +1821,12 @@ export default function OperationalHome({
              subtitle="Active personnel status"
              icon={Users}
            >
-              <div className="space-y-4">
+              <div
+                className={cn(
+                  "space-y-4 pr-1",
+                  (compass?.today_floor_staff ?? []).length > 10 && "max-h-[640px] overflow-y-auto",
+                )}
+              >
                  {feedLoadErrors.morningCompass ? (
                     <FeedDegradedNotice message={feedLoadErrors.morningCompass} />
                  ) : (compass?.today_floor_staff ?? []).length === 0 ? (

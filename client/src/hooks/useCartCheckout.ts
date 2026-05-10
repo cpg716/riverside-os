@@ -76,6 +76,14 @@ export function buildCheckoutPaymentSplits(
   };
 }
 
+function cashChangeDueCents(applied: AppliedPaymentLine[]): number {
+  return applied.reduce((max, payment) => {
+    if (payment.method !== "cash") return max;
+    const raw = payment.metadata?.change_due_cents;
+    return typeof raw === "number" && Number.isFinite(raw) ? Math.max(max, raw) : max;
+  }, 0);
+}
+
 export function useCartCheckout({
   sessionId,
   baseUrl,
@@ -98,6 +106,7 @@ export function useCartCheckout({
 }: UseCartCheckoutProps) {
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
+  const [lastCashChangeDueCents, setLastCashChangeDueCents] = useState(0);
 
   const executeCheckout = useCallback(async (
     applied: AppliedPaymentLine[], 
@@ -142,11 +151,12 @@ export function useCartCheckout({
 
       const tenderPaidCents = applied.reduce((s, p) => s + p.amountCents, 0);
       const ledgerCents = Math.max(0, ledgerSignals.appliedDepositAmountCents);
+      const maxPaidAgainstSaleCents = totals.collectTotalCents + (ledgerSignals.roundingAdjustmentCents ?? 0);
 
       // Deposit is a protocol on collected tender, not extra money on top of it.
-      if (tenderPaidCents > totals.collectTotalCents) {
+      if (tenderPaidCents > maxPaidAgainstSaleCents) {
         toast(
-          `Tender total $${centsToFixed2(tenderPaidCents)} is more than the amount due $${centsToFixed2(totals.collectTotalCents)}.`,
+          `Tender total $${centsToFixed2(tenderPaidCents)} is more than the amount due $${centsToFixed2(maxPaidAgainstSaleCents)}.`,
           "error",
         );
         setCheckoutBusy(false);
@@ -349,6 +359,7 @@ export function useCartCheckout({
       }
 
       const data = await res.json() as { transaction_id: string };
+      setLastCashChangeDueCents(cashChangeDueCents(applied));
       setLastTransactionId(data.transaction_id);
       toast("Checkout complete", "success");
       clearCart();
@@ -369,6 +380,7 @@ export function useCartCheckout({
     executeCheckout,
     checkoutBusy,
     lastTransactionId,
+    lastCashChangeDueCents,
     setLastTransactionId
   };
 }

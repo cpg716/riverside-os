@@ -410,6 +410,7 @@ export default function NexoCheckoutDrawer({
 
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [taxExemptReason, setTaxExemptReason] = useState("Out of State");
+  const [taxExemptNote, setTaxExemptNote] = useState("");
   
   const [rmsResolve, setRmsResolve] = useState<RmsChargeResolveResponse | null>(null);
   const [rmsSelectedAccount, setRmsSelectedAccount] = useState<RmsChargeAccountChoice | null>(null);
@@ -536,6 +537,15 @@ export default function NexoCheckoutDrawer({
 
   const cashRoundedBalanceSettled =
     tab === "cash" && remainingCents !== 0 && cashRounding.rounded === 0;
+  const taxExemptNoteRequired =
+    isTaxExempt &&
+    !taxExemptReason.startsWith("Customer tax exempt") &&
+    taxExemptNote.trim().length === 0;
+  const taxExemptLedgerReason = useMemo(() => {
+    if (!isTaxExempt) return undefined;
+    const note = taxExemptNote.trim();
+    return note ? `${taxExemptReason} - ${note}` : taxExemptReason;
+  }, [isTaxExempt, taxExemptNote, taxExemptReason]);
 
   const takeawaySatisfied = paidSoFarCents >= tw;
   
@@ -559,7 +569,7 @@ export default function NexoCheckoutDrawer({
    */
   const balanced = balanceSettled || (takeawaySatisfied && hasLaterItems && (depositDisplayCents > 0 || allowDepositOnlyComplete));
 
-  const canFinalize = balanced && operator != null && !busy;
+  const canFinalize = balanced && operator != null && !busy && !taxExemptNoteRequired;
 
   useEffect(() => {
     if (isOpen) {
@@ -577,6 +587,7 @@ export default function NexoCheckoutDrawer({
       pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
       setIsTaxExempt(customerTaxExempt);
       setTaxExemptReason(customerTaxExempt ? customerTaxExemptReason(customerTaxExemptId) : "Out of State");
+      setTaxExemptNote("");
       setRmsResolve(null);
       setRmsSelectedAccount(null);
       setRmsPrograms([]);
@@ -1094,6 +1105,10 @@ export default function NexoCheckoutDrawer({
     const maxApplicableAbs = tab === "cash" ? cashRoundedAbsRem : absRem;
     const appliedAbs = Math.min(absKey, maxApplicableAbs);
     const amtCents = remainingCents < 0 ? -appliedAbs : appliedAbs;
+    const cashChangeDueCents =
+      tab === "cash" && remainingCents > 0 && absKey > cashRoundedAbsRem
+        ? absKey - cashRoundedAbsRem
+        : 0;
 
     if (amtCents === 0) return;
 
@@ -1302,7 +1317,12 @@ export default function NexoCheckoutDrawer({
               ? `RMS Charge Sale${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label ? ` • ${rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label}` : ""}`
               : meta.label,
         metadata:
-          tab === "check"
+          tab === "cash" && cashChangeDueCents > 0
+            ? {
+                cash_tendered_cents: absKey,
+                change_due_cents: cashChangeDueCents,
+              }
+            : tab === "check"
             ? {
                 check_number: checkNumber.trim() || null,
                 ...(rmsPaymentCollectionMode
@@ -1393,7 +1413,7 @@ export default function NexoCheckoutDrawer({
     await onFinalize(applied, operator, {
       appliedDepositAmountCents: Math.max(0, depositCents),
       isTaxExempt,
-      taxExemptReason: isTaxExempt ? taxExemptReason : undefined,
+      taxExemptReason: taxExemptLedgerReason,
       roundingAdjustmentCents: finalRoundingCents,
       finalCashDueCents: finalCashDue,
     });
@@ -1419,9 +1439,10 @@ export default function NexoCheckoutDrawer({
       if (tw > 0 && !takeawaySatisfied) return `Tenders must cover takeaway total ($${centsToFixed2(tw)})`;
       return "Balance remaining or deposit protocol required.";
     }
+    if (taxExemptNoteRequired) return "Enter the tax exempt note or reference number.";
     if (!operator) return "No cashier verified.";
     return "";
-  }, [busy, balanced, takeawaySatisfied, tw, operator]);
+  }, [busy, balanced, takeawaySatisfied, tw, taxExemptNoteRequired, operator]);
   const terminalHeaderAction = (
     <div className="relative">
       <button
@@ -1658,20 +1679,32 @@ export default function NexoCheckoutDrawer({
                 </button>
                 
                 {isTaxExempt && (
-                  <select
-                    value={taxExemptReason}
-                    onChange={(e) => setTaxExemptReason(e.target.value)}
-                    className="min-h-11 w-40 rounded-lg border border-rose-200 bg-rose-50/50 px-3 text-xs font-bold text-rose-700 outline-none"
-                  >
-                    {taxExemptReason.startsWith("Customer tax exempt") ? (
-                      <option value={taxExemptReason}>{taxExemptReason}</option>
-                    ) : null}
-                    <option value="Out of State">Out of State</option>
-                    <option value="Exempt Organization">Exempt Org</option>
-                    <option value="Resale">Resale</option>
-                    <option value="Diplomat">Diplomat</option>
-                    <option value="Other">Other</option>
-                  </select>
+                  <div className="flex w-52 flex-col gap-1.5">
+                    <select
+                      value={taxExemptReason}
+                      onChange={(e) => setTaxExemptReason(e.target.value)}
+                      className="min-h-11 w-full rounded-lg border border-rose-200 bg-rose-50/50 px-3 text-xs font-bold text-rose-700 outline-none"
+                    >
+                      {taxExemptReason.startsWith("Customer tax exempt") ? (
+                        <option value={taxExemptReason}>{taxExemptReason}</option>
+                      ) : null}
+                      <option value="Out of State">Out of State</option>
+                      <option value="Exempt Organization">Exempt Org</option>
+                      <option value="Resale">Resale</option>
+                      <option value="Diplomat">Diplomat</option>
+                      <option value="Other">Other</option>
+                    </select>
+                    <input
+                      value={taxExemptNote}
+                      onChange={(e) => setTaxExemptNote(e.target.value)}
+                      placeholder={
+                        taxExemptReason.startsWith("Customer tax exempt")
+                          ? "Sale note"
+                          : "ID / certificate / note"
+                      }
+                      className="min-h-10 w-full rounded-lg border border-rose-200 bg-rose-50/50 px-3 text-xs font-bold text-rose-700 outline-none placeholder:text-rose-400"
+                    />
+                  </div>
                 )}
               </div>
 

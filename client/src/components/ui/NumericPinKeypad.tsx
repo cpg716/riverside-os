@@ -83,6 +83,12 @@ export default function NumericPinKeypad({
   useEffect(() => {
     if (disabled) return;
     const handleDown = (e: KeyboardEvent) => {
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (
+        target?.closest("input, textarea, select, [contenteditable='true'], [contenteditable='']")
+      ) {
+        return;
+      }
       if ((e.key >= "0" && e.key <= "9") || (e.key === "." && showDecimal)) {
         press(e.key);
       } else if (e.key === "Backspace") {
