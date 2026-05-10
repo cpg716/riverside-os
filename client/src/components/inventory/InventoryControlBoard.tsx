@@ -41,11 +41,17 @@ import {
 
 const HIGH_VALUE_MIN_USD = 500;
 
-/** Paged loads — small pages keep the grid responsive; use “Load more” for deep paging. */
-const BOARD_LIMIT_WITH_SEARCH = 600;
-const BOARD_LIMIT_BROWSE = 400;
+/** Paged loads — keep the list scannable and use "Load more" for deep paging. */
+const BOARD_PAGE_LIMIT = 20;
 
 type QuickPick = "suits" | "shirts" | "alterations" | null;
+type ReadinessFilter = "missing_category" | "missing_vendor" | "missing_brand";
+
+const READINESS_FILTER_LABEL: Record<ReadinessFilter, string> = {
+  missing_category: "Category missing",
+  missing_vendor: "Vendor missing",
+  missing_brand: "Optional brand blank",
+};
 
 function categoryIdForQuickPick(
   categories: Category[],
@@ -396,11 +402,14 @@ export default function InventoryControlBoard({
   const [vendorId, setVendorId] = useState("");
   const [groupByPrimaryVendor, setGroupByPrimaryVendor] = useState(false);
   const [webOnly, setWebOnly] = useState(false);
+  const [readinessFilter, setReadinessFilter] =
+    useState<ReadinessFilter | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [hubSeedTitle, setHubSeedTitle] = useState("");
   const [printTarget, setPrintTarget] = useState<ProductListRow | null>(null);
   const [cursor, setCursor] = useState(0);
+  const inventoryListRef = useRef<HTMLDivElement | null>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
@@ -494,9 +503,7 @@ export default function InventoryControlBoard({
     );
   }, [maintenanceQty, maintenanceTarget]);
 
-  const boardPageLimit = debouncedSearch
-    ? BOARD_LIMIT_WITH_SEARCH
-    : BOARD_LIMIT_BROWSE;
+  const boardPageLimit = BOARD_PAGE_LIMIT;
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchInput.trim()), 350);
@@ -725,15 +732,33 @@ export default function InventoryControlBoard({
     return [...selected];
   }, [selected]);
 
-  const visibleProductRows = useMemo(() => {
+  const readinessSourceProductRows = useMemo(() => {
     return productRows.filter((row) => {
       if (inStockOnly && row.stock_on_hand <= 0) return false;
       return true;
     });
   }, [inStockOnly, productRows]);
 
+  const visibleProductRows = useMemo(() => {
+    return readinessSourceProductRows.filter((row) => {
+      if (readinessFilter === "missing_category" && row.category_name?.trim()) {
+        return false;
+      }
+      if (
+        readinessFilter === "missing_vendor" &&
+        row.primary_vendor_name?.trim()
+      ) {
+        return false;
+      }
+      if (readinessFilter === "missing_brand" && row.brand?.trim()) {
+        return false;
+      }
+      return true;
+    });
+  }, [readinessFilter, readinessSourceProductRows]);
+
   const catalogQualitySummary = useMemo<CatalogQualitySummary>(() => {
-    return visibleProductRows.reduce(
+    return readinessSourceProductRows.reduce(
       (summary, row) => {
         const hasBrand = Boolean(row.brand?.trim());
         const hasCategory = Boolean(row.category_name?.trim());
@@ -753,7 +778,17 @@ export default function InventoryControlBoard({
         missingPrimaryVendor: 0,
       },
     );
-  }, [visibleProductRows]);
+  }, [readinessSourceProductRows]);
+
+  const openReadinessFilter = useCallback((filter: ReadinessFilter) => {
+    setReadinessFilter(filter);
+    window.requestAnimationFrame(() => {
+      inventoryListRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, []);
 
   const cleanupReviewItems = useMemo(() => {
     if (!cleanupSummary) return [];
@@ -1484,103 +1519,19 @@ export default function InventoryControlBoard({
           {negativeStockOnly && (
             <FilterChip label="Negative Stock" onRemove={() => setNegativeStockOnly(false)} />
           )}
-        </div>
-
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="ui-card ui-tint-warning px-4 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                  Item Readiness
-                </p>
-                <p className="mt-1 text-sm font-semibold text-app-text">
-                  Visible items missing fields that help with purchasing, selling, or reporting.
-                </p>
-              </div>
-              <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {catalogQualitySummary.templatesVisible} templates visible
-              </span>
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-3">
-              {[
-                ["Category missing", catalogQualitySummary.missingCategory],
-                ["Vendor missing", catalogQualitySummary.missingPrimaryVendor],
-                ["Optional brand blank", catalogQualitySummary.missingBrand],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="ui-metric-cell ui-tint-neutral px-3 py-3"
-                >
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    {label}
-                  </p>
-                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                    {value}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {showCleanupReview ? (
-            <div className="ui-card ui-tint-neutral px-4 py-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                    Inventory Cleanup Review
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                    Counterpoint Sync prepares references. Product Hub handles review and safe applies.
-                  </p>
-                </div>
-                {cleanupCandidateProductId ? (
-                  <button
-                    type="button"
-                    className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
-                    onClick={() => {
-                      setHubProductId(cleanupCandidateProductId);
-                      setHubSeedTitle(cleanupCandidateProductName);
-                    }}
-                  >
-                    Review next product
-                  </button>
-                ) : null}
-              </div>
-              <ul className="mt-4 space-y-2 text-sm font-semibold text-app-text">
-                {cleanupReviewItems.map((item) => (
-                  <li
-                    key={item}
-                    className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2"
-                  >
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <RosieInsightSummary
-                surface="product_cleanup_review"
-                title="Product Cleanup Review"
-                mode="explain"
-                getHeaders={apiAuth}
-                facts={{
-                  title: "Product Cleanup Review",
-                  bullets: cleanupReviewItems.map((item, index) => ({
-                    id: `cleanup-${index}`,
-                    label: item,
-                    severity: item.includes("not ready") || item.includes("not loaded")
-                      ? "warning"
-                      : "info",
-                  })),
-                  disclaimers: [
-                    "Explain cleanup counts and review priority only. Product Hub handles review and safe applies.",
-                  ],
-                }}
-              />
-            </div>
-          ) : null}
+          {readinessFilter && (
+            <FilterChip
+              label={`Readiness: ${READINESS_FILTER_LABEL[readinessFilter]}`}
+              onRemove={() => setReadinessFilter(null)}
+            />
+          )}
         </div>
       </div>
 
-      <div className="ui-card ui-tint-neutral flex flex-col overflow-x-auto overscroll-x-contain lg:overflow-x-visible [-webkit-overflow-scrolling:touch]">
+      <div
+        ref={inventoryListRef}
+        className="ui-card ui-tint-neutral flex flex-col overflow-x-auto overscroll-x-contain lg:overflow-x-visible [-webkit-overflow-scrolling:touch]"
+      >
         <div 
           className="min-w-[640px] outline-none lg:min-w-0"
           onFocus={() => setTableFocus(true)}
@@ -1641,6 +1592,116 @@ export default function InventoryControlBoard({
             ) : null}
           </div>
         </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="ui-card ui-tint-warning px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                Item Readiness
+              </p>
+              <p className="mt-1 text-sm font-semibold text-app-text">
+                Visible items missing fields that help with purchasing, selling, or reporting.
+              </p>
+            </div>
+            <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              {catalogQualitySummary.templatesVisible} templates visible
+            </span>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            {[
+              {
+                label: "Category missing",
+                value: catalogQualitySummary.missingCategory,
+                filter: "missing_category" as const,
+              },
+              {
+                label: "Vendor missing",
+                value: catalogQualitySummary.missingPrimaryVendor,
+                filter: "missing_vendor" as const,
+              },
+              {
+                label: "Optional brand blank",
+                value: catalogQualitySummary.missingBrand,
+                filter: "missing_brand" as const,
+              },
+            ].map(({ label, value, filter }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => openReadinessFilter(filter)}
+                className={`ui-metric-cell ui-tint-neutral px-3 py-3 text-left transition-all hover:border-app-accent hover:bg-app-surface-3 focus:outline-none focus:ring-2 focus:ring-app-accent/30 ${
+                  readinessFilter === filter ? "border-app-accent bg-app-accent/10" : ""
+                }`}
+                aria-label={`Show items with ${label.toLowerCase()}`}
+              >
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  {label}
+                </p>
+                <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                  {value}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {showCleanupReview ? (
+          <div className="ui-card ui-tint-neutral px-4 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                  Inventory Cleanup Review
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  Counterpoint Sync prepares references. Product Hub handles review and safe applies.
+                </p>
+              </div>
+              {cleanupCandidateProductId ? (
+                <button
+                  type="button"
+                  className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                  onClick={() => {
+                    setHubProductId(cleanupCandidateProductId);
+                    setHubSeedTitle(cleanupCandidateProductName);
+                  }}
+                >
+                  Review next product
+                </button>
+              ) : null}
+            </div>
+            <ul className="mt-4 space-y-2 text-sm font-semibold text-app-text">
+              {cleanupReviewItems.map((item) => (
+                <li
+                  key={item}
+                  className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2"
+                >
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <RosieInsightSummary
+              surface="product_cleanup_review"
+              title="Product Cleanup Review"
+              mode="explain"
+              getHeaders={apiAuth}
+              facts={{
+                title: "Product Cleanup Review",
+                bullets: cleanupReviewItems.map((item, index) => ({
+                  id: `cleanup-${index}`,
+                  label: item,
+                  severity: item.includes("not ready") || item.includes("not loaded")
+                    ? "warning"
+                    : "info",
+                })),
+                disclaimers: [
+                  "Explain cleanup counts and review priority only. Product Hub handles review and safe applies.",
+                ],
+              }}
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* Standardized Bulk Action Bar */}
