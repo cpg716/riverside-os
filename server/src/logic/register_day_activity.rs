@@ -32,6 +32,8 @@ pub struct ActivityItemDetail {
     pub price: String,
     pub reg_price: Option<String>,
     pub product_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fulfillment: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -584,8 +586,8 @@ pub async fn fetch_register_day_summary(
         merchant_fees: Option<Decimal>,
         net_amount: Option<Decimal>,
         amount_paid_in_window: Option<Decimal>,
-        total_paid_ever: Option<Decimal>,
         fulfillment_type: Option<String>,
+        balance_due: Decimal,
     }
 
     let sale_ts = match basis {
@@ -642,19 +644,13 @@ pub async fn fetch_register_day_summary(
                   AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
                   AND pt.status = 'success'
             ) AS amount_paid_in_window,
-            (
-                SELECT SUM(pa.amount_allocated)
-                FROM payment_allocations pa
-                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                WHERE pa.target_transaction_id = o.id
-                  AND pt.status = 'success'
-            ) AS total_paid_ever,
             o.total_price AS sales_total_booked,
             (
                 SELECT STRING_AGG(DISTINCT oi2.fulfillment::text, ', ')
                 FROM transaction_lines oi2
                 WHERE oi2.transaction_id = o.id
             ) AS fulfillment_type,
+            o.balance_due,
             (
                 SELECT jsonb_agg(jsonb_build_object(
                     'name', px.name,
@@ -677,7 +673,7 @@ pub async fn fetch_register_day_summary(
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         WHERE {order_in_range}
         {ORDER_SESSION_FILTER}
-        GROUP BY o.id, {sale_ts}, o.total_price, wp.id, wp.party_name, c.first_name, c.last_name, c.customer_code, o.sale_channel::text
+        GROUP BY o.id, {sale_ts}, o.total_price, o.balance_due, wp.id, wp.party_name, c.first_name, c.last_name, c.customer_code, o.sale_channel::text
         ORDER BY {sale_order_by}
         LIMIT 120
         "#
@@ -713,7 +709,13 @@ pub async fn fetch_register_day_summary(
     for s in sales {
         let title = match basis {
             ReportBasis::Completed => "Order Taken (Fulfilled)".to_string(),
-            ReportBasis::Booked => "Order Booked (Sale)".to_string(),
+            ReportBasis::Booked => {
+                if s.is_takeaway {
+                    "POS Retail Sale".to_string()
+                } else {
+                    "Order Booked (Sale)".to_string()
+                }
+            }
         };
         let sale_kind = if matches!(basis, ReportBasis::Completed) {
             "completed"
@@ -755,10 +757,7 @@ pub async fn fetch_register_day_summary(
             .amount_paid_in_window
             .filter(|&a| a > Decimal::ZERO)
             .map(money_label);
-        let balance = s.total_paid_ever.map(|paid| {
-            let due = s.total_price - paid;
-            money_label(due.max(Decimal::ZERO))
-        });
+        let balance = Some(money_label(s.balance_due.max(Decimal::ZERO)));
 
         activities.push(RegisterActivityItem {
             id: format!("{sale_kind}:{}", s.transaction_id),
