@@ -39,6 +39,7 @@ interface UseParkedSalesProps {
   setPrimarySalespersonId: (id: string) => void;
   primarySalespersonId: string;
   clearCart: () => void;
+  isReady: boolean;
   activeWeddingMember: WeddingMember | null;
   activeWeddingPartyName: string | null;
   disbursementMembers: WeddingMember[];
@@ -61,6 +62,7 @@ export function useParkedSales({
   setPrimarySalespersonId,
   primarySalespersonId,
   clearCart,
+  isReady,
   activeWeddingMember,
   activeWeddingPartyName,
   disbursementMembers,
@@ -77,14 +79,14 @@ export function useParkedSales({
   const primaryDefaultedRef = useRef(false);
 
   const refreshParkedSales = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId || !isReady) return;
     try {
       const list = await fetchParkedSales(baseUrl, sessionId, apiAuth);
       setParkedRows(list);
     } catch {
       /* best-effort */
     }
-  }, [baseUrl, sessionId, apiAuth]);
+  }, [baseUrl, sessionId, apiAuth, isReady]);
 
   useEffect(() => {
     skippedParkedForCustomerRef.current = new Set();
@@ -100,7 +102,7 @@ export function useParkedSales({
     const prev = prevCustomerIdForParkedRef.current;
     prevCustomerIdForParkedRef.current = cid;
 
-    if (!cid || !sessionId) return;
+    if (!cid || !sessionId || !isReady) return;
     if (cid === prev) return;
 
     const skipKey = `${sessionId}:${cid}`;
@@ -118,7 +120,7 @@ export function useParkedSales({
     })();
 
     return () => { cancelled = true; };
-  }, [selectedCustomer?.id, sessionId, baseUrl, apiAuth]);
+  }, [selectedCustomer?.id, sessionId, baseUrl, apiAuth, isReady]);
 
   const recallParkedSale = useCallback(async (parkId: string) => {
     if (lines.length > 0) {

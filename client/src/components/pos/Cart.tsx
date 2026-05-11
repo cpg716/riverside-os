@@ -845,6 +845,7 @@ export default function Cart({
     setPrimarySalespersonId,
     primarySalespersonId,
     clearCart: clearCartAndAlterations,
+    isReady: !!checkoutOperator,
     activeWeddingMember,
     activeWeddingPartyName,
     disbursementMembers,
