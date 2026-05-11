@@ -131,7 +131,15 @@ async function doReturn(
 
 async function doRefund(
   request: APIRequestContext,
-  options: { transactionId: string; sessionId: string; amount: string; paymentMethod?: string },
+  options: {
+    transactionId: string;
+    sessionId: string;
+    amount: string;
+    paymentMethod?: string;
+    managerStaffId?: string;
+    managerPin?: string;
+    managerReason?: string;
+  },
 ): Promise<{ status: number; body: unknown }> {
   const res = await request.post(apiUrl(`/api/transactions/${options.transactionId}/refunds/process`), {
     headers: { ...staffHeaders(), "Content-Type": "application/json" },
@@ -139,11 +147,20 @@ async function doRefund(
       session_id: options.sessionId,
       payment_method: options.paymentMethod ?? "cash",
       amount: options.amount,
+      manager_staff_id: options.managerStaffId,
+      manager_pin: options.managerPin,
+      manager_reason: options.managerReason,
     },
     failOnStatusCode: false,
   });
   const bodyText = await res.text();
-  return { status: res.status(), body: JSON.parse(bodyText) };
+  let body = {};
+  try {
+    body = JSON.parse(bodyText);
+  } catch (e) {
+    body = { raw: bodyText };
+  }
+  return { status: res.status(), body };
 }
 
 async function getArtifacts(request: APIRequestContext, transactionId: string): Promise<TransactionArtifacts> {
@@ -351,5 +368,104 @@ test.describe("refund split-tender capacity contract", () => {
     );
     expect(refundRow).toBeTruthy();
     expect((refundRow!.metadata as Record<string, unknown>)["transaction_id"]).toBe(checkout.transaction_id);
+  });
+
+  test("legacy/manual card refund recording requires manager authorization", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Legacy Manual Refund Auth");
+
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+      paymentMethod: "cash", // No Helcim card charge
+    });
+
+    const lines = await getTransactionLines(request, checkout.transaction_id);
+    await doReturn(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      lineId: lines[0]!.transaction_line_id,
+      qty: 1,
+    });
+
+    // Attempt card refund without manager fields -> expect 400
+    const r1 = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "card",
+    });
+    expect(r1.status).toBe(400);
+    expect((r1.body as any).error).toContain("No original Helcim card charge found");
+
+    // Attempt with invalid PIN -> expect 400
+    const r2 = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "card",
+      managerStaffId: operatorStaffId,
+      managerPin: "0000", // Assuming 0000 is wrong
+      managerReason: "migration fix",
+    });
+    expect(r2.status).toBe(400);
+    expect((r2.body as any).error).toContain("invalid manager PIN");
+  });
+
+  test("legacy/manual card refund recording succeeds with manager override", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Legacy Manual Refund Success");
+
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+      paymentMethod: "cash",
+    });
+
+    const lines = await getTransactionLines(request, checkout.transaction_id);
+    await doReturn(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      lineId: lines[0]!.transaction_line_id,
+      qty: 1,
+    });
+
+    // Valid override (using operator's own ID/PIN as "manager" for test simplicity if they have admin role)
+    // In seedRmsFixture, the default staff usually has admin-level access.
+    // We'll use "1234" which is the standard test PIN for the operator in these fixtures.
+    const r3 = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "card",
+      managerStaffId: operatorStaffId,
+      managerPin: "1234",
+      managerReason: "migration migration",
+    });
+    expect(r3.status, JSON.stringify(r3.body)).toBe(200);
+
+    const artifacts = await getArtifacts(request, checkout.transaction_id);
+    const manualRow = artifacts.payment_rows.find(
+      (r) => r.payment_method === "card_terminal_manual",
+    );
+    expect(manualRow).toBeTruthy();
+    expect(manualRow!.metadata.kind).toBe("legacy_migration_refund");
+    expect(manualRow!.metadata.original_provider_transaction_id).toBe("MANUAL_MIGRATION");
+    expect(manualRow!.metadata.authorizing_manager_id).toBe(operatorStaffId);
+
+    const queue = (await getRefundsDue(request)).find(
+      (r) => r.transaction_id === checkout.transaction_id,
+    );
+    expect(queue).toBeUndefined(); // Should be closed
   });
 });

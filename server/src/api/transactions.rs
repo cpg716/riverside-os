@@ -791,6 +791,15 @@ pub struct ProcessRefundRequest {
     /// Required when `payment_method` is a gift-card tender (e.g. `gift_card`).
     #[serde(default)]
     pub gift_card_code: Option<String>,
+    /// Optional: Staff ID of the manager authorizing a legacy manual refund override.
+    #[serde(default)]
+    pub manager_staff_id: Option<Uuid>,
+    /// Optional: 4-digit PIN of the manager authorizing a legacy manual refund override.
+    #[serde(default)]
+    pub manager_pin: Option<String>,
+    /// Optional: Reason for the legacy manual refund override.
+    #[serde(default)]
+    pub manager_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1755,8 +1764,129 @@ async fn process_refund(
         .await?;
 
         if cards.is_empty() {
+            // Check if this is a governed manual legacy refund override.
+            if let (Some(m_id), Some(m_pin)) = (body.manager_staff_id, body.manager_pin.as_deref())
+            {
+                let manager =
+                    crate::auth::pins::authenticate_staff_by_id(&state.db, m_id, Some(m_pin))
+                        .await
+                        .map_err(|_| {
+                            TransactionError::InvalidPayload("invalid manager PIN".to_string())
+                        })?;
+
+                // Require manager/admin role for manual card payout recording.
+                if !matches!(
+                    manager.role,
+                    crate::models::DbStaffRole::Admin | crate::models::DbStaffRole::Salesperson
+                ) {
+                    return Err(TransactionError::Forbidden(
+                        "manager authorization required for legacy manual refund".to_string(),
+                    ));
+                }
+
+                let reason = body
+                    .manager_reason
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or_else(|| {
+                        TransactionError::InvalidPayload(
+                            "reason is required for legacy manual refund override".to_string(),
+                        )
+                    })?;
+
+                // Log the audit event.
+                crate::auth::pins::log_staff_access(
+                    &state.db,
+                    manager.id,
+                    "manual_legacy_refund",
+                    json!({
+                        "transaction_id": transaction_id,
+                        "refund_queue_id": refund.id,
+                        "amount_cents": (body.amount * Decimal::from(100)).to_i64(),
+                        "authorizing_manager_id": manager.id,
+                        "reason": reason,
+                    }),
+                )
+                .await?;
+
+                // Create the negative payment transaction (manual terminal record).
+                let pt_id = Uuid::new_v4();
+                sqlx::query(
+                    r#"
+                    INSERT INTO payment_transactions (
+                        id, session_id, payer_id, category, payment_method, amount,
+                        status, metadata, merchant_fee, net_amount, occurred_at, created_at
+                    )
+                    VALUES ($1, $2, $3, 'retail_sale', 'card_terminal_manual', $4, 'approved', $5, 0, $4, NOW(), NOW())
+                    "#,
+                )
+                .bind(pt_id)
+                .bind(body.session_id)
+                .bind(refund.customer_id)
+                .bind(-body.amount)
+                .bind(json!({
+                    "kind": "legacy_migration_refund",
+                    "manual_terminal_confirmation": true,
+                    "requires_operator_terminal_action": true,
+                    "authorizing_manager_id": manager.id,
+                    "reason": reason,
+                    "original_provider_transaction_id": "MANUAL_MIGRATION",
+                    "transaction_id": transaction_id,
+                }))
+                .execute(&mut *tx)
+                .await?;
+
+                // Allocate the payment to the transaction.
+                sqlx::query(
+                    r#"
+                    INSERT INTO payment_allocations (id, transaction_id, target_transaction_id, amount_allocated)
+                    VALUES ($1, $2, $3, $4)
+                    "#,
+                )
+                .bind(Uuid::new_v4())
+                .bind(pt_id)
+                .bind(transaction_id)
+                .bind(-body.amount)
+                .execute(&mut *tx)
+                .await?;
+
+                // Update the refund queue.
+                sqlx::query(
+                    "UPDATE transaction_refund_queue SET amount_refunded = amount_refunded + $1 WHERE id = $2"
+                )
+                .bind(body.amount)
+                .bind(refund.id)
+                .execute(&mut *tx)
+                .await?;
+
+                // Update the transaction amount paid.
+                sqlx::query("UPDATE transactions SET amount_paid = amount_paid - $1 WHERE id = $2")
+                    .bind(body.amount)
+                    .bind(transaction_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                // If fully refunded, close the queue.
+                if (refund.amount_refunded + body.amount) >= refund.amount_due {
+                    sqlx::query(
+                        "UPDATE transaction_refund_queue SET is_open = FALSE WHERE id = $1",
+                    )
+                    .bind(refund.id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+
+                tx.commit().await?;
+
+                return Ok(Json(json!({
+                    "status": "success",
+                    "message": "Manual legacy refund recorded successfully.",
+                    "payment_transaction_id": pt_id
+                })));
+            }
+
             return Err(TransactionError::InvalidPayload(
-                "no original Helcim card payment was found for this refund".to_string(),
+                "No original Helcim card charge found. Process this refund on the terminal first, then confirm it here with manager authorization.".to_string(),
             ));
         }
 
