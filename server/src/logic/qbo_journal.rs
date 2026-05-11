@@ -1627,8 +1627,16 @@ pub async fn propose_daily_journal(
     let balanced = diff.is_zero();
 
     if !balanced {
+        tracing::warn!(
+            "QBO Journal not balanced for {} by {:.2} (DR: {:.2} - CR: {:.2}). Lines: {:?}",
+            activity_date,
+            diff,
+            debits,
+            credits,
+            lines
+        );
         warnings.push(format!(
-            "Journal not balanced by {diff:.2} (DR − CR). Review tender vs revenue/tax mappings before sync."
+            "Journal not balanced by {diff:.2} (DR: {debits:.2}, CR: {credits:.2}). Review tender vs revenue/tax mappings before sync."
         ));
     }
 

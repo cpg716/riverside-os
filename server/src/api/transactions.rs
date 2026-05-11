@@ -1692,48 +1692,129 @@ async fn process_refund(
     let mut card_last4: Option<String> = None;
 
     if method_l.contains("card") || method_l.contains("helcim") {
-        let original: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        // Query all positive Helcim charges on this transaction with per-card remaining capacity.
+        // Prior refunds are attributed to their source card via the `original_provider_transaction_id`
+        // metadata field written on every Helcim refund payment_transactions row.
+        // We pick the card with the most remaining refundable capacity (not the most recent),
+        // and cap the refund to that card's remaining capacity to avoid over-refunding a single charge.
+        //
+        // Multi-card iterative dispatch in a single call (e.g. $150 split across Card A $100 + Card B $100)
+        // is intentionally deferred: it would require committing Card A's ledger rows before Card B's
+        // provider call, creating a partial-commit hazard on provider failure. Staff can issue two
+        // sequential refund calls to handle such splits safely.
+        #[derive(sqlx::FromRow)]
+        struct CardCapacityRow {
+            provider_transaction_id: String,
+            original_amount_cents: i64,
+            already_refunded_cents: i64,
+        }
+
+        let cards: Vec<CardCapacityRow> = sqlx::query_as(
             r#"
-            SELECT pt.provider_payment_id, pt.provider_transaction_id
+            SELECT
+                pt.provider_transaction_id,
+                ROUND(SUM(pa.amount_allocated) * 100)::bigint AS original_amount_cents,
+                COALESCE(
+                    ROUND(SUM(
+                        CASE
+                            WHEN ref_pt.amount < 0
+                             AND ref_pt.payment_provider = 'helcim'
+                             AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
+                            THEN ABS(ref_pt.amount)
+                            ELSE 0
+                        END
+                    ) * 100),
+                    0
+                )::bigint AS already_refunded_cents
             FROM payment_allocations pa
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            LEFT JOIN payment_transactions ref_pt
+                ON ref_pt.payment_provider = 'helcim'
+               AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
             WHERE pa.target_transaction_id = $1
               AND pa.amount_allocated > 0
               AND pt.payment_provider = 'helcim'
               AND pt.provider_transaction_id IS NOT NULL
-            ORDER BY pt.created_at DESC
-            LIMIT 1
+            GROUP BY pt.provider_transaction_id
+            ORDER BY
+                (ROUND(SUM(pa.amount_allocated) * 100)::bigint
+                 - COALESCE(ROUND(SUM(
+                       CASE
+                           WHEN ref_pt.amount < 0
+                            AND ref_pt.payment_provider = 'helcim'
+                            AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
+                           THEN ABS(ref_pt.amount)
+                           ELSE 0
+                       END
+                   ) * 100), 0)::bigint) DESC,
+                pt.provider_transaction_id ASC
             "#,
         )
         .bind(transaction_id)
-        .fetch_optional(&mut *tx)
+        .fetch_all(&mut *tx)
         .await?;
 
-        let Some((_original_payment_id, Some(original_transaction_id))) = original else {
+        if cards.is_empty() {
             return Err(TransactionError::InvalidPayload(
                 "no original Helcim card payment was found for this refund".to_string(),
             ));
-        };
-        let original_transaction_id =
-            original_transaction_id.trim().parse::<i64>().map_err(|_| {
-                TransactionError::InvalidPayload(
-                    "original Helcim transaction id is not valid for provider refund".to_string(),
-                )
-            })?;
+        }
+
         let amount_cents = (body.amount.round_dp(2) * Decimal::from(100))
             .to_i64()
             .ok_or_else(|| {
                 TransactionError::InvalidPayload("refund amount is not valid".to_string())
             })?;
-        let already_refunded_cents = (refund.amount_refunded.round_dp(2) * Decimal::from(100))
-            .to_i64()
-            .ok_or_else(|| {
-                TransactionError::InvalidPayload("refund state is not valid".to_string())
-            })?;
+
+        // Use the card with the most remaining capacity.
+        let best = &cards[0];
+        let per_card_remaining = best.original_amount_cents - best.already_refunded_cents;
+
+        if per_card_remaining <= 0 {
+            let total_remaining: i64 = cards
+                .iter()
+                .map(|c| (c.original_amount_cents - c.already_refunded_cents).max(0))
+                .sum();
+            return Err(TransactionError::InvalidPayload(format!(
+                "all original Helcim card charges have been fully refunded (total remaining capacity: ${:.2}). No further card refund is possible.",
+                Decimal::new(total_remaining, 2)
+            )));
+        }
+
+        if amount_cents > per_card_remaining {
+            let total_remaining: i64 = cards
+                .iter()
+                .map(|c| (c.original_amount_cents - c.already_refunded_cents).max(0))
+                .sum();
+            return Err(TransactionError::InvalidPayload(format!(
+                "refund of ${:.2} exceeds the remaining refundable capacity (${:.2}) on the best available card. \
+                 Total remaining across all cards: ${:.2}. \
+                 To refund across multiple cards, issue separate refund requests up to each card's available limit.",
+                Decimal::new(amount_cents, 2),
+                Decimal::new(per_card_remaining, 2),
+                Decimal::new(total_remaining, 2),
+            )));
+        }
+
+        let original_transaction_id =
+            best.provider_transaction_id
+                .trim()
+                .parse::<i64>()
+                .map_err(|_| {
+                    TransactionError::InvalidPayload(
+                        "original Helcim transaction id is not valid for provider refund"
+                            .to_string(),
+                    )
+                })?;
+
+        // Idempotency key is per-card: uses the per-card already_refunded_cents (not queue-level),
+        // so retrying after a partial split refund generates a fresh key scoped to this card's state.
+        let per_card_already_cents = best.already_refunded_cents;
         let idempotency_key = format!(
-            "helcim-refund-{}-{original_transaction_id}-{already_refunded_cents}-{amount_cents}",
+            "helcim-refund-{}-{original_transaction_id}-{per_card_already_cents}-{amount_cents}",
             refund.id
         );
+
         let provider_attempt_id = Uuid::new_v4();
         sqlx::query(
             r#"
@@ -1755,6 +1836,7 @@ async fn process_refund(
         ))
         .execute(&mut *tx)
         .await?;
+
         let config = helcim::HelcimConfig::from_env();
         let refund_request = helcim::HelcimCardRefundRequest {
             original_transaction_id,
@@ -1855,7 +1937,7 @@ async fn process_refund(
             );
             object.insert(
                 "original_provider_transaction_id".to_string(),
-                json!(original_transaction_id),
+                json!(original_transaction_id.to_string()),
             );
             object.insert(
                 "provider_refund_id".to_string(),
