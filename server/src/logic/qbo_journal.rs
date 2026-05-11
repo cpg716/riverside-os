@@ -1564,6 +1564,63 @@ pub async fn propose_daily_journal(
         }
     }
 
+    let mut refund_liability_created = Decimal::ZERO;
+    for rr in &return_day_rows {
+        refund_liability_created += rr.net_product.unwrap_or(Decimal::ZERO)
+            + rr.tax_state.unwrap_or(Decimal::ZERO)
+            + rr.tax_local.unwrap_or(Decimal::ZERO);
+    }
+
+    let mut refund_liability_relieved = Decimal::ZERO;
+    for t in &tender_rows {
+        let amt = t.total.unwrap_or(Decimal::ZERO);
+        if amt < Decimal::ZERO && !rms_payment_collection_flag(t.rms_charge_collection) {
+            refund_liability_relieved += amt.abs();
+        }
+    }
+
+    let refund_liability_delta = (refund_liability_created - refund_liability_relieved).round_dp(2);
+
+    if !refund_liability_delta.is_zero() {
+        if let Some((aid, aname)) = qbo_map_with_misc_fallback(
+            pool,
+            "liability_refund_queue",
+            "default",
+            Some("REFUND_LIABILITY_CLEARING"),
+        )
+        .await?
+        {
+            let abs_delta = refund_liability_delta.abs();
+            let (debit, credit) = if refund_liability_delta > Decimal::ZERO {
+                (Decimal::ZERO, abs_delta)
+            } else {
+                (abs_delta, Decimal::ZERO)
+            };
+            lines.push(JournalLine {
+                qbo_account_id: aid,
+                qbo_account_name: aname,
+                debit,
+                credit,
+                memo: if refund_liability_delta > Decimal::ZERO {
+                    "Refund liability queued (from returns)".to_string()
+                } else {
+                    "Refund liability relieved (payouts)".to_string()
+                },
+                detail: vec![serde_json::json!({
+                    "kind": "refund_liability_clearing",
+                    "created": refund_liability_created,
+                    "relieved": refund_liability_relieved,
+                    "net_delta": refund_liability_delta
+                })],
+            });
+        } else {
+            warnings.push(
+                "Asynchronous refunds require a `liability_refund_queue` / default or REFUND_LIABILITY_CLEARING mapping to balance disjoint return/payout days. Refund clearing omitted."
+                    .to_string(),
+            );
+        }
+    }
+
     let debits: Decimal = lines.iter().map(|l| l.debit).sum();
     let credits: Decimal = lines.iter().map(|l| l.credit).sum();
     let diff = debits - credits;

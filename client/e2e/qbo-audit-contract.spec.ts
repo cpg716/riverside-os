@@ -616,6 +616,26 @@ async function assignQboReturnDate(
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
+async function assignQboRefundPaymentDate(
+  request: APIRequestContext,
+  transactionId: string,
+  activityDate: string,
+) {
+  const res = await request.post(`${apiBase()}/api/test-support/qbo/assign-transaction-refund-payment-date`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      transaction_id: transactionId,
+      activity_date: activityDate,
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
 async function assignQboFulfillmentTimestamp(
   request: APIRequestContext,
   transactionId: string,
@@ -960,6 +980,90 @@ test.describe("QBO audit contract", () => {
     );
     expect(revenueContributor).toBeTruthy();
     expect(moneyToCents(revenueContributor?.amount)).toBe(parseMoneyToCents("110.00"));
+  });
+
+  test("asynchronous returns and refunds balance independently via liability clearing", async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const dateOffset = 900 + Math.floor(Math.random() * 4000);
+    const checkoutDate = futureUtcDate(dateOffset);
+    const returnDate = futureUtcDate(dateOffset + 1);
+    const refundDate = futureUtcDate(dateOffset + 2);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    const unitTax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
+    const returnedUnitTotal = totalFor("110.00", unitTax.stateTax, unitTax.localTax);
+
+    const checkout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      quantity: 1,
+    });
+    await assignQboDate(request, checkout.transaction_id, checkoutDate);
+
+    // 1. A return on Day 1 creates refund queue activity
+    await returnFirstQboLine(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      productSku: product.sku,
+    });
+    await assignQboReturnDate(request, checkout.transaction_id, returnDate);
+    
+    const refundBefore = (await fetchRefundsDue(request)).find(
+      (row) => row.transaction_id === checkout.transaction_id,
+    );
+    expect(refundBefore?.is_open).toBe(true);
+    expect(refundBefore?.amount_due).toBe(returnedUnitTotal);
+    expect(moneyToCents(refundBefore?.amount_refunded)).toBe(0);
+
+    // 2. Day 1 QBO proposal is balanced & 3. Day 1 includes refund liability clearing evidence
+    await seedQboMappings(request, product.categoryId, returnDate);
+    const returnProposal = await proposeJournal(request, returnDate);
+    expect(returnProposal.payload.totals?.balanced).toBe(true);
+    const liabilityCreatedIndex = returnProposal.payload.lines.findIndex(
+      (line) =>
+        line.memo === "Refund liability queued (from returns)" &&
+        line.qbo_account_id === "E2E_REFUND_LIABILITY_CLEARING",
+    );
+    expect(liabilityCreatedIndex).toBeGreaterThanOrEqual(0);
+    expect(moneyToCents(returnProposal.payload.lines[liabilityCreatedIndex]?.credit)).toBe(
+      parseMoneyToCents(returnedUnitTotal),
+    );
+
+    // 4. A refund payout on Day 2 closes/reduces the queue
+    await processCashRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: returnedUnitTotal,
+    });
+    // Only update the refund payment to refundDate! The original checkout payment stays on checkoutDate.
+    await assignQboRefundPaymentDate(request, checkout.transaction_id, refundDate);
+
+    // 5. Day 2 QBO proposal is balanced & 6. Day 2 includes tender outflow and refund liability relief evidence
+    await seedQboMappings(request, product.categoryId, refundDate);
+    const refundProposal = await proposeJournal(request, refundDate);
+    expect(refundProposal.payload.totals?.balanced).toBe(true);
+    const liabilityRelievedIndex = refundProposal.payload.lines.findIndex(
+      (line) =>
+        line.memo === "Refund liability relieved (payouts)" &&
+        line.qbo_account_id === "E2E_REFUND_LIABILITY_CLEARING",
+    );
+    expect(liabilityRelievedIndex).toBeGreaterThanOrEqual(0);
+    expect(moneyToCents(refundProposal.payload.lines[liabilityRelievedIndex]?.debit)).toBe(
+      parseMoneyToCents(returnedUnitTotal),
+    );
+    const refundTenderIndex = refundProposal.payload.lines.findIndex(
+      (line) => line.memo === "Tenders (refund/outflow) — cash" && line.qbo_account_id === "E2E_CASH",
+    );
+    expect(refundTenderIndex).toBeGreaterThanOrEqual(0);
+    expect(moneyToCents(refundProposal.payload.lines[refundTenderIndex]?.credit)).toBe(
+      parseMoneyToCents(returnedUnitTotal),
+    );
   });
 
   test("store credit and open deposit redemptions post liability relief in QBO", async ({

@@ -1002,7 +1002,8 @@ async fn post_seed_qbo_tax_mapping(
             ('E2E_STORE_CREDIT_LIABILITY', 'E2E Store Credit Liability', 'Other Current Liability', 'E2E-2300', true),
             ('E2E_GIFT_CARD_LIABILITY', 'E2E Gift Card Liability', 'Other Current Liability', 'E2E-2400', true),
             ('E2E_LOYALTY_EXPENSE', 'E2E Loyalty and Promotion Expense', 'Expense', 'E2E-5100', true),
-            ('E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', 'Income', 'E2E-4050', true)
+            ('E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', 'Income', 'E2E-4050', true),
+            ('E2E_REFUND_LIABILITY_CLEARING', 'E2E Refund Liability Clearing', 'Other Current Liability', 'E2E-2500', true)
         ON CONFLICT (id) DO UPDATE
         SET name = EXCLUDED.name,
             account_type = EXCLUDED.account_type,
@@ -1025,7 +1026,8 @@ async fn post_seed_qbo_tax_mapping(
             ('liability_store_credit', 'default', 'E2E_STORE_CREDIT_LIABILITY', 'E2E Store Credit Liability', CURRENT_TIMESTAMP),
             ('liability_gift_card', 'default', 'E2E_GIFT_CARD_LIABILITY', 'E2E Gift Card Liability', CURRENT_TIMESTAMP),
             ('expense_loyalty', 'default', 'E2E_LOYALTY_EXPENSE', 'E2E Loyalty and Promotion Expense', CURRENT_TIMESTAMP),
-            ('income_forfeited_deposit', 'default', 'E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', CURRENT_TIMESTAMP)
+            ('income_forfeited_deposit', 'default', 'E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', CURRENT_TIMESTAMP),
+            ('liability_refund_queue', 'default', 'E2E_REFUND_LIABILITY_CLEARING', 'E2E Refund Liability Clearing', CURRENT_TIMESTAMP)
         ON CONFLICT (source_type, source_id) DO UPDATE
         SET qbo_account_id = EXCLUDED.qbo_account_id,
             qbo_account_name = EXCLUDED.qbo_account_name,
@@ -1348,6 +1350,48 @@ async fn post_assign_qbo_transaction_return_date(
         "transaction_id": payload.transaction_id,
         "activity_date": payload.activity_date,
         "updated_returns": updated_returns,
+        "updated_refund_payments": updated_refund_payments
+    })))
+}
+
+async fn post_assign_qbo_transaction_refund_payment_date(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<AssignQboTransactionDateRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+    let timestamp = payload
+        .activity_date
+        .and_hms_opt(15, 0, 0)
+        .ok_or_else(|| TestSupportError::BadRequest("invalid activity_date".to_string()))?
+        .and_utc();
+
+    let mut tx = state.db.begin().await?;
+
+    let updated_refund_payments = sqlx::query(
+        r#"
+        UPDATE payment_transactions pt
+        SET created_at = $2,
+            effective_date = $3
+        FROM payment_allocations pa
+        WHERE pa.transaction_id = pt.id
+          AND pa.target_transaction_id = $1
+          AND pa.amount_allocated < 0::numeric
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .bind(payload.activity_date)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "transaction_id": payload.transaction_id,
+        "activity_date": payload.activity_date,
         "updated_refund_payments": updated_refund_payments
     })))
 }
@@ -1735,6 +1779,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/qbo/assign-transaction-return-date",
             post(post_assign_qbo_transaction_return_date),
+        )
+        .route(
+            "/qbo/assign-transaction-refund-payment-date",
+            post(post_assign_qbo_transaction_refund_payment_date),
         )
         .route(
             "/qbo/assign-transaction-timestamp",
