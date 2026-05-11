@@ -47,8 +47,23 @@ type ParkedSaleStatusResponse = {
   audit_actions: string[];
 };
 
+type QboStagingRow = {
+  id: string;
+  sync_date: string;
+  status: string;
+};
+
 function expectMoney(actual: string, expected: string) {
   expect(Number.parseFloat(actual)).toBeCloseTo(Number.parseFloat(expected), 2);
+}
+
+function storeLocalDate(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 async function listOpenSessions(request: APIRequestContext): Promise<OpenSessionRow[]> {
@@ -151,6 +166,27 @@ async function fetchParkedSaleStatus(
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
   return JSON.parse(bodyText) as ParkedSaleStatusResponse;
+}
+
+async function expectPendingQboStagingForToday(request: APIRequestContext): Promise<void> {
+  const businessDate = storeLocalDate();
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(
+          `${apiBase()}/api/qbo/staging?from=${businessDate}&to=${businessDate}`,
+          {
+            headers: staffHeaders(),
+            failOnStatusCode: false,
+          },
+        );
+        if (res.status() !== 200) return false;
+        const rows = (await res.json()) as QboStagingRow[];
+        return rows.some((row) => row.sync_date === businessDate && row.status === "pending");
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true);
 }
 
 async function closeGroupExactly(
@@ -334,5 +370,6 @@ test.describe("register audit contract", () => {
     expect(status.register_session_id).toBe(opened.session_id);
     expect(status.status).toBe("deleted");
     expect(status.audit_actions).toEqual(expect.arrayContaining(["park", "purge_on_close"]));
+    await expectPendingQboStagingForToday(request);
   });
 });

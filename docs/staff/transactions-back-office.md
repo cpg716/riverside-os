@@ -49,7 +49,9 @@
 
 ## Till / POS coordination
 
-POS may read the same Transaction Record through the register. If **Back Office** and **POS** disagree, **refresh** both; if persistent, note the transaction number and time for IT.
+POS may read the same Transaction Record through the register. Staff can add an item to the original Transaction Record, correct an unfulfilled line, or collect an existing balance without starting a separate sale. Adding or saving a line refreshes the original booked total for that Transaction Record. Payments taken later stay attached to the original Transaction Record but keep their own payment movement date for QBO review.
+
+If **Back Office** and **POS** disagree, **refresh** both; if persistent, note the transaction number and time for IT.
 
 ## Common issues and fixes
 

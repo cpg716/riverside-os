@@ -2,7 +2,7 @@
 id: pos-order-load-modal
 title: "Customer Orders"
 order: 1070
-summary: "Review a customer's open orders in POS, check balance and lifecycle status, and copy unfulfilled lines into a new register sale when needed."
+summary: "Review a customer's open Transaction Records in POS, check balance and lifecycle status, add or edit open lines, collect payments, and copy unfulfilled lines only when starting a new sale."
 source: client/src/components/pos/OrderLoadModal.tsx
 last_scanned: 2026-04-21
 tags: pos, orders, pickup, fulfillment
@@ -10,25 +10,32 @@ tags: pos, orders, pickup, fulfillment
 
 # Customer Orders
 
-Use this window when a customer already has an open order and staff need to review what is still open.
+Use this window when a customer already has an open Transaction Record and staff need to review what is still open.
 
 ## What it shows
 
-- The customer's open orders
+- The customer's open Transaction Records
 - Order date, amount paid, and balance due
 - A plain lifecycle note such as **Deposit received**, **Balance paid**, or **Waiting on measurements**
 - The order lines that are still unfulfilled
+- Controls for adding a SKU to the original Transaction Record
+- Quantity and price controls for unfulfilled lines that can still be corrected
 
 ## How to use it
 
 1. Select the customer in POS.
 2. Open the order loader.
 3. Review the order you need.
-4. If you need to rebuild the items as a new register sale, use **Copy to Register**.
+4. Use **Add to Record** when the customer is adding another item to the same original Transaction Record.
+5. Use **Save Line** only when correcting quantity or price on an unfulfilled line.
+6. Use **Add Payment** when the customer is paying an existing balance.
+7. If you need to rebuild the items as a new register sale, use **Copy Unfulfilled Items**.
 
 ## Important
 
-- **Copy to Register** starts a **new** register sale.
+- **Add to Record** and **Save Line** update the original Transaction Record and refresh its booked totals.
+- Payment taken later remains a new payment movement, but it is attached to the original Transaction Record.
+- **Copy Unfulfilled Items** starts a **new** register sale.
 - It does **not** collect payment on the original order record.
 - Use the balance and lifecycle note to confirm whether the order still needs payment, receiving follow-up, measurement follow-up, or pickup follow-up.
 

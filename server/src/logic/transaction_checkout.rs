@@ -2737,7 +2737,7 @@ pub async fn execute_checkout(
         r#"
         INSERT INTO transactions (
             customer_id, wedding_member_id, operator_id, primary_salesperson_id,
-            total_price, amount_paid, balance_due, booked_at,
+            total_price, amount_paid, balance_due, booked_at, business_date,
             weather_snapshot, checkout_client_id,
             fulfillment_method, ship_to, shipping_amount_usd,
             is_employee_purchase, is_rush, need_by_date,
@@ -2747,6 +2747,7 @@ pub async fn execute_checkout(
         VALUES (
             $1, $2, $3, $4, $5, $6, $7,
             CURRENT_TIMESTAMP,
+            (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
             $8, $9,
             $10, $11, $12,
             $13, $14, $15, $16, $17, $18,
@@ -3560,14 +3561,16 @@ pub async fn execute_checkout(
             let payment_tx_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payment_transactions (
-                    session_id, wedding_member_id, category, payment_method, amount, metadata,
+                    session_id, wedding_member_id, category, payment_method, amount, effective_date, metadata,
                     payment_provider, provider_payment_id, provider_status,
                     provider_terminal_id, provider_transaction_id, provider_auth_code,
                     provider_card_type, merchant_fee, net_amount, card_brand, card_last4,
                     check_number
                 )
                 VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                    $1, $2, $3, $4, $5,
+                    (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
+                    $6, $7, $8, $9,
                     $10, $11, $12, $13, $14, $15, $16, $17, $18
                 )
                 RETURNING id

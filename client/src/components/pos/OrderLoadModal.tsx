@@ -46,6 +46,12 @@ interface OrderLoadModalProps {
   onClose: () => void;
   onCopyOrder: (order: CustomerOrder, items: OrderItem[]) => void;
   onMakePayment?: (order: CustomerOrder, amountCents: number) => void;
+  onAddItemToOrder?: (order: CustomerOrder, sku: string) => Promise<boolean>;
+  onUpdateOrderItem?: (
+    order: CustomerOrder,
+    item: OrderItem,
+    patch: { quantity?: number; unit_price?: string },
+  ) => Promise<boolean>;
 }
 
 const fulfillmentLabel = (fulfillment: string) => {
@@ -75,6 +81,8 @@ export default function OrderLoadModal({
   onClose,
   onCopyOrder,
   onMakePayment,
+  onAddItemToOrder,
+  onUpdateOrderItem,
 }: OrderLoadModalProps) {
   const { toast } = useToast();
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
@@ -83,6 +91,9 @@ export default function OrderLoadModal({
   const [viewingItemsOrderId, setViewingItemsOrderId] = useState<string | null>(null);
   const [paymentOrder, setPaymentOrder] = useState<CustomerOrder | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [addSku, setAddSku] = useState("");
+  const [orderMutationBusy, setOrderMutationBusy] = useState(false);
+  const [lineDrafts, setLineDrafts] = useState<Record<string, { quantity: string; unit_price: string }>>({});
 
   const fetchOrderItems = async (orderId: string) => {
     const params = new URLSearchParams();
@@ -104,8 +115,13 @@ export default function OrderLoadModal({
     try {
       const items = await fetchOrderItems(orderId);
       setSelectedOrderItems(items);
+      setLineDrafts(Object.fromEntries(items.map((item) => [
+        item.transaction_line_id,
+        { quantity: String(item.quantity), unit_price: item.unit_price },
+      ])));
     } catch (e) {
       setSelectedOrderItems([]);
+      setLineDrafts({});
       toast(
         e instanceof Error ? e.message : "We couldn't load those transaction items. Please try again.",
         "error",
@@ -235,6 +251,53 @@ export default function OrderLoadModal({
     setPaymentOrder(null);
     setPaymentAmount("");
     onClose();
+  };
+
+  const addSkuToSelectedOrder = async () => {
+    if (!selectedOrder || !onAddItemToOrder) return;
+    const sku = addSku.trim();
+    if (!sku) {
+      toast("Scan or enter a SKU before adding it to this Transaction Record.", "error");
+      return;
+    }
+    setOrderMutationBusy(true);
+    try {
+      const ok = await onAddItemToOrder(selectedOrder, sku);
+      if (ok) {
+        setAddSku("");
+        await loadOrderItems(selectedOrder.id);
+      }
+    } finally {
+      setOrderMutationBusy(false);
+    }
+  };
+
+  const saveLineDraft = async (item: OrderItem) => {
+    if (!selectedOrder || !onUpdateOrderItem) return;
+    const draft = lineDrafts[item.transaction_line_id] ?? {
+      quantity: String(item.quantity),
+      unit_price: item.unit_price,
+    };
+    const quantity = Number.parseInt(draft.quantity, 10);
+    const priceCents = parseMoneyToCents(draft.unit_price);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast("Quantity must be at least 1.", "error");
+      return;
+    }
+    if (priceCents < 0) {
+      toast("Price cannot be negative.", "error");
+      return;
+    }
+    setOrderMutationBusy(true);
+    try {
+      const ok = await onUpdateOrderItem(selectedOrder, item, {
+        quantity,
+        unit_price: centsToFixed2(priceCents),
+      });
+      if (ok) await loadOrderItems(selectedOrder.id);
+    } finally {
+      setOrderMutationBusy(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -392,17 +455,62 @@ export default function OrderLoadModal({
                       )}
                     </div>
                     <div className="flex flex-col items-end">
-                      <span className="font-medium text-app-text">
-                        {formatCurrency(item.unit_price)}
-                      </span>
-                      <span className="text-app-text-muted">×{item.quantity}</span>
+                      {onUpdateOrderItem && !item.is_fulfilled ? (
+                        <div className="grid w-40 grid-cols-[4rem_minmax(0,1fr)] gap-1">
+                          <input
+                            aria-label={`Quantity for ${item.sku}`}
+                            value={lineDrafts[item.transaction_line_id]?.quantity ?? String(item.quantity)}
+                            onChange={(e) =>
+                              setLineDrafts((prev) => ({
+                                ...prev,
+                                [item.transaction_line_id]: {
+                                  quantity: e.target.value,
+                                  unit_price: prev[item.transaction_line_id]?.unit_price ?? item.unit_price,
+                                },
+                              }))
+                            }
+                            inputMode="numeric"
+                            className="rounded-lg border border-app-border bg-app-surface px-2 py-1 text-right font-black text-app-text"
+                          />
+                          <input
+                            aria-label={`Price for ${item.sku}`}
+                            value={lineDrafts[item.transaction_line_id]?.unit_price ?? item.unit_price}
+                            onChange={(e) =>
+                              setLineDrafts((prev) => ({
+                                ...prev,
+                                [item.transaction_line_id]: {
+                                  quantity: prev[item.transaction_line_id]?.quantity ?? String(item.quantity),
+                                  unit_price: e.target.value,
+                                },
+                              }))
+                            }
+                            inputMode="decimal"
+                            className="rounded-lg border border-app-border bg-app-surface px-2 py-1 text-right font-black text-app-text"
+                          />
+                          <button
+                            type="button"
+                            disabled={orderMutationBusy}
+                            onClick={() => void saveLineDraft(item)}
+                            className="col-span-2 rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
+                          >
+                            Save Line
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="font-medium text-app-text">
+                            {formatCurrency(item.unit_price)}
+                          </span>
+                          <span className="text-app-text-muted">×{item.quantity}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
               <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
-                Copying items starts a new register sale. It does not collect payment on the
-                original Transaction Record.
+                Add or save lines to update the original Transaction Record. Copying items starts a
+                new register sale and does not collect payment on the original Transaction Record.
               </p>
               {selectedOrder?.order_kind === "wedding_order" && (
                 <p className="mt-2 text-[11px] font-semibold text-rose-700">
@@ -411,6 +519,27 @@ export default function OrderLoadModal({
                 </p>
               )}
               <div className="mt-2 flex gap-2">
+                {onAddItemToOrder && (
+                  <div className="flex flex-[1.5] gap-2">
+                    <input
+                      value={addSku}
+                      onChange={(e) => setAddSku(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void addSkuToSelectedOrder();
+                      }}
+                      placeholder="Scan SKU to add"
+                      className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text outline-none focus:border-app-accent"
+                    />
+                    <button
+                      type="button"
+                      disabled={orderMutationBusy}
+                      onClick={() => void addSkuToSelectedOrder()}
+                      className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+                    >
+                      Add to Record
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     if (!selectedOrder) return;

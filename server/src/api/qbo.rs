@@ -1252,43 +1252,16 @@ async fn propose_staging(
     require_staff_with_permission(&state, &headers, QBO_MAPPING_EDIT)
         .await
         .map_err(|_| QboError::Forbidden)?;
-    let dup: Option<Uuid> = sqlx::query_scalar(
-        r#"
-        SELECT id FROM qbo_sync_logs
-        WHERE sync_date = $1 AND status = 'pending'
-        LIMIT 1
-        "#,
-    )
-    .bind(body.activity_date)
-    .fetch_optional(&state.db)
-    .await?;
-
-    if let Some(id) = dup {
-        let row = sqlx::query_as::<_, QboSyncLogRow>(
-            r#"
-            SELECT id, sync_date, journal_entry_id, status, payload, error_message, created_at
-            FROM qbo_sync_logs WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_one(&state.db)
-        .await?;
-        return Ok(Json(row));
-    }
-
-    let proposal = qbo_journal::propose_daily_journal(&state.db, body.activity_date).await?;
-    let payload = serde_json::to_value(&proposal)
-        .map_err(|e| QboError::InvalidPayload(format!("serialize proposal: {e}")))?;
+    let id = qbo_journal::ensure_pending_daily_journal(&state.db, body.activity_date).await?;
 
     let row = sqlx::query_as::<_, QboSyncLogRow>(
         r#"
-        INSERT INTO qbo_sync_logs (sync_date, status, payload)
-        VALUES ($1, 'pending', $2)
-        RETURNING id, sync_date, journal_entry_id, status, payload, error_message, created_at
+        SELECT id, sync_date, journal_entry_id, status, payload, error_message, created_at
+        FROM qbo_sync_logs
+        WHERE id = $1
         "#,
     )
-    .bind(body.activity_date)
-    .bind(payload)
+    .bind(id)
     .fetch_one(&state.db)
     .await?;
 
@@ -1398,7 +1371,7 @@ async fn staging_drilldown(
                 SUM(pa.amount_allocated)::numeric(14,2) AS amount
             FROM payment_allocations pa
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-            WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+            WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
               AND pt.payment_method = $2
               AND ($3::text IS NULL OR NULLIF(TRIM(COALESCE(pt.metadata->>'sub_type', '')), '') = $3)
             GROUP BY pa.target_transaction_id
@@ -1506,7 +1479,7 @@ async fn staging_drilldown(
                     FROM payment_allocations pa
                     INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                     INNER JOIN fulfilled_orders fo ON fo.id = pa.target_transaction_id
-                    WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date < $1::date
+                    WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
                     GROUP BY pa.target_transaction_id
                 ),
                 category_net AS (

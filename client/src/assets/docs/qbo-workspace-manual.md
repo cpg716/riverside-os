@@ -26,6 +26,13 @@ QBO Workspace is the review and staging area for QuickBooks Online journal propo
 
 Review the proposal date, totals, journal lines, balance status, and drilldown evidence before syncing.
 
+After a register is closed for the day, ROS stages the daily journal for that store-local business date. If the day is already staged but still pending, staging refreshes the same row with the latest facts. If the day was already approved or synced and later sales, returns, deposits, or payment-date corrections change the day, ROS creates a revision proposal for the same business date.
+
+Backdated corrections keep two dates clear:
+
+- **Business date** controls booked-sales reporting and the QBO journal day.
+- **Payment effective date** controls tender, deposit, and payment movement evidence.
+
 Refund-day proposals should remain balanced and show refund or outflow tender evidence when a processed refund exists.
 
 ## Returns and refunds

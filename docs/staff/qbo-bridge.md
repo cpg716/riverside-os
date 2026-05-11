@@ -37,10 +37,13 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 1. **Staging** → sort by **date** or **status**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
-3. Open a row → **drilldown** to lines; fix **unmapped** SKUs or accounts **before** approve.
-4. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
-5. **Approve** only when totals match **ROS** expectations for that close.
-6. **Sync** after approve; watch **History** for success/fail.
+3. After **Z-Close**, ROS stages the daily journal for that business date. If the pending row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.
+4. Open a row → **drilldown** to lines; fix **unmapped** SKUs or accounts **before** approve.
+5. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
+6. **Approve** only when totals match **ROS** expectations for that close.
+7. **Sync** after approve; watch **History** for success/fail.
+
+Backdated corrections are governed. The **business date** controls the sales/reporting day and the **payment effective date** controls tender, deposit, and payment movement evidence. Do not use QBO staging to move a payment to a different day unless the payment effective date was corrected in ROS with a documented reason.
 
 Payments → Deposits can record actual bank deposits and match them to expected Helcim batches for review. That matching is audit evidence only: it does not create a QuickBooks deposit, post a bank deposit, or change the daily journal bundle.
 

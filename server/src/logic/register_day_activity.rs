@@ -467,7 +467,8 @@ pub async fn fetch_register_day_summary(
     let fee_sql = r#"
         SELECT COALESCE(SUM(pt.merchant_fee), 0)::numeric(14,2)
         FROM payment_transactions pt
-        WHERE pt.created_at >= $1 AND pt.created_at < $2
+        WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+          AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
           AND pt.status = 'success'
           AND ($3::uuid IS NULL OR pt.session_id = $3)
         "#
@@ -515,7 +516,8 @@ pub async fn fetch_register_day_summary(
         r#"
         SELECT SUM(amount)::numeric(14,2)
         FROM payment_transactions
-        WHERE created_at >= $1 AND created_at < $2
+        WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+          AND COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
           AND status = 'success'
           AND payment_method = 'cash'
           AND ($3::uuid IS NULL OR session_id = $3)
@@ -536,12 +538,15 @@ pub async fn fetch_register_day_summary(
         FROM payment_allocations pa
         INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
         INNER JOIN transactions o ON o.id = pa.target_transaction_id
-        WHERE pt.created_at >= $1 AND pt.created_at < $2
+        WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+          AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
           AND pt.status = 'success'
           AND ($3::uuid IS NULL OR pt.session_id = $3)
           AND (
             -- Case 1: Order booked today and HAS at least one item that is NOT immediately fulfilled takeaway
-            (o.booked_at >= $1 AND o.booked_at < $2 AND EXISTS (
+            (COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+             AND COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+             AND EXISTS (
                 SELECT 1 FROM transaction_lines oi WHERE oi.transaction_id = o.id AND oi.fulfillment::text <> 'takeaway'
             ))
             OR
@@ -549,7 +554,7 @@ pub async fn fetch_register_day_summary(
             (o.total_price > (SELECT SUM(pa2.amount_allocated) FROM payment_allocations pa2 WHERE pa2.target_transaction_id = o.id))
             OR
             -- Case 3: Order was booked BEFORE today (balance payment on old liability)
-            (o.booked_at < $1)
+            (COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($1 AT TIME ZONE reporting.effective_store_timezone())::date)
           )
         "#,
     )
@@ -633,7 +638,8 @@ pub async fn fetch_register_day_summary(
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                 WHERE pa.target_transaction_id = o.id
-                  AND pt.created_at >= $1 AND pt.created_at < $2
+                  AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                  AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
                   AND pt.status = 'success'
             ) AS amount_paid_in_window,
             (

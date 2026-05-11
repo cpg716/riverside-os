@@ -380,7 +380,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-order-load-modal",
     title: "Customer Orders",
-    summary: "Review a customer's open orders in POS, check balance and lifecycle status, and copy unfulfilled lines into a new register sale when needed.",
+    summary: "Review a customer's open Transaction Records in POS, check balance and lifecycle status, add or edit open lines, collect payments, and copy unfulfilled lines only when starting a new sale.",
     markdown: manual_44_raw,
     tags: ["pos","orders","pickup","fulfillment"],
   },

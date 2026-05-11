@@ -1667,6 +1667,21 @@ async fn close_session(
             }
             Err(e) => tracing::error!(error = %e, "register EOD snapshot: build summary"),
         }
+
+        match crate::logic::qbo_journal::ensure_pending_daily_journal(&snapshot_pool, local_date)
+            .await
+        {
+            Ok(staging_id) => tracing::info!(
+                store_local_date = %local_date,
+                qbo_staging_id = %staging_id,
+                "QBO pending journal ensured after Z-close"
+            ),
+            Err(e) => tracing::error!(
+                error = %e,
+                store_local_date = %local_date,
+                "QBO pending journal after Z-close failed"
+            ),
+        }
     });
 
     if let Some(ob) = closer.opened_by {

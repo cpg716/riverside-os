@@ -1232,12 +1232,14 @@ async fn post_assign_qbo_transaction_date(
         r#"
         UPDATE transactions
         SET booked_at = $2,
+            business_date = $3,
             fulfilled_at = CASE WHEN fulfilled_at IS NOT NULL THEN $2 ELSE fulfilled_at END
         WHERE id = $1
         "#,
     )
     .bind(payload.transaction_id)
     .bind(timestamp)
+    .bind(payload.activity_date)
     .execute(&mut *tx)
     .await?
     .rows_affected();
@@ -1262,7 +1264,8 @@ async fn post_assign_qbo_transaction_date(
     sqlx::query(
         r#"
         UPDATE payment_transactions pt
-        SET created_at = $2
+        SET created_at = $2,
+            effective_date = $3
         WHERE pt.metadata->>'checkout_transaction_id' = $1::text
            OR EXISTS (
               SELECT 1
@@ -1274,6 +1277,7 @@ async fn post_assign_qbo_transaction_date(
     )
     .bind(payload.transaction_id)
     .bind(timestamp)
+    .bind(payload.activity_date)
     .execute(&mut *tx)
     .await?;
 
@@ -1316,7 +1320,8 @@ async fn post_assign_qbo_transaction_return_date(
     let updated_refund_payments = sqlx::query(
         r#"
         UPDATE payment_transactions pt
-        SET created_at = $2
+        SET created_at = $2,
+            effective_date = $3
         FROM payment_allocations pa
         WHERE pa.transaction_id = pt.id
           AND pa.target_transaction_id = $1
@@ -1325,6 +1330,7 @@ async fn post_assign_qbo_transaction_return_date(
     )
     .bind(payload.transaction_id)
     .bind(timestamp)
+    .bind(payload.activity_date)
     .execute(&mut *tx)
     .await?
     .rows_affected();
@@ -1360,6 +1366,7 @@ async fn post_assign_qbo_transaction_timestamp(
         r#"
         UPDATE transactions
         SET booked_at = $2,
+            business_date = ($2 AT TIME ZONE reporting.effective_store_timezone())::date,
             fulfilled_at = CASE WHEN fulfilled_at IS NOT NULL THEN $2 ELSE fulfilled_at END
         WHERE id = $1
         "#,
@@ -1390,7 +1397,8 @@ async fn post_assign_qbo_transaction_timestamp(
     sqlx::query(
         r#"
         UPDATE payment_transactions pt
-        SET created_at = $2
+        SET created_at = $2,
+            effective_date = ($2 AT TIME ZONE reporting.effective_store_timezone())::date
         WHERE pt.metadata->>'checkout_transaction_id' = $1::text
            OR EXISTS (
               SELECT 1
@@ -1512,6 +1520,7 @@ async fn post_assign_qbo_shipping_recognition(
         r#"
         UPDATE transactions
         SET booked_at = $2,
+            business_date = ($2 AT TIME ZONE reporting.effective_store_timezone())::date,
             fulfillment_method = 'ship'::order_fulfillment_method,
             fulfilled_at = NULL
         WHERE id = $1
@@ -1542,7 +1551,8 @@ async fn post_assign_qbo_shipping_recognition(
     sqlx::query(
         r#"
         UPDATE payment_transactions pt
-        SET created_at = $2
+        SET created_at = $2,
+            effective_date = ($2 AT TIME ZONE reporting.effective_store_timezone())::date
         FROM payment_allocations pa
         WHERE pa.transaction_id = pt.id
           AND pa.target_transaction_id = $1

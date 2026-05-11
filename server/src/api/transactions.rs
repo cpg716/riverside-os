@@ -8,7 +8,7 @@ use axum::{
     Json, Router,
 };
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ use crate::api::AppState;
 use crate::auth::permissions::{
     effective_permissions_for_staff, staff_has_permission, ORDERS_CANCEL, ORDERS_EDIT_ATTRIBUTION,
     ORDERS_MODIFY, ORDERS_REFUND_PROCESS, ORDERS_SUIT_COMPONENT_SWAP, ORDERS_VIEW,
-    ORDERS_VOID_SALE,
+    ORDERS_VOID_SALE, QBO_STAGING_APPROVE,
 };
 use crate::auth::pins::{self, log_staff_access};
 use crate::auth::pos_session;
@@ -709,6 +709,14 @@ pub struct PatchTransactionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PatchTransactionFinancialDateRequest {
+    pub business_date: NaiveDate,
+    #[serde(default)]
+    pub payment_effective_date: Option<NaiveDate>,
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct PickupTransactionRequest {
     #[serde(default)]
     pub delivered_item_ids: Vec<Uuid>,
@@ -836,6 +844,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{transaction_id}/attribution",
             patch(patch_transaction_attribution),
+        )
+        .route(
+            "/{transaction_id}/financial-date",
+            patch(patch_transaction_financial_date),
         )
         .route("/{transaction_id}/pickup", post(mark_transaction_pickup))
         .route(
@@ -1859,11 +1871,15 @@ async fn process_refund(
     let payment_tx_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO payment_transactions (
-            session_id, payer_id, category, payment_method, amount, metadata,
+            session_id, payer_id, category, payment_method, amount, effective_date, metadata,
             payment_provider, provider_payment_id, provider_status, provider_transaction_id,
             provider_auth_code, provider_card_type, card_brand, card_last4
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        VALUES (
+            $1, $2, $3, $4, $5,
+            (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
+            $6, $7, $8, $9, $10, $11, $12, $13, $14
+        )
         RETURNING id
         "#,
     )
@@ -2905,6 +2921,144 @@ async fn post_transaction_exchange_link(
 
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
     Ok(Json(detail))
+}
+
+async fn patch_transaction_financial_date(
+    State(state): State<AppState>,
+    Path(transaction_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<PatchTransactionFinancialDateRequest>,
+) -> Result<Json<serde_json::Value>, TransactionError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, QBO_STAGING_APPROVE)
+        .await
+        .map_err(map_perm_err)?;
+    let reason = body.reason.trim();
+    if reason.is_empty() {
+        return Err(TransactionError::InvalidPayload(
+            "Add a reason before changing the financial date.".to_string(),
+        ));
+    }
+    let payment_effective_date = body.payment_effective_date.unwrap_or(body.business_date);
+
+    let mut tx = state.db.begin().await?;
+    let customer_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1 FOR UPDATE")
+            .bind(transaction_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(TransactionError::NotFound)?;
+
+    sqlx::query(
+        r#"
+        UPDATE transactions
+        SET
+            booked_at = (($2::date + TIME '15:00') AT TIME ZONE reporting.effective_store_timezone()),
+            fulfilled_at = CASE
+                WHEN fulfilled_at IS NOT NULL
+                THEN (($2::date + TIME '15:00') AT TIME ZONE reporting.effective_store_timezone())
+                ELSE fulfilled_at
+            END,
+            business_date = $2,
+            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'qbo_revision_required', true,
+                'financial_date_correction', jsonb_build_object(
+                    'business_date', $2::text,
+                    'payment_effective_date', $3::text,
+                    'reason', $4::text,
+                    'staff_id', $5::text,
+                    'corrected_at', NOW()
+                )
+            )
+        WHERE id = $1
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(body.business_date)
+    .bind(payment_effective_date)
+    .bind(reason)
+    .bind(staff.id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE transaction_lines
+        SET fulfilled_at = CASE
+            WHEN is_fulfilled THEN (($2::date + TIME '15:00') AT TIME ZONE reporting.effective_store_timezone())
+            ELSE fulfilled_at
+        END
+        WHERE transaction_id = $1
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(body.business_date)
+    .execute(&mut *tx)
+    .await?;
+
+    let payment_rows = sqlx::query(
+        r#"
+        UPDATE payment_transactions pt
+        SET
+            effective_date = $2,
+            metadata = COALESCE(pt.metadata, '{}'::jsonb) || jsonb_build_object(
+                'payment_effective_date_corrected', true,
+                'payment_effective_date_reason', $3::text,
+                'payment_effective_date_staff_id', $4::text
+            )
+        WHERE pt.metadata->>'checkout_transaction_id' = $1::text
+           OR EXISTS (
+              SELECT 1
+              FROM payment_allocations pa
+              WHERE pa.transaction_id = pt.id
+                AND pa.target_transaction_id = $1
+           )
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(payment_effective_date)
+    .bind(reason)
+    .bind(staff.id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    tx.commit().await?;
+
+    log_order_activity(
+        &state.db,
+        transaction_id,
+        customer_id,
+        "financial_date_corrected",
+        "Financial date corrected for QBO review",
+        json!({
+            "business_date": body.business_date,
+            "payment_effective_date": payment_effective_date,
+            "payment_rows_updated": payment_rows,
+            "staff_id": staff.id,
+            "reason": reason,
+        }),
+    )
+    .await?;
+    let _ = log_staff_access(
+        &state.db,
+        staff.id,
+        "financial_date_corrected",
+        json!({
+            "transaction_id": transaction_id,
+            "business_date": body.business_date,
+            "payment_effective_date": payment_effective_date,
+            "payment_rows_updated": payment_rows,
+        }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "ok": true,
+        "transaction_id": transaction_id,
+        "business_date": body.business_date,
+        "payment_effective_date": payment_effective_date,
+        "payment_rows_updated": payment_rows
+    })))
 }
 
 async fn add_transaction_line(

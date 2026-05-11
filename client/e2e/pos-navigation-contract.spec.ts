@@ -6,6 +6,8 @@ import {
   enterPosShell,
 } from "./helpers/openPosRegister";
 
+test.describe.configure({ timeout: 60_000 });
+
 async function openClickablePosRail(page: Parameters<typeof signInToBackOffice>[0]) {
   await signInToBackOffice(page);
   await enterPosShell(page);

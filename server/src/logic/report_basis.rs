@@ -48,7 +48,7 @@ END)"#;
 pub fn order_date_filter_sql(basis: ReportBasis) -> String {
     match basis {
         ReportBasis::Booked => {
-            "o.status::text NOT IN ('cancelled') AND o.booked_at >= $1 AND o.booked_at < $2"
+            "o.status::text NOT IN ('cancelled') AND COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date AND COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date"
                 .to_string()
         }
         ReportBasis::Completed => format!(

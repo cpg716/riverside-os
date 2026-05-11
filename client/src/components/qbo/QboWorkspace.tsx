@@ -47,6 +47,17 @@ interface SyncLogRow {
   created_at: string;
 }
 
+type QboStageMetadata = {
+  entry_type?: string;
+  business_date?: string;
+  revision_of?: Array<{
+    staging_id?: string;
+    status?: string;
+    journal_entry_id?: string | null;
+  }>;
+  note?: string;
+};
+
 interface StagingDrilldown {
   line_index: number;
   memo: string;
@@ -74,6 +85,24 @@ function moneyJson(n: unknown): string {
   if (!s) return "0";
   if (!Number.isFinite(Number.parseFloat(s))) return String(n);
   return formatUsdFromCents(parseMoneyToCents(s));
+}
+
+function qboStageMetadata(payload: Record<string, unknown>): QboStageMetadata {
+  const stage = payload.qbo_stage;
+  if (!stage || typeof stage !== "object") return {};
+  return stage as QboStageMetadata;
+}
+
+function qboStageLabel(payload: Record<string, unknown>): string {
+  const stage = qboStageMetadata(payload);
+  return stage.entry_type === "daily_general_journal_revision"
+    ? "Revision"
+    : "Daily JE";
+}
+
+function qboStageRevisionCount(payload: Record<string, unknown>): number {
+  const stage = qboStageMetadata(payload);
+  return Array.isArray(stage.revision_of) ? stage.revision_of.length : 0;
 }
 
 interface QboWorkspaceProps {
@@ -186,7 +215,7 @@ export default function QboWorkspace({
         throw new Error(j.error ?? "Propose failed");
       }
       await refreshCore();
-      toast("Journal proposal created or returned existing pending.", "success");
+      toast("Daily journal staged for review.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Propose failed", "error");
     } finally {
@@ -327,9 +356,10 @@ export default function QboWorkspace({
           Financial bridge panel
         </p>
         <p className="mt-1 text-sm font-semibold text-app-text">
-          Stage daily journals, review source lines, approve balanced entries,
-          and send current or historical dates to QuickBooks. Manage connection
-          and mappings in Settings → Integrations → QuickBooks Online.
+          Stage Daily General Journal entries by business date, review source
+          lines, approve balanced entries, and send current or historical dates
+          to QuickBooks. Manage connection and mappings in Settings →
+          Integrations → QuickBooks Online.
         </p>
       </div>
 
@@ -346,7 +376,7 @@ export default function QboWorkspace({
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
             <label className="text-[10px] font-black uppercase text-app-text-muted">
-              Activity date (UTC)
+              Business date
               <input
                 type="date"
                 value={proposeDate}
@@ -360,7 +390,7 @@ export default function QboWorkspace({
               onClick={() => void proposeJournal()}
               className="ui-btn-primary px-5 py-2.5 disabled:opacity-50"
             >
-              Propose journal
+              Stage / refresh journal
             </button>
             <button
               type="button"
@@ -377,6 +407,7 @@ export default function QboWorkspace({
               <thead className="border-b border-app-border bg-app-surface-2 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                 <tr>
                   <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Entry</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Balance</th>
                   <th className="px-4 py-3">QBO JE</th>
@@ -387,14 +418,26 @@ export default function QboWorkspace({
               <tbody className="divide-y divide-app-border">
                 {staging.map((r) => {
                   const p = r.payload as {
+                    qbo_stage?: QboStageMetadata;
                     totals?: { debits?: string; credits?: string; balanced?: boolean };
                     lines?: { debit: string; credit: string; memo: string }[];
                   };
                   const bal = p.totals?.balanced ? "Yes" : "No";
+                  const revisionCount = qboStageRevisionCount(r.payload);
                   return (
                     <Fragment key={r.id}>
                       <tr className="hover:bg-app-surface-2/80">
                         <td className="px-4 py-3 font-mono text-xs">{r.sync_date}</td>
+                        <td className="px-4 py-3 text-xs">
+                          <span className="font-black uppercase tracking-wider text-app-text">
+                            {qboStageLabel(r.payload)}
+                          </span>
+                          {revisionCount > 0 ? (
+                            <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-[9px] font-black uppercase text-violet-800">
+                              {revisionCount} prior
+                            </span>
+                          ) : null}
+                        </td>
                         <td className="px-4 py-3">
                           <span
                             className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${
@@ -473,7 +516,7 @@ export default function QboWorkspace({
                       </tr>
                       {expandedId === r.id ? (
                         <tr>
-                          <td colSpan={6} className="bg-app-text px-4 py-3">
+                          <td colSpan={7} className="bg-app-text px-4 py-3">
                             <div className="space-y-2">
                               {(p.lines ?? []).map((ln, idx) => (
                                 <div

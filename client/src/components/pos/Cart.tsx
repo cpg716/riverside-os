@@ -55,7 +55,7 @@ import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import { newCartRowId, scanPayloadToResolvedItem } from "../../lib/posUtils";
 import { customOrderItemTypeForSku } from "../../lib/customOrders";
 import CustomItemPromptModal from "./CustomItemPromptModal";
-import OrderLoadModal, { type CustomerOrder } from "./OrderLoadModal";
+import OrderLoadModal, { type CustomerOrder, type OrderItem } from "./OrderLoadModal";
 import OrderReviewModal from "./OrderReviewModal";
 import PosAlterationIntakeModal from "./PosAlterationIntakeModal";
 import ManagerApprovalModal from "./ManagerApprovalModal";
@@ -555,6 +555,84 @@ export default function Cart({
     });
     toast(`Transaction payment for ${orderPaymentDisplayId} added to this sale.`, "success");
   }, [selectedCustomer, toast]);
+
+  const addItemToExistingOrder = useCallback(async (order: CustomerOrder, sku: string) => {
+    try {
+      const scanRes = await fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(sku)}`, {
+        headers: apiAuth(),
+      });
+      if (!scanRes.ok) {
+        toast("We couldn't find that SKU. Try scanning it again or search inventory first.", "error");
+        return false;
+      }
+      const resolved = scanPayloadToResolvedItem((await scanRes.json()) as Record<string, unknown>);
+      const fulfillment =
+        order.order_kind === "wedding_order" || order.wedding_member_id
+          ? "wedding_order"
+          : "special_order";
+      const addRes = await fetch(`${baseUrl}/api/transactions/${order.id}/items`, {
+        method: "POST",
+        headers: {
+          ...apiAuth(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          product_id: resolved.product_id,
+          variant_id: resolved.variant_id,
+          fulfillment,
+          quantity: 1,
+          unit_price: centsToFixed2(parseMoneyToCents(resolved.standard_retail_price)),
+          unit_cost: centsToFixed2(parseMoneyToCents(resolved.unit_cost)),
+          state_tax: centsToFixed2(parseMoneyToCents(resolved.state_tax)),
+          local_tax: centsToFixed2(parseMoneyToCents(resolved.local_tax)),
+          salesperson_id: primarySalespersonId || undefined,
+        }),
+      });
+      if (!addRes.ok) {
+        const payload = (await addRes.json().catch(() => ({}))) as { error?: string };
+        toast(payload.error || "We couldn't add that item to the Transaction Record.", "error");
+        return false;
+      }
+      toast("Item added to the original Transaction Record. Booked totals were updated for that record.", "success");
+      return true;
+    } catch {
+      toast("We couldn't add that item to the Transaction Record. Please try again.", "error");
+      return false;
+    }
+  }, [apiAuth, baseUrl, primarySalespersonId, toast]);
+
+  const updateExistingOrderItem = useCallback(
+    async (
+      order: CustomerOrder,
+      item: OrderItem,
+      patch: { quantity?: number; unit_price?: string },
+    ) => {
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/transactions/${order.id}/items/${item.transaction_line_id}`,
+          {
+            method: "PATCH",
+            headers: {
+              ...apiAuth(),
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(patch),
+          },
+        );
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => ({}))) as { error?: string };
+          toast(payload.error || "We couldn't update that Transaction Record line.", "error");
+          return false;
+        }
+        toast("Transaction Record line updated. Booked totals were refreshed for that record.", "success");
+        return true;
+      } catch {
+        toast("We couldn't update that Transaction Record line. Please try again.", "error");
+        return false;
+      }
+    },
+    [apiAuth, baseUrl, toast],
+  );
 
   const openOrderPaymentEdit = useCallback((line: OrderPaymentCartLine) => {
     setEditingOrderPaymentLine(line);
@@ -2949,6 +3027,8 @@ export default function Cart({
             baseUrl={baseUrl}
             apiAuth={apiAuth}
             onMakePayment={addOrderPaymentLine}
+            onAddItemToOrder={addItemToExistingOrder}
+            onUpdateOrderItem={updateExistingOrderItem}
             onCopyOrder={(order, items) => {
               void (async () => {
                 try {

@@ -92,6 +92,16 @@ type QboStagingRow = {
   payload: {
     activity_date: string;
     business_timezone?: string;
+    qbo_stage?: {
+      entry_type?: string;
+      business_date?: string;
+      revision_of?: Array<{
+        staging_id?: string;
+        status?: string;
+        journal_entry_id?: string | null;
+      }>;
+      note?: string;
+    };
     lines: QboJournalLine[];
     totals?: {
       debits?: string | number;
@@ -821,7 +831,7 @@ test.describe("QBO audit contract", () => {
     request,
   }) => {
     test.setTimeout(120_000);
-    const dateOffset = 180 + Math.trunc(Date.now() % 4000);
+    const dateOffset = 180 + Math.floor(Math.random() * 4000);
     const refundOriginalDate = futureUtcDate(dateOffset);
     const refundDate = futureUtcDate(dateOffset + 1);
     const recognitionDate = futureUtcDate(dateOffset + 2);
@@ -956,7 +966,7 @@ test.describe("QBO audit contract", () => {
     request,
   }) => {
     test.setTimeout(120_000);
-    const dateOffset = 240 + Math.trunc(Date.now() % 4000);
+    const dateOffset = 240 + Math.floor(Math.random() * 4000);
     const activityDate = futureUtcDate(dateOffset);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -1093,7 +1103,7 @@ test.describe("QBO audit contract", () => {
 
   test("gift card subtypes post to their intended QBO accounts", async ({ request }) => {
     test.setTimeout(120_000);
-    const dateOffset = 300 + Math.trunc(Date.now() % 4000);
+    const dateOffset = 300 + Math.floor(Math.random() * 4000);
     const activityDate = futureUtcDate(dateOffset);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -1227,7 +1237,7 @@ test.describe("QBO audit contract", () => {
     request,
   }) => {
     test.setTimeout(120_000);
-    const uniqueDateOffset = Math.trunc(Date.now() % 5000);
+    const uniqueDateOffset = Math.floor(Math.random() * 5000);
     const depositDate = futureUtcDate(35 + uniqueDateOffset);
     const pickupDate = futureUtcDate(36 + uniqueDateOffset);
     const forfeitDepositDate = futureUtcDate(37 + uniqueDateOffset);
@@ -1390,7 +1400,7 @@ test.describe("QBO audit contract", () => {
     request,
   }) => {
     test.setTimeout(90_000);
-    const activityDate = futureUtcDate(7);
+    const activityDate = futureUtcDate(720 + Math.floor(Math.random() * 2000));
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
     const product = await createQboProduct(request, operatorStaffId);
@@ -1422,6 +1432,11 @@ test.describe("QBO audit contract", () => {
     expect(proposed.sync_date).toBe(activityDate);
     expect(proposed.status).toBe("pending");
     expect(proposed.payload.activity_date).toBe(activityDate);
+    expect(proposed.payload.qbo_stage).toMatchObject({
+      entry_type: "daily_general_journal",
+      business_date: activityDate,
+    });
+    expect(proposed.payload.qbo_stage?.revision_of ?? []).toHaveLength(0);
     expect(proposed.payload.totals?.balanced).toBe(true);
     expect(moneyToCents(proposed.payload.totals?.debits)).toBe(
       moneyToCents(proposed.payload.totals?.credits),
@@ -1442,9 +1457,36 @@ test.describe("QBO audit contract", () => {
       "Sales tax collected but no `tax` / SALES_TAX or MISC mapping; add qbo_mappings row.",
     );
 
-    const duplicate = await proposeJournal(request, activityDate);
-    expect(duplicate.id).toBe(proposed.id);
-    expect(duplicate.status).toBe("pending");
+    const secondCheckout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+    });
+    const assignSecondDateRes = await request.post(
+      `${apiBase()}/api/test-support/qbo/assign-transaction-date`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          transaction_id: secondCheckout.transaction_id,
+          activity_date: activityDate,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const assignSecondDateText = await assignSecondDateRes.text();
+    expect(assignSecondDateRes.status(), assignSecondDateText.slice(0, 1000)).toBe(200);
+
+    const refreshed = await proposeJournal(request, activityDate);
+    expect(refreshed.id).toBe(proposed.id);
+    expect(refreshed.status).toBe("pending");
+    const refreshedTenderLine = refreshed.payload.lines.find(
+      (line) => line.memo.startsWith("Tenders") && line.qbo_account_id === "E2E_CASH",
+    );
+    expect(moneyToCents(refreshedTenderLine?.debit)).toBe(parseMoneyToCents("239.26"));
 
     const listRes = await request.get(
       `${apiBase()}/api/qbo/staging?from=${activityDate}&to=${activityDate}`,
@@ -1460,7 +1502,7 @@ test.describe("QBO audit contract", () => {
     );
     expect(matchingPendingRows).toHaveLength(1);
 
-    const tenderLineIndex = proposed.payload.lines.findIndex(
+    const tenderLineIndex = refreshed.payload.lines.findIndex(
       (line) => line.memo.startsWith("Tenders") && line.qbo_account_id === "E2E_CASH",
     );
     expect(tenderLineIndex).toBeGreaterThanOrEqual(0);
@@ -1495,6 +1537,132 @@ test.describe("QBO audit contract", () => {
     });
     expect(approveAgainRes.status()).toBe(409);
     await expect(approveAgainRes.text()).resolves.toMatch(/only pending entries can be approved/i);
+
+    const revision = await proposeJournal(request, activityDate);
+    expect(revision.id).not.toBe(proposed.id);
+    expect(revision.status).toBe("pending");
+    expect(revision.payload.qbo_stage).toMatchObject({
+      entry_type: "daily_general_journal_revision",
+      business_date: activityDate,
+    });
+    expect(revision.payload.qbo_stage?.revision_of ?? []).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          staging_id: proposed.id,
+          status: "approved",
+        }),
+      ]),
+    );
+  });
+
+  test("financial date correction and existing order edits stay on the intended QBO day", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const dateOffset = 9_000 + Math.floor(Math.random() * 100_000);
+    const originalDate = futureUtcDate(dateOffset);
+    const businessDate = futureUtcDate(dateOffset + 1);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    await seedQboMappings(request, product.categoryId, businessDate);
+    const checkout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fulfillment: "special_order",
+    });
+    await assignQboDate(request, checkout.transaction_id, originalDate);
+
+    const correctionRes = await request.patch(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/financial-date`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          business_date: businessDate,
+          payment_effective_date: businessDate,
+          reason: "Customer order was booked for the corrected business day.",
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const correctionText = await correctionRes.text();
+    expect(correctionRes.status(), correctionText.slice(0, 1000)).toBe(200);
+    expect(JSON.parse(correctionText)).toMatchObject({
+      business_date: businessDate,
+      payment_effective_date: businessDate,
+    });
+
+    const beforeEdit = await fetchTransactionDetail(request, checkout.transaction_id);
+    const originalLineIds = new Set(beforeEdit.items.map((item) => item.transaction_line_id));
+    const tax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
+    const addLineRes = await request.post(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/items`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          product_id: product.productId,
+          variant_id: product.variantId,
+          fulfillment: "special_order",
+          quantity: 1,
+          unit_price: "110.00",
+          unit_cost: product.unitCost,
+          state_tax: tax.stateTax,
+          local_tax: tax.localTax,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const addLineText = await addLineRes.text();
+    expect(addLineRes.status(), addLineText.slice(0, 1000)).toBe(200);
+    let editedDetail = JSON.parse(addLineText) as TransactionDetail;
+    expect(moneyToCents(editedDetail.total_price)).toBe(parseMoneyToCents("239.26"));
+    expect(moneyToCents(editedDetail.balance_due)).toBe(parseMoneyToCents("119.63"));
+
+    const addedLine = editedDetail.items.find(
+      (item) => !originalLineIds.has(item.transaction_line_id),
+    );
+    expect(addedLine?.transaction_line_id).toBeTruthy();
+    const updateLineRes = await request.patch(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/items/${addedLine!.transaction_line_id}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          quantity: 2,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const updateLineText = await updateLineRes.text();
+    expect(updateLineRes.status(), updateLineText.slice(0, 1000)).toBe(200);
+    editedDetail = JSON.parse(updateLineText) as TransactionDetail;
+    expect(moneyToCents(editedDetail.total_price)).toBe(parseMoneyToCents("358.89"));
+    expect(moneyToCents(editedDetail.balance_due)).toBe(parseMoneyToCents("239.26"));
+
+    const proposal = await proposeJournal(request, businessDate);
+    expect(proposal.sync_date).toBe(businessDate);
+    const tenderLineIndex = proposal.payload.lines.findIndex(
+      (line) => line.memo.startsWith("Tenders") && line.qbo_account_id === "E2E_CASH",
+    );
+    expect(tenderLineIndex).toBeGreaterThanOrEqual(0);
+    const tenderLine = proposal.payload.lines[tenderLineIndex];
+    expect(moneyToCents(tenderLine?.debit)).toBe(parseMoneyToCents("119.63"));
+    const drilldown = await fetchQboDrilldown(request, proposal.id, tenderLineIndex);
+    const contributor = drilldown.contributors?.find(
+      (row) => row.transaction_id === checkout.transaction_id,
+    );
+    expect(contributor).toBeTruthy();
+    expect(moneyToCents(contributor?.amount)).toBe(parseMoneyToCents("119.63"));
   });
 
   test("store-local business date wins over UTC date near midnight", async ({ request }) => {
@@ -1567,7 +1735,7 @@ test.describe("QBO audit contract", () => {
 
   test("shipped orders recognize in QBO on shipment event date", async ({ request }) => {
     test.setTimeout(90_000);
-    const activityDate = futureUtcDate(21);
+    const activityDate = futureUtcDate(900 + Math.floor(Math.random() * 2000));
     const recognitionTimestampUtc = `${activityDate}T16:00:00Z`;
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);

@@ -8,6 +8,7 @@
 use chrono::{NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
+use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -264,7 +265,7 @@ pub async fn propose_daily_journal(
             SUM(amount)::numeric(14, 2) AS total,
             SUM(merchant_fee)::numeric(14, 2) AS total_merchant_fee
         FROM payment_transactions
-        WHERE (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+        WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
         GROUP BY
             CASE
                 WHEN LOWER(COALESCE(payment_provider, '')) = 'helcim'
@@ -284,7 +285,7 @@ pub async fn propose_daily_journal(
         r#"
         SELECT COALESCE(SUM(rounding_adjustment), 0)::numeric(14, 2)
         FROM transactions
-        WHERE (booked_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+        WHERE COALESCE(business_date, (booked_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
         "#,
     )
     .bind(activity_date)
@@ -333,7 +334,7 @@ pub async fn propose_daily_journal(
         INNER JOIN products p ON p.id = oi.product_id
         WHERE o.status::text <> 'cancelled'
           AND p.pos_line_kind = 'pos_gift_card_load'
-          AND (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+          AND COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
         "#,
     )
     .bind(activity_date)
@@ -920,7 +921,7 @@ pub async fn propose_daily_journal(
             FROM payment_allocations pa
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
             INNER JOIN fulfilled_transactions fo ON fo.id = pa.target_transaction_id
-            WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date < $1::date
+            WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
             GROUP BY pa.target_transaction_id
         ),
         category_net AS (
@@ -986,7 +987,7 @@ pub async fn propose_daily_journal(
             FROM payment_allocations pa
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
             INNER JOIN fulfilled_transactions fo ON fo.id = pa.target_transaction_id
-            WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date < $1::date
+            WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
             GROUP BY pa.target_transaction_id
         ),
         category_net AS (
@@ -1057,7 +1058,7 @@ pub async fn propose_daily_journal(
             FROM payment_allocations pa
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
             INNER JOIN fulfilled_transactions fo ON fo.id = pa.target_transaction_id
-            WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date < $1::date
+            WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < $1::date
             GROUP BY pa.target_transaction_id
         ),
         category_net AS (
@@ -1349,7 +1350,7 @@ pub async fn propose_daily_journal(
         FROM payment_allocations pa
         INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
         INNER JOIN transactions o ON o.id = pa.target_transaction_id
-        WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+        WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
           AND pa.amount_allocated > 0::numeric
           AND NULLIF(TRIM(pa.metadata->>'applied_deposit_amount'), '') IS NOT NULL
           AND (({order_recognition_ts}) IS NULL OR (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date > $1::date)
@@ -1531,7 +1532,7 @@ pub async fn propose_daily_journal(
               AND COALESCE((metadata->>'rms_charge_collection')::boolean, FALSE) = TRUE
         ), 0)::numeric(14, 2)
         FROM payment_transactions
-        WHERE (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+        WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
         "#,
     )
     .bind(activity_date)
@@ -1586,6 +1587,115 @@ pub async fn propose_daily_journal(
             balanced,
         },
     })
+}
+
+pub async fn ensure_pending_daily_journal(
+    pool: &PgPool,
+    activity_date: NaiveDate,
+) -> Result<Uuid, sqlx::Error> {
+    let existing_rows: Vec<(Uuid, String, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT id, status, journal_entry_id
+        FROM qbo_sync_logs
+        WHERE sync_date = $1
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_all(pool)
+    .await?;
+
+    let pending_id = existing_rows
+        .iter()
+        .find(|(_, status, _)| status == "pending")
+        .map(|(id, _, _)| *id);
+
+    let locked_rows: Vec<(Uuid, String, Option<String>)> = existing_rows
+        .iter()
+        .filter(|(_, status, _)| status == "approved" || status == "synced")
+        .cloned()
+        .collect();
+
+    let proposal = propose_daily_journal(pool, activity_date).await?;
+    let payload = serde_json::to_value(&proposal)
+        .map_err(|e| sqlx::Error::Protocol(format!("serialize QBO proposal: {e}")))?;
+    let payload = with_staging_metadata(payload, activity_date, &locked_rows);
+
+    if let Some(existing_id) = pending_id {
+        return sqlx::query_scalar::<_, Uuid>(
+            r#"
+            UPDATE qbo_sync_logs
+            SET payload = $2,
+                error_message = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND status = 'pending'
+            RETURNING id
+            "#,
+        )
+        .bind(existing_id)
+        .bind(payload)
+        .fetch_one(pool)
+        .await;
+    }
+
+    sqlx::query_scalar::<_, Uuid>(
+        r#"
+        INSERT INTO qbo_sync_logs (sync_date, status, payload)
+        VALUES ($1, 'pending', $2)
+        RETURNING id
+        "#,
+    )
+    .bind(activity_date)
+    .bind(payload)
+    .fetch_one(pool)
+    .await
+}
+
+fn with_staging_metadata(
+    mut payload: Value,
+    activity_date: NaiveDate,
+    locked_rows: &[(Uuid, String, Option<String>)],
+) -> Value {
+    let revision_of: Vec<Value> = locked_rows
+        .iter()
+        .map(|(id, status, journal_entry_id)| {
+            json!({
+                "staging_id": id,
+                "status": status,
+                "journal_entry_id": journal_entry_id,
+            })
+        })
+        .collect();
+    let entry_type = if revision_of.is_empty() {
+        "daily_general_journal"
+    } else {
+        "daily_general_journal_revision"
+    };
+    let note = if revision_of.is_empty() {
+        format!(
+            "Daily General Journal Entry for Riverside OS business date {activity_date}. Review before pushing to QuickBooks."
+        )
+    } else {
+        format!(
+            "Revision package for Riverside OS business date {activity_date}. Review changed activity before pushing to QuickBooks."
+        )
+    };
+
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("staging_kind".to_string(), json!("daily_general_journal"));
+        obj.insert(
+            "qbo_stage".to_string(),
+            json!({
+                "entry_type": entry_type,
+                "business_date": activity_date,
+                "review_status": "pending_review",
+                "revision_of": revision_of,
+                "note": note,
+            }),
+        );
+    }
+
+    payload
 }
 
 #[cfg(test)]
