@@ -16,6 +16,7 @@ services:
     # pgvector so migrations 62–65 (CREATE EXTENSION vector) apply on fresh DBs; migration 78 drops the extension after AI tables are removed.
     image: pgvector/pgvector:pg16
     container_name: riverside-os-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
@@ -24,6 +25,12 @@ services:
       - "5433:5432"
     volumes:
       - riverside_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d riverside_os -h 127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   # Optional: fuzzy search sidecar for inventory, CRM, weddings, orders, and storefront PLP.
   # Set RIVERSIDE_MEILISEARCH_URL=http://127.0.0.1:7700 and RIVERSIDE_MEILISEARCH_API_KEY to match MEILI_MASTER_KEY.
