@@ -768,9 +768,48 @@ pub struct HelcimEventsHealthResponse {
     pub recent_event_count: i64,
     pub failed_event_count: i64,
     pub ignored_event_count: i64,
+    pub unmatched_event_count: i64,
     pub last_event_at: Option<DateTime<Utc>>,
     pub last_failed_message: Option<String>,
     pub last_failed_event_id: Option<Uuid>,
+    pub terminal_review_attempts: Vec<HelcimTerminalReviewAttemptRow>,
+    pub terminal_review_events: Vec<HelcimTerminalReviewEventRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimTerminalReviewAttemptRow {
+    pub id: Uuid,
+    pub status: String,
+    pub amount: String,
+    pub currency: String,
+    pub register_session_id: Option<Uuid>,
+    pub register_lane: Option<i16>,
+    pub device_id: Option<String>,
+    pub terminal_id: Option<String>,
+    pub selected_terminal_key: Option<String>,
+    pub provider_payment_id: Option<String>,
+    pub provider_transaction_id: Option<String>,
+    pub error_message: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub label: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimTerminalReviewEventRow {
+    pub id: Uuid,
+    pub event_type: String,
+    pub processing_status: String,
+    pub received_at: DateTime<Utc>,
+    pub error_message: Option<String>,
+    pub provider_transaction_id: Option<String>,
+    pub payment_provider_attempt_id: Option<Uuid>,
+    pub payment_transaction_id: Option<Uuid>,
+    pub match_type: Option<String>,
+    pub label: String,
+    pub detail: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -2966,6 +3005,7 @@ async fn get_helcim_events_health(
         recent_event_count: i64,
         failed_event_count: i64,
         ignored_event_count: i64,
+        unmatched_event_count: i64,
         last_event_at: Option<DateTime<Utc>>,
         last_failed_message: Option<String>,
         last_failed_event_id: Option<Uuid>,
@@ -2976,6 +3016,12 @@ async fn get_helcim_events_health(
             COUNT(*) FILTER (WHERE received_at >= now() - interval '24 hours')::bigint AS recent_event_count,
             COUNT(*) FILTER (WHERE processing_status = 'failed')::bigint AS failed_event_count,
             COUNT(*) FILTER (WHERE processing_status = 'ignored')::bigint AS ignored_event_count,
+            COUNT(*) FILTER (
+                WHERE processing_status = 'processed'
+                  AND COALESCE(match_type, 'none') = 'none'
+                  AND event_type IN ('cardTransaction', 'terminalCancel')
+                  AND received_at >= now() - interval '7 days'
+            )::bigint AS unmatched_event_count,
             MAX(received_at) AS last_event_at,
             (
                 SELECT error_message
@@ -2999,13 +3045,184 @@ async fn get_helcim_events_health(
     .fetch_one(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let attempt_rows = sqlx::query(
+        r#"
+        SELECT
+            ppa.id,
+            ppa.status,
+            ppa.amount_cents,
+            ppa.currency,
+            ppa.register_session_id,
+            rs.register_lane,
+            ppa.device_id,
+            ppa.terminal_id,
+            ppa.selected_terminal_key,
+            ppa.provider_payment_id,
+            ppa.provider_transaction_id,
+            ppa.error_message,
+            ppa.created_at,
+            ppa.updated_at,
+            ppa.completed_at
+        FROM payment_provider_attempts ppa
+        LEFT JOIN register_sessions rs ON rs.id = ppa.register_session_id
+        WHERE ppa.provider = 'helcim'
+          AND (
+            ppa.status = 'pending'
+            OR (ppa.status = 'expired' AND COALESCE(ppa.completed_at, ppa.updated_at) >= now() - interval '24 hours')
+            OR (
+                ppa.status IN ('approved', 'captured')
+                AND COALESCE(ppa.completed_at, ppa.updated_at) >= now() - interval '24 hours'
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM payment_transactions pt
+                    WHERE pt.payment_provider = 'helcim'
+                      AND (
+                        pt.provider_transaction_id = ppa.provider_transaction_id
+                        OR pt.provider_payment_id = ppa.provider_payment_id
+                        OR pt.metadata->>'payment_provider_attempt_id' = ppa.id::text
+                      )
+                )
+            )
+          )
+        ORDER BY
+            CASE
+                WHEN ppa.status = 'pending' THEN 0
+                WHEN ppa.status IN ('approved', 'captured') THEN 1
+                WHEN ppa.status = 'expired' THEN 2
+                ELSE 3
+            END,
+            ppa.created_at DESC
+        LIMIT 25
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let terminal_review_attempts = attempt_rows
+        .into_iter()
+        .map(|attempt| {
+            let status: String = attempt.get("status");
+            let amount_cents: i64 = attempt.get("amount_cents");
+            let label = match status.as_str() {
+                "pending" => "Terminal payment still waiting",
+                "approved" | "captured" => "Provider approval not attached to checkout",
+                "expired" => "Expired local terminal attempt",
+                _ => "Terminal attempt needs review",
+            }
+            .to_string();
+            let detail = match status.as_str() {
+                "pending" => "This terminal attempt is still open in ROS. Do not start another card payment on the same terminal until the checkout or terminal status is clear.",
+                "approved" | "captured" => "Provider approval exists for this attempt, but no ROS payment row was found. Review Helcim and the checkout before taking another payment.",
+                "expired" => "ROS expired this local wait state. The provider outcome is not proven here, so review Helcim before retrying the card payment.",
+                _ => "Review this terminal attempt before treating the checkout as settled.",
+            }
+            .to_string();
+            HelcimTerminalReviewAttemptRow {
+                id: attempt.get("id"),
+                status,
+                amount: cents_to_decimal_string(amount_cents),
+                currency: attempt.get("currency"),
+                register_session_id: attempt.get("register_session_id"),
+                register_lane: attempt.get("register_lane"),
+                device_id: attempt.get("device_id"),
+                terminal_id: attempt.get("terminal_id"),
+                selected_terminal_key: attempt.get("selected_terminal_key"),
+                provider_payment_id: attempt.get("provider_payment_id"),
+                provider_transaction_id: attempt.get("provider_transaction_id"),
+                error_message: attempt.get("error_message"),
+                created_at: attempt.get("created_at"),
+                updated_at: attempt.get("updated_at"),
+                completed_at: attempt.get("completed_at"),
+                label,
+                detail,
+            }
+        })
+        .collect();
+
+    let event_rows = sqlx::query(
+        r#"
+        SELECT
+            id,
+            event_type,
+            processing_status,
+            received_at,
+            error_message,
+            provider_transaction_id,
+            payment_provider_attempt_id,
+            payment_transaction_id,
+            match_type
+        FROM helcim_event_log
+        WHERE provider = 'helcim'
+          AND (
+            processing_status = 'failed'
+            OR (
+                processing_status = 'processed'
+                AND COALESCE(match_type, 'none') = 'none'
+                AND event_type IN ('cardTransaction', 'terminalCancel')
+                AND received_at >= now() - interval '7 days'
+            )
+          )
+        ORDER BY received_at DESC
+        LIMIT 25
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let terminal_review_events = event_rows
+        .into_iter()
+        .map(|event| {
+            let event_type: String = event.get("event_type");
+            let processing_status: String = event.get("processing_status");
+            let label = if processing_status == "failed" {
+                "Payment update failed"
+            } else if event_type == "cardTransaction" {
+                "Provider event not attached to ROS checkout"
+            } else if event_type == "terminalCancel" {
+                "Terminal cancel not attached to ROS checkout"
+            } else {
+                "Provider event needs review"
+            }
+            .to_string();
+            let detail = if processing_status == "failed" {
+                "ROS recorded this webhook delivery but could not process it. Replay only after reviewing the error."
+            } else if event_type == "cardTransaction" {
+                "ROS recorded the signed Helcim provider event but did not attach it to a checkout. Review Helcim before assuming ROS recorded the payment."
+            } else if event_type == "terminalCancel" {
+                "ROS recorded the signed terminal cancel event but did not attach it to a pending checkout attempt."
+            } else {
+                "Review this provider event before taking follow-up payment action."
+            }
+            .to_string();
+            HelcimTerminalReviewEventRow {
+                id: event.get("id"),
+                event_type,
+                processing_status,
+                received_at: event.get("received_at"),
+                error_message: event.get("error_message"),
+                provider_transaction_id: event.get("provider_transaction_id"),
+                payment_provider_attempt_id: event.get("payment_provider_attempt_id"),
+                payment_transaction_id: event.get("payment_transaction_id"),
+                match_type: event.get("match_type"),
+                label,
+                detail,
+            }
+        })
+        .collect();
+
     Ok(Json(HelcimEventsHealthResponse {
         recent_event_count: row.recent_event_count,
         failed_event_count: row.failed_event_count,
         ignored_event_count: row.ignored_event_count,
+        unmatched_event_count: row.unmatched_event_count,
         last_event_at: row.last_event_at,
         last_failed_message: row.last_failed_message,
         last_failed_event_id: row.last_failed_event_id,
+        terminal_review_attempts,
+        terminal_review_events,
     }))
 }
 

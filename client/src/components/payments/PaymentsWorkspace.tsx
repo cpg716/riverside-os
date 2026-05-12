@@ -165,9 +165,46 @@ type EventsHealth = {
   recent_event_count: number;
   failed_event_count: number;
   ignored_event_count: number;
+  unmatched_event_count: number;
   last_event_at: string | null;
   last_failed_message: string | null;
   last_failed_event_id: string | null;
+  terminal_review_attempts: HelcimTerminalReviewAttempt[];
+  terminal_review_events: HelcimTerminalReviewEvent[];
+};
+
+type HelcimTerminalReviewAttempt = {
+  id: string;
+  status: string;
+  amount: string;
+  currency: string;
+  register_session_id: string | null;
+  register_lane: number | null;
+  device_id: string | null;
+  terminal_id: string | null;
+  selected_terminal_key: string | null;
+  provider_payment_id: string | null;
+  provider_transaction_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+  label: string;
+  detail: string;
+};
+
+type HelcimTerminalReviewEvent = {
+  id: string;
+  event_type: string;
+  processing_status: string;
+  received_at: string;
+  error_message: string | null;
+  provider_transaction_id: string | null;
+  payment_provider_attempt_id: string | null;
+  payment_transaction_id: string | null;
+  match_type: string | null;
+  label: string;
+  detail: string;
 };
 
 type HelcimDevice = {
@@ -1756,9 +1793,14 @@ function HealthPanel({
   onReplayLastFailedEvent: () => void;
   onPingDevice: (code: string) => void;
 }) {
+  const terminalReviewAttempts = health?.terminal_review_attempts ?? [];
+  const terminalReviewEvents = health?.terminal_review_events ?? [];
+  const terminalReviewAttemptCount = terminalReviewAttempts.length;
   const paymentAlertCount =
     (lastError ? 1 : 0) +
     (health?.failed_event_count ?? 0) +
+    (health?.unmatched_event_count ?? 0) +
+    terminalReviewAttemptCount +
     depositAlertCount +
     reconciliationAlertCount;
   const lastChecked =
@@ -1775,6 +1817,20 @@ function HealthPanel({
       ? {
           label: "Payment update failed",
           detail: `${health?.failed_event_count ?? 0} payment update(s) need review.`,
+          tone: "warning" as const,
+        }
+      : null,
+    (health?.unmatched_event_count ?? 0) > 0
+      ? {
+          label: "Provider event not attached to ROS checkout",
+          detail: `${health?.unmatched_event_count ?? 0} provider event(s) need Helcim review before staff assumes ROS recorded the payment.`,
+          tone: "warning" as const,
+        }
+      : null,
+    terminalReviewAttemptCount > 0
+      ? {
+          label: "Terminal attempt needs review",
+          detail: `${terminalReviewAttemptCount} terminal attempt(s) are pending, expired, or provider-approved without a ROS payment row.`,
           tone: "warning" as const,
         }
       : null,
@@ -1836,7 +1892,7 @@ function HealthPanel({
         <h2 className="text-lg font-black text-app-text">Payment Updates</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           <MetricCard label="Recent Updates" value={`${health?.recent_event_count ?? 0}`} />
-          <MetricCard label="Needs Review" value={`${health?.failed_event_count ?? 0}`} tone={(health?.failed_event_count ?? 0) > 0 ? "warning" : "good"} />
+          <MetricCard label="Needs Review" value={`${(health?.failed_event_count ?? 0) + (health?.unmatched_event_count ?? 0)}`} tone={(health?.failed_event_count ?? 0) + (health?.unmatched_event_count ?? 0) > 0 ? "warning" : "good"} />
           <MetricCard label="No Action Needed" value={`${health?.ignored_event_count ?? 0}`} />
           <MetricCard label="Last Update" value={shortDateTime(health?.last_event_at)} />
         </div>
@@ -1854,6 +1910,79 @@ function HealthPanel({
             </button>
           </div>
         ) : null}
+      </div>
+      <div className="rounded-lg border border-app-border bg-app-surface p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-black text-app-text">Helcim Terminal Review</h2>
+            <p className="mt-1 text-sm font-semibold text-app-text-muted">
+              These rows are read-only. They do not record payments, close checkouts, or reconcile provider activity.
+            </p>
+          </div>
+          <StatusPill value={terminalReviewAttemptCount + terminalReviewEvents.length > 0 ? "Needs Review" : "Clear"} />
+        </div>
+        {terminalReviewAttemptCount + terminalReviewEvents.length === 0 ? (
+          <div className="mt-4">
+            <EmptyState title="No terminal review items" body="Helcim terminal attempts and payment updates have no recent review flags." compact />
+          </div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            {terminalReviewAttempts.length > 0 ? (
+              <section className="space-y-3">
+                <h3 className="text-sm font-black uppercase tracking-widest text-app-text-muted">Terminal Attempts</h3>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {terminalReviewAttempts.map((attempt) => (
+                    <div key={attempt.id} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="text-sm font-black text-app-text">{attempt.label}</div>
+                          <div className="mt-1 text-xs font-semibold text-app-text-muted">
+                            {money(attempt.amount)} {attempt.currency.toUpperCase()} ·{" "}
+                            {attempt.register_lane ? `Register #${attempt.register_lane}` : "Register not linked"} ·{" "}
+                            {shortDateTime(attempt.created_at)}
+                          </div>
+                        </div>
+                        <StatusPill value={attempt.status} />
+                      </div>
+                      <p className="mt-3 text-sm font-semibold text-app-text-muted">{attempt.detail}</p>
+                      <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text-muted sm:grid-cols-2">
+                        <span>Terminal {attempt.terminal_id ?? attempt.device_id ?? "Not ready"}</span>
+                        <span>Provider transaction {attempt.provider_transaction_id ?? "Not attached"}</span>
+                        {attempt.error_message ? <span className="sm:col-span-2">{attempt.error_message}</span> : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+            {terminalReviewEvents.length > 0 ? (
+              <section className="space-y-3">
+                <h3 className="text-sm font-black uppercase tracking-widest text-app-text-muted">Provider Events</h3>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {terminalReviewEvents.map((event) => (
+                    <div key={event.id} className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="text-sm font-black text-app-text">{event.label}</div>
+                          <div className="mt-1 text-xs font-semibold text-app-text-muted">
+                            {staffLabel(event.event_type)} · {shortDateTime(event.received_at)}
+                          </div>
+                        </div>
+                        <StatusPill value={event.processing_status} />
+                      </div>
+                      <p className="mt-3 text-sm font-semibold text-app-text-muted">{event.detail}</p>
+                      <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text-muted sm:grid-cols-2">
+                        <span>Provider transaction {event.provider_transaction_id ?? "Not attached"}</span>
+                        <span>Match {event.match_type ?? "none"}</span>
+                        {event.error_message ? <span className="sm:col-span-2">{event.error_message}</span> : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        )}
       </div>
       <div className="rounded-lg border border-app-border bg-app-surface p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
