@@ -108,6 +108,12 @@ type QboStagingRow = {
         journal_entry_id?: string | null;
       }>;
       note?: string;
+      proposal_audit?: {
+        action?: string;
+        activity_date?: string;
+        proposed_by_staff_id?: string;
+        recorded_at?: string;
+      };
     };
     lines: QboJournalLine[];
     totals?: {
@@ -1785,7 +1791,15 @@ test.describe("QBO audit contract", () => {
     expect(proposed.payload.qbo_stage).toMatchObject({
       entry_type: "daily_general_journal",
       business_date: activityDate,
+      proposal_audit: {
+        action: "qbo_staging_propose",
+        activity_date: activityDate,
+        proposed_by_staff_id: operatorStaffId,
+      },
     });
+    expect(JSON.stringify(proposed.payload.qbo_stage?.proposal_audit ?? {})).not.toMatch(
+      /token|secret|credential|password/i,
+    );
     expect(proposed.payload.qbo_stage?.revision_of ?? []).toHaveLength(0);
     expect(proposed.payload.totals?.balanced).toBe(true);
     expect(moneyToCents(proposed.payload.totals?.debits)).toBe(
@@ -1851,6 +1865,11 @@ test.describe("QBO audit contract", () => {
       (row) => row.id === proposed.id && row.sync_date === activityDate && row.status === "pending",
     );
     expect(matchingPendingRows).toHaveLength(1);
+    expect(matchingPendingRows[0]?.payload.qbo_stage?.proposal_audit).toMatchObject({
+      action: "qbo_staging_propose",
+      activity_date: activityDate,
+      proposed_by_staff_id: operatorStaffId,
+    });
 
     const tenderLineIndex = refreshed.payload.lines.findIndex(
       (line) => line.memo.startsWith("Tenders") && line.qbo_account_id === "E2E_CASH",

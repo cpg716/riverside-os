@@ -1249,21 +1249,44 @@ async fn propose_staging(
     headers: HeaderMap,
     Json(body): Json<ProposeJournalRequest>,
 ) -> Result<Json<QboSyncLogRow>, QboError> {
-    require_staff_with_permission(&state, &headers, QBO_MAPPING_EDIT)
+    let admin = require_staff_with_permission(&state, &headers, QBO_MAPPING_EDIT)
         .await
         .map_err(|_| QboError::Forbidden)?;
     let id = qbo_journal::ensure_pending_daily_journal(&state.db, body.activity_date).await?;
 
     let row = sqlx::query_as::<_, QboSyncLogRow>(
         r#"
-        SELECT id, sync_date, journal_entry_id, status, payload, error_message, created_at
-        FROM qbo_sync_logs
+        UPDATE qbo_sync_logs
+        SET
+            payload = jsonb_set(
+                payload,
+                '{qbo_stage,proposal_audit}',
+                jsonb_build_object(
+                    'action', 'qbo_staging_propose',
+                    'activity_date', $2::text,
+                    'proposed_by_staff_id', $3::text,
+                    'recorded_at', CURRENT_TIMESTAMP
+                ),
+                true
+            ),
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
+        RETURNING id, sync_date, journal_entry_id, status, payload, error_message, created_at
         "#,
     )
     .bind(id)
+    .bind(body.activity_date)
+    .bind(admin.id)
     .fetch_one(&state.db)
     .await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "qbo_staging_propose",
+        json!({ "staging_id": id, "activity_date": body.activity_date }),
+    )
+    .await;
 
     Ok(Json(row))
 }
