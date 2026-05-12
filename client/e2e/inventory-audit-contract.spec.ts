@@ -9,6 +9,7 @@ import {
   createSingleVariantProduct,
   createVendor,
   getInventoryIntelligence,
+  getProductHubInventory,
   getPurchaseOrderDetail,
   receivePurchaseOrder,
   submitPurchaseOrder,
@@ -44,6 +45,15 @@ type RefundQueueRow = {
   amount_due: string;
   amount_refunded: string;
   is_open: boolean;
+};
+
+type ControlBoardResponse = {
+  rows?: Array<{
+    variant_id: string;
+    stock_on_hand: number;
+    retail_price: string;
+    cost_price: string;
+  }>;
 };
 
 async function createNonClothingCategory(
@@ -177,6 +187,42 @@ async function fetchTransactionDetail(
 }
 
 test.describe("inventory audit contract", () => {
+  test("inventory value surfaces distinguish retail and current-cost bases", async ({
+    request,
+  }) => {
+    const suffix = uniqueSuffix("value-basis");
+    const product = await createSingleVariantProduct(request, suffix, {
+      stockOnHand: 3,
+      namePrefix: "Inventory Value Basis",
+      skuPrefix: "INV-VAL",
+    });
+
+    const hub = await getProductHubInventory(request, product.productId);
+    expect(hub.stats.total_units_on_hand).toBe(3);
+    expect(parseMoneyToCents(hub.stats.value_on_hand)).toBe(3 * parseMoneyToCents("49.99"));
+
+    const boardRes = await request.get(
+      `${apiBase()}/api/products/control-board?product_id=${encodeURIComponent(product.productId)}&limit=10`,
+      {
+        headers: adminHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    const boardText = await boardRes.text();
+    expect(boardRes.status(), boardText.slice(0, 1000)).toBe(200);
+    const board = JSON.parse(boardText) as ControlBoardResponse;
+    const row = board.rows?.find((candidate) => candidate.variant_id === product.variantId);
+    expect(row).toBeTruthy();
+    expect(row?.stock_on_hand).toBe(3);
+    expect(parseMoneyToCents(row?.retail_price)).toBe(parseMoneyToCents("49.99"));
+    expect(parseMoneyToCents(row?.cost_price)).toBe(parseMoneyToCents("20.00"));
+
+    const currentCostValueCents =
+      (row?.stock_on_hand ?? 0) * parseMoneyToCents(row?.cost_price);
+    expect(currentCostValueCents).toBe(3 * parseMoneyToCents("20.00"));
+    expect(currentCostValueCents).not.toBe(parseMoneyToCents(hub.stats.value_on_hand));
+  });
+
   test("fulfillment-order checkout does not decrement stock until pickup", async ({ request }) => {
     test.setTimeout(90_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);

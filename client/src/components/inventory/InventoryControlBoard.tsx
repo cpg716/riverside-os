@@ -1264,7 +1264,7 @@ export default function InventoryControlBoard({
               </h3>
               {highValue && (
                 <span className="flex items-center gap-0.5 rounded-full border border-app-warning/20 bg-app-warning/10 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-widest text-app-warning">
-                  <Gem size={7} /> Inventory value
+                  <Gem size={7} /> High current-cost value
                 </span>
               )}
             </div>
@@ -1558,7 +1558,7 @@ export default function InventoryControlBoard({
                       <div className="text-[10px] font-bold uppercase tracking-widest text-app-accent">
                         {stats.units} units ·{" "}
                         {money(stats.value)}{" "}
-                        asset value
+                        current-cost value
                       </div>
                     </div>
                     {items.map((item, localIdx) => renderRow(item, localIdx))}

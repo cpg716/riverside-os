@@ -1492,7 +1492,7 @@ export default function ProductHubDrawer({
 
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     {[
-                      ["$ value on hand", money(hub?.stats?.value_on_hand ?? 0)],
+                      ["Retail value on hand", money(hub?.stats?.value_on_hand ?? 0)],
                       ["Total sold (units)", String(hub?.stats?.units_sold_all_time ?? 0)],
                       ["Open order units", String(hub?.stats?.open_order_units ?? 0)],
                       [
@@ -1517,6 +1517,11 @@ export default function ProductHubDrawer({
                         <p className="mt-1 text-lg font-black tabular-nums text-app-text">
                           {v}
                         </p>
+                        {k === "Retail value on hand" ? (
+                          <p className="mt-1 text-[11px] font-semibold tabular-nums text-app-text-muted">
+                            Retail price x on hand; not accounting value.
+                          </p>
+                        ) : null}
                         {k === "Purchase orders" &&
                         hub.can_view_procurement &&
                         ((hub?.po_summary?.open_po_count ?? 0) > 0 ||
