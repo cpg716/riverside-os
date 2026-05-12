@@ -6066,11 +6066,18 @@ async fn start_helcim_purchase(
 
     if response.status() != reqwest::StatusCode::ACCEPTED {
         let status = response.status().as_u16().to_string();
-        let message = response
+        let raw_text = response
             .text()
             .await
             .unwrap_or_else(|_| "Helcim purchase request failed".to_string());
-        let persisted_message = persisted_provider_error(&message);
+        let is_html =
+            raw_text.trim().starts_with("<!DOCTYPE html>") || raw_text.trim().starts_with("<html");
+        let error_hint = if is_html {
+            " (received HTML response; check your API base URL or WAF/IP settings)"
+        } else {
+            ""
+        };
+        let persisted_message = persisted_provider_error(&raw_text);
         sqlx::query(
             r#"
             UPDATE payment_provider_attempts
@@ -6085,7 +6092,7 @@ async fn start_helcim_purchase(
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
         return Err(PaymentError::ProviderError(format!(
-            "Helcim returned HTTP {status}"
+            "Helcim returned HTTP {status}{error_hint}"
         )));
     }
 

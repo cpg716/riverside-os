@@ -240,14 +240,31 @@ impl HelcimConfig {
         let api_token = non_empty_env("HELCIM_API_TOKEN");
         let terminal_1_device_code = non_empty_env("HELCIM_TERMINAL_1_DEVICE_CODE");
         let terminal_2_device_code = non_empty_env("HELCIM_TERMINAL_2_DEVICE_CODE");
-        let api_base_url = non_empty_env("HELCIM_API_BASE_URL")
-            .unwrap_or_else(|| DEFAULT_HELCIM_API_BASE_URL.to_string());
+        let mut api_base_url = non_empty_env("HELCIM_API_BASE_URL")
+            .unwrap_or_else(|| DEFAULT_HELCIM_API_BASE_URL.to_string())
+            .trim_end_matches('/')
+            .to_string();
+
+        // Normalize Helcim API URL: ensure api. prefix and /v2 suffix
+        let host = api_base_url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://");
+
+        if host.starts_with("helcim.com") || host.starts_with("helcim.app") {
+            api_base_url = api_base_url.replace("helcim.", "api.helcim.");
+        }
+
+        if (api_base_url.contains("api.helcim.com") || api_base_url.contains("helcim.app"))
+            && !api_base_url.ends_with("/v2")
+        {
+            api_base_url.push_str("/v2");
+        }
 
         Self {
             api_token,
             terminal_1_device_code,
             terminal_2_device_code,
-            api_base_url: api_base_url.trim_end_matches('/').to_string(),
+            api_base_url,
         }
     }
 
@@ -966,7 +983,7 @@ pub async fn ping_device(
         .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
     let url = format!("{}/devices/{code}/ping", config.api_base_url());
     let response = http
-        .get(&url)
+        .post(&url)
         .header(reqwest::header::ACCEPT, "application/json")
         .header("api-token", token)
         .send()
@@ -1295,8 +1312,14 @@ async fn response_error_message(context: &str, response: reqwest::Response) -> S
         .get("hour-limit-remaining")
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    let message = redact_provider_text(&response.text().await.unwrap_or_default());
+    let raw_text = response.text().await.unwrap_or_default();
+    let is_html =
+        raw_text.trim().starts_with("<!DOCTYPE html>") || raw_text.trim().starts_with("<html");
+    let message = redact_provider_text(&raw_text);
     let mut detail = format!("{context} returned HTTP {status}");
+    if is_html {
+        detail.push_str(" (received HTML response; check your API base URL or WAF/IP settings)");
+    }
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         detail.push_str("; Helcim rate limit reached");
     }
