@@ -987,6 +987,9 @@ struct HelcimAttemptRow {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub raw_audit_reference: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1015,6 +1018,9 @@ pub struct HelcimAttemptResponse {
     pub error_message: Option<String>,
     pub safe_message: Option<String>,
     pub raw_audit_reference: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
 }
 
 impl HelcimAttemptResponse {
@@ -1061,6 +1067,9 @@ impl HelcimAttemptResponse {
             error_message: row.error_message,
             safe_message,
             raw_audit_reference: row.raw_audit_reference,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            completed_at: row.completed_at,
         }
     }
 }
@@ -7749,7 +7758,8 @@ async fn load_helcim_attempt_row(
         SELECT id, provider, status, amount_cents, currency, register_session_id, staff_id,
                device_id, terminal_id, selected_terminal_key, terminal_route_source,
                terminal_override_staff_id, terminal_override_reason, idempotency_key, provider_payment_id,
-               provider_transaction_id, error_code, error_message, raw_audit_reference
+               provider_transaction_id, error_code, error_message, raw_audit_reference,
+               created_at, updated_at, completed_at
         FROM payment_provider_attempts
         WHERE id = $1 AND provider = 'helcim'
         "#,

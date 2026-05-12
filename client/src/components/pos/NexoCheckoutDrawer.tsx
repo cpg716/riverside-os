@@ -76,6 +76,9 @@ interface HelcimAttempt {
   error_message?: string | null;
   safe_message?: string | null;
   raw_audit_reference?: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
 }
 
 function rmsSourceLabel(source?: string | null) {
@@ -130,27 +133,55 @@ function isStaleHelcimSessionError(message: string): boolean {
   return message.toLowerCase().includes("does not belong to this register session");
 }
 
+const HELCIM_UNVERIFIED_OUTCOME_MESSAGE =
+  "ROS could not confirm the terminal outcome. Check Payments Health > Helcim Terminal Review before retrying.";
+
 function helcimAttemptStatusLabel(status: HelcimAttempt["status"]): string {
   if (status === "pending") return "Waiting for Approval";
-  if (status === "approved" || status === "captured") return "Approved";
+  if (status === "approved" || status === "captured") return "Provider Approved";
   if (status === "failed") return "Declined";
   if (status === "canceled") return "Canceled";
-  return "Expired";
+  return "Expired / Outcome Unverified";
+}
+
+function helcimAttemptTerminalName(attempt: HelcimAttempt): string {
+  if (attempt.selected_terminal_key) return terminalLabel(attempt.selected_terminal_key);
+  return attempt.terminal_id ? `Terminal ${attempt.terminal_id}` : "Terminal not ready";
+}
+
+function helcimAttemptAgeLabel(attempt: HelcimAttempt): string {
+  const started = new Date(attempt.created_at).getTime();
+  if (!Number.isFinite(started)) return "Age not ready";
+  const ended = attempt.completed_at ? new Date(attempt.completed_at).getTime() : Date.now();
+  const elapsedMs = Math.max(0, (Number.isFinite(ended) ? ended : Date.now()) - started);
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+  if (elapsedMinutes < 1) return "Less than 1 min";
+  if (elapsedMinutes < 60) return `${elapsedMinutes} min`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  const remainingMinutes = elapsedMinutes % 60;
+  return remainingMinutes > 0 ? `${elapsedHours} hr ${remainingMinutes} min` : `${elapsedHours} hr`;
+}
+
+function helcimAttemptSafeNextAction(attempt: HelcimAttempt): string {
+  if (attempt.status === "pending") return "Wait for the terminal, then tap Check.";
+  if (attempt.status === "approved" || attempt.status === "captured") {
+    return "Provider approved. Finish checkout to record this payment in ROS.";
+  }
+  if (attempt.status === "failed") return "Declined by provider. Retry is safe if the customer wants to try again.";
+  if (attempt.status === "canceled") return "Canceled on terminal. Retry is safe if the customer still wants to pay by card.";
+  return HELCIM_UNVERIFIED_OUTCOME_MESSAGE;
 }
 
 function helcimAttemptDetail(attempt: HelcimAttempt): string {
   if (attempt.status === "pending") {
-    return `Sent to ${attempt.selected_terminal_key ? terminalLabel(attempt.selected_terminal_key) : "terminal"}.`;
+    return `Sent to ${helcimAttemptTerminalName(attempt)}.`;
   }
 
   if (attempt.status === "approved" || attempt.status === "captured") {
-    const cardParts = [
-      attempt.card_brand ?? attempt.provider_card_type ?? "Card",
-      attempt.card_last4 ? `ending ${attempt.card_last4}` : null,
-    ].filter(Boolean);
-    const auth = attempt.provider_auth_code ? `Auth ${attempt.provider_auth_code}` : null;
-    return [cardParts.join(" "), auth].filter(Boolean).join(" - ");
+    return "Provider approved. Finish checkout to record this payment in ROS.";
   }
+
+  if (attempt.status === "expired") return HELCIM_UNVERIFIED_OUTCOME_MESSAGE;
 
   return attempt.safe_message ?? attempt.error_message ?? "Helcim did not approve the payment.";
 }
@@ -400,6 +431,7 @@ export default function NexoCheckoutDrawer({
   const [providerSettingsLoading, setProviderSettingsLoading] = useState(false);
   const [providerSettingsError, setProviderSettingsError] = useState<string | null>(null);
   const [helcimAttempt, setHelcimAttempt] = useState<HelcimAttempt | null>(null);
+  const [helcimUnverifiedNotice, setHelcimUnverifiedNotice] = useState<string | null>(null);
   const [helcimAttemptLoading, setHelcimAttemptLoading] = useState(false);
   const [helcimCards, setHelcimCards] = useState<HelcimCard[]>([]);
   const [selectedHelcimCardToken, setSelectedHelcimCardToken] = useState<string>("");
@@ -461,6 +493,9 @@ export default function NexoCheckoutDrawer({
   const selectedTerminalInUseByOtherRegister =
     selectedTerminalInUseBy != null && !selectedTerminalInUseByCurrentRegister;
   const selectedTerminalActiveAttemptId = selectedTerminalStatus?.active_attempt_id ?? null;
+  const helcimAttemptOutcomeUnverified = helcimAttempt?.status === "expired" || Boolean(helcimUnverifiedNotice);
+  const helcimAttemptRetryUnavailable =
+    helcimAttempt?.status === "pending" || helcimAttemptOutcomeUnverified;
   const terminalSelectionReady =
     providerSettings?.active_provider === "helcim" &&
     providerSettings.helcim.enabled &&
@@ -470,6 +505,7 @@ export default function NexoCheckoutDrawer({
     Boolean(selectedTerminalKey) &&
     Boolean(selectedTerminalStatus?.configured) &&
     !selectedTerminalInUseByOtherRegister &&
+    !helcimAttemptRetryUnavailable &&
     (!selectedTerminalNeedsOverride || terminalOverrideConfirmed);
   const terminalStatusText = providerSettingsLoading
     ? "Checking"
@@ -489,10 +525,11 @@ export default function NexoCheckoutDrawer({
                   ? `In use R${selectedTerminalInUseBy}`
                   : selectedTerminalInUseByCurrentRegister
                     ? "Active here"
+                  : helcimAttemptOutcomeUnverified
+                    ? "Review needed"
                   : selectedTerminalNeedsOverride && !terminalOverrideConfirmed
                     ? "Confirm terminal"
                     : "Ready";
-
   const tenderTabIds = useMemo(() => {
     const all = Object.keys(TAB_META) as NexoTenderTab[];
     const isRefundCheckout = amountDueCents < 0;
@@ -583,6 +620,7 @@ export default function NexoCheckoutDrawer({
           : String(originalHelcimTransactionIdForRefund),
       );
       setHelcimAttempt(null);
+      setHelcimUnverifiedNotice(null);
       pendingHelcimCentsRef.current = 0;
       pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
       setIsTaxExempt(customerTaxExempt);
@@ -833,6 +871,7 @@ export default function NexoCheckoutDrawer({
       ]);
       setKeypad("");
       setHelcimAttempt(null);
+      setHelcimUnverifiedNotice(null);
       pendingHelcimCentsRef.current = 0;
       pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
     },
@@ -904,32 +943,26 @@ export default function NexoCheckoutDrawer({
         }
         const attempt = (await res.json()) as HelcimAttempt;
         setHelcimAttempt(attempt);
+        setHelcimUnverifiedNotice(null);
         if (attempt.status === "approved" || attempt.status === "captured") {
           addApprovedHelcimAttempt(
             attempt,
             pendingHelcimTenderRef.current.method,
             pendingHelcimTenderRef.current.label,
           );
-          toast(
-            pendingHelcimTenderRef.current.method === "card_credit"
-              ? "Helcim refund approved."
-              : "Helcim payment approved.",
-            "success",
-          );
+          toast("Provider approved. Finish checkout to record this payment in ROS.", "success");
         } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
           pendingHelcimCentsRef.current = 0;
           pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
-          toast(attempt.error_message ?? "Helcim payment did not complete.", "error");
+          toast(attempt.status === "expired" ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE : attempt.error_message ?? "Helcim payment did not complete.", "error");
         }
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Could not check Helcim payment.";
         if (isStaleHelcimSessionError(message)) {
-          setHelcimAttempt(null);
-          pendingHelcimCentsRef.current = 0;
-          pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+          setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
           if (!options.quietStaleSession) {
-            toast("Previous terminal attempt was cleared. Start the card payment again.", "info");
+            toast(HELCIM_UNVERIFIED_OUTCOME_MESSAGE, "error");
           }
           return;
         }
@@ -982,22 +1015,18 @@ export default function NexoCheckoutDrawer({
         }
         const attempt = (await res.json()) as HelcimAttempt;
         setHelcimAttempt(attempt);
+        setHelcimUnverifiedNotice(null);
         if (attempt.status === "approved" || attempt.status === "captured") {
           addApprovedHelcimAttempt(
             attempt,
             pendingHelcimTenderRef.current.method,
             pendingHelcimTenderRef.current.label,
           );
-          toast(
-            pendingHelcimTenderRef.current.method === "card_credit"
-              ? "Simulated Helcim refund approval."
-              : "Simulated Helcim approval.",
-            "success",
-          );
+          toast("Provider approved. Finish checkout to record this payment in ROS.", "success");
         } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
           pendingHelcimCentsRef.current = 0;
           pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
-          toast(attempt.error_message ?? "Simulated Helcim payment did not complete.", "info");
+          toast(attempt.status === "expired" ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE : attempt.error_message ?? "Simulated Helcim payment did not complete.", "info");
         }
       } catch (error) {
         toast(
@@ -1057,10 +1086,11 @@ export default function NexoCheckoutDrawer({
           );
         }
         setHelcimAttempt(body);
+        setHelcimUnverifiedNotice(null);
         if (body.status === "approved" || body.status === "captured") {
           pendingHelcimCentsRef.current = amtCents;
           addApprovedHelcimAttempt(body, "card_saved", "HELCIM VAULT");
-          toast("Helcim saved card approved.", "success");
+          toast("Provider approved. Finish checkout to record this payment in ROS.", "success");
         } else {
           toast(body.error_message ?? "Helcim saved card was not approved.", "error");
         }
@@ -1152,6 +1182,10 @@ export default function NexoCheckoutDrawer({
         toast("A Helcim payment is already pending on the terminal.", "error");
         return;
       }
+      if (helcimAttemptOutcomeUnverified) {
+        toast(HELCIM_UNVERIFIED_OUTCOME_MESSAGE, "error");
+        return;
+      }
       if (registerLaneUnavailable) {
         toast("Active register lane is unavailable. Reopen or rejoin the register before using a Helcim terminal.", "error");
         return;
@@ -1211,6 +1245,7 @@ export default function NexoCheckoutDrawer({
           }
           const attempt = body as HelcimAttempt;
           setHelcimAttempt(attempt);
+          setHelcimUnverifiedNotice(null);
           setKeypad("");
           toast("Sent refund to Helcim terminal. Waiting for approval.", "info");
         } catch (error) {
@@ -1254,6 +1289,7 @@ export default function NexoCheckoutDrawer({
         const attempt = body as HelcimAttempt;
         pendingHelcimCentsRef.current = amtCents;
         setHelcimAttempt(attempt);
+        setHelcimUnverifiedNotice(null);
         setKeypad("");
         toast(
           tenderMethod === "card_manual"
@@ -1391,7 +1427,7 @@ export default function NexoCheckoutDrawer({
     setGiftCardCode("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard]);
+  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -1520,7 +1556,7 @@ export default function NexoCheckoutDrawer({
                 !registerTerminalRoute ||
                 !configured ||
                 (inUseBy != null && inUseBy !== registerLane) ||
-                helcimAttempt?.status === "pending";
+                helcimAttemptRetryUnavailable;
               const isDefault = registerTerminalRoute?.default_terminal_key === key;
               const statusText = registerLaneUnavailable
                 ? "Register unavailable"
@@ -1583,13 +1619,13 @@ export default function NexoCheckoutDrawer({
                     : "bg-app-success/10 text-app-success",
               ].join(" ")}
             >
-              {helcimAttempt.status === "pending"
-                ? "Waiting for terminal approval."
-                : ["failed", "canceled", "expired"].includes(helcimAttempt.status)
-                  ? (helcimAttempt.safe_message ??
-                      helcimAttempt.error_message ??
-                      "Helcim payment did not complete.")
-                  : "Helcim payment approved."}
+              {helcimAttemptSafeNextAction(helcimAttempt)}
+            </p>
+          )}
+
+          {!helcimAttempt && helcimUnverifiedNotice && (
+            <p className="mt-3 rounded-lg bg-app-danger/10 px-3 py-2 font-bold text-app-danger">
+              {helcimUnverifiedNotice}
             </p>
           )}
 
@@ -2013,7 +2049,7 @@ export default function NexoCheckoutDrawer({
                                   !registerTerminalRoute ||
                                   !selectedTerminalKey ||
                                   (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) ||
-                                  helcimAttempt?.status === "pending")))) ||
+                                  helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_manual" &&
                             (providerSettingsLoading ||
                               providerSettingsError !== null ||
@@ -2025,7 +2061,7 @@ export default function NexoCheckoutDrawer({
                                   !registerTerminalRoute ||
                                   !selectedTerminalKey ||
                                   (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) ||
-                                  helcimAttempt?.status === "pending")))) ||
+                                  helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_credit" &&
                             (providerSettingsLoading ||
                               providerSettingsError !== null ||
@@ -2038,7 +2074,7 @@ export default function NexoCheckoutDrawer({
                                   !registerTerminalRoute ||
                                   !selectedTerminalKey ||
                                   (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) ||
-                                  helcimAttempt?.status === "pending")))) ||
+                                  helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_saved" &&
                             (providerSettingsLoading ||
                               providerSettingsError !== null ||
@@ -2384,7 +2420,7 @@ export default function NexoCheckoutDrawer({
                 </div>
 
                 <div className="flex-1 space-y-1.5 overflow-y-auto no-scrollbar mb-3">
-                   {applied.length === 0 && depositDisplayCents === 0 && !helcimAttempt && (
+                   {applied.length === 0 && depositDisplayCents === 0 && !helcimAttempt && !helcimUnverifiedNotice && (
                      <div className="flex h-full flex-col items-center justify-center py-6 text-center opacity-30">
                         <Wallet size={24} strokeWidth={1} />
                         <p className="mt-2 px-6 text-xs font-black uppercase tracking-wide leading-tight">
@@ -2395,6 +2431,19 @@ export default function NexoCheckoutDrawer({
                             Select a tender, enter the amount, then add payment.
                           </p>
                         )}
+                     </div>
+                   )}
+                   {!helcimAttempt && helcimUnverifiedNotice && (
+                     <div className="rounded-xl border border-rose-400/25 bg-rose-400/10 p-3">
+                       <p className="text-[9px] font-black uppercase tracking-[0.18em] text-zinc-500">
+                         Terminal Transaction
+                       </p>
+                       <p className="mt-1 text-xs font-black uppercase tracking-wide text-white">
+                         Outcome Unverified
+                       </p>
+                       <p className="mt-1 text-[11px] font-semibold leading-snug text-zinc-300">
+                         {helcimUnverifiedNotice}
+                       </p>
                      </div>
                    )}
                    {helcimAttempt && (
@@ -2430,6 +2479,12 @@ export default function NexoCheckoutDrawer({
                              </p>
                              <p className="mt-1 text-[11px] font-semibold leading-snug text-zinc-300">
                                {helcimAttemptDetail(helcimAttempt)}
+                             </p>
+                             <p className="mt-1 text-[10px] font-semibold leading-snug text-zinc-400">
+                               ${centsToFixed2(helcimAttempt.amount_cents)} · {helcimAttemptTerminalName(helcimAttempt)} · Age {helcimAttemptAgeLabel(helcimAttempt)}
+                             </p>
+                             <p className="mt-1 text-[10px] font-bold leading-snug text-zinc-300">
+                               Next: {helcimAttemptSafeNextAction(helcimAttempt)}
                              </p>
                              {helcimAttempt.error_code && (
                                <p className="mt-1 truncate font-mono text-[10px] font-bold text-zinc-400">
