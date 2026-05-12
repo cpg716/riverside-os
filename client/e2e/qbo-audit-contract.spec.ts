@@ -5,6 +5,7 @@ import {
   apiBase,
   ensureSessionAuth,
   getTransactionArtifacts,
+  staffCode,
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
@@ -74,6 +75,12 @@ type TransactionListResponse = {
     order_kind: string;
     is_fulfillment_order: boolean;
   }>;
+};
+
+type TransactionAuditEvent = {
+  event_kind: string;
+  summary: string;
+  metadata: Record<string, unknown>;
 };
 
 type QboJournalLine = {
@@ -830,6 +837,53 @@ async function fetchRefundsDue(request: APIRequestContext): Promise<RefundQueueR
   return JSON.parse(bodyText) as RefundQueueRow[];
 }
 
+async function createSalespersonStaff(request: APIRequestContext): Promise<{ id: string }> {
+  const suffix = uniqueSuffix("legacy-refund-salesperson");
+  const res = await request.post(`${apiBase()}/api/staff/admin`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      full_name: `E2E Legacy Refund Salesperson ${suffix}`,
+      role: "salesperson",
+      is_active: true,
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as { id: string };
+}
+
+async function processManualLegacyRefund(
+  request: APIRequestContext,
+  options: {
+    transactionId: string;
+    sessionId: string;
+    amount: string;
+    managerStaffId: string;
+    managerPin: string;
+    managerReason?: string;
+  },
+) {
+  return request.post(`${apiBase()}/api/transactions/${options.transactionId}/refunds/process`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      session_id: options.sessionId,
+      payment_method: "card",
+      amount: options.amount,
+      manager_staff_id: options.managerStaffId,
+      manager_pin: options.managerPin,
+      manager_reason: options.managerReason,
+    },
+    failOnStatusCode: false,
+  });
+}
+
 async function processCashRefund(
   request: APIRequestContext,
   options: {
@@ -855,6 +909,19 @@ async function processCashRefund(
   );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function fetchTransactionAudit(
+  request: APIRequestContext,
+  transactionId: string,
+): Promise<TransactionAuditEvent[]> {
+  const res = await request.get(`${apiBase()}/api/transactions/${transactionId}/audit`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as TransactionAuditEvent[];
 }
 
 async function fetchQboDrilldown(
@@ -1008,6 +1075,106 @@ test.describe("QBO audit contract", () => {
     );
     expect(revenueContributor).toBeTruthy();
     expect(moneyToCents(revenueContributor?.amount)).toBe(parseMoneyToCents("110.00"));
+  });
+
+  test("manual legacy refund rejects salesperson authorization and records admin approval", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    const unitTax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
+    const returnedUnitTotal = totalFor("110.00", unitTax.stateTax, unitTax.localTax);
+
+    const checkout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+    });
+    await returnFirstQboLine(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      productSku: product.sku,
+    });
+
+    const salesperson = await createSalespersonStaff(request);
+    const salespersonAttempt = await processManualLegacyRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: returnedUnitTotal,
+      managerStaffId: salesperson.id,
+      managerPin: "1234",
+      managerReason: "E2E salesperson denial for manual migration refund",
+    });
+    const salespersonAttemptText = await salespersonAttempt.text();
+    expect(salespersonAttempt.status(), salespersonAttemptText.slice(0, 1000)).toBe(403);
+    expect(salespersonAttemptText).toContain("admin authorization required");
+
+    const missingReasonAttempt = await processManualLegacyRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: returnedUnitTotal,
+      managerStaffId: operatorStaffId,
+      managerPin: staffCode(),
+    });
+    const missingReasonText = await missingReasonAttempt.text();
+    expect(missingReasonAttempt.status(), missingReasonText.slice(0, 1000)).toBe(400);
+    expect(missingReasonText).toContain("reason is required");
+
+    const approvalReason = "E2E approved manual migration refund after terminal confirmation";
+    const adminAttempt = await processManualLegacyRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: returnedUnitTotal,
+      managerStaffId: operatorStaffId,
+      managerPin: staffCode(),
+      managerReason: approvalReason,
+    });
+    const adminAttemptText = await adminAttempt.text();
+    expect(adminAttempt.status(), adminAttemptText.slice(0, 1000)).toBe(200);
+    const adminBody = JSON.parse(adminAttemptText) as { payment_transaction_id?: string };
+    expect(adminBody.payment_transaction_id).toBeTruthy();
+
+    const artifacts = await getTransactionArtifacts(request, checkout.transaction_id);
+    expect(artifacts.payment_rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payment_method: "card_terminal_manual",
+          metadata: expect.objectContaining({
+            kind: "legacy_migration_refund",
+            manual_terminal_confirmation: true,
+            requires_operator_terminal_action: true,
+            authorizing_manager_id: operatorStaffId,
+            reason: approvalReason,
+            original_provider_transaction_id: "MANUAL_MIGRATION",
+            transaction_id: checkout.transaction_id,
+          }),
+        }),
+      ]),
+    );
+    expect(
+      (await fetchRefundsDue(request)).some((row) => row.transaction_id === checkout.transaction_id),
+    ).toBe(false);
+
+    const audit = await fetchTransactionAudit(request, checkout.transaction_id);
+    expect(audit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_kind: "refund_processed",
+          summary: "Manual legacy refund recorded in Register",
+          metadata: expect.objectContaining({
+            kind: "legacy_migration_refund",
+            payment_transaction_id: adminBody.payment_transaction_id,
+            refund_queue_id: expect.any(String),
+            authorizing_manager_id: operatorStaffId,
+            reason: approvalReason,
+          }),
+        }),
+      ]),
+    );
   });
 
   test("restocked return posts inventory debit and COGS reversal", async ({

@@ -1774,13 +1774,10 @@ async fn process_refund(
                             TransactionError::InvalidPayload("invalid manager PIN".to_string())
                         })?;
 
-                // Require manager/admin role for manual card payout recording.
-                if !matches!(
-                    manager.role,
-                    crate::models::DbStaffRole::Admin | crate::models::DbStaffRole::Salesperson
-                ) {
+                // The current role model has no Manager role; Admin is the manager-equivalent step-up.
+                if manager.role != crate::models::DbStaffRole::Admin {
                     return Err(TransactionError::Forbidden(
-                        "manager authorization required for legacy manual refund".to_string(),
+                        "admin authorization required for legacy manual refund".to_string(),
                     ));
                 }
 
@@ -1877,6 +1874,23 @@ async fn process_refund(
                 }
 
                 tx.commit().await?;
+
+                log_order_activity(
+                    &state.db,
+                    transaction_id,
+                    refund.customer_id,
+                    "refund_processed",
+                    "Manual legacy refund recorded in Register",
+                    json!({
+                        "kind": "legacy_migration_refund",
+                        "payment_transaction_id": pt_id,
+                        "refund_queue_id": refund.id,
+                        "amount": body.amount,
+                        "authorizing_manager_id": manager.id,
+                        "reason": reason,
+                    }),
+                )
+                .await?;
 
                 return Ok(Json(json!({
                     "status": "success",
