@@ -56,17 +56,18 @@ import manual_51_raw from "../../assets/docs/reports-workspace-manual.md?raw";
 import manual_52_raw from "../../assets/docs/scheduler-workspace-manual.md?raw";
 import manual_53_raw from "../../assets/docs/settings-bug-reports-settings-panel-manual.md?raw";
 import manual_54_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
-import manual_55_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
-import manual_56_raw from "../../assets/docs/settings-receipt-builder-panel-manual.md?raw";
-import manual_57_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
-import manual_58_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
-import manual_59_raw from "../../assets/docs/staff-schedule-panel-manual.md?raw";
-import manual_60_raw from "../../assets/docs/settings-printers-and-scanners-panel-manual.md?raw";
-import manual_61_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
-import manual_62_raw from "../../assets/docs/staff-workspace-manual.md?raw";
-import manual_63_raw from "../../assets/docs/settings-ros-dev-center-panel-manual.md?raw";
-import manual_64_raw from "../../assets/docs/settings-rosie-settings-panel-manual.md?raw";
-import manual_65_raw from "../../assets/docs/staff-weekly-grid-view-manual.md?raw";
+import manual_55_raw from "../../assets/docs/settings-helcim-settings-panel-manual.md?raw";
+import manual_56_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
+import manual_57_raw from "../../assets/docs/settings-receipt-builder-panel-manual.md?raw";
+import manual_58_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
+import manual_59_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
+import manual_60_raw from "../../assets/docs/staff-schedule-panel-manual.md?raw";
+import manual_61_raw from "../../assets/docs/settings-printers-and-scanners-panel-manual.md?raw";
+import manual_62_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
+import manual_63_raw from "../../assets/docs/staff-workspace-manual.md?raw";
+import manual_64_raw from "../../assets/docs/settings-ros-dev-center-panel-manual.md?raw";
+import manual_65_raw from "../../assets/docs/settings-rosie-settings-panel-manual.md?raw";
+import manual_66_raw from "../../assets/docs/staff-weekly-grid-view-manual.md?raw";
 
 export const HELP_MANUALS: HelpManual[] = [
   {
@@ -455,80 +456,87 @@ export const HELP_MANUALS: HelpManual[] = [
     tags: ["settings-counterpoint-sync-settings-panel","counterpoint","bridge","sync","signoff"],
   },
   {
+    id: "settings-helcim-settings-panel",
+    title: "Helcim Settings",
+    summary: "Configure Helcim API credentials, terminal device codes, webhook setup, and test mode without exposing payment secrets.",
+    markdown: manual_55_raw,
+    tags: ["settings","helcim","payments","webhook","terminal"],
+  },
+  {
     id: "settings-meilisearch-settings-panel",
     title: "Meilisearch Settings",
     summary: "Check Meilisearch sync health, distinguish Refresh from Rebuild, and understand which search indices ROS keeps current.",
-    markdown: manual_55_raw,
+    markdown: manual_56_raw,
     tags: ["settings","meilisearch","search","reindex"],
   },
   {
     id: "settings-receipt-builder-panel",
     title: "Receipt Settings Panel (settings)",
     summary: "Adjust standard Epson receipt content for receipt printing and delivery.",
-    markdown: manual_56_raw,
+    markdown: manual_57_raw,
     tags: ["settings-receipt-builder-panel","settings","receipt","printing"],
   },
   {
     id: "settings-remote-access-panel",
     title: "Remote Access Panel",
     summary: "Use this panel on the dedicated Windows host machine to start Shop Host for local satellites and connect Tailscale for separate remote access.",
-    markdown: manual_57_raw,
+    markdown: manual_58_raw,
     tags: ["settings-remote-access-panel","remote-access","tailscale","host-mode"],
   },
   {
     id: "staff-commission-payouts-panel",
     title: "Commission Reports Panel (staff)",
     summary: "Review fulfillment-based commission reporting by staff and period.",
-    markdown: manual_58_raw,
+    markdown: manual_59_raw,
     tags: ["staff-commission-payouts-panel","component","commission","reporting"],
   },
   {
     id: "staff-schedule-panel",
     title: "Staff Schedule",
     summary: "Manage the store-wide schedule, individual staff availability, and per-week planning overrides.",
-    markdown: manual_59_raw,
+    markdown: manual_60_raw,
     tags: ["staff","schedule","availability","shifts","team"],
   },
   {
     id: "settings-printers-and-scanners-panel",
     title: "Printers And Scanners Panel (settings)",
     summary: "Configure workstation receipt, tag, report printer targets and verify scanner input.",
-    markdown: manual_60_raw,
+    markdown: manual_61_raw,
     tags: ["settings-printers-and-scanners-panel","settings","printers","scanners","hardware"],
   },
   {
     id: "staff-commission-manager-workspace",
     title: "Commission Manager Workspace (staff)",
     summary: "Use Staff → Commissions for commission reports, fixed SPIFFs, and combo incentives.",
-    markdown: manual_61_raw,
+    markdown: manual_62_raw,
     tags: ["staff-commission-manager-workspace","component","commission","reporting","incentives"],
   },
   {
     id: "staff-workspace",
     title: "Staff Workspace (Team)",
     summary: "Manage the store roster, staff PINs, commission rates, and access permissions.",
-    markdown: manual_62_raw,
+    markdown: manual_63_raw,
     tags: ["staff","roster","permissions","rbac","commissions"],
   },
   {
     id: "settings-ros-dev-center-panel",
     title: "ROS Dev Center",
     summary: "Developer and support diagnostics for checking Riverside OS health safely.",
-    markdown: manual_63_raw,
+    markdown: manual_64_raw,
     tags: ["settings-ros-dev-center-panel","support","diagnostics","dev-center"],
   },
   {
     id: "settings-rosie-settings-panel",
     title: "ROSIE Settings",
     summary: "Control optional ROSIE help, insight, voice, and local model behavior for the workstation.",
-    markdown: manual_64_raw,
+    markdown: manual_65_raw,
     tags: ["settings-rosie-settings-panel","rosie","help","voice"],
   },
   {
     id: "staff-weekly-grid-view",
     title: "Staff Weekly Grid View",
     summary: "Professional printing, store event management, and unified badge reference for the weekly schedule.",
-    markdown: manual_65_raw,
+    markdown: manual_66_raw,
     tags: ["staff","schedule","grid","printing","events"],
   },
 ];

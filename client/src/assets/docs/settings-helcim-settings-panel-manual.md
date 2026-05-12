@@ -1,0 +1,60 @@
+---
+id: settings-helcim-settings-panel
+title: "Helcim Settings"
+order: 1088
+summary: "Configure Helcim API credentials, terminal device codes, webhook setup, and test mode without exposing payment secrets."
+source: client/src/components/settings/HelcimSettingsPanel.tsx
+last_scanned: 2026-05-12
+tags: settings, helcim, payments, webhook, terminal
+status: approved
+---
+
+# Helcim Settings
+
+<!-- help:component-source -->
+_Linked component: `client/src/components/settings/HelcimSettingsPanel.tsx`._
+<!-- /help:component-source -->
+
+## What this is
+
+Use Helcim Settings to configure the card processor connection, terminal device codes, optional webhook signing secret, and test mode. Use Payments Health for daily payment review.
+
+## When to use it
+
+Use this panel when setting up Helcim, rotating credentials, adding or replacing a terminal, checking whether webhook signing is configured, or confirming that test mode is off before live card processing.
+
+## Before you start
+
+- You need Settings admin access.
+- Routine Helcim secrets belong in this Settings panel or server environment configuration, not in notes, chats, screenshots, or customer records.
+- Webhooks require a public HTTPS ROS API URL that Helcim can reach. Do not use localhost, 127.0.0.1, or a register workstation URL in Helcim.
+
+## Steps
+
+1. Open Settings, then Helcim.
+2. Check API access and terminal readiness.
+3. Save or replace the API token and Terminal 1 / Terminal 2 device codes in Helcim Credentials.
+4. If public webhooks are enabled, paste the public HTTPS delivery URL into Helcim with this path: `/api/webhooks/helcim`.
+5. Enable only the Helcim events ROS handles: `cardTransaction` and `terminalCancel`.
+6. Save the Helcim webhook signing secret in the Optional webhook signing secret field.
+7. Use Check Connection after saving credentials.
+8. Verify payment updates in Payments > Health, Payment Updates, and Helcim Terminal Review.
+
+## What to watch for
+
+- **Webhook received by ROS** means a signed Helcim delivery reached ROS and was stored.
+- **Provider event attached to ROS checkout** means ROS matched that stored provider event to one safe pending terminal checkout attempt.
+- Webhook receipt does not by itself create a ROS payment ledger row, finish checkout, or prove that ROS recorded the payment.
+- If Payments Health shows **Provider event not attached to ROS checkout**, treat it as provider evidence requiring review.
+- If the signing secret is missing or wrong, ROS rejects the delivery before it appears in Payments Health. Ask an admin to check server logs and the Settings secret.
+- Test mode is for local checkout testing only. Keep it off for live Helcim payments.
+
+## What happens next
+
+After setup, POS terminal attempts can still be approved, declined, canceled, expired, or left unresolved by provider timing. Staff should follow the checkout drawer status and Payments Health review guidance before retrying unresolved terminal attempts.
+
+## Related workflows
+
+- Payments Operations: `docs/staff/payments-operations.md`
+- Helcim integration contract: `docs/HELCIM.md`
+- Store deployment: `docs/STORE_DEPLOYMENT_GUIDE.md`

@@ -37,6 +37,11 @@ interface PaymentProviderSettings {
 const HelcimSettingsPanel: React.FC = () => {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
+  const webhookPath = "/api/webhooks/helcim";
+  const webhookDeliveryUrl = `${baseUrl.replace(/\/$/, "")}${webhookPath}`;
+  const webhookUrlWarning = webhookDeliveryUrl.startsWith("https://")
+    ? null
+    : "Use the store public HTTPS ROS API URL in Helcim. Do not use localhost, 127.0.0.1, or this local workstation URL as the Helcim delivery URL.";
 
   const [helcimStatus, setHelcimStatus] =
     useState<HelcimProviderStatus | null>(null);
@@ -415,6 +420,69 @@ const HelcimSettingsPanel: React.FC = () => {
               }
               warnWhenNotReady={false}
             />
+          </div>
+          <div className="mt-5 rounded-2xl border border-app-border bg-app-surface p-4">
+            <h4 className="mb-3 text-xs font-black uppercase tracking-widest text-app-text">
+              Webhook Setup
+            </h4>
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
+                <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Delivery path
+                </div>
+                <p className="mt-2 break-all font-mono text-xs font-semibold text-app-text">
+                  {webhookDeliveryUrl}
+                </p>
+                <p className="mt-3 text-xs font-semibold leading-5 text-app-text-muted">
+                  Paste the public HTTPS version of this URL into Helcim. ROS
+                  handles signed Helcim terminal updates at{" "}
+                  <span className="font-mono text-app-text">{webhookPath}</span>.
+                </p>
+                {webhookUrlWarning ? (
+                  <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-bold leading-5 text-app-warning">
+                    {webhookUrlWarning}
+                  </p>
+                ) : null}
+              </div>
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
+                <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Required in Helcim
+                </div>
+                <ul className="mt-3 space-y-2 text-xs font-semibold text-app-text-muted">
+                  <li>
+                    Signing secret:{" "}
+                    <span className="font-black text-app-text">
+                      {helcimStatus?.webhook_secret_configured
+                        ? "Configured"
+                        : "Not configured"}
+                    </span>
+                  </li>
+                  <li>Event: cardTransaction</li>
+                  <li>Event: terminalCancel</li>
+                </ul>
+              </div>
+            </div>
+            <div className="mt-3 rounded-xl border border-app-border bg-app-surface-2 p-4 text-xs font-semibold leading-5 text-app-text-muted">
+              <p>
+                <span className="font-black text-app-text">
+                  Webhook received by ROS
+                </span>{" "}
+                means a signed Helcim delivery reached this server and was stored
+                for review.
+              </p>
+              <p className="mt-2">
+                <span className="font-black text-app-text">
+                  Provider event attached to ROS checkout
+                </span>{" "}
+                means ROS matched that stored provider event to one safe pending
+                terminal attempt. Webhook delivery does not by itself create ROS
+                payment ledger rows.
+              </p>
+              <p className="mt-2">
+                Verify delivery and unmatched events in Payments &gt; Health,
+                Payment Updates, and Helcim Terminal Review.
+              </p>
+            </div>
           </div>
           <div className="mt-5 rounded-2xl border border-app-border bg-app-surface p-4">
             <h4 className="mb-3 text-xs font-black uppercase tracking-widest text-app-text">

@@ -132,6 +132,28 @@ Webhook intake:
 - Unknown Helcim events are stored and marked ignored instead of failing the whole intake.
 - Replay is intentionally narrow: only stored failed Helcim events can be replayed, and replay uses the existing event-log payload. Callers cannot submit raw replay payloads or bypass the event log.
 
+### Helcim webhook setup
+
+Configure Helcim webhooks only when ROS has a public HTTPS API URL that Helcim can reach.
+
+1. In Helcim, open **All Tools -> Integrations -> Webhooks**.
+2. Turn webhooks on.
+3. Set the delivery URL to `https://<public-ros-api-host>/api/webhooks/helcim`.
+4. Enable the Helcim events ROS handles: `cardTransaction` and `terminalCancel`.
+5. Copy the Helcim webhook verifier/signing token into Settings -> Helcim -> Optional webhook signing secret, or configure it as `HELCIM_WEBHOOK_SECRET`.
+6. Send a test or live terminal event and verify it in Payments -> Health under Payment Updates and Helcim Terminal Review.
+
+Do not use `localhost`, `127.0.0.1`, a register workstation URL, or any non-HTTPS URL as the Helcim delivery URL.
+
+Operational wording matters:
+
+- **Webhook received by ROS** means a signed Helcim delivery reached this server and was stored for review.
+- **Provider event attached to ROS checkout** means ROS matched that stored provider event to one safe pending terminal attempt.
+- Webhook delivery does not by itself create ROS payment ledger rows, close a checkout, or prove that ROS recorded a payment.
+- Unmatched approved provider events must remain labeled **Provider event not attached to ROS checkout** until staff review.
+
+If the signing secret is missing or wrong, ROS fails closed before storing the event. Those rejected deliveries may require server-log review because unsigned or bad-signature payloads are not trusted enough to enter `helcim_event_log`.
+
 ## Settlement and deposits
 
 - Batch and transaction sync stores redacted provider batch headers and batch membership separately from ROS payment rows.

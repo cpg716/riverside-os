@@ -372,7 +372,10 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 - [ ] Reader visible/healthy in store payment settings.
 - [ ] Terminal 1 device code saved in **Settings → Helcim** or `HELCIM_TERMINAL_1_DEVICE_CODE`.
 - [ ] Terminal 2 device code saved in **Settings → Helcim** or `HELCIM_TERMINAL_2_DEVICE_CODE`.
-- [ ] Optional: Helcim webhook signing secret saved only if ROS has a public HTTPS webhook URL.
+- [ ] Optional: Helcim webhook delivery URL configured only if ROS has a public HTTPS API URL: `https://<public-ros-api-host>/api/webhooks/helcim`.
+- [ ] Optional: Helcim webhook events enabled: `cardTransaction` and `terminalCancel`.
+- [ ] Optional: Helcim webhook signing secret saved in **Settings → Helcim** or `HELCIM_WEBHOOK_SECRET`.
+- [ ] Optional: First signed webhook received by ROS verified in **Payments → Health**. Confirm separately whether the provider event attached to a ROS checkout; webhook receipt alone does not prove ROS recorded a payment.
 - [ ] Card Reader path validated: ROS sends the amount to the selected terminal and records the approved Helcim attempt.
 - [ ] Manual Card / phone-order path validated: ROS sends the amount to the selected terminal and staff key the card on the terminal, not in ROS.
 - [ ] Card Refund path validated with an original Helcim transaction id: ROS sends the refund to the selected terminal and records the approved refund as a negative card tender.

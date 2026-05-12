@@ -57,6 +57,7 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("scheduler-workspace", "client/src/assets/docs/scheduler-workspace-manual.md"),
     ("settings-bug-reports-settings-panel", "client/src/assets/docs/settings-bug-reports-settings-panel-manual.md"),
     ("settings-counterpoint-sync-settings-panel", "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md"),
+    ("settings-helcim-settings-panel", "client/src/assets/docs/settings-helcim-settings-panel-manual.md"),
     ("settings-meilisearch-settings-panel", "client/src/assets/docs/settings-meilisearch-settings-panel-manual.md"),
     ("settings-receipt-builder-panel", "client/src/assets/docs/settings-receipt-builder-panel-manual.md"),
     ("settings-remote-access-panel", "client/src/assets/docs/settings-remote-access-panel-manual.md"),

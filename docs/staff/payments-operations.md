@@ -177,6 +177,25 @@ Terminal status comes from Helcim device and card-terminal APIs. Device codes ar
 
 Provider errors, including Helcim rate limits, remain visible in the issue text so staff can decide whether to retry later or escalate instead of repeatedly submitting the same payment action.
 
+### Helcim payment updates and terminal review
+
+Helcim can send signed terminal webhooks to ROS when the store has a public HTTPS ROS API URL. The delivery path is:
+
+```text
+/api/webhooks/helcim
+```
+
+Admins configure the public delivery URL and signing secret in **Settings → Helcim**. Helcim should send only the terminal events ROS handles: `cardTransaction` and `terminalCancel`.
+
+Keep these two states separate during review:
+
+- **Webhook received by ROS** means a signed Helcim delivery reached ROS and was stored.
+- **Provider event attached to ROS checkout** means ROS matched that stored event to one safe pending terminal checkout attempt.
+
+Webhook receipt alone does not record a payment in ROS. If Payments Health says **Provider event not attached to ROS checkout**, treat it as provider evidence requiring review, not as a completed ROS payment.
+
+If the webhook signing secret is missing or wrong, ROS rejects the delivery before it enters Payments Health. Ask an admin to check server logs and Settings → Helcim before assuming Helcim did not send anything.
+
 ## Register terminal routing
 
 Riverside uses two shared Helcim terminals:
@@ -215,7 +234,7 @@ Use **Settings → Helcim** only for configuration:
 - API token and Helcim credential entry. The API token enables Helcim batch, transaction, settlement, and fee reads.
 - Terminal 1 and Terminal 2 device code entry.
 - Register routing visibility: Register #1 -> Terminal 1, Register #2 -> Terminal 2, Register #3/#4 choose Terminal 1 or Terminal 2.
-- Payment update signing secret entry.
+- Payment update webhook path, supported event list, and signing secret entry.
 - Connection checks before live card processing.
 
 Saved integration credentials are encrypted server-side. Staff should enter them in Backoffice Settings instead of editing environment files. The server still needs its credential encryption key configured by an administrator before Settings can save new secrets.
