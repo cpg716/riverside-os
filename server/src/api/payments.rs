@@ -229,6 +229,10 @@ pub fn router() -> Router<AppState> {
             post(replay_helcim_event),
         )
         .route(
+            "/providers/helcim/terminal/recovery-actions",
+            post(create_helcim_terminal_recovery_action),
+        )
+        .route(
             "/providers/helcim/terminal/card-terminals",
             get(list_helcim_card_terminals),
         )
@@ -795,6 +799,7 @@ pub struct HelcimTerminalReviewAttemptRow {
     pub completed_at: Option<DateTime<Utc>>,
     pub label: String,
     pub detail: String,
+    pub recovery_actions: Vec<HelcimTerminalRecoveryActionRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -810,6 +815,34 @@ pub struct HelcimTerminalReviewEventRow {
     pub match_type: Option<String>,
     pub label: String,
     pub detail: String,
+    pub recovery_actions: Vec<HelcimTerminalRecoveryActionRow>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct HelcimTerminalRecoveryActionRow {
+    pub id: Uuid,
+    pub source_kind: String,
+    pub source_id: Uuid,
+    pub action: String,
+    pub note: Option<String>,
+    pub actor_staff_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub metadata: Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HelcimTerminalRecoveryActionRequest {
+    pub source_kind: String,
+    pub source_id: Uuid,
+    pub action: String,
+    pub note: Option<String>,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HelcimTerminalRecoveryActionResponse {
+    pub action: HelcimTerminalRecoveryActionRow,
 }
 
 #[derive(Debug, Serialize)]
@@ -3100,47 +3133,6 @@ async fn get_helcim_events_health(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
-    let terminal_review_attempts = attempt_rows
-        .into_iter()
-        .map(|attempt| {
-            let status: String = attempt.get("status");
-            let amount_cents: i64 = attempt.get("amount_cents");
-            let label = match status.as_str() {
-                "pending" => "Terminal payment still waiting",
-                "approved" | "captured" => "Provider approval not attached to checkout",
-                "expired" => "Expired local terminal attempt",
-                _ => "Terminal attempt needs review",
-            }
-            .to_string();
-            let detail = match status.as_str() {
-                "pending" => "This terminal attempt is still open in ROS. Do not start another card payment on the same terminal until the checkout or terminal status is clear.",
-                "approved" | "captured" => "Provider approval exists for this attempt, but no ROS payment row was found. Review Helcim and the checkout before taking another payment.",
-                "expired" => "ROS expired this local wait state. The provider outcome is not proven here, so review Helcim before retrying the card payment.",
-                _ => "Review this terminal attempt before treating the checkout as settled.",
-            }
-            .to_string();
-            HelcimTerminalReviewAttemptRow {
-                id: attempt.get("id"),
-                status,
-                amount: cents_to_decimal_string(amount_cents),
-                currency: attempt.get("currency"),
-                register_session_id: attempt.get("register_session_id"),
-                register_lane: attempt.get("register_lane"),
-                device_id: attempt.get("device_id"),
-                terminal_id: attempt.get("terminal_id"),
-                selected_terminal_key: attempt.get("selected_terminal_key"),
-                provider_payment_id: attempt.get("provider_payment_id"),
-                provider_transaction_id: attempt.get("provider_transaction_id"),
-                error_message: attempt.get("error_message"),
-                created_at: attempt.get("created_at"),
-                updated_at: attempt.get("updated_at"),
-                completed_at: attempt.get("completed_at"),
-                label,
-                detail,
-            }
-        })
-        .collect();
-
     let event_rows = sqlx::query(
         r#"
         SELECT
@@ -3172,9 +3164,66 @@ async fn get_helcim_events_health(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
+    let attempt_ids = attempt_rows
+        .iter()
+        .map(|attempt| attempt.get::<Uuid, _>("id"))
+        .collect::<Vec<_>>();
+    let event_ids = event_rows
+        .iter()
+        .map(|event| event.get::<Uuid, _>("id"))
+        .collect::<Vec<_>>();
+    let mut recovery_actions =
+        load_helcim_terminal_recovery_actions(&state.db, &attempt_ids, &event_ids).await?;
+
+    let terminal_review_attempts = attempt_rows
+        .into_iter()
+        .map(|attempt| {
+            let id: Uuid = attempt.get("id");
+            let status: String = attempt.get("status");
+            let amount_cents: i64 = attempt.get("amount_cents");
+            let label = match status.as_str() {
+                "pending" => "Terminal payment still waiting",
+                "approved" | "captured" => "Provider approval not attached to checkout",
+                "expired" => "Expired local terminal attempt",
+                _ => "Terminal attempt needs review",
+            }
+            .to_string();
+            let detail = match status.as_str() {
+                "pending" => "This terminal attempt is still open in ROS. Do not start another card payment on the same terminal until the checkout or terminal status is clear.",
+                "approved" | "captured" => "Provider approval exists for this attempt, but no ROS payment row was found. Review Helcim and the checkout before taking another payment.",
+                "expired" => "ROS expired this local wait state. The provider outcome is not proven here, so review Helcim before retrying the card payment.",
+                _ => "Review this terminal attempt before treating the checkout as settled.",
+            }
+            .to_string();
+            HelcimTerminalReviewAttemptRow {
+                id,
+                status,
+                amount: cents_to_decimal_string(amount_cents),
+                currency: attempt.get("currency"),
+                register_session_id: attempt.get("register_session_id"),
+                register_lane: attempt.get("register_lane"),
+                device_id: attempt.get("device_id"),
+                terminal_id: attempt.get("terminal_id"),
+                selected_terminal_key: attempt.get("selected_terminal_key"),
+                provider_payment_id: attempt.get("provider_payment_id"),
+                provider_transaction_id: attempt.get("provider_transaction_id"),
+                error_message: attempt.get("error_message"),
+                created_at: attempt.get("created_at"),
+                updated_at: attempt.get("updated_at"),
+                completed_at: attempt.get("completed_at"),
+                label,
+                detail,
+                recovery_actions: recovery_actions
+                    .remove(&("payment_provider_attempt".to_string(), id))
+                    .unwrap_or_default(),
+            }
+        })
+        .collect();
+
     let terminal_review_events = event_rows
         .into_iter()
         .map(|event| {
+            let id: Uuid = event.get("id");
             let event_type: String = event.get("event_type");
             let processing_status: String = event.get("processing_status");
             let label = if processing_status == "failed" {
@@ -3198,7 +3247,7 @@ async fn get_helcim_events_health(
             }
             .to_string();
             HelcimTerminalReviewEventRow {
-                id: event.get("id"),
+                id,
                 event_type,
                 processing_status,
                 received_at: event.get("received_at"),
@@ -3209,6 +3258,9 @@ async fn get_helcim_events_health(
                 match_type: event.get("match_type"),
                 label,
                 detail,
+                recovery_actions: recovery_actions
+                    .remove(&("helcim_event".to_string(), id))
+                    .unwrap_or_default(),
             }
         })
         .collect();
@@ -3236,6 +3288,182 @@ async fn replay_helcim_event(
         .await
         .map(Json)
         .map_err(|error| PaymentError::InvalidPayload(error.to_string()))
+}
+
+async fn create_helcim_terminal_recovery_action(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<HelcimTerminalRecoveryActionRequest>,
+) -> Result<Json<HelcimTerminalRecoveryActionResponse>, PaymentError> {
+    let source_kind = normalize_helcim_recovery_source_kind(&payload.source_kind)?;
+    let action = normalize_helcim_recovery_action(&payload.action)?;
+    let staff = match action.as_str() {
+        "reviewed" | "noted" => {
+            require_payment_permission_any(
+                &state,
+                &headers,
+                PAYMENTS_RECONCILE_REVIEW,
+                &[PAYMENTS_RECONCILE],
+            )
+            .await?
+        }
+        _ => {
+            require_payment_permission_any(
+                &state,
+                &headers,
+                PAYMENTS_RECONCILE_RESOLVE,
+                &[PAYMENTS_RECONCILE],
+            )
+            .await?
+        }
+    };
+    let note = clean_required_note(payload.note.as_deref(), action != "reviewed")?;
+    ensure_helcim_recovery_source_exists(&state.db, &source_kind, payload.source_id).await?;
+
+    let metadata = if payload.metadata.is_null() {
+        json!({})
+    } else {
+        payload.metadata
+    };
+
+    let row = sqlx::query(
+        r#"
+        INSERT INTO helcim_terminal_recovery_actions (
+            source_kind,
+            source_id,
+            action,
+            note,
+            actor_staff_id,
+            metadata
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, source_kind, source_id, action, note, actor_staff_id, created_at, metadata
+        "#,
+    )
+    .bind(&source_kind)
+    .bind(payload.source_id)
+    .bind(&action)
+    .bind(note.as_deref())
+    .bind(staff.id)
+    .bind(metadata)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    Ok(Json(HelcimTerminalRecoveryActionResponse {
+        action: helcim_terminal_recovery_action_from_row(&row),
+    }))
+}
+
+fn normalize_helcim_recovery_source_kind(value: &str) -> Result<String, PaymentError> {
+    match value.trim() {
+        "payment_provider_attempt" => Ok("payment_provider_attempt".to_string()),
+        "helcim_event" => Ok("helcim_event".to_string()),
+        _ => Err(PaymentError::InvalidPayload(
+            "Unsupported Helcim recovery source.".to_string(),
+        )),
+    }
+}
+
+fn normalize_helcim_recovery_action(value: &str) -> Result<String, PaymentError> {
+    match value.trim() {
+        "reviewed"
+        | "noted"
+        | "resolved_no_action"
+        | "provider_charge_confirmed"
+        | "duplicate_suspected"
+        | "refund_required"
+        | "replayed_webhook" => Ok(value.trim().to_string()),
+        _ => Err(PaymentError::InvalidPayload(
+            "Unsupported Helcim recovery action.".to_string(),
+        )),
+    }
+}
+
+async fn ensure_helcim_recovery_source_exists(
+    db: &PgPool,
+    source_kind: &str,
+    source_id: Uuid,
+) -> Result<(), PaymentError> {
+    let exists: bool = match source_kind {
+        "payment_provider_attempt" => {
+            sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM payment_provider_attempts WHERE id = $1 AND provider = 'helcim')",
+            )
+            .bind(source_id)
+            .fetch_one(db)
+            .await
+        }
+        "helcim_event" => {
+            sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM helcim_event_log WHERE id = $1 AND provider = 'helcim')",
+            )
+            .bind(source_id)
+            .fetch_one(db)
+            .await
+        }
+        _ => unreachable!(),
+    }
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    if exists {
+        Ok(())
+    } else {
+        Err(PaymentError::InvalidPayload(
+            "Helcim recovery source was not found.".to_string(),
+        ))
+    }
+}
+
+async fn load_helcim_terminal_recovery_actions(
+    db: &PgPool,
+    attempt_ids: &[Uuid],
+    event_ids: &[Uuid],
+) -> Result<BTreeMap<(String, Uuid), Vec<HelcimTerminalRecoveryActionRow>>, PaymentError> {
+    if attempt_ids.is_empty() && event_ids.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+
+    let rows = sqlx::query(
+        r#"
+        SELECT id, source_kind, source_id, action, note, actor_staff_id, created_at, metadata
+        FROM helcim_terminal_recovery_actions
+        WHERE (source_kind = 'payment_provider_attempt' AND source_id = ANY($1::uuid[]))
+           OR (source_kind = 'helcim_event' AND source_id = ANY($2::uuid[]))
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(attempt_ids)
+    .bind(event_ids)
+    .fetch_all(db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let mut actions: BTreeMap<(String, Uuid), Vec<HelcimTerminalRecoveryActionRow>> =
+        BTreeMap::new();
+    for row in rows {
+        let action = helcim_terminal_recovery_action_from_row(&row);
+        actions
+            .entry((action.source_kind.clone(), action.source_id))
+            .or_default()
+            .push(action);
+    }
+    Ok(actions)
+}
+
+fn helcim_terminal_recovery_action_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> HelcimTerminalRecoveryActionRow {
+    HelcimTerminalRecoveryActionRow {
+        id: row.get("id"),
+        source_kind: row.get("source_kind"),
+        source_id: row.get("source_id"),
+        action: row.get("action"),
+        note: row.get("note"),
+        actor_staff_id: row.get("actor_staff_id"),
+        created_at: row.get("created_at"),
+        metadata: row.get("metadata"),
+    }
 }
 
 async fn list_helcim_card_terminals(

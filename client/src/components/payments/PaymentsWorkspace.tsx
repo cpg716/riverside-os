@@ -191,6 +191,7 @@ type HelcimTerminalReviewAttempt = {
   completed_at: string | null;
   label: string;
   detail: string;
+  recovery_actions: HelcimTerminalRecoveryAction[];
 };
 
 type HelcimTerminalReviewEvent = {
@@ -205,6 +206,29 @@ type HelcimTerminalReviewEvent = {
   match_type: string | null;
   label: string;
   detail: string;
+  recovery_actions: HelcimTerminalRecoveryAction[];
+};
+
+type HelcimTerminalRecoverySourceKind = "payment_provider_attempt" | "helcim_event";
+
+type HelcimTerminalRecoveryActionName =
+  | "reviewed"
+  | "noted"
+  | "resolved_no_action"
+  | "provider_charge_confirmed"
+  | "duplicate_suspected"
+  | "refund_required"
+  | "replayed_webhook";
+
+type HelcimTerminalRecoveryAction = {
+  id: string;
+  source_kind: HelcimTerminalRecoverySourceKind;
+  source_id: string;
+  action: HelcimTerminalRecoveryActionName;
+  note: string | null;
+  actor_staff_id: string | null;
+  created_at: string;
+  metadata: Record<string, unknown>;
 };
 
 type HelcimDevice = {
@@ -1172,6 +1196,30 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     }
   }, [refresh, sendJson, toast]);
 
+  const recordHelcimRecoveryAction = useCallback(
+    async (
+      sourceKind: HelcimTerminalRecoverySourceKind,
+      sourceId: string,
+      action: HelcimTerminalRecoveryActionName,
+      note: string,
+    ) => {
+      try {
+        await sendJson("/api/payments/providers/helcim/terminal/recovery-actions", "POST", {
+          source_kind: sourceKind,
+          source_id: sourceId,
+          action,
+          note,
+          metadata: { source: "payments_health" },
+        });
+        toast("Helcim review action recorded.", "success");
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Helcim review action could not be recorded.", "error");
+      }
+    },
+    [refresh, sendJson, toast],
+  );
+
   const filteredTransactions = useMemo(() => {
     const query = transactionSearch.trim().toLowerCase();
     if (!query) return data.transactions;
@@ -1320,10 +1368,13 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
                 depositAlertCount={depositBadge}
                 reconciliationAlertCount={reconciliationBadge}
                 canSync={canSync}
+                canRecoveryReview={canReconcileReview}
+                canRecoveryResolve={canReconcileResolve}
                 onSyncBatches={() => void runSync("batches")}
                 onSyncFees={() => void runSync("fees")}
                 onReplayLastFailedEvent={() => void replayLastFailedEvent()}
                 onPingDevice={(code) => void pingDevice(code)}
+                onRecordRecoveryAction={recordHelcimRecoveryAction}
               />
             )}
           </>
@@ -1771,10 +1822,13 @@ function HealthPanel({
   depositAlertCount,
   reconciliationAlertCount,
   canSync,
+  canRecoveryReview,
+  canRecoveryResolve,
   onSyncBatches,
   onSyncFees,
   onReplayLastFailedEvent,
   onPingDevice,
+  onRecordRecoveryAction,
 }: {
   overview: OverviewResponse | null;
   runs: SettlementRun[];
@@ -1788,10 +1842,18 @@ function HealthPanel({
   depositAlertCount: number;
   reconciliationAlertCount: number;
   canSync: boolean;
+  canRecoveryReview: boolean;
+  canRecoveryResolve: boolean;
   onSyncBatches: () => void;
   onSyncFees: () => void;
   onReplayLastFailedEvent: () => void;
   onPingDevice: (code: string) => void;
+  onRecordRecoveryAction: (
+    sourceKind: HelcimTerminalRecoverySourceKind,
+    sourceId: string,
+    action: HelcimTerminalRecoveryActionName,
+    note: string,
+  ) => Promise<void>;
 }) {
   const terminalReviewAttempts = health?.terminal_review_attempts ?? [];
   const terminalReviewEvents = health?.terminal_review_events ?? [];
@@ -1950,6 +2012,14 @@ function HealthPanel({
                         <span>Provider transaction {attempt.provider_transaction_id ?? "Not attached"}</span>
                         {attempt.error_message ? <span className="sm:col-span-2">{attempt.error_message}</span> : null}
                       </div>
+                      <HelcimRecoveryActionPanel
+                        sourceKind="payment_provider_attempt"
+                        sourceId={attempt.id}
+                        actions={attempt.recovery_actions}
+                        canReview={canRecoveryReview}
+                        canResolve={canRecoveryResolve}
+                        onRecord={onRecordRecoveryAction}
+                      />
                     </div>
                   ))}
                 </div>
@@ -1976,6 +2046,14 @@ function HealthPanel({
                         <span>Match {event.match_type ?? "none"}</span>
                         {event.error_message ? <span className="sm:col-span-2">{event.error_message}</span> : null}
                       </div>
+                      <HelcimRecoveryActionPanel
+                        sourceKind="helcim_event"
+                        sourceId={event.id}
+                        actions={event.recovery_actions}
+                        canReview={canRecoveryReview}
+                        canResolve={canRecoveryResolve}
+                        onRecord={onRecordRecoveryAction}
+                      />
                     </div>
                   ))}
                 </div>
@@ -2088,6 +2166,114 @@ function HealthPanel({
           Sync Fees
         </button>
       </div>
+    </div>
+  );
+}
+
+function HelcimRecoveryActionPanel({
+  sourceKind,
+  sourceId,
+  actions,
+  canReview,
+  canResolve,
+  onRecord,
+}: {
+  sourceKind: HelcimTerminalRecoverySourceKind;
+  sourceId: string;
+  actions: HelcimTerminalRecoveryAction[];
+  canReview: boolean;
+  canResolve: boolean;
+  onRecord: (
+    sourceKind: HelcimTerminalRecoverySourceKind,
+    sourceId: string,
+    action: HelcimTerminalRecoveryActionName,
+    note: string,
+  ) => Promise<void>;
+}) {
+  const options = useMemo(() => {
+    const reviewActions: Array<{ value: HelcimTerminalRecoveryActionName; label: string }> = [
+      { value: "reviewed", label: "Reviewed" },
+      { value: "noted", label: "Add Note" },
+    ];
+    const resolutionActions: Array<{ value: HelcimTerminalRecoveryActionName; label: string }> = [
+      { value: "resolved_no_action", label: "Resolved: No ROS Action" },
+      { value: "provider_charge_confirmed", label: "Provider Charge Confirmed" },
+      { value: "duplicate_suspected", label: "Duplicate Suspected" },
+      { value: "refund_required", label: "Refund Required" },
+      { value: "replayed_webhook", label: "Webhook Replay Reviewed" },
+    ];
+    return [
+      ...(canReview ? reviewActions : []),
+      ...(canResolve ? resolutionActions : []),
+    ];
+  }, [canReview, canResolve]);
+  const [selectedAction, setSelectedAction] = useState<HelcimTerminalRecoveryActionName>(
+    options[0]?.value ?? "reviewed",
+  );
+  const [note, setNote] = useState("");
+  const selectedIsAllowed = options.some((option) => option.value === selectedAction);
+  const noteRequired = selectedAction !== "reviewed";
+  const noteReady = !noteRequired || note.trim().length > 0;
+
+  useEffect(() => {
+    if (!selectedIsAllowed && options[0]) {
+      setSelectedAction(options[0].value);
+    }
+  }, [options, selectedIsAllowed]);
+
+  return (
+    <div className="mt-4 rounded-lg border border-app-border bg-app-surface p-3">
+      <div className="text-xs font-black uppercase tracking-widest text-app-text-muted">Recovery Audit</div>
+      {actions.length === 0 ? (
+        <div className="mt-2 text-sm font-semibold text-app-text-muted">No recovery actions recorded.</div>
+      ) : (
+        <div className="mt-2 space-y-2">
+          {actions.slice(0, 4).map((action) => (
+            <div key={action.id} className="rounded-md border border-app-border bg-app-surface-2 p-2">
+              <div className="text-xs font-black text-app-text">
+                {staffLabel(action.action)} · {shortDateTime(action.created_at)}
+              </div>
+              {action.note ? <div className="mt-1 text-xs font-semibold text-app-text-muted">{action.note}</div> : null}
+            </div>
+          ))}
+        </div>
+      )}
+      {options.length === 0 ? (
+        <div className="mt-3 text-sm font-semibold text-app-text-muted">
+          You do not have permission to add Helcim recovery actions.
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-2">
+          <select
+            value={selectedAction}
+            onChange={(event) => setSelectedAction(event.target.value as HelcimTerminalRecoveryActionName)}
+            className="rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm font-semibold text-app-text outline-none focus:border-app-accent"
+          >
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder={noteRequired ? "Required review note" : "Optional note"}
+            className="min-h-20 rounded-lg border border-app-border bg-app-bg p-3 text-sm font-medium text-app-text outline-none focus:border-app-accent"
+          />
+          <button
+            type="button"
+            disabled={!selectedIsAllowed || !noteReady}
+            onClick={async () => {
+              await onRecord(sourceKind, sourceId, selectedAction, note);
+              setNote("");
+            }}
+            className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm font-bold text-app-text disabled:opacity-50"
+          >
+            Record Review Action
+          </button>
+        </div>
+      )}
     </div>
   );
 }

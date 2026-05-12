@@ -18,6 +18,7 @@ expected=(
   "011_product_variant_barcode_aliases.sql"
   "012_lightspeed_normalization_reference.sql"
   "013_financial_effective_dates.sql"
+  "014_helcim_terminal_recovery_actions.sql"
 )
 
 active=()
@@ -71,4 +72,4 @@ if rg -n "INSERT INTO (public\\.)?(staff|staff_role_permission|staff_permission|
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-013 only."
+echo "Migration layout OK: active baseline 001-014 only."
