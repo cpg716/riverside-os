@@ -644,58 +644,14 @@ async fn handle_helcim_card_transaction(
 
     if attempt_id.is_none() {
         match_type = "terminal_amount";
-        let fallback_candidates: Vec<Uuid> = sqlx::query_scalar(
-            r#"
-            SELECT id
-            FROM payment_provider_attempts
-            WHERE provider = 'helcim'
-              AND status = 'pending'
-              AND terminal_id = $1
-              AND amount_cents = $2
-              AND currency = $3
-              AND created_at >= now() - ($4::bigint * interval '1 minute')
-            ORDER BY created_at ASC
-            LIMIT 2
-            "#,
+        if let Some(candidate_id) = find_safe_helcim_terminal_fallback_candidate(
+            &mut tx,
+            &terminal_id,
+            Some(amount_cents),
+            Some(&currency),
         )
-        .bind(&terminal_id)
-        .bind(amount_cents)
-        .bind(&currency)
-        .bind(HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES)
-        .fetch_all(&mut *tx)
-        .await?;
-        if fallback_candidates.len() > 1 {
-            return Err(sqlx::Error::Protocol(
-                "ambiguous Helcim terminal/amount webhook match".to_string(),
-            ));
-        }
-        let candidate_id = fallback_candidates.first().copied();
-        if candidate_id.is_none() {
-            let stale_exists: bool = sqlx::query_scalar(
-                r#"
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM payment_provider_attempts
-                    WHERE provider = 'helcim'
-                      AND status = 'pending'
-                      AND terminal_id = $1
-                      AND amount_cents = $2
-                      AND currency = $3
-                )
-                "#,
-            )
-            .bind(&terminal_id)
-            .bind(amount_cents)
-            .bind(&currency)
-            .fetch_one(&mut *tx)
-            .await?;
-            if stale_exists {
-                return Err(sqlx::Error::Protocol(
-                    "stale Helcim terminal/amount webhook match refused".to_string(),
-                ));
-            }
-        }
-        if let Some(candidate_id) = candidate_id {
+        .await?
+        {
             attempt_id = sqlx::query_scalar(
             r#"
             UPDATE payment_provider_attempts
@@ -775,32 +731,14 @@ async fn handle_helcim_terminal_cancel(
         .map(|cancelled_at| format!("helcim:terminalCancel:{device_code}:{cancelled_at}"))
         .unwrap_or_else(|| format!("helcim:terminalCancel:{device_code}"));
     let mut tx = state.db.begin().await?;
-    let fallback_candidates: Vec<Uuid> = sqlx::query_scalar(
-        r#"
-        SELECT id
-        FROM payment_provider_attempts
-        WHERE provider = 'helcim'
-          AND status = 'pending'
-          AND terminal_id = $1
-          AND ($2::bigint IS NULL OR amount_cents = $2)
-          AND ($3::text IS NULL OR currency = $3)
-          AND created_at >= now() - ($4::bigint * interval '1 minute')
-        ORDER BY created_at ASC
-        LIMIT 2
-        "#,
-    )
-    .bind(&device_code)
-    .bind(amount_cents)
-    .bind(currency.as_deref())
-    .bind(HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES)
-    .fetch_all(&mut *tx)
-    .await?;
-    if fallback_candidates.len() > 1 {
-        return Err(sqlx::Error::Protocol(
-            "ambiguous Helcim terminal cancel webhook match".to_string(),
-        ));
-    }
-    let attempt_id: Option<Uuid> = if let Some(candidate_id) = fallback_candidates.first().copied()
+    let attempt_id: Option<Uuid> = if let Some(candidate_id) =
+        find_safe_helcim_terminal_fallback_candidate(
+            &mut tx,
+            &device_code,
+            amount_cents,
+            currency.as_deref(),
+        )
+        .await?
     {
         sqlx::query_scalar(
             r#"
@@ -819,29 +757,6 @@ async fn handle_helcim_terminal_cancel(
         .fetch_optional(&mut *tx)
         .await?
     } else {
-        let stale_exists: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS (
-                SELECT 1
-                FROM payment_provider_attempts
-                WHERE provider = 'helcim'
-                  AND status = 'pending'
-                  AND terminal_id = $1
-                  AND ($2::bigint IS NULL OR amount_cents = $2)
-                  AND ($3::text IS NULL OR currency = $3)
-            )
-            "#,
-        )
-        .bind(&device_code)
-        .bind(amount_cents)
-        .bind(currency.as_deref())
-        .fetch_one(&mut *tx)
-        .await?;
-        if stale_exists {
-            return Err(sqlx::Error::Protocol(
-                "stale Helcim terminal cancel webhook match refused".to_string(),
-            ));
-        }
         None
     };
     let match_type = if attempt_id.is_none() {
@@ -860,6 +775,93 @@ async fn handle_helcim_terminal_cancel(
         payment_transaction_id: None,
         match_type: match_type.to_string(),
     })
+}
+
+async fn find_safe_helcim_terminal_fallback_candidate(
+    tx: &mut Transaction<'_, Postgres>,
+    terminal_id: &str,
+    amount_cents: Option<i64>,
+    currency: Option<&str>,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    let candidates: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM payment_provider_attempts
+        WHERE provider = 'helcim'
+          AND status = 'pending'
+          AND terminal_id = $1
+          AND ($2::bigint IS NULL OR amount_cents = $2)
+          AND ($3::text IS NULL OR currency = $3)
+          AND created_at >= now() - ($4::bigint * interval '1 minute')
+        ORDER BY created_at ASC
+        LIMIT 2
+        "#,
+    )
+    .bind(terminal_id)
+    .bind(amount_cents)
+    .bind(currency)
+    .bind(HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let Some(candidate_id) = candidates.first().copied() else {
+        return Ok(None);
+    };
+    if candidates.len() > 1 {
+        tracing::warn!(
+            target = "helcim_webhook",
+            terminal_id,
+            candidate_count = candidates.len(),
+            "refusing ambiguous Helcim terminal fallback match"
+        );
+        return Ok(None);
+    }
+
+    let unsafe_match_exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM payment_provider_attempts candidate
+            WHERE candidate.id = $1
+              AND (
+                EXISTS (
+                    SELECT 1
+                    FROM payment_provider_attempts newer
+                    WHERE newer.provider = 'helcim'
+                      AND newer.terminal_id = candidate.terminal_id
+                      AND newer.created_at > candidate.created_at
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM payment_provider_attempts older_expired
+                    WHERE older_expired.provider = 'helcim'
+                      AND older_expired.status = 'expired'
+                      AND older_expired.terminal_id = candidate.terminal_id
+                      AND older_expired.created_at < candidate.created_at
+                      AND ($2::bigint IS NULL OR older_expired.amount_cents = $2)
+                      AND ($3::text IS NULL OR older_expired.currency = $3)
+                )
+              )
+        )
+        "#,
+    )
+    .bind(candidate_id)
+    .bind(amount_cents)
+    .bind(currency)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    if unsafe_match_exists {
+        tracing::warn!(
+            target = "helcim_webhook",
+            terminal_id,
+            candidate_id = %candidate_id,
+            "refusing stale Helcim terminal fallback match"
+        );
+        return Ok(None);
+    }
+
+    Ok(Some(candidate_id))
 }
 
 async fn mark_helcim_event_processed(
