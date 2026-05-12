@@ -79,6 +79,17 @@ type MarginPivotResponse = {
   rows: MarginPivotRow[];
 };
 
+type SalesPivotRow = {
+  bucket: string;
+  gross_revenue: string | number;
+  tax_collected: string | number;
+  line_units: number;
+};
+
+type SalesPivotResponse = {
+  rows: SalesPivotRow[];
+};
+
 function requireOrSkip(condition: boolean, message: string): void {
   if (condition) return;
   if (isCi) {
@@ -507,6 +518,38 @@ async function fetchMarginPivotByDate(
   return JSON.parse(bodyText) as MarginPivotResponse;
 }
 
+async function fetchSalesPivotByCategory(
+  request: APIRequestContext,
+  date: string,
+): Promise<SalesPivotResponse> {
+  const res = await request.get(
+    `${apiBase()}/api/insights/sales-pivot?basis=fulfilled&group_by=category&from=${date}&to=${date}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as SalesPivotResponse;
+}
+
+async function fetchSalesPivotByDate(
+  request: APIRequestContext,
+  date: string,
+): Promise<SalesPivotResponse> {
+  const res = await request.get(
+    `${apiBase()}/api/insights/sales-pivot?basis=fulfilled&group_by=date&from=${date}&to=${date}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as SalesPivotResponse;
+}
+
 let serverReachable = false;
 
 test.beforeAll(async ({ request }) => {
@@ -698,6 +741,63 @@ test.describe("Reporting trust contracts", () => {
     const utcDateMargin = await fetchMarginPivotByCategory(request, utcCalendarDate);
     expect(
       utcDateMargin.rows.some((candidate) => candidate.bucket === product.categoryName),
+    ).toBe(false);
+  });
+
+  test("sales pivot uses store-local fulfilled date around UTC boundary", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const localBusinessDate = addDays(storeLocalDate(), 1);
+    const utcCalendarDate = addDays(localBusinessDate, 1);
+    const recognitionTimestampUtc = `${utcCalendarDate}T03:30:00Z`;
+    const opened = await openFreshPrimarySession(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createReportingTrustProduct(request, operatorStaffId);
+
+    const checkout = await checkoutCashSale(request, {
+      ...product,
+      sessionId: opened.session_id,
+      sessionToken: opened.pos_api_token ?? "",
+      operatorStaffId,
+      fulfillment: "special_order",
+    });
+    const artifacts = await getTransactionArtifacts(request, checkout.transaction_id);
+    expect(parseMoneyToCents(artifacts.total_price)).toBe(10875);
+
+    await markPickup(request, checkout.transaction_id);
+    await assignFulfillmentTimestamp(
+      request,
+      checkout.transaction_id,
+      recognitionTimestampUtc,
+    );
+
+    const registerActivity = await fetchDailySalesActivity(request, opened.session_id, {
+      basis: "fulfilled",
+      date: localBusinessDate,
+    });
+    expect(registerActivity.reporting_basis).toBe("completed");
+    expect(
+      registerActivity.activities.some((row) => row.transaction_id === checkout.transaction_id),
+    ).toBe(true);
+
+    const localSales = await fetchSalesPivotByCategory(request, localBusinessDate);
+    const localRow = localSales.rows.find((candidate) => candidate.bucket === product.categoryName);
+    expect(localRow).toBeTruthy();
+    expect(localRow?.line_units).toBe(1);
+    expect(parseMoneyToCents(localRow?.gross_revenue)).toBe(10000);
+    expect(parseMoneyToCents(localRow?.tax_collected)).toBe(875);
+
+    const dateSales = await fetchSalesPivotByDate(request, localBusinessDate);
+    const dateRow = dateSales.rows.find((candidate) => candidate.bucket === localBusinessDate);
+    expect(dateRow).toBeTruthy();
+    expect(dateRow?.line_units).toBeGreaterThanOrEqual(1);
+    expect(parseMoneyToCents(dateRow?.gross_revenue)).toBeGreaterThanOrEqual(10000);
+
+    const utcDateSales = await fetchSalesPivotByCategory(request, utcCalendarDate);
+    expect(
+      utcDateSales.rows.some((candidate) => candidate.bucket === product.categoryName),
     ).toBe(false);
   });
 

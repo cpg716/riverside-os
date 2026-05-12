@@ -339,9 +339,13 @@ pub async fn run_sales_pivot(
             ) orl ON orl.transaction_line_id = oi.id
     "#;
     let effective_qty_sql = "GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)";
+    let completed_store_local_filter = format!(
+        "o.status::text <> 'cancelled' AND ({ts}) IS NOT NULL AND (({ts}) AT TIME ZONE reporting.effective_store_timezone())::date >= ($1 AT TIME ZONE 'UTC')::date AND (({ts}) AT TIME ZONE reporting.effective_store_timezone())::date < ($2 AT TIME ZONE 'UTC')::date",
+        ts = ORDER_RECOGNITION_TS_SQL.trim()
+    );
     if gb == "customer" {
         let date_filter = if completed {
-            order_date_filter_sql(ReportBasis::Completed)
+            completed_store_local_filter.clone()
         } else {
             order_date_filter_sql(ReportBasis::Booked)
         };
@@ -397,7 +401,7 @@ pub async fn run_sales_pivot(
     }
 
     let date_filter = if completed {
-        order_date_filter_sql(ReportBasis::Completed)
+        completed_store_local_filter
     } else {
         order_date_filter_sql(ReportBasis::Booked)
     };
@@ -408,11 +412,16 @@ pub async fn run_sales_pivot(
         // (PostgreSQL rejects scalar subqueries in the SELECT list that reference outer row vars under GROUP BY).
         let date_key = if completed {
             format!(
-                "(({ts}) AT TIME ZONE 'UTC')::date",
+                "(({ts}) AT TIME ZONE reporting.effective_store_timezone())::date",
                 ts = ORDER_RECOGNITION_TS_SQL.trim()
             )
         } else {
             "(o.booked_at AT TIME ZONE 'UTC')::date".to_string()
+        };
+        let session_day_key = if completed {
+            "(rs.opened_at AT TIME ZONE reporting.effective_store_timezone())::date"
+        } else {
+            "(rs.opened_at AT TIME ZONE 'UTC')::date"
         };
         format!(
             r#"
@@ -443,12 +452,12 @@ pub async fn run_sales_pivot(
                 line_units,
                 (
                     SELECT weather_snapshot FROM register_sessions rs
-                    WHERE (rs.opened_at AT TIME ZONE 'UTC')::date = agg.sale_day
+                    WHERE {session_day_key} = agg.sale_day
                     ORDER BY rs.closed_at DESC NULLS LAST LIMIT 1
                 ) AS weather_snapshot,
                 (
                     SELECT closing_comments FROM register_sessions rs
-                    WHERE (rs.opened_at AT TIME ZONE 'UTC')::date = agg.sale_day
+                    WHERE {session_day_key} = agg.sale_day
                     ORDER BY rs.closed_at DESC NULLS LAST LIMIT 1
                 ) AS closing_comments,
                 customer_id
