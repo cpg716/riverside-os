@@ -516,6 +516,32 @@ async function seedQboMappings(
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
+async function seedQboInventoryCogsFallbackMappings(request: APIRequestContext) {
+  for (const mapping of [
+    {
+      internal_key: "INV_ASSET",
+      internal_description: "E2E inventory asset for restocked returns",
+      qbo_account_id: "E2E_CASH",
+    },
+    {
+      internal_key: "COGS_DEFAULT",
+      internal_description: "E2E COGS default for restocked returns",
+      qbo_account_id: "E2E_REVENUE",
+    },
+  ]) {
+    const res = await request.post(`${apiBase()}/api/qbo/mappings`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: mapping,
+      failOnStatusCode: false,
+    });
+    const bodyText = await res.text();
+    expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  }
+}
+
 async function seedCustomerLiability(
   request: APIRequestContext,
   options: {
@@ -760,6 +786,7 @@ async function returnFirstQboLine(
     sessionId: string;
     sessionToken: string;
     productSku: string;
+    restock?: boolean;
   },
 ): Promise<TransactionDetail> {
   const before = await fetchTransactionDetail(request, options.transactionId);
@@ -781,6 +808,7 @@ async function returnFirstQboLine(
             transaction_line_id: line?.transaction_line_id,
             quantity: 1,
             reason: "qbo_audit_return",
+            restock: options.restock,
           },
         ],
       },
@@ -980,6 +1008,57 @@ test.describe("QBO audit contract", () => {
     );
     expect(revenueContributor).toBeTruthy();
     expect(moneyToCents(revenueContributor?.amount)).toBe(parseMoneyToCents("110.00"));
+  });
+
+  test("restocked return posts inventory debit and COGS reversal", async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const dateOffset = 700 + Math.floor(Math.random() * 4000);
+    const checkoutDate = futureUtcDate(dateOffset);
+    const returnDate = futureUtcDate(dateOffset + 1);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+
+    const checkout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+    });
+    await assignQboDate(request, checkout.transaction_id, checkoutDate);
+
+    const returnedDetail = await returnFirstQboLine(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      productSku: product.sku,
+      restock: true,
+    });
+    const returnedLine = returnedDetail.items.find((item) => item.sku === product.sku);
+    expect(returnedLine?.quantity_returned).toBe(1);
+    await assignQboReturnDate(request, checkout.transaction_id, returnDate);
+
+    await seedQboMappings(request, product.categoryId, returnDate);
+    await seedQboInventoryCogsFallbackMappings(request);
+    const proposal = await proposeJournal(request, returnDate);
+    expect(proposal.payload.activity_date).toBe(returnDate);
+    expect(proposal.payload.totals?.balanced).toBe(true);
+
+    const inventoryLine = proposal.payload.lines.find(
+      (line) => line.memo.startsWith("Inventory from restocked returns"),
+    );
+    expect(inventoryLine).toBeTruthy();
+    expect(moneyToCents(inventoryLine?.debit)).toBe(parseMoneyToCents(product.unitCost));
+    expect(moneyToCents(inventoryLine?.credit)).toBe(0);
+
+    const cogsReversalLine = proposal.payload.lines.find(
+      (line) => line.memo.startsWith("COGS reversal (restock)"),
+    );
+    expect(cogsReversalLine).toBeTruthy();
+    expect(moneyToCents(cogsReversalLine?.debit)).toBe(0);
+    expect(moneyToCents(cogsReversalLine?.credit)).toBe(parseMoneyToCents(product.unitCost));
   });
 
   test("asynchronous returns and refunds balance independently via liability clearing", async ({

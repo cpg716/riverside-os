@@ -52,10 +52,22 @@ pub async fn run_margin_pivot(
 ) -> Result<MarginPivotResponse, MarginPivotError> {
     let completed = basis.is_completed();
     let gb = group_by.to_lowercase();
+    let returns_join = r#"
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+    "#;
+    let effective_qty_sql = "GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)";
+    let completed_store_local_filter = format!(
+        "o.status::text <> 'cancelled' AND ({ts}) IS NOT NULL AND (({ts}) AT TIME ZONE reporting.effective_store_timezone())::date >= ($1 AT TIME ZONE 'UTC')::date AND (({ts}) AT TIME ZONE reporting.effective_store_timezone())::date < ($2 AT TIME ZONE 'UTC')::date",
+        ts = ORDER_RECOGNITION_TS_SQL.trim()
+    );
 
     if gb == "customer" {
         let date_filter = if completed {
-            order_date_filter_sql(ReportBasis::Completed)
+            completed_store_local_filter.clone()
         } else {
             order_date_filter_sql(ReportBasis::Booked)
         };
@@ -79,21 +91,21 @@ pub async fn run_margin_pivot(
                         || ' · '
                         || COALESCE(MAX(cust.customer_code), '')
                 END AS bucket,
-                COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)::numeric(14, 2) AS gross_revenue,
-                COALESCE(SUM((oi.state_tax + oi.local_tax)::numeric), 0)::numeric(14, 2) AS tax_collected,
-                COALESCE(SUM((oi.unit_cost * oi.quantity)::numeric), 0)::numeric(14, 2) AS cost_of_goods,
-                (COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)
-                  - COALESCE(SUM((oi.unit_cost * oi.quantity)::numeric), 0))::numeric(14, 2) AS gross_margin,
+                COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS gross_revenue,
+                COALESCE(SUM(((oi.state_tax + oi.local_tax) * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS tax_collected,
+                COALESCE(SUM((oi.unit_cost * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS cost_of_goods,
+                (COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)
+                  - COALESCE(SUM((oi.unit_cost * {effective_qty_sql})::numeric), 0))::numeric(14, 2) AS gross_margin,
                 CASE
-                    WHEN COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0) > 0 THEN
-                        ((COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)
-                          - COALESCE(SUM((oi.unit_cost * oi.quantity)::numeric), 0))
-                         / NULLIF(COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0), 0) * 100)
+                    WHEN COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0) > 0 THEN
+                        ((COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)
+                          - COALESCE(SUM((oi.unit_cost * {effective_qty_sql})::numeric), 0))
+                         / NULLIF(COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0), 0) * 100)
                         ::numeric(14, 2)
                     ELSE 0::numeric(14, 2)
                 END AS margin_percent,
                 COUNT(DISTINCT o.id)::bigint AS order_count,
-                COALESCE(SUM(oi.quantity::bigint), 0)::bigint AS line_units,
+                COALESCE(SUM(({effective_qty_sql})::bigint), 0)::bigint AS line_units,
                 NULL::jsonb AS weather_snapshot,
                 NULL::text AS closing_comments,
                 o.customer_id AS customer_id
@@ -103,6 +115,7 @@ pub async fn run_margin_pivot(
             LEFT JOIN customers cust ON cust.id = o.customer_id
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id
+            {returns_join}
             WHERE {date_filter}
             GROUP BY o.customer_id
             ORDER BY gross_revenue DESC NULLS LAST
@@ -120,7 +133,7 @@ pub async fn run_margin_pivot(
     }
 
     let date_filter = if completed {
-        order_date_filter_sql(ReportBasis::Completed)
+        completed_store_local_filter
     } else {
         order_date_filter_sql(ReportBasis::Booked)
     };
@@ -128,22 +141,27 @@ pub async fn run_margin_pivot(
     let sql = if gb == "date" {
         let date_key = if completed {
             format!(
-                "(({ts}) AT TIME ZONE 'UTC')::date",
+                "(({ts}) AT TIME ZONE reporting.effective_store_timezone())::date",
                 ts = ORDER_RECOGNITION_TS_SQL.trim()
             )
         } else {
             "(o.booked_at AT TIME ZONE 'UTC')::date".to_string()
+        };
+        let session_day_key = if completed {
+            "(rs.opened_at AT TIME ZONE reporting.effective_store_timezone())::date"
+        } else {
+            "(rs.opened_at AT TIME ZONE 'UTC')::date"
         };
         format!(
             r#"
             WITH agg AS (
                 SELECT
                     {date_key}::text AS bucket,
-                    COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)::numeric(14, 2) AS gross_revenue,
-                    COALESCE(SUM((oi.state_tax + oi.local_tax)::numeric), 0)::numeric(14, 2) AS tax_collected,
-                    COALESCE(SUM((oi.unit_cost * oi.quantity)::numeric), 0)::numeric(14, 2) AS cost_of_goods,
+                    COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS gross_revenue,
+                    COALESCE(SUM(((oi.state_tax + oi.local_tax) * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS tax_collected,
+                    COALESCE(SUM((oi.unit_cost * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS cost_of_goods,
                     COUNT(DISTINCT o.id)::bigint AS order_count,
-                    COALESCE(SUM(oi.quantity::bigint), 0)::bigint AS line_units,
+                    COALESCE(SUM(({effective_qty_sql})::bigint), 0)::bigint AS line_units,
                     {date_key} AS sale_day,
                     NULL::uuid AS customer_id
                 FROM transaction_lines oi
@@ -151,6 +169,7 @@ pub async fn run_margin_pivot(
                 INNER JOIN products p ON p.id = oi.product_id
                 LEFT JOIN categories c ON c.id = p.category_id
                 LEFT JOIN staff st ON st.id = oi.salesperson_id
+                {returns_join}
                 WHERE {date_filter}
                 GROUP BY {date_key}
             )
@@ -169,12 +188,12 @@ pub async fn run_margin_pivot(
                 line_units,
                 (
  SELECT weather_snapshot FROM register_sessions rs
- WHERE (rs.opened_at AT TIME ZONE 'UTC')::date = agg.sale_day
+ WHERE {session_day_key} = agg.sale_day
  ORDER BY rs.closed_at DESC NULLS LAST LIMIT 1
  ) AS weather_snapshot,
                 (
  SELECT closing_comments FROM register_sessions rs
- WHERE (rs.opened_at AT TIME ZONE 'UTC')::date = agg.sale_day
+ WHERE {session_day_key} = agg.sale_day
  ORDER BY rs.closed_at DESC NULLS LAST LIMIT 1
  ) AS closing_comments,
                 customer_id
@@ -199,21 +218,21 @@ pub async fn run_margin_pivot(
             r#"
             SELECT
                 {dim_sql} AS bucket,
-                COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)::numeric(14, 2) AS gross_revenue,
-                COALESCE(SUM((oi.state_tax + oi.local_tax)::numeric), 0)::numeric(14, 2) AS tax_collected,
-                COALESCE(SUM((oi.unit_cost * oi.quantity)::numeric), 0)::numeric(14, 2) AS cost_of_goods,
-                (COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)
-                  - COALESCE(SUM((oi.unit_cost * oi.quantity)::numeric), 0))::numeric(14, 2) AS gross_margin,
+                COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS gross_revenue,
+                COALESCE(SUM(((oi.state_tax + oi.local_tax) * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS tax_collected,
+                COALESCE(SUM((oi.unit_cost * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS cost_of_goods,
+                (COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)
+                  - COALESCE(SUM((oi.unit_cost * {effective_qty_sql})::numeric), 0))::numeric(14, 2) AS gross_margin,
                 CASE
-                    WHEN COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0) > 0 THEN
-                        ((COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)
-                          - COALESCE(SUM((oi.unit_cost * oi.quantity)::numeric), 0))
-                         / NULLIF(COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0), 0) * 100)
+                    WHEN COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0) > 0 THEN
+                        ((COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)
+                          - COALESCE(SUM((oi.unit_cost * {effective_qty_sql})::numeric), 0))
+                         / NULLIF(COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0), 0) * 100)
                         ::numeric(14, 2)
                     ELSE 0::numeric(14, 2)
                 END AS margin_percent,
                 COUNT(DISTINCT o.id)::bigint AS order_count,
-                COALESCE(SUM(oi.quantity::bigint), 0)::bigint AS line_units,
+                COALESCE(SUM(({effective_qty_sql})::bigint), 0)::bigint AS line_units,
                 NULL::jsonb AS weather_snapshot,
                 NULL::text AS closing_comments,
                 NULL::uuid AS customer_id
@@ -222,6 +241,7 @@ pub async fn run_margin_pivot(
             INNER JOIN products p ON p.id = oi.product_id
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id
+            {returns_join}
             WHERE {date_filter}
             GROUP BY {dim_sql}
             ORDER BY gross_revenue DESC NULLS LAST

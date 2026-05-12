@@ -29,6 +29,7 @@ type ProductCreateResponse = {
 
 type ProductVariantRow = {
   id: string;
+  sku: string;
 };
 
 type ReconciliationResponse = {
@@ -46,6 +47,7 @@ type CheckoutResponse = {
 
 type RegisterDaySummary = {
   reporting_basis: string;
+  sales_count: number;
   cash_collected: string;
   activities: Array<{
     transaction_id?: string | null;
@@ -53,6 +55,28 @@ type RegisterDaySummary = {
     payment_summary?: string | null;
     balance_due?: string | null;
   }>;
+};
+
+type TransactionDetail = {
+  total_price: string;
+  items: Array<{
+    transaction_line_id: string;
+    sku: string;
+    quantity: number;
+    quantity_returned: number;
+  }>;
+};
+
+type MarginPivotRow = {
+  bucket: string;
+  gross_revenue: string | number;
+  cost_of_goods: string | number;
+  gross_margin: string | number;
+  line_units: number;
+};
+
+type MarginPivotResponse = {
+  rows: MarginPivotRow[];
 };
 
 function requireOrSkip(condition: boolean, message: string): void {
@@ -83,6 +107,12 @@ function storeLocalDate(): string {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+function addDays(ymd: string, days: number): string {
+  const [year, month, day] = ymd.split("-").map((part) => Number.parseInt(part, 10));
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0));
+  return date.toISOString().slice(0, 10);
 }
 
 async function listOpenSessions(request: APIRequestContext): Promise<OpenSessionRow[]> {
@@ -208,15 +238,21 @@ async function verifyStaffId(request: APIRequestContext): Promise<string> {
 async function createReportingTrustProduct(
   request: APIRequestContext,
   actorStaffId: string,
-): Promise<{ productId: string; variantId: string }> {
+): Promise<{
+  productId: string;
+  variantId: string;
+  sku: string;
+  categoryName: string;
+}> {
   const suffix = `reporting-trust-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const categoryName = `E2E Reporting Trust ${suffix}`;
   const categoryRes = await request.post(`${apiBase()}/api/categories`, {
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
     },
     data: {
-      name: `E2E Reporting Trust ${suffix}`,
+      name: categoryName,
       parent_id: null,
       is_clothing_footwear: false,
       changed_by_staff_id: actorStaffId,
@@ -270,6 +306,8 @@ async function createReportingTrustProduct(
   return {
     productId: created.id,
     variantId: variants[0]!.id,
+    sku: variants[0]!.sku,
+    categoryName,
   };
 }
 
@@ -281,8 +319,13 @@ async function checkoutCashSale(
     sessionId: string;
     sessionToken: string;
     operatorStaffId: string;
+    fulfillment?: "takeaway" | "special_order";
+    quantity?: number;
   },
 ): Promise<CheckoutResponse> {
+  const quantity = options.quantity ?? 1;
+  const totalCents = 10875 * quantity;
+  const totalPrice = `${Math.floor(totalCents / 100)}.${String(totalCents % 100).padStart(2, "0")}`;
   const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
     headers: {
       ...staffHeaders(),
@@ -296,14 +339,14 @@ async function checkoutCashSale(
       primary_salesperson_id: options.operatorStaffId,
       customer_id: null,
       payment_method: "cash",
-      total_price: "108.75",
-      amount_paid: "108.75",
+      total_price: totalPrice,
+      amount_paid: totalPrice,
       items: [
         {
           product_id: options.productId,
           variant_id: options.variantId,
-          fulfillment: "takeaway",
-          quantity: 1,
+          fulfillment: options.fulfillment ?? "takeaway",
+          quantity,
           unit_price: "100.00",
           unit_cost: "40.00",
           state_tax: "4.00",
@@ -319,13 +362,70 @@ async function checkoutCashSale(
   return JSON.parse(bodyText) as CheckoutResponse;
 }
 
+async function fetchTransactionDetail(
+  request: APIRequestContext,
+  transactionId: string,
+): Promise<TransactionDetail> {
+  const res = await request.get(`${apiBase()}/api/transactions/${transactionId}`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as TransactionDetail;
+}
+
+async function returnFirstTransactionLine(
+  request: APIRequestContext,
+  options: {
+    transactionId: string;
+    sessionId: string;
+    sessionToken: string;
+    productSku: string;
+  },
+): Promise<TransactionDetail> {
+  const before = await fetchTransactionDetail(request, options.transactionId);
+  const line = before.items.find((item) => item.sku === options.productSku);
+  expect(line?.transaction_line_id).toBeTruthy();
+
+  const res = await request.post(
+    `${apiBase()}/api/transactions/${options.transactionId}/returns?register_session_id=${encodeURIComponent(options.sessionId)}`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": options.sessionId,
+        "x-riverside-pos-session-token": options.sessionToken,
+      },
+      data: {
+        lines: [
+          {
+            transaction_line_id: line?.transaction_line_id,
+            quantity: 1,
+            reason: "reporting_trust_margin_return",
+          },
+        ],
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as TransactionDetail;
+}
+
 async function fetchDailySalesActivity(
   request: APIRequestContext,
   sessionId: string,
+  options: {
+    basis?: "booked" | "fulfilled";
+    date?: string;
+  } = {},
 ): Promise<RegisterDaySummary> {
-  const day = storeLocalDate();
+  const day = options.date ?? storeLocalDate();
+  const basis = options.basis ?? "booked";
   const res = await request.get(
-    `${apiBase()}/api/insights/register-day-activity?basis=booked&from=${day}&to=${day}&register_session_id=${sessionId}`,
+    `${apiBase()}/api/insights/register-day-activity?basis=${basis}&from=${day}&to=${day}&register_session_id=${sessionId}`,
     {
       headers: staffHeaders(),
       failOnStatusCode: false,
@@ -334,6 +434,77 @@ async function fetchDailySalesActivity(
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
   return JSON.parse(bodyText) as RegisterDaySummary;
+}
+
+async function markPickup(request: APIRequestContext, transactionId: string): Promise<void> {
+  const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      delivered_item_ids: [],
+      actor: "Reporting trust contract",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function assignFulfillmentTimestamp(
+  request: APIRequestContext,
+  transactionId: string,
+  timestampUtc: string,
+): Promise<void> {
+  const res = await request.post(
+    `${apiBase()}/api/test-support/qbo/assign-transaction-fulfillment-timestamp`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        transaction_id: transactionId,
+        timestamp_utc: timestampUtc,
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function fetchMarginPivotByCategory(
+  request: APIRequestContext,
+  date: string,
+): Promise<MarginPivotResponse> {
+  const res = await request.get(
+    `${apiBase()}/api/insights/margin-pivot?basis=fulfilled&group_by=category&from=${date}&to=${date}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as MarginPivotResponse;
+}
+
+async function fetchMarginPivotByDate(
+  request: APIRequestContext,
+  date: string,
+): Promise<MarginPivotResponse> {
+  const res = await request.get(
+    `${apiBase()}/api/insights/margin-pivot?basis=fulfilled&group_by=date&from=${date}&to=${date}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as MarginPivotResponse;
 }
 
 let serverReachable = false;
@@ -406,6 +577,192 @@ test.describe("Reporting trust contracts", () => {
     );
 
     const activity = dailySales.activities.find(
+      (row) => row.transaction_id === checkout.transaction_id,
+    );
+    expect(activity).toBeTruthy();
+    expect(parseMoneyToCents(activity?.sales_total)).toBe(
+      parseMoneyToCents(artifacts.total_price),
+    );
+    expect(activity?.payment_summary?.toLowerCase()).toContain("cash");
+    expect(parseMoneyToCents(activity?.balance_due)).toBe(0);
+  });
+
+  test("margin pivot uses effective quantity after partial return", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const bookedDate = storeLocalDate();
+    const recognitionDate = addDays(bookedDate, 1);
+    const recognitionTimestampUtc = `${recognitionDate}T16:00:00Z`;
+    const opened = await openFreshPrimarySession(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createReportingTrustProduct(request, operatorStaffId);
+
+    const checkout = await checkoutCashSale(request, {
+      ...product,
+      sessionId: opened.session_id,
+      sessionToken: opened.pos_api_token ?? "",
+      operatorStaffId,
+      fulfillment: "special_order",
+      quantity: 2,
+    });
+
+    await markPickup(request, checkout.transaction_id);
+    await assignFulfillmentTimestamp(
+      request,
+      checkout.transaction_id,
+      recognitionTimestampUtc,
+    );
+
+    const returnedDetail = await returnFirstTransactionLine(request, {
+      transactionId: checkout.transaction_id,
+      sessionId: opened.session_id,
+      sessionToken: opened.pos_api_token ?? "",
+      productSku: product.sku,
+    });
+    const returnedLine = returnedDetail.items.find((item) => item.sku === product.sku);
+    expect(returnedLine?.quantity).toBe(2);
+    expect(returnedLine?.quantity_returned).toBe(1);
+
+    const effectiveQuantity =
+      (returnedLine?.quantity ?? 0) - (returnedLine?.quantity_returned ?? 0);
+    expect(effectiveQuantity).toBe(1);
+
+    const margin = await fetchMarginPivotByCategory(request, recognitionDate);
+    const row = margin.rows.find((candidate) => candidate.bucket === product.categoryName);
+    expect(row).toBeTruthy();
+    expect(row?.line_units).toBe(effectiveQuantity);
+    expect(parseMoneyToCents(row?.gross_revenue)).toBe(10000 * effectiveQuantity);
+    expect(parseMoneyToCents(row?.cost_of_goods)).toBe(4000 * effectiveQuantity);
+    expect(parseMoneyToCents(row?.gross_margin)).toBe(6000 * effectiveQuantity);
+
+    expect(parseMoneyToCents(row?.gross_revenue)).not.toBe(20000);
+    expect(parseMoneyToCents(row?.cost_of_goods)).not.toBe(8000);
+    expect(parseMoneyToCents(row?.gross_margin)).not.toBe(12000);
+  });
+
+  test("margin pivot uses store-local fulfilled date around UTC boundary", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const localBusinessDate = addDays(storeLocalDate(), 1);
+    const utcCalendarDate = addDays(localBusinessDate, 1);
+    const recognitionTimestampUtc = `${utcCalendarDate}T03:30:00Z`;
+    const opened = await openFreshPrimarySession(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createReportingTrustProduct(request, operatorStaffId);
+
+    const checkout = await checkoutCashSale(request, {
+      ...product,
+      sessionId: opened.session_id,
+      sessionToken: opened.pos_api_token ?? "",
+      operatorStaffId,
+      fulfillment: "special_order",
+    });
+    const artifacts = await getTransactionArtifacts(request, checkout.transaction_id);
+    expect(parseMoneyToCents(artifacts.total_price)).toBe(10875);
+
+    await markPickup(request, checkout.transaction_id);
+    await assignFulfillmentTimestamp(
+      request,
+      checkout.transaction_id,
+      recognitionTimestampUtc,
+    );
+
+    const registerActivity = await fetchDailySalesActivity(request, opened.session_id, {
+      basis: "fulfilled",
+      date: localBusinessDate,
+    });
+    expect(registerActivity.reporting_basis).toBe("completed");
+    expect(
+      registerActivity.activities.some((row) => row.transaction_id === checkout.transaction_id),
+    ).toBe(true);
+
+    const localMargin = await fetchMarginPivotByCategory(request, localBusinessDate);
+    const localRow = localMargin.rows.find((candidate) => candidate.bucket === product.categoryName);
+    expect(localRow).toBeTruthy();
+    expect(localRow?.line_units).toBe(1);
+    expect(parseMoneyToCents(localRow?.gross_revenue)).toBe(10000);
+    expect(parseMoneyToCents(localRow?.cost_of_goods)).toBe(4000);
+    expect(parseMoneyToCents(localRow?.gross_margin)).toBe(6000);
+
+    const dateMargin = await fetchMarginPivotByDate(request, localBusinessDate);
+    const dateRow = dateMargin.rows.find((candidate) => candidate.bucket === localBusinessDate);
+    expect(dateRow).toBeTruthy();
+    expect(dateRow?.line_units).toBeGreaterThanOrEqual(1);
+    expect(parseMoneyToCents(dateRow?.gross_revenue)).toBeGreaterThanOrEqual(10000);
+    expect(parseMoneyToCents(dateRow?.cost_of_goods)).toBeGreaterThanOrEqual(4000);
+
+    const utcDateMargin = await fetchMarginPivotByCategory(request, utcCalendarDate);
+    expect(
+      utcDateMargin.rows.some((candidate) => candidate.bucket === product.categoryName),
+    ).toBe(false);
+  });
+
+  test("fulfilled basis reporting reconciles to canonical recognition evidence", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const bookedDate = storeLocalDate();
+    const recognitionDate = addDays(bookedDate, 1);
+    const recognitionTimestampUtc = `${recognitionDate}T16:00:00Z`;
+    const opened = await openFreshPrimarySession(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createReportingTrustProduct(request, operatorStaffId);
+
+    const checkout = await checkoutCashSale(request, {
+      ...product,
+      sessionId: opened.session_id,
+      sessionToken: opened.pos_api_token ?? "",
+      operatorStaffId,
+      fulfillment: "special_order",
+    });
+    const artifacts = await getTransactionArtifacts(request, checkout.transaction_id);
+    expect(parseMoneyToCents(artifacts.total_price)).toBe(10875);
+
+    const unfulfilledReport = await fetchDailySalesActivity(request, opened.session_id, {
+      basis: "fulfilled",
+      date: bookedDate,
+    });
+    expect(unfulfilledReport.reporting_basis).toBe("completed");
+    expect(
+      unfulfilledReport.activities.some(
+        (row) => row.transaction_id === checkout.transaction_id,
+      ),
+    ).toBe(false);
+
+    await markPickup(request, checkout.transaction_id);
+    await assignFulfillmentTimestamp(
+      request,
+      checkout.transaction_id,
+      recognitionTimestampUtc,
+    );
+
+    const bookedDayFulfilledReport = await fetchDailySalesActivity(
+      request,
+      opened.session_id,
+      {
+        basis: "fulfilled",
+        date: bookedDate,
+      },
+    );
+    expect(
+      bookedDayFulfilledReport.activities.some(
+        (row) => row.transaction_id === checkout.transaction_id,
+      ),
+    ).toBe(false);
+
+    const recognitionReport = await fetchDailySalesActivity(request, opened.session_id, {
+      basis: "fulfilled",
+      date: recognitionDate,
+    });
+    expect(recognitionReport.reporting_basis).toBe("completed");
+    expect(recognitionReport.sales_count).toBe(1);
+
+    const activity = recognitionReport.activities.find(
       (row) => row.transaction_id === checkout.transaction_id,
     );
     expect(activity).toBeTruthy();
