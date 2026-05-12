@@ -150,6 +150,16 @@ async function selectCustomer(page: Page): Promise<void> {
   await expect(page.getByText(/ROLLOUT-E2E/i)).toBeVisible({ timeout: 10_000 });
 }
 
+async function openSettingsSubItem(page: Page, label: RegExp): Promise<void> {
+  const menuToggle = page.getByRole("button", { name: /toggle menu/i });
+  if (await menuToggle.isVisible().catch(() => false)) {
+    await menuToggle.click().catch(() => {});
+  }
+  const subButton = page.getByRole("button", { name: label }).first();
+  await expect(subButton).toBeVisible({ timeout: 20_000 });
+  await subButton.click({ force: true });
+}
+
 async function checkoutSeededProduct(
   request: APIRequestContext,
   options?: {
@@ -512,5 +522,199 @@ test.describe("operational rollout smoke", () => {
         }),
       ]),
     );
+  });
+
+  test("transaction detail opens reprint receipt delivery choices", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const seeded = await checkoutSeededProduct(request, { quantity: 1 });
+    const displayId = seeded.detail.transaction_display_id ?? seeded.checkout.transaction_id;
+
+    await page.route("**/api/transactions?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              transaction_id: seeded.checkout.transaction_id,
+              display_id: displayId,
+              booked_at: new Date().toISOString(),
+              status: "paid",
+              total_price: seeded.detail.total_price,
+              amount_paid: seeded.detail.amount_paid,
+              balance_due: seeded.detail.balance_due,
+              customer_id: null,
+              customer_name: seeded.customerName,
+              wedding_member_id: null,
+              wedding_party_id: null,
+              party_name: null,
+              primary_salesperson_name: null,
+              item_count: seeded.detail.items.length,
+              order_kind: "special_order",
+              counterpoint_customer_code: null,
+            },
+          ],
+          total_count: 1,
+        }),
+      });
+    });
+
+    await signInToBackOffice(page, { persistSession: true });
+    await openBackofficeSidebarTab(page, "orders");
+    await page.getByRole("button", { name: "Transaction History" }).click();
+    await page
+      .getByRole("textbox", {
+        name: /Search by customer, phone, transaction number, or order number/i,
+      })
+      .fill(displayId);
+
+    const orderRow = page.locator("tr", { hasText: displayId }).first();
+    await expect(orderRow).toBeVisible({ timeout: 30_000 });
+    const desktopOrderId = page.locator("tbody").getByText(displayId, { exact: true }).first();
+    if (await desktopOrderId.isVisible().catch(() => false)) {
+      await desktopOrderId.click();
+    } else {
+      await page.locator("button", { hasText: displayId }).first().click();
+    }
+
+    const drawer = page.getByRole("dialog", { name: /Transaction Record|Order Detail/i });
+    await expect(drawer).toBeVisible({ timeout: 20_000 });
+    await expect(drawer).toContainText(displayId);
+    await expect(drawer.getByRole("button", { name: /Reprint Receipt/i })).toBeVisible();
+    await drawer.getByRole("button", { name: /Reprint Receipt/i }).click();
+
+    await expect(page.getByText(/Sale complete/i)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(new RegExp(`Transaction #${escapeRegExp(displayId)}`, "i"))).toBeVisible();
+    await expect(page.getByRole("button", { name: "Print receipt", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /View receipt/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Text receipt/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Email receipt/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Gift receipt/i })).toBeVisible();
+  });
+
+  test("bug report flow exposes downloadable diagnostics evidence", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    let submittedBody: unknown = null;
+
+    await page.route("**/api/bug-reports", async (route) => {
+      if (route.request().method() !== "POST") {
+        await route.fallback();
+        return;
+      }
+      submittedBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "rollout-report-1",
+          correlation_id: "33333333-4444-4555-8666-777777777777",
+        }),
+      });
+    });
+    await page.route(/\/api\/settings\/bug-reports$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "rollout-report-1",
+            correlation_id: "33333333-4444-4555-8666-777777777777",
+            created_at: "2026-05-12T12:00:00Z",
+            status: "pending",
+            summary: "Rollout diagnostics smoke",
+            staff_id: "staff-1",
+            staff_name: "Chris G",
+          },
+        ]),
+      });
+    });
+    await page.route(/\/api\/settings\/bug-reports\/error-events$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+    });
+    await page.route("**/api/settings/bug-reports/rollout-report-1", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "rollout-report-1",
+          correlation_id: "33333333-4444-4555-8666-777777777777",
+          created_at: "2026-05-12T12:00:00Z",
+          updated_at: "2026-05-12T12:00:00Z",
+          status: "pending",
+          summary: "Rollout diagnostics smoke",
+          steps_context: "Opened checkout and needed support evidence.",
+          client_console_log: "INFO rollout diagnostics smoke",
+          client_meta: {
+            href: "/",
+            event_capture: {
+              capture_type: "manual_bug_report",
+              route: "/",
+            },
+            runtime_surface: "browser",
+          },
+          screenshot_png_base64:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          server_log_snapshot: "rollout support log snapshot",
+          resolver_notes: "",
+          external_url: "",
+          staff_id: "staff-1",
+          staff_name: "Chris G",
+          resolved_at: null,
+          resolver_name: null,
+        }),
+      });
+    });
+
+    await signInToBackOffice(page, { persistSession: true });
+    await page.getByTestId("bug-report-trigger").click();
+    await expect(page.getByLabel(/what went wrong/i)).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByLabel(/what went wrong/i).fill("Rollout diagnostics smoke");
+    await page
+      .getByLabel(/what were you doing/i)
+      .fill("Opened checkout and needed support evidence.");
+    await page.getByRole("button", { name: /^submit report$/i }).click();
+    await expect
+      .poll(() => submittedBody, {
+        timeout: 20_000,
+        message: "bug report payload was not submitted",
+      })
+      .not.toBeNull();
+    expect(submittedBody).toEqual(
+      expect.objectContaining({
+        summary: "Rollout diagnostics smoke",
+        client_meta: expect.objectContaining({
+          event_capture: expect.objectContaining({
+            capture_type: "manual_bug_report",
+          }),
+        }),
+      }),
+    );
+
+    await openBackofficeSidebarTab(page, "settings");
+    await openSettingsSubItem(page, /^bug reports$/i);
+    await page.getByRole("button", { name: /^view$/i }).click();
+
+    const detail = page.getByRole("dialog", { name: /bug report detail/i });
+    await expect(detail).toBeVisible({ timeout: 20_000 });
+    await expect(detail.getByRole("button", { name: /full report json/i })).toBeVisible();
+    await expect(detail.getByRole("button", { name: /screenshot png/i })).toBeVisible();
+    await expect(detail.getByRole("button", { name: /support log/i })).toBeVisible();
+    await expect(detail.getByRole("button", { name: /browser log/i })).toBeVisible();
+
+    const downloadPromise = page.waitForEvent("download");
+    await detail.getByRole("button", { name: /full report json/i }).click();
+    const download = await downloadPromise;
+    expect(await download.path()).toBeTruthy();
   });
 });
