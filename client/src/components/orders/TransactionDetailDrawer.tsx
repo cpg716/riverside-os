@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Clock,
   ExternalLink,
@@ -9,9 +10,12 @@ import {
   Printer,
   ShieldCheck,
   Trash2,
+  X,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import {
   customOrderDetailEntries,
@@ -50,11 +54,16 @@ export interface TransactionDrawerItem {
   state_tax?: string;
   local_tax?: string;
   fulfillment: string;
+  order_lifecycle_status?: string;
   is_fulfilled: boolean;
   is_internal?: boolean;
   custom_item_type?: string | null;
   custom_order_details?: CustomOrderDetails | null;
   salesperson_name?: string | null;
+  vendor_name?: string | null;
+  po_number?: string | null;
+  vendor_eta?: string | null;
+  vendor_reference?: string | null;
 }
 
 export interface TransactionDrawerDetail {
@@ -175,6 +184,7 @@ interface TransactionDetailDrawerProps {
   loading?: boolean;
   errorMessage?: string | null;
   orderActions?: TransactionDrawerOrderActions;
+  onLifecycleChanged?: () => Promise<void> | void;
 }
 
 function formatAuditKind(kind: string): string {
@@ -282,6 +292,23 @@ function orderKindLabel(detail: TransactionDrawerDetail): string {
   if (detail.items.some((item) => item.fulfillment === "custom")) return "Custom";
   if (detail.items.some((item) => item.fulfillment === "special_order")) return "Special";
   return "Transaction";
+}
+
+function lifecycleStatusLabel(value?: string | null) {
+  switch (value) {
+    case "ntbo":
+      return "NTBO";
+    case "ordered":
+      return "Ordered";
+    case "received":
+      return "Received";
+    case "ready_for_pickup":
+      return "Ready for pickup";
+    case "picked_up":
+      return "Picked up";
+    default:
+      return null;
+  }
 }
 
 function fulfillmentSummary(detail: TransactionDrawerDetail) {
@@ -623,8 +650,10 @@ export default function TransactionDetailDrawer({
   loading: controlledLoading,
   errorMessage: controlledErrorMessage,
   orderActions,
+  onLifecycleChanged,
 }: TransactionDetailDrawerProps) {
   const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
   const auth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
@@ -642,6 +671,17 @@ export default function TransactionDetailDrawer({
     useState<EditableFulfillmentKind>("special_order");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [readyTarget, setReadyTarget] = useState<TransactionDrawerItem | null>(null);
+  const [readyChecklist, setReadyChecklist] = useState({
+    received: false,
+    prep: false,
+    customer: false,
+  });
+  const [managerCode, setManagerCode] = useState("");
+  const [managerPin, setManagerPin] = useState("");
+  const [readyBusy, setReadyBusy] = useState(false);
+  const [readyError, setReadyError] = useState<string | null>(null);
+  useShellBackdropLayer(Boolean(readyTarget));
 
   const usesControlledData =
     controlledDetail !== undefined ||
@@ -655,6 +695,7 @@ export default function TransactionDetailDrawer({
   const errorMessage = usesControlledData
     ? controlledErrorMessage ?? null
     : internalErrorMessage;
+  const drawerRoot = typeof document !== "undefined" ? document.getElementById("drawer-root") : null;
 
   const load = useCallback(async () => {
     if (!orderId || usesControlledData) return;
@@ -727,6 +768,80 @@ export default function TransactionDetailDrawer({
     setEditingLineId(null);
     setEditError(null);
   }, [editBusy]);
+
+  const openReadyModal = useCallback((item: TransactionDrawerItem) => {
+    setReadyTarget(item);
+    setReadyChecklist({ received: false, prep: false, customer: false });
+    setManagerCode("");
+    setManagerPin("");
+    setReadyError(null);
+  }, []);
+
+  const closeReadyModal = useCallback(() => {
+    if (readyBusy) return;
+    setReadyTarget(null);
+    setReadyError(null);
+  }, [readyBusy]);
+
+  const submitReadyTransition = useCallback(async () => {
+    if (!readyTarget?.transaction_line_id) return;
+    if (!readyChecklist.received || !readyChecklist.prep || !readyChecklist.customer) {
+      setReadyError("Confirm the received, prep, and customer-notification checks before marking ready.");
+      return;
+    }
+    setReadyBusy(true);
+    setReadyError(null);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/order-lifecycle/items/${readyTarget.transaction_line_id}/transition`,
+        {
+          method: "POST",
+          headers: {
+            ...auth(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            next_status: "ready_for_pickup",
+            reason: "Ready-for-pickup checklist confirmed",
+            manager_staff_code: managerCode.trim() || undefined,
+            manager_pin: managerPin.trim() || undefined,
+            metadata: {
+              checklist: {
+                received: readyChecklist.received,
+                prep: readyChecklist.prep,
+                customer: readyChecklist.customer,
+              },
+              product_name: readyTarget.product_name,
+              sku: readyTarget.sku,
+            },
+          }),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setReadyError(body.error ?? "Could not mark this item ready for pickup.");
+        return;
+      }
+      toast("Item marked ready for pickup.", "success");
+      setReadyTarget(null);
+      await onLifecycleChanged?.();
+      if (!usesControlledData) {
+        await load();
+      }
+    } finally {
+      setReadyBusy(false);
+    }
+  }, [
+    auth,
+    load,
+    managerCode,
+    managerPin,
+    onLifecycleChanged,
+    readyChecklist,
+    readyTarget,
+    toast,
+    usesControlledData,
+  ]);
 
   useEffect(() => {
     if (!detail || !editingLineId) return;
@@ -1364,6 +1479,7 @@ export default function TransactionDetailDrawer({
                       {group.items.map((item) => {
                     const itemId = item.order_item_id ?? item.transaction_line_id;
                     const returnedQty = item.quantity_returned ?? 0;
+                    const lifecycleLabel = lifecycleStatusLabel(item.order_lifecycle_status);
                     return (
                       <div
                         key={itemId ?? `${item.sku}-${item.product_name}`}
@@ -1397,11 +1513,27 @@ export default function TransactionDetailDrawer({
                               >
                                 {item.fulfillment.replace(/_/g, " ")}
                               </span>
+                              {lifecycleLabel && item.fulfillment !== "takeaway" ? (
+                                <span
+                                  className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
+                                    item.order_lifecycle_status === "picked_up" ||
+                                      item.order_lifecycle_status === "ready_for_pickup"
+                                      ? "success"
+                                      : item.order_lifecycle_status === "received"
+                                        ? "info"
+                                        : "warning",
+                                  )}`}
+                                >
+                                  {lifecycleLabel}
+                                </span>
+                              ) : null}
                             </div>
                             <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
                               {item.sku}
                               {item.variation_label ? ` · ${item.variation_label}` : ""}
                               {item.salesperson_name ? ` · ${item.salesperson_name}` : ""}
+                              {item.vendor_name ? ` · ${item.vendor_name}` : ""}
+                              {item.po_number ? ` · ${item.po_number}` : ""}
                             </p>
                             <div className="mt-2 flex flex-wrap gap-4 text-[11px] font-semibold text-app-text">
                               <span>Qty {item.quantity}</span>
@@ -1410,6 +1542,17 @@ export default function TransactionDetailDrawer({
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
+                            {item.order_lifecycle_status === "received" &&
+                            item.transaction_line_id &&
+                            !item.is_fulfilled ? (
+                              <button
+                                type="button"
+                                onClick={() => openReadyModal(item)}
+                                className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-success transition-colors hover:bg-app-success/10"
+                              >
+                                Mark Ready
+                              </button>
+                            ) : null}
                             {orderActions?.canModify &&
                             detail.status !== "cancelled" &&
                             !item.is_fulfilled &&
@@ -1634,6 +1777,118 @@ export default function TransactionDetailDrawer({
           </div>
         )}
       </DetailDrawer>
+
+      {readyTarget && drawerRoot
+        ? createPortal(
+            <div className="ui-overlay-backdrop z-200 flex items-center justify-center p-4">
+              <div className="ui-modal w-full max-w-lg">
+                <div className="ui-modal-header flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Ready for Pickup Checklist
+                    </p>
+                    <h3 className="mt-1 text-xl font-black text-app-text">
+                      {readyTarget.product_name}
+                    </h3>
+                    <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                      {readyTarget.sku}
+                      {readyTarget.vendor_name ? ` · ${readyTarget.vendor_name}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeReadyModal}
+                    disabled={readyBusy}
+                    className="rounded-xl p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                    aria-label="Close ready checklist"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="ui-modal-body space-y-3">
+                  <p className="rounded-xl border border-app-info/20 bg-app-info/10 p-3 text-sm font-semibold text-app-text">
+                    This only marks the item operationally ready. Customer pickup still has to use the normal pickup workflow.
+                  </p>
+                  {[
+                    ["received", "Item is physically received and matched to the order"],
+                    ["prep", "Final prep, fitting, or alteration review is complete"],
+                    ["customer", "Customer pickup expectations are clear"],
+                  ].map(([key, label]) => (
+                    <label
+                      key={key}
+                      className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface-2 p-3 text-sm font-bold text-app-text"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={readyChecklist[key as keyof typeof readyChecklist]}
+                        onChange={(event) =>
+                          setReadyChecklist((prev) => ({
+                            ...prev,
+                            [key]: event.target.checked,
+                          }))
+                        }
+                        disabled={readyBusy}
+                        className="h-4 w-4"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                  <div className="grid gap-3 rounded-xl border border-app-border bg-app-surface-2 p-3 sm:grid-cols-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Manager Code
+                      <input
+                        value={managerCode}
+                        onChange={(event) => setManagerCode(event.target.value)}
+                        disabled={readyBusy}
+                        className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                        placeholder="Optional"
+                      />
+                    </label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Manager Access PIN
+                      <input
+                        value={managerPin}
+                        onChange={(event) => setManagerPin(event.target.value)}
+                        disabled={readyBusy}
+                        className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                        placeholder="Optional"
+                        type="password"
+                        inputMode="numeric"
+                      />
+                    </label>
+                    <p className="sm:col-span-2 text-xs font-semibold text-app-text-muted">
+                      Use Manager Access only when your current staff access cannot perform lifecycle repair.
+                    </p>
+                  </div>
+                  {readyError ? (
+                    <p className="rounded-xl border border-app-danger/25 bg-app-danger/10 p-3 text-sm font-bold text-app-danger">
+                      {readyError}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="ui-modal-footer flex gap-3">
+                  <button
+                    type="button"
+                    onClick={closeReadyModal}
+                    disabled={readyBusy}
+                    className="ui-btn-secondary flex-1"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitReadyTransition()}
+                    disabled={readyBusy}
+                    className="flex-1 rounded-xl border-b-4 border-app-success bg-app-success px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
+                  >
+                    {readyBusy ? "Saving..." : "Mark Ready"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            drawerRoot,
+          )
+        : null}
 
       {showReceiptModal && orderId ? (
         <ReceiptSummaryModal

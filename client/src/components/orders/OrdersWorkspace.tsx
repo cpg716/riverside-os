@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Wallet,
   Printer,
+  Truck,
 } from "lucide-react";
 import AttachOrderToWeddingModal from "./AttachOrderToWeddingModal";
 import TransactionDetailDrawer, {
@@ -31,7 +32,6 @@ import TransactionDetailDrawer, {
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { getAppIcon } from "../../lib/icons";
-import { openProfessionalTablePrint } from "../pos/zReportPrint";
 
 const WEDDINGS_ICON = getAppIcon("weddings");
 const ORDERS_ICON = getAppIcon("orders");
@@ -50,12 +50,20 @@ interface TransactionRow {
   balance_due: string;
   customer_id: string | null;
   customer_name: string | null;
+  customer_code?: string | null;
+  customer_phone?: string | null;
+  customer_email?: string | null;
   wedding_member_id: string | null;
   wedding_party_id: string | null;
   party_name: string | null;
+  wedding_event_date?: string | null;
+  operator_name?: string | null;
   primary_salesperson_name?: string | null;
   item_count: number;
   order_items_summary?: string | null;
+  order_print_items?: unknown;
+  is_rush?: boolean;
+  need_by_date?: string | null;
   order_kind: string;
   counterpoint_customer_code?: string | null;
 }
@@ -98,8 +106,39 @@ interface OrderIntegritySummary {
 
 interface OrderLineSummary {
   count: number;
-  summary: string;
+  items: string[];
   error?: string;
+}
+
+interface OrderPrintItem {
+  name: string;
+  sku: string | null;
+  quantity: number;
+  status: string;
+}
+
+interface LifecycleItem {
+  transaction_line_id: string;
+  transaction_display_id: string;
+  customer_name: string;
+  product_name: string;
+  sku: string;
+  variation_label?: string | null;
+  quantity: number;
+  vendor_id?: string | null;
+  vendor_name?: string | null;
+  salesperson_name?: string | null;
+  is_rush: boolean;
+  need_by_date?: string | null;
+  wedding_date?: string | null;
+  days_outstanding: number;
+  risk_level: string;
+  safe_next_action: string;
+}
+
+interface VendorOption {
+  id: string;
+  name: string;
 }
 
 
@@ -126,30 +165,135 @@ function summarizeOrderItemsFromDetail(items: TransactionDrawerDetail["items"]):
   );
   return {
     count: orderItems.length,
-    summary: orderItems
-      .map((item) => {
-        const name = item.product_name?.trim() || item.sku?.trim() || "Order item";
-        const sku = item.sku?.trim();
-        return `${item.quantity}x ${name}${sku ? ` (${sku})` : ""}`;
-      })
-      .join(", "),
+    items: orderItems.map((item) => {
+      const name = item.product_name?.trim() || item.sku?.trim() || "Order item";
+      const sku = item.sku?.trim();
+      return `${item.quantity}x ${name}${sku ? ` (${sku})` : ""}`;
+    }),
   };
 }
 
-function orderItemsSummary(
+function orderItemLines(
   row: Pick<TransactionRow, "transaction_id" | "item_count" | "order_items_summary">,
   hydratedSummaries: Record<string, OrderLineSummary>,
 ) {
   const hydrated = hydratedSummaries[row.transaction_id];
-  if (hydrated?.summary) return hydrated.summary;
-  if (hydrated?.error) return "Could not load order items";
+  if (hydrated?.items.length) return hydrated.items;
+  if (hydrated?.error) return ["Could not load order items"];
   const summary = row.order_items_summary?.trim();
-  if (summary) return summary;
-  return row.item_count > 0 ? "Loading order items..." : "No order items on this transaction";
+  if (summary) return summary.split(/\n|,\s+(?=\d+(?:\.\d+)?x\s)/i).map((line) => line.trim()).filter(Boolean);
+  return row.item_count > 0 ? ["Loading order items..."] : ["No order items on this transaction"];
+}
+
+function formatLifecycleStatusLabel(status: string | null | undefined) {
+  const raw = status?.trim();
+  if (!raw) return "Lifecycle not loaded";
+  const normalized = raw.toLowerCase().replace(/_/g, " ");
+  switch (normalized) {
+    case "ntbo":
+      return "NTBO";
+    case "ordered":
+      return "Ordered";
+    case "received":
+      return "Received";
+    case "ready for pickup":
+      return "Ready for Pickup";
+    case "picked up":
+      return "Picked Up";
+    default:
+      return raw.replace(/_/g, " ");
+  }
+}
+
+function stripLeadingQuantity(name: string) {
+  return name.replace(/^\s*\d+(?:\.\d+)?\s*x\s+/i, "").trim() || name;
+}
+
+function parseFallbackOrderLine(line: string) {
+  const match = line.match(/^\s*(\d+(?:\.\d+)?)\s*x\s+(.+)$/i);
+  if (!match) return { quantity: 1, name: line };
+  return {
+    quantity: Number.parseFloat(match[1]) || 1,
+    name: match[2].trim(),
+  };
+}
+
+function displayOrderItemName(item: Pick<OrderPrintItem, "name">) {
+  return stripLeadingQuantity(item.name.trim() || "Order item");
 }
 
 function orderItemsCount(row: TransactionRow, hydratedSummaries: Record<string, OrderLineSummary>) {
   return hydratedSummaries[row.transaction_id]?.count ?? row.item_count;
+}
+
+function orderPriorityLabels(row: Pick<TransactionRow, "is_rush" | "need_by_date">) {
+  const labels: string[] = [];
+  if (row.is_rush) labels.push("Rush");
+  if (row.need_by_date) labels.push(`Due ${new Date(`${row.need_by_date}T00:00:00`).toLocaleDateString()}`);
+  return labels;
+}
+
+function customerContactLines(row: Pick<TransactionRow, "customer_code" | "counterpoint_customer_code" | "customer_phone" | "customer_email">) {
+  return [
+    row.customer_code || row.counterpoint_customer_code ? `#${row.customer_code ?? row.counterpoint_customer_code}` : null,
+    row.customer_phone ?? null,
+    row.customer_email ?? null,
+  ].filter((value): value is string => Boolean(value));
+}
+
+function customerNameLastFirst(row: Pick<TransactionRow, "customer_name" | "counterpoint_customer_code">) {
+  const name = row.customer_name?.trim();
+  if (!name) return `CP: ${row.counterpoint_customer_code ?? "Unknown"}`;
+  if (name.includes(",")) return name;
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return name;
+  return `${parts[parts.length - 1]}, ${parts.slice(0, -1).join(" ")}`;
+}
+
+function dateDisplay(value: string | null | undefined) {
+  return value ? new Date(`${value}T00:00:00`).toLocaleDateString() : "";
+}
+
+function escapePrintHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function asPrintItems(
+  row: Pick<TransactionRow, "order_print_items" | "transaction_id" | "item_count" | "order_items_summary">,
+  hydratedSummaries: Record<string, OrderLineSummary>,
+): OrderPrintItem[] {
+  if (Array.isArray(row.order_print_items)) {
+    const items = row.order_print_items
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const record = item as Record<string, unknown>;
+        const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : "Order item";
+        const sku = typeof record.sku === "string" && record.sku.trim() ? record.sku.trim() : null;
+        const quantity =
+          typeof record.quantity === "number"
+            ? record.quantity
+            : Number.parseInt(String(record.quantity ?? "1"), 10) || 1;
+        const status = typeof record.status === "string" && record.status.trim() ? record.status.trim() : "NTBO";
+        return { name, sku, quantity, status };
+      })
+      .filter((item): item is OrderPrintItem => Boolean(item));
+    if (items.length > 0) return items;
+  }
+
+  return orderItemLines(row, hydratedSummaries).map((line) => {
+    const parsed = parseFallbackOrderLine(line);
+    return {
+      name: parsed.name,
+      sku: null,
+      quantity: parsed.quantity,
+      status: "Lifecycle not loaded",
+    };
+  });
 }
 
 function dateFilterLabel(datePreset: string, dateFrom: string, dateTo: string) {
@@ -162,6 +306,141 @@ function dateFilterLabel(datePreset: string, dateFrom: string, dateTo: string) {
     return "Custom date range";
   }
   return "All dates";
+}
+
+function openBespokeOrdersPrint(opts: {
+  title: string;
+  subtitle: string;
+  rows: TransactionRow[];
+  hydratedOrderLines: Record<string, OrderLineSummary>;
+}) {
+  const w = window.open("", "_blank", "width=1100,height=950");
+  if (!w) return;
+
+  const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
+  const orderCards = opts.rows
+    .map((row) => {
+      const items = asPrintItems(row, opts.hydratedOrderLines);
+      const customerNumber = row.customer_code ?? row.counterpoint_customer_code ?? "";
+      const itemRows = items
+        .map((item) => {
+          const skuText = item.sku ? `<span class="item-sku">${escapePrintHtml(item.sku)}</span>` : "";
+          const status = `<span class="item-status">${escapePrintHtml(formatLifecycleStatusLabel(item.status))}</span>`;
+          return `
+            <div class="item-row">
+              <div class="item-main">
+                <span class="item-qty">${escapePrintHtml(`${item.quantity}x`)}</span>
+                <div class="item-copy">
+                  <div class="item-name">${escapePrintHtml(displayOrderItemName(item))}</div>
+                  ${skuText}
+                </div>
+              </div>
+              <div class="item-state">
+                ${status}
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+      const priority = [row.is_rush ? "Rush" : null, row.need_by_date ? `Due ${dateDisplay(row.need_by_date)}` : null]
+        .filter(Boolean)
+        .join(" · ");
+      const weddingDate = row.wedding_event_date ? `Wedding ${dateDisplay(row.wedding_event_date)}` : "";
+      return `
+        <section class="order-card">
+          <div class="order-top">
+            <div class="customer-head">
+              <div class="customer-name">${escapePrintHtml(customerNameLastFirst(row))}</div>
+              <div class="customer-meta">
+                <span>Customer # ${escapePrintHtml(customerNumber || "—")}</span>
+                <span>Phone ${escapePrintHtml(row.customer_phone ?? "—")}</span>
+                <span>Email ${escapePrintHtml(row.customer_email ?? "—")}</span>
+              </div>
+              <div class="transaction-meta">
+                <span>${escapePrintHtml(row.display_id)}</span>
+                <span>${escapePrintHtml(new Date(row.booked_at).toLocaleDateString())}</span>
+                <span>${escapePrintHtml(formatOrderStatusLabel(row.status))}</span>
+              </div>
+            </div>
+            <div class="order-flags">
+              ${priority ? `<span>${escapePrintHtml(priority)}</span>` : ""}
+              ${weddingDate ? `<span>${escapePrintHtml(weddingDate)}</span>` : ""}
+            </div>
+          </div>
+
+          <div class="items-title">Items Ordered</div>
+          <div class="items-list">${itemRows || `<div class="item-row muted">No order items on this transaction</div>`}</div>
+
+          <div class="order-footer">
+            <div class="staff-line">
+              <span>${escapePrintHtml(row.primary_salesperson_name ? `Salesperson: ${row.primary_salesperson_name}` : "Salesperson: —")}</span>
+              <span>${escapePrintHtml(row.operator_name ? `Cashier: ${row.operator_name}` : "Cashier: —")}</span>
+            </div>
+            <div class="money-grid">
+              <div><span>Total</span><strong>${escapePrintHtml(money(row.total_price))}</strong></div>
+              <div><span>Deposits</span><strong>${escapePrintHtml(money(row.amount_paid))}</strong></div>
+              <div><span>Balance</span><strong>${escapePrintHtml(money(row.balance_due))}</strong></div>
+            </div>
+          </div>
+        </section>
+      `;
+    })
+    .join("");
+
+  w.document.write(`<!DOCTYPE html><html><head><title>${escapePrintHtml(opts.title)}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800;900&display=swap');
+    body { font-family: Inter, system-ui, sans-serif; color: #0f172a; padding: 32px; font-size: 13px; line-height: 1.35; }
+    h1 { font-size: 28px; font-weight: 900; margin: 0; letter-spacing: 0; }
+    .muted { color: #64748b; }
+    .report-head { display:flex; justify-content:space-between; gap:24px; border-bottom:4px solid #0f172a; padding-bottom:18px; margin-bottom:22px; }
+    .report-meta { text-align:right; font-weight:800; color:#475569; }
+    .subtitle { font-size: 14px; font-weight: 800; margin: 0 0 20px; }
+    .order-card { break-inside: avoid; border: 2px solid #cbd5e1; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .order-top { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; border-bottom:1px solid #e2e8f0; padding-bottom:12px; }
+    .customer-head { min-width:0; flex:1; }
+    .customer-name { font-size: 24px; font-weight: 900; letter-spacing:0; }
+    .customer-meta, .transaction-meta { display:flex; flex-wrap:wrap; gap:10px 16px; margin-top:5px; color:#475569; font-size:12px; font-weight:800; }
+    .transaction-meta { color:#0f172a; font-size:13px; }
+    .order-flags { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+    .order-flags span, .item-status { border:1px solid #cbd5e1; border-radius:999px; padding:5px 9px; font-size:11px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; }
+    .items-title { font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.14em; color:#475569; margin:14px 0 8px; }
+    .items-list { border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; }
+    .item-row { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:10px 12px; border-bottom:1px solid #e2e8f0; }
+    .item-row:last-child { border-bottom:0; }
+    .item-main { min-width:0; flex:1; display:flex; align-items:flex-start; gap:10px; }
+    .item-qty { flex:0 0 auto; min-width:32px; font-size:15px; font-weight:900; color:#0f172a; }
+    .item-copy { min-width:0; flex:1; }
+    .item-name { font-size:15px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .item-sku { display:block; margin-top:2px; font-size:12px; font-weight:800; color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .item-state { flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; gap:4px; max-width:190px; }
+    .order-footer { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-top:14px; }
+    .staff-line { display:flex; flex-direction:column; gap:3px; font-size:12px; font-weight:800; color:#334155; }
+    .money-grid { display:grid; grid-template-columns: repeat(3, auto); gap:14px; text-align:right; }
+    .money-grid span { display:block; font-size:10px; font-weight:900; color:#64748b; text-transform:uppercase; letter-spacing:.12em; }
+    .money-grid strong { display:block; font-size:17px; font-weight:900; margin-top:2px; }
+    @media print {
+      body { padding: 0; }
+      .order-card { page-break-inside: avoid; }
+    }
+  </style></head><body>
+    <header class="report-head">
+      <div>
+        <h1>RIVERSIDE OS</h1>
+        <div class="muted" style="font-weight:800;margin-top:4px;">${escapePrintHtml(opts.title)} · Bespoke Order List</div>
+      </div>
+      <div class="report-meta">
+        <div>REPORTING STATION</div>
+        <div style="font-size:15px;color:#0f172a;margin-top:4px;">${escapePrintHtml(reportPrinter)}</div>
+        <div style="margin-top:8px;">Generated: ${escapePrintHtml(new Date().toLocaleString())}</div>
+      </div>
+    </header>
+    <p class="subtitle">${escapePrintHtml(opts.subtitle)}</p>
+    ${orderCards || `<section class="order-card muted">No records found</section>`}
+  </body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 500);
 }
 
 type Section = "open" | "all";
@@ -227,7 +506,10 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
   actions: OrderRowActions;
   hydratedSummaries: Record<string, OrderLineSummary>;
 }) {
-  const visibleItemCount = orderItemsCount(row, hydratedSummaries);
+  const lifecycleItems = asPrintItems(row, hydratedSummaries);
+  const visibleItemCount = lifecycleItems.length || orderItemsCount(row, hydratedSummaries);
+  const contactLines = customerContactLines(row);
+  const priorityLabels = orderPriorityLabels(row);
   return (
     <tr 
       onClick={onClick}
@@ -253,6 +535,13 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
                   {row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`}
                   {row.party_name && <WEDDINGS_ICON size={10} className="text-app-danger" />}
                 </p>
+                {contactLines.length > 0 ? (
+                  <div className="mt-1 space-y-0.5 text-[9px] font-bold text-app-text-muted">
+                    {contactLines.map((line) => (
+                      <p key={line} className="truncate">{line}</p>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="mt-0.5 flex flex-wrap items-center gap-2">
                   <p className="text-[9px] font-bold uppercase tracking-widest italic text-app-text-muted">
                     {orderKindLabel(row.order_kind)}
@@ -271,14 +560,44 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
            <p className="text-[10px] font-black text-app-text">
              {visibleItemCount} item{visibleItemCount === 1 ? "" : "s"}
            </p>
-           <p className="mt-1 line-clamp-2 text-[10px] font-bold text-app-text-muted">
-             {orderItemsSummary(row, hydratedSummaries)}
-           </p>
-           {row.primary_salesperson_name ? (
-             <p className="mt-1 truncate text-[9px] font-bold italic text-app-text-muted">
-               Staff: {row.primary_salesperson_name}
-             </p>
+           <div className="mt-1 space-y-1 text-[10px] font-bold text-app-text-muted">
+             {lifecycleItems.map((item, index) => (
+               <div
+                 key={`${item.name}-${item.sku ?? "no-sku"}-${index}`}
+                 className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-app-border/50 bg-app-surface-2/60 px-2 py-1"
+                 data-testid="open-order-lifecycle-item"
+               >
+                 <span className="min-w-0 flex-1 truncate">
+                   <span className="font-black text-app-text">{item.quantity}x</span>{" "}
+                   {displayOrderItemName(item)}
+                   {item.sku ? <span className="text-app-text-disabled"> · {item.sku}</span> : null}
+                 </span>
+                 <span className="shrink-0 rounded-md border border-app-border bg-app-surface px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-text">
+                   {formatLifecycleStatusLabel(item.status)}
+                 </span>
+               </div>
+             ))}
+           </div>
+           {priorityLabels.length > 0 ? (
+             <div className="mt-2 flex flex-wrap gap-1">
+               {priorityLabels.map((label) => (
+                 <span
+                   key={label}
+                   className="rounded-md border border-app-warning/30 bg-app-warning/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-warning"
+                 >
+                   {label}
+                 </span>
+               ))}
+             </div>
            ) : null}
+        </td>
+        <td className="px-6 py-4">
+          <p className="max-w-[180px] truncate text-[10px] font-black text-app-text">
+            {row.primary_salesperson_name ?? "—"}
+          </p>
+          <p className="mt-1 max-w-[180px] truncate text-[9px] font-bold text-app-text-muted">
+            Cashier: {row.operator_name ?? "—"}
+          </p>
         </td>
         <td className="px-6 py-4">
            <span className={cn(
@@ -293,7 +612,7 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
         <td className="px-6 py-4">
           <p className="text-[11px] font-black text-app-text">{money(row.total_price)}</p>
           <p className="mt-1 text-[9px] font-bold text-app-text-muted">
-            Paid {money(row.amount_paid)}
+            Deposits {money(row.amount_paid)}
           </p>
         </td>
         <td className="px-6 py-4 text-right flex items-center justify-end gap-3">
@@ -325,7 +644,10 @@ function OrderMobileCard({
   hydratedSummaries: Record<string, OrderLineSummary>;
 }) {
   const balanceDue = parseMoneyToCents(row.balance_due);
-  const visibleItemCount = orderItemsCount(row, hydratedSummaries);
+  const lifecycleItems = asPrintItems(row, hydratedSummaries);
+  const visibleItemCount = lifecycleItems.length || orderItemsCount(row, hydratedSummaries);
+  const contactLines = customerContactLines(row);
+  const priorityLabels = orderPriorityLabels(row);
   return (
     <article
       className={cn(
@@ -357,13 +679,48 @@ function OrderMobileCard({
           <p className="truncate text-base font-black text-app-text">
             {row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`}
           </p>
+          {contactLines.length > 0 ? (
+            <div className="mt-1 space-y-0.5 text-[10px] font-bold text-app-text-muted">
+              {contactLines.map((line) => (
+                <p key={line} className="truncate">{line}</p>
+              ))}
+            </div>
+          ) : null}
           <p className="mt-1 truncate text-xs font-semibold text-app-text-muted">
             {visibleItemCount} item{visibleItemCount === 1 ? "" : "s"}
             {row.primary_salesperson_name ? ` · ${row.primary_salesperson_name}` : ""}
+            {row.operator_name ? ` · Cashier ${row.operator_name}` : ""}
           </p>
-          <p className="mt-2 line-clamp-3 rounded-xl border border-app-border/50 bg-app-surface-2/70 px-3 py-2 text-xs font-semibold text-app-text-muted">
-            {orderItemsSummary(row, hydratedSummaries)}
-          </p>
+          <div className="mt-2 space-y-1 rounded-xl border border-app-border/50 bg-app-surface-2/70 px-3 py-2 text-xs font-semibold text-app-text-muted">
+            {lifecycleItems.map((item, index) => (
+              <div
+                key={`${item.name}-${item.sku ?? "no-sku"}-${index}`}
+                className="flex min-w-0 items-center justify-between gap-2"
+                data-testid="open-order-lifecycle-item"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-black text-app-text">{item.quantity}x</span>{" "}
+                  {displayOrderItemName(item)}
+                  {item.sku ? <span className="text-app-text-disabled"> · {item.sku}</span> : null}
+                </span>
+                <span className="shrink-0 rounded-md border border-app-border bg-app-surface px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-text">
+                  {formatLifecycleStatusLabel(item.status)}
+                </span>
+              </div>
+            ))}
+          </div>
+          {priorityLabels.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {priorityLabels.map((label) => (
+                <span
+                  key={label}
+                  className="rounded-md border border-app-warning/30 bg-app-warning/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          ) : null}
           {row.party_name ? (
             <p className="mt-1 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-danger">
               <WEDDINGS_ICON size={12} />
@@ -383,7 +740,7 @@ function OrderMobileCard({
           </div>
           <div className="rounded-xl border border-app-border/50 bg-app-surface-2/70 p-3">
             <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-              Paid
+              Deposits
             </dt>
             <dd className="mt-1 font-mono font-black text-app-text">
               {money(row.amount_paid)}
@@ -451,6 +808,7 @@ export default function OrdersWorkspace({
   const canCancel = hasPermission("orders.cancel");
   const canVoidUnpaid = hasPermission("orders.void_sale");
   const canRefund = hasPermission("orders.refund_process");
+  const canManageLifecycle = hasPermission("orders.lifecycle_manage");
 
   const [transactionRows, setTransactionRows] = useState<TransactionRow[]>([]);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
@@ -494,8 +852,46 @@ export default function OrdersWorkspace({
     defaultViewPreset,
   );
   const [hydratedOrderLines, setHydratedOrderLines] = useState<Record<string, OrderLineSummary>>({});
+  const [ntboItems, setNtboItems] = useState<LifecycleItem[]>([]);
+  const [ntboLoading, setNtboLoading] = useState(false);
+  const [ntboError, setNtboError] = useState<string | null>(null);
+  const [selectedNtboIds, setSelectedNtboIds] = useState<Set<string>>(() => new Set());
+  const [vendors, setVendors] = useState<VendorOption[]>([]);
+  const [ntboVendorId, setNtboVendorId] = useState("");
+  const [ntboPoBusy, setNtboPoBusy] = useState(false);
 
   const section: Section = viewPreset === "all" ? "all" : "open";
+
+  const loadNtboItems = useCallback(async () => {
+    setNtboLoading(true);
+    setNtboError(null);
+    try {
+      const [itemsRes, vendorsRes] = await Promise.all([
+        fetch(`${baseUrl}/api/order-lifecycle/items?status=ntbo`, {
+          headers: backofficeHeaders(),
+        }),
+        fetch(`${baseUrl}/api/vendors`, {
+          headers: backofficeHeaders(),
+        }),
+      ]);
+      if (!itemsRes.ok) throw new Error("ntbo_load_failed");
+      const items = (await itemsRes.json()) as LifecycleItem[];
+      const nextItems = Array.isArray(items) ? items : [];
+      setNtboItems(nextItems);
+      setSelectedNtboIds((prev) => {
+        const visible = new Set(nextItems.map((item) => item.transaction_line_id));
+        return new Set([...prev].filter((id) => visible.has(id)));
+      });
+      if (vendorsRes.ok) {
+        const rows = (await vendorsRes.json()) as VendorOption[];
+        setVendors(Array.isArray(rows) ? rows : []);
+      }
+    } catch {
+      setNtboError("NTBO queue could not refresh. Existing orders are still shown below.");
+    } finally {
+      setNtboLoading(false);
+    }
+  }, [backofficeHeaders, baseUrl]);
 
   useEffect(() => {
     setViewPreset(defaultViewPreset);
@@ -636,6 +1032,10 @@ export default function OrdersWorkspace({
   }, [loadTransactions]);
 
   useEffect(() => {
+    void loadNtboItems();
+  }, [loadNtboItems]);
+
+  useEffect(() => {
     const rowsNeedingNames = transactionRows.filter(
       (row) => row.item_count > 0 && !row.order_items_summary?.trim() && !hydratedOrderLines[row.transaction_id],
     );
@@ -656,7 +1056,7 @@ export default function OrdersWorkspace({
             row.transaction_id,
             {
               count: row.item_count,
-              summary: "",
+              items: [],
               error: "Could not load order items",
             } satisfies OrderLineSummary,
           ] as const;
@@ -701,10 +1101,11 @@ export default function OrdersWorkspace({
     if (refreshSignal === 0) return;
     void loadPipelineStats();
     void loadTransactions();
+    void loadNtboItems();
     if (selectedId) {
       void loadDetail(selectedId);
     }
-  }, [loadDetail, loadPipelineStats, loadTransactions, refreshSignal, selectedId]);
+  }, [loadDetail, loadNtboItems, loadPipelineStats, loadTransactions, refreshSignal, selectedId]);
 
   const addBySku = async (skuOverride?: string): Promise<boolean> => {
     const enteredSku = (skuOverride ?? sku).trim();
@@ -984,6 +1385,37 @@ export default function OrdersWorkspace({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [transactionRows]);
 
+  const createPoFromNtbo = useCallback(async () => {
+    if (!ntboVendorId || selectedNtboIds.size === 0) return;
+    setNtboPoBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/order-lifecycle/ntbo/create-po`, {
+        method: "POST",
+        headers: jsonHeaders(backofficeHeaders),
+        body: JSON.stringify({
+          vendor_id: ntboVendorId,
+          transaction_line_ids: [...selectedNtboIds],
+          notes: "Created from ROS NTBO queue",
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Could not create purchase order from NTBO items.", "error");
+        return;
+      }
+      const body = (await res.json()) as { po_number?: string; linked_line_count?: number };
+      toast(
+        `${body.po_number ?? "Purchase order"} created for ${body.linked_line_count ?? selectedNtboIds.size} item(s).`,
+        "success",
+      );
+      setSelectedNtboIds(new Set());
+      await loadNtboItems();
+      await loadTransactions();
+    } finally {
+      setNtboPoBusy(false);
+    }
+  }, [backofficeHeaders, baseUrl, loadNtboItems, loadTransactions, ntboVendorId, selectedNtboIds, toast]);
+
   const orderIntegritySummary = useMemo<OrderIntegritySummary>(() => {
     return transactionRows.reduce(
       (summary, row) => ({
@@ -1050,7 +1482,7 @@ export default function OrdersWorkspace({
   const hasUnresolvedOrderItems = transactionRows.some((row) => {
     if (row.item_count <= 0 || row.order_items_summary?.trim()) return false;
     const hydrated = hydratedOrderLines[row.transaction_id];
-    return !hydrated?.summary;
+    return !hydrated?.items.length && !hydrated?.error;
   });
 
   const printOrdersList = useCallback(() => {
@@ -1068,33 +1500,11 @@ export default function OrdersWorkspace({
       search.trim() ? `Search: ${search.trim()}` : null,
     ].filter(Boolean);
 
-    openProfessionalTablePrint({
+    openBespokeOrdersPrint({
       title,
       subtitle: `${filters.join(" · ")} · ${transactionRows.length} visible record${transactionRows.length === 1 ? "" : "s"}`,
-      columns: [
-        "ID",
-        "Date",
-        "Customer",
-        "Type",
-        "Order Items",
-        "Status",
-        "Total",
-        "Paid",
-        "Balance",
-        "Staff",
-      ],
-      rows: transactionRows.map((row) => ({
-        ID: row.display_id,
-        Date: new Date(row.booked_at).toLocaleDateString(),
-        Customer: row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`,
-        Type: orderKindLabel(row.order_kind),
-        "Order Items": orderItemsSummary(row, hydratedOrderLines),
-        Status: formatOrderStatusLabel(row.status),
-        Total: money(row.total_price),
-        Paid: money(row.amount_paid),
-        Balance: money(row.balance_due),
-        Staff: row.primary_salesperson_name ?? "",
-      })),
+      rows: transactionRows,
+      hydratedOrderLines,
     });
   }, [
     dateFrom,
@@ -1381,6 +1791,119 @@ export default function OrdersWorkspace({
                 ) : null}
             </div>
 
+            <div className="border-b border-app-border bg-app-surface px-4 py-4 lg:px-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 rounded-xl border border-app-warning/25 bg-app-warning/10 p-2 text-app-warning">
+                    <Truck size={18} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      NTBO Vendor Queue
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-app-text">
+                      {ntboLoading
+                        ? "Refreshing items that still need vendor ordering..."
+                        : `${ntboItems.length} item${ntboItems.length === 1 ? "" : "s"} still need vendor ordering.`}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                      Creates exact PO-line links and moves selected items from NTBO to Ordered.
+                    </p>
+                    {ntboError ? (
+                      <p className="mt-2 text-xs font-bold text-app-warning">{ntboError}</p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={ntboVendorId}
+                    onChange={(event) => setNtboVendorId(event.target.value)}
+                    className="ui-input h-10 min-w-[220px] px-3 text-[10px] font-black uppercase tracking-widest"
+                    disabled={!canManageLifecycle || ntboPoBusy}
+                  >
+                    <option value="">Vendor: Select</option>
+                    {vendors.map((vendor) => (
+                      <option key={vendor.id} value={vendor.id}>
+                        {vendor.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void createPoFromNtbo()}
+                    disabled={!canManageLifecycle || !ntboVendorId || selectedNtboIds.size === 0 || ntboPoBusy}
+                    className="rounded-xl border border-app-accent/30 bg-app-accent px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {ntboPoBusy ? "Creating..." : `Create PO (${selectedNtboIds.size})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void loadNtboItems()}
+                    disabled={ntboLoading}
+                    className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text disabled:opacity-50"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+              {ntboItems.length > 0 ? (
+                <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+                  {ntboItems.slice(0, 6).map((item) => {
+                    const selected = selectedNtboIds.has(item.transaction_line_id);
+                    return (
+                      <label
+                        key={item.transaction_line_id}
+                        className={cn(
+                          "flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors",
+                          selected
+                            ? "border-app-accent/40 bg-app-accent/10"
+                            : "border-app-border bg-app-surface-2 hover:border-app-border-hover",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          disabled={!canManageLifecycle}
+                          onChange={(event) => {
+                            setSelectedNtboIds((prev) => {
+                              const next = new Set(prev);
+                              if (event.target.checked) next.add(item.transaction_line_id);
+                              else next.delete(item.transaction_line_id);
+                              return next;
+                            });
+                          }}
+                          className="mt-1 h-4 w-4"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-black text-app-text">
+                            {item.quantity}x {item.product_name}
+                          </span>
+                          <span className="mt-1 block truncate text-[11px] font-semibold text-app-text-muted">
+                            {item.transaction_display_id} · {item.customer_name} · {item.sku}
+                          </span>
+                          <span className="mt-2 flex flex-wrap gap-1.5">
+                            {item.is_rush ? (
+                              <span className="rounded-full border border-app-danger/20 bg-app-danger/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-danger">
+                                Rush
+                              </span>
+                            ) : null}
+                            <span className="rounded-full border border-app-border bg-app-surface px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+                              {item.risk_level.replace(/_/g, " ")}
+                            </span>
+                            {item.need_by_date ? (
+                              <span className="rounded-full border border-app-border bg-app-surface px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+                                Need {dateDisplay(item.need_by_date)}
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+
             <div className="grid gap-3 p-3 xl:hidden">
               {transactionRows.map((r) => (
                 <OrderMobileCard
@@ -1413,7 +1936,8 @@ export default function OrdersWorkspace({
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Customer</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Pickup Summary</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Order Items / Lifecycle</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Salesperson / Cashier</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Status</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Transaction Amounts</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted text-right">Balance</th>
@@ -1510,6 +2034,11 @@ export default function OrdersWorkspace({
         audit={audit}
         loading={detailLoading}
         errorMessage={detailError}
+        onLifecycleChanged={async () => {
+          if (selectedId) await loadDetail(selectedId);
+          await loadTransactions();
+          await loadNtboItems();
+        }}
         orderActions={{
           onOpenInRegister,
           onAttachToWedding: () => setAttachWeddingModalOpen(true),

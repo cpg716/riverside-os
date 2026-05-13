@@ -435,9 +435,16 @@ export function openProfessionalTablePrint(opts: {
   if (!w) return;
 
   const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
+  const escapeHtml = (value: string) =>
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
 
   const headerCells = opts.columns
-    .map((c) => `<th style="text-align:left;padding:12px 8px;border-bottom:2px solid #e2e8f0;white-space:nowrap">${c.replace(/_/g, " ").toUpperCase()}</th>`)
+    .map((c) => `<th style="text-align:left;padding:12px 8px;border-bottom:2px solid #e2e8f0;white-space:nowrap">${escapeHtml(c.replace(/_/g, " ").toUpperCase())}</th>`)
     .join("");
 
   const bodyRows = opts.rows
@@ -446,14 +453,14 @@ export function openProfessionalTablePrint(opts: {
         .map((c) => {
           const val = r[c];
           const display = val === null || val === undefined ? "—" : String(val);
-          return `<td style="padding:10px 8px;border-bottom:1px solid #f1f5f9;font-weight:500">${display}</td>`;
+          return `<td style="padding:10px 8px;border-bottom:1px solid #f1f5f9;font-weight:500;vertical-align:top;white-space:normal">${escapeHtml(display).replace(/\n/g, "<br>")}</td>`;
         })
         .join("");
       return `<tr>${cells}</tr>`;
     })
     .join("");
 
-  w.document.write(`<!DOCTYPE html><html><head><title>${opts.title}</title>
+  w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(opts.title)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
     body { font-family: 'Inter', system-ui, sans-serif; font-size: 11px; line-height: 1.4; color: #0f172a; padding: 40px; }
@@ -466,16 +473,16 @@ export function openProfessionalTablePrint(opts: {
   <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 4px solid #0f172a; padding-bottom: 20px;">
     <div>
       <h1>RIVERSIDE OS</h1>
-      <p style="font-weight: 700; color: #64748b; margin-top: 4px;">Internal Audit · ${opts.title}</p>
+      <p style="font-weight: 700; color: #64748b; margin-top: 4px;">Internal Audit · ${escapeHtml(opts.title)}</p>
     </div>
     <div style="text-align: right;">
       <p style="font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase;">Reporting Station</p>
-      <p style="font-weight: 800; font-size: 13px;">${reportPrinter}</p>
+      <p style="font-weight: 800; font-size: 13px;">${escapeHtml(reportPrinter)}</p>
       <p class="muted" style="margin-top: 4px;">Generated: ${new Date().toLocaleString()}</p>
     </div>
   </div>
 
-  ${opts.subtitle ? `<p style="margin-top:20px;font-weight:700;font-size:12px">${opts.subtitle}</p>` : ""}
+  ${opts.subtitle ? `<p style="margin-top:20px;font-weight:700;font-size:12px">${escapeHtml(opts.subtitle)}</p>` : ""}
 
   <table>
     <thead><tr>${headerCells}</tr></thead>

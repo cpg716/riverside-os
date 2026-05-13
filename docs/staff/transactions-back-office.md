@@ -30,10 +30,22 @@
 
 1. **Orders** → **Open Fulfillment**.
 2. Sort or filter by **date**, **customer**, **status** if available.
-3. Click record → verify **lines**, **balance due**, **customer** attachment.
-4. **Take payment** only when the linked Transaction Record balance needs payment.
-5. **Pickup** / **fulfill**: complete **line checkoffs** if prompted (prevents partial mistakes).
-6. **Attach Wedding**: Link a standalone fulfillment record to a **Wedding Party** member when it belongs with a wedding group.
+3. Review the **Order Items / Lifecycle** column. Each ordered item appears on its own line with its current status: **NTBO**, **Ordered**, **Received**, **Ready for Pickup**, or **Picked Up**.
+4. Click record → verify **lines**, **balance due**, **customer** attachment.
+5. Use **Print** to produce the filtered Open Orders list. The printout is customer-first and item-focused: customer name and number, phone/email when available, transaction number, one ordered item per line with lifecycle status, salesperson, cashier, total, deposits, and balance.
+6. **Take payment** only when the linked Transaction Record balance needs payment.
+7. **Pickup** / **fulfill**: complete **line checkoffs** if prompted (prevents partial mistakes).
+8. **Attach Wedding**: Link a standalone fulfillment record to a **Wedding Party** member when it belongs with a wedding group.
+
+### Item lifecycle terms
+
+| Status | Meaning |
+|--------|---------|
+| **NTBO** | Needs to be ordered. The item is sold but not yet attached to vendor ordering. |
+| **Ordered** | Vendor ordering or PO work is committed. |
+| **Received** | The item has been received through the receiving workflow. |
+| **Ready for Pickup** | The item is ready for customer pickup or final release. |
+| **Picked Up** | The item was fulfilled through the pickup path. |
 
 ## Transaction History
 

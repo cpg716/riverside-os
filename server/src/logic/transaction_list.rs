@@ -1,6 +1,6 @@
 //! Paged order list SQL for Back Office and register-scoped reads.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use meilisearch_sdk::client::Client as MeilisearchClient;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -47,12 +47,20 @@ pub struct TransactionListRow {
     pub customer_id: Option<Uuid>,
     pub customer_first_name: Option<String>,
     pub customer_last_name: Option<String>,
+    pub customer_code: Option<String>,
+    pub customer_phone: Option<String>,
+    pub customer_email: Option<String>,
     pub wedding_member_id: Option<Uuid>,
     pub wedding_party_id: Option<Uuid>,
     pub party_name: Option<String>,
+    pub wedding_event_date: Option<NaiveDate>,
+    pub operator_name: Option<String>,
     pub primary_salesperson_name: Option<String>,
     pub item_count: i64,
     pub order_items_summary: Option<String>,
+    pub order_print_items: serde_json::Value,
+    pub is_rush: bool,
+    pub need_by_date: Option<NaiveDate>,
     pub has_special_order: bool,
     pub has_wedding_order: bool,
     pub has_layaway: bool,
@@ -101,12 +109,20 @@ pub struct TransactionListResponse {
     pub balance_due: Decimal,
     pub customer_id: Option<Uuid>,
     pub customer_name: Option<String>,
+    pub customer_code: Option<String>,
+    pub customer_phone: Option<String>,
+    pub customer_email: Option<String>,
     pub wedding_member_id: Option<Uuid>,
     pub wedding_party_id: Option<Uuid>,
     pub party_name: Option<String>,
+    pub wedding_event_date: Option<NaiveDate>,
+    pub operator_name: Option<String>,
     pub primary_salesperson_name: Option<String>,
     pub item_count: i64,
     pub order_items_summary: Option<String>,
+    pub order_print_items: serde_json::Value,
+    pub is_rush: bool,
+    pub need_by_date: Option<NaiveDate>,
     pub order_kind: String,
     pub has_special_order: bool,
     pub has_wedding_order: bool,
@@ -206,10 +222,15 @@ pub async fn query_paged_transactions(
             c.id AS customer_id,
             c.first_name AS customer_first_name,
             c.last_name AS customer_last_name,
+            NULLIF(TRIM(c.customer_code), '') AS customer_code,
+            NULLIF(TRIM(c.phone), '') AS customer_phone,
+            NULLIF(TRIM(c.email), '') AS customer_email,
             o.wedding_member_id,
             wm.wedding_party_id,
             o.status,
             {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
+            wp.event_date AS wedding_event_date,
+            op.full_name AS operator_name,
             COALESCE(BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')), false) AS is_fulfillment_order,
             ps.full_name AS primary_salesperson_name,
             NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code,
@@ -234,11 +255,47 @@ pub async fn query_paged_transactions(
                             ELSE ''
                         END
                     ),
-                    ', '
+                    E'\n'
                     ORDER BY oi.id
                 ) FILTER (WHERE oi.fulfillment::text <> 'takeaway'),
                 ''
             ) AS order_items_summary,
+            COALESCE(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'name',
+                        COALESCE(
+                            NULLIF(TRIM(p.name), ''),
+                            NULLIF(TRIM(oi.size_specs->>'counterpoint_description'), ''),
+                            NULLIF(TRIM(oi.size_specs->>'line_description'), ''),
+                            NULLIF(TRIM(oi.size_specs->>'item_description'), ''),
+                            NULLIF(TRIM(pv.sku), ''),
+                            NULLIF(TRIM(oi.size_specs->>'counterpoint_sku'), ''),
+                            NULLIF(TRIM(oi.size_specs->>'counterpoint_item_key'), ''),
+                            'Order item'
+                        ),
+                        'sku',
+                        COALESCE(
+                            NULLIF(TRIM(pv.sku), ''),
+                            NULLIF(TRIM(oi.size_specs->>'counterpoint_sku'), ''),
+                            NULLIF(TRIM(oi.size_specs->>'counterpoint_item_key'), '')
+                        ),
+                        'quantity', oi.quantity,
+                        'status',
+                        CASE
+                            WHEN oi.order_lifecycle_status = 'picked_up' THEN 'Picked up'
+                            WHEN oi.order_lifecycle_status = 'ready_for_pickup' THEN 'Ready for pickup'
+                            WHEN oi.order_lifecycle_status = 'received' THEN 'Received'
+                            WHEN oi.order_lifecycle_status = 'ordered' THEN 'Ordered'
+                            ELSE 'NTBO'
+                        END
+                    )
+                    ORDER BY oi.id
+                ) FILTER (WHERE oi.fulfillment::text <> 'takeaway'),
+                '[]'::jsonb
+            ) AS order_print_items,
+            (COALESCE(o.is_rush, false) OR COALESCE(BOOL_OR(oi.is_rush) FILTER (WHERE oi.fulfillment::text <> 'takeaway'), false)) AS is_rush,
+            COALESCE(MIN(oi.need_by_date) FILTER (WHERE oi.fulfillment::text <> 'takeaway'), o.need_by_date) AS need_by_date,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'special_order'), false) AS has_special_order,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'wedding_order'), false) AS has_wedding_order,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'layaway'), false) AS has_layaway,
@@ -248,6 +305,7 @@ pub async fn query_paged_transactions(
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+        LEFT JOIN staff op ON op.id = o.operator_id
         LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         LEFT JOIN products p ON p.id = oi.product_id
@@ -360,7 +418,7 @@ pub async fn query_paged_transactions(
         }
     }
 
-    qb.push(" GROUP BY o.id, c.id, c.customer_code, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, ps.full_name, o.status ");
+    qb.push(" GROUP BY o.id, c.id, c.customer_code, c.phone, c.email, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, op.full_name, ps.full_name, o.status ");
 
     if let Some(kf) = &q.kind_filter {
         if let Some(clause) = kind_filter_having_clause(kf) {
@@ -417,12 +475,20 @@ pub async fn query_paged_transactions(
                 balance_due: r.balance_due,
                 customer_id: r.customer_id,
                 customer_name,
+                customer_code: r.customer_code,
+                customer_phone: r.customer_phone,
+                customer_email: r.customer_email,
                 wedding_member_id: r.wedding_member_id,
                 wedding_party_id: r.wedding_party_id,
                 party_name: r.party_name,
+                wedding_event_date: r.wedding_event_date,
+                operator_name: r.operator_name,
                 primary_salesperson_name: r.primary_salesperson_name,
                 item_count: r.item_count,
                 order_items_summary: r.order_items_summary,
+                order_print_items: r.order_print_items,
+                is_rush: r.is_rush,
+                need_by_date: r.need_by_date,
                 status: r.status,
                 order_kind,
                 has_special_order: r.has_special_order,

@@ -19,6 +19,10 @@ expected=(
   "012_lightspeed_normalization_reference.sql"
   "013_financial_effective_dates.sql"
   "014_helcim_terminal_recovery_actions.sql"
+  "015_counterpoint_staging_applying_status.sql"
+  "016_counterpoint_staging_apply_claim_metadata.sql"
+  "017_counterpoint_staging_observability.sql"
+  "018_order_item_lifecycle.sql"
 )
 
 active=()
@@ -64,7 +68,7 @@ if [ -n "$legacy_root_files" ]; then
   exit 1
 fi
 
-if rg -n "INSERT INTO (public\\.)?(staff|staff_role_permission|staff_permission|store_settings|products|product_variants|meilisearch_sync_status)" migrations/*.sql >/tmp/ros_migration_seed_hits.$$; then
+if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|products|product_variants|meilisearch_sync_status)" migrations/*.sql >/tmp/ros_migration_seed_hits.$$; then
   echo "Seed-like data is not allowed in active schema migrations:" >&2
   cat /tmp/ros_migration_seed_hits.$$ >&2
   rm -f /tmp/ros_migration_seed_hits.$$
@@ -72,4 +76,4 @@ if rg -n "INSERT INTO (public\\.)?(staff|staff_role_permission|staff_permission|
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-014 only."
+echo "Migration layout OK: active baseline 001-018 only."

@@ -52,7 +52,8 @@ The list shows individual orders ranked by their urgency level.
     *   🟢 **READY**: All items arrived/fulfilled.
     *   ⚪ **BLOCKED**: Requires manager review.
 *   **Quick Actions**: Click on the **Order #** or the **Open Order** button to jump directly into the order record to mark items as fulfilled, add notes, or process a payment.
-*   **Lifecycle panel**: Use the order detail lifecycle note to confirm whether the order is still waiting on measurements, carrying only a deposit, fully paid but still in progress, or already picked up.
+*   **Lifecycle panel**: Use the order detail lifecycle note to confirm whether each ordered item is **NTBO**, **Ordered**, **Received**, **Ready for Pickup**, or **Picked Up**. Do not assume the entire order is ready because one item is ready.
+*   **Printed Open Orders list**: In **Orders**, use the filtered **Print** action when staff need a paper follow-up list. The printout lists each ordered item on its own line with its lifecycle status, plus customer contact details, salesperson, cashier, deposits, and balance.
 
 ## Best Practices for High Throughput
 1.  **Start with the "Ready" list**: Getting these items out the door is the fastest way to recognize revenue and clear physical space.

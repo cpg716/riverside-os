@@ -16,6 +16,8 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{PROCUREMENT_MUTATE, PROCUREMENT_VIEW};
+use crate::auth::pins::AuthenticatedStaff;
+use crate::logic::order_lifecycle;
 use crate::logic::procurement;
 use crate::logic::template_variant_pricing::effective_cost_usd;
 use crate::middleware;
@@ -52,10 +54,9 @@ async fn require_po(
     state: &AppState,
     headers: &HeaderMap,
     key: &'static str,
-) -> Result<(), PurchaseOrderError> {
+) -> Result<AuthenticatedStaff, PurchaseOrderError> {
     middleware::require_staff_with_permission(state, headers, key)
         .await
-        .map(|_| ())
         .map_err(map_po_perm)
 }
 
@@ -289,11 +290,11 @@ async fn create_draft_po(
     headers: HeaderMap,
     Json(payload): Json<CreateDraftPoRequest>,
 ) -> Result<Json<PurchaseOrderSummary>, PurchaseOrderError> {
-    require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
+    let staff = require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
     ensure_active_vendor_exists(&state.db, payload.vendor_id).await?;
     let po = sqlx::query_as::<_, PurchaseOrderSummary>(
         r#"
-        INSERT INTO purchase_orders (po_number, vendor_id, expected_at, notes, po_kind)
+        INSERT INTO purchase_orders (po_number, vendor_id, expected_at, notes, po_kind, created_by)
         VALUES (
             CONCAT(
                 'PO-',
@@ -304,7 +305,8 @@ async fn create_draft_po(
             $1,
             $2::timestamptz,
             $3,
-            'standard'
+            'standard',
+            $4
         )
         RETURNING
             id,
@@ -317,6 +319,7 @@ async fn create_draft_po(
     .bind(payload.vendor_id)
     .bind(payload.expected_at)
     .bind(payload.notes)
+    .bind(staff.id)
     .fetch_one(&state.db)
     .await?;
 
@@ -749,7 +752,7 @@ async fn receive_po(
     headers: HeaderMap,
     Json(payload): Json<ReceivePoRequest>,
 ) -> Result<Json<ReceivePoResponse>, PurchaseOrderError> {
-    require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
+    let staff = require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
     let lines: Vec<ReceiveLine> = payload
         .lines
         .into_iter()
@@ -1157,6 +1160,15 @@ async fn receive_po(
         .execute(&mut *tx)
         .await?;
     }
+
+    let received_po_line_ids = lines.iter().map(|line| line.po_line_id).collect::<Vec<_>>();
+    order_lifecycle::mark_received_for_po_lines_tx(
+        &mut tx,
+        &received_po_line_ids,
+        Some(staff.id),
+        receive_event_id,
+    )
+    .await?;
 
     let has_short = sqlx::query_scalar::<_, bool>(
         r#"

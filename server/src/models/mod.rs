@@ -52,6 +52,30 @@ pub enum DbOrderFulfillmentMethod {
     Ship,
 }
 
+/// PostgreSQL `order_item_lifecycle_status`: operational item state for ordered garments.
+#[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "order_item_lifecycle_status", rename_all = "snake_case")]
+pub enum DbOrderItemLifecycleStatus {
+    Ntbo,
+    Ordered,
+    Received,
+    ReadyForPickup,
+    PickedUp,
+}
+
+impl DbOrderItemLifecycleStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ntbo => "ntbo",
+            Self::Ordered => "ordered",
+            Self::Received => "received",
+            Self::ReadyForPickup => "ready_for_pickup",
+            Self::PickedUp => "picked_up",
+        }
+    }
+}
+
 /// PostgreSQL `sale_channel`: `register` (POS) vs `web` (first-party storefront).
 #[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "snake_case")]

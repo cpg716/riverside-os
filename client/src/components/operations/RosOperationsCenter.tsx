@@ -130,6 +130,12 @@ interface PaymentIssue {
   status?: string | null;
 }
 
+interface LifecycleQueueItem {
+  lifecycle_status: string;
+  risk_level: string;
+  is_rush: boolean;
+}
+
 interface LoadState<T> {
   data: T | null;
   error: string | null;
@@ -286,6 +292,7 @@ export default function RosOperationsCenter({
   const [paymentHealth, setPaymentHealth] = useState<LoadState<PaymentEventsHealth>>(emptyState());
   const [paymentProvider, setPaymentProvider] = useState<LoadState<ActiveProviderResponse>>(emptyState());
   const [paymentIssues, setPaymentIssues] = useState<LoadState<PaymentIssue[]>>(emptyState());
+  const [lifecycleQueues, setLifecycleQueues] = useState<LoadState<LifecycleQueueItem[]>>(emptyState());
   const [snapshotCopied, setSnapshotCopied] = useState(false);
   const [checklistMode, setChecklistMode] = useState<ChecklistMode>("open");
 
@@ -302,6 +309,7 @@ export default function RosOperationsCenter({
       paymentHealthResult,
       paymentProviderResult,
       paymentIssuesResult,
+      lifecycleResult,
     ] = await Promise.all([
       fetchJson<OpsHealthSnapshot>("/api/ops/health/snapshot", headers),
       fetchJson<FulfillmentItem[]>("/api/transactions/fulfillment-queue", headers),
@@ -311,6 +319,7 @@ export default function RosOperationsCenter({
       fetchJson<PaymentEventsHealth>("/api/payments/providers/helcim/events/health", headers),
       fetchJson<ActiveProviderResponse>("/api/payments/providers/active", headers),
       fetchJson<PaymentIssue[]>("/api/payments/providers/helcim/reconciliation/items?status=open&limit=25", headers),
+      fetchJson<LifecycleQueueItem[]>("/api/order-lifecycle/items", headers),
     ]);
 
     setOps(opsResult);
@@ -321,6 +330,7 @@ export default function RosOperationsCenter({
     setPaymentHealth(paymentHealthResult);
     setPaymentProvider(paymentProviderResult);
     setPaymentIssues(paymentIssuesResult);
+    setLifecycleQueues(lifecycleResult);
     setLoadedAt(new Date().toLocaleString());
     setLoading(false);
   }, [headers]);
@@ -338,10 +348,16 @@ export default function RosOperationsCenter({
     const paymentEvents = paymentHealth.data;
     const provider = paymentProvider.data;
     const paymentReviewItems = paymentIssues.data ?? [];
+    const lifecycleItems = lifecycleQueues.data ?? [];
+    const lifecycleNtbo = lifecycleItems.filter((item) => item.lifecycle_status === "ntbo").length;
+    const lifecycleOrdered = lifecycleItems.filter((item) => item.lifecycle_status === "ordered").length;
+    const lifecycleReceived = lifecycleItems.filter((item) => item.lifecycle_status === "received").length;
+    const lifecycleReady = lifecycleItems.filter((item) => item.lifecycle_status === "ready_for_pickup").length;
+    const lifecycleRushNtbo = lifecycleItems.filter((item) => item.lifecycle_status === "ntbo" && item.is_rush).length;
+    const lifecycleAtRisk = lifecycleItems.filter((item) => item.risk_level === "at_risk").length;
 
     const fulfillmentBlocked = fulfillmentRows.filter((row) => row.urgency === "blocked").length;
     const fulfillmentRush = fulfillmentRows.filter((row) => row.urgency === "rush").length;
-    const fulfillmentReady = fulfillmentRows.filter((row) => row.urgency === "ready").length;
 
     const generatorFailures =
       notificationData?.generator_runs.filter((row) => row.last_status === "failed").length ?? 0;
@@ -373,6 +389,7 @@ export default function RosOperationsCenter({
       paymentHealth.error,
       paymentProvider.error,
       paymentIssues.error,
+      lifecycleQueues.error,
     ].filter(Boolean).length;
 
     const categories: OperationsCategory[] = [
@@ -427,20 +444,22 @@ export default function RosOperationsCenter({
         title: "Fulfillment & Workflow Blockers",
         status: fulfillment.error
           ? "degraded"
-          : fulfillmentBlocked > 0
+          : fulfillmentBlocked > 0 || lifecycleAtRisk > 0
             ? "blocked"
-            : fulfillmentRush > 0
+            : fulfillmentRush > 0 || lifecycleNtbo > 0 || lifecycleReceived > 0
               ? "review"
               : "ready",
-        blockerCount: fulfillmentBlocked,
-        stale: Boolean(fulfillment.error),
+        blockerCount: fulfillmentBlocked + lifecycleAtRisk,
+        stale: Boolean(fulfillment.error || lifecycleQueues.error),
         lastActivity: loadedAt ?? "Not loaded",
-        summary: fulfillment.error
+        summary: fulfillment.error || lifecycleQueues.error
           ? "Pickup queue could not refresh. Do not treat the queue as clear until refresh succeeds."
-          : `${fmtNumber(fulfillmentRows.length)} pending, ${fmtNumber(fulfillmentReady)} ready, ${fmtNumber(fulfillmentBlocked)} blocked, ${fmtNumber(fulfillmentRush)} rush.`,
-        nextAction: fulfillmentBlocked > 0
+          : `${fmtNumber(fulfillmentRows.length)} pickup pending · ${fmtNumber(lifecycleNtbo)} NTBO · ${fmtNumber(lifecycleOrdered)} ordered · ${fmtNumber(lifecycleReceived)} received awaiting prep · ${fmtNumber(lifecycleReady)} ready.`,
+        nextAction: fulfillmentBlocked > 0 || lifecycleAtRisk > 0
           ? "Open the pickup queue and review blocked fulfillment work first."
-          : "Use the pickup queue for item-level follow-up; this center only summarizes.",
+          : lifecycleNtbo > 0
+            ? "Open Orders and create vendor purchase orders for NTBO items."
+            : "Use the pickup queue for item-level follow-up; this center only summarizes.",
         buttonLabel: "Open Pickup Queue",
         target: { tab: "home", section: "fulfillment" },
         Icon: ShoppingBag,
@@ -556,6 +575,19 @@ export default function RosOperationsCenter({
             status: rmsBlocking > 0 ? "blocked" as const : "review" as const,
           }]
         : []),
+      ...(lifecycleAtRisk > 0
+        ? [{
+            label: "Item lifecycle",
+            detail: `${fmtNumber(lifecycleAtRisk)} lifecycle item${lifecycleAtRisk === 1 ? "" : "s"} at risk; ${fmtNumber(lifecycleRushNtbo)} rush NTBO.`,
+            status: "blocked" as const,
+          }]
+        : lifecycleNtbo > 0
+          ? [{
+              label: "NTBO queue",
+              detail: `${fmtNumber(lifecycleNtbo)} item${lifecycleNtbo === 1 ? "" : "s"} still need vendor ordering.`,
+              status: "review" as const,
+            }]
+          : []),
       ...(generatorFailures > 0
         ? [{
             label: "Notification generators",
@@ -587,6 +619,8 @@ export default function RosOperationsCenter({
     fulfillment.data,
     fulfillment.error,
     loadedAt,
+    lifecycleQueues.data,
+    lifecycleQueues.error,
     notifications.data,
     notifications.error,
     ops.data,

@@ -38,6 +38,8 @@ pub const ORDERS_SUIT_COMPONENT_SWAP: &str = "orders.suit_component_swap";
 pub const ORDERS_REFUND_PROCESS: &str = "orders.refund_process";
 /// Add/change/delete lines, pickup, returns, exchanges (post-checkout mutations).
 pub const ORDERS_MODIFY: &str = "orders.modify";
+/// Manage item lifecycle state, NTBO vendor assignment, and auditable lifecycle repair actions.
+pub const ORDERS_LIFECYCLE_MANAGE: &str = "orders.lifecycle_manage";
 pub const LOYALTY_ADJUST_POINTS: &str = "loyalty.adjust_points";
 pub const INVENTORY_VIEW_COST: &str = "inventory.view_cost";
 
@@ -161,6 +163,7 @@ pub static ALL_PERMISSION_KEYS: &[&str] = &[
     ORDERS_SUIT_COMPONENT_SWAP,
     ORDERS_REFUND_PROCESS,
     ORDERS_MODIFY,
+    ORDERS_LIFECYCLE_MANAGE,
     LOYALTY_ADJUST_POINTS,
     INVENTORY_VIEW_COST,
     CATALOG_VIEW,

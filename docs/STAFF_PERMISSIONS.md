@@ -38,7 +38,7 @@ The active schema-contract baseline creates contacts, role/override tables, staf
 
 ### Orders keys
 
-**`scripts/seeds/seed_rbac.sql`** adds role defaults for **`orders.view`**, **`orders.modify`**, **`orders.cancel`**, and **`orders.refund_process`** (admin: all true; salesperson: view + refund_process; sales_support: all true). These keys must exist in **`server/src/auth/permissions.rs`** / **`ALL_PERMISSION_KEYS`** before the seed runs.
+**`scripts/seeds/seed_rbac.sql`** adds role defaults for **`orders.view`**, **`orders.modify`**, **`orders.cancel`**, and **`orders.refund_process`** (admin: all true; salesperson: view + refund_process; sales_support: all true). The order lifecycle migration adds **`orders.lifecycle_manage`** as a restricted repair/override key for audited item lifecycle transitions. These keys must exist in **`server/src/auth/permissions.rs`** / **`ALL_PERMISSION_KEYS`** before seeding or migration defaults run.
 
 Operational behavior (refund queue, returns, register session bypass): **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**.
 
@@ -174,6 +174,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `orders.cancel` | Set order status to cancelled (queues refunds when payments exist). |
 | `orders.refund_process` | `GET /refunds/due`, `POST .../refunds/process`. |
 | `orders.edit_attribution` | Patch order attribution. |
+| `orders.lifecycle_manage` | Manual audited item lifecycle repair/override. Risky receiving and pickup transitions still route through receiving/pickup workflows. |
 | `loyalty.adjust_points` | Manual loyalty adjustments. |
 | `loyalty.program_settings` | Loyalty program config and monthly eligible (PII export). |
 | `inventory.view_cost` | Cost fields in product / intelligence paths. |

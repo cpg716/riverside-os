@@ -37,6 +37,20 @@ Special and Custom stay separate operational contracts. Custom is not just anoth
 When the cashier completes checkout, a Transaction is generated. If items cannot be taken away immediately, those `transaction_lines` are mapped to new or existing Fulfillment Orders.
 - **Rounding Adjustments**: For cash transactions, the `rounding_adjustment` field records the delta between the calculated total and the physical cash collected (Pennyless/Swedish Rounding). This ensures the balance due is accurately reduced to zero without altering line-item prices.
 
+### Item Lifecycle Source of Truth
+
+Every non-takeaway ordered item is tracked at the `transaction_lines` level with an authoritative item lifecycle status:
+
+1. **NTBO** — needs to be ordered from a vendor.
+2. **Ordered** — attached to vendor ordering or a purchase order.
+3. **Received** — physically received through the receiving workflow.
+4. **Ready for Pickup** — verified ready for customer release.
+5. **Picked Up** — fulfilled through the existing pickup path.
+
+The lifecycle belongs to each ordered item, not only to the Transaction or Fulfillment Order. A single customer order may therefore contain a jacket that is **Received**, pants that are still **Ordered**, and an accessory that is **Ready for Pickup**. Orders list rows, order detail, lifecycle queues, wedding readiness, Operations Center counts, and printable Open Orders reports should read these fields instead of inferring item status from product or PO history.
+
+Lifecycle changes write audit events in `transaction_line_lifecycle_events`. Manual lifecycle repair paths require `orders.lifecycle_manage`; risky transitions must continue through receiving and pickup workflows so inventory, revenue, commission, and reporting contracts stay intact.
+
 ### 2. Deposits & Accounting
 - The customer may pay a partial deposit against the **Transaction**.
 - The partial deposit is booked exclusively as Liability. 

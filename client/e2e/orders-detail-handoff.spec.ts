@@ -201,6 +201,9 @@ test.describe("Orders detail drawer and POS handoff", () => {
 
     const orderRow = page.locator("tr", { hasText: order.displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
+    await expect(orderRow.getByTestId("open-order-lifecycle-item")).toHaveCount(1);
+    await expect(orderRow.getByTestId("open-order-lifecycle-item").first()).toContainText(order.productName);
+    await expect(orderRow.getByTestId("open-order-lifecycle-item").first()).toContainText("NTBO");
     await orderRow.click();
 
     const drawer = page.getByRole("dialog", { name: "Transaction Record" });

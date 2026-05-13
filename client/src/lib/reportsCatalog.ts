@@ -211,6 +211,23 @@ export const REPORTS_CATALOG: ReportDef[] = [
     buildPath: () => `/api/insights/wedding-health`,
   },
   {
+    id: "order_item_lifecycle",
+    title: "Order Item Lifecycle",
+    description:
+      "NTBO, ordered, received, ready, and pickup item queues with risk and next-action guidance.",
+    category: "Operations",
+    keywords: ["ntbo", "order lifecycle", "vendor ordering", "ready pickup", "received", "risk"],
+    questions: ["What still needs to be ordered?", "Which received items need prep?", "Which order items are at risk?"],
+    audience: "Manager",
+    sensitivity: "Staff-safe",
+    adminOnly: false,
+    permissionsAll: ["orders.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: false,
+    usesBasis: false,
+    buildPath: () => `/api/order-lifecycle/items`,
+  },
+  {
     id: "commission_ledger",
     title: "Commission Snapshot",
     description: "Read-only commission amounts by staff for unpaid, pending, and paid-out work.",

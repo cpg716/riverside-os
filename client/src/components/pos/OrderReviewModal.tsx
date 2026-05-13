@@ -26,6 +26,8 @@ interface CartLineItem {
   fulfillment: string;
   custom_item_type?: string | null;
   custom_order_details?: CustomOrderDetails | null;
+  is_rush?: boolean;
+  need_by_date?: string | null;
 }
 
 interface Customer {
@@ -59,11 +61,13 @@ export default function OrderReviewModal({
 
   useEffect(() => {
     if (!isOpen) return;
+    setIsRush(items.some((item) => item.is_rush));
+    setNeedByDate(items.find((item) => item.need_by_date)?.need_by_date ?? null);
     const frame = window.requestAnimationFrame(() => {
       continueButtonRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isOpen]);
+  }, [isOpen, items]);
 
   if (!isOpen) return null;
 
@@ -180,7 +184,7 @@ export default function OrderReviewModal({
                 Rush Order
               </button>
               
-              <label
+              <div
                 className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-3 text-sm font-bold transition-colors ${
                   needByDate
                     ? "border-app-warning/50 bg-app-warning/15 text-app-warning"
@@ -188,15 +192,17 @@ export default function OrderReviewModal({
                 }`}
               >
                 <Calendar size={18} />
-                <span>{needByDate || "Set Due Date"}</span>
-                <input
-                  type="date"
-                  value={needByDate || ""}
-                  onChange={(event) => setNeedByDate(event.target.value || null)}
-                  className="sr-only"
-                  aria-label="Need by date"
-                />
-              </label>
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span>{needByDate || "Set Due Date"}</span>
+                  <input
+                    type="date"
+                    value={needByDate || ""}
+                    onChange={(event) => setNeedByDate(event.target.value || null)}
+                    className="min-w-0 rounded-lg border border-app-border bg-app-surface px-2 py-1 text-xs font-bold text-app-text"
+                    aria-label="Need by date"
+                  />
+                </label>
+              </div>
             </div>
           </div>
 

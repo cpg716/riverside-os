@@ -18,6 +18,7 @@ use crate::logic::custom_orders::{
 };
 use crate::logic::customer_open_deposit;
 use crate::logic::gift_card_ops;
+use crate::logic::order_lifecycle;
 use crate::logic::pos_rms_charge;
 use crate::logic::pricing_limits;
 use crate::logic::sales_commission;
@@ -3094,6 +3095,15 @@ pub async fn execute_checkout(
                     .or_insert(transaction_line_id);
             }
         }
+
+        order_lifecycle::initialize_line_tx(
+            &mut tx,
+            transaction_line_id,
+            order_lifecycle::initial_status_for_line(fulfillment, line_fulfilled),
+            Some(payload.operator_staff_id),
+            "checkout",
+        )
+        .await?;
 
         if let Some(eid) = item.discount_event_id {
             let pct: Decimal =

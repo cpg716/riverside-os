@@ -3085,6 +3085,8 @@ export default function Cart({
               standard_retail_price: String(l.standard_retail_price),
               quantity: l.quantity,
               fulfillment: l.fulfillment,
+              is_rush: l.is_rush,
+              need_by_date: l.need_by_date ?? null,
             }))}
             customer={selectedCustomer ? {
               id: selectedCustomer.id,

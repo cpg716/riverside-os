@@ -283,13 +283,15 @@ export function useCartCheckout({
         items: lines.map((l) => {
           const unitCents = parseMoneyToCents(l.standard_retail_price);
           const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
+          const fulfillment = pickupConfirmed ? "takeaway" : (l.fulfillment ?? "takeaway");
+          const appliesOrderOptions = fulfillment !== "takeaway";
           return {
             client_line_id: l.cart_row_id,
             line_type: l.line_type ?? "merchandise",
             alteration_intake_id: l.alteration_intake_id ?? null,
             product_id: l.product_id, 
             variant_id: l.variant_id, 
-            fulfillment: pickupConfirmed ? "takeaway" : (l.fulfillment ?? "takeaway"),
+            fulfillment,
             quantity: l.quantity,
             unit_price: centsToFixed2(unitCents),
             original_unit_price: origCents !== unitCents ? centsToFixed2(origCents) : undefined,
@@ -300,8 +302,8 @@ export function useCartCheckout({
             salesperson_id: l.salesperson_id?.trim() || null,
             custom_item_type: l.custom_item_type,
             custom_order_details: l.custom_order_details ?? undefined,
-            is_rush: l.is_rush,
-            need_by_date: l.need_by_date,
+            is_rush: l.is_rush || (appliesOrderOptions ? Boolean(options?.is_rush) : false),
+            need_by_date: l.need_by_date ?? (appliesOrderOptions ? options?.need_by_date ?? null : null),
             needs_gift_wrap: l.needs_gift_wrap,
             ...(l.discount_event_id ? { discount_event_id: l.discount_event_id } : {}),
             ...(l.gift_card_load_code?.trim() ? { gift_card_load_code: l.gift_card_load_code.trim().toUpperCase() } : {}),

@@ -122,6 +122,7 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "ops_alert",
     "order_due_stale",
     "order_fully_fulfilled",
+    "order_item_ready_for_pickup",
     "payment_batch_not_settled",
     "payment_deposit_needs_review",
     "payment_fee_not_ready",
@@ -206,6 +207,7 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
         "morning_refund_queue"
         | "order_due_stale"
         | "order_fully_fulfilled"
+        | "order_item_ready_for_pickup"
         | "pickup_stale"
         | "special_order_ready_to_stage" => Some(Handling::Configurable(Category::Orders)),
         "after_hours_access_digest"
@@ -1693,6 +1695,65 @@ pub async fn emit_order_fully_fulfilled(
         "order_fully_fulfilled",
         &title,
         body,
+        deep,
+        "system",
+        aud,
+        Some(&dedupe),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    fan_out_notification_to_staff_ids(pool, nid, &staff).await
+}
+
+pub async fn emit_order_item_ready_for_pickup(
+    pool: &PgPool,
+    transaction_line_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let Some((transaction_id, order_ref, product_name)) =
+        sqlx::query_as::<_, (Uuid, String, String)>(
+            r#"
+            SELECT
+                t.id,
+                COALESCE(t.display_id, t.id::text) AS order_ref,
+                COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Order item') AS product_name
+            FROM transaction_lines tl
+            INNER JOIN transactions t ON t.id = tl.transaction_id
+            INNER JOIN products p ON p.id = tl.product_id
+            INNER JOIN product_variants pv ON pv.id = tl.variant_id
+            WHERE tl.id = $1
+            "#,
+        )
+        .bind(transaction_line_id)
+        .fetch_optional(pool)
+        .await?
+    else {
+        return Ok(());
+    };
+    let staff = staff_ids_for_order_scoped(pool, transaction_id).await?;
+    if staff.is_empty() {
+        return Ok(());
+    }
+    let dedupe = format!("order_item_ready_for_pickup:{transaction_line_id}");
+    let title = format!("Item ready for pickup: {order_ref}");
+    let body = format!(
+        "{product_name} is marked ready. Use normal pickup workflow when the customer receives it."
+    );
+    let deep = json!({
+        "type": "order",
+        "transaction_id": transaction_id.to_string(),
+        "transaction_line_id": transaction_line_id.to_string()
+    });
+    let aud = json!({
+        "mode": "staff_ids",
+        "staff_ids": staff.iter().map(|u| u.to_string()).collect::<Vec<_>>()
+    });
+    let Some(nid) = insert_app_notification_deduped(
+        pool,
+        "order_item_ready_for_pickup",
+        &title,
+        &body,
         deep,
         "system",
         aud,

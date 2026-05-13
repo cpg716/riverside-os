@@ -29,6 +29,7 @@ use crate::auth::pos_session;
 use crate::logic::gift_card_ops;
 use crate::logic::helcim;
 use crate::logic::loyalty as loyalty_logic;
+use crate::logic::order_lifecycle;
 use crate::logic::podium::{self, looks_like_email};
 use crate::logic::podium_reviews;
 use crate::logic::pos_rms_charge;
@@ -41,7 +42,8 @@ use crate::logic::transaction_recalc;
 use crate::logic::transaction_returns::{self, ReturnLineInput};
 use crate::middleware;
 use crate::models::{
-    DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderStatus, DbTransactionCategory,
+    DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderItemLifecycleStatus, DbOrderStatus,
+    DbTransactionCategory,
 };
 
 pub(crate) async fn rosie_order_summary(
@@ -223,6 +225,7 @@ pub struct TransactionDetailItem {
     pub state_tax: Decimal,
     pub local_tax: Decimal,
     pub fulfillment: DbFulfillmentType,
+    pub order_lifecycle_status: DbOrderItemLifecycleStatus,
     /// Takeaway lines fulfilled at checkout; special transactions fulfill at pickup.
     pub is_fulfilled: bool,
     pub is_internal: bool,
@@ -241,6 +244,42 @@ pub struct TransactionDetailItem {
     /// Masked or scanned code for POS purchased-card load lines when checkout stored it in `size_specs`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gift_card_load_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub po_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub po_line_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub po_number: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor_eta: Option<NaiveDate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor_reference: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordered_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_for_pickup_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picked_up_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct TransactionLineLifecycleEvent {
+    pub id: Uuid,
+    pub transaction_line_id: Uuid,
+    pub old_status: Option<DbOrderItemLifecycleStatus>,
+    pub new_status: DbOrderItemLifecycleStatus,
+    pub actor_staff_id: Option<Uuid>,
+    pub actor_name: Option<String>,
+    pub source_workflow: String,
+    pub reason: Option<String>,
+    pub metadata: serde_json::Value,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
@@ -287,6 +326,8 @@ pub struct TransactionDetailResponse {
     pub financial_summary: TransactionFinancialSummary,
     pub linked_alteration_summary: TransactionLinkedAlterationSummary,
     pub items: Vec<TransactionDetailItem>,
+    #[serde(default)]
+    pub lifecycle_events: Vec<TransactionLineLifecycleEvent>,
     pub is_tax_exempt: bool,
     pub tax_exempt_reason: Option<String>,
     pub register_session_id: Option<Uuid>,
@@ -519,6 +560,7 @@ mod tests {
                 picked_up_count: 0,
             },
             items,
+            lifecycle_events: Vec::new(),
             is_tax_exempt: false,
             tax_exempt_reason: None,
             register_session_id: None,
@@ -546,6 +588,7 @@ mod tests {
             state_tax: Decimal::new(1000, 2),
             local_tax: Decimal::new(500, 2),
             fulfillment: DbFulfillmentType::Takeaway,
+            order_lifecycle_status: DbOrderItemLifecycleStatus::PickedUp,
             is_fulfilled: true,
             is_internal: false,
             custom_item_type: None,
@@ -555,6 +598,17 @@ mod tests {
             receipt_original_unit_price: None,
             discount_event_label: None,
             gift_card_load_code: None,
+            po_id: None,
+            po_line_id: None,
+            po_number: None,
+            vendor_id: None,
+            vendor_name: None,
+            vendor_eta: None,
+            vendor_reference: None,
+            ordered_at: None,
+            received_at: None,
+            ready_for_pickup_at: None,
+            picked_up_at: None,
         }
     }
 
@@ -702,6 +756,7 @@ struct OrderItemRow {
     state_tax: Decimal,
     local_tax: Decimal,
     fulfillment: DbFulfillmentType,
+    order_lifecycle_status: DbOrderItemLifecycleStatus,
     is_fulfilled: bool,
     is_internal: bool,
     custom_item_type: Option<String>,
@@ -711,6 +766,17 @@ struct OrderItemRow {
     receipt_original_unit_price: Option<Decimal>,
     discount_event_label: Option<String>,
     gift_card_load_code: Option<String>,
+    po_id: Option<Uuid>,
+    po_line_id: Option<Uuid>,
+    po_number: Option<String>,
+    vendor_id: Option<Uuid>,
+    vendor_name: Option<String>,
+    vendor_eta: Option<NaiveDate>,
+    vendor_reference: Option<String>,
+    ordered_at: Option<DateTime<Utc>>,
+    received_at: Option<DateTime<Utc>>,
+    ready_for_pickup_at: Option<DateTime<Utc>>,
+    picked_up_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, FromRow)]
@@ -1377,7 +1443,7 @@ async fn mark_transaction_pickup(
     headers: HeaderMap,
     Json(body): Json<PickupTransactionRequest>,
 ) -> Result<Json<serde_json::Value>, TransactionError> {
-    let _ = authorize_transaction_modify_bo_or_register(
+    let actor_staff_id = authorize_transaction_modify_bo_or_register(
         &state,
         &headers,
         transaction_id,
@@ -1480,6 +1546,16 @@ async fn mark_transaction_pickup(
             &mut tx,
             transaction_id,
             &claimed_fulfillment_line_ids,
+        )
+        .await?;
+        order_lifecycle::apply_transition_tx(
+            &mut tx,
+            &claimed_fulfillment_line_ids,
+            DbOrderItemLifecycleStatus::PickedUp,
+            actor_staff_id,
+            "pickup",
+            Some("Fulfilled through pickup workflow"),
+            json!({ "transaction_id": transaction_id }),
         )
         .await?;
     }
@@ -2768,6 +2844,7 @@ pub(crate) async fn load_transaction_detail(
             COALESCE(oi.state_tax, 0) AS state_tax,
             COALESCE(oi.local_tax, 0) AS local_tax,
             oi.fulfillment,
+            oi.order_lifecycle_status,
             oi.is_fulfilled,
             COALESCE(oi.is_internal, false) AS is_internal,
             NULLIF(TRIM(oi.custom_item_type), '') AS custom_item_type,
@@ -2786,11 +2863,24 @@ pub(crate) async fn load_transaction_detail(
                 ELSE NULL
             END AS receipt_original_unit_price,
             NULLIF(TRIM(oi.size_specs->>'discount_event_label'), '') AS discount_event_label,
-            NULLIF(TRIM(oi.size_specs->>'gift_card_load_code'), '') AS gift_card_load_code
+            NULLIF(TRIM(oi.size_specs->>'gift_card_load_code'), '') AS gift_card_load_code,
+            oi.po_id,
+            oi.po_line_id,
+            po.po_number,
+            oi.vendor_id,
+            v.name AS vendor_name,
+            oi.vendor_eta,
+            NULLIF(TRIM(oi.vendor_reference), '') AS vendor_reference,
+            oi.ordered_at,
+            oi.received_at,
+            oi.ready_for_pickup_at,
+            oi.picked_up_at
         FROM transaction_lines oi
         INNER JOIN products p ON p.id = oi.product_id
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
         LEFT JOIN staff sp ON sp.id = oi.salesperson_id
+        LEFT JOIN purchase_orders po ON po.id = oi.po_id
+        LEFT JOIN vendors v ON v.id = oi.vendor_id
         WHERE oi.transaction_id = $1
         ORDER BY oi.id
         "#,
@@ -2913,6 +3003,7 @@ pub(crate) async fn load_transaction_detail(
             state_tax: r.state_tax,
             local_tax: r.local_tax,
             fulfillment: r.fulfillment,
+            order_lifecycle_status: r.order_lifecycle_status,
             is_fulfilled: r.is_fulfilled,
             is_internal: r.is_internal,
             custom_item_type: r.custom_item_type,
@@ -2922,12 +3013,49 @@ pub(crate) async fn load_transaction_detail(
             receipt_original_unit_price: r.receipt_original_unit_price,
             discount_event_label: r.discount_event_label,
             gift_card_load_code: r.gift_card_load_code,
+            po_id: r.po_id,
+            po_line_id: r.po_line_id,
+            po_number: r.po_number,
+            vendor_id: r.vendor_id,
+            vendor_name: r.vendor_name,
+            vendor_eta: r.vendor_eta,
+            vendor_reference: r.vendor_reference,
+            ordered_at: r.ordered_at,
+            received_at: r.received_at,
+            ready_for_pickup_at: r.ready_for_pickup_at,
+            picked_up_at: r.picked_up_at,
         })
         .collect();
     let transaction_line_ids = items
         .iter()
         .map(|item| item.transaction_line_id)
         .collect::<Vec<_>>();
+    let lifecycle_events = if transaction_line_ids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as::<_, TransactionLineLifecycleEvent>(
+            r#"
+            SELECT
+                e.id,
+                e.transaction_line_id,
+                e.old_status,
+                e.new_status,
+                e.actor_staff_id,
+                s.full_name AS actor_name,
+                e.source_workflow,
+                e.reason,
+                e.metadata,
+                e.created_at
+            FROM transaction_line_lifecycle_events e
+            LEFT JOIN staff s ON s.id = e.actor_staff_id
+            WHERE e.transaction_line_id = ANY($1)
+            ORDER BY e.created_at DESC, e.id DESC
+            "#,
+        )
+        .bind(&transaction_line_ids)
+        .fetch_all(pool)
+        .await?
+    };
 
     let (total_allocated_payments, total_applied_deposit_amount): (Option<Decimal>, Option<Decimal>) =
         sqlx::query_as(
@@ -3030,6 +3158,7 @@ pub(crate) async fn load_transaction_detail(
         },
         linked_alteration_summary,
         items,
+        lifecycle_events,
         receipt_studio_layout_available,
         receipt_thermal_mode,
         store_review_invites_enabled: review_pol.review_invites_enabled,
