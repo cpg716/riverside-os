@@ -1362,20 +1362,65 @@ async fn mark_transaction_pickup(
     .await?;
 
     let mut tx = state.db.begin().await?;
-    if body.delivered_item_ids.is_empty() {
-        sqlx::query("UPDATE transaction_lines SET is_fulfilled = TRUE WHERE transaction_id = $1")
+    let _locked_transaction: Uuid =
+        sqlx::query_scalar("SELECT id FROM transactions WHERE id = $1 FOR UPDATE")
             .bind(transaction_id)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await?;
+    let claimed_fulfillment_line_ids: Vec<Uuid> = if body.delivered_item_ids.is_empty() {
+        sqlx::query_scalar(
+            r#"
+            WITH target AS (
+                SELECT id
+                FROM transaction_lines
+                WHERE transaction_id = $1
+                  AND is_fulfilled = FALSE
+                FOR UPDATE
+            ),
+            claimed AS (
+                UPDATE transaction_lines oi
+                SET
+                    is_fulfilled = TRUE,
+                    fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP)
+                FROM target
+                WHERE oi.id = target.id
+                RETURNING oi.id
+            )
+            SELECT id FROM claimed
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_all(&mut *tx)
+        .await?
     } else {
-        sqlx::query(
-            "UPDATE transaction_lines SET is_fulfilled = TRUE WHERE transaction_id = $1 AND id = ANY($2)",
+        sqlx::query_scalar(
+            r#"
+            WITH target AS (
+                SELECT id
+                FROM transaction_lines
+                WHERE transaction_id = $1
+                  AND id = ANY($2)
+                  AND is_fulfilled = FALSE
+                FOR UPDATE
+            ),
+            claimed AS (
+                UPDATE transaction_lines oi
+                SET
+                    is_fulfilled = TRUE,
+                    fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP)
+                FROM target
+                WHERE oi.id = target.id
+                RETURNING oi.id
+            )
+            SELECT id FROM claimed
+            "#,
         )
         .bind(transaction_id)
         .bind(&body.delivered_item_ids)
-        .execute(&mut *tx)
-        .await?;
-    }
+        .fetch_all(&mut *tx)
+        .await?
+    };
+
     let remaining_unfulfilled: i64 = sqlx::query_scalar(
         r#"
         SELECT COUNT(*)::bigint
@@ -1394,83 +1439,92 @@ async fn mark_transaction_pickup(
     .fetch_one(&mut *tx)
     .await?;
     if remaining_unfulfilled == 0 {
-        sqlx::query("UPDATE transactions SET status = 'fulfilled'::order_status, fulfilled_at = CURRENT_TIMESTAMP WHERE id = $1")
+        sqlx::query("UPDATE transactions SET status = 'fulfilled'::order_status, fulfilled_at = COALESCE(fulfilled_at, CURRENT_TIMESTAMP) WHERE id = $1")
             .bind(transaction_id)
             .execute(&mut *tx)
             .await?;
     }
 
-    crate::logic::commission_recalc::recalc_transaction_commissions_after_fulfillment(
-        &mut tx,
-        transaction_id,
-        &body.delivered_item_ids,
-    )
-    .await?;
-    crate::logic::commission_events::upsert_fulfilled_transaction_events(
-        &mut tx,
-        transaction_id,
-        &body.delivered_item_ids,
-    )
-    .await?;
+    if !claimed_fulfillment_line_ids.is_empty() {
+        crate::logic::commission_recalc::recalc_transaction_commissions_after_fulfillment(
+            &mut tx,
+            transaction_id,
+            &claimed_fulfillment_line_ids,
+        )
+        .await?;
+        crate::logic::commission_events::upsert_fulfilled_transaction_events(
+            &mut tx,
+            transaction_id,
+            &claimed_fulfillment_line_ids,
+        )
+        .await?;
+    }
 
     // For Special/Custom transactions: the item physically arrives from the vendor and goes
     // into reserved_stock. At pickup, the item leaves the store, so we decrement both
     // stock_on_hand and reserved_stock. Takeaway items already had stock_on_hand
     // decremented at checkout time, so only special/custom need adjustment here.
-    let fulfilled_ids = &body.delivered_item_ids;
+    let fulfilled_ids = &claimed_fulfillment_line_ids;
     if !fulfilled_ids.is_empty() {
-        sqlx::query(
+        let pickup_stock_movements: Vec<(Uuid, i32)> = sqlx::query_as(
             r#"
-            UPDATE product_variants pv
-            SET
-                stock_on_hand  = GREATEST(stock_on_hand  - sub.qty, 0),
-                reserved_stock = GREATEST(reserved_stock - sub.qty_reserved, 0),
-                on_layaway     = GREATEST(on_layaway     - sub.qty_layaway, 0)
-            FROM (
+            WITH movement AS (
                 SELECT 
                     oi.variant_id, 
-                    SUM(oi.quantity) AS qty,
-                    SUM(CASE WHEN oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END) AS qty_reserved,
-                    SUM(CASE WHEN oi.fulfillment::text = 'layaway' THEN oi.quantity ELSE 0 END) AS qty_layaway
+                    SUM(oi.quantity)::int AS qty,
+                    SUM(CASE WHEN oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END)::int AS qty_reserved,
+                    SUM(CASE WHEN oi.fulfillment::text = 'layaway' THEN oi.quantity ELSE 0 END)::int AS qty_layaway
                 FROM transaction_lines oi
                 WHERE oi.transaction_id = $1
                   AND oi.id = ANY($2)
                   AND oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
                 GROUP BY oi.variant_id
-            ) sub
-            WHERE pv.id = sub.variant_id
+            ),
+            locked AS (
+                SELECT pv.id, movement.qty, movement.qty_reserved, movement.qty_layaway
+                FROM product_variants pv
+                JOIN movement ON movement.variant_id = pv.id
+                FOR UPDATE OF pv
+            ),
+            updated AS (
+                UPDATE product_variants pv
+                SET
+                    stock_on_hand  = GREATEST(pv.stock_on_hand  - locked.qty, 0),
+                    reserved_stock = GREATEST(pv.reserved_stock - locked.qty_reserved, 0),
+                    on_layaway     = GREATEST(pv.on_layaway     - locked.qty_layaway, 0)
+                FROM locked
+                WHERE pv.id = locked.id
+                RETURNING pv.id, locked.qty
+            )
+            SELECT id, qty FROM updated
             "#,
         )
         .bind(transaction_id)
         .bind(fulfilled_ids)
-        .execute(&mut *tx)
+        .fetch_all(&mut *tx)
         .await?;
-    } else {
-        // Empty delivered_item_ids means "fulfill everything"
-        sqlx::query(
-            r#"
-            UPDATE product_variants pv
-            SET
-                stock_on_hand  = GREATEST(stock_on_hand  - sub.qty, 0),
-                reserved_stock = GREATEST(reserved_stock - sub.qty_reserved, 0),
-                on_layaway     = GREATEST(on_layaway     - sub.qty_layaway, 0)
-            FROM (
-                SELECT 
-                    oi.variant_id, 
-                    SUM(oi.quantity) AS qty,
-                    SUM(CASE WHEN oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END) AS qty_reserved,
-                    SUM(CASE WHEN oi.fulfillment::text = 'layaway' THEN oi.quantity ELSE 0 END) AS qty_layaway
-                FROM transaction_lines oi
-                WHERE oi.transaction_id = $1
-                  AND oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
-                GROUP BY oi.variant_id
-            ) sub
-            WHERE pv.id = sub.variant_id
-            "#,
-        )
-        .bind(transaction_id)
-        .execute(&mut *tx)
-        .await?;
+
+        for (variant_id, qty) in pickup_stock_movements {
+            if qty <= 0 {
+                continue;
+            }
+            sqlx::query(
+                r#"
+                INSERT INTO inventory_transactions (
+                    variant_id, tx_type, quantity_delta, reference_table, reference_id, notes
+                )
+                VALUES ($1, 'sale', $2, 'transactions', $3, $4)
+                "#,
+            )
+            .bind(variant_id)
+            .bind(-qty)
+            .bind(transaction_id)
+            .bind(format!(
+                "Pickup fulfillment stock decrement for transaction {transaction_id}"
+            ))
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)

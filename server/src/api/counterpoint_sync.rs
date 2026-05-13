@@ -43,6 +43,8 @@ use crate::logic::counterpoint_sync::{
 };
 use crate::middleware;
 
+const STALE_STAGING_APPLY_AFTER_MINUTES: i32 = 15;
+
 const VALID_GIFT_CARD_KINDS: [&str; 4] = [
     "purchased",
     "loyalty_reward",
@@ -154,15 +156,20 @@ async fn cp_staging(
         .get("x-bridge-hostname")
         .and_then(|v| v.to_str().ok())
         .map(str::trim);
-    let id = counterpoint_staging::insert_staging_batch(&state.db, entity, body.payload, ver, host)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-        })?;
-    Ok(Json(json!({ "ok": true, "staging_batch_id": id })))
+    let staged =
+        counterpoint_staging::insert_staging_batch(&state.db, entity, body.payload, ver, host)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": e.to_string() })),
+                )
+            })?;
+    Ok(Json(json!({
+        "ok": true,
+        "staging_batch_id": staged.id,
+        "replayed": staged.replayed
+    })))
 }
 
 async fn cp_heartbeat(
@@ -917,7 +924,21 @@ async fn settings_status(
             .map(|token| !token.trim().is_empty())
             .unwrap_or(false);
     match counterpoint_sync::get_sync_status(&state.db, token_configured).await {
-        Ok(resp) => Ok(Json(serde_json::to_value(resp).unwrap_or_default())),
+        Ok(resp) => {
+            let mut value = serde_json::to_value(resp).unwrap_or_default();
+            if let Some(obj) = value.as_object_mut() {
+                let open_staging_count =
+                    counterpoint_staging::count_pending_or_applying_staging(&state.db)
+                        .await
+                        .unwrap_or(0);
+                let applying_count = counterpoint_staging::count_applying_staging(&state.db)
+                    .await
+                    .unwrap_or(0);
+                obj.insert("staging_pending_count".into(), json!(open_staging_count));
+                obj.insert("staging_applying_count".into(), json!(applying_count));
+            }
+            Ok(Json(value))
+        }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e.to_string() })),
@@ -1136,6 +1157,34 @@ async fn settings_staging_discard(
         Ok(false) => Err((
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "batch not pending" })),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )),
+    }
+}
+
+async fn settings_staging_recover_stale(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    match counterpoint_staging::recover_stale_applying_batch(
+        &state.db,
+        id,
+        STALE_STAGING_APPLY_AFTER_MINUTES,
+        staff.id,
+    )
+    .await
+    {
+        Ok(true) => Ok(Json(json!({ "recovered": true, "status": "failed" }))),
+        Ok(false) => Err((
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "batch is not a stale applying claim" })),
         )),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1588,6 +1637,10 @@ pub fn settings_router() -> Router<AppState> {
         .route(
             "/staging/batches/{id}/discard",
             post(settings_staging_discard),
+        )
+        .route(
+            "/staging/batches/{id}/recover-stale",
+            post(settings_staging_recover_stale),
         )
         .route("/maps/category", get(settings_maps_category_list))
         .route("/maps/category/{id}", patch(settings_maps_category_patch))

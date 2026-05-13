@@ -83,13 +83,14 @@ pub async fn apply_transaction_returns(
         Decimal,
         Decimal,
         Uuid,
+        Uuid,
         Decimal,
     );
     for line in &lines {
         let row: Option<ReturnLineLockRow> = sqlx::query_as(
             r#"
                 SELECT oi.id, oi.quantity, oi.fulfillment, oi.is_fulfilled,
-                       oi.unit_price, oi.state_tax, oi.local_tax, oi.product_id,
+                       oi.unit_price, oi.state_tax, oi.local_tax, oi.product_id, oi.variant_id,
                        oi.calculated_commission
                 FROM transaction_lines oi
                 WHERE oi.id = $1 AND oi.transaction_id = $2
@@ -110,6 +111,7 @@ pub async fn apply_transaction_returns(
             state_tax,
             local_tax,
             product_id,
+            variant_id,
             line_commission,
         )) = row
         else {
@@ -141,12 +143,7 @@ pub async fn apply_transaction_returns(
             .restock
             .unwrap_or_else(|| fulfillment == DbFulfillmentType::Takeaway && is_fulfilled);
 
-        if restock {
-            let vid: Uuid =
-                sqlx::query_scalar("SELECT variant_id FROM transaction_lines WHERE id = $1")
-                    .bind(oid)
-                    .fetch_one(&mut *tx)
-                    .await?;
+        let restock_affected = if restock {
             sqlx::query(
                 r#"
                 UPDATE product_variants
@@ -155,10 +152,13 @@ pub async fn apply_transaction_returns(
                 "#,
             )
             .bind(line.quantity)
-            .bind(vid)
+            .bind(variant_id)
             .execute(&mut *tx)
-            .await?;
-        }
+            .await?
+            .rows_affected()
+        } else {
+            0
+        };
 
         let return_line_id: Uuid = sqlx::query_scalar(
             r#"
@@ -176,6 +176,25 @@ pub async fn apply_transaction_returns(
         .bind(staff_id)
         .fetch_one(&mut *tx)
         .await?;
+
+        if restock && restock_affected > 0 {
+            sqlx::query(
+                r#"
+                INSERT INTO inventory_transactions (
+                    variant_id, tx_type, quantity_delta, reference_table, reference_id, notes
+                )
+                VALUES ($1, 'return_in', $2, 'transaction_return_lines', $3, $4)
+                "#,
+            )
+            .bind(variant_id)
+            .bind(line.quantity)
+            .bind(return_line_id)
+            .bind(format!(
+                "Restocked return stock increment for transaction {transaction_id}"
+            ))
+            .execute(&mut *tx)
+            .await?;
+        }
 
         if is_fulfilled && line_commission > Decimal::ZERO {
             crate::logic::commission_events::insert_return_adjustment_event(

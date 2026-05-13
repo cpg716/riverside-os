@@ -99,6 +99,17 @@ pub struct PublishResult {
 /// Uncounted in-scope variants are materialized with counted_qty = 0 so they are visible
 /// during reconciliation instead of being silently skipped.
 pub async fn materialize_review_scope_rows(pool: &PgPool, session_id: Uuid) -> Result<i64> {
+    let mut tx = pool.begin().await?;
+    let inserted = materialize_review_scope_rows_tx(&mut tx, session_id).await?;
+    tx.commit().await?;
+
+    Ok(inserted)
+}
+
+async fn materialize_review_scope_rows_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    session_id: Uuid,
+) -> Result<i64> {
     let inserted = sqlx::query(
         r#"
         INSERT INTO physical_inventory_counts (session_id, variant_id, counted_qty, scan_source)
@@ -110,10 +121,10 @@ pub async fn materialize_review_scope_rows(pool: &PgPool, session_id: Uuid) -> R
         WHERE pis.session_id = $1
           AND pic.id IS NULL
         ON CONFLICT (session_id, variant_id) DO NOTHING
-        "#,
+    "#,
     )
     .bind(session_id)
-    .execute(pool)
+    .execute(&mut **tx)
     .await
     .context("Failed to materialize review scope rows")?
     .rows_affected() as i64;
@@ -450,11 +461,22 @@ pub async fn apply_review_adjustment(
 
 /// Build the full review dataset: counted + snapshot + sales deduction.
 pub async fn build_review(pool: &PgPool, session_id: Uuid) -> Result<Vec<ReviewRow>> {
-    let _ = materialize_review_scope_rows(pool, session_id).await?;
+    let mut tx = pool.begin().await?;
+    let review = build_review_tx(&mut tx, session_id, false).await?;
+    tx.commit().await?;
+    Ok(review)
+}
+
+async fn build_review_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    session_id: Uuid,
+    preserve_live_deltas: bool,
+) -> Result<Vec<ReviewRow>> {
+    let _ = materialize_review_scope_rows_tx(tx, session_id).await?;
     let started_at: DateTime<Utc> =
         sqlx::query_scalar("SELECT started_at FROM physical_inventory_sessions WHERE id = $1")
             .bind(session_id)
-            .fetch_one(pool)
+            .fetch_one(&mut **tx)
             .await
             .context("Session not found")?;
 
@@ -471,6 +493,7 @@ pub async fn build_review(pool: &PgPool, session_id: Uuid) -> Result<Vec<ReviewR
         adjusted_qty: Option<i32>,
         review_status: String,
         review_note: Option<String>,
+        current_stock_on_hand: i32,
     }
 
     let rows = sqlx::query_as::<_, RawReview>(
@@ -485,7 +508,8 @@ pub async fn build_review(pool: &PgPool, session_id: Uuid) -> Result<Vec<ReviewR
             COALESCE(pic.counted_qty, 0) AS counted_qty,
             pic.adjusted_qty,
             COALESCE(pic.review_status, 'pending') AS review_status,
-            pic.review_note
+            pic.review_note,
+            pv.stock_on_hand AS current_stock_on_hand
         FROM physical_inventory_snapshots pis
         JOIN product_variants pv ON pv.id = pis.variant_id
         JOIN products p ON p.id = pv.product_id
@@ -496,7 +520,7 @@ pub async fn build_review(pool: &PgPool, session_id: Uuid) -> Result<Vec<ReviewR
         "#,
     )
     .bind(session_id)
-    .fetch_all(pool)
+    .fetch_all(&mut **tx)
     .await
     .context("Failed to fetch review rows")?;
 
@@ -516,13 +540,20 @@ pub async fn build_review(pool: &PgPool, session_id: Uuid) -> Result<Vec<ReviewR
         )
         .bind(row.variant_id)
         .bind(started_at)
-        .fetch_one(pool)
+        .fetch_one(&mut **tx)
         .await
         .unwrap_or(0);
 
         let effective_qty = row.adjusted_qty.unwrap_or(row.counted_qty);
         let sales = sales_since_start as i32;
-        let final_stock = (effective_qty - sales).max(0);
+        let base_final_stock = (effective_qty - sales).max(0);
+        let expected_live_stock = row.stock_at_start - sales;
+        let live_delta = if preserve_live_deltas {
+            row.current_stock_on_hand - expected_live_stock
+        } else {
+            0
+        };
+        let final_stock = (base_final_stock + live_delta).max(0);
         let delta = final_stock - row.stock_at_start;
 
         result.push(ReviewRow {
@@ -557,12 +588,6 @@ pub async fn publish_session(
     session_id: Uuid,
     published_by: Option<Uuid>,
 ) -> Result<PublishResult> {
-    // Build review rows — this includes the sales deduction logic
-    let review = build_review(pool, session_id).await?;
-    if review.is_empty() {
-        return Err(anyhow!("No counted items to publish"));
-    }
-
     let mut tx = pool.begin().await?;
 
     // Verify session is in reviewing state
@@ -578,6 +603,28 @@ pub async fn publish_session(
         return Err(anyhow!(
             "Session must be in 'reviewing' status to publish (currently '{status}')"
         ));
+    }
+
+    sqlx::query(
+        r#"
+        SELECT pv.id
+        FROM product_variants pv
+        INNER JOIN physical_inventory_snapshots pis ON pis.variant_id = pv.id
+        WHERE pis.session_id = $1
+        ORDER BY pv.id
+        FOR UPDATE OF pv
+        "#,
+    )
+    .bind(session_id)
+    .execute(&mut *tx)
+    .await
+    .context("Failed to lock physical inventory variants")?;
+
+    // Build review rows after session and variant locks are held so absolute stock writes
+    // cannot overwrite newer inventory mutations.
+    let review = build_review_tx(&mut tx, session_id, true).await?;
+    if review.is_empty() {
+        return Err(anyhow!("No counted items to publish"));
     }
 
     let mut reconciled: i64 = 0;

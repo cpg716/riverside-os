@@ -1,6 +1,10 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+
 import { expect, test, type Page } from "@playwright/test";
 
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
+import { adminHeaders, apiBase, uniqueSuffix } from "./helpers/inventoryReceiving";
 
 const NOW = "2026-05-01T12:00:00.000Z";
 const BRIDGE_STATUS_URLS = [
@@ -10,8 +14,15 @@ const BRIDGE_STATUS_URLS = [
 
 async function openCounterpointSettings(
   page: Page,
-  statusSection: "connect" | "details" | "signoff",
+  statusSection: "connect" | "details" | "signoff" | "advanced",
 ) {
+  const renderErrors: string[] = [];
+  page.on("console", (message) => {
+    const text = message.text();
+    if (text.includes("APP_RENDER_ERROR")) {
+      renderErrors.push(text);
+    }
+  });
   await page.addInitScript((section) => {
     window.localStorage.setItem("counterpoint.settingsTab", "status");
     window.localStorage.setItem("counterpoint.statusSection", section);
@@ -21,7 +32,11 @@ async function openCounterpointSettings(
   await page.goto("/settings/counterpoint", { waitUntil: "domcontentloaded" });
 
   const panel = page.getByTestId("counterpoint-settings-panel");
-  await expect(panel).toBeVisible({ timeout: 20_000 });
+  try {
+    await expect(panel).toBeVisible({ timeout: 20_000 });
+  } catch (error) {
+    throw new Error(`${String(error)}\n${renderErrors.join("\n")}`);
+  }
   return panel;
 }
 
@@ -234,7 +249,408 @@ async function mockCounterpointProofRoutes(page: Page) {
   });
 }
 
+function runCounterpointSql(sql: string): string {
+  const dbName = process.env.E2E_DB_NAME ?? "riverside_os_e2e";
+  return execFileSync(
+    "docker",
+    ["exec", "riverside-os-db", "psql", "-U", "postgres", "-d", dbName, "-At", "-c", sql],
+    { encoding: "utf8" },
+  ).trim();
+}
+
+function sqlText(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function inventoryStagingPayload(sku: string): Record<string, unknown> {
+  return {
+    rows: [
+      {
+        sku,
+        stock_on_hand: 3,
+        counterpoint_item_key: sku,
+        unit_cost: "1.00",
+      },
+    ],
+    sync: {
+      entity: "inventory",
+      cursor: `e2e-${sku}`,
+    },
+  };
+}
+
+function counterpointSyncHeaders(): Record<string, string> {
+  const envToken = process.env.COUNTERPOINT_SYNC_TOKEN?.trim();
+  const fileToken = envToken
+    ? envToken
+    : readFileSync(new URL("../../server/.env", import.meta.url), "utf8")
+        .match(/^COUNTERPOINT_SYNC_TOKEN=(.+)$/m)?.[1]
+        ?.trim();
+  expect(fileToken, "COUNTERPOINT_SYNC_TOKEN must be configured for staging replay coverage").toBeTruthy();
+  return {
+    "x-ros-sync-token": fileToken ?? "",
+    "x-bridge-version": "e2e",
+    "x-bridge-hostname": "counterpoint-e2e",
+  };
+}
+
+function enableCounterpointStaging(): void {
+  runCounterpointSql(`
+    UPDATE store_settings
+    SET counterpoint_config = counterpoint_config || '{"staging_enabled": true}'::jsonb
+    WHERE id = 1;
+  `);
+}
+
+function seedInventoryStagingBatch(sku: string): number {
+  const payload = JSON.stringify(inventoryStagingPayload(sku));
+  const output = runCounterpointSql(`
+    INSERT INTO counterpoint_staging_batch
+      (entity, payload, row_count, bridge_version, bridge_hostname, payload_fingerprint)
+    VALUES
+      ('inventory', ${sqlText(payload)}::jsonb, 1, 'e2e', 'counterpoint-e2e', md5(${sqlText(payload)}::jsonb::text))
+    RETURNING id
+  `);
+  const id = output.split(/\s+/).find((value) => /^\d+$/.test(value)) ?? "";
+  expect(id).toMatch(/^\d+$/);
+  return Number(id);
+}
+
+function counterpointBatchCountForPayload(entity: string, payload: Record<string, unknown>): number {
+  const output = runCounterpointSql(`
+    SELECT COUNT(*)::int
+    FROM counterpoint_staging_batch
+    WHERE entity = ${sqlText(entity)}
+      AND payload = ${sqlText(JSON.stringify(payload))}::jsonb
+      AND status IN ('pending', 'applying', 'applied');
+  `);
+  return Number(output);
+}
+
+function counterpointRecordsProcessed(entity: string): string {
+  return runCounterpointSql(`
+    SELECT COALESCE(records_processed::text, '')
+    FROM counterpoint_sync_runs
+    WHERE entity = ${sqlText(entity)};
+  `);
+}
+
+function counterpointBatchStatus(batchId: number): string {
+  return runCounterpointSql(
+    `SELECT status FROM counterpoint_staging_batch WHERE id = ${batchId}`,
+  );
+}
+
+function markCounterpointBatchApplying(batchId: number, startedAtSql: string): void {
+  runCounterpointSql(`
+    UPDATE counterpoint_staging_batch
+    SET status = 'applying',
+        apply_error = NULL,
+        apply_started_at = ${startedAtSql},
+        apply_claimed_by_staff_id = NULL
+    WHERE id = ${batchId};
+  `);
+}
+
+function counterpointBatchApplyError(batchId: number): string {
+  return runCounterpointSql(
+    `SELECT COALESCE(apply_error, '') FROM counterpoint_staging_batch WHERE id = ${batchId}`,
+  );
+}
+
+function counterpointBatchRecoveryReason(batchId: number): string {
+  return runCounterpointSql(
+    `SELECT COALESCE(recovery_reason, '') FROM counterpoint_staging_batch WHERE id = ${batchId}`,
+  );
+}
+
+function cleanupCounterpointStagingBatch(batchId: number, sku: string): void {
+  runCounterpointSql(`
+    DELETE FROM counterpoint_sync_issue
+    WHERE entity = 'inventory'
+      AND external_key = ${sqlText(sku)};
+    DELETE FROM counterpoint_staging_batch
+    WHERE id = ${batchId};
+  `);
+}
+
 test.describe("Counterpoint sign-off UI", () => {
+  test("duplicate staging POST replay reuses one pending batch", async ({ request }) => {
+    enableCounterpointStaging();
+    const sku = uniqueSuffix("CP-INGEST").toUpperCase();
+    const payload = inventoryStagingPayload(sku);
+    const beforeRecordsProcessed = counterpointRecordsProcessed("inventory");
+    const stagingUrl = `${apiBase()}/api/sync/counterpoint/staging`;
+    const requestBody = {
+      entity: "inventory",
+      payload,
+    };
+
+    const responses = await Promise.all([
+      request.post(stagingUrl, {
+        headers: counterpointSyncHeaders(),
+        data: requestBody,
+        failOnStatusCode: false,
+      }),
+      request.post(stagingUrl, {
+        headers: counterpointSyncHeaders(),
+        data: requestBody,
+        failOnStatusCode: false,
+      }),
+    ]);
+      const bodies = await Promise.all(
+      responses.map(async (response) => ({
+        status: response.status(),
+        json: (await response.json()) as {
+          ok?: boolean;
+          staging_batch_id?: number;
+          replayed?: boolean;
+          error?: string;
+        },
+      })),
+    );
+      const batchId = bodies[0].json.staging_batch_id;
+
+    try {
+      expect(bodies, JSON.stringify(bodies)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: 200,
+            json: expect.objectContaining({ ok: true, replayed: false }),
+          }),
+          expect.objectContaining({
+            status: 200,
+            json: expect.objectContaining({ ok: true, replayed: true }),
+          }),
+        ]),
+      );
+      expect(batchId).toBeTruthy();
+      expect(bodies[1].json.staging_batch_id).toBe(batchId);
+      expect(counterpointBatchCountForPayload("inventory", payload)).toBe(1);
+      expect(counterpointRecordsProcessed("inventory")).toBe(beforeRecordsProcessed);
+      const listRes = await request.get(
+        `${apiBase()}/api/settings/counterpoint-sync/staging/batches?limit=10`,
+        { headers: adminHeaders() },
+      );
+      expect(listRes.ok(), await listRes.text()).toBeTruthy();
+      const rows = (await listRes.json()) as Array<{
+        id: number;
+        replay_count: number;
+        last_replayed_at: string | null;
+        payload_fingerprint: string | null;
+      }>;
+      const batchRow = rows.find((row) => row.id === batchId);
+      expect(batchRow).toMatchObject({
+        id: batchId,
+        replay_count: 1,
+      });
+      expect(batchRow?.last_replayed_at).toBeTruthy();
+      expect(batchRow?.payload_fingerprint).toMatch(/^[0-9a-f]{32}$/);
+
+      const applyRes = await request.post(
+        `${apiBase()}/api/settings/counterpoint-sync/staging/batches/${batchId}/apply`,
+        { headers: adminHeaders(), failOnStatusCode: false },
+      );
+      expect(applyRes.status(), await applyRes.text()).toBe(200);
+      expect(await applyRes.json()).toMatchObject({ applied: true });
+      expect(counterpointBatchStatus(batchId ?? 0)).toBe("applied");
+    } finally {
+      if (batchId) {
+        cleanupCounterpointStagingBatch(batchId, sku);
+      }
+    }
+  });
+
+  test("staged batch apply is single-claim under concurrent requests", async ({ request }) => {
+    const sku = uniqueSuffix("CP-RACE").toUpperCase();
+    const batchId = seedInventoryStagingBatch(sku);
+
+    try {
+      const applyUrl = `${apiBase()}/api/settings/counterpoint-sync/staging/batches/${batchId}/apply`;
+      const responses = await Promise.all([
+        request.post(applyUrl, { headers: adminHeaders(), failOnStatusCode: false }),
+        request.post(applyUrl, { headers: adminHeaders(), failOnStatusCode: false }),
+      ]);
+      const responseBodies = await Promise.all(
+        responses.map(async (response) => ({
+          status: response.status(),
+          body: await response.text(),
+        })),
+      );
+
+      const successes = responseBodies.filter((response) => response.status === 200);
+      const duplicates = responseBodies.filter((response) => response.status !== 200);
+      expect(responseBodies.map((response) => response.status).sort()).toEqual([200, 400]);
+      expect(successes).toHaveLength(1);
+      expect(JSON.parse(successes[0].body)).toMatchObject({ applied: true });
+      expect(duplicates).toHaveLength(1);
+      expect(duplicates[0].body).toMatch(/batch status is (applying|applied), expected pending/i);
+      expect(counterpointBatchStatus(batchId)).toBe("applied");
+    } finally {
+      cleanupCounterpointStagingBatch(batchId, sku);
+    }
+  });
+
+  test("stale applying batch recovery marks failed without replay", async ({ request }) => {
+    const sku = uniqueSuffix("CP-STALE").toUpperCase();
+    const batchId = seedInventoryStagingBatch(sku);
+
+    try {
+      markCounterpointBatchApplying(batchId, "NOW() - INTERVAL '30 minutes'");
+
+      const listRes = await request.get(
+        `${apiBase()}/api/settings/counterpoint-sync/staging/batches?status=applying`,
+        { headers: adminHeaders() },
+      );
+      expect(listRes.ok(), await listRes.text()).toBeTruthy();
+      const applyingRows = (await listRes.json()) as Array<{
+        id: number;
+        status: string;
+        apply_started_at?: string | null;
+        apply_claimed_by_staff_id?: string | null;
+        recovered_at?: string | null;
+        recovered_by_staff_id?: string | null;
+        recovery_reason?: string | null;
+      }>;
+      const applyingRow = applyingRows.find((row) => row.id === batchId);
+      expect(applyingRow).toMatchObject({
+        id: batchId,
+        status: "applying",
+      });
+      expect(applyingRow?.apply_started_at).toBeTruthy();
+      expect(applyingRow).toHaveProperty("apply_claimed_by_staff_id");
+
+      const statusRes = await request.get(`${apiBase()}/api/settings/counterpoint-sync/status`, {
+        headers: adminHeaders(),
+      });
+      expect(statusRes.ok(), await statusRes.text()).toBeTruthy();
+      const statusJson = (await statusRes.json()) as {
+        staging_pending_count: number;
+        staging_applying_count?: number;
+      };
+      expect(statusJson.staging_pending_count).toBeGreaterThanOrEqual(1);
+      expect(statusJson.staging_applying_count ?? 0).toBeGreaterThanOrEqual(1);
+
+      const recoverRes = await request.post(
+        `${apiBase()}/api/settings/counterpoint-sync/staging/batches/${batchId}/recover-stale`,
+        { headers: adminHeaders(), failOnStatusCode: false },
+      );
+      expect(recoverRes.status(), await recoverRes.text()).toBe(200);
+      expect(await recoverRes.json()).toMatchObject({ recovered: true, status: "failed" });
+      expect(counterpointBatchStatus(batchId)).toBe("failed");
+      expect(counterpointBatchApplyError(batchId)).toMatch(/payload was not replayed/i);
+      expect(counterpointBatchRecoveryReason(batchId)).toMatch(/payload was not replayed/i);
+
+      const recoveredListRes = await request.get(
+        `${apiBase()}/api/settings/counterpoint-sync/staging/batches?status=failed`,
+        { headers: adminHeaders() },
+      );
+      expect(recoveredListRes.ok(), await recoveredListRes.text()).toBeTruthy();
+      const recoveredRows = (await recoveredListRes.json()) as Array<{
+        id: number;
+        recovered_at?: string | null;
+        recovered_by_staff_id?: string | null;
+        recovered_by_staff_name?: string | null;
+        recovery_reason?: string | null;
+      }>;
+      const recoveredRow = recoveredRows.find((row) => row.id === batchId);
+      expect(recoveredRow?.recovered_at).toBeTruthy();
+      expect(recoveredRow?.recovered_by_staff_id).toBeTruthy();
+      expect(recoveredRow?.recovered_by_staff_name).toBeTruthy();
+      expect(recoveredRow?.recovery_reason).toMatch(/payload was not replayed/i);
+    } finally {
+      cleanupCounterpointStagingBatch(batchId, sku);
+    }
+  });
+
+  test("non-stale applying batch recovery is rejected", async ({ request }) => {
+    const sku = uniqueSuffix("CP-FRESH").toUpperCase();
+    const batchId = seedInventoryStagingBatch(sku);
+
+    try {
+      markCounterpointBatchApplying(batchId, "NOW()");
+
+      const recoverRes = await request.post(
+        `${apiBase()}/api/settings/counterpoint-sync/staging/batches/${batchId}/recover-stale`,
+        { headers: adminHeaders(), failOnStatusCode: false },
+      );
+      expect(recoverRes.status(), await recoverRes.text()).toBe(409);
+      expect(await recoverRes.json()).toMatchObject({
+        error: "batch is not a stale applying claim",
+      });
+      expect(counterpointBatchStatus(batchId)).toBe("applying");
+    } finally {
+      cleanupCounterpointStagingBatch(batchId, sku);
+    }
+  });
+
+  test("staging UI surfaces replay and stale apply recovery metadata", async ({
+    page,
+    request,
+  }) => {
+    enableCounterpointStaging();
+    const replaySku = uniqueSuffix("CP-UI-REPLAY").toUpperCase();
+    const staleSku = uniqueSuffix("CP-UI-STALE").toUpperCase();
+    const replayPayload = inventoryStagingPayload(replaySku);
+    const stagingUrl = `${apiBase()}/api/sync/counterpoint/staging`;
+    const replayBody = { entity: "inventory", payload: replayPayload };
+    const firstReplayRes = await request.post(stagingUrl, {
+      headers: counterpointSyncHeaders(),
+      data: replayBody,
+      failOnStatusCode: false,
+    });
+    expect(firstReplayRes.status(), await firstReplayRes.text()).toBe(200);
+    const replayJson = (await firstReplayRes.json()) as { staging_batch_id: number };
+    const replayBatchId = replayJson.staging_batch_id;
+    const secondReplayRes = await request.post(stagingUrl, {
+      headers: counterpointSyncHeaders(),
+      data: replayBody,
+      failOnStatusCode: false,
+    });
+    expect(secondReplayRes.status(), await secondReplayRes.text()).toBe(200);
+    const staleBatchId = seedInventoryStagingBatch(staleSku);
+
+    try {
+      markCounterpointBatchApplying(staleBatchId, "NOW() - INTERVAL '30 minutes'");
+      await mockBridgeStatus(page, "unavailable");
+      await mockCounterpointStatus(page);
+      await mockCounterpointProofRoutes(page);
+      const panel = await openCounterpointSettings(page, "connect");
+      await panel.getByRole("button", { name: /inbound queue/i }).click();
+      await expect(panel.getByText("Staging diagnostics")).toBeVisible();
+      await expect(panel.getByText("Batches", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+      await panel.getByRole("button", { name: /^reload$/i }).click();
+      await expect(panel.getByText(String(replayBatchId))).toBeVisible();
+      await expect(panel.getByText("Replay suppressed x1")).toBeVisible();
+      await expect(panel.getByText(String(staleBatchId))).toBeVisible();
+      await expect(panel.getByRole("table").getByText("Stale applying")).toBeVisible();
+
+      await panel.getByText(String(staleBatchId)).click();
+      await expect(panel.getByText(/Apply claimed/i)).toBeVisible();
+      await expect(panel.getByText(/Safe recovery is available/i)).toBeVisible();
+      await expect(panel.getByText("Changed rows")).toBeVisible();
+      await expect(panel.getByText(/Payload fingerprint:/i)).toBeVisible();
+      await expect(panel.getByRole("button", { name: /mark stale apply failed/i })).toBeEnabled();
+      await panel.getByRole("button", { name: /mark stale apply failed/i }).click();
+      await expect(page.getByText("Mark stale apply failed?")).toBeVisible();
+      await expect(page.getByText(/does not replay the payload/i)).toBeVisible();
+      await page.getByRole("button", { name: "Mark failed" }).click();
+      await expect(panel.getByRole("table").getByText("Recovered stale apply")).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(panel.getByText(/by Chris G/i)).toBeVisible();
+      await expect(panel.getByText(/Recovery note: .*payload was not replayed/i)).toBeVisible({
+        timeout: 15_000,
+      });
+      expect(counterpointBatchStatus(staleBatchId)).toBe("failed");
+    } finally {
+      cleanupCounterpointStagingBatch(replayBatchId, replaySku);
+      cleanupCounterpointStagingBatch(staleBatchId, staleSku);
+    }
+  });
+
   test("shows bridge unavailable status without masking it as ready", async ({ page }) => {
     test.setTimeout(45_000);
 
@@ -384,7 +800,7 @@ test.describe("Counterpoint sign-off UI", () => {
 
     await expect(panel.getByText("Sign-off blockers present")).toBeVisible();
     await expect(
-      panel.getByText("2 staging batch(es) are still pending Apply."),
+      panel.getByText("2 staging batch(es) are pending or currently applying."),
     ).toBeVisible();
     await expect(panel.getByText("1 unresolved sync issue(s) remain.")).toBeVisible();
     await expect(

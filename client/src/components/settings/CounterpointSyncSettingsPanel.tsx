@@ -93,6 +93,7 @@ interface SyncStatusResponse {
   token_configured: boolean;
   counterpoint_staging_enabled?: boolean;
   staging_pending_count?: number;
+  staging_applying_count?: number;
 }
 
 interface CounterpointQuarantineCount {
@@ -566,6 +567,76 @@ interface StagingBatchRow {
   bridge_hostname: string | null;
   created_at: string;
   applied_at: string | null;
+  applied_by_staff_id: string | null;
+  applied_by_staff_name: string | null;
+  apply_started_at: string | null;
+  apply_claimed_by_staff_id: string | null;
+  apply_claimed_by_staff_name: string | null;
+  replay_count: number;
+  last_replayed_at: string | null;
+  payload_fingerprint: string | null;
+  recovered_at: string | null;
+  recovered_by_staff_id: string | null;
+  recovered_by_staff_name: string | null;
+  recovery_reason: string | null;
+}
+
+const STALE_STAGING_APPLY_AFTER_MINUTES = 15;
+
+function stagingBatchAgeMinutes(batch: StagingBatchRow): number | null {
+  if (!batch.apply_started_at) return null;
+  const started = new Date(batch.apply_started_at).getTime();
+  if (Number.isNaN(started)) return null;
+  return Math.floor((Date.now() - started) / 60000);
+}
+
+function isStaleApplyingBatch(batch: StagingBatchRow): boolean {
+  const ageMinutes = stagingBatchAgeMinutes(batch);
+  return (
+    batch.status === "applying" &&
+    ageMinutes != null &&
+    ageMinutes >= STALE_STAGING_APPLY_AFTER_MINUTES
+  );
+}
+
+function stagingStaffLabel(name: string | null, id: string | null): string {
+  if (name?.trim()) return name.trim();
+  if (id?.trim()) return `Staff ${id.slice(0, 8)}`;
+  return "Staff not recorded";
+}
+
+function stagingStatusLabel(batch: StagingBatchRow): string {
+  if (batch.recovered_at) return "Recovered stale apply";
+  if (isStaleApplyingBatch(batch)) return "Stale applying";
+  if (batch.status === "pending") return "Pending review";
+  if (batch.status === "applying") return "Applying";
+  if (batch.status === "applied") return "Applied";
+  if (batch.status === "failed") return "Failed";
+  if (batch.status === "discarded") return "Discarded";
+  return formatReviewLabel(batch.status);
+}
+
+function stagingStatusTone(batch: StagingBatchRow): string {
+  if (batch.recovered_at) return "bg-amber-500/15 text-amber-700 dark:text-amber-200";
+  if (isStaleApplyingBatch(batch)) return "bg-red-500/10 text-red-600";
+  if (batch.status === "applying") return "bg-sky-500/15 text-sky-700 dark:text-sky-200";
+  if (batch.status === "applied") return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
+  if (batch.status === "failed") return "bg-red-500/10 text-red-600";
+  if (batch.status === "pending") return "bg-amber-500/15 text-amber-700 dark:text-amber-200";
+  return "bg-app-surface text-app-text-muted";
+}
+
+function stagingBatchSummary(batch: StagingBatchRow): string {
+  const entity = formatEntityLabel(batch.entity).toLowerCase();
+  if (batch.recovered_at) return `Recovered stale apply; ${fmtNum(batch.row_count)} ${entity} row(s) need review or re-stage.`;
+  if (batch.status === "applied") return `Applied ${fmtNum(batch.row_count)} ${entity} row(s) through the live import path.`;
+  if (batch.status === "failed" && batch.apply_started_at) return `Apply failed after ownership claim; partial mutation is possible and safe replay is not guaranteed.`;
+  if (batch.status === "failed") return `Failed before a successful apply; review the error and re-stage from the bridge if needed.`;
+  if (isStaleApplyingBatch(batch)) return `Apply ownership is stale; safe recovery marks failed only and does not replay.`;
+  if (batch.status === "applying") return `Apply ownership is active; wait for completion before sign-off.`;
+  if (batch.replay_count > 0) return `Replay safely reused this existing ${entity} batch instead of creating duplicates.`;
+  if (batch.status === "pending") return `Pending review for ${fmtNum(batch.row_count)} ${entity} row(s).`;
+  return `${fmtNum(batch.row_count)} ${entity} row(s).`;
 }
 
 interface CategoryMapRow {
@@ -672,6 +743,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [confirmStagingOff, setConfirmStagingOff] = useState(false);
   const [confirmApply, setConfirmApply] = useState<number | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<number | null>(null);
+  const [confirmRecoverStale, setConfirmRecoverStale] = useState<number | null>(null);
   const [resetPreview, setResetPreview] = useState<CounterpointResetPreviewResponse | null>(null);
   const [resetPreviewLoading, setResetPreviewLoading] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
@@ -1252,6 +1324,29 @@ export default function CounterpointSyncSettingsPanel(props?: {
     }
   };
 
+  const recoverStaleBatch = async (id: number) => {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${id}/recover-stale`,
+        {
+          method: "POST",
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
+      if (res.ok) {
+        toast("Stale apply claim marked failed. Payload was not replayed.", "success");
+        setConfirmRecoverStale(null);
+        await fetchBatches();
+        await fetchStatus();
+      } else {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(j.error ?? "Stale recovery failed", "error");
+      }
+    } catch {
+      toast("Stale recovery failed", "error");
+    }
+  };
+
   const resolveIssue = async (issueId: number) => {
     try {
       const res = await fetch(
@@ -1405,6 +1500,26 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
   const stagingOn = status?.counterpoint_staging_enabled === true;
   const pendingN = status?.staging_pending_count ?? 0;
+  const applyingN = status?.staging_applying_count ?? 0;
+  const staleApplyingN = batches.filter(isStaleApplyingBatch).length;
+  const failedBatchN = batches.filter((batch) => batch.status === "failed").length;
+  const recoveredBatchN = batches.filter((batch) => !!batch.recovered_at).length;
+  const replaySuppressionN = batches.reduce(
+    (sum, batch) => sum + Math.max(0, batch.replay_count ?? 0),
+    0,
+  );
+  const lastSuccessfulApplyAt =
+    batches
+      .map((batch) => batch.applied_at)
+      .filter((value): value is string => !!value)
+      .sort()
+      .at(-1) ?? null;
+  const lastSyncAttemptAt =
+    status?.entity_runs
+      .map((run) => run.updated_at)
+      .filter((value): value is string => !!value)
+      .sort()
+      .at(-1) ?? null;
   const quarantineTotal = quarantineSummary?.total_records ?? 0;
   const quarantineSeverityRows = [
     { label: "Blocked", value: quarantineSummary?.blocking_records ?? 0, tone: "text-app-danger" },
@@ -1601,7 +1716,12 @@ export default function CounterpointSyncSettingsPanel(props?: {
   ).length;
   const signoffBlockers = [
     !bridgeLive?.lastRun ? "No bridge run summary is visible yet." : null,
-    pendingN > 0 ? `${fmtNum(pendingN)} staging batch(es) are still pending Apply.` : null,
+    pendingN > 0
+      ? `${fmtNum(pendingN)} staging batch(es) are pending or currently applying.`
+      : null,
+    applyingN > 0
+      ? `${fmtNum(applyingN)} staging batch(es) have active apply ownership.`
+      : null,
     unresolvedIssueCount > 0 ? `${fmtNum(unresolvedIssueCount)} unresolved sync issue(s) remain.` : null,
     entitiesMissingRosProof > 0
       ? `${fmtNum(entitiesMissingRosProof)} entity row(s) have bridge-reported counts without ROS landed proof.`
@@ -2329,7 +2449,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                         </li>
                         <li>
                           {migrationPreflight.staging_enabled
-                            ? `Confirm the inbound queue is empty after Apply. Pending batches: ${fmtNum(pendingN)}.`
+                            ? `Confirm the inbound queue is clear after Apply. Pending or applying batches: ${fmtNum(pendingN)}.`
                             : "Confirm the bridge wrote directly to live import routes and no staging batches remain pending."}
                         </li>
                         <li>
@@ -4554,7 +4674,72 @@ export default function CounterpointSyncSettingsPanel(props?: {
       )}
 
       {tab === "inbound" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[320px]">
+        <>
+          <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Staging diagnostics
+                </h4>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  Duplicate bridge sends reuse the same batch. Applying batches block sign-off until
+                  they finish or an admin marks a stale claim failed.
+                </p>
+              </div>
+              <span
+                className={`ui-pill text-[10px] ${
+                  staleApplyingN > 0 || failedBatchN > 0
+                    ? "bg-red-500/10 text-red-600"
+                    : applyingN > 0 || pendingN > 0
+                      ? "bg-amber-500/15 text-amber-700 dark:text-amber-200"
+                      : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                }`}
+              >
+                {staleApplyingN > 0
+                  ? "Stale apply needs review"
+                  : applyingN > 0
+                    ? "Apply in progress"
+                    : pendingN > 0
+                      ? "Pending apply"
+                      : "Queue clear"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs xl:grid-cols-6">
+              {[
+                { label: "Last sync attempt", value: formatDate(lastSyncAttemptAt) },
+                { label: "Last successful apply", value: formatDate(lastSuccessfulApplyAt) },
+                { label: "Replay suppressions", value: fmtNum(replaySuppressionN) },
+                { label: "Failed batches", value: fmtNum(failedBatchN) },
+                { label: "Stale applying", value: fmtNum(staleApplyingN) },
+                { label: "Recovered stale", value: fmtNum(recoveredBatchN) },
+              ].map((item) => (
+                <div key={item.label} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    {item.label}
+                  </p>
+                  <p className="mt-1 font-bold text-app-text tabular-nums">{item.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-2 text-xs text-app-text-muted lg:grid-cols-3">
+              <p className="rounded-lg border border-app-border bg-app-bg/50 p-3">
+                Replay-safe ingestion means a duplicate payload is counted as suppressed and tied
+                back to the original batch instead of creating another pending Apply.
+              </p>
+              <p className="rounded-lg border border-app-border bg-app-bg/50 p-3">
+                Stale recovery is intentionally conservative: it marks the stuck claim failed for
+                review and never resets or replays the payload automatically.
+              </p>
+              <p className="rounded-lg border border-app-border bg-app-bg/50 p-3">
+                If a batch fails after Apply ownership was claimed, review the payload and support
+                notes before re-staging because partial changes may already exist.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[320px] mt-4">
           <div className="rounded-xl border border-app-border overflow-hidden flex flex-col min-h-0">
             <div className="px-3 py-2 border-b border-app-border bg-app-bg/40 flex justify-between items-center">
               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -4590,7 +4775,29 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       <td className="px-2 py-2 font-mono">{b.id}</td>
                       <td className="px-2 py-2 font-bold">{b.entity}</td>
                       <td className="px-2 py-2">{b.row_count}</td>
-                      <td className="px-2 py-2 capitalize">{b.status}</td>
+                      <td className="px-2 py-2">
+                        <span
+                          className={`ui-pill text-[10px] ${stagingStatusTone(b)}`}
+                        >
+                          {stagingStatusLabel(b)}
+                        </span>
+                        {b.apply_started_at ? (
+                          <p className="mt-1 text-[10px] text-app-text-muted">
+                            {stagingStaffLabel(
+                              b.apply_claimed_by_staff_name,
+                              b.apply_claimed_by_staff_id,
+                            )}
+                            {b.status === "applying" && stagingBatchAgeMinutes(b) != null
+                              ? ` · ${fmtNum(stagingBatchAgeMinutes(b) ?? 0)} min`
+                              : ""}
+                          </p>
+                        ) : null}
+                        {b.replay_count > 0 ? (
+                          <p className="mt-1 text-[10px] text-app-text-muted">
+                            Replay suppressed x{fmtNum(b.replay_count)}
+                          </p>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -4611,19 +4818,148 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 <>
                   {(() => {
                     const batch = batches.find((b) => b.id === selectedBatchId);
-                    return batch ? (
-                      <div className="text-xs space-y-1">
-                        {batch.apply_error && (
-                          <p className="text-red-600 font-mono break-all">
-                            Last error: {batch.apply_error}
+                    if (!batch) return null;
+                    const payloadRows = Array.isArray(
+                      (selectedPayload as { rows?: unknown[] } | null)?.rows,
+                    )
+                      ? (selectedPayload as { rows: unknown[] }).rows.length
+                      : batch.row_count;
+                    const timelineRows = [
+                      { label: "Created", value: formatDate(batch.created_at) },
+                      batch.replay_count > 0
+                        ? {
+                            label: "Replay suppressed",
+                            value: `${fmtNum(batch.replay_count)} duplicate POST(s)${
+                              batch.last_replayed_at
+                                ? `, last ${formatDate(batch.last_replayed_at)}`
+                                : ""
+                            }`,
+                          }
+                        : null,
+                      batch.apply_started_at
+                        ? {
+                            label: "Apply claimed",
+                            value: `${formatDate(batch.apply_started_at)} by ${stagingStaffLabel(
+                              batch.apply_claimed_by_staff_name,
+                              batch.apply_claimed_by_staff_id,
+                            )}`,
+                          }
+                        : null,
+                      batch.applied_at
+                        ? {
+                            label: "Applied",
+                            value: `${formatDate(batch.applied_at)} by ${stagingStaffLabel(
+                              batch.applied_by_staff_name,
+                              batch.applied_by_staff_id,
+                            )}`,
+                          }
+                        : null,
+                      batch.recovered_at
+                        ? {
+                            label: "Recovered",
+                            value: `${formatDate(batch.recovered_at)} by ${stagingStaffLabel(
+                              batch.recovered_by_staff_name,
+                              batch.recovered_by_staff_id,
+                            )}`,
+                          }
+                        : null,
+                      batch.status === "failed"
+                        ? { label: "Failed", value: batch.apply_error ?? "No error detail recorded" }
+                        : null,
+                    ].filter((row): row is { label: string; value: string } => !!row);
+                    return (
+                      <div className="text-xs space-y-3">
+                        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`ui-pill text-[10px] ${stagingStatusTone(batch)}`}>
+                              {stagingStatusLabel(batch)}
+                            </span>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              {formatEntityLabel(batch.entity)}
+                            </span>
+                          </div>
+                          <p className="mt-2 font-semibold text-app-text">
+                            {stagingBatchSummary(batch)}
                           </p>
-                        )}
-                        <p className="text-app-text-muted">
-                          Received {formatDate(batch.created_at)}{" "}
-                          {batch.bridge_version && `(bridge ${batch.bridge_version})`}
-                        </p>
+                          {batch.status === "failed" && batch.apply_started_at ? (
+                            <p className="mt-2 text-amber-700 dark:text-amber-300">
+                              This failure happened after Apply ownership was claimed. Do not replay
+                              automatically; review the payload and any landed records before asking
+                              the bridge to re-stage.
+                            </p>
+                          ) : null}
+                          {isStaleApplyingBatch(batch) ? (
+                            <p className="mt-2 text-amber-700 dark:text-amber-300">
+                              Safe recovery is available because the apply claim is stale. It marks
+                              the batch failed only; it does not replay or reset the payload.
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              Payload rows
+                            </p>
+                            <p className="font-bold tabular-nums">{fmtNum(payloadRows)}</p>
+                          </div>
+                          <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              Entity
+                            </p>
+                            <p className="font-bold">{formatEntityLabel(batch.entity)}</p>
+                          </div>
+                          <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              Changed rows
+                            </p>
+                            <p className="font-bold">Not separately reported</p>
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-app-border bg-app-bg/50 p-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            Timeline
+                          </p>
+                          <div className="mt-2 space-y-2">
+                            {timelineRows.map((row) => (
+                              <div key={row.label} className="flex gap-2">
+                                <span className="min-w-24 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                  {row.label}
+                                </span>
+                                <span className="text-app-text-muted break-words">{row.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {batch.apply_error ? (
+                          <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-red-600">
+                              Failure explanation
+                            </p>
+                            <p className="mt-1 font-mono text-[10px] break-all text-red-600">
+                              {batch.apply_error}
+                            </p>
+                            <p className="mt-2 text-app-text-muted">
+                              Retry is not automatic. Re-stage from the bridge only after support
+                              confirms whether any rows landed before the failure.
+                            </p>
+                          </div>
+                        ) : null}
+
+                        {batch.recovery_reason ? (
+                          <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-amber-700 dark:text-amber-300">
+                            Recovery note: {batch.recovery_reason}
+                          </p>
+                        ) : null}
+                        {batch.payload_fingerprint ? (
+                          <p className="font-mono text-[10px] text-app-text-muted break-all">
+                            Payload fingerprint: {batch.payload_fingerprint}
+                          </p>
+                        ) : null}
                       </div>
-                    ) : null;
+                    );
                   })()}
                   {payloadLoading ? (
                     <Loader2 className="h-5 w-5 animate-spin text-app-text-muted" />
@@ -4659,12 +4995,25 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     >
                       Discard
                     </button>
+                    <button
+                      type="button"
+                      disabled={
+                        !batches.find((b) => b.id === selectedBatchId && isStaleApplyingBatch(b))
+                      }
+                      onClick={() =>
+                        selectedBatchId != null && setConfirmRecoverStale(selectedBatchId)
+                      }
+                      className="ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                    >
+                      Mark stale apply failed
+                    </button>
                   </div>
                 </>
               )}
             </div>
           </div>
-        </div>
+          </div>
+        </>
       )}
 
       {tab === "categories" && (
@@ -4842,7 +5191,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
         onClose={() => setConfirmApply(null)}
         onConfirm={() => confirmApply != null && void applyBatch(confirmApply)}
         title="Apply staged batch?"
-        message="This runs the same import as the live bridge path on current ROS data."
+        message="This claims the batch, then runs the same import as the live bridge path on current ROS data. Duplicate bridge replays will continue to reuse the claimed batch instead of creating another pending Apply."
         confirmLabel="Apply"
         variant="success"
         loading={applyBusy}
@@ -4854,6 +5203,17 @@ export default function CounterpointSyncSettingsPanel(props?: {
         title="Discard batch?"
         message="The staged payload will be marked discarded and cannot be applied."
         confirmLabel="Discard"
+        variant="danger"
+      />
+      <ConfirmationModal
+        isOpen={confirmRecoverStale != null}
+        onClose={() => setConfirmRecoverStale(null)}
+        onConfirm={() =>
+          confirmRecoverStale != null && void recoverStaleBatch(confirmRecoverStale)
+        }
+        title="Mark stale apply failed?"
+        message="This records the stale claim as failed for review and keeps the forensic trail. It does not replay the payload, reset the batch to pending, or hide possible partial changes. Re-stage from the bridge only after support review."
+        confirmLabel="Mark failed"
         variant="danger"
       />
       <PromptModal

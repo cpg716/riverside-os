@@ -952,7 +952,7 @@ test.describe("QBO audit contract", () => {
     request,
   }) => {
     test.setTimeout(120_000);
-    const dateOffset = 180 + Math.floor(Math.random() * 4000);
+    const dateOffset = 20_000 + Math.floor(Math.random() * 20_000);
     const refundOriginalDate = futureUtcDate(dateOffset);
     const refundDate = futureUtcDate(dateOffset + 1);
     const recognitionDate = futureUtcDate(dateOffset + 2);
@@ -1083,6 +1083,158 @@ test.describe("QBO audit contract", () => {
     expect(moneyToCents(revenueContributor?.amount)).toBe(parseMoneyToCents("110.00"));
   });
 
+  test("simultaneous cash refund requests do not over-refund an open queue row", async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    const unitTax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
+    const returnedUnitTotal = totalFor("110.00", unitTax.stateTax, unitTax.localTax);
+
+    const checkout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+    });
+    await returnFirstQboLine(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      productSku: product.sku,
+    });
+
+    const refundBefore = (await fetchRefundsDue(request)).find(
+      (row) => row.transaction_id === checkout.transaction_id,
+    );
+    expect(refundBefore?.is_open).toBe(true);
+    expect(refundBefore?.amount_due).toBe(returnedUnitTotal);
+    expect(moneyToCents(refundBefore?.amount_refunded)).toBe(0);
+
+    const refundRequest = () =>
+      request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/refunds/process`, {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          session_id: sessionId,
+          payment_method: "cash",
+          amount: returnedUnitTotal,
+        },
+        failOnStatusCode: false,
+      });
+
+    const responses = await Promise.all([refundRequest(), refundRequest()]);
+    const responseBodies = await Promise.all(responses.map((res) => res.text()));
+    const successful = responses.filter((res) => res.status() === 200);
+    const rejectedIndex = responses.findIndex((res) => res.status() !== 200);
+    expect(successful).toHaveLength(1);
+    expect(rejectedIndex).toBeGreaterThanOrEqual(0);
+    expect(responses[rejectedIndex]?.status()).toBeGreaterThanOrEqual(400);
+    expect(responseBodies[rejectedIndex]).toMatch(/amount|already|closed|due|exceed|refund/i);
+
+    const artifacts = await getTransactionArtifacts(request, checkout.transaction_id);
+    const refundAllocations = artifacts.allocation_rows.filter(
+      (row) =>
+        row.target_transaction_id === checkout.transaction_id &&
+        row.payment_method === "cash" &&
+        moneyToCents(row.amount_allocated) === -parseMoneyToCents(returnedUnitTotal),
+    );
+    expect(refundAllocations).toHaveLength(1);
+    expect(
+      (await fetchRefundsDue(request)).some((row) => row.transaction_id === checkout.transaction_id),
+    ).toBe(false);
+  });
+
+  test("cash refund capacity and retry attempts do not exceed refund due", async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    const unitTax = calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents("110.00"));
+    const returnedUnitTotal = totalFor("110.00", unitTax.stateTax, unitTax.localTax);
+    const overCapacityAmount = centsToFixed2(parseMoneyToCents(returnedUnitTotal) + 1);
+
+    const checkout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+    });
+    await returnFirstQboLine(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      productSku: product.sku,
+    });
+
+    const overCapacity = await request.post(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/refunds/process`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          session_id: sessionId,
+          payment_method: "cash",
+          amount: overCapacityAmount,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const overCapacityText = await overCapacity.text();
+    expect(overCapacity.status(), overCapacityText.slice(0, 1000)).toBeGreaterThanOrEqual(400);
+    expect(overCapacityText).toMatch(/amount|due|exceed|refund/i);
+
+    const refundAfterRejectedAttempt = (await fetchRefundsDue(request)).find(
+      (row) => row.transaction_id === checkout.transaction_id,
+    );
+    expect(refundAfterRejectedAttempt?.is_open).toBe(true);
+    expect(moneyToCents(refundAfterRejectedAttempt?.amount_refunded)).toBe(0);
+
+    await processCashRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: returnedUnitTotal,
+    });
+
+    const retryAfterClosed = await request.post(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/refunds/process`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          session_id: sessionId,
+          payment_method: "cash",
+          amount: returnedUnitTotal,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const retryAfterClosedText = await retryAfterClosed.text();
+    expect(retryAfterClosed.status(), retryAfterClosedText.slice(0, 1000)).toBeGreaterThanOrEqual(
+      400,
+    );
+    expect(retryAfterClosedText).toMatch(/amount|already|closed|due|refund/i);
+
+    const artifacts = await getTransactionArtifacts(request, checkout.transaction_id);
+    const refundAllocations = artifacts.allocation_rows.filter(
+      (row) =>
+        row.target_transaction_id === checkout.transaction_id &&
+        row.payment_method === "cash" &&
+        moneyToCents(row.amount_allocated) === -parseMoneyToCents(returnedUnitTotal),
+    );
+    expect(refundAllocations).toHaveLength(1);
+  });
+
   test("manual legacy refund rejects salesperson authorization and records admin approval", async ({
     request,
   }) => {
@@ -1187,7 +1339,7 @@ test.describe("QBO audit contract", () => {
     request,
   }) => {
     test.setTimeout(120_000);
-    const dateOffset = 700 + Math.floor(Math.random() * 4000);
+    const dateOffset = 40_000 + Math.floor(Math.random() * 20_000);
     const checkoutDate = futureUtcDate(dateOffset);
     const returnDate = futureUtcDate(dateOffset + 1);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
@@ -1238,7 +1390,7 @@ test.describe("QBO audit contract", () => {
     request,
   }) => {
     test.setTimeout(120_000);
-    const dateOffset = 900 + Math.floor(Math.random() * 4000);
+    const dateOffset = 60_000 + Math.floor(Math.random() * 20_000);
     const checkoutDate = futureUtcDate(dateOffset);
     const returnDate = futureUtcDate(dateOffset + 1);
     const refundDate = futureUtcDate(dateOffset + 2);
@@ -1322,7 +1474,7 @@ test.describe("QBO audit contract", () => {
     request,
   }) => {
     test.setTimeout(120_000);
-    const dateOffset = 240 + Math.floor(Math.random() * 4000);
+    const dateOffset = 80_000 + Math.floor(Math.random() * 20_000);
     const activityDate = futureUtcDate(dateOffset);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -1459,7 +1611,7 @@ test.describe("QBO audit contract", () => {
 
   test("gift card subtypes post to their intended QBO accounts", async ({ request }) => {
     test.setTimeout(120_000);
-    const dateOffset = 300 + Math.floor(Math.random() * 4000);
+    const dateOffset = 100_000 + Math.floor(Math.random() * 20_000);
     const activityDate = futureUtcDate(dateOffset);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);

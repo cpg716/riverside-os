@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { centsToFixed2, parseMoneyToCents } from "../src/lib/money";
 import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
@@ -56,6 +57,60 @@ type ControlBoardResponse = {
   }>;
 };
 
+type PhysicalInventorySession = {
+  id: string;
+  status: string;
+};
+
+function sqlUuid(value: string): string {
+  expect(value).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  return `'${value}'::uuid`;
+}
+
+function movementEvidenceCount(
+  product: InventoryProduct,
+  expected: {
+    txType: string;
+    quantityDelta: number;
+    referenceId?: string;
+  },
+): number {
+  const dbName = process.env.E2E_DB_NAME ?? "riverside_os_e2e";
+  const referenceClause = expected.referenceId
+    ? `AND it.reference_id = ${sqlUuid(expected.referenceId)}`
+    : "";
+  const sql = `
+    SELECT COUNT(*)::int
+    FROM inventory_transactions it
+    JOIN product_variants pv ON pv.id = it.variant_id
+    WHERE pv.product_id = ${sqlUuid(product.productId)}
+      AND it.tx_type::text = '${expected.txType}'
+      AND it.quantity_delta = ${expected.quantityDelta}
+      ${referenceClause}
+  `;
+  const output = execFileSync(
+    "docker",
+    ["exec", "riverside-os-db", "psql", "-U", "postgres", "-d", dbName, "-At", "-c", sql],
+    { encoding: "utf8" },
+  ).trim();
+  return Number(output);
+}
+
+async function expectMovementEvidence(
+  _request: APIRequestContext,
+  product: InventoryProduct,
+  expected: {
+    txType: string;
+    quantityDelta: number;
+    referenceId?: string;
+    count?: number;
+  },
+): Promise<void> {
+  expect(movementEvidenceCount(product, expected), `${expected.txType} movement evidence`).toBe(
+    expected.count ?? 1,
+  );
+}
+
 async function createNonClothingCategory(
   request: APIRequestContext,
   actorStaffId: string,
@@ -99,6 +154,100 @@ async function createInventoryProduct(
     sku: product.sku,
     unitPrice: "49.99",
     unitCost: "20.00",
+  };
+}
+
+async function getActivePhysicalInventorySession(
+  request: APIRequestContext,
+): Promise<PhysicalInventorySession | null> {
+  const res = await request.get(`${apiBase()}/api/inventory/physical/sessions/active`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return bodyText ? (JSON.parse(bodyText) as PhysicalInventorySession | null) : null;
+}
+
+async function cancelActivePhysicalInventorySession(request: APIRequestContext): Promise<void> {
+  const active = await getActivePhysicalInventorySession(request);
+  if (!active) {
+    return;
+  }
+  const res = await request.delete(`${apiBase()}/api/inventory/physical/sessions/${active.id}`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function createPhysicalInventorySession(
+  request: APIRequestContext,
+  categoryId: string,
+): Promise<PhysicalInventorySession> {
+  const res = await request.post(`${apiBase()}/api/inventory/physical/sessions`, {
+    headers: {
+      ...adminHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      scope: "category",
+      category_ids: [categoryId],
+      notes: "E2E inventory audit physical publish verification",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as PhysicalInventorySession;
+}
+
+async function addPhysicalInventoryCount(
+  request: APIRequestContext,
+  sessionId: string,
+  variantId: string,
+  quantity: number,
+): Promise<void> {
+  const res = await request.post(`${apiBase()}/api/inventory/physical/sessions/${sessionId}/counts`, {
+    headers: {
+      ...adminHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      variant_id: variantId,
+      quantity,
+      source: "manual",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function movePhysicalInventorySessionToReview(
+  request: APIRequestContext,
+  sessionId: string,
+): Promise<void> {
+  const res = await request.post(`${apiBase()}/api/inventory/physical/sessions/${sessionId}/move-to-review`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function publishPhysicalInventorySession(
+  request: APIRequestContext,
+  sessionId: string,
+): Promise<{ status: number; bodyText: string }> {
+  const res = await request.post(`${apiBase()}/api/inventory/physical/sessions/${sessionId}/publish`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+  return {
+    status: res.status(),
+    bodyText: await res.text(),
   };
 }
 
@@ -186,6 +335,26 @@ async function fetchTransactionDetail(
   return JSON.parse(bodyText) as TransactionDetailResponse;
 }
 
+async function pickupTransaction(
+  request: APIRequestContext,
+  transactionId: string,
+): Promise<{ status: number; bodyText: string }> {
+  const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      actor: "E2E Inventory Audit",
+    },
+    failOnStatusCode: false,
+  });
+  return {
+    status: res.status(),
+    bodyText: await res.text(),
+  };
+}
+
 test.describe("inventory audit contract", () => {
   test("inventory value surfaces distinguish retail and current-cost bases", async ({
     request,
@@ -265,6 +434,71 @@ test.describe("inventory audit contract", () => {
     const afterPickup = await getInventoryIntelligence(request, product.variantId);
     expect(afterPickup.stock_on_hand).toBe(before.stock_on_hand - 1);
     expect(afterPickup.available_stock).toBe(before.available_stock - 1);
+    await expectMovementEvidence(request, product, {
+      txType: "sale",
+      quantityDelta: -1,
+      referenceId: checkout.transaction_id,
+    });
+
+    const detailAfterPickup = await fetchTransactionDetail(request, checkout.transaction_id);
+    const lineAfterPickup = detailAfterPickup.items.find((item) => item.sku === product.sku);
+    expect(lineAfterPickup?.is_fulfilled).toBe(true);
+  });
+
+  test("simultaneous pickup decrements stock and reserved quantity exactly once", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const suffix = uniqueSuffix("pickup-race");
+    const vendor = await createVendor(request, suffix);
+    const product = await createInventoryProduct(request, operatorStaffId, "pickup-race", 0);
+
+    const checkout = await checkoutInventoryProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fulfillment: "special_order",
+    });
+
+    const po = await createDraftPurchaseOrder(request, vendor.id);
+    await addPurchaseOrderLine(request, po.id, product.variantId, 1);
+    await submitPurchaseOrder(request, po.id);
+    const poDetail = await getPurchaseOrderDetail(request, po.id);
+    const poLine = poDetail.lines[0];
+    expect(poLine, "purchase order line missing").toBeTruthy();
+
+    await receivePurchaseOrder(request, po.id, {
+      invoice_number: `PICK-${suffix}`,
+      lines: [{ po_line_id: poLine!.line_id, quantity_received_now: 1 }],
+    });
+
+    const beforePickup = await getInventoryIntelligence(request, product.variantId);
+    expect(beforePickup.stock_on_hand).toBe(1);
+    expect(beforePickup.reserved_stock).toBe(1);
+    expect(beforePickup.available_stock).toBe(0);
+
+    const attempts = await Promise.all([
+      pickupTransaction(request, checkout.transaction_id),
+      pickupTransaction(request, checkout.transaction_id),
+    ]);
+
+    for (const attempt of attempts) {
+      expect(attempt.status, attempt.bodyText.slice(0, 1000)).toBe(200);
+    }
+
+    const afterPickup = await getInventoryIntelligence(request, product.variantId);
+    expect(afterPickup.stock_on_hand).toBe(0);
+    expect(afterPickup.reserved_stock).toBe(0);
+    expect(afterPickup.available_stock).toBe(0);
+    await expectMovementEvidence(request, product, {
+      txType: "sale",
+      quantityDelta: -1,
+      referenceId: checkout.transaction_id,
+      count: 1,
+    });
 
     const detailAfterPickup = await fetchTransactionDetail(request, checkout.transaction_id);
     const lineAfterPickup = detailAfterPickup.items.find((item) => item.sku === product.sku);
@@ -312,6 +546,50 @@ test.describe("inventory audit contract", () => {
     expect(replayDetail.lines[0]?.qty_previously_received).toBe(2);
   });
 
+  test("physical inventory publish preserves concurrent receipt stock", async ({ request }) => {
+    test.setTimeout(90_000);
+    await cancelActivePhysicalInventorySession(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const suffix = uniqueSuffix("physical-receive-race");
+    const categoryId = await createNonClothingCategory(request, operatorStaffId, suffix);
+    const vendor = await createVendor(request, suffix);
+    const product = await createSingleVariantProduct(request, suffix, {
+      categoryId,
+      stockOnHand: 0,
+      vendorId: vendor.id,
+      namePrefix: "Physical Publish Race",
+      skuPrefix: "PHY-RACE",
+    });
+
+    const session = await createPhysicalInventorySession(request, categoryId);
+    await addPhysicalInventoryCount(request, session.id, product.variantId, 0);
+    await movePhysicalInventorySessionToReview(request, session.id);
+
+    const po = await createDraftPurchaseOrder(request, vendor.id);
+    await addPurchaseOrderLine(request, po.id, product.variantId, 1);
+    await submitPurchaseOrder(request, po.id);
+    const detail = await getPurchaseOrderDetail(request, po.id);
+    const line = detail.lines[0];
+    expect(line, "purchase order line missing").toBeTruthy();
+
+    const [publishAttempt, receipt] = await Promise.all([
+      publishPhysicalInventorySession(request, session.id),
+      receivePurchaseOrder(request, po.id, {
+        invoice_number: `PHY-${suffix}`,
+        lines: [{ po_line_id: line!.line_id, quantity_received_now: 1 }],
+      }),
+    ]);
+
+    expect(publishAttempt.status, publishAttempt.bodyText.slice(0, 1000)).toBe(200);
+    expect(receipt.idempotent_replay).toBe(false);
+
+    const after = await getInventoryIntelligence(request, product.variantId);
+    expect(after.stock_on_hand).toBe(1);
+
+    const activeSession = await getActivePhysicalInventorySession(request);
+    expect(activeSession).toBeNull();
+  });
+
   test("takeaway return with restock restores stock and records refund truth", async ({
     request,
   }) => {
@@ -331,6 +609,11 @@ test.describe("inventory audit contract", () => {
 
     const afterCheckout = await getInventoryIntelligence(request, product.variantId);
     expect(afterCheckout.stock_on_hand).toBe(before.stock_on_hand - 1);
+    await expectMovementEvidence(request, product, {
+      txType: "sale",
+      quantityDelta: -1,
+      referenceId: checkout.transaction_id,
+    });
 
     const detailBeforeReturn = await fetchTransactionDetail(request, checkout.transaction_id);
     const line = detailBeforeReturn.items.find((item) => item.sku === product.sku);
@@ -363,6 +646,10 @@ test.describe("inventory audit contract", () => {
 
     const afterReturn = await getInventoryIntelligence(request, product.variantId);
     expect(afterReturn.stock_on_hand).toBe(before.stock_on_hand);
+    await expectMovementEvidence(request, product, {
+      txType: "return_in",
+      quantityDelta: 1,
+    });
 
     const refundQueueRes = await request.get(`${apiBase()}/api/transactions/refunds/due`, {
       headers: staffHeaders(),

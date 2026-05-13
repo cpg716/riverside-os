@@ -213,6 +213,69 @@ async function closeGroupExactly(
   return JSON.parse(bodyText) as CloseSessionResponse;
 }
 
+async function postStaffClose(
+  request: APIRequestContext,
+  sessionId: string,
+  actualCash: string,
+): Promise<{ status: number; bodyText: string }> {
+  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      actual_cash: actualCash,
+      closing_notes: null,
+      closing_comments: null,
+    },
+    failOnStatusCode: false,
+  });
+  return {
+    status: res.status(),
+    bodyText: await res.text(),
+  };
+}
+
+async function postStaleCheckout(
+  request: APIRequestContext,
+  sessionId: string,
+  sessionToken: string,
+  staffId: string,
+): Promise<{ status: number; bodyText: string }> {
+  const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
+    },
+    data: {
+      session_id: sessionId,
+      operator_staff_id: staffId,
+      customer_id: staffId,
+      payment_method: "cash",
+      total_price: "1.00",
+      amount_paid: "1.00",
+      items: [],
+      order_payments: [
+        {
+          client_line_id: "stale-close-race-payment",
+          target_transaction_id: "00000000-0000-4000-8000-000000000123",
+          target_display_id: "TXN-STALE-CLOSE",
+          customer_id: staffId,
+          amount: "1.00",
+          balance_before: "1.00",
+          projected_balance_after: "0.00",
+        },
+      ],
+    },
+    failOnStatusCode: false,
+  });
+  return {
+    status: res.status(),
+    bodyText: await res.text(),
+  };
+}
+
 async function closeExistingPrimaryGroup(request: APIRequestContext): Promise<void> {
   const rows = await listOpenSessions(request);
   const primary = rows.find((row) => row.register_lane === 1);
@@ -244,6 +307,50 @@ async function openPrimaryRegister(request: APIRequestContext): Promise<OpenSess
 }
 
 test.describe("register audit contract", () => {
+  test("concurrent primary register opens leave one active till group", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    await closeExistingPrimaryGroup(request);
+
+    const openRequest = () =>
+      request.post(`${apiBase()}/api/sessions/open`, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        data: {
+          cashier_code: staffCode(),
+          pin: staffCode(),
+          opening_float: "200.00",
+          register_lane: 1,
+        },
+        failOnStatusCode: false,
+      });
+
+    const responses = await Promise.all([openRequest(), openRequest()]);
+    const responseTexts = await Promise.all(responses.map((res) => res.text()));
+    const successfulIndex = responses.findIndex((res) => res.status() === 200);
+    const rejectedIndex = responses.findIndex((res) => res.status() !== 200);
+    expect(successfulIndex).toBeGreaterThanOrEqual(0);
+    expect(rejectedIndex).toBeGreaterThanOrEqual(0);
+    expect(responses[rejectedIndex]?.status()).toBe(409);
+    expect(responseTexts[rejectedIndex]).toMatch(/register_lane_in_use/i);
+
+    const opened = JSON.parse(responseTexts[successfulIndex]) as OpenSessionResponse;
+    expect(opened.register_lane).toBe(1);
+    expect(opened.pos_api_token).toBeTruthy();
+
+    const rows = await listOpenSessions(request);
+    const groupRows = rows
+      .filter((row) => row.till_close_group_id === opened.till_close_group_id)
+      .sort((a, b) => a.register_lane - b.register_lane);
+    expect(groupRows.map((row) => row.register_lane)).toEqual([1, 2, 3, 4]);
+    expect(rows.filter((row) => row.register_lane === 1)).toHaveLength(1);
+
+    const close = await closeGroupExactly(request, opened.session_id, opened.pos_api_token ?? "");
+    expect(close.status).toBe("closed");
+  });
+
   test("primary register owns till close, linked lanes attach, and closed tokens stop working", async ({
     request,
   }) => {
@@ -345,6 +452,81 @@ test.describe("register audit contract", () => {
       },
     );
     expect(tokenAfterClose.status()).toBe(404);
+  });
+
+  test("simultaneous primary register closes leave one closed till group", async ({ request }) => {
+    test.setTimeout(90_000);
+    await closeExistingPrimaryGroup(request);
+
+    const opened = await openPrimaryRegister(request);
+    const recon = await fetchReconciliation(request, opened.session_id, opened.pos_api_token ?? "");
+
+    const closeAttempts = await Promise.all([
+      postStaffClose(request, opened.session_id, recon.expected_cash),
+      postStaffClose(request, opened.session_id, recon.expected_cash),
+    ]);
+
+    const successful = closeAttempts.filter((attempt) => attempt.status === 200);
+    const rejected = closeAttempts.filter((attempt) => attempt.status !== 200);
+    expect(successful).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.status).toBe(409);
+    expect(rejected[0]?.bodyText).toMatch(/already closed/i);
+
+    const close = JSON.parse(successful[0]?.bodyText ?? "{}") as CloseSessionResponse;
+    expect(close.status).toBe("closed");
+    expectMoney(close.discrepancy, "0.00");
+
+    const afterCloseRows = await listOpenSessions(request);
+    expect(
+      afterCloseRows.some((row) => row.till_close_group_id === opened.till_close_group_id),
+    ).toBe(false);
+
+    const currentWithClosedToken = await request.get(`${apiBase()}/api/sessions/current`, {
+      headers: {
+        "x-riverside-pos-session-id": opened.session_id,
+        "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+      },
+      failOnStatusCode: false,
+    });
+    expect([401, 404]).toContain(currentWithClosedToken.status());
+  });
+
+  test("checkout finalization cannot create tender evidence after close claim", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    await closeExistingPrimaryGroup(request);
+
+    const opened = await openPrimaryRegister(request);
+    const staffId = await verifyStaffId(request);
+    const recon = await fetchReconciliation(request, opened.session_id, opened.pos_api_token ?? "");
+
+    const [closeAttempt, checkoutAttempt] = await Promise.all([
+      postStaffClose(request, opened.session_id, recon.expected_cash),
+      postStaleCheckout(request, opened.session_id, opened.pos_api_token ?? "", staffId),
+    ]);
+
+    expect(closeAttempt.status, closeAttempt.bodyText.slice(0, 1000)).toBe(200);
+    expect(checkoutAttempt.status).not.toBe(200);
+    expect([400, 401, 404]).toContain(checkoutAttempt.status);
+    expect(checkoutAttempt.bodyText).toMatch(
+      /Register session is not open|invalid or expired register session token|target transaction|Transaction not found/i,
+    );
+
+    const staleRetry = await postStaleCheckout(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      staffId,
+    );
+    expect(staleRetry.status).toBe(401);
+    expect(staleRetry.bodyText).toMatch(/invalid or expired register session token/i);
+
+    const afterCloseRows = await listOpenSessions(request);
+    expect(
+      afterCloseRows.some((row) => row.till_close_group_id === opened.till_close_group_id),
+    ).toBe(false);
   });
 
   test("Z-close atomically purges server-backed parked sales and writes audit rows", async ({

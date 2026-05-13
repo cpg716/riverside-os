@@ -2583,19 +2583,21 @@ pub async fn execute_checkout(
         }
     }
 
-    let session_ok: bool = sqlx::query_scalar(
+    let session_ok: Option<Uuid> = sqlx::query_scalar(
         r#"
-        SELECT EXISTS(
-            SELECT 1 FROM register_sessions
-            WHERE id = $1 AND is_open = true
-        )
+        SELECT id
+        FROM register_sessions
+        WHERE id = $1
+          AND is_open = true
+          AND lifecycle_status = 'open'
+        FOR UPDATE
         "#,
     )
     .bind(payload.session_id)
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
 
-    if !session_ok {
+    if session_ok.is_none() {
         return Err(CheckoutError::InvalidPayload(
             "Register session is not open or invalid".to_string(),
         ));
@@ -3378,6 +3380,23 @@ pub async fn execute_checkout(
                 qty,
                 "checkout: takeaway stock decrement skipped (no product_variants row — sale still completes)"
             );
+        } else {
+            sqlx::query(
+                r#"
+                INSERT INTO inventory_transactions (
+                    variant_id, tx_type, quantity_delta, reference_table, reference_id, notes
+                )
+                VALUES ($1, 'sale', $2, 'transactions', $3, $4)
+                "#,
+            )
+            .bind(variant_id)
+            .bind(-qty)
+            .bind(transaction_id)
+            .bind(format!(
+                "Takeaway checkout stock decrement for transaction {transaction_id}"
+            ))
+            .execute(&mut *tx)
+            .await?;
         }
     }
 

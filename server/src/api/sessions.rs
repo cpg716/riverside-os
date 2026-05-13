@@ -125,6 +125,14 @@ fn map_session_gate_err(e: (StatusCode, axum::Json<serde_json::Value>)) -> Sessi
     }
 }
 
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    matches!(
+        error,
+        sqlx::Error::Database(db_error)
+            if db_error.code().as_deref() == Some("23505")
+    )
+}
+
 fn default_register_lane() -> i16 {
     1
 }
@@ -846,7 +854,16 @@ async fn open_session(
     .bind(lane)
     .bind(till_close_group_id)
     .fetch_one(&state.db)
-    .await?;
+    .await
+    .map_err(|e| {
+        if is_unique_violation(&e) {
+            SessionError::RegisterLaneInUse {
+                register_lane: lane,
+            }
+        } else {
+            SessionError::Database(e)
+        }
+    })?;
 
     let receipt_timezone = load_receipt_timezone(&state.db).await;
 
@@ -870,7 +887,16 @@ async fn open_session(
             .bind(satellite_lane as i16)
             .bind(till_close_group_id)
             .fetch_one(&state.db)
-            .await?;
+            .await
+            .map_err(|e| {
+                if is_unique_violation(&e) {
+                    SessionError::RegisterLaneInUse {
+                        register_lane: satellite_lane as i16,
+                    }
+                } else {
+                    SessionError::Database(e)
+                }
+            })?;
         }
     }
 
@@ -1297,22 +1323,18 @@ async fn post_cash_adjustment(
         .map(str::trim)
         .filter(|s| !s.is_empty());
 
-    let ok: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM register_sessions WHERE id = $1 AND is_open = true)",
-    )
-    .bind(session_id)
-    .fetch_one(&state.db)
-    .await?;
-
-    if !ok {
-        return Err(SessionError::SessionNotFound);
-    }
+    let mut tx = state.db.begin().await.map_err(SessionError::Database)?;
 
     let drawer_lane: i16 = sqlx::query_scalar(
-        r#"SELECT register_lane FROM register_sessions WHERE id = $1 AND is_open = true"#,
+        r#"
+        SELECT register_lane
+        FROM register_sessions
+        WHERE id = $1 AND is_open = true AND lifecycle_status = 'open'
+        FOR UPDATE
+        "#,
     )
     .bind(session_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(SessionError::SessionNotFound)?;
 
@@ -1333,8 +1355,10 @@ async fn post_cash_adjustment(
     .bind(body.amount)
     .bind(cat)
     .bind(reason)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await.map_err(SessionError::Database)?;
 
     Ok(Json(json!({ "status": "recorded" })))
 }
@@ -1473,34 +1497,72 @@ async fn close_session(
         ));
     }
 
-    let close_lane: i16 = sqlx::query_scalar(
-        r#"SELECT register_lane FROM register_sessions WHERE id = $1 AND is_open = true"#,
+    let closer_from_headers = try_authenticated_staff_headers(&state, &headers)
+        .await
+        .map(|s| s.id);
+
+    let weather = crate::logic::weather::fetch_weather_range(
+        &state.http_client,
+        &state.db,
+        Utc::now().date_naive(),
+        Utc::now().date_naive(),
+    )
+    .await
+    .into_iter()
+    .next();
+    let weather_val = serde_json::to_value(weather).unwrap_or(serde_json::Value::Null);
+
+    let mut tx = state.db.begin().await.map_err(SessionError::Database)?;
+
+    #[derive(FromRow)]
+    struct CloseClaimRow {
+        register_lane: i16,
+        till_close_group_id: Uuid,
+        opened_by: Uuid,
+        shift_primary_staff_id: Option<Uuid>,
+    }
+
+    let claim = sqlx::query_as::<_, CloseClaimRow>(
+        r#"
+        SELECT register_lane, till_close_group_id, opened_by, shift_primary_staff_id
+        FROM register_sessions
+        WHERE id = $1 AND is_open = true
+        FOR UPDATE
+        "#,
     )
     .bind(session_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(SessionError::SessionAlreadyClosed)?;
+    .fetch_optional(&mut *tx)
+    .await?;
 
-    if close_lane != 1 {
+    let Some(claim) = claim else {
+        let _ = tx.rollback().await;
+        return Err(SessionError::SessionAlreadyClosed);
+    };
+
+    if claim.register_lane != 1 {
+        let _ = tx.rollback().await;
         return Err(SessionError::InvalidPayload(
             "close the till shift from Register #1 only; this closes all linked registers in the shift"
                 .to_string(),
         ));
     }
 
-    let till_gid: Uuid = sqlx::query_scalar(
-        r#"SELECT till_close_group_id FROM register_sessions WHERE id = $1 AND is_open = true"#,
-    )
-    .bind(session_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(SessionError::SessionAlreadyClosed)?;
+    let till_gid = claim.till_close_group_id;
+    let close_actor_id = closer_from_headers
+        .or(claim.shift_primary_staff_id)
+        .unwrap_or(claim.opened_by);
 
     let group_ids: Vec<Uuid> = sqlx::query_scalar(
-        r#"SELECT id FROM register_sessions WHERE till_close_group_id = $1 AND is_open = true"#,
+        r#"
+        SELECT id
+        FROM register_sessions
+        WHERE till_close_group_id = $1 AND is_open = true
+        ORDER BY register_lane ASC
+        FOR UPDATE
+        "#,
     )
     .bind(till_gid)
-    .fetch_all(&state.db)
+    .fetch_all(&mut *tx)
     .await?;
 
     let recon = build_reconciliation(&state.db, session_id, "z_report").await?;
@@ -1545,39 +1607,10 @@ async fn close_session(
         "closed_at": Utc::now(),
     });
 
-    #[derive(FromRow)]
-    struct SessionCloserRow {
-        opened_by: Option<Uuid>,
-    }
-
-    let closer = sqlx::query_as::<_, SessionCloserRow>(
-        r#"SELECT opened_by FROM register_sessions WHERE id = $1 AND is_open = true"#,
-    )
-    .bind(primary_id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    let Some(closer) = closer else {
-        return Err(SessionError::SessionAlreadyClosed);
-    };
-
-    let weather = crate::logic::weather::fetch_weather_range(
-        &state.http_client,
-        &state.db,
-        Utc::now().date_naive(),
-        Utc::now().date_naive(),
-    )
-    .await
-    .into_iter()
-    .next();
-    let weather_val = serde_json::to_value(weather).unwrap_or(serde_json::Value::Null);
-
-    let mut tx = state.db.begin().await.map_err(SessionError::Database)?;
-
     let purged_parked_sales = crate::logic::pos_parked_sales::purge_open_parked_for_sessions_in_tx(
         &mut tx,
         &group_ids,
-        closer.opened_by,
+        Some(close_actor_id),
     )
     .await
     .map_err(SessionError::Database)?;
@@ -1684,23 +1717,21 @@ async fn close_session(
         }
     });
 
-    if let Some(ob) = closer.opened_by {
-        let _ = log_staff_access(
-            &state.db,
-            ob,
-            "register_close",
-            json!({
-                "session_id": primary_id,
-                "till_close_group_id": till_gid,
-                "closed_session_ids": group_ids,
-                "discrepancy_amount": discrepancy,
-                "actual_cash": payload.actual_cash,
-                "expected_cash": expected_cash,
-                "purged_parked_sales": purged_parked_sales,
-            }),
-        )
-        .await;
-    }
+    let _ = log_staff_access(
+        &state.db,
+        close_actor_id,
+        "register_close",
+        json!({
+            "session_id": primary_id,
+            "till_close_group_id": till_gid,
+            "closed_session_ids": group_ids,
+            "discrepancy_amount": discrepancy,
+            "actual_cash": payload.actual_cash,
+            "expected_cash": expected_cash,
+            "purged_parked_sales": purged_parked_sales,
+        }),
+    )
+    .await;
 
     if discrepancy != Decimal::ZERO {
         let pool = state.db.clone();

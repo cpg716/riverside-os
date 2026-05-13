@@ -1118,6 +1118,38 @@ async fn register_lane_for_session(
     .ok_or_else(|| PaymentError::InvalidPayload("Register session is not open.".to_string()))
 }
 
+async fn lock_register_session_open_for_payment(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    register_session_id: Option<Uuid>,
+) -> Result<(), PaymentError> {
+    let Some(register_session_id) = register_session_id else {
+        return Ok(());
+    };
+
+    let session_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM register_sessions
+        WHERE id = $1
+          AND is_open = true
+          AND lifecycle_status = 'open'
+        FOR UPDATE
+        "#,
+    )
+    .bind(register_session_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    if session_id.is_none() {
+        return Err(PaymentError::InvalidPayload(
+            "Register session is not open.".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 struct ResolvedHelcimTerminalRoute {
     terminal_key: String,
@@ -6436,6 +6468,12 @@ async fn start_helcim_purchase(
     let attempt_id = Uuid::new_v4();
     let idempotency_key = format!("helcim-{attempt_id}");
 
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
     let insert_result = sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
@@ -6457,10 +6495,11 @@ async fn start_helcim_purchase(
     .bind(terminal_route.override_staff_id)
     .bind(&terminal_route.override_reason)
     .bind(&idempotency_key)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await;
 
     if let Err(e) = insert_result {
+        let _ = tx.rollback().await;
         if e.as_database_error().and_then(|db| db.constraint())
             == Some("uq_payment_provider_attempts_active_device")
         {
@@ -6470,6 +6509,9 @@ async fn start_helcim_purchase(
         }
         return Err(PaymentError::InvalidPayload(e.to_string()));
     }
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     if config.simulator_enabled() {
         return load_helcim_attempt(&state, attempt_id, None)
@@ -6644,6 +6686,12 @@ async fn start_helcim_terminal_refund(
     let attempt_id = Uuid::new_v4();
     let idempotency_key = format!("helcim-refund-{attempt_id}");
 
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
     let insert_result = sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
@@ -6670,10 +6718,11 @@ async fn start_helcim_terminal_refund(
         "helcim:terminalRefund:{}",
         payload.original_transaction_id
     ))
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await;
 
     if let Err(e) = insert_result {
+        let _ = tx.rollback().await;
         if e.as_database_error().and_then(|db| db.constraint())
             == Some("uq_payment_provider_attempts_active_device")
         {
@@ -6683,6 +6732,9 @@ async fn start_helcim_terminal_refund(
         }
         return Err(PaymentError::InvalidPayload(e.to_string()));
     }
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     if config.simulator_enabled() {
         return load_helcim_attempt(&state, attempt_id, None)
@@ -6878,6 +6930,12 @@ async fn process_helcim_card_token_purchase(
         .warning
         .as_deref()
         .map(helcim::redact_provider_text);
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
     sqlx::query(
         r#"
         UPDATE payment_provider_attempts
@@ -6935,6 +6993,13 @@ async fn process_helcim_card_refund(
         .idempotency_key
         .and_then(non_empty_string)
         .unwrap_or_else(|| format!("helcim-card-refund-{attempt_id}"));
+
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
     sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
@@ -6954,9 +7019,12 @@ async fn process_helcim_card_refund(
         "helcim:cardRefund:{}",
         payload.original_transaction_id
     ))
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     let request = helcim::HelcimCardRefundRequest {
         original_transaction_id: payload.original_transaction_id,
@@ -6996,6 +7064,12 @@ async fn process_helcim_card_refund(
         .warning
         .as_deref()
         .map(helcim::redact_provider_text);
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
     sqlx::query(
         r#"
         UPDATE payment_provider_attempts
@@ -7014,9 +7088,12 @@ async fn process_helcim_card_refund(
     .bind(provider_transaction_id)
     .bind(transaction.audit_reference())
     .bind(warning)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     load_helcim_attempt(&state, attempt_id, register_session_id)
         .await
@@ -7048,6 +7125,12 @@ async fn process_helcim_card_reverse(
         .idempotency_key
         .and_then(non_empty_string)
         .unwrap_or_else(|| format!("helcim-card-reverse-{attempt_id}"));
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
     sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
@@ -7066,9 +7149,12 @@ async fn process_helcim_card_reverse(
         "helcim:cardReverse:{}",
         payload.original_transaction_id
     ))
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     let request = helcim::HelcimCardReverseRequest {
         card_transaction_id: payload.original_transaction_id,
@@ -7107,6 +7193,12 @@ async fn process_helcim_card_reverse(
         .warning
         .as_deref()
         .map(helcim::redact_provider_text);
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
     sqlx::query(
         r#"
         UPDATE payment_provider_attempts
@@ -7125,9 +7217,12 @@ async fn process_helcim_card_reverse(
     .bind(provider_transaction_id)
     .bind(transaction.audit_reference())
     .bind(warning)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     load_helcim_attempt(&state, attempt_id, register_session_id)
         .await
@@ -7193,6 +7288,12 @@ async fn initialize_helcim_pay(
         }
         middleware::StaffOrPosSession::PosSession { session_id } => (Some(session_id), None),
     };
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
     sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
@@ -7210,9 +7311,12 @@ async fn initialize_helcim_pay(
     .bind(&idempotency_key)
     .bind(&initialized.checkout_token)
     .bind(&initialized.secret_token)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     Ok(Json(HelcimPayInitializeResponseBody {
         attempt: load_helcim_attempt(&state, attempt_id, None).await?,
@@ -7302,6 +7406,12 @@ async fn confirm_helcim_pay(
         .as_deref()
         .map(helcim::redact_provider_text);
 
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
     sqlx::query(
         r#"
         UPDATE payment_provider_attempts
@@ -7320,9 +7430,12 @@ async fn confirm_helcim_pay(
     .bind(&provider_transaction_id)
     .bind(warning)
     .bind(format!("helcim-pay-js:{provider_transaction_id}"))
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     load_helcim_attempt(&state, payload.attempt_id, pos_session_id)
         .await
@@ -7486,6 +7599,12 @@ async fn simulate_helcim_attempt(
         };
 
     let audit = format!("helcim-sim:{status}:{attempt_id}");
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, attempt.register_session_id).await?;
     sqlx::query(
         r#"
         UPDATE payment_provider_attempts
@@ -7506,9 +7625,12 @@ async fn simulate_helcim_attempt(
     .bind(error_code)
     .bind(error_message)
     .bind(audit)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     load_helcim_attempt(&state, attempt_id, session_id)
         .await
@@ -7702,6 +7824,12 @@ async fn refresh_pending_helcim_attempt_from_provider(
         .as_deref()
         .map(helcim::redact_provider_text);
 
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, attempt.register_session_id).await?;
     let result = sqlx::query(
         r#"
         UPDATE payment_provider_attempts
@@ -7729,13 +7857,17 @@ async fn refresh_pending_helcim_attempt_from_provider(
     .bind(provider_transaction_id)
     .bind(raw_audit_reference)
     .bind(warning)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     if result.rows_affected() == 0 {
+        let _ = tx.rollback().await;
         return Ok(None);
     }
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     load_helcim_attempt_row(state, attempt.id).await.map(Some)
 }

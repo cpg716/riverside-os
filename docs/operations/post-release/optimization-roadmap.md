@@ -20,10 +20,10 @@ This roadmap prioritizes measurement before optimization. It intentionally avoid
 
 | Priority | Item | Accounting/operational risk | Safe scope |
 | --- | --- | --- | --- |
-| 1 | Add simultaneous refund API contract | Duplicate refund, liability clearing error, register mismatch | Two requests against same open refund; assert one safe outcome and no over-refund |
-| 2 | Add concurrent same-PO receive contract | Duplicate stock posting or receiving event | Two receive requests with same PO/request; assert exact-once stock and event behavior |
-| 3 | Add register open/close concurrency contract or targeted uniqueness audit | Duplicate lane open or close race can break till truth | Exercise lane open/close race or verify DB/source protection first |
-| 4 | Add split-refund capacity/retry contract | Split refund capacity errors can over-refund or confuse staff | Use existing non-hardware refund patterns; do not simulate provider terminal behavior |
+| 1 | Add simultaneous refund API contract | Duplicate refund, liability clearing error, register mismatch | Complete for cash refund queue path; extend only if provider-backed split concurrency becomes in scope |
+| 2 | Add concurrent same-PO receive contract | Duplicate stock posting or receiving event | Complete for same-PO single-line receipt; extend to multi-line/partial receipt concurrency if needed |
+| 3 | Add register open/close concurrency contract or targeted uniqueness audit | Duplicate lane open or close race can break till truth | Primary open concurrency covered; close-race contract or source audit remains |
+| 4 | Add split-refund capacity/retry contract | Split refund capacity errors can over-refund or confuse staff | Capacity/retry covered for cash refund; provider split concurrency remains out of scope without safe provider simulation |
 
 ## Phase 3: Targeted Source Audits
 
