@@ -331,6 +331,8 @@ export default function NotificationCenterDrawer({
   const [tab, setTab] = useState<Tab>("inbox");
   const [rows, setRows] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [inboxViewFilter, setInboxViewFilter] = useState<"all" | "action">("all");
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastBody, setBroadcastBody] = useState("");
   const [audienceMode, setAudienceMode] = useState<
@@ -341,6 +343,11 @@ export default function NotificationCenterDrawer({
   const [sending, setSending] = useState(false);
   const [expandedSnId, setExpandedSnId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState<"read" | "archive" | null>(null);
+  const [bulkResult, setBulkResult] = useState<{
+    kind: "warning" | "error";
+    title: string;
+    detail: string;
+  } | null>(null);
   const [health, setHealth] = useState<NotificationHealth | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
 
@@ -354,9 +361,10 @@ export default function NotificationCenterDrawer({
       });
       if (!res.ok) throw new Error("load");
       setRows((await res.json()) as NotificationRow[]);
+      setLoadError(null);
     } catch {
+      setLoadError("Could not refresh notifications.");
       toast("Could not load notifications.", "error");
-      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -450,6 +458,22 @@ export default function NotificationCenterDrawer({
     return "You are caught up for now.";
   }, [inboxReadIds.length, inboxUnreadIds.length]);
 
+  const actionNeededRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        const severity = notificationSeverity(row.kind, row.deep_link);
+        return (
+          !row.read_at ||
+          isActionableNotificationDeepLink(row.deep_link) ||
+          isCompletableNotification(row.kind, row.deep_link) ||
+          severity === "urgent" ||
+          severity === "action" ||
+          severity === "system"
+        );
+      }),
+    [rows],
+  );
+
   const runBulkAction = async (
     ids: string[],
     action: "read" | "archive",
@@ -460,6 +484,7 @@ export default function NotificationCenterDrawer({
       inboxUnreadIds.length === 0 &&
       inboxReadIds.length === ids.length;
     setBulkBusy(action);
+    setBulkResult(null);
     try {
       const results = await Promise.allSettled(
         ids.map(async (id) => {
@@ -492,6 +517,11 @@ export default function NotificationCenterDrawer({
         );
       }
       if (failed > 0) {
+        setBulkResult({
+          kind: "warning",
+          title: action === "read" ? "Some alerts were not marked read" : "Some alerts were not dismissed",
+          detail: `${succeeded.length} updated, ${failed} still need attention. The completed updates were kept; retry is safe for the remaining alerts.`,
+        });
         toast(
           action === "read"
             ? "A few alerts still need attention."
@@ -500,6 +530,11 @@ export default function NotificationCenterDrawer({
         );
       }
     } catch {
+      setBulkResult({
+        kind: "error",
+        title: action === "read" ? "Could not mark alerts read" : "Could not dismiss alerts",
+        detail: "The cleanup action did not finish. Refresh notifications before treating the inbox as clear; retry is safe.",
+      });
       toast(
         action === "read"
           ? "Could not mark the new alerts read."
@@ -609,7 +644,10 @@ export default function NotificationCenterDrawer({
     );
   };
 
-  const groupedRows = rows.reduce<
+  const visibleRows =
+    tab === "inbox" && inboxViewFilter === "action" ? actionNeededRows : rows;
+
+  const groupedRows = visibleRows.reduce<
     Array<{ bucket: "today" | "earlier"; rows: NotificationRow[] }>
   >((groups, row) => {
     const bucket = notificationRecencyBucket(row.created_at);
@@ -665,7 +703,7 @@ export default function NotificationCenterDrawer({
 
         {tab === "inbox" && rows.length > 0 ? (
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-app-border bg-app-surface-2 px-6 py-3">
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
                 Quick cleanup
               </p>
@@ -673,7 +711,31 @@ export default function NotificationCenterDrawer({
                 {cleanupHint}
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <div className="flex rounded-lg border border-app-border bg-app-surface p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setInboxViewFilter("all")}
+                  className={`rounded-md px-2 py-1.5 text-[9px] font-black uppercase tracking-widest ${
+                    inboxViewFilter === "all"
+                      ? "bg-app-accent text-white"
+                      : "text-app-text-muted hover:text-app-text"
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInboxViewFilter("action")}
+                  className={`rounded-md px-2 py-1.5 text-[9px] font-black uppercase tracking-widest ${
+                    inboxViewFilter === "action"
+                      ? "bg-app-accent text-white"
+                      : "text-app-text-muted hover:text-app-text"
+                  }`}
+                >
+                  Action ({actionNeededRows.length})
+                </button>
+              </div>
               <button
                 type="button"
                 disabled={bulkBusy !== null || inboxUnreadIds.length === 0}
@@ -699,6 +761,53 @@ export default function NotificationCenterDrawer({
         ) : null}
 
         <div className="flex min-h-0 flex-1 flex-col px-6 py-5">
+          {loadError && tab !== "broadcast" ? (
+            <div className="mb-4 rounded-xl border border-app-warning/40 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={18} className="mt-0.5 shrink-0 text-app-warning" />
+                  <div>
+                    <p className="font-black">{loadError}</p>
+                    <p className="text-xs text-app-text-muted">
+                      {rows.length > 0
+                        ? "Showing last loaded alerts. Refreshing is safe and does not mark, complete, or dismiss alerts."
+                        : "No alerts loaded. Refresh again before treating the inbox as clear."}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="rounded-lg border border-app-warning/40 bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {bulkResult && tab === "inbox" ? (
+            <div
+              className={`mb-4 rounded-xl border px-4 py-3 text-sm text-app-text ${
+                bulkResult.kind === "error"
+                  ? "border-app-danger/40 bg-app-danger/10"
+                  : "border-app-warning/40 bg-app-warning/10"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle
+                  size={18}
+                  className={`mt-0.5 shrink-0 ${
+                    bulkResult.kind === "error" ? "text-app-danger" : "text-app-warning"
+                  }`}
+                />
+                <div>
+                  <p className="font-black">{bulkResult.title}</p>
+                  <p className="text-xs text-app-text-muted">{bulkResult.detail}</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
         {tab === "broadcast" ? (
           <div className="flex-1 overflow-y-auto pr-1">
@@ -975,19 +1084,31 @@ export default function NotificationCenterDrawer({
                   </p>
                 </div>
               </div>
-            ) : rows.length === 0 ? (
+            ) : visibleRows.length === 0 ? (
               <div className="flex h-64 flex-col items-center justify-center gap-3 text-app-text-muted transition-all animate-in fade-in zoom-in-95 duration-500">
                 <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-app-surface-2">
-                  <CheckCircle2 size={32} strokeWidth={1.5} className="text-app-success/40" />
+                  {loadError ? (
+                    <AlertTriangle size={32} strokeWidth={1.5} className="text-app-warning/70" />
+                  ) : (
+                    <CheckCircle2 size={32} strokeWidth={1.5} className="text-app-success/40" />
+                  )}
                 </div>
                 <div className="text-center">
                   <p className="text-sm font-bold text-app-text">
-                    {tab === "history"
+                    {loadError
+                      ? "Notifications could not refresh."
+                      : inboxViewFilter === "action" && tab === "inbox"
+                      ? "No action-required alerts."
+                      : tab === "history"
                       ? "No earlier activity yet."
                       : "All caught up for now."}
                   </p>
                   <p className="text-[10px] font-black uppercase tracking-widest opacity-50">
-                    {tab === "history"
+                    {loadError
+                      ? "Retry before treating this view as clear"
+                      : inboxViewFilter === "action" && tab === "inbox"
+                      ? "Switch to All to see informational alerts"
+                      : tab === "history"
                       ? "Dismissed and completed alerts will collect here after cleanup"
                       : "Nothing new needs your attention right now"}
                   </p>

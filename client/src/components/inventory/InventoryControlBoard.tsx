@@ -22,6 +22,7 @@ import {
   X,
   MoreHorizontal,
   Check,
+  AlertTriangle,
 } from "lucide-react";
 import ProductHubDrawer from "./ProductHubDrawer";
 import InventoryBulkBar from "./InventoryBulkBar";
@@ -471,6 +472,9 @@ export default function InventoryControlBoard({
   const scanToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [boardHasMore, setBoardHasMore] = useState(false);
   const [boardLoadingMore, setBoardLoadingMore] = useState(false);
+  const [boardRefreshError, setBoardRefreshError] = useState<string | null>(null);
+  const [boardLoadMoreError, setBoardLoadMoreError] = useState<string | null>(null);
+  const [boardLastLoadedAt, setBoardLastLoadedAt] = useState<string | null>(null);
 
   const adjustSummary = adjustRow ? stockRiskSummary(adjustRow) : null;
   const quickDecrementWarnings = adjustRow
@@ -564,11 +568,16 @@ export default function InventoryControlBoard({
         const data = (await boardRes.json()) as BoardResponse;
         setRows(data.rows);
         setBoardHasMore(data.rows.length === boardPageLimit);
+        setBoardRefreshError(null);
+        setBoardLoadMoreError(null);
+        setBoardLastLoadedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
         // Global stats handled by parent workspace
       } else {
+        setBoardRefreshError("Could not refresh inventory.");
         toast("Inventory lookup is temporarily unavailable. Showing last synced results.", "error");
       }
     } catch {
+      setBoardRefreshError("Could not refresh inventory.");
       toast("Inventory lookup is temporarily unavailable. Showing last synced results.", "error");
     } finally {
       setBoardRefreshing(false);
@@ -630,13 +639,16 @@ export default function InventoryControlBoard({
         { headers: apiAuth() },
       );
       if (!boardRes.ok) {
+        setBoardLoadMoreError("Could not load more inventory.");
         toast("Could not load more inventory right now. Please try again.", "error");
         return;
       }
       const data = (await boardRes.json()) as BoardResponse;
       setRows((prev) => [...prev, ...data.rows]);
       setBoardHasMore(data.rows.length === boardPageLimit);
+      setBoardLoadMoreError(null);
     } catch {
+      setBoardLoadMoreError("Could not load more inventory.");
       toast("Could not load more inventory right now. Please try again.", "error");
     } finally {
       setBoardLoadingMore(false);
@@ -1326,10 +1338,17 @@ export default function InventoryControlBoard({
            )}
         </div>
 
-        {/* Quick Actions (Reveal on group-hover) */}
+        {/* Quick Actions */}
         <div className="flex shrink-0 items-center justify-end min-w-[120px]">
-          <div className={`flex items-center gap-1 transition-all duration-300 ${focused || 'opacity-0 translate-x-4 group-hover:opacity-100 group-hover:translate-x-0'}`}>
+          <div
+            className={`flex items-center gap-1 transition-all duration-300 ${
+              focused
+                ? "opacity-100 translate-x-0"
+                : "opacity-100 translate-x-0 lg:opacity-0 lg:translate-x-4 lg:group-hover:opacity-100 lg:group-hover:translate-x-0 lg:group-focus-within:opacity-100 lg:group-focus-within:translate-x-0"
+            }`}
+          >
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 setPrintTarget(row);
@@ -1341,6 +1360,7 @@ export default function InventoryControlBoard({
             </button>
             {!isPosSurface && (
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   if (singleVariant && primaryVariant) {
@@ -1357,6 +1377,7 @@ export default function InventoryControlBoard({
               </button>
             )}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 openProductHub(row);
@@ -1528,6 +1549,31 @@ export default function InventoryControlBoard({
         </div>
       </div>
 
+      {boardRefreshError ? (
+        <div className="rounded-xl border border-app-warning/40 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0 text-app-warning" />
+              <div>
+                <p className="font-black">{boardRefreshError}</p>
+                <p className="text-xs text-app-text-muted">
+                  {rows.length > 0
+                    ? `Showing last loaded inventory${boardLastLoadedAt ? ` from ${boardLastLoadedAt}` : ""}. Refreshing is safe and does not change stock.`
+                    : "No inventory loaded for these filters. Refresh again before treating the board as empty."}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshBoard()}
+              className="rounded-lg border border-app-warning/40 bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div
         ref={inventoryListRef}
         className="ui-card ui-tint-neutral flex flex-col overflow-x-auto overscroll-x-contain lg:overflow-x-visible [-webkit-overflow-scrolling:touch]"
@@ -1573,13 +1619,20 @@ export default function InventoryControlBoard({
               <div className="flex flex-col items-center justify-center py-32 text-app-text-muted">
                 <Search size={48} className="mb-4 opacity-20" />
                 <p className="text-sm font-black uppercase tracking-widest opacity-60">
-                  No inventory matches found
+                  {boardRefreshError
+                    ? "Inventory could not refresh"
+                    : "No matching inventory in current filters"}
+                </p>
+                <p className="mt-2 max-w-sm text-center text-sm">
+                  {boardRefreshError
+                    ? "Retry is safe. Do not treat these filters as empty until refresh succeeds."
+                    : "This is a valid empty result from the latest successful refresh."}
                 </p>
               </div>
             ) : null}
 
             {boardHasMore && visibleProductRows.length > 0 ? (
-              <div className="flex justify-center border-t border-app-border bg-app-surface-2 px-6 py-8">
+              <div className="flex flex-col items-center justify-center border-t border-app-border bg-app-surface-2 px-6 py-8">
                 <button
                   type="button"
                   disabled={boardLoadingMore}
@@ -1588,6 +1641,11 @@ export default function InventoryControlBoard({
                 >
                   {boardLoadingMore ? "Loading Inventory..." : "Load More Inventory"}
                 </button>
+                {boardLoadMoreError ? (
+                  <p className="mt-3 text-center text-xs font-semibold text-app-warning">
+                    Could not load more inventory. The rows already shown are still the last loaded data; retry is safe.
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1734,9 +1792,13 @@ export default function InventoryControlBoard({
 
           <div className="flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity">
             <span className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-              Inventory Synced Locally
+              {boardRefreshError ? "Showing Last Loaded Inventory" : "Inventory Synced Locally"}
             </span>
-            <div className="ml-2 h-1 w-1 rounded-full bg-app-success animate-pulse" />
+            <div
+              className={`ml-2 h-1 w-1 rounded-full animate-pulse ${
+                boardRefreshError ? "bg-app-warning" : "bg-app-success"
+              }`}
+            />
           </div>
         </div>
       </div>

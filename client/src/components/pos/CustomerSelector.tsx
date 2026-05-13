@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { CheckCircle2, Gem, Ruler, Search, User, UserPlus, X, UserX, Clock } from "lucide-react";
@@ -92,6 +92,7 @@ export default function CustomerSelector({
   const [addDrawerOpen, setAddDrawerOpen] = useState(false);
   const [addDraft, setAddDraft] = useState<PosCustomerDraft>({});
   const [openResultsUpward, setOpenResultsUpward] = useState(false);
+  const [activeResultIndex, setActiveResultIndex] = useState(-1);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
   const resultsPanelRef = useRef<HTMLDivElement | null>(null);
 
@@ -117,11 +118,54 @@ export default function CustomerSelector({
     trimmedQuery.length >= 2 && !searchBusy && !queryHasExactCustomerMatch;
 
   useEffect(() => {
+    setActiveResultIndex((prev) => {
+      if (results.length === 0) return -1;
+      return prev >= 0 && prev < results.length ? prev : 0;
+    });
+  }, [results.length]);
+
+  const selectCustomerFromSearch = useCallback((customer: Customer) => {
+    onSelect(customer);
+    setQuery("");
+    setResults([]);
+    setHasMore(false);
+    setSearchLookupFailed(false);
+    setActiveResultIndex(-1);
+  }, [onSelect]);
+
+  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      setQuery("");
+      setResults([]);
+      setHasMore(false);
+      setSearchLookupFailed(false);
+      setActiveResultIndex(-1);
+      return;
+    }
+    if (results.length === 0 || searchBusy) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveResultIndex((prev) => Math.min(prev < 0 ? 0 : prev + 1, results.length - 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveResultIndex((prev) => Math.max(prev <= 0 ? 0 : prev - 1, 0));
+      return;
+    }
+    if (event.key === "Enter" && activeResultIndex >= 0) {
+      event.preventDefault();
+      selectCustomerFromSearch(results[activeResultIndex]);
+    }
+  };
+
+  useEffect(() => {
     if (query.trim().length < 2) {
       setResults([]);
       setHasMore(false);
       setSearchLookupFailed(false);
       setPartyFilterMode(false);
+      setActiveResultIndex(-1);
       return;
     }
 
@@ -431,11 +475,20 @@ export default function CustomerSelector({
             className="ui-input w-full py-2.5 pl-9 pr-4 transition-all border-2 border-app-border focus:border-app-accent"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            aria-activedescendant={
+              activeResultIndex >= 0 && results[activeResultIndex]
+                ? `pos-customer-result-${results[activeResultIndex].id}`
+                : undefined
+            }
+            aria-controls={query.trim().length >= 2 ? "pos-customer-results" : undefined}
           />
 
           {query.trim().length >= 2 && (
             <div
+              id="pos-customer-results"
               ref={resultsPanelRef}
+              role="listbox"
               className={`absolute left-0 right-0 z-100 max-h-[min(78vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-[#fffdfa] text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none dark:bg-[#202a38] ${
                 openResultsUpward ? "bottom-full mb-2" : "top-full mt-2"
               }`}
@@ -513,14 +566,22 @@ export default function CustomerSelector({
                  </div>
                )}
                {!searchBusy &&
-                 results.map((customer) => (
+                 results.map((customer, index) => {
+                  const active = index === activeResultIndex;
+                  return (
                    <div
                      key={customer.id}
-                     className="group relative flex items-stretch justify-between gap-2 border-b border-app-border/50 last:border-0"
+                     id={`pos-customer-result-${customer.id}`}
+                     role="option"
+                     aria-selected={active}
+                     className={`group relative flex items-stretch justify-between gap-2 border-b border-app-border/50 last:border-0 ${
+                       active ? "bg-app-accent/10" : ""
+                     }`}
                    >
                      <button
                        type="button"
-                       onClick={() => onSelect(customer)}
+                       onMouseEnter={() => setActiveResultIndex(index)}
+                       onClick={() => selectCustomerFromSearch(customer)}
                        className="min-w-0 flex-1 p-4 text-left transition-colors hover:bg-app-surface-2"
                      >
                        <div className="font-bold text-app-text">
@@ -538,7 +599,8 @@ export default function CustomerSelector({
                          <CheckCircle2 size={18} className="text-app-border group-hover:text-app-accent transition-colors" />
                       </div>
                    </div>
-                 ))}
+                  );
+                 })}
                {hasMore && (
                  <div className="border-t border-app-border p-2">
                    <button

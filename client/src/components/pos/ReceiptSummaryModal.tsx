@@ -926,6 +926,10 @@ export default function ReceiptSummaryModal({
             ) : null}
           </div>
 
+          <div className="shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-app-text-muted">
+            Receipt actions are optional. Start the next guest whenever the sale handoff is done.
+          </div>
+
           <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <button
               type="button"
@@ -1064,7 +1068,7 @@ export default function ReceiptSummaryModal({
             type="button"
             onClick={() => void closeWithReviewChoice()}
             disabled={reviewInviteSaving}
-            className="group flex min-h-[52px] w-full shrink-0 items-center justify-between rounded-2xl bg-app-accent px-4 py-2 text-white shadow-lg transition-all hover:opacity-90 active:scale-[0.99] sm:h-14 sm:min-h-0 lg:min-h-[3.75rem] touch-manipulation disabled:opacity-60"
+            className="group sticky bottom-0 z-10 flex min-h-[52px] w-full shrink-0 items-center justify-between rounded-2xl bg-app-accent px-4 py-2 text-white shadow-lg ring-4 ring-app-surface transition-all hover:opacity-90 active:scale-[0.99] sm:h-14 sm:min-h-0 lg:min-h-[3.75rem] touch-manipulation disabled:opacity-60"
           >
             <div className="flex flex-col text-left">
               <span className="text-[9px] font-black uppercase tracking-widest text-white/80 lg:text-[10px]">

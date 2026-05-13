@@ -172,6 +172,8 @@ export default function RegisterLookupHub({
   const [giftDetail, setGiftDetail] = useState<GiftCardLookupDetail | null>(null);
   const [giftEvents, setGiftEvents] = useState<GiftCardEventRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lookupFailureKind, setLookupFailureKind] = useState<"failed" | "not_found" | null>(null);
+  const [pickListLoadMoreError, setPickListLoadMoreError] = useState<string | null>(null);
   const [openCards, setOpenCards] = useState<OpenGiftCardRow[]>([]);
   const [openLoading, setOpenLoading] = useState(false);
   const [eligible, setEligible] = useState<LoyaltyEligibleCustomer[]>([]);
@@ -231,14 +233,20 @@ export default function RegisterLookupHub({
     setGiftDetail(null);
     setGiftEvents(null);
     setLoyaltyLedger([]);
- try {
+    setLookupFailureKind(null);
+    setPickListLoadMoreError(null);
+    let failureKind: "failed" | "not_found" = "failed";
+    try {
       if (tab === "giftcard") {
         const code = query.trim();
         const res = await fetch(
           `${baseUrl}/api/gift-cards/code/${encodeURIComponent(code)}`,
           { headers: apiAuth() },
         );
-        if (!res.ok) throw new Error("Gift card not found");
+        if (!res.ok) {
+          failureKind = res.status === 404 ? "not_found" : "failed";
+          throw new Error(res.status === 404 ? "Gift card not found" : "Could not complete gift card lookup");
+        }
         const data = (await res.json()) as GiftCardLookupDetail;
         setGiftDetail(data);
         const evRes = await fetch(
@@ -252,10 +260,11 @@ export default function RegisterLookupHub({
           `${baseUrl}/api/customers/search?q=${encodeURIComponent(query.trim())}&limit=${LOYALTY_SEARCH_LIMIT}&offset=0`,
           { headers: apiAuth() },
         );
-        if (!res.ok) throw new Error("Lookup failed");
+        if (!res.ok) throw new Error("Could not complete customer lookup");
         const list = (await res.json()) as CustomerSearchHit[];
         if (!Array.isArray(list) || list.length === 0) {
-          throw new Error("No customer matches that query");
+          failureKind = "not_found";
+          throw new Error("No matching customer found");
         }
         if (list.length === 1) {
           const selectedCustomer = await fetchCustomerForLoyaltyLookup(baseUrl, list[0]!.id, apiAuth());
@@ -272,6 +281,7 @@ export default function RegisterLookupHub({
         }
       }
     } catch (e) {
+      setLookupFailureKind(failureKind);
       setError(e instanceof Error ? e.message : "Lookup failed");
     } finally {
       setLoading(false);
@@ -305,6 +315,8 @@ export default function RegisterLookupHub({
                 setTab("giftcard");
                 setCustomerPickList(null);
                 setError(null);
+                setLookupFailureKind(null);
+                setPickListLoadMoreError(null);
               }}
               className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-wide transition-all touch-manipulation sm:flex-none sm:px-4 sm:text-xs ${
                 tab === "giftcard"
@@ -321,6 +333,8 @@ export default function RegisterLookupHub({
                 setTab("loyalty");
                 setCustomerPickList(null);
                 setError(null);
+                setLookupFailureKind(null);
+                setPickListLoadMoreError(null);
               }}
               className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-wide transition-all touch-manipulation sm:flex-none sm:px-4 sm:text-xs ${
                 tab === "loyalty"
@@ -384,7 +398,7 @@ export default function RegisterLookupHub({
               </p>
             ) : (
               <div>
-                <div className="space-y-2.5 sm:hidden">
+                <div className="space-y-2.5 lg:hidden">
                   {openCards.map((r) => (
                     <article
                       key={r.id}
@@ -415,7 +429,7 @@ export default function RegisterLookupHub({
                     </article>
                   ))}
                 </div>
-                <div className="hidden overflow-x-auto rounded-xl border border-app-border sm:block">
+                <div className="hidden overflow-x-auto rounded-xl border border-app-border lg:block">
                   <table className="w-full min-w-[520px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-app-border bg-app-surface-2">
@@ -503,7 +517,7 @@ export default function RegisterLookupHub({
               </p>
             ) : (
               <div>
-                <div className="space-y-2.5 sm:hidden">
+                <div className="space-y-2.5 lg:hidden">
                   {eligible.map((c) => (
                     <article
                       key={c.id}
@@ -532,7 +546,7 @@ export default function RegisterLookupHub({
                     </article>
                   ))}
                 </div>
-                <div className="hidden overflow-x-auto rounded-xl border border-app-border sm:block">
+                <div className="hidden overflow-x-auto rounded-xl border border-app-border lg:block">
                   <table className="w-full min-w-[480px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-app-border bg-app-surface-2">
@@ -585,7 +599,11 @@ export default function RegisterLookupHub({
               <AlertCircle className="h-8 w-8" />
             </div>
             <p className="text-lg font-black text-app-text">{error}</p>
-            <p className="mt-2 text-sm text-app-text-muted">Check the entry and try again.</p>
+            <p className="mt-2 max-w-md text-sm text-app-text-muted">
+              {lookupFailureKind === "failed"
+                ? "Lookup did not complete. No card, customer, or loyalty record was changed. Retry is safe."
+                : "No matching record was found for this entry. Check the code or spelling, then search again."}
+            </p>
           </div>
         ) : !loading && customerPickList && customerPickList.length > 0 ? (
           <div className="mx-auto w-full max-w-2xl animate-in fade-in space-y-3">
@@ -601,6 +619,7 @@ export default function RegisterLookupHub({
                       void (async () => {
                         setLoading(true);
                         setError(null);
+                        setLookupFailureKind(null);
                         try {
                           const c = await fetchCustomerForLoyaltyLookup(baseUrl, h.id, apiAuth());
                           setCustomer(c);
@@ -613,6 +632,7 @@ export default function RegisterLookupHub({
                           );
                           setCustomerPickList(null);
                         } catch (err) {
+                          setLookupFailureKind("failed");
                           setError(err instanceof Error ? err.message : "Lookup failed");
                         } finally {
                           setLoading(false);
@@ -640,12 +660,16 @@ export default function RegisterLookupHub({
                     void (async () => {
                       setPickListLoadingMore(true);
                       setError(null);
+                      setPickListLoadMoreError(null);
                       try {
                         const res = await fetch(
                           `${baseUrl}/api/customers/search?q=${encodeURIComponent(query.trim())}&limit=${LOYALTY_SEARCH_LIMIT}&offset=${customerPickList.length}`,
                           { headers: apiAuth() },
                         );
-                        if (!res.ok) return;
+                        if (!res.ok) {
+                          setPickListLoadMoreError("Could not load more customer matches.");
+                          return;
+                        }
                         const next = (await res.json()) as CustomerSearchHit[];
                         const seen = new Set(customerPickList.map((x) => x.id));
                         const merged = [
@@ -653,6 +677,9 @@ export default function RegisterLookupHub({
                           ...next.filter((x) => !seen.has(x.id)),
                         ];
                         setCustomerPickList(merged);
+                        setPickListLoadMoreError(null);
+                      } catch {
+                        setPickListLoadMoreError("Could not load more customer matches.");
                       } finally {
                         setPickListLoadingMore(false);
                       }
@@ -662,6 +689,11 @@ export default function RegisterLookupHub({
                 >
                   {pickListLoadingMore ? "Loading…" : "Load more matches"}
                 </button>
+                {pickListLoadMoreError ? (
+                  <p className="mt-2 max-w-md text-center text-xs font-semibold text-app-warning">
+                    Could not load more customer matches. Showing the matches already loaded; retry is safe.
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>

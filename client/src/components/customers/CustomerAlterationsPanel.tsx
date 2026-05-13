@@ -163,6 +163,7 @@ export default function CustomerAlterationsPanel({
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [schedulingAlt, setSchedulingAlt] = useState<AlterationRow | null>(null);
+  const [compactQueue, setCompactQueue] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -378,7 +379,9 @@ export default function CustomerAlterationsPanel({
       key={r.id}
       ref={(el) => { rowRefs.current[r.id] = el; }}
       data-testid="alteration-workbench-card"
-      className={`group relative flex min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border border-app-border bg-app-surface p-4 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/5 ${
+      className={`group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/5 ${
+        compactQueue ? "gap-2 p-3" : "gap-3 p-4"
+      } ${
         highlightAlterationId === r.id ? "ring-2 ring-app-accent shadow-2xl" : ""
       }`}
     >
@@ -419,12 +422,19 @@ export default function CustomerAlterationsPanel({
         </div>
       </div>
 
-      {r.notes && (
+      {compactQueue ? (
+        <p className="truncate text-xs font-semibold text-app-text-muted">
+          {[r.item_description, r.work_requested].filter(Boolean).join(" · ") || "Garment details not specified"}
+        </p>
+      ) : null}
+
+      {!compactQueue && r.notes && (
         <div className="break-words rounded-xl border border-app-border/40 bg-app-surface-2/60 p-3 text-xs italic text-app-text/80 shadow-inner">
            {r.notes}
         </div>
       )}
 
+      {!compactQueue ? (
       <div className="grid gap-3 rounded-xl border border-app-border/40 bg-app-surface-2/60 p-3 text-xs shadow-inner sm:grid-cols-2">
         <div className="min-w-0">
           <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
@@ -453,8 +463,9 @@ export default function CustomerAlterationsPanel({
           </div>
         ) : null}
       </div>
+      ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border/40 pt-3">
+      <div className={`flex flex-wrap items-center justify-between gap-3 border-t border-app-border/40 ${compactQueue ? "pt-2" : "pt-3"}`}>
          <p className="text-[9px] font-bold uppercase tracking-tighter text-app-text-muted">Created {new Date(r.created_at).toLocaleString()}</p>
 
          <div className="flex flex-wrap items-center justify-end gap-2">
@@ -598,6 +609,17 @@ export default function CustomerAlterationsPanel({
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={() => setCompactQueue((value) => !value)}
+              className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest ${
+                compactQueue
+                  ? "border-app-accent bg-app-accent/10 text-app-accent"
+                  : "border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-surface"
+              }`}
+            >
+              {compactQueue ? "Comfort View" : "Compact View"}
+            </button>
           </div>
 
           <div className="flex items-center justify-between border-b border-app-border/40 px-5 py-3">
@@ -621,6 +643,11 @@ export default function CustomerAlterationsPanel({
                 <p className="text-sm font-black uppercase tracking-widest text-center">No garment work matched these filters.</p>
               </div>
             ) : (
+              compactQueue ? (
+                <div className="grid gap-2">
+                  {visibleRows.map(renderAlterationCard)}
+                </div>
+              ) : (
               <>
               <div className="grid gap-3 lg:hidden">
                 {visibleRows.map(renderAlterationCard)}
@@ -671,6 +698,7 @@ export default function CustomerAlterationsPanel({
                 })}
               </div>
               </>
+              )
             )}
           </div>
         </section>

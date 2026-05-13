@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, Flame, Calendar, Package, MapPin, ArrowRight } from "lucide-react";
 import {
@@ -55,6 +55,15 @@ export default function OrderReviewModal({
   
   const [isRush, setIsRush] = useState(false);
   const [needByDate, setNeedByDate] = useState<string | null>(null);
+  const continueButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      continueButtonRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -101,6 +110,9 @@ export default function OrderReviewModal({
         {/* Order Items */}
         <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <div className="space-y-3">
+            <div className="rounded-xl border border-app-success/30 bg-app-success/10 px-3 py-2 text-xs font-semibold text-app-text">
+              Pickup is already selected. Continue now, or set rush and need-by details first.
+            </div>
             {items.map((item) => (
               <div
                 key={item.cart_row_id}
@@ -213,6 +225,7 @@ export default function OrderReviewModal({
           </div>
           <button
             type="button"
+            ref={continueButtonRef}
             onClick={handleContinue}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-lg transition-all hover:bg-emerald-500 active:scale-98 sm:w-auto sm:text-lg"
           >

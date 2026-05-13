@@ -1,6 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useState } from "react";
-import { MessageSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, MessageSquare, Search } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import type { Customer } from "../pos/CustomerSelector";
@@ -31,6 +31,10 @@ export default function PodiumMessagingInboxSection({
   );
   const [rows, setRows] = useState<InboxRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [channelFilter, setChannelFilter] = useState("all");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -39,13 +43,15 @@ export default function PodiumMessagingInboxSection({
         headers: apiAuth(),
       });
       if (!res.ok) {
-        setRows([]);
+        setLoadError("Could not refresh Podium inbox.");
         return;
       }
       const data = (await res.json()) as InboxRow[];
       setRows(Array.isArray(data) ? data : []);
+      setLoadError(null);
+      setLastLoadedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
     } catch {
-      setRows([]);
+      setLoadError("Could not refresh Podium inbox.");
     } finally {
       setLoading(false);
     }
@@ -54,6 +60,29 @@ export default function PodiumMessagingInboxSection({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const channelOptions = useMemo(
+    () => Array.from(new Set(rows.map((row) => row.channel).filter(Boolean))).sort(),
+    [rows],
+  );
+
+  const visibleRows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (channelFilter !== "all" && row.channel !== channelFilter) return false;
+      if (!needle) return true;
+      return [
+        row.first_name,
+        row.last_name,
+        row.customer_code,
+        row.channel,
+        row.snippet,
+        row.last_message_at,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle));
+    });
+  }, [channelFilter, rows, search]);
 
   return (
     <div className="ui-page flex flex-1 flex-col gap-4 p-4">
@@ -83,20 +112,91 @@ export default function PodiumMessagingInboxSection({
         </button>
       </div>
 
+      {rows.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-3 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted"
+              aria-hidden
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Find customer, code, or message"
+              className="ui-input h-10 w-full rounded-xl pl-9 pr-3 text-xs font-bold"
+              aria-label="Search Podium inbox"
+            />
+          </div>
+          <select
+            value={channelFilter}
+            onChange={(event) => setChannelFilter(event.target.value)}
+            className="ui-input h-10 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest"
+            aria-label="Filter Podium inbox by channel"
+          >
+            <option value="all">All channels</option>
+            {channelOptions.map((channel) => (
+              <option key={channel} value={channel}>
+                {channel}
+              </option>
+            ))}
+          </select>
+          <span className="whitespace-nowrap text-xs font-bold text-app-text-muted">
+            {visibleRows.length} / {rows.length} threads
+          </span>
+        </div>
+      ) : null}
+
+      {loadError ? (
+        <div className="rounded-xl border border-app-warning/40 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0 text-app-warning" />
+              <div>
+                <p className="font-black">{loadError}</p>
+                <p className="text-xs text-app-text-muted">
+                  {rows.length > 0
+                    ? `Showing last loaded conversations${lastLoadedAt ? ` from ${lastLoadedAt}` : ""}. Refreshing is safe; it does not send or change messages.`
+                    : "No conversations loaded. Refresh again before treating the inbox as empty."}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="rounded-lg border border-app-warning/40 bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {loading ? (
         <p className="text-sm text-app-text-muted">Loading…</p>
-      ) : rows.length === 0 ? (
+      ) : visibleRows.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-app-border/60 bg-app-surface px-6 py-10 text-center text-app-text-muted">
           <MessageSquare size={40} className="mb-3 opacity-70" />
-          <p className="text-sm font-black uppercase tracking-widest italic text-app-text">No Podium conversations yet</p>
+          <p className="text-sm font-black uppercase tracking-widest italic text-app-text">
+            {loadError
+              ? "Podium inbox could not refresh"
+              : rows.length > 0
+                ? "No conversations match this view"
+                : "No Podium conversations yet"}
+          </p>
           <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
-            New inbound messages and replies will land here after the first synced customer conversation.
+            {loadError
+              ? "Retry is safe. Do not treat the inbox as empty until refresh succeeds."
+              : rows.length > 0
+                ? "Clear the search or switch channels to see the remaining synced conversations."
+              : "New inbound messages and replies will land here after the first synced customer conversation."}
           </p>
         </div>
       ) : (
         <div className="flex-1 rounded-xl border border-app-border bg-app-surface">
           <ul className="divide-y divide-app-border">
-            {rows.map((r) => (
+            {visibleRows.map((r) => (
               <li key={r.conversation_id}>
                 <button
                   type="button"

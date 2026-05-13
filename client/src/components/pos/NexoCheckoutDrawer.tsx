@@ -425,6 +425,7 @@ export default function NexoCheckoutDrawer({
   const [keypad, setKeypad] = useState("");
   const [giftCardCode, setGiftCardCode] = useState("");
   const giftCardInputRef = useRef<HTMLInputElement | null>(null);
+  const completeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [checkNumber, setCheckNumber] = useState("");
   const [refundOriginalTransactionId, setRefundOriginalTransactionId] = useState("");
   const [providerSettings, setProviderSettings] = useState<PaymentProviderSettings | null>(null);
@@ -607,6 +608,26 @@ export default function NexoCheckoutDrawer({
   const balanced = balanceSettled || (takeawaySatisfied && hasLaterItems && (depositDisplayCents > 0 || allowDepositOnlyComplete));
 
   const canFinalize = balanced && operator != null && !busy && !taxExemptNoteRequired;
+
+  useEffect(() => {
+    if (!isOpen || !canFinalize) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) {
+      const tagName = active.tagName.toLowerCase();
+      if (
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select" ||
+        active.isContentEditable
+      ) {
+        return;
+      }
+    }
+    const frame = window.requestAnimationFrame(() => {
+      completeButtonRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [canFinalize, isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -1680,6 +1701,11 @@ export default function NexoCheckoutDrawer({
                   <span className={`text-4xl font-black tabular-nums tracking-tighter italic sm:text-5xl ${balanceSettled ? "text-emerald-500" : "text-app-text"}`}>
                     ${centsToFixed2(Math.abs(tab === "cash" ? cashRounding.rounded : remainingCents))}
                   </span>
+                  {canFinalize ? (
+                    <span className="mt-1 text-[10px] font-black uppercase tracking-widest text-emerald-600">
+                      Ready to complete
+                    </span>
+                  ) : null}
                   {tab === "cash" && cashRounding.adjustment !== 0 && (
                     <span className="text-[10px] font-black uppercase text-amber-500 mt-1">
                       Original Due ${centsToFixed2(Math.abs(remainingCents))} ({cashRounding.adjustment > 0 ? "+" : ""}{centsToFixed2(cashRounding.adjustment)})
@@ -1759,6 +1785,7 @@ export default function NexoCheckoutDrawer({
                 </button>
                 <button
                   type="button"
+                  ref={completeButtonRef}
                   disabled={!canFinalize || busy}
                   data-testid="pos-finalize-checkout"
                   title={completeDisabledReason}
