@@ -126,6 +126,69 @@ test.describe("Inventory receiving API regressions", () => {
     expect(replayDetail.lines[0]?.qty_previously_received).toBe(1);
   });
 
+  test("simultaneous same-PO receive applies stock exactly once", async ({ request }) => {
+    const suffix = uniqueSuffix("concurrent");
+    const vendor = await createVendor(request, suffix);
+    const product = await createSingleVariantProduct(request, suffix);
+    const po = await createDraftPurchaseOrder(request, vendor.id);
+    await addPurchaseOrderLine(request, po.id, product.variantId, 1);
+    await submitPurchaseOrder(request, po.id);
+
+    const detail = await getPurchaseOrderDetail(request, po.id);
+    const line = detail.lines[0];
+    expect(line, "purchase order line missing").toBeTruthy();
+
+    const before = await getInventoryIntelligence(request, product.variantId);
+    const receivePayload = {
+      invoice_number: `CONC-${suffix}`,
+      lines: [{ po_line_id: line!.line_id, quantity_received_now: 1 }],
+    };
+
+    const attempts = await Promise.allSettled([
+      receivePurchaseOrder(request, po.id, receivePayload),
+      receivePurchaseOrder(request, po.id, receivePayload),
+    ]);
+    const fulfilledAttempts = attempts.flatMap((attempt) =>
+      attempt.status === "fulfilled" ? [attempt.value] : [],
+    );
+    const rejectedAttempts = attempts.flatMap((attempt) =>
+      attempt.status === "rejected" ? [attempt.reason] : [],
+    );
+
+    expect(fulfilledAttempts.length).toBeGreaterThanOrEqual(1);
+    expect(fulfilledAttempts.length + rejectedAttempts.length).toBe(2);
+
+    const receiptRequestIds = new Set(
+      fulfilledAttempts.map((receipt) => receipt.receipt_request_id),
+    );
+    const receivingEventIds = new Set(
+      fulfilledAttempts.map((receipt) => receipt.receiving_event_id),
+    );
+    expect(receiptRequestIds.size).toBe(1);
+    expect(receivingEventIds.size).toBe(1);
+    expect(fulfilledAttempts.some((receipt) => receipt.idempotent_replay === false)).toBe(true);
+    if (fulfilledAttempts.length === 2) {
+      expect(fulfilledAttempts.some((receipt) => receipt.idempotent_replay === true)).toBe(true);
+    }
+
+    for (const reason of rejectedAttempts) {
+      expect(String(reason)).toMatch(/already|duplicate|idempotent|received|stale|exceed/i);
+    }
+
+    const after = await getInventoryIntelligence(request, product.variantId);
+    expect(after.stock_on_hand).toBe(before.stock_on_hand + 1);
+
+    const finalDetail = await getPurchaseOrderDetail(request, po.id);
+    expect(finalDetail.status).toBe("closed");
+    expect(finalDetail.lines[0]?.qty_previously_received).toBe(1);
+
+    const timeline = await getProductTimeline(request, product.productId);
+    const receiptEvents = timeline.filter(
+      (event) => event.kind === "inventory_po_receipt" && event.summary.includes(product.sku),
+    );
+    expect(receiptEvents).toHaveLength(1);
+  });
+
   test("product hub surfaces unified inventory truth from server-backed values", async ({
     request,
   }) => {
