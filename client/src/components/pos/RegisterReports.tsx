@@ -431,23 +431,24 @@ export default function RegisterReports({
   }, [openSessions, coordinationGroups]);
 
   const handlePrint = () => {
-    if (!summary || !summaryBooked) return;
+    const printSummary = reportBasis === "booked" ? summaryBooked : summary;
+    if (!printSummary) return;
     openProfessionalDailySalesPrint({
       title: `Daily Sales - ${rangeLabel}`,
       rangeLabel,
       summary: {
-        sales_count: summary.sales_count,
-        sales_subtotal_no_tax: summary.sales_subtotal_no_tax,
-        sales_tax_total: summary.sales_tax_total,
-        net_sales: summary.net_sales,
-        appointment_count: summary.appointment_count,
-        online_order_count: summary.online_order_count,
-        new_wedding_parties_count: summary.new_wedding_parties_count,
-        merchant_fees_total: summary.merchant_fees_total,
-        cash_collected: summary.cash_collected,
-        deposits_collected: summary.deposits_collected,
+        sales_count: printSummary.sales_count,
+        sales_subtotal_no_tax: printSummary.sales_subtotal_no_tax,
+        sales_tax_total: printSummary.sales_tax_total,
+        net_sales: printSummary.net_sales,
+        appointment_count: printSummary.appointment_count,
+        online_order_count: printSummary.online_order_count,
+        new_wedding_parties_count: printSummary.new_wedding_parties_count,
+        merchant_fees_total: printSummary.merchant_fees_total,
+        cash_collected: printSummary.cash_collected,
+        deposits_collected: printSummary.deposits_collected,
       },
-      activities: summary.activities.map(a => ({
+      activities: printSummary.activities.map(a => ({
         ...a,
         items: a.items?.map(i => ({
           name: i.name,

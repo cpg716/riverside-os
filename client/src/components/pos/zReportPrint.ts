@@ -274,8 +274,22 @@ export function openProfessionalDailySalesPrint(opts: {
   const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
   const { summary, activities } = opts;
 
-  const activityRows = activities
-    .map((row) => {
+  const groupedActivities = activities.reduce<Record<string, typeof activities>>((groups, row) => {
+    const date = new Date(row.occurred_at).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    groups[date] = [...(groups[date] ?? []), row];
+    return groups;
+  }, {});
+
+  const activityRows = Object.entries(groupedActivities)
+    .map(([date, rows]) => {
+      const groupTotal = rows
+        .reduce((sum, row) => sum + (Number.parseFloat(row.sales_total || "0") || 0), 0)
+        .toFixed(2);
+      const cards = rows.map((row) => {
       const tm = new Date(row.occurred_at).toLocaleString([], {
         month: "short",
         day: "numeric",
@@ -324,6 +338,19 @@ export function openProfessionalDailySalesPrint(opts: {
           </div>
         </section>
       `;
+      }).join("");
+      return `
+        <section class="activity-group">
+          <div class="group-head">
+            <div>
+              <span class="group-date">${date}</span>
+              <span class="group-count">(${rows.length} transaction${rows.length === 1 ? "" : "s"})</span>
+            </div>
+            <div class="group-total"><span>Total:</span> $${groupTotal}</div>
+          </div>
+          ${cards}
+        </section>
+      `;
     })
     .join("");
 
@@ -333,12 +360,18 @@ export function openProfessionalDailySalesPrint(opts: {
     body { font-family: 'Inter', system-ui, sans-serif; font-size: 12px; line-height: 1.5; color: #0f172a; padding: 40px; }
     h1 { font-size: 24px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
     h2 { font-size: 14px; font-weight: 800; margin: 30px 0 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #475569; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
-    .stat-grid { display: grid; grid-template-cols: repeat(5, 1fr); gap: 15px; margin-top: 30px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 15px; margin-top: 30px; }
     .stat-card { border: 1px solid #e2e8f0; padding: 12px; border-radius: 12px; }
     .stat-label { font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
     .stat-value { font-size: 16px; font-weight: 800; tabular-nums: true; }
     .muted { color: #64748b; }
     .mono { font-family: 'JetBrains Mono', monospace; }
+    .activity-group { margin-top: 18px; }
+    .group-head { align-items: center; border-bottom: 1px solid #cbd5e1; display: flex; justify-content: space-between; gap: 16px; margin-bottom: 12px; padding-bottom: 8px; }
+    .group-date { color: #0f172a; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+    .group-count { color: #64748b; font-size: 11px; font-weight: 700; margin-left: 6px; }
+    .group-total { color: #0f172a; font-size: 13px; font-weight: 800; }
+    .group-total span { color: #64748b; }
     .activity-card { display: grid; grid-template-columns: 1.05fr 1.6fr 1fr; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; margin-top: 14px; break-inside: avoid; }
     .activity-left, .activity-money { background: #f8fafc; padding: 18px; }
     .activity-items { padding: 18px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
