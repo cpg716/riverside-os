@@ -159,6 +159,89 @@ fn persisted_provider_error(message: &str) -> String {
         .collect()
 }
 
+fn helcim_terminal_purchase_error(
+    status: reqwest::StatusCode,
+    raw_text: &str,
+    is_html: bool,
+) -> PaymentError {
+    if status == reqwest::StatusCode::CONFLICT {
+        let mut message = helcim_terminal_not_listening_message(raw_text).unwrap_or_else(|| {
+            "Helcim reported a terminal conflict. Check the terminal for an active payment, cancel on the terminal if needed, then use Check status before retrying.".to_string()
+        });
+        if !is_html {
+            let detail = staff_safe_provider_error(raw_text);
+            if !detail.trim().is_empty() {
+                message.push_str(" Provider detail: ");
+                message.push_str(&detail);
+            }
+        }
+        return PaymentError::Conflict(message);
+    }
+
+    let error_hint = if is_html {
+        " (received HTML response; check your API base URL or WAF/IP settings)"
+    } else {
+        ""
+    };
+    let mut message = format!("Helcim returned HTTP {}{error_hint}", status.as_u16());
+    if !is_html {
+        let detail = staff_safe_provider_error(raw_text);
+        if !detail.trim().is_empty() {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+    }
+    PaymentError::ProviderError(message)
+}
+
+fn helcim_terminal_not_listening_message(raw_text: &str) -> Option<String> {
+    for provider_message in helcim_provider_error_messages(raw_text) {
+        let lower = provider_message.to_ascii_lowercase();
+        if !lower.contains("not listening") {
+            continue;
+        }
+
+        let device_code = extract_helcim_device_code(&provider_message);
+        let terminal_label = device_code
+            .as_deref()
+            .map(|code| format!(" {code}"))
+            .unwrap_or_default();
+        return Some(format!(
+            "Helcim terminal{terminal_label} is not listening. Wake the terminal, open or restart the Helcim app, confirm it is connected and signed in, then retry the payment. If this is the wrong terminal, update the Helcim terminal code in Settings."
+        ));
+    }
+    None
+}
+
+fn helcim_provider_error_messages(raw_text: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<Value>(raw_text.trim()) else {
+        return vec![raw_text.trim().to_string()];
+    };
+
+    let mut messages = Vec::new();
+    if let Some(message) = value.get("message").and_then(Value::as_str) {
+        messages.push(message.to_string());
+    }
+    if let Some(errors) = value.get("errors").and_then(Value::as_array) {
+        messages.extend(errors.iter().filter_map(Value::as_str).map(str::to_string));
+    }
+    messages
+}
+
+fn extract_helcim_device_code(message: &str) -> Option<String> {
+    let lower = message.to_ascii_lowercase();
+    let prefix = "device with code ";
+    let suffix = " not listening";
+    let start = lower.find(prefix)? + prefix.len();
+    let end = lower[start..].find(suffix)? + start;
+    let code = message.get(start..end)?.trim();
+    if code.is_empty() {
+        None
+    } else {
+        Some(code.to_string())
+    }
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/config", get(get_payments_config))
@@ -323,6 +406,10 @@ pub fn router() -> Router<AppState> {
             patch(set_helcim_customer_card_default).post(set_helcim_customer_card_default),
         )
         .route("/providers/helcim/attempts/{id}", get(get_helcim_attempt))
+        .route(
+            "/providers/helcim/attempts/{id}/release",
+            post(release_helcim_terminal_attempt),
+        )
         .route(
             "/providers/helcim/attempts/{id}/simulate",
             post(simulate_helcim_attempt),
@@ -6524,6 +6611,8 @@ async fn start_helcim_purchase(
     })?;
     let request_payload =
         helcim::build_purchase_request_payload(payload.amount_cents, currency.clone());
+    let request_body = helcim::terminal_purchase_request_body(&request_payload)
+        .map_err(PaymentError::InvalidPayload)?;
     let url = format!(
         "{}/devices/{}/payment/purchase",
         config.api_base_url(),
@@ -6536,7 +6625,7 @@ async fn start_helcim_purchase(
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .header("api-token", token)
         .header("idempotency-key", &idempotency_key)
-        .json(&request_payload)
+        .body(request_body)
         .send()
         .await;
     let response = match response_result {
@@ -6561,18 +6650,13 @@ async fn start_helcim_purchase(
     };
 
     if response.status() != reqwest::StatusCode::ACCEPTED {
-        let status = response.status().as_u16().to_string();
+        let status = response.status();
         let raw_text = response
             .text()
             .await
             .unwrap_or_else(|_| "Helcim purchase request failed".to_string());
         let is_html =
             raw_text.trim().starts_with("<!DOCTYPE html>") || raw_text.trim().starts_with("<html");
-        let error_hint = if is_html {
-            " (received HTML response; check your API base URL or WAF/IP settings)"
-        } else {
-            ""
-        };
         let persisted_message = persisted_provider_error(&raw_text);
         sqlx::query(
             r#"
@@ -6582,14 +6666,12 @@ async fn start_helcim_purchase(
             "#,
         )
         .bind(attempt_id)
-        .bind(&status)
+        .bind(status.as_u16().to_string())
         .bind(persisted_message)
         .execute(&state.db)
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
-        return Err(PaymentError::ProviderError(format!(
-            "Helcim returned HTTP {status}{error_hint}"
-        )));
+        return Err(helcim_terminal_purchase_error(status, &raw_text, is_html));
     }
 
     let accepted = response
@@ -7637,6 +7719,77 @@ async fn simulate_helcim_attempt(
         .map(Json)
 }
 
+async fn release_helcim_terminal_attempt(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(attempt_id): Path<Uuid>,
+) -> Result<Json<HelcimAttemptResponse>, PaymentError> {
+    let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_pay_session)?;
+    let session_id = match auth {
+        middleware::StaffOrPosSession::PosSession { session_id } => Some(session_id),
+        middleware::StaffOrPosSession::Staff(_) => None,
+    };
+    let attempt = load_helcim_attempt_row(&state, attempt_id).await?;
+    if let Some(session_id) = session_id {
+        if attempt.register_session_id != Some(session_id) {
+            return Err(PaymentError::Forbidden(
+                "Helcim attempt does not belong to this register session.".to_string(),
+            ));
+        }
+    }
+    if attempt.status != "pending" {
+        return Err(PaymentError::InvalidPayload(
+            "Only pending Helcim terminal attempts can be released.".to_string(),
+        ));
+    }
+    if attempt.provider_payment_id.is_some() || attempt.provider_transaction_id.is_some() {
+        return Err(PaymentError::Conflict(
+            "Helcim returned a provider reference for this attempt. Use Check Terminal before releasing it locally.".to_string(),
+        ));
+    }
+
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    lock_register_session_open_for_payment(&mut tx, attempt.register_session_id).await?;
+    let result = sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = 'expired',
+            error_code = 'terminal_released_no_provider_reference',
+            error_message = 'Released locally after the terminal returned to ready; Helcim did not provide a payment reference to poll.',
+            completed_at = now()
+        WHERE id = $1
+          AND provider = 'helcim'
+          AND status = 'pending'
+          AND provider_payment_id IS NULL
+          AND provider_transaction_id IS NULL
+        "#,
+    )
+    .bind(attempt_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    if result.rows_affected() == 0 {
+        let _ = tx.rollback().await;
+        return Err(PaymentError::Conflict(
+            "Helcim attempt could not be released because it changed while checking status."
+                .to_string(),
+        ));
+    }
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    load_helcim_attempt(&state, attempt_id, session_id)
+        .await
+        .map(Json)
+}
+
 async fn get_helcim_attempt(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -7901,4 +8054,58 @@ async fn load_helcim_attempt_row(
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
     .ok_or_else(|| PaymentError::InvalidPayload("Helcim attempt not found.".to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn helcim_purchase_409_maps_to_staff_actionable_conflict() {
+        let error = helcim_terminal_purchase_error(
+            reqwest::StatusCode::CONFLICT,
+            r#"{"message":"Device is busy","cardNumber":"4111111111111111"}"#,
+            false,
+        );
+
+        let PaymentError::Conflict(message) = error else {
+            panic!("expected conflict");
+        };
+        assert!(message.contains("Helcim reported a terminal conflict"));
+        assert!(message.contains("Check status"));
+        assert!(message.contains("[REDACTED]"));
+        assert!(!message.contains("4111111111111111"));
+    }
+
+    #[test]
+    fn helcim_purchase_409_not_listening_maps_to_terminal_setup_message() {
+        let error = helcim_terminal_purchase_error(
+            reqwest::StatusCode::CONFLICT,
+            r#"{"errors":["device with code JFHP not listening"]}"#,
+            false,
+        );
+
+        let PaymentError::Conflict(message) = error else {
+            panic!("expected conflict");
+        };
+        assert!(message.contains("Helcim terminal JFHP is not listening"));
+        assert!(message.contains("open or restart the Helcim app"));
+        assert!(message.contains("update the Helcim terminal code in Settings"));
+        assert!(!message.contains("active payment"));
+    }
+
+    #[test]
+    fn helcim_purchase_non_409_keeps_provider_failure_classification() {
+        let error = helcim_terminal_purchase_error(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"message":"Invalid amount"}"#,
+            false,
+        );
+
+        let PaymentError::ProviderError(message) = error else {
+            panic!("expected provider error");
+        };
+        assert!(message.contains("Helcim returned HTTP 400"));
+        assert!(message.contains("Invalid amount"));
+    }
 }

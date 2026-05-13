@@ -983,7 +983,7 @@ pub async fn ping_device(
         .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
     let url = format!("{}/devices/{code}/ping", config.api_base_url());
     let response = http
-        .post(&url)
+        .get(&url)
         .header(reqwest::header::ACCEPT, "application/json")
         .header("api-token", token)
         .send()
@@ -1154,6 +1154,21 @@ pub fn build_terminal_refund_request_payload(
     }
 }
 
+pub fn terminal_purchase_request_body(request: &HelcimPurchaseRequest) -> Result<String, String> {
+    let currency = serde_json::to_string(&request.currency).map_err(|e| e.to_string())?;
+    Ok(format!(
+        r#"{{"currency":{currency},"transactionAmount":{}}}"#,
+        request.transaction_amount
+    ))
+}
+
+fn terminal_refund_request_body(request: &HelcimTerminalRefundRequest) -> Result<String, String> {
+    Ok(format!(
+        r#"{{"transactionAmount":{},"originalTransactionId":{}}}"#,
+        request.transaction_amount, request.original_transaction_id
+    ))
+}
+
 pub async fn process_card_token_purchase(
     http: &reqwest::Client,
     config: &HelcimConfig,
@@ -1195,13 +1210,14 @@ pub async fn start_terminal_refund(
         "{}/devices/{device_code}/payment/refund",
         config.api_base_url()
     );
+    let body = terminal_refund_request_body(&request)?;
     let response = http
         .post(&url)
         .header(reqwest::header::ACCEPT, "application/json")
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .header("api-token", token)
         .header("idempotency-key", idempotency_key)
-        .json(&request)
+        .body(body)
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -1655,5 +1671,27 @@ mod tests {
             redacted,
             "Helcim error body card=[REDACTED] status=declined"
         );
+    }
+
+    #[test]
+    fn terminal_purchase_body_serializes_amount_as_json_number() {
+        let request = build_purchase_request_payload(1099, "usd");
+        let body = terminal_purchase_request_body(&request).expect("purchase body");
+        let value: Value = serde_json::from_str(&body).expect("valid json");
+
+        assert_eq!(value["currency"], "USD");
+        assert!(value["transactionAmount"].is_number());
+        assert_eq!(value["transactionAmount"].to_string(), "10.99");
+    }
+
+    #[test]
+    fn terminal_refund_body_serializes_amount_as_json_number() {
+        let request = build_terminal_refund_request_payload(1099, 12345);
+        let body = terminal_refund_request_body(&request).expect("refund body");
+        let value: Value = serde_json::from_str(&body).expect("valid json");
+
+        assert!(value["transactionAmount"].is_number());
+        assert_eq!(value["transactionAmount"].to_string(), "10.99");
+        assert_eq!(value["originalTransactionId"], 12345);
     }
 }

@@ -1076,6 +1076,57 @@ export default function NexoCheckoutDrawer({
     toast(`Cancel on ${label}, then tap Check. Riverside will release the terminal when Helcim reports the cancel.`, "info");
   }, [helcimAttempt, providerSettings?.helcim.simulator_enabled, selectedTerminalKey, simulateHelcimAttempt, toast]);
 
+  const releasePendingTerminalAttempt = useCallback(async () => {
+    const attemptId =
+      helcimAttempt?.status === "pending"
+        ? helcimAttempt.id
+        : selectedTerminalInUseByCurrentRegister
+          ? selectedTerminalActiveAttemptId
+          : null;
+    if (!attemptId) {
+      setTab("cash");
+      setTerminalPickerOpen(false);
+      return;
+    }
+    setHelcimAttemptLoading(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/release`,
+        {
+          method: "POST",
+          headers: mergedPosStaffHeaders(backofficeHeaders),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not release the Helcim terminal attempt.");
+      }
+      const attempt = (await res.json()) as HelcimAttempt;
+      setHelcimAttempt(attempt);
+      pendingHelcimCentsRef.current = 0;
+      pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+      setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+      setTab("cash");
+      setTerminalPickerOpen(false);
+      toast(HELCIM_UNVERIFIED_OUTCOME_MESSAGE, "error");
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : "Could not release the Helcim terminal attempt.",
+        "error",
+      );
+    } finally {
+      setHelcimAttemptLoading(false);
+    }
+  }, [
+    backofficeHeaders,
+    baseUrl,
+    helcimAttempt?.id,
+    helcimAttempt?.status,
+    selectedTerminalActiveAttemptId,
+    selectedTerminalInUseByCurrentRegister,
+    toast,
+  ]);
+
   const chargeSavedHelcimCard = useCallback(
     async (amtCents: number) => {
       const cardToken = selectedHelcimCardToken.trim();
@@ -1957,10 +2008,8 @@ export default function NexoCheckoutDrawer({
                 ) : null}
                 <button
                   type="button"
-                  onClick={() => {
-                    setTab("cash");
-                    setTerminalPickerOpen(false);
-                  }}
+                  onClick={() => void releasePendingTerminalAttempt()}
+                  disabled={helcimAttemptLoading}
                   className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text"
                 >
                   Continue Safely

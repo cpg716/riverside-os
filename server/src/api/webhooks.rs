@@ -138,6 +138,13 @@ fn verify_helcim_webhook(
     verify_helcim_webhook_with_token(headers, body, now, &verifier_token)
 }
 
+fn helcim_webhook_secret_configured() -> bool {
+    std::env::var("HELCIM_WEBHOOK_SECRET")
+        .ok()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+}
+
 fn verify_helcim_webhook_with_token(
     headers: &HeaderMap,
     body: &[u8],
@@ -458,6 +465,13 @@ async fn post_helcim_webhook(
     let verification = match verify_helcim_webhook(&headers, body.as_ref(), Utc::now()) {
         Ok(verification) => verification,
         Err(status) => {
+            if status == StatusCode::INTERNAL_SERVER_ERROR && !helcim_webhook_secret_configured() {
+                tracing::warn!(
+                    target = "helcim_webhook",
+                    "webhook received before HELCIM_WEBHOOK_SECRET was configured; acknowledging setup probe without processing"
+                );
+                return StatusCode::OK.into_response();
+            }
             tracing::warn!(target = "helcim_webhook", status = ?status, "verification failed");
             return status.into_response();
         }
@@ -1037,6 +1051,20 @@ mod tests {
         let err = verify_helcim_webhook_with_token(&headers, body, now, &token).unwrap_err();
 
         assert_eq!(err, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn helcim_webhook_secret_configured_reflects_runtime_env() {
+        std::env::remove_var("HELCIM_WEBHOOK_SECRET");
+        assert!(!helcim_webhook_secret_configured());
+
+        std::env::set_var("HELCIM_WEBHOOK_SECRET", "   ");
+        assert!(!helcim_webhook_secret_configured());
+
+        std::env::set_var("HELCIM_WEBHOOK_SECRET", "configured");
+        assert!(helcim_webhook_secret_configured());
+
+        std::env::remove_var("HELCIM_WEBHOOK_SECRET");
     }
 
     #[test]
