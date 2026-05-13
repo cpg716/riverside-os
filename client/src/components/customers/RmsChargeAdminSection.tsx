@@ -60,6 +60,19 @@ function formatOperationalLabel(value?: string | null) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function friendlyStaffOwnerLabel(
+  ownerStaffId: string | null | undefined,
+  currentStaffId: string | null | undefined,
+  currentStaffName: string | null | undefined,
+) {
+  const owner = String(ownerStaffId ?? "").trim();
+  if (!owner) return "No requesting staff loaded";
+  if (currentStaffId && owner === currentStaffId) {
+    return currentStaffName ? `Requested by you (${currentStaffName})` : "Requested by you";
+  }
+  return `Requested by staff ref ${owner.slice(0, 8).toUpperCase()}`;
+}
+
 function reconciliationSeverityBand(severity?: string | null): "blocking" | "warning" | "informational" {
   const value = String(severity ?? "").toLowerCase();
   if (["critical", "high", "blocking"].includes(value)) return "blocking";
@@ -978,7 +991,7 @@ export default function RmsChargeAdminSection({
       `Severity counts: ${reconciliationSeverityCounts.blocking} blocking, ${reconciliationSeverityCounts.warning} warning, ${reconciliationSeverityCounts.informational} informational`,
       `Latest run: ${latestReconciliationRun ? `${latestReconciliationRun.status} at ${fmtDate(latestReconciliationRun.completed_at ?? latestReconciliationRun.started_at)}` : "none loaded"}`,
       `Last successful run: ${latestSuccessfulReconciliationRun ? fmtDate(latestSuccessfulReconciliationRun.completed_at ?? latestSuccessfulReconciliationRun.started_at) : "none loaded"}`,
-      `Requested by: ${latestReconciliationRun?.requested_by_staff_id ?? "unknown"}`,
+      `Requested by: ${friendlyStaffOwnerLabel(latestReconciliationRun?.requested_by_staff_id, staffId, staffDisplayName)}`,
       `Refresh state: ${reconciliationError ? "refresh failed; stale reconciliation may be shown" : "latest loaded reconciliation shown"}`,
       "Safe rerun: reconciliation re-checks records and records review findings; it does not post payments or change accounting totals.",
     ];
@@ -996,6 +1009,8 @@ export default function RmsChargeAdminSection({
     reconciliationSeverityCounts.informational,
     reconciliationSeverityCounts.warning,
     reconciliationWhatChanged,
+    staffDisplayName,
+    staffId,
     toast,
   ]);
 
@@ -1843,9 +1858,11 @@ export default function RmsChargeAdminSection({
                   ["Safe rerun", reconciliationSafeRerunSummary],
                   [
                     "Ownership",
-                    latestReconciliationRun?.requested_by_staff_id
-                      ? `Requested by staff ${latestReconciliationRun.requested_by_staff_id}`
-                      : "No requesting staff loaded",
+                    friendlyStaffOwnerLabel(
+                      latestReconciliationRun?.requested_by_staff_id,
+                      staffId,
+                      staffDisplayName,
+                    ),
                   ],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-xl border border-app-border bg-app-bg p-4">

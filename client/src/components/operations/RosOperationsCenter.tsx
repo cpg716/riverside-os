@@ -20,6 +20,7 @@ import {
 const baseUrl = getBaseUrl();
 
 type HealthStatus = "ready" | "review" | "degraded" | "blocked";
+type ChecklistMode = "open" | "close";
 
 export type OperationsCenterNavigateTarget = {
   tab: "home" | "alterations" | "inventory" | "payments" | "settings" | "customers";
@@ -255,6 +256,21 @@ function reconciliationSeverityBand(severity?: string | null): HealthStatus {
   return "ready";
 }
 
+function checklistGuidance(mode: ChecklistMode, category: OperationsCategory): string {
+  if (category.status === "blocked") {
+    return mode === "open"
+      ? "Resolve this before treating the store as open-ready."
+      : "Resolve or document ownership before treating close as complete.";
+  }
+  if (category.status === "degraded") {
+    return "Refresh or confirm the source workflow; last-loaded data may be stale.";
+  }
+  if (category.status === "review") {
+    return "Manager review recommended before calling the ritual clear.";
+  }
+  return "Clear from loaded sources.";
+}
+
 export default function RosOperationsCenter({
   refreshSignal = 0,
   onNavigate,
@@ -271,6 +287,7 @@ export default function RosOperationsCenter({
   const [paymentProvider, setPaymentProvider] = useState<LoadState<ActiveProviderResponse>>(emptyState());
   const [paymentIssues, setPaymentIssues] = useState<LoadState<PaymentIssue[]>>(emptyState());
   const [snapshotCopied, setSnapshotCopied] = useState(false);
+  const [checklistMode, setChecklistMode] = useState<ChecklistMode>("open");
 
   const headers = useMemo(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
 
@@ -608,6 +625,39 @@ export default function RosOperationsCenter({
     ].join("\n");
   }, [derived, loadedAt]);
 
+  const readinessChecklist = useMemo(() => {
+    const categoryById = new Map(derived.categories.map((category) => [category.id, category]));
+    const ids =
+      checklistMode === "open"
+        ? [
+            "store-readiness",
+            "sales-register",
+            "fulfillment",
+            "sync-reconciliation",
+            "inventory",
+            "notifications",
+          ]
+        : [
+            "sales-register",
+            "fulfillment",
+            "sync-reconciliation",
+            "notifications",
+            "inventory",
+            "deployment-support",
+          ];
+    return ids
+      .map((id) => categoryById.get(id))
+      .filter((category): category is OperationsCategory => Boolean(category))
+      .map((category) => ({
+        category,
+        guidance: checklistGuidance(checklistMode, category),
+      }));
+  }, [checklistMode, derived.categories]);
+
+  const checklistStatus = worstStatus(
+    readinessChecklist.map((item) => item.category.status),
+  );
+
   const copySnapshot = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(supportSnapshot);
@@ -688,6 +738,98 @@ export default function RosOperationsCenter({
           <p className="mt-3 text-xs font-semibold opacity-75">
             Last loaded: {loadedAt ?? "Loading"} · Safe refresh only; this center does not mutate source workflows.
           </p>
+        </section>
+
+        <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
+                Store ritual checklist
+              </p>
+              <h3 className="mt-1 text-xl font-black text-app-text">
+                {checklistMode === "open" ? "Open Store" : "Close Store"} readiness
+              </h3>
+              <p className="mt-1 text-sm font-semibold text-app-text-muted">
+                Guided review using the same loaded health sources. No checklist item changes source workflows.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(["open", "close"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setChecklistMode(mode)}
+                  className={`min-h-10 rounded-xl border px-4 text-[10px] font-black uppercase tracking-widest ${
+                    checklistMode === mode
+                      ? "border-app-accent bg-app-accent/10 text-app-accent"
+                      : "border-app-border bg-app-bg text-app-text-muted hover:text-app-text"
+                  }`}
+                >
+                  {mode === "open" ? "Open Store" : "Close Store"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={`mt-4 rounded-xl border px-4 py-3 ${statusClass(checklistStatus)}`}>
+            <p className="text-[10px] font-black uppercase tracking-widest">
+              {checklistMode === "open" ? "Can we safely open?" : "Can we safely close?"}
+            </p>
+            <p className="mt-1 text-sm font-semibold opacity-90">
+              {checklistStatus === "blocked"
+                ? "Not clear yet. Resolve blockers or assign ownership before calling this complete."
+                : checklistStatus === "degraded"
+                  ? "Use caution. Some sources did not refresh, so confirm source workflows before final signoff."
+                  : checklistStatus === "review"
+                    ? "Operationally possible with manager review of highlighted items."
+                    : "Ready from the currently loaded operational sources."}
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-3 xl:grid-cols-2">
+            {readinessChecklist.map(({ category, guidance }) => {
+              const Icon = category.Icon;
+              return (
+                <article
+                  key={`${checklistMode}-${category.id}`}
+                  className={`rounded-xl border p-4 ${cardClass(category.status)}`}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-bg text-app-accent">
+                        <Icon size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-black text-app-text">{category.title}</h4>
+                        <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                          {category.summary}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${statusClass(category.status)}`}>
+                      {statusLabel(category.status)}
+                    </span>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 px-3 py-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      Checklist guidance
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-app-text">
+                      {guidance} {category.nextAction}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(category.target)}
+                    aria-label={`Review ${category.title} source workflow`}
+                    className="mt-3 inline-flex min-h-9 items-center rounded-lg border border-app-border bg-app-bg px-3 text-[9px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
+                  >
+                    Review Source
+                  </button>
+                </article>
+              );
+            })}
+          </div>
         </section>
 
         <section className="grid gap-4 xl:grid-cols-2">

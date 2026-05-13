@@ -13,6 +13,7 @@ import {
   ScrollText,
   Sparkles,
   Layers,
+  AlertTriangle,
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import NumericPinKeypad from "../ui/NumericPinKeypad";
@@ -1500,6 +1501,86 @@ export default function NexoCheckoutDrawer({
     if (!operator) return "No cashier verified.";
     return "";
   }, [busy, balanced, takeawaySatisfied, tw, taxExemptNoteRequired, operator]);
+  const activeTerminalAttemptIdForRefresh =
+    helcimAttempt?.id ??
+    (selectedTerminalInUseByCurrentRegister ? selectedTerminalActiveAttemptId : null);
+  const terminalRecoveryState = (() => {
+    if (providerSettingsError) {
+      return {
+        title: "Could not refresh payment terminal status",
+        detail: providerSettingsError,
+        action: "Open terminal settings or use a non-card tender until payment health is confirmed.",
+        tone: "danger",
+      };
+    }
+    if (helcimUnverifiedNotice || helcimAttempt?.status === "expired") {
+      return {
+        title: "Payment outcome needs review",
+        detail: helcimUnverifiedNotice ?? HELCIM_UNVERIFIED_OUTCOME_MESSAGE,
+        action: "Do not retry the card until terminal status is checked or support confirms the outcome.",
+        tone: "danger",
+      };
+    }
+    if (helcimAttempt?.status === "pending") {
+      return {
+        title: "Waiting on payment terminal",
+        detail: helcimAttemptDetail(helcimAttempt),
+        action: helcimAttemptSafeNextAction(helcimAttempt),
+        tone: "warning",
+      };
+    }
+    if (helcimAttempt && ["failed", "canceled"].includes(helcimAttempt.status)) {
+      return {
+        title: helcimAttemptStatusLabel(helcimAttempt.status),
+        detail: helcimAttemptDetail(helcimAttempt),
+        action: helcimAttemptSafeNextAction(helcimAttempt),
+        tone: "warning",
+      };
+    }
+    if (registerLaneUnavailable) {
+      return {
+        title: "Register is not ready for terminal payments",
+        detail: "This checkout is not attached to an open register lane.",
+        action: "Reopen or rejoin the register before taking a terminal payment.",
+        tone: "warning",
+      };
+    }
+    if (selectedTerminalInUseByOtherRegister) {
+      return {
+        title: "Selected terminal is in use",
+        detail: `Terminal is currently tied to Register #${selectedTerminalInUseBy}.`,
+        action: "Choose an available terminal or continue with a safe non-card tender.",
+        tone: "warning",
+      };
+    }
+    if (
+      providerSettings?.active_provider === "helcim" &&
+      providerSettings.helcim.enabled &&
+      !providerSettings.helcim.terminal_payments_ready
+    ) {
+      return {
+        title: "Terminal payments are not ready",
+        detail: "Helcim is configured, but live terminal payments are not ready from the loaded provider settings.",
+        action: "Check terminal setup before taking card payments. Cash/check tenders are still available.",
+        tone: "warning",
+      };
+    }
+    if (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) {
+      return {
+        title: "Non-default terminal needs confirmation",
+        detail: "Manager Access confirmation is required before sending this checkout to the selected terminal.",
+        action: "Confirm the terminal override or choose the register default terminal.",
+        tone: "info",
+      };
+    }
+    return null;
+  })();
+  const terminalRecoveryTone =
+    terminalRecoveryState?.tone === "danger"
+      ? "border-app-danger/35 bg-app-danger/10 text-app-danger"
+      : terminalRecoveryState?.tone === "warning"
+        ? "border-app-warning/40 bg-app-warning/10 text-app-warning"
+        : "border-app-info/30 bg-app-info/10 text-app-info";
   const terminalHeaderAction = (
     <div className="relative">
       <button
@@ -1818,6 +1899,76 @@ export default function NexoCheckoutDrawer({
              <p className="text-xl font-black uppercase italic tracking-wider text-app-text">Completing Sale...</p>
           </div>
         )}
+
+        {terminalRecoveryState ? (
+          <div className={`m-3 mb-0 rounded-2xl border px-4 py-3 shadow-sm sm:m-4 sm:mb-0 ${terminalRecoveryTone}`}>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex min-w-0 gap-3">
+                <AlertTriangle size={20} className="mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em]">
+                    Payment recovery visible
+                  </p>
+                  <h3 className="mt-1 text-sm font-black uppercase tracking-wide">
+                    {terminalRecoveryState.title}
+                  </h3>
+                  <p className="mt-1 text-xs font-semibold opacity-85">
+                    {terminalRecoveryState.detail}
+                  </p>
+                  <p className="mt-1 text-xs font-black opacity-90">
+                    Next safe action: {terminalRecoveryState.action}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 xl:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeTerminalAttemptIdForRefresh) {
+                      void refreshHelcimAttempt(activeTerminalAttemptIdForRefresh);
+                    } else {
+                      setTerminalPickerOpen(true);
+                    }
+                  }}
+                  disabled={helcimAttemptLoading}
+                  className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
+                >
+                  {helcimAttemptLoading ? "Checking" : "Check Terminal"}
+                </button>
+                {activeTerminalAttemptIdForRefresh ? (
+                  <button
+                    type="button"
+                    onClick={() => void refreshHelcimAttempt(activeTerminalAttemptIdForRefresh)}
+                    disabled={helcimAttemptLoading}
+                    className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
+                  >
+                    Retry Status
+                  </button>
+                ) : null}
+                {helcimAttempt?.status === "pending" ? (
+                  <button
+                    type="button"
+                    onClick={handlePendingTerminalCancel}
+                    disabled={helcimAttemptLoading}
+                    className="min-h-10 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
+                  >
+                    Cancel Terminal
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab("cash");
+                    setTerminalPickerOpen(false);
+                  }}
+                  className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text"
+                >
+                  Continue Safely
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {tab === "rms_charge" &&
           !rmsPaymentCollectionMode &&

@@ -339,6 +339,67 @@ function StatCard({ label, count, icon, active, onClick }: {
   );
 }
 
+function formatPickupMoney(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(Math.max(0, value));
+}
+
+function pickupReadiness(item: FulfillmentItem): { label: string; className: string } {
+  if (item.urgency === "blocked") {
+    return { label: "Blocked", className: "border-app-danger/30 bg-app-danger/10 text-app-danger" };
+  }
+  if (item.fulfilled_item_count > 0 && item.fulfilled_item_count < item.item_count) {
+    return { label: "Partial", className: "border-app-warning/40 bg-app-warning/10 text-app-warning" };
+  }
+  if (item.urgency === "ready" || item.fulfilled_item_count >= item.item_count) {
+    return { label: "Ready", className: "border-app-success/30 bg-app-success/10 text-app-success" };
+  }
+  return { label: "Needs review", className: "border-app-border bg-app-surface-2 text-app-text-muted" };
+}
+
+function pickupPaymentState(item: FulfillmentItem): { label: string; className: string } {
+  if (item.balance_due > 0) {
+    return {
+      label: `Balance ${formatPickupMoney(item.balance_due)}`,
+      className: "border-app-warning/40 bg-app-warning/10 text-app-warning",
+    };
+  }
+  return { label: "Paid", className: "border-app-success/30 bg-app-success/10 text-app-success" };
+}
+
+function pickupFittingState(item: FulfillmentItem): { label: string; className: string } {
+  if (item.wedding_party_name) {
+    return {
+      label: "Confirm fitting",
+      className: "border-sky-400/30 bg-sky-400/10 text-sky-700",
+    };
+  }
+  return { label: "Fitting N/A", className: "border-app-border bg-app-surface-2 text-app-text-muted" };
+}
+
+function pickupContext(item: FulfillmentItem): { label: string; className: string } {
+  if (item.urgency === "rush") {
+    return { label: "Rush pickup", className: "border-app-danger/30 bg-app-danger/10 text-app-danger" };
+  }
+  if (item.wedding_party_name) {
+    return { label: "Wedding", className: "border-violet-400/30 bg-violet-400/10 text-violet-700" };
+  }
+  return { label: "Standard", className: "border-app-border bg-app-surface-2 text-app-text-muted" };
+}
+
+function pickupNextSafeAction(item: FulfillmentItem): string {
+  if (item.urgency === "blocked") return "Open order before releasing garments.";
+  if (item.balance_due > 0) return "Collect balance before pickup release.";
+  if (item.fulfilled_item_count > 0 && item.fulfilled_item_count < item.item_count) {
+    return "Verify remaining items before pickup.";
+  }
+  if (item.wedding_party_name) return "Confirm fitting and wedding member before release.";
+  if (item.urgency === "ready") return "Ready after ID and garment check.";
+  return "Open order for pickup readiness details.";
+}
+
 function QueueItem({
   item,
   compact,
@@ -357,6 +418,12 @@ function QueueItem({
     blocked: "bg-app-surface-2 text-app-text-muted border-app-border",
     standard: "bg-app-surface-2 text-app-text-muted border-app-border",
   };
+  const decisionStrip = [
+    pickupPaymentState(item),
+    pickupReadiness(item),
+    pickupFittingState(item),
+    pickupContext(item),
+  ];
 
   return (
     <article
@@ -399,6 +466,19 @@ function QueueItem({
               Need by {item.next_deadline}
             </span>
           )}
+        </div>
+        <div className={`${compact ? "mt-2" : "mt-3"} flex flex-wrap items-center gap-1.5`}>
+          {decisionStrip.map((entry) => (
+            <span
+              key={entry.label}
+              className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${entry.className}`}
+            >
+              {entry.label}
+            </span>
+          ))}
+          <span className="min-w-0 rounded-full border border-app-border bg-app-bg px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+            Next: {pickupNextSafeAction(item)}
+          </span>
         </div>
       </div>
 

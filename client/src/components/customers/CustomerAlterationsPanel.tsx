@@ -141,6 +141,47 @@ const rowMatchesSearch = (row: AlterationRow, search: string) => {
     .some((value) => String(value).toLowerCase().includes(needle));
 };
 
+const nextAlterationStatus = (status: string): string | null => {
+  if (status === "intake") return "in_work";
+  if (status === "in_work") return "ready";
+  if (status === "ready") return "picked_up";
+  return null;
+};
+
+const alterationPressureState = (row: AlterationRow) => {
+  if (isOverdue(row)) {
+    return {
+      label: "Needs attention",
+      className: "border-app-danger/30 bg-app-danger/10 text-app-danger",
+    };
+  }
+  if (isDueToday(row)) {
+    return {
+      label: "Due today",
+      className: "border-app-warning/40 bg-app-warning/10 text-app-warning",
+    };
+  }
+  if (row.status === "ready") {
+    return {
+      label: "Ready for pickup",
+      className: "border-app-success/30 bg-app-success/10 text-app-success",
+    };
+  }
+  return {
+    label: row.status === "in_work" ? "In work" : "Needs tailor review",
+    className: "border-app-border bg-app-surface-2 text-app-text-muted",
+  };
+};
+
+const alterationNextSafeAction = (row: AlterationRow): string => {
+  if (isOverdue(row)) return "Escalate or reassign before promising pickup.";
+  if (isDueToday(row)) return "Advance status or reassign if it will miss today.";
+  if (row.status === "intake") return "Start work or assign schedule.";
+  if (row.status === "in_work") return "Mark ready when tailoring is complete.";
+  if (row.status === "ready") return "Confirm pickup before marking picked up.";
+  return "Review history if the customer asks for status.";
+};
+
 export default function CustomerAlterationsPanel({
   apiAuth,
   customerId,
@@ -434,6 +475,22 @@ export default function CustomerAlterationsPanel({
         </div>
       )}
 
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-app-border/40 bg-app-bg/60 px-3 py-2">
+        <span
+          className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${alterationPressureState(r).className}`}
+        >
+          {alterationPressureState(r).label}
+        </span>
+        {nextAlterationStatus(r.status) ? (
+          <span className="rounded-full border border-app-accent/25 bg-app-accent/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent">
+            Next: {nextAlterationStatus(r.status)?.replace("_", " ")}
+          </span>
+        ) : null}
+        <span className="min-w-0 rounded-full border border-app-border bg-app-surface px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+          {alterationNextSafeAction(r)}
+        </span>
+      </div>
+
       {!compactQueue ? (
       <div className="grid gap-3 rounded-xl border border-app-border/40 bg-app-surface-2/60 p-3 text-xs shadow-inner sm:grid-cols-2">
         <div className="min-w-0">
@@ -469,6 +526,16 @@ export default function CustomerAlterationsPanel({
          <p className="text-[9px] font-bold uppercase tracking-tighter text-app-text-muted">Created {new Date(r.created_at).toLocaleString()}</p>
 
          <div className="flex flex-wrap items-center justify-end gap-2">
+            {nextAlterationStatus(r.status) ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void setStatus(r.id, nextAlterationStatus(r.status) as string)}
+                className="rounded-xl border border-app-accent/30 bg-app-accent/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-50"
+              >
+                Advance to {nextAlterationStatus(r.status)?.replace("_", " ")}
+              </button>
+            ) : null}
             {["in_work", "ready", "picked_up"].map((s) => (
               <button
                 key={s}
@@ -489,7 +556,7 @@ export default function CustomerAlterationsPanel({
               onClick={() => setSchedulingAlt(r)}
               className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-blue-400 transition-all hover:bg-blue-500 hover:text-white"
             >
-              Plan & Schedule
+              Plan / Reassign
             </button>
          </div>
       </div>
