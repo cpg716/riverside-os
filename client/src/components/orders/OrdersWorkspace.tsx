@@ -21,6 +21,7 @@ import {
   Search,
   RotateCcw,
   Wallet,
+  Printer,
 } from "lucide-react";
 import AttachOrderToWeddingModal from "./AttachOrderToWeddingModal";
 import TransactionDetailDrawer, {
@@ -30,6 +31,7 @@ import TransactionDetailDrawer, {
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { getAppIcon } from "../../lib/icons";
+import { openProfessionalTablePrint } from "../pos/zReportPrint";
 
 const WEDDINGS_ICON = getAppIcon("weddings");
 const ORDERS_ICON = getAppIcon("orders");
@@ -53,6 +55,7 @@ interface TransactionRow {
   party_name: string | null;
   primary_salesperson_name?: string | null;
   item_count: number;
+  order_items_summary?: string | null;
   order_kind: string;
   counterpoint_customer_code?: string | null;
 }
@@ -93,6 +96,12 @@ interface OrderIntegritySummary {
   balanceStillDue: number;
 }
 
+interface OrderLineSummary {
+  count: number;
+  summary: string;
+  error?: string;
+}
+
 
 
 
@@ -109,6 +118,50 @@ interface ScanItem {
 
 function money(v: string | number) {
   return formatUsdFromCents(parseMoneyToCents(v));
+}
+
+function summarizeOrderItemsFromDetail(items: TransactionDrawerDetail["items"]): OrderLineSummary {
+  const orderItems = items.filter(
+    (item) => item.fulfillment !== "takeaway" && !item.is_internal,
+  );
+  return {
+    count: orderItems.length,
+    summary: orderItems
+      .map((item) => {
+        const name = item.product_name?.trim() || item.sku?.trim() || "Order item";
+        const sku = item.sku?.trim();
+        return `${item.quantity}x ${name}${sku ? ` (${sku})` : ""}`;
+      })
+      .join(", "),
+  };
+}
+
+function orderItemsSummary(
+  row: Pick<TransactionRow, "transaction_id" | "item_count" | "order_items_summary">,
+  hydratedSummaries: Record<string, OrderLineSummary>,
+) {
+  const hydrated = hydratedSummaries[row.transaction_id];
+  if (hydrated?.summary) return hydrated.summary;
+  if (hydrated?.error) return "Could not load order items";
+  const summary = row.order_items_summary?.trim();
+  if (summary) return summary;
+  return row.item_count > 0 ? "Loading order items..." : "No order items on this transaction";
+}
+
+function orderItemsCount(row: TransactionRow, hydratedSummaries: Record<string, OrderLineSummary>) {
+  return hydratedSummaries[row.transaction_id]?.count ?? row.item_count;
+}
+
+function dateFilterLabel(datePreset: string, dateFrom: string, dateTo: string) {
+  if (datePreset === "today") return "Today";
+  if (datePreset === "30d") return "Last 30 days";
+  if (datePreset === "custom") {
+    if (dateFrom && dateTo) return `${dateFrom} to ${dateTo}`;
+    if (dateFrom) return `From ${dateFrom}`;
+    if (dateTo) return `Through ${dateTo}`;
+    return "Custom date range";
+  }
+  return "All dates";
 }
 
 type Section = "open" | "all";
@@ -167,12 +220,14 @@ function formatOrderStatusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
-function OrderTableRow({ row, isSelected, onClick, actions }: {
+function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }: {
   row: TransactionRow;
   isSelected: boolean; 
   onClick: () => void;
   actions: OrderRowActions;
+  hydratedSummaries: Record<string, OrderLineSummary>;
 }) {
+  const visibleItemCount = orderItemsCount(row, hydratedSummaries);
   return (
     <tr 
       onClick={onClick}
@@ -213,10 +268,17 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
            </div>
         </td>
         <td className="px-6 py-4 max-w-[300px]">
-           <p className="truncate text-[10px] font-bold italic text-app-text-muted">
-             {row.item_count} item{row.item_count === 1 ? "" : "s"}
-             {row.primary_salesperson_name ? ` · ${row.primary_salesperson_name}` : ""}
+           <p className="text-[10px] font-black text-app-text">
+             {visibleItemCount} item{visibleItemCount === 1 ? "" : "s"}
            </p>
+           <p className="mt-1 line-clamp-2 text-[10px] font-bold text-app-text-muted">
+             {orderItemsSummary(row, hydratedSummaries)}
+           </p>
+           {row.primary_salesperson_name ? (
+             <p className="mt-1 truncate text-[9px] font-bold italic text-app-text-muted">
+               Staff: {row.primary_salesperson_name}
+             </p>
+           ) : null}
         </td>
         <td className="px-6 py-4">
            <span className={cn(
@@ -254,13 +316,16 @@ function OrderMobileCard({
   isSelected,
   onClick,
   actions,
+  hydratedSummaries,
 }: {
   row: TransactionRow;
   isSelected: boolean;
   onClick: () => void;
   actions: OrderRowActions;
+  hydratedSummaries: Record<string, OrderLineSummary>;
 }) {
   const balanceDue = parseMoneyToCents(row.balance_due);
+  const visibleItemCount = orderItemsCount(row, hydratedSummaries);
   return (
     <article
       className={cn(
@@ -293,8 +358,11 @@ function OrderMobileCard({
             {row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`}
           </p>
           <p className="mt-1 truncate text-xs font-semibold text-app-text-muted">
-            {row.item_count} item{row.item_count === 1 ? "" : "s"}
+            {visibleItemCount} item{visibleItemCount === 1 ? "" : "s"}
             {row.primary_salesperson_name ? ` · ${row.primary_salesperson_name}` : ""}
+          </p>
+          <p className="mt-2 line-clamp-3 rounded-xl border border-app-border/50 bg-app-surface-2/70 px-3 py-2 text-xs font-semibold text-app-text-muted">
+            {orderItemsSummary(row, hydratedSummaries)}
           </p>
           {row.party_name ? (
             <p className="mt-1 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-danger">
@@ -425,6 +493,7 @@ export default function OrdersWorkspace({
   const [viewPreset, setViewPreset] = useState<OrderViewPreset>(
     defaultViewPreset,
   );
+  const [hydratedOrderLines, setHydratedOrderLines] = useState<Record<string, OrderLineSummary>>({});
 
   const section: Section = viewPreset === "all" ? "all" : "open";
 
@@ -466,7 +535,11 @@ export default function OrdersWorkspace({
     if (paymentFilter !== "all") params.set("payment_filter", paymentFilter);
     if (salespersonFilter !== "all") params.set("salesperson_filter", salespersonFilter);
     if (dateFrom) params.set("date_from", new Date(dateFrom).toISOString());
-    if (dateTo) params.set("date_to", new Date(dateTo).toISOString());
+    if (dateTo) {
+      const inclusiveDateTo = new Date(dateTo);
+      inclusiveDateTo.setHours(23, 59, 59, 999);
+      params.set("date_to", inclusiveDateTo.toISOString());
+    }
 
     try {
       const res = await fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
@@ -563,6 +636,49 @@ export default function OrdersWorkspace({
   }, [loadTransactions]);
 
   useEffect(() => {
+    const rowsNeedingNames = transactionRows.filter(
+      (row) => row.item_count > 0 && !row.order_items_summary?.trim() && !hydratedOrderLines[row.transaction_id],
+    );
+    if (rowsNeedingNames.length === 0) return;
+
+    let cancelled = false;
+    void Promise.all(
+      rowsNeedingNames.map(async (row) => {
+        try {
+          const res = await fetch(`${baseUrl}/api/transactions/${row.transaction_id}`, {
+            headers: backofficeHeaders(),
+          });
+          if (!res.ok) throw new Error("detail_load_failed");
+          const detailForSummary = (await res.json()) as TransactionDrawerDetail;
+          return [row.transaction_id, summarizeOrderItemsFromDetail(detailForSummary.items)] as const;
+        } catch {
+          return [
+            row.transaction_id,
+            {
+              count: row.item_count,
+              summary: "",
+              error: "Could not load order items",
+            } satisfies OrderLineSummary,
+          ] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setHydratedOrderLines((current) => {
+        const next = { ...current };
+        for (const [transactionId, summary] of entries) {
+          next[transactionId] = summary;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backofficeHeaders, baseUrl, hydratedOrderLines, transactionRows]);
+
+  useEffect(() => {
     if (!deepLinkTxnId) return;
     setSelectedId(deepLinkTxnId);
     onDeepLinkTxnConsumed?.();
@@ -649,6 +765,11 @@ export default function OrdersWorkspace({
     setSku("");
     await loadDetail(detail.transaction_id);
     await loadTransactions();
+    setHydratedOrderLines((current) => {
+      const next = { ...current };
+      delete next[detail.transaction_id];
+      return next;
+    });
     return true;
   };
 
@@ -672,9 +793,14 @@ export default function OrdersWorkspace({
       return;
     }
     setCancelConfirmOpen(false);
-    toast("Transaction cancelled", "info");
+      toast("Transaction cancelled", "info");
     await loadDetail(detail.transaction_id);
     await loadTransactions();
+    setHydratedOrderLines((current) => {
+      const next = { ...current };
+      delete next[detail.transaction_id];
+      return next;
+    });
   };
 
   const deleteLine = async (item: Pick<OrderItem, "order_item_id">) => {
@@ -690,6 +816,11 @@ export default function OrdersWorkspace({
     }
     await loadDetail(detail.transaction_id);
     await loadTransactions();
+    setHydratedOrderLines((current) => {
+      const next = { ...current };
+      delete next[detail.transaction_id];
+      return next;
+    });
   };
 
   const updateLine = useCallback(
@@ -741,6 +872,11 @@ export default function OrdersWorkspace({
       toast(`${item.product_name} updated.`, "success");
       await loadDetail(detail.transaction_id);
       await loadTransactions();
+      setHydratedOrderLines((current) => {
+        const next = { ...current };
+        delete next[detail.transaction_id];
+        return next;
+      });
     },
     [backofficeHeaders, baseUrl, canModify, detail, loadDetail, loadTransactions, toast],
   );
@@ -779,6 +915,11 @@ export default function OrdersWorkspace({
     setReturnQtyDraft({});
     await loadDetail(detail.transaction_id);
     await loadTransactions();
+    setHydratedOrderLines((current) => {
+      const next = { ...current };
+      delete next[detail.transaction_id];
+      return next;
+    });
   };
 
 // linkExchange logic removed for build stabilization
@@ -905,6 +1046,70 @@ export default function OrdersWorkspace({
     { label: "Ready pickup", value: pipelineStats?.ready_for_pickup ?? 0, icon: CheckCircle2 },
     { label: "Overdue follow-up", value: pipelineStats?.overdue ?? 0, icon: AlertTriangle },
   ];
+
+  const hasUnresolvedOrderItems = transactionRows.some((row) => {
+    if (row.item_count <= 0 || row.order_items_summary?.trim()) return false;
+    const hydrated = hydratedOrderLines[row.transaction_id];
+    return !hydrated?.summary;
+  });
+
+  const printOrdersList = useCallback(() => {
+    if (hasUnresolvedOrderItems) {
+      toast("Order item names are still loading. Try Print again once the list finishes.", "info");
+      return;
+    }
+    const title = viewPreset === "open" ? "Open Orders List" : "Transaction History List";
+    const filters = [
+      `View: ${viewPreset === "open" ? "Open orders" : "Transaction history"}`,
+      `Date: ${dateFilterLabel(datePreset, dateFrom, dateTo)}`,
+      `Type: ${kindFilter === "all" ? "All" : orderKindLabel(kindFilter)}`,
+      `Payment: ${paymentFilter === "all" ? "All" : paymentFilter}`,
+      `Staff: ${salespersonFilter === "all" ? "All" : salespersonFilter}`,
+      search.trim() ? `Search: ${search.trim()}` : null,
+    ].filter(Boolean);
+
+    openProfessionalTablePrint({
+      title,
+      subtitle: `${filters.join(" · ")} · ${transactionRows.length} visible record${transactionRows.length === 1 ? "" : "s"}`,
+      columns: [
+        "ID",
+        "Date",
+        "Customer",
+        "Type",
+        "Order Items",
+        "Status",
+        "Total",
+        "Paid",
+        "Balance",
+        "Staff",
+      ],
+      rows: transactionRows.map((row) => ({
+        ID: row.display_id,
+        Date: new Date(row.booked_at).toLocaleDateString(),
+        Customer: row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`,
+        Type: orderKindLabel(row.order_kind),
+        "Order Items": orderItemsSummary(row, hydratedOrderLines),
+        Status: formatOrderStatusLabel(row.status),
+        Total: money(row.total_price),
+        Paid: money(row.amount_paid),
+        Balance: money(row.balance_due),
+        Staff: row.primary_salesperson_name ?? "",
+      })),
+    });
+  }, [
+    dateFrom,
+    datePreset,
+    dateTo,
+    hasUnresolvedOrderItems,
+    hydratedOrderLines,
+    kindFilter,
+    paymentFilter,
+    salespersonFilter,
+    search,
+    toast,
+    transactionRows,
+    viewPreset,
+  ]);
 
   const renderTransactionListState = (layout: "mobile" | "desktop") => {
     if (transactionRows.length > 0) return null;
@@ -1072,6 +1277,18 @@ export default function OrdersWorkspace({
                 })}
 
                 <button
+                  type="button"
+                  onClick={printOrdersList}
+                  disabled={transactionRows.length === 0 || transactionsLoading || hasUnresolvedOrderItems}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-text disabled:cursor-not-allowed disabled:opacity-50"
+                  title={hasUnresolvedOrderItems ? "Order item names are still loading" : "Print current orders list"}
+                >
+                  <Printer size={16} />
+                  {hasUnresolvedOrderItems ? "Loading Items" : "Print"}
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
                     setSearch("");
                     setViewPreset(defaultViewPreset);
@@ -1144,6 +1361,24 @@ export default function OrdersWorkspace({
                   <option value="30d">30 Days</option>
                   <option value="custom">Custom</option>
                 </select>
+                {datePreset === "custom" ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(event) => setDateFrom(event.target.value)}
+                      className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+                      aria-label="Orders date from"
+                    />
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(event) => setDateTo(event.target.value)}
+                      className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+                      aria-label="Orders date to"
+                    />
+                  </div>
+                ) : null}
             </div>
 
             <div className="grid gap-3 p-3 xl:hidden">
@@ -1166,6 +1401,7 @@ export default function OrdersWorkspace({
                     canModify,
                     canAttemptCancel,
                   }}
+                  hydratedSummaries={hydratedOrderLines}
                 />
               ))}
               {renderTransactionListState("mobile")}
@@ -1203,6 +1439,7 @@ export default function OrdersWorkspace({
                       canModify,
                       canAttemptCancel,
                     }}
+                    hydratedSummaries={hydratedOrderLines}
                   />
                 ))}
               </tbody>

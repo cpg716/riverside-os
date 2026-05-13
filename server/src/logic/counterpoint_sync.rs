@@ -9408,9 +9408,9 @@ pub async fn execute_counterpoint_open_doc_batch(
                     transaction_id, product_id, variant_id, salesperson_id, fulfillment,
                     quantity, unit_price, unit_cost,
                     state_tax, local_tax, applied_spiff, calculated_commission,
-                    counterpoint_reason_code
+                    counterpoint_reason_code, size_specs
                 )
-                VALUES ($1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0, $9)
+                VALUES ($1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0, $9, $10)
                 "#,
             )
             .bind(transaction_id)
@@ -9422,6 +9422,12 @@ pub async fn execute_counterpoint_open_doc_batch(
             .bind(line.unit_price)
             .bind(cost)
             .bind(line.reason_code.as_deref())
+            .bind(serde_json::json!({
+                "counterpoint_description": line.description.as_deref(),
+                "counterpoint_sku": line.sku.as_deref(),
+                "counterpoint_item_key": line.counterpoint_item_key.as_deref(),
+                "counterpoint_line_sequence": line.lin_seq_no,
+            }))
             .execute(&mut *tx)
             .await?;
             summary.line_items_created += 1;

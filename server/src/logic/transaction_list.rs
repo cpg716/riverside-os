@@ -52,6 +52,7 @@ pub struct TransactionListRow {
     pub party_name: Option<String>,
     pub primary_salesperson_name: Option<String>,
     pub item_count: i64,
+    pub order_items_summary: Option<String>,
     pub has_special_order: bool,
     pub has_wedding_order: bool,
     pub has_layaway: bool,
@@ -105,6 +106,7 @@ pub struct TransactionListResponse {
     pub party_name: Option<String>,
     pub primary_salesperson_name: Option<String>,
     pub item_count: i64,
+    pub order_items_summary: Option<String>,
     pub order_kind: String,
     pub has_special_order: bool,
     pub has_wedding_order: bool,
@@ -211,7 +213,32 @@ pub async fn query_paged_transactions(
             COALESCE(BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')), false) AS is_fulfillment_order,
             ps.full_name AS primary_salesperson_name,
             NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code,
-            COUNT(oi.id)::bigint AS item_count,
+            COUNT(oi.id) FILTER (WHERE oi.fulfillment::text <> 'takeaway')::bigint AS item_count,
+            NULLIF(
+                string_agg(
+                    CONCAT(
+                        oi.quantity,
+                        'x ',
+                        COALESCE(
+                            NULLIF(p.name, ''),
+                            NULLIF(oi.size_specs->>'counterpoint_description', ''),
+                            NULLIF(oi.size_specs->>'line_description', ''),
+                            NULLIF(pv.sku, ''),
+                            NULLIF(oi.size_specs->>'counterpoint_sku', ''),
+                            NULLIF(oi.size_specs->>'counterpoint_item_key', ''),
+                            'Order item'
+                        ),
+                        CASE
+                            WHEN COALESCE(NULLIF(pv.sku, ''), NULLIF(oi.size_specs->>'counterpoint_sku', ''), NULLIF(oi.size_specs->>'counterpoint_item_key', '')) IS NOT NULL
+                            THEN CONCAT(' (', COALESCE(NULLIF(pv.sku, ''), NULLIF(oi.size_specs->>'counterpoint_sku', ''), NULLIF(oi.size_specs->>'counterpoint_item_key', '')), ')')
+                            ELSE ''
+                        END
+                    ),
+                    ', '
+                    ORDER BY oi.id
+                ) FILTER (WHERE oi.fulfillment::text <> 'takeaway'),
+                ''
+            ) AS order_items_summary,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'special_order'), false) AS has_special_order,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'wedding_order'), false) AS has_wedding_order,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'layaway'), false) AS has_layaway,
@@ -223,6 +250,8 @@ pub async fn query_paged_transactions(
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
         LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+        LEFT JOIN products p ON p.id = oi.product_id
+        LEFT JOIN product_variants pv ON pv.id = oi.variant_id
         LEFT JOIN fulfillment_orders fo ON fo.id = oi.fulfillment_order_id
         WHERE 1=1
         "#
@@ -243,7 +272,7 @@ pub async fn query_paged_transactions(
 
     let status_scope = q.status_scope.as_deref().map(str::trim);
     let open_orders_predicate =
-        "(o.counterpoint_doc_ref IS NOT NULL OR EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.is_fulfilled = false))";
+        "(o.counterpoint_doc_ref IS NOT NULL OR EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text <> 'takeaway' AND tl.is_fulfilled = false))";
     match status_scope {
         Some("open") => {
             qb.push(" AND ");
@@ -393,6 +422,7 @@ pub async fn query_paged_transactions(
                 party_name: r.party_name,
                 primary_salesperson_name: r.primary_salesperson_name,
                 item_count: r.item_count,
+                order_items_summary: r.order_items_summary,
                 status: r.status,
                 order_kind,
                 has_special_order: r.has_special_order,
