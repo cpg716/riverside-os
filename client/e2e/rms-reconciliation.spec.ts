@@ -35,6 +35,11 @@ test.describe("RMS reconciliation", () => {
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("rms-reconciliation-scope")).toContainText(/all rms charge activity/i);
     await expect(page.getByTestId("rms-reconciliation-scope")).toContainText(/does not filter mismatch results/i);
+    await expect(page.getByText(/safe rerun re-checks rms charge records/i)).toBeVisible();
+    await expect(page.getByText(/\d+ blocking item[s]? may affect pickup\/payment visibility/i)).toBeVisible();
+    await expect(page.getByText(/may affect pickup\/payment visibility and clearing-account review/i).first()).toBeVisible();
+    await expect(page.getByText(/next safe action/i).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /copy support snapshot/i })).toBeVisible();
     await page.getByTestId("rms-run-reconciliation").click();
 
     const api = process.env.E2E_API_BASE || "http://127.0.0.1:43300";

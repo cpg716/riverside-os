@@ -36,6 +36,9 @@ import PodiumMessagingInboxSection from "../customers/PodiumMessagingInboxSectio
 import RegisterReports from "../pos/RegisterReports";
 import FulfillmentCommandCenter from "./FulfillmentCommandCenter";
 import ReviewsOperationsSection from "./ReviewsOperationsSection";
+import RosOperationsCenter, {
+  type OperationsCenterNavigateTarget,
+} from "./RosOperationsCenter";
 import type { Customer } from "../pos/CustomerSelector";
 import {
   buildMorningCompassQueue,
@@ -124,10 +127,7 @@ interface AlterationOpsRow {
 interface OperationalHomeProps {
   onOpenWeddingParty: (partyId: string) => void;
   onOpenTransactionInBackoffice: (orderId: string) => void;
-  onNavigateMetric?: (target: {
-    tab: "home" | "alterations" | "inventory";
-    section?: string;
-  }) => void;
+  onNavigateMetric?: (target: OperationsCenterNavigateTarget) => void;
   /** Podium inbox row → open customer hub Messages. */
   onOpenInboxCustomer: (customer: Customer) => void;
   /** Increment to refetch compass + activity (e.g. after wedding edits). */
@@ -1331,6 +1331,15 @@ export default function OperationalHome({
           )}
         </div>
       </div>
+    );
+  }
+
+  if (activeSection === "ops-center") {
+    return (
+      <RosOperationsCenter
+        refreshSignal={refreshSignal}
+        onNavigate={(target) => onNavigateMetric?.(target)}
+      />
     );
   }
 

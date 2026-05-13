@@ -164,4 +164,160 @@ test.describe("Phase 3 failure-state coverage", () => {
     ).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("Not loaded").first()).toBeVisible();
   });
+
+  test("pickup and Podium workspaces distinguish refresh failures from empty queues", async ({ page }) => {
+    await page.route("**/api/transactions/fulfillment-queue", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "temporarily unavailable" }),
+      });
+    });
+    await page.route("**/api/customers/podium/messaging-inbox?*", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "temporarily unavailable" }),
+      });
+    });
+
+    await signInToBackOffice(page);
+    await page.getByRole("button", { name: /^pickup queue$/i }).first().click();
+    await expect(page.getByText("Pickup queue could not refresh.").first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByText("Do not treat the queue as clear until refresh succeeds.").first(),
+    ).toBeVisible();
+    await expect(page.getByText("No orders match this priority level.")).toHaveCount(0);
+
+    await page.getByRole("button", { name: /^podium inbox$/i }).first().click();
+    await expect(page.getByText("Could not refresh Podium inbox.")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByText("Do not treat the inbox as empty until refresh succeeds."),
+    ).toBeVisible();
+    await expect(page.getByText("No Podium conversations yet")).toHaveCount(0);
+  });
+
+  test("inventory control board shows outage guidance instead of empty filters", async ({ page }) => {
+    await page.route("**/api/categories", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/api/vendors", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/api/inventory/control-board?*", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "temporarily unavailable" }),
+      });
+    });
+
+    await signInToBackOffice(page);
+    await openBackofficeSidebarTab(page, "inventory");
+    await page.getByRole("button", { name: /^find item$/i }).first().click();
+
+    await expect(page.getByText("Could not refresh inventory.")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByText("Do not treat these filters as empty until refresh succeeds."),
+    ).toBeVisible();
+    await expect(page.getByText("No matching inventory in current filters")).toHaveCount(0);
+  });
+
+  test("duplicate review queue does not look clear when refresh fails", async ({ page }) => {
+    await page.route("**/api/customers/duplicate-review-queue", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "temporarily unavailable" }),
+      });
+    });
+
+    await signInToBackOffice(page);
+    await openBackofficeSidebarTab(page, "customers");
+    await page.getByRole("button", { name: /^duplicate review$/i }).click();
+
+    await expect(page.getByText("Could not refresh duplicate review queue.")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByText("Do not treat the queue as clear until refresh succeeds."),
+    ).toBeVisible();
+    await expect(page.getByText("No pending pairs.")).toHaveCount(0);
+  });
+
+  test("notification partial cleanup failures stay visible", async ({ page }) => {
+    const rows = [
+      {
+        staff_notification_id: "sn-phase3-read-ok",
+        notification_id: "n-phase3-read-ok",
+        created_at: "2026-05-13T12:00:00.000Z",
+        kind: "morning_low_stock",
+        title: "Low stock needs review",
+        body: "Review stock before the floor opens.",
+        deep_link: { type: "inventory" },
+        source: "system",
+        read_at: null,
+        completed_at: null,
+        archived_at: null,
+      },
+      {
+        staff_notification_id: "sn-phase3-read-fail",
+        notification_id: "n-phase3-read-fail",
+        created_at: "2026-05-13T12:01:00.000Z",
+        kind: "pickup_stale",
+        title: "Pickup needs attention",
+        body: "Review the pickup queue.",
+        deep_link: { type: "order", transaction_id: "txn-phase3" },
+        source: "system",
+        read_at: null,
+        completed_at: null,
+        archived_at: null,
+      },
+    ];
+
+    await page.route("**/api/notifications/unread-count", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ unread: 2, podium_inbox_unread: 0 }),
+      });
+    });
+    await page.route("**/api/notifications?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(rows),
+      });
+    });
+    await page.route("**/api/notifications/sn-phase3-read-ok/read", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+    });
+    await page.route("**/api/notifications/sn-phase3-read-fail/read", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "temporarily unavailable" }),
+      });
+    });
+
+    await signInToBackOffice(page);
+    await page.getByRole("button", { name: /notifications/i }).click();
+    await expect(page.getByText("Low stock needs review")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByRole("button", { name: /mark new read/i }).click();
+
+    await expect(page.getByText("Some alerts were not marked read")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByText("The completed updates were kept; retry is safe for the remaining alerts."),
+    ).toBeVisible();
+  });
 });

@@ -109,6 +109,13 @@ interface ScanFeedback {
   message: string;
 }
 
+interface PublishOutcome {
+  status: "success" | "error";
+  message: string;
+  detail: string;
+  completedAt: string;
+}
+
 interface Category {
   id: string;
   name: string;
@@ -182,6 +189,9 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   // ── Review state
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
   const [reviewSummary, setReviewSummary] = useState<ReviewSummary | null>(null);
+  const [reviewLoadError, setReviewLoadError] = useState<string | null>(null);
+  const [lastReviewLoadedAt, setLastReviewLoadedAt] = useState<string | null>(null);
+  const [publishOutcome, setPublishOutcome] = useState<PublishOutcome | null>(null);
   const [editingCountId, setEditingCountId] = useState<string | null>(null);
   const [editQty, setEditQty] = useState("");
   const [editNote, setEditNote] = useState("");
@@ -239,14 +249,25 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   }, [mergeH]);
 
   const loadReview = useCallback(async (sessionId: string) => {
-    const res = await fetch(
-      `${BASE_URL}/api/inventory/physical/sessions/${sessionId}/review`,
-      { headers: mergeH() },
-    );
-    if (!res.ok) return;
-    const data = (await res.json()) as { rows: ReviewRow[]; summary: ReviewSummary };
-    setReviewRows(data.rows);
-    setReviewSummary(data.summary);
+    try {
+      const res = await fetch(
+        `${BASE_URL}/api/inventory/physical/sessions/${sessionId}/review`,
+        { headers: mergeH() },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not refresh count review.");
+      }
+      const data = (await res.json()) as { rows: ReviewRow[]; summary: ReviewSummary };
+      setReviewRows(data.rows);
+      setReviewSummary(data.summary);
+      setReviewLoadError(null);
+      setLastReviewLoadedAt(new Date().toLocaleString());
+    } catch (error) {
+      setReviewLoadError(
+        error instanceof Error ? error.message : "Could not refresh count review.",
+      );
+    }
   }, [mergeH]);
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -404,6 +425,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       setActiveSession((prev) => prev ? { ...prev, status: "reviewing" } : prev);
       await loadReview(activeSession.id);
       setPhase("review");
+      setPublishOutcome(null);
     }
     setWorking(false);
   };
@@ -442,6 +464,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     if (res.ok) {
       setEditingCountId(null);
       await loadReview(activeSession.id);
+      setPublishOutcome(null);
     }
   };
 
@@ -454,12 +477,29 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       { method: "POST", headers: mergeH() },
     );
     if (res.ok) {
-      // result not used in UI yet
+      const publishedAt = new Date().toLocaleString();
+      const reviewedItems = reviewSummary?.total_variants_in_scope ?? reviewRows.length;
+      const countedItems = reviewSummary?.total_counted ?? 0;
+      const missingItems = reviewSummary?.missing_variants ?? 0;
       setActiveSession((prev) => prev ? { ...prev, status: "published" } : prev);
+      setPublishOutcome({
+        status: "success",
+        message: "Publish completed. Live inventory was updated from the reviewed counts.",
+        detail: `${reviewedItems.toLocaleString()} item${reviewedItems === 1 ? "" : "s"} reviewed, ${countedItems.toLocaleString()} counted, ${missingItems.toLocaleString()} missing from count. Publish does not rerun receiving or sales activity.`,
+        completedAt: publishedAt,
+      });
       await loadData();
+      setPhase("manager");
     } else {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(err.error ?? "Publish failed", "error");
+      const message = err.error ?? "Publish failed";
+      setPublishOutcome({
+        status: "error",
+        message: "Publish did not finish.",
+        detail: `${message} Review is still available. Retry only after confirming the review data is current.`,
+        completedAt: new Date().toLocaleString(),
+      });
+      toast(message, "error");
     }
     setWorking(false);
   };
@@ -501,6 +541,21 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     );
   }, [reviewRows, reviewSearch]);
 
+  const unresolvedReviewCount = useMemo(
+    () =>
+      reviewRows.filter(
+        (row) =>
+          row.delta !== 0 ||
+          row.counted_qty === 0 ||
+          row.adjusted_qty !== null ||
+          row.review_status !== "approved",
+      ).length,
+    [reviewRows],
+  );
+  const reviewDelta = reviewSummary
+    ? reviewSummary.total_surplus - reviewSummary.total_shrinkage
+    : 0;
+
   const root = document.getElementById("drawer-root");
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -510,6 +565,31 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         <div className="px-1">
           <h2 className="text-2xl font-black tracking-tight text-app-text">Physical Inventory</h2>
         </div>
+
+        {publishOutcome ? (
+          <div
+            className={`flex items-start gap-3 rounded-2xl border px-5 py-4 ${
+              publishOutcome.status === "success"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+                : "border-red-500/30 bg-red-500/10 text-red-700"
+            }`}
+          >
+            {publishOutcome.status === "success" ? (
+              <CheckCircle className="mt-0.5 shrink-0" size={18} />
+            ) : (
+              <AlertCircle className="mt-0.5 shrink-0" size={18} />
+            )}
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest">
+                {publishOutcome.status === "success" ? "Publish completed" : "Publish did not finish"}
+              </p>
+              <p className="mt-1 text-sm font-bold leading-relaxed">{publishOutcome.message}</p>
+              <p className="mt-1 text-xs font-semibold opacity-80">
+                {publishOutcome.detail} · {publishOutcome.completedAt}
+              </p>
+            </div>
+          </div>
+        ) : null}
 
         {/* Active session resume banner */}
         {activeSession && activeSession.status === "open" && (
@@ -1038,6 +1118,9 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           <div>
             <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Count Review</h3>
             <h2 className="text-2xl font-black tracking-tight text-app-text">Review Phase · <span className="text-app-accent">#{activeSession.session_number}</span></h2>
+            <p className="mt-2 max-w-2xl text-sm font-semibold text-app-text-muted">
+              Review differences before publish. Publish updates live stock from reviewed counts; it does not replay receiving, sales, or other inventory activity.
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -1052,10 +1135,88 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               onClick={() => setPublishConfirm(true)}
               className="flex items-center gap-2 h-12 px-8 rounded-[20px] bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-600/20 hover:brightness-110 active:scale-95 transition-all"
             >
-              <CheckCircle size={14} /> Commit Changes
+              <CheckCircle size={14} /> Publish Reviewed Counts
             </button>
           </div>
         </div>
+
+        {reviewLoadError ? (
+          <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-amber-700">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 shrink-0" size={18} />
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-widest">Could not refresh count review</p>
+                <p className="mt-1 text-sm font-bold leading-relaxed">
+                  {reviewRows.length > 0
+                    ? `Showing last loaded review${lastReviewLoadedAt ? ` from ${lastReviewLoadedAt}` : ""}. Retry is safe; do not publish until the review is current.`
+                    : "No review rows are loaded. Retry before treating this count as ready to publish."}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadReview(activeSession.id)}
+              className="rounded-xl border border-amber-500/30 bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : null}
+
+        {publishOutcome ? (
+          <div
+            className={`flex items-start gap-3 rounded-2xl border px-5 py-4 ${
+              publishOutcome.status === "success"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+                : "border-red-500/30 bg-red-500/10 text-red-700"
+            }`}
+          >
+            {publishOutcome.status === "success" ? (
+              <CheckCircle className="mt-0.5 shrink-0" size={18} />
+            ) : (
+              <AlertCircle className="mt-0.5 shrink-0" size={18} />
+            )}
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest">
+                {publishOutcome.status === "success" ? "Publish completed" : "Publish did not finish"}
+              </p>
+              <p className="mt-1 text-sm font-bold leading-relaxed">{publishOutcome.message}</p>
+              <p className="mt-1 text-xs font-semibold opacity-80">
+                {publishOutcome.detail} · {publishOutcome.completedAt}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {reviewSummary ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              [
+                "What changed if published",
+                `${reviewSummary.total_variants_in_scope.toLocaleString()} item${reviewSummary.total_variants_in_scope === 1 ? "" : "s"} will be checked against reviewed counts.`,
+              ],
+              [
+                "Review status",
+                unresolvedReviewCount > 0
+                  ? `${unresolvedReviewCount.toLocaleString()} review item${unresolvedReviewCount === 1 ? "" : "s"} still need attention.`
+                  : "No unresolved review differences are loaded.",
+              ],
+              [
+                "Inventory impact",
+                `Net change ${reviewDelta > 0 ? `+${reviewDelta}` : reviewDelta}. Missing count rows publish as zero unless corrected first.`,
+              ],
+              [
+                "Safe recovery",
+                "Resume counting or edit review rows before publish. Retrying refresh is safe and does not update live stock.",
+              ],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-app-border bg-app-surface px-4 py-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">{label}</p>
+                <p className="mt-2 text-sm font-semibold text-app-text">{value}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {reviewSummary && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -1250,10 +1411,10 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           title="Apply Reviewed Counts?"
           message={
             reviewSummary 
-              ? `Publishing session ${activeSession.session_number} will overwrite current inventory with reviewed levels. (${reviewSummary.total_variants_in_scope} items in area, ${reviewSummary.total_counted} counted, ${reviewSummary.missing_variants} missing from count, delta ${reviewSummary.total_surplus - reviewSummary.total_shrinkage}). Permanent.`
-              : `Publishing session ${activeSession.session_number} will overwrite the current catalog stock levels. Permanent.`
+              ? `Publishing session ${activeSession.session_number} updates live inventory from the reviewed count levels. ${reviewSummary.total_variants_in_scope} items are in scope, ${reviewSummary.total_counted} were counted, ${reviewSummary.missing_variants} are missing from count, and the net change is ${reviewSummary.total_surplus - reviewSummary.total_shrinkage}. Review first: publish does not rerun receiving or sales activity.`
+              : `Publishing session ${activeSession.session_number} updates live inventory from the reviewed count levels. Review first: publish does not rerun receiving or sales activity.`
           }
-          confirmLabel="Commit Changes"
+          confirmLabel="Publish Reviewed Counts"
           variant="info"
           onConfirm={() => void publish()}
           onClose={() => setPublishConfirm(false)}

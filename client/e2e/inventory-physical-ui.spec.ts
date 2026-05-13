@@ -66,11 +66,14 @@ test.describe("Physical inventory review and publish verification", () => {
     await expect(page.getByText(/1 sku.*in this area.*never counted/i)).toBeVisible({
       timeout: 10_000,
     });
-    await page.getByRole("button", { name: /commit changes/i }).click();
+    await expect(page.getByText(/what changed if published/i)).toBeVisible();
+    await expect(page.getByText(/does not replay receiving, sales/i)).toBeVisible();
+    await expect(page.getByText(/retrying refresh is safe and does not update live stock/i)).toBeVisible();
+    await page.getByRole("button", { name: /publish reviewed counts/i }).click();
 
     const publishDialog = page.getByText(
       new RegExp(
-        `${session.session_number}.*2 items in area, 1 counted, 1 missing from count, delta -5`,
+        `${session.session_number}.*updates live inventory.*2 items are in scope, 1 were counted, 1 are missing from count, and the net change is -5`,
         "i",
       ),
     );
@@ -82,8 +85,13 @@ test.describe("Physical inventory review and publish verification", () => {
         response.request().method() === "POST" &&
         response.status() === 200,
     );
-    await page.getByRole("button", { name: /^commit changes$/i }).last().click();
+    await page.getByRole("button", { name: /^publish reviewed counts$/i }).last().click();
     await publishResponse;
+
+    await expect(page.getByText(/publish completed/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(/live inventory was updated from the reviewed counts/i)).toBeVisible();
 
     await expect
       .poll(async () => (await getInventoryIntelligence(request, countedProduct.variantId)).stock_on_hand, {

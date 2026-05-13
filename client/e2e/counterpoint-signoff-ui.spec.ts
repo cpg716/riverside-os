@@ -628,9 +628,16 @@ test.describe("Counterpoint sign-off UI", () => {
       await expect(panel.getByRole("table").getByText("Stale applying")).toBeVisible();
 
       await panel.getByText(String(staleBatchId)).click();
-      await expect(panel.getByText(/Apply claimed/i)).toBeVisible();
+      await expect(panel.getByText("Apply claimed", { exact: true })).toBeVisible();
       await expect(panel.getByText(/Safe recovery is available/i)).toBeVisible();
-      await expect(panel.getByText("Changed rows")).toBeVisible();
+      await expect(panel.getByText(/Next safe action: Recovery review/i)).toBeVisible();
+      await expect(panel.getByText("Operational decision guide")).toBeVisible();
+      await expect(panel.getByText("What changed")).toBeVisible();
+      await expect(panel.getByText("Replay visibility")).toBeVisible();
+      await expect(panel.getByText("Recovery guidance")).toBeVisible();
+      await expect(panel.getByText("Live write result")).toBeVisible();
+      await expect(panel.getByText(/Apply is active; wait before taking recovery action/i).first()).toBeVisible();
+      await expect(panel.getByText(/Only stale recovery is available for this batch/i)).toBeVisible();
       await expect(panel.getByText(/Payload fingerprint:/i)).toBeVisible();
       await expect(panel.getByRole("button", { name: /mark stale apply failed/i })).toBeEnabled();
       await panel.getByRole("button", { name: /mark stale apply failed/i }).click();
@@ -640,7 +647,7 @@ test.describe("Counterpoint sign-off UI", () => {
       await expect(panel.getByRole("table").getByText("Recovered stale apply")).toBeVisible({
         timeout: 15_000,
       });
-      await expect(panel.getByText(/by Chris G/i)).toBeVisible();
+      await expect(panel.getByText("Recovered by Chris G")).toBeVisible();
       await expect(panel.getByText(/Recovery note: .*payload was not replayed/i)).toBeVisible({
         timeout: 15_000,
       });
@@ -775,6 +782,17 @@ test.describe("Counterpoint sign-off UI", () => {
     });
 
     const panel = await openCounterpointSettings(page, "details");
+
+    await expect(panel.getByText("Support diagnostics center")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(panel.getByText("Deployment visibility")).toBeVisible();
+    await expect(panel.getByText("Recovery and replay posture")).toBeVisible();
+    await expect(panel.getByRole("button", { name: /copy support report/i })).toBeVisible();
+    await expect(panel.getByText("Counterpoint Support Diagnostics")).toBeVisible();
+    await expect(panel.getByText("Direct controls reachable", { exact: true }).first()).toBeVisible();
+    await expect(panel.getByText("Pending apply", { exact: true }).first()).toBeVisible();
+    await expect(panel.getByText("Support review needed", { exact: true }).first()).toBeVisible();
 
     await expect(panel.getByText("Post-import verification")).toBeVisible({
       timeout: 20_000,

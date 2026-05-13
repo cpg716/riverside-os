@@ -639,6 +639,129 @@ function stagingBatchSummary(batch: StagingBatchRow): string {
   return `${fmtNum(batch.row_count)} ${entity} row(s).`;
 }
 
+function stagingOwnerSummary(batch: StagingBatchRow): string {
+  if (batch.status === "applying" && batch.apply_started_at) {
+    return `Apply claimed by ${stagingStaffLabel(batch.apply_claimed_by_staff_name, batch.apply_claimed_by_staff_id)}`;
+  }
+  if (batch.applied_at) {
+    return `Applied by ${stagingStaffLabel(batch.applied_by_staff_name, batch.applied_by_staff_id)}`;
+  }
+  if (batch.recovered_at) {
+    return `Recovered by ${stagingStaffLabel(batch.recovered_by_staff_name, batch.recovered_by_staff_id)}`;
+  }
+  return batch.bridge_hostname ? `Staged by ${batch.bridge_hostname}` : "No ROS owner yet";
+}
+
+function stagingLiveWriteSummary(batch: StagingBatchRow): string {
+  const entity = formatEntityLabel(batch.entity).toLowerCase();
+  if (batch.status === "pending") return "No live ROS rows changed yet.";
+  if (batch.status === "applied") {
+    return `${fmtNum(batch.row_count)} ${entity} row(s) ran through the live import path.`;
+  }
+  if (batch.recovered_at) return "Recovery marked the claim failed; it did not replay rows.";
+  if (batch.status === "failed" && batch.apply_started_at) {
+    return "Apply started, then failed; partial live changes are possible.";
+  }
+  if (batch.status === "failed") return "No successful apply is recorded for this batch.";
+  if (batch.status === "discarded") return "Discarded before apply; live ROS rows were not changed by this batch.";
+  if (batch.status === "applying") return "Apply is active; wait before taking recovery action.";
+  return "Live write result is not separately reported.";
+}
+
+function stagingReplaySummary(batch: StagingBatchRow): string {
+  if (batch.replay_count > 0) {
+    return `${fmtNum(batch.replay_count)} duplicate bridge POST(s) reused this batch instead of creating another pending Apply.`;
+  }
+  return "No duplicate bridge replay recorded for this payload.";
+}
+
+function stagingRecoveryGuidance(batch: StagingBatchRow): string {
+  if (isStaleApplyingBatch(batch)) {
+    return "Recovery is available only to mark the stale claim failed; it does not reset, apply, or replay the payload.";
+  }
+  if (batch.status === "applying") {
+    return "Recovery is blocked while the apply claim is still fresh. Wait or confirm the worker is no longer active.";
+  }
+  if (batch.recovered_at) {
+    return "Re-stage from the bridge only after support confirms the failed claim and any possible partial writes.";
+  }
+  if (batch.status === "failed" && batch.apply_started_at) {
+    return "Do not ask the bridge to re-stage until support reviews whether any rows landed before the failure.";
+  }
+  if (batch.status === "pending") {
+    return "Safe next actions are Apply or Discard; neither happens automatically.";
+  }
+  return "No recovery action is currently needed.";
+}
+
+function stagingNextAction(batch: StagingBatchRow): { label: string; tone: string; body: string } {
+  if (isStaleApplyingBatch(batch)) {
+    return {
+      label: "Recovery review",
+      tone: "border-amber-500/25 bg-amber-500/5 text-amber-700 dark:text-amber-200",
+      body: "Confirm the worker is no longer active, then use Mark stale apply failed. This preserves the forensic trail and does not replay.",
+    };
+  }
+  if (batch.status === "pending") {
+    return {
+      label: "Review then choose",
+      tone: "border-sky-500/25 bg-sky-500/5 text-sky-700 dark:text-sky-200",
+      body: "Review the payload preview and source context. Apply writes through the live import path; Discard closes the staged payload without writing.",
+    };
+  }
+  if (batch.status === "applying") {
+    return {
+      label: "Wait",
+      tone: "border-sky-500/25 bg-sky-500/5 text-sky-700 dark:text-sky-200",
+      body: "Apply ownership is active. Wait for completion before taking recovery action.",
+    };
+  }
+  if (batch.recovered_at) {
+    return {
+      label: "Support review",
+      tone: "border-amber-500/25 bg-amber-500/5 text-amber-700 dark:text-amber-200",
+      body: "The stale claim was marked failed without replay. Re-stage only after support reviews possible partial writes.",
+    };
+  }
+  if (batch.status === "failed" && batch.apply_started_at) {
+    return {
+      label: "Forensic review",
+      tone: "border-red-500/20 bg-red-500/5 text-red-600",
+      body: "Apply started before failure. Do not re-stage until support confirms whether any rows landed.",
+    };
+  }
+  if (batch.status === "failed") {
+    return {
+      label: "Fix source then re-stage",
+      tone: "border-amber-500/25 bg-amber-500/5 text-amber-700 dark:text-amber-200",
+      body: "No successful apply is recorded. Fix the source issue before asking the bridge to send a replacement batch.",
+    };
+  }
+  if (batch.status === "applied") {
+    return {
+      label: "Verify sign-off",
+      tone: "border-emerald-500/25 bg-emerald-500/5 text-emerald-700 dark:text-emerald-200",
+      body: "The batch applied through the live import path. Refresh sign-off checks and confirm the downstream totals.",
+    };
+  }
+  return {
+    label: "No action needed",
+    tone: "border-app-border bg-app-bg/60 text-app-text-muted",
+    body: "This batch is not waiting on an operator action.",
+  };
+}
+
+function stagingActionHint(batch: StagingBatchRow): string {
+  if (batch.status === "pending") return "Apply and Discard are available after payload review.";
+  if (isStaleApplyingBatch(batch)) return "Only stale recovery is available for this batch.";
+  if (batch.status === "applying") return "Actions are locked while Apply ownership is active.";
+  if (batch.recovered_at) return "Recovery is already recorded; re-stage only after support review.";
+  if (batch.status === "failed") return "Actions are locked for failed batches; fix source data and re-stage if needed.";
+  if (batch.status === "applied") return "Already applied; use sign-off checks instead of replaying.";
+  if (batch.status === "discarded") return "Already discarded; ask the bridge to re-stage only if the source row is still needed.";
+  return "No operator action is available for this status.";
+}
+
 interface CategoryMapRow {
   id: number;
   cp_category: string;
@@ -735,6 +858,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [status, setStatus] = useState<SyncStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [batches, setBatches] = useState<StagingBatchRow[]>([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [selectedPayload, setSelectedPayload] = useState<unknown>(null);
   const [payloadLoading, setPayloadLoading] = useState(false);
@@ -1048,6 +1172,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
   const fetchBatches = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
+    setBatchesLoading(true);
     try {
       const res = await fetch(
         `${baseUrl}/api/settings/counterpoint-sync/staging/batches?limit=200`,
@@ -1058,6 +1183,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
       }
     } catch {
       setBatches([]);
+    } finally {
+      setBatchesLoading(false);
     }
   }, [baseUrl, backofficeHeaders, hasPermission]);
 
@@ -1907,6 +2034,138 @@ export default function CounterpointSyncSettingsPanel(props?: {
   )
     .map(([severity, count]) => `${fmtNum(count)} ${severity.toLowerCase()}`)
     .join(", ");
+  const supportDeploymentRows = [
+    {
+      label: "Bridge reachability",
+      value: bridgeOnline
+        ? "Direct controls reachable"
+        : serverBridgeActive
+          ? "ROS heartbeat only"
+          : "Not reachable",
+      tone: bridgeOnline || serverBridgeActive ? "text-emerald-600" : "text-red-500",
+      note: bridgeOnline
+        ? "This workstation can reach the bridge control port."
+        : serverBridgeActive
+          ? "ROS sees bridge heartbeats, but this workstation cannot reach direct controls."
+          : "No direct bridge controls or fresh ROS heartbeat are visible.",
+    },
+    {
+      label: "Bridge host",
+      value: status?.bridge_hostname ?? "Not reported",
+      tone: "text-app-text",
+      note: status?.bridge_version ? `Bridge version ${status.bridge_version}` : "Bridge version not reported.",
+    },
+    {
+      label: "Landing mode",
+      value: stagingOn ? "Staging queue" : "Direct import",
+      tone: stagingOn ? "text-app-warning" : "text-app-text",
+      note: stagingOn
+        ? "Batches require explicit Apply or Discard."
+        : "Bridge writes directly to live import routes.",
+    },
+    {
+      label: "Last bridge activity",
+      value: formatDate(status?.last_seen_at ?? bridgeLive?.lastRun),
+      tone: status?.last_seen_at || bridgeLive?.lastRun ? "text-app-text" : "text-red-500",
+      note: bridgeLive?.lastRunDurationMs
+        ? `Last visible bridge run took ${fmtDuration(bridgeLive.lastRunDurationMs)}.`
+        : "No direct bridge run duration is visible.",
+    },
+  ];
+  const supportRecoveryRows = [
+    {
+      label: "Queue posture",
+      value:
+        staleApplyingN > 0
+          ? "Stale apply review"
+          : applyingN > 0
+            ? "Apply in progress"
+            : pendingN > 0
+              ? "Pending apply"
+              : "Queue clear",
+      tone:
+        staleApplyingN > 0 || failedBatchN > 0
+          ? "text-red-500"
+          : applyingN > 0 || pendingN > 0
+            ? "text-app-warning"
+            : "text-emerald-600",
+      note: `${fmtNum(pendingN)} pending, ${fmtNum(applyingN)} applying, ${fmtNum(staleApplyingN)} stale applying, ${fmtNum(failedBatchN)} failed.`,
+    },
+    {
+      label: "Replay posture",
+      value: replaySuppressionN > 0 ? "Replay suppressions recorded" : "No duplicate replay",
+      tone: replaySuppressionN > 0 ? "text-app-warning" : "text-emerald-600",
+      note:
+        replaySuppressionN > 0
+          ? `${fmtNum(replaySuppressionN)} duplicate bridge POST(s) reused existing batches.`
+          : "No duplicate payload reuse is visible in the loaded batch window.",
+    },
+    {
+      label: "Recovery posture",
+      value: recoveredBatchN > 0 ? "Recovered stale claims" : "No stale recovery recorded",
+      tone: recoveredBatchN > 0 ? "text-app-warning" : "text-app-text-muted",
+      note:
+        recoveredBatchN > 0
+          ? `${fmtNum(recoveredBatchN)} stale claim(s) were marked failed without replay.`
+          : "Recovery actions remain available only for stale applying claims.",
+    },
+    {
+      label: "Open issues",
+      value: unresolvedIssueCount > 0 ? "Support review needed" : "No open sync issues",
+      tone: unresolvedIssueCount > 0 ? "text-red-500" : "text-emerald-600",
+      note:
+        unresolvedIssueCount > 0
+          ? `${fmtNum(unresolvedIssueCount)} unresolved issue(s) remain${issueSeveritySummary ? `: ${issueSeveritySummary}` : ""}.`
+          : "No unresolved sync issues are visible in the current status response.",
+    },
+  ];
+  const supportDiagnosticsSeverity =
+    signoffBlockers.length > 0 || staleApplyingN > 0 || failedBatchN > 0 || unresolvedIssueCount > 0
+      ? "Review"
+      : signoffWarnings.length > 0 || pendingN > 0 || replaySuppressionN > 0
+        ? "Watch"
+        : "Clear";
+  const supportDiagnosticsTone =
+    supportDiagnosticsSeverity === "Review"
+      ? "bg-red-500/10 text-red-600"
+      : supportDiagnosticsSeverity === "Watch"
+        ? "bg-amber-500/15 text-amber-700 dark:text-amber-200"
+        : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
+  const supportDiagnosticsLines = [
+    "Counterpoint Support Diagnostics",
+    `Generated: ${new Date().toLocaleString()}`,
+    `Overall state: ${supportDiagnosticsSeverity}`,
+    `Bridge: ${bridgeOnline ? "direct controls reachable" : serverBridgeActive ? "ROS heartbeat only" : "not reachable"}`,
+    `Host: ${status?.bridge_hostname ?? "not reported"}`,
+    `Version: ${status?.bridge_version ?? "not reported"}`,
+    `Server state: ${status?.windows_sync_state ?? "unknown"}`,
+    `Last bridge activity: ${formatDate(status?.last_seen_at ?? bridgeLive?.lastRun)}`,
+    `Landing mode: ${stagingOn ? "staging queue" : "direct import"}`,
+    `Queue: ${fmtNum(pendingN)} pending, ${fmtNum(applyingN)} applying, ${fmtNum(staleApplyingN)} stale applying, ${fmtNum(failedBatchN)} failed`,
+    `Replay suppressions: ${fmtNum(replaySuppressionN)}`,
+    `Recovered stale claims: ${fmtNum(recoveredBatchN)}`,
+    `Open sync issues: ${fmtNum(unresolvedIssueCount)}`,
+    `Missing landed proof count: ${fmtNum(entitiesMissingRosProof)}`,
+    `Mismatched entity count: ${fmtNum(mismatchedEntityCounts)}`,
+    `Sign-off blocker count: ${fmtNum(signoffBlockers.length)}`,
+    `Caveat count: ${fmtNum(signoffWarnings.length)}`,
+  ];
+  const supportDiagnosticsText = supportDiagnosticsLines.join("\n");
+  const selectedBatch =
+    selectedBatchId == null
+      ? null
+      : (batches.find((batch) => batch.id === selectedBatchId) ?? null);
+  const copySupportDiagnostics = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(supportDiagnosticsText);
+      toast("Counterpoint support diagnostics copied.", "success");
+    } catch {
+      toast("Could not copy diagnostics from this browser.", "error");
+    }
+  };
   const counterpointInsightFacts = {
     title: "Counterpoint Sign-off Explanation",
     bullets: [
@@ -2664,6 +2923,89 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
               {statusSection === "details" && (
                 <>
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Support diagnostics center
+                    </h4>
+                    <p className="text-xs text-app-text-muted mt-1 max-w-3xl">
+                      Single-screen support handoff for deployment health, recovery posture,
+                      replay visibility, and sign-off blockers. This does not apply, replay, reset,
+                      or resolve anything.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`ui-pill text-[10px] ${supportDiagnosticsTone}`}>
+                      {supportDiagnosticsSeverity}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void copySupportDiagnostics()}
+                      className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Copy support report
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                  <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Deployment visibility
+                    </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {supportDeploymentRows.map((row) => (
+                        <div key={row.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            {row.label}
+                          </p>
+                          <p className={`mt-1 font-bold ${row.tone}`}>{row.value}</p>
+                          <p className="mt-1 text-[10px] text-app-text-muted">{row.note}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Recovery and replay posture
+                    </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {supportRecoveryRows.map((row) => (
+                        <div key={row.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            {row.label}
+                          </p>
+                          <p className={`mt-1 font-bold ${row.tone}`}>{row.value}</p>
+                          <p className="mt-1 text-[10px] text-app-text-muted">{row.note}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Support handoff report
+                      </p>
+                      <p className="mt-1 text-xs text-app-text-muted">
+                        Copy this when opening a support note or comparing deployment/recovery state
+                        between workstations.
+                      </p>
+                    </div>
+                    <span className="ui-pill bg-app-bg/70 text-[9px] text-app-text-muted">
+                      Read-only snapshot
+                    </span>
+                  </div>
+                  <pre className="mt-3 max-h-52 overflow-auto whitespace-pre-wrap rounded-md border border-app-border bg-app-surface-1/70 p-3 text-[10px] font-mono text-app-text-muted">
+                    {supportDiagnosticsText}
+                  </pre>
+                </div>
+              </div>
+
               {/* Entity Breakdown */}
               <div className="mb-6">
                 <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
@@ -4747,14 +5089,16 @@ export default function CounterpointSyncSettingsPanel(props?: {
               </span>
               <button
                 type="button"
+                disabled={batchesLoading}
                 onClick={() => void fetchBatches()}
-                className="text-[10px] font-bold text-app-accent uppercase"
+                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-app-accent disabled:opacity-50"
               >
-                Reload
+                <RefreshCw className={`h-3 w-3 ${batchesLoading ? "animate-spin" : ""}`} aria-hidden />
+                {batchesLoading ? "Loading" : "Reload"}
               </button>
             </div>
-            <div className="overflow-auto flex-1 max-h-[480px]">
-              <table className="w-full text-left text-xs">
+            <div className="overflow-auto overscroll-x-contain flex-1 max-h-[480px] [-webkit-overflow-scrolling:touch]">
+              <table className="w-full min-w-[640px] text-left text-xs">
                 <thead className="sticky top-0 bg-app-surface-2">
                   <tr className="text-[10px] uppercase font-black text-app-text-muted border-b border-app-border">
                     <th className="px-2 py-2">ID</th>
@@ -4802,9 +5146,18 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   ))}
                 </tbody>
               </table>
-              {batches.length === 0 && (
-                <p className="p-4 text-xs text-app-text-muted">No staged batches yet.</p>
-              )}
+              {batches.length === 0 ? (
+                <div className="m-3 rounded-lg border border-app-border bg-app-bg/60 p-4 text-xs text-app-text-muted">
+                  <p className="font-bold text-app-text">
+                    {batchesLoading ? "Loading staged batches..." : "No staged batches need action."}
+                  </p>
+                  <p className="mt-1">
+                    {stagingOn
+                      ? "When the bridge stages a payload, it will appear here for Apply, Discard, or stale-recovery review."
+                      : "Staging is currently off, so the bridge writes directly to live import routes."}
+                  </p>
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="rounded-xl border border-app-border flex flex-col min-h-0">
@@ -4813,12 +5166,19 @@ export default function CounterpointSyncSettingsPanel(props?: {
             </div>
             <div className="p-3 flex flex-col gap-3 flex-1 min-h-0">
               {selectedBatchId == null ? (
-                <p className="text-xs text-app-text-muted">Select a batch.</p>
+                <div className="rounded-lg border border-app-border bg-app-bg/60 p-4 text-xs text-app-text-muted">
+                  <p className="font-bold text-app-text">Select a staged batch to review.</p>
+                  <p className="mt-1">
+                    The action panel will show the safe next step, payload preview, timeline,
+                    replay status, and recovery guidance before any write button is enabled.
+                  </p>
+                </div>
               ) : (
                 <>
                   {(() => {
-                    const batch = batches.find((b) => b.id === selectedBatchId);
+                    const batch = selectedBatch;
                     if (!batch) return null;
+                    const nextAction = stagingNextAction(batch);
                     const payloadRows = Array.isArray(
                       (selectedPayload as { rows?: unknown[] } | null)?.rows,
                     )
@@ -4896,7 +5256,14 @@ export default function CounterpointSyncSettingsPanel(props?: {
                           ) : null}
                         </div>
 
-                        <div className="grid gap-2 sm:grid-cols-3">
+                        <div className={`rounded-lg border p-3 ${nextAction.tone}`}>
+                          <p className="text-[10px] font-black uppercase tracking-widest">
+                            Next safe action: {nextAction.label}
+                          </p>
+                          <p className="mt-1 text-xs">{nextAction.body}</p>
+                        </div>
+
+                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                           <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
                             <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                               Payload rows
@@ -4911,9 +5278,44 @@ export default function CounterpointSyncSettingsPanel(props?: {
                           </div>
                           <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
                             <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                              Changed rows
+                              Batch owner
                             </p>
-                            <p className="font-bold">Not separately reported</p>
+                            <p className="font-bold">{stagingOwnerSummary(batch)}</p>
+                          </div>
+                          <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              Live write result
+                            </p>
+                            <p className="font-bold">{stagingLiveWriteSummary(batch)}</p>
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-app-border bg-app-bg/50 p-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            Operational decision guide
+                          </p>
+                          <div className="mt-2 grid gap-2 md:grid-cols-3">
+                            {[
+                              {
+                                label: "What changed",
+                                value: stagingLiveWriteSummary(batch),
+                              },
+                              {
+                                label: "Replay visibility",
+                                value: stagingReplaySummary(batch),
+                              },
+                              {
+                                label: "Recovery guidance",
+                                value: stagingRecoveryGuidance(batch),
+                              },
+                            ].map((item) => (
+                              <div key={item.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                  {item.label}
+                                </p>
+                                <p className="mt-1 text-app-text-muted">{item.value}</p>
+                              </div>
+                            ))}
                           </div>
                         </div>
 
@@ -4973,9 +5375,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      disabled={
-                        !batches.find((b) => b.id === selectedBatchId && b.status === "pending")
-                      }
+                      disabled={selectedBatch?.status !== "pending"}
                       onClick={() =>
                         selectedBatchId != null && setConfirmApply(selectedBatchId)
                       }
@@ -4985,9 +5385,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     </button>
                     <button
                       type="button"
-                      disabled={
-                        !batches.find((b) => b.id === selectedBatchId && b.status === "pending")
-                      }
+                      disabled={selectedBatch?.status !== "pending"}
                       onClick={() =>
                         selectedBatchId != null && setConfirmDiscard(selectedBatchId)
                       }
@@ -4997,9 +5395,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     </button>
                     <button
                       type="button"
-                      disabled={
-                        !batches.find((b) => b.id === selectedBatchId && isStaleApplyingBatch(b))
-                      }
+                      disabled={!selectedBatch || !isStaleApplyingBatch(selectedBatch)}
                       onClick={() =>
                         selectedBatchId != null && setConfirmRecoverStale(selectedBatchId)
                       }
@@ -5008,6 +5404,15 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       Mark stale apply failed
                     </button>
                   </div>
+                  {selectedBatch ? (
+                    <p className="rounded-lg border border-app-border bg-app-bg/50 p-3 text-xs text-app-text-muted">
+                      {stagingActionHint(selectedBatch)}
+                    </p>
+                  ) : (
+                    <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-300">
+                      This batch is no longer in the loaded queue. Reload staged batches before taking action.
+                    </p>
+                  )}
                 </>
               )}
             </div>

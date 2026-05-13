@@ -2,6 +2,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 import {
   ArrowRight,
+  AlertTriangle,
   CheckCircle2,
   FileSpreadsheet,
   ShieldCheck,
@@ -101,6 +102,19 @@ function parseCsv(text: string): {
   return { headers, rows };
 }
 
+function importChangeSummary(summary: ImportSummaryResponse): string {
+  const changed = summary.products_created + summary.products_updated + summary.variants_synced;
+  if (changed === 0 && summary.rows_skipped === 0) {
+    return "No catalog changes were reported by the import.";
+  }
+  return [
+    `${summary.products_created.toLocaleString()} product${summary.products_created === 1 ? "" : "s"} created`,
+    `${summary.products_updated.toLocaleString()} product${summary.products_updated === 1 ? "" : "s"} updated`,
+    `${summary.variants_synced.toLocaleString()} variant${summary.variants_synced === 1 ? "" : "s"} matched or updated`,
+    `${summary.rows_skipped.toLocaleString()} row${summary.rows_skipped === 1 ? "" : "s"} skipped`,
+  ].join(" · ");
+}
+
 export default function UniversalImporter() {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -192,13 +206,13 @@ export default function UniversalImporter() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body.error ?? "Import failed");
+        throw new Error(body.error ?? "Import did not finish");
       }
       setSummary(body as ImportSummaryResponse);
       setRunState("success");
       setCompletedAt(new Date().toLocaleString());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed");
+      setError(err instanceof Error ? err.message : "Import did not finish");
       setRunState("error");
     } finally {
       setLoading(false);
@@ -418,31 +432,42 @@ export default function UniversalImporter() {
           <div className="relative z-10 mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
               <h2 className="text-4xl font-black uppercase italic tracking-tighter leading-none mb-2">
-                Commit <span className="text-app-accent-2">Catalog Sync</span>
+                Review <span className="text-app-accent-2">Catalog Import</span>
               </h2>
               <p className="font-bold text-app-text-muted tracking-wide">
                 {rows.length.toLocaleString()} rows detected · Catalog-only field map
               </p>
             </div>
             <div className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/5 px-6 py-3 font-black uppercase tracking-widest text-emerald-400 text-[9px] backdrop-blur-md">
-              <CheckCircle2 size={16} /> Catalog-Only Transactional Sync
+              <CheckCircle2 size={16} /> Catalog-only import
             </div>
           </div>
 
           {error && (
             <div className="relative z-10 mb-8 rounded-[2rem] border border-red-500/30 bg-red-500/10 p-10 text-sm text-red-200 backdrop-blur-md">
-               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400 mb-2">Synchronization Failure</p>
-              {error}
+              <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-red-400">
+                <AlertTriangle size={16} /> Import did not finish
+              </div>
+              <p className="font-bold text-red-100">{error}</p>
+              <p className="mt-3 text-xs font-semibold text-red-100/80">
+                No live on-hand inventory was changed by this catalog import attempt. Review the file or field matching, then retry when ready.
+              </p>
             </div>
           )}
 
           {runState === "success" && summary ? (
             <div className="relative z-10 mb-8 rounded-[2rem] border border-emerald-500/30 bg-emerald-500/10 p-10 backdrop-blur-md">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400 mb-2">
-                Transmission Success
+                Catalog import finished
               </p>
               <p className="text-lg font-black tracking-tight">
-                Catalog data successfully synchronized{completedAt ? ` at ${completedAt}` : ""}.
+                Catalog data updated{completedAt ? ` at ${completedAt}` : ""}.
+              </p>
+              <p className="mt-3 text-xs font-semibold text-emerald-100/80">
+                {importChangeSummary(summary)}
+              </p>
+              <p className="mt-2 text-xs text-emerald-100/70">
+                Live on-hand counts were not changed. Use Receiving or Physical Inventory for stock adjustments.
               </p>
             </div>
           ) : null}
@@ -494,6 +519,18 @@ export default function UniversalImporter() {
 	                    This import never changes live on-hand counts. Use Counterpoint sync for starting quantities, then Receiving and Physical Inventory for store adjustments.
                   </p>
                 </div>
+                <div className="p-6 rounded-2xl bg-blue-500/10 border border-blue-500/20">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-200 mb-2">What happens next</p>
+                  <p className="text-[10px] font-bold text-blue-100/80 leading-relaxed">
+                    Import creates or updates catalog records from matched SKU and product fields. Skipped rows stay out of the catalog and can be retried after the file is corrected.
+                  </p>
+                </div>
+                <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-amber-200 mb-2">Safe retry</p>
+                  <p className="text-[10px] font-bold text-amber-100/80 leading-relaxed">
+                    Retrying is safe after reviewing skipped rows or mapping errors. Existing SKU matches update catalog details; this screen does not overwrite live stock counts.
+                  </p>
+                </div>
                 <div className="p-6 rounded-2xl bg-white/5 border border-white/5">
 	                  <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-3">Default Category</p>
                   <select
@@ -527,10 +564,10 @@ export default function UniversalImporter() {
             <div className="relative z-10 flex items-center justify-center gap-4">
               {loading && <Loader2 className="animate-spin" size={24} />}
               {loading
-                ? `Syncing Catalog…`
+                ? `Importing Catalog…`
                 : runState === "success"
-                ? "Catalog sync complete"
-                : "Commit catalog changes"}
+                ? "Catalog import complete"
+                : "Import catalog changes"}
             </div>
           </button>
         </div>

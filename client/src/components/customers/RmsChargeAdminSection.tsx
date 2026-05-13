@@ -52,6 +52,82 @@ function manualWorkflowCopy(warningCode?: string | null) {
   }
 }
 
+function formatOperationalLabel(value?: string | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "Unknown";
+  return raw
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function reconciliationSeverityBand(severity?: string | null): "blocking" | "warning" | "informational" {
+  const value = String(severity ?? "").toLowerCase();
+  if (["critical", "high", "blocking"].includes(value)) return "blocking";
+  if (["warning", "medium"].includes(value)) return "warning";
+  return "informational";
+}
+
+function reconciliationSeverityCopy(severity?: string | null) {
+  const band = reconciliationSeverityBand(severity);
+  if (band === "blocking") return "Blocking review";
+  if (band === "warning") return "Needs review";
+  return "Informational";
+}
+
+function reconciliationSeverityClass(severity?: string | null) {
+  const band = reconciliationSeverityBand(severity);
+  if (band === "blocking") return "border-app-danger/30 bg-app-danger/10 text-app-danger";
+  if (band === "warning") return "border-app-warning/40 bg-app-warning/10 text-app-warning";
+  return "border-app-border bg-app-surface text-app-text-muted";
+}
+
+function reconciliationItemGuidance(item: RmsReconciliationItem) {
+  switch (item.mismatch_type) {
+    case "posting_failed":
+      return {
+        changed: "An RMS Charge post did not complete.",
+        matters: "The customer payment or charge may not be visible as finished in every operational view.",
+        downstream: "May affect pickup/payment visibility until the failed post is reviewed.",
+        next: "Review the linked RMS issue, correct the host or record problem, then safe-rerun reconciliation.",
+      };
+    case "posting_pending":
+      return {
+        changed: "An RMS Charge post is still pending.",
+        matters: "The sale may be waiting on host confirmation rather than truly finished.",
+        downstream: "May affect payment visibility while the host result is still unresolved.",
+        next: "If this is recent, monitor it. If it persists, rerun reconciliation and escalate to support.",
+      };
+    case "missing_host_reference":
+      return {
+        changed: "A posted RMS Charge record is missing a host reference.",
+        matters: "Support may not be able to match Riverside activity to the RMS host record quickly.",
+        downstream: "Usually not blocking for store work, but it weakens support traceability.",
+        next: "Check the host reference and add support notes before closing the issue.",
+      };
+    case "legacy_record_review":
+      return {
+        changed: "A legacy RMS Charge record needs review.",
+        matters: "Older records may not carry the same reference detail as current RMS Charge activity.",
+        downstream: "Informational unless staff are actively researching this customer or payment.",
+        next: "Confirm the historical record if needed. No immediate store action is required.",
+      };
+    case "posting_status_mismatch":
+      return {
+        changed: "Riverside and RMS support data disagree on posting status.",
+        matters: "Operators may see a charge or payment differently across customer and support views.",
+        downstream: "May affect pickup/payment visibility and clearing-account review.",
+        next: "Review the linked record, then safe-rerun reconciliation after the source status is corrected.",
+      };
+    default:
+      return {
+        changed: `${formatOperationalLabel(item.mismatch_type)} still needs review.`,
+        matters: "RMS Charge support data does not line up cleanly with the Riverside record.",
+        downstream: "Downstream effect depends on the linked record and severity shown here.",
+        next: "Review the record details, add support notes if needed, then rerun reconciliation after correction.",
+      };
+  }
+}
+
 function reportStatusLabel(
   row?: Pick<RmsRecordRow, "r2s_reporting_required" | "r2s_report_status" | "r2s_report_due_at"> | null,
 ) {
@@ -464,6 +540,48 @@ export default function RmsChargeAdminSection({
     }
     return "Reconciliation reviews all RMS Charge activity across customers. Use this tab for support and finance review, not customer-by-customer browsing.";
   }, [selectedCustomerId]);
+  const reconciliationItems = useMemo(() => reconciliation?.items ?? [], [reconciliation?.items]);
+  const reconciliationRuns = useMemo(() => reconciliation?.runs ?? [], [reconciliation?.runs]);
+  const openReconciliationItems = useMemo(
+    () =>
+      reconciliationItems.filter(
+        (item) => !["resolved", "cleared", "closed", "dismissed"].includes(item.status.toLowerCase()),
+      ),
+    [reconciliationItems],
+  );
+  const latestReconciliationRun = reconciliationRuns[0] ?? null;
+  const latestSuccessfulReconciliationRun =
+    reconciliationRuns.find((run) => {
+      const status = run.status.toLowerCase();
+      return !run.error_message && ["completed", "complete", "success", "succeeded"].includes(status);
+    }) ?? null;
+  const reconciliationSeverityCounts = useMemo(
+    () =>
+      openReconciliationItems.reduce(
+        (acc, item) => {
+          acc[reconciliationSeverityBand(item.severity)] += 1;
+          return acc;
+        },
+        { blocking: 0, warning: 0, informational: 0 },
+      ),
+    [openReconciliationItems],
+  );
+  const reconciliationWhatChanged = useMemo(() => {
+    const latestCount =
+      latestReconciliationRun?.summary_json?.mismatch_count ?? openReconciliationItems.length;
+    if (!latestReconciliationRun) return "No reconciliation run has completed in this view yet.";
+    if (latestCount === 0) return "No RMS Charge mismatches were found in the latest run.";
+    return `${latestCount} RMS Charge mismatch${latestCount === 1 ? "" : "es"} still need review.`;
+  }, [latestReconciliationRun, openReconciliationItems.length]);
+  const reconciliationBlockingSummary =
+    reconciliationSeverityCounts.blocking > 0
+      ? `${reconciliationSeverityCounts.blocking} blocking item${reconciliationSeverityCounts.blocking === 1 ? "" : "s"} may affect pickup/payment visibility.`
+      : "No blocking accounting differences detected in loaded mismatch rows.";
+  const reconciliationSafeRerunSummary =
+    latestReconciliationRun?.summary_json?.retryable_count &&
+    latestReconciliationRun.summary_json.retryable_count > 0
+      ? `${latestReconciliationRun.summary_json.retryable_count} item${latestReconciliationRun.summary_json.retryable_count === 1 ? "" : "s"} can be safely rechecked after correction.`
+      : "Safe rerun available; it re-checks RMS Charge records without posting payments or changing accounting totals.";
 
   const loadAccounts = useCallback(async () => {
     if (!selectedCustomerId || !(canLegacyView || canManageLinks || canPosUse || canPosLookup)) {
@@ -850,6 +968,36 @@ export default function RmsChargeAdminSection({
       toast(error instanceof Error ? error.message : "We couldn't run reconciliation right now.", "error");
     }
   }, [apiAuth, loadOperationalData, toast]);
+
+  const copyReconciliationSupportSnapshot = useCallback(() => {
+    const lines = [
+      "RMS Charge reconciliation support snapshot",
+      `What changed: ${reconciliationWhatChanged}`,
+      `Blocking summary: ${reconciliationBlockingSummary}`,
+      `Open mismatches: ${openReconciliationItems.length}`,
+      `Severity counts: ${reconciliationSeverityCounts.blocking} blocking, ${reconciliationSeverityCounts.warning} warning, ${reconciliationSeverityCounts.informational} informational`,
+      `Latest run: ${latestReconciliationRun ? `${latestReconciliationRun.status} at ${fmtDate(latestReconciliationRun.completed_at ?? latestReconciliationRun.started_at)}` : "none loaded"}`,
+      `Last successful run: ${latestSuccessfulReconciliationRun ? fmtDate(latestSuccessfulReconciliationRun.completed_at ?? latestSuccessfulReconciliationRun.started_at) : "none loaded"}`,
+      `Requested by: ${latestReconciliationRun?.requested_by_staff_id ?? "unknown"}`,
+      `Refresh state: ${reconciliationError ? "refresh failed; stale reconciliation may be shown" : "latest loaded reconciliation shown"}`,
+      "Safe rerun: reconciliation re-checks records and records review findings; it does not post payments or change accounting totals.",
+    ];
+    void navigator.clipboard
+      .writeText(lines.join("\n"))
+      .then(() => toast("RMS reconciliation support snapshot copied.", "success"))
+      .catch(() => toast("Could not copy the support snapshot.", "error"));
+  }, [
+    latestReconciliationRun,
+    latestSuccessfulReconciliationRun,
+    openReconciliationItems.length,
+    reconciliationBlockingSummary,
+    reconciliationError,
+    reconciliationSeverityCounts.blocking,
+    reconciliationSeverityCounts.informational,
+    reconciliationSeverityCounts.warning,
+    reconciliationWhatChanged,
+    toast,
+  ]);
 
   useEffect(() => {
     void loadOperationalData();
@@ -1655,16 +1803,28 @@ export default function RmsChargeAdminSection({
             </div>
           ) : surface === "backoffice" && activeWorkspaceTab === "reconciliation" ? (
             <div className="mt-4 space-y-3">
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-bg p-4">
+              <div className="flex flex-col gap-3 rounded-xl border border-app-border bg-app-bg p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">All RMS activity</div>
                   <div data-testid="rms-reconciliation-scope" className="mt-1 text-sm text-app-text-muted">{reconciliationScopeMessage}</div>
+                  <div className="mt-2 text-xs font-semibold text-app-text-muted">
+                    Safe rerun re-checks RMS Charge records and records review findings. It does not post payments or change accounting totals.
+                  </div>
                 </div>
-                {canReconcile ? (
-                  <button type="button" data-testid="rms-run-reconciliation" onClick={() => void runReconciliation()} className="ui-btn-primary px-4 py-2">
-                    Run Reconciliation
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={copyReconciliationSupportSnapshot}
+                    className="ui-btn-secondary px-4 py-2 text-[10px]"
+                  >
+                    Copy Support Snapshot
                   </button>
-                ) : null}
+                  {canReconcile ? (
+                    <button type="button" data-testid="rms-run-reconciliation" onClick={() => void runReconciliation()} className="ui-btn-primary px-4 py-2">
+                      Safe Rerun
+                    </button>
+                  ) : null}
+                </div>
               </div>
               {reconciliationError ? (
                 <div
@@ -1672,21 +1832,62 @@ export default function RmsChargeAdminSection({
                   className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm text-amber-800"
                 >
                   {reconciliation?.runs?.length || reconciliation?.items?.length
-                    ? `${reconciliationError} Showing the last loaded reconciliation review.`
-                    : `${reconciliationError} Overview and exceptions are still available while this review is offline.`}
+                    ? `${reconciliationError} Showing the last loaded reconciliation review. Safe rerun is available after the connection recovers.`
+                    : `${reconciliationError} Overview and exceptions are still available while this review is offline. Do not treat reconciliation as clear until refresh succeeds.`}
                 </div>
               ) : null}
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {[
+                  ["What changed", reconciliationWhatChanged],
+                  ["Blocking impact", reconciliationBlockingSummary],
+                  ["Safe rerun", reconciliationSafeRerunSummary],
+                  [
+                    "Ownership",
+                    latestReconciliationRun?.requested_by_staff_id
+                      ? `Requested by staff ${latestReconciliationRun.requested_by_staff_id}`
+                      : "No requesting staff loaded",
+                  ],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-app-border bg-app-bg p-4">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">{label}</div>
+                    <div className="mt-2 text-sm font-semibold text-app-text">{value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-xl border border-app-border bg-app-bg p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Support diagnostics</div>
+                    <div className="mt-2 text-sm text-app-text-muted">
+                      {openReconciliationItems.length} unresolved mismatch{openReconciliationItems.length === 1 ? "" : "es"} loaded · {reconciliationSeverityCounts.blocking} blocking · {reconciliationSeverityCounts.warning} warning · {reconciliationSeverityCounts.informational} informational
+                    </div>
+                  </div>
+                  <div className="text-right text-xs text-app-text-muted">
+                    <div>Last successful: {fmtDate(latestSuccessfulReconciliationRun?.completed_at ?? latestSuccessfulReconciliationRun?.started_at)}</div>
+                    <div>Latest run: {latestReconciliationRun ? `${formatOperationalLabel(latestReconciliationRun.status)} · ${fmtDate(latestReconciliationRun.completed_at ?? latestReconciliationRun.started_at)}` : "None loaded"}</div>
+                  </div>
+                </div>
+              </div>
               {loadingReconciliation && !reconciliation ? (
                 <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">Loading reconciliation review…</div>
               ) : (reconciliation?.runs?.length ?? 0) === 0 ? (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">No reconciliation runs yet.</div>
+                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
+                  No reconciliation runs yet. Run reconciliation to compare RMS Charge records with support data. A clean result means no loaded mismatches, not a guarantee about records outside the run scope.
+                </div>
               ) : (
                 reconciliation?.runs?.slice(0, 4).map((run) => (
                   <div key={run.id} className="rounded-xl border border-app-border bg-app-bg p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-sm font-black uppercase tracking-wide text-app-text">{run.run_scope}</div>
-                        <div className="text-[11px] text-app-text-muted">{fmtDate(run.started_at)} · {run.status}</div>
+                        <div className="text-sm font-black uppercase tracking-wide text-app-text">{formatOperationalLabel(run.run_scope)}</div>
+                        <div className="text-[11px] text-app-text-muted">
+                          Started {fmtDate(run.started_at)} · Completed {fmtDate(run.completed_at)} · {formatOperationalLabel(run.status)}
+                        </div>
+                        <div className="mt-2 text-xs text-app-text-muted">
+                          {run.summary_json?.mismatch_count
+                            ? `${run.summary_json.mismatch_count} mismatch${run.summary_json.mismatch_count === 1 ? "" : "es"} found; ${run.summary_json.retryable_count ?? 0} safe to recheck after correction.`
+                            : "No mismatches recorded in this run."}
+                        </div>
                       </div>
                       <div className="text-sm font-black text-app-text">
                         {run.summary_json?.mismatch_count ?? 0} mismatches
@@ -1695,6 +1896,58 @@ export default function RmsChargeAdminSection({
                   </div>
                 ))
               )}
+              {openReconciliationItems.length > 0 ? (
+                <div className="space-y-3">
+                  <div>
+                    <h4 className="text-sm font-black uppercase tracking-widest text-app-text">
+                      Mismatch review
+                    </h4>
+                    <p className="mt-1 text-xs text-app-text-muted">
+                      These rows explain what changed, why it matters, and the next safe action. Use severity to decide whether store work is blocked or support follow-up is enough.
+                    </p>
+                  </div>
+                  {openReconciliationItems.slice(0, 8).map((item) => {
+                    const guidance = reconciliationItemGuidance(item);
+                    return (
+                      <div key={item.id} className="rounded-xl border border-app-border bg-app-bg p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-black uppercase tracking-wide text-app-text">
+                              {formatOperationalLabel(item.mismatch_type)}
+                            </div>
+                            <div className="text-[11px] text-app-text-muted">
+                              Appeared {fmtDate(item.created_at)} · {formatOperationalLabel(item.status)}
+                            </div>
+                          </div>
+                          <span className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${reconciliationSeverityClass(item.severity)}`}>
+                            {reconciliationSeverityCopy(item.severity)}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          {[
+                            ["What changed", guidance.changed],
+                            ["Why it matters", guidance.matters],
+                            ["Downstream effect", guidance.downstream],
+                            ["Next safe action", guidance.next],
+                          ].map(([label, value]) => (
+                            <div key={label} className="rounded-lg border border-app-border bg-app-surface px-3 py-2">
+                              <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{label}</div>
+                              <div className="mt-1 text-xs font-semibold text-app-text">{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3 text-[11px] text-app-text-muted">
+                          Record: {item.rms_record_id ?? "not linked"} · Account: {item.account_id ?? "not linked"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : reconciliation && !loadingReconciliation ? (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700">
+                  No unresolved RMS Charge mismatches are loaded. Safe rerun remains available if staff need to confirm after new RMS activity.
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1967,17 +2220,24 @@ export default function RmsChargeAdminSection({
                     ))
                   : null}
                 {activeWorkspaceTab === "reconciliation" && (reconciliation?.items?.length ?? 0) > 0
-                  ? reconciliation?.items?.slice(0, 8).map((item) => (
+                  ? reconciliation?.items?.slice(0, 8).map((item) => {
+                    const guidance = reconciliationItemGuidance(item);
+                    return (
                       <div key={item.id} className="rounded-xl border border-app-border bg-app-bg p-4">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-sm font-black uppercase tracking-wide text-app-text">{item.mismatch_type.replaceAll("_", " ")}</div>
-                            <div className="text-[11px] text-app-text-muted">{fmtDate(item.created_at)} · {item.status}</div>
+                            <div className="text-sm font-black uppercase tracking-wide text-app-text">{formatOperationalLabel(item.mismatch_type)}</div>
+                            <div className="text-[11px] text-app-text-muted">{fmtDate(item.created_at)} · {formatOperationalLabel(item.status)}</div>
+                            <div className="mt-2 text-xs font-semibold text-app-text-muted">{guidance.downstream}</div>
+                            <div className="mt-1 text-xs text-app-text-muted">Next safe action: {guidance.next}</div>
                           </div>
-                          <div className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">{item.severity}</div>
+                          <div className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${reconciliationSeverityClass(item.severity)}`}>
+                            {reconciliationSeverityCopy(item.severity)}
+                          </div>
                         </div>
                       </div>
-                    ))
+                    );
+                  })
                   : null}
                 {((activeWorkspaceTab === "overview" && !(overview?.recent_activity?.length)) ||
                   (activeWorkspaceTab === "accounts" && !(overview?.accounts?.length)) ||
@@ -1991,7 +2251,9 @@ export default function RmsChargeAdminSection({
                         ? "Loading RMS issues…"
                         : activeWorkspaceTab === "reconciliation" && loadingReconciliation
                           ? "Loading reconciliation review…"
-                          : "No data in this RMS Charge operational section yet."}
+                          : activeWorkspaceTab === "reconciliation"
+                            ? "No RMS Charge mismatches loaded. Refresh or safe-rerun if staff need to confirm after new RMS activity."
+                            : "No data in this RMS Charge operational section yet."}
                   </div>
                 ) : null}
               </div>
