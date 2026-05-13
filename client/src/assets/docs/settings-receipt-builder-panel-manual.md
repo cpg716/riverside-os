@@ -39,7 +39,7 @@ Use this panel when changing the receipt logo, store name, header lines, footer 
 - The preview reflects the ReceiptLine template, header lines, footer lines, and section toggles before saving.
 - The receipt logo is controlled by the `{{LOGO_IMAGE}}` token and is resized for 80mm Epson thermal output.
 - The address, phone, email, barcode, and loyalty toggles affect the ReceiptLine preview and print output.
-- Keep financial tokens such as `{{ITEM_LINES}}`, `{{TOTAL_LINE}}`, `{{PAID_LINE}}`, and `{{TENDER_LINE}}` in the template.
+- Keep financial tokens such as `{{ITEM_LINES}}`, `{{SUBTOTAL_LINE}}`, `{{TAX_LINE}}`, `{{TOTAL_SAVINGS_LINE}}`, `{{TOTAL_LINE}}`, `{{PAID_LINE}}`, and `{{TENDER_LINE}}` in the template.
 - `{{LOYALTY_EARNED}}` and `{{LOYALTY_BALANCE}}` are populated when loyalty toggles are on and the customer has earned points.
 - The old HTML designer is not part of normal receipt setup.
 

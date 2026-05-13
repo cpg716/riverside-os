@@ -455,8 +455,31 @@ test.describe("tax audit contract", () => {
       stateTax: discountedTax.stateTax,
       localTax: discountedTax.localTax,
       priceOverrideReason: "E2E discount crosses NYS clothing threshold",
+      originalUnitPrice: "115.00",
     });
     expect(discountedRes.status()).toBe(200);
+    const discountedCheckout = (await discountedRes.json()) as CheckoutResponse;
+    const discountedReceiptRes = await request.get(
+      `${apiBase()}/api/transactions/${discountedCheckout.transaction_id}/receipt.escpos?register_session_id=${encodeURIComponent(sessionId)}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(discountedReceiptRes.status()).toBe(200);
+    const discountedReceiptBody = await discountedReceiptRes.text();
+    const discountedReceipt =
+      (JSON.parse(discountedReceiptBody) as { receiptline_markdown?: string })
+        .receiptline_markdown ?? "";
+    expect(discountedReceipt).toContain("Subtotal | $105.00");
+    expect(discountedReceipt).toContain("Taxes | $4.99");
+    expect(discountedReceipt).toContain("Total Savings | $10.00");
+    expect(discountedReceipt).toContain("Total | ^^$109.99");
+    expect(discountedReceipt).toContain("Status | Complete");
 
     const staleClientTax = taxFor("clothing", "115.00");
     const staleRes = await checkoutTaxProduct(request, {

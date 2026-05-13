@@ -9,10 +9,10 @@ use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderStatus};
 
 pub fn order_status_label(s: DbOrderStatus) -> &'static str {
     match s {
-        DbOrderStatus::Open => "open",
-        DbOrderStatus::Fulfilled => "fulfilled",
-        DbOrderStatus::Cancelled => "cancelled",
-        DbOrderStatus::PendingMeasurement => "pending_measurement",
+        DbOrderStatus::Open => "Open Order",
+        DbOrderStatus::Fulfilled => "Fulfilled",
+        DbOrderStatus::Cancelled => "Cancelled",
+        DbOrderStatus::PendingMeasurement => "Waiting on Measurements",
     }
 }
 
@@ -50,7 +50,10 @@ pub struct ReceiptOrder {
     pub transaction_id: Uuid,
     pub booked_at: DateTime<Utc>,
     pub status: DbOrderStatus,
+    pub subtotal_price: Decimal,
+    pub tax_total: Decimal,
     pub total_price: Decimal,
+    pub total_savings: Decimal,
     pub amount_paid: Decimal,
     pub balance_due: Decimal,
     pub payment_methods_summary: String,

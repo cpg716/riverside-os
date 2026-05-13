@@ -405,7 +405,7 @@ test.describe("POS alteration intake", () => {
       });
     });
 
-    await page.getByTitle("View customer Transaction Records").click();
+    await page.getByTitle("View customer open orders").click();
     await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
     const paymentModal = page.getByTestId("pos-order-payment-entry-modal");
     await expect(paymentModal).toBeVisible();
@@ -428,7 +428,7 @@ test.describe("POS alteration intake", () => {
     await orderPaymentLine.getByTestId("pos-order-payment-remove").click();
     await expect(page.getByTestId("pos-order-payment-cart-line")).toHaveCount(0);
 
-    await page.getByTitle("View customer Transaction Records").click();
+    await page.getByTitle("View customer open orders").click();
     await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
     await page.getByTestId("pos-order-payment-amount").fill("40.00");
     await page.getByTestId("pos-order-payment-add-to-cart").click();

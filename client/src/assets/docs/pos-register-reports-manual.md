@@ -28,11 +28,13 @@ The **Daily Sales** view shows a chronological timeline of every transaction. Ta
 - Verifying the status of recent sales.
 - Correcting tender types by reviewing the audit log.
 - Monitoring mid-shift velocity without closing the drawer.
+- Confirming whether the activity was **Takeaway**, **Special Order**, **Custom Order**, **Wedding Order**, **Layaway**, or mixed fulfillment.
 
 ## Professional Audit Printing
 You can now generate a professional, full-page **Daily Sales Report** that includes:
 - **Tender Breakdown**: Totals for Cash, Card, Gift Card, and R2S charges.
 - **Transaction Audit**: A complete list of all ticket numbers and amounts.
+- **Activity Cards**: Printed activity mirrors the on-screen grouped list with customer context, fulfillment chips, line items, and amount details.
 - **Reporting Station**: The report header identifies the assigned printer for accountability.
 
 To print, tap **Print Report (Full Page)**. This will route the document to your **Report Station** (System Printer), not the thermal receipt printer.

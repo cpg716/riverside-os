@@ -313,7 +313,7 @@ test.describe("operational rollout smoke", () => {
       });
     });
 
-    await page.getByTitle("View customer Transaction Records").click();
+    await page.getByTitle("View customer open orders").click();
     await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
 
     const paymentModal = page.getByTestId("pos-order-payment-entry-modal");

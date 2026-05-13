@@ -255,12 +255,16 @@ export function openProfessionalDailySalesPrint(opts: {
     deposits_paid?: string | null;
     balance_due?: string | null;
     short_id?: string | null;
+    fulfillment_label?: string | null;
+    is_takeaway?: boolean | null;
+    channel?: string | null;
     items?: {
       name: string;
       sku: string;
       quantity: number;
       reg_price: string;
       price: string;
+      fulfillment?: string | null;
     }[] | null;
   }[];
 }): void {
@@ -285,34 +289,40 @@ export function openProfessionalDailySalesPrint(opts: {
       ].filter(Boolean).join(" ");
 
       const itemsHtml = (row.items || []).map(item => `
-        <div style="font-size: 10px; color: #475569; margin-top: 4px; display: flex; justify-content: space-between; border-top: 1px dashed #e2e8f0; padding-top: 4px;">
-          <span>${item.quantity}× ${item.name} (${item.sku})</span>
+        <div class="print-item-row">
+          <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${item.fulfillment ? ` · ${item.fulfillment.replace(/_/g, " ")}` : ""}</span></span>
           <span style="font-family: monospace;">
             ${item.reg_price !== item.price ? `<span style="text-decoration: line-through; opacity: 0.6; margin-right: 4px;">$${item.reg_price}</span>` : ""}
             $${item.price}
           </span>
         </div>
       `).join("");
+      const chips = [
+        row.fulfillment_label,
+        row.channel === "web" ? "Online" : null,
+      ].filter(Boolean).map((chip) => `<span class="chip">${chip}</span>`).join("");
 
       return `
-        <tr style="border-top: 1px solid #e2e8f0;">
-          <td style="padding:12px 0; vertical-align: top;">${tm}</td>
-          <td style="padding:12px 0; vertical-align: top;">
-            <div style="text-transform:capitalize;font-weight:700">${row.kind.replace(/_/g, " ")}</div>
-            <div style="font-size: 10px; color: #64748b;">${row.payment_summary || "No payment context"}</div>
-          </td>
-          <td style="padding:12px 0; vertical-align: top;">
-            <div style="font-weight: 800; color: #0f172a;">${row.title} ${row.short_id ? `<span style="background:#f1f5f9; padding:1px 4px; border-radius:4px; font-family:monospace; font-size:10px; margin-left:4px;">#${row.short_id}</span>` : ""}</div>
-            <div style="font-size: 11px; color: #0f172a; font-weight: 700; background: #f8fafc; padding: 4px 8px; border-radius: 6px; margin: 4px 0;">${customerInfo || "Walk-in Customer"}</div>
-            <div style="margin-top: 8px;">${itemsHtml}</div>
-          </td>
-          <td style="padding:12px 0; text-align:right; vertical-align: top;">
-            <div style="font-family: monospace; font-weight: 800; font-size: 14px;">${row.transaction_total || row.amount_label || "—"}</div>
-            <div style="font-size: 9px; color: #64748b; font-weight: 700;">Sales Total: ${row.sales_total || "—"}</div>
-            ${row.deposits_paid ? `<div style="font-size: 9px; color: #059669; font-weight: 700;">Paid: $${row.deposits_paid}</div>` : ""}
-            ${row.balance_due && parseFloat(row.balance_due) > 0 ? `<div style="font-size: 9px; color: #b45309; font-weight: 700;">Balance: $${row.balance_due}</div>` : ""}
-          </td>
-        </tr>
+        <section class="activity-card">
+          <div class="activity-left">
+            <div class="pill">${row.title}</div>
+            <div class="time">${tm}</div>
+            <div class="customer">${customerInfo || "Walk-in Customer"}</div>
+            <div class="chips">${row.short_id ? `<span class="chip mono">#${row.short_id}</span>` : ""}${chips}</div>
+          </div>
+          <div class="activity-items">
+            <div class="section-label">Line Items</div>
+            ${itemsHtml || `<div class="muted" style="padding:18px 0;text-align:center;">No item details recorded for this transaction</div>`}
+          </div>
+          <div class="activity-money">
+            <div class="money-label">Sales Total</div>
+            <div class="money-total">${row.sales_total ? `$${row.sales_total}` : row.amount_label || "—"}</div>
+            <div class="money-sub">Transaction Total: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>
+            ${row.payment_summary ? `<div class="money-sub">${row.payment_summary}</div>` : ""}
+            ${row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
+            ${row.balance_due && parseFloat(row.balance_due) > 0 ? `<div class="money-due">Balance: $${row.balance_due}</div>` : ""}
+          </div>
+        </section>
       `;
     })
     .join("");
@@ -327,10 +337,25 @@ export function openProfessionalDailySalesPrint(opts: {
     .stat-card { border: 1px solid #e2e8f0; padding: 12px; border-radius: 12px; }
     .stat-label { font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
     .stat-value { font-size: 16px; font-weight: 800; tabular-nums: true; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    th { text-align: left; font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; padding: 10px 0; border-bottom: 1px solid #e2e8f0; }
     .muted { color: #64748b; }
     .mono { font-family: 'JetBrains Mono', monospace; }
+    .activity-card { display: grid; grid-template-columns: 1.05fr 1.6fr 1fr; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; margin-top: 14px; break-inside: avoid; }
+    .activity-left, .activity-money { background: #f8fafc; padding: 18px; }
+    .activity-items { padding: 18px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
+    .pill { display: inline-block; border: 1px solid #cbd5e1; border-radius: 999px; padding: 5px 10px; font-size: 9px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+    .time { margin-top: 8px; color: #64748b; font-size: 10px; font-weight: 700; }
+    .customer { margin-top: 14px; font-size: 14px; font-weight: 800; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+    .chip { background: #f1f5f9; border-radius: 999px; color: #475569; display: inline-block; font-size: 9px; font-weight: 800; padding: 4px 7px; text-transform: uppercase; }
+    .section-label { color: #64748b; font-size: 10px; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
+    .print-item-row { align-items: flex-start; border-top: 1px solid #e2e8f0; color: #0f172a; display: flex; font-size: 10px; justify-content: space-between; gap: 12px; padding: 8px 0; }
+    .activity-money { text-align: right; }
+    .money-label { color: #64748b; font-size: 10px; font-weight: 800; }
+    .money-total { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 800; margin-top: 4px; }
+    .money-sub, .money-good, .money-due { font-size: 10px; font-weight: 800; margin-top: 8px; }
+    .money-sub { color: #64748b; }
+    .money-good { color: #047857; }
+    .money-due { color: #b45309; }
     @media print { body { padding: 0; } }
   </style></head><body>
   <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -389,17 +414,7 @@ export function openProfessionalDailySalesPrint(opts: {
   </div>
 
   <h2>Activity Detail</h2>
-  <table style="table-layout: fixed;">
-    <thead>
-      <tr>
-        <th style="width: 15%;">Time</th>
-        <th style="width: 20%;">Type</th>
-        <th style="width: 45%;">Reference / Customer</th>
-        <th style="width: 20%; text-align: right;">Amount Details</th>
-      </tr>
-    </thead>
-    <tbody>${activityRows || "<tr><td colspan='4' class='muted' style='padding:40px; text-align:center;'>No activity recorded for this period.</td></tr>"}</tbody>
-  </table>
+  ${activityRows || "<div class='muted' style='padding:40px; text-align:center;'>No activity recorded for this period.</div>"}
 
   <div style="margin-top: 60px; border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center;">
     <p class="muted" style="font-size: 10px;">End of Summary Audit · Riverside OS v0.2.0 · Generated: ${new Date().toLocaleString()}</p>

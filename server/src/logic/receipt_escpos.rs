@@ -106,6 +106,19 @@ fn receipt_template_with_slots(template: &str, show_logo: bool, show_barcode: bo
             next = format!("{next}\n{{{{BARCODE_IMAGE}}}}");
         }
     }
+    for token in [
+        "{{SUBTOTAL_LINE}}",
+        "{{TAX_LINE}}",
+        "{{TOTAL_SAVINGS_LINE}}",
+    ] {
+        if !next.contains(token) {
+            if next.contains("{{TOTAL_LINE}}") {
+                next = next.replacen("{{TOTAL_LINE}}", &format!("{token}\n{{{{TOTAL_LINE}}}}"), 1);
+            } else {
+                next = format!("{next}\n{token}");
+            }
+        }
+    }
     next
 }
 
@@ -264,6 +277,11 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
 
 fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
     divider(out);
+    push_line(out, &right_pair("Subtotal", &money(d.subtotal_price)));
+    push_line(out, &right_pair("Taxes", &money(d.tax_total)));
+    if d.total_savings > Decimal::ZERO {
+        push_line(out, &right_pair("Total Savings", &money(d.total_savings)));
+    }
     set_bold(out, true);
     push_line(out, &right_pair("Total", &money(d.total_price)));
     set_bold(out, false);
@@ -286,7 +304,7 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
             );
         }
     }
-    push_line(out, &format!("Status: {}", order_status_label(d.status)));
+    push_line(out, &format!("Status: {}", receipt_status_label(d)));
     if d.is_tax_exempt {
         push_line(
             out,
@@ -494,8 +512,20 @@ fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
     lines.join("\n")
 }
 
+fn receipt_status_label(d: &ReceiptOrder) -> &'static str {
+    let all_takeaway = !d.items.is_empty()
+        && d.items
+            .iter()
+            .all(|it| it.fulfillment == DbFulfillmentType::Takeaway);
+    let all_fulfilled = !d.items.is_empty() && d.items.iter().all(|it| it.is_fulfilled);
+    if all_takeaway || all_fulfilled {
+        return "Complete";
+    }
+    order_status_label(d.status)
+}
+
 fn default_receiptline_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 pub fn build_receiptline_markdown(
@@ -552,10 +582,7 @@ pub fn build_receiptline_markdown(
     let status_line = if gift {
         String::new()
     } else {
-        format!(
-            "Status | {}",
-            receiptline_escape(order_status_label(d.status))
-        )
+        format!("Status | {}", receiptline_escape(receipt_status_label(d)))
     };
     let tax_exempt_line = if !gift && d.is_tax_exempt {
         format!(
@@ -575,6 +602,21 @@ pub fn build_receiptline_markdown(
         String::new()
     } else {
         format!("Total | ^^{}", money(d.total_price))
+    };
+    let subtotal_line = if gift {
+        String::new()
+    } else {
+        format!("Subtotal | {}", money(d.subtotal_price))
+    };
+    let tax_line = if gift {
+        String::new()
+    } else {
+        format!("Taxes | {}", money(d.tax_total))
+    };
+    let total_savings_line = if !gift && d.total_savings > Decimal::ZERO {
+        format!("Total Savings | {}", money(d.total_savings))
+    } else {
+        String::new()
     };
     let paid_line = if gift {
         String::new()
@@ -626,6 +668,9 @@ pub fn build_receiptline_markdown(
         .replace("{{SALESPERSON_LINE}}", &salesperson_line)
         .replace("{{ITEM_LINES}}", &item_lines)
         .replace("{{PAYMENT_BLOCK}}", payment_block_value)
+        .replace("{{SUBTOTAL_LINE}}", &subtotal_line)
+        .replace("{{TAX_LINE}}", &tax_line)
+        .replace("{{TOTAL_SAVINGS_LINE}}", &total_savings_line)
         .replace("{{TOTAL_LINE}}", &total_line)
         .replace("{{PAID_LINE}}", &paid_line)
         .replace("{{BALANCE_LINE}}", &balance_line)

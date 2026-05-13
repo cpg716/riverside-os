@@ -42,6 +42,8 @@ The top logo uses ReceiptLine's image property (`{image: base64-png}`) through t
 
 **Loyalty tokens:** `{{LOYALTY_EARNED}}` and `{{LOYALTY_BALANCE}}` display the points earned for the transaction and the customer's current balance. They are populated from `transaction_loyalty_accrual` and `customers.loyalty_points` at print time and are gated by the `show_loyalty_earned` and `show_loyalty_balance` receipt settings toggles.
 
+**Financial tokens:** Customer receipts must keep `{{SUBTOTAL_LINE}}`, `{{TAX_LINE}}`, `{{TOTAL_SAVINGS_LINE}}`, and `{{TOTAL_LINE}}` in that order so staff and customers can distinguish item subtotal, taxes, savings from discounts, and final total. `{{TOTAL_SAVINGS_LINE}}` is omitted when no line-level savings are present.
+
 **ReceiptLine print preference:** The ESC/POS endpoint returns both `receiptline_markdown` (template-based) and `escpos_base64` (legacy structured fallback). The POS client prefers the ReceiptLine path, transforming it client-side for printing. The raw ESC/POS fallback uses a fixed layout and does not honor the operator's template customizations, logo image, or loyalty tokens — it exists solely as a safety net when the client-side ReceiptLine transform fails.
 
 **Thermal ZPL:** **`GET /api/orders/{order_id}/receipt.zpl`** supports the same **`gift`** and **`order_item_ids`** query parameters (full order is the default when omitted).

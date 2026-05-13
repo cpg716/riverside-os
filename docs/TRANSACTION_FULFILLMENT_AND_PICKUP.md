@@ -29,27 +29,27 @@ Customer Transaction Lifecycle:
 
 ---
 
-## Register: Loading Customer Transactions
+## Register: Loading Customer Orders
 
-### Transactions Button in Cart
+### Orders Button in Cart
 
 Located in the **Cart toolbar** (next to Layaway toggle). Activates only when a customer is selected.
 
-**Endpoint**: `GET /api/customers/{customer_id}/transaction-history`
+**Endpoint**: `GET /api/transactions?customer_id={customer_id}&register_session_id={session_id}`
 
-Returns open transactions (status NOT IN 'fulfilled', 'cancelled', 'void_sale').
+Returns the customer's order-style transaction records for register review. The button is labeled **Orders** because staff are managing open fulfillment/payment work, even though the server record remains the financial `transactions` ledger.
 
-### TransactionLoadModal
+### Customer Orders Modal
 
-Displays customer's open transactions with:
+Displays the customer's open orders with:
 - Transaction total, balance due, status
 - Rush badge (if is_rush)
 - Due Date badge (if need_by_date within 4 days)
 
-Actions per transaction:
-- **Items** - View transaction line items
-- **Pickup** - Load full transaction for in-store pickup
-- **Ship** - Load full transaction for shipping
+Actions per order:
+- **View Lines** - View order line items
+- **Add Payment** - Attach a new payment to the existing order
+- **Copy Items** - Start a new register sale from unfulfilled lines without paying the original order
 
 ### Transaction Lines View
 
@@ -182,7 +182,7 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 
 ## Testing Checklist
 
-- [ ] Transactions button disabled when no customer
+- [ ] Orders button disabled when no customer
 - [ ] Transaction list shows Rush/Due badges
 - [ ] Items view shows fulfillment status per line
 - [ ] Partial pickup (some items) works

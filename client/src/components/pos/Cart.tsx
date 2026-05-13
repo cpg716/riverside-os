@@ -1698,11 +1698,11 @@ export default function Cart({
                 type="button"
                 disabled={!selectedCustomer}
                 onClick={() => setOrderLoadOpen(true)}
-                title={selectedCustomer ? "View customer Transaction Records" : "Select a customer to view Transaction Records"}
+                title={selectedCustomer ? "View customer open orders" : "Select a customer to view open orders"}
                 className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-info/35 bg-app-info/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-info transition-all hover:bg-app-info hover:text-white disabled:opacity-20"
               >
                 <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
-                Transactions
+                Orders
               </button>
           </div>
           {pendingAlterationIntakes.length > 0 ? (
@@ -3058,11 +3058,11 @@ export default function Cart({
                     }));
                   });
                   toast(
-                    `Unfulfilled lines from ${order.display_id} were copied into the register. This starts a new sale and does not collect payment on the original transaction.`,
+                    `Unfulfilled lines from ${order.display_id} were copied into the register. This starts a new sale and does not collect payment on the original order.`,
                     "info",
                   );
                 } catch (e) {
-                  console.error("Could not copy transaction items into register", e);
+                  console.error("Could not copy order items into register", e);
                   toast(
                     "We couldn't copy those items into the register. Please try again.",
                     "error",

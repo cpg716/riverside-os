@@ -44,6 +44,9 @@ const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
 {{LOYALTY_EARNED}}
 {{LOYALTY_BALANCE}}
 {{PAYMENT_BLOCK}}
+{{SUBTOTAL_LINE}}
+{{TAX_LINE}}
+{{TOTAL_SAVINGS_LINE}}
 {{TOTAL_LINE}}
 {{PAID_LINE}}
 {{BALANCE_LINE}}
@@ -104,6 +107,13 @@ function receiptTemplateWithSlots(template: string, showLogo: boolean, showBarco
       next = `${next}\n{{BARCODE_IMAGE}}`;
     }
   }
+  ["{{SUBTOTAL_LINE}}", "{{TAX_LINE}}", "{{TOTAL_SAVINGS_LINE}}"].forEach((token) => {
+    if (!next.includes(token)) {
+      next = next.includes("{{TOTAL_LINE}}")
+        ? next.replace("{{TOTAL_LINE}}", `${token}\n{{TOTAL_LINE}}`)
+        : `${next}\n${token}`;
+    }
+  });
   return next;
 }
 
@@ -257,8 +267,11 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replaceAll("{{LOYALTY_EARNED}}", cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
       .replaceAll("{{LOYALTY_BALANCE}}", cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
       .replaceAll("{{PAYMENT_BLOCK}}", "")
-      .replaceAll("{{TOTAL_LINE}}", "Total | ^^$83.80")
-      .replaceAll("{{PAID_LINE}}", "Paid | $83.80")
+      .replaceAll("{{SUBTOTAL_LINE}}", "Subtotal | $83.80")
+      .replaceAll("{{TAX_LINE}}", "Taxes | $7.12")
+      .replaceAll("{{TOTAL_SAVINGS_LINE}}", "Total Savings | $20.95")
+      .replaceAll("{{TOTAL_LINE}}", "Total | ^^$90.92")
+      .replaceAll("{{PAID_LINE}}", "Paid | $90.92")
       .replaceAll("{{BALANCE_LINE}}", "")
       .replaceAll("{{TENDER_LINE}}", "Tender | Cash")
       .replaceAll("{{STATUS_LINE}}", "Status | Paid")
@@ -267,7 +280,14 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replaceAll("{{FOOTER_LINES}}", centeredLines(cfg.footer_lines))
       .replaceAll("{{CUT}}", "=");
 
-  const requiredTokens = ["{{ITEM_LINES}}", "{{TOTAL_LINE}}", "{{PAID_LINE}}", "{{TENDER_LINE}}"];
+  const requiredTokens = [
+    "{{ITEM_LINES}}",
+    "{{SUBTOTAL_LINE}}",
+    "{{TAX_LINE}}",
+    "{{TOTAL_LINE}}",
+    "{{PAID_LINE}}",
+    "{{TENDER_LINE}}",
+  ];
   const missingRequiredTokens = requiredTokens.filter((token) => !effectiveTemplate.includes(token));
 
   const printTestReceipt = async () => {
@@ -507,7 +527,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     ["Logo", "{{LOGO_IMAGE}}"],
                     ["Header", "{{HEADER_LINES}}"],
                     ["Items", "{{ITEM_LINES}}"],
-                    ["Totals", "{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}"],
+                    ["Totals", "{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}"],
                     ["Barcode", "{{BARCODE_IMAGE}}"],
                     ["Cut", "{{CUT}}"],
                   ].map(([label, token]) => (
@@ -584,7 +604,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   Available Tokens
                 </p>
                 <p className="mt-2 font-mono text-[10px] leading-relaxed text-app-text-muted">
-                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{SALESPERSON_LINE}} {{CASHIER_LINE}} {{ITEM_LINES}} {{LOYALTY_EARNED}} {{LOYALTY_BALANCE}} {{PAYMENT_BLOCK}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
+                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{SALESPERSON_LINE}} {{CASHIER_LINE}} {{ITEM_LINES}} {{LOYALTY_EARNED}} {{LOYALTY_BALANCE}} {{PAYMENT_BLOCK}} {{SUBTOTAL_LINE}} {{TAX_LINE}} {{TOTAL_SAVINGS_LINE}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
                 </p>
               </div>
             </div>

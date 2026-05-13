@@ -160,6 +160,37 @@ function paymentIcon(method: string) {
   return <CreditCard size={12} />;
 }
 
+function fulfillmentDisplayLabel(value?: string | null): string | null {
+  switch ((value || "").toLowerCase()) {
+    case "takeaway":
+      return "Takeaway";
+    case "special_order":
+      return "Special Order";
+    case "custom":
+      return "Custom Order";
+    case "wedding_order":
+      return "Wedding Order";
+    case "layaway":
+      return "Layaway";
+    case "pickup":
+      return "Pickup";
+    default:
+      return null;
+  }
+}
+
+function activityFulfillmentLabel(row: RegisterActivityItem): string | null {
+  const explicit = fulfillmentDisplayLabel(row.fulfillment_type);
+  if (explicit) return explicit;
+  const itemLabels = Array.from(
+    new Set((row.items || []).map((item) => fulfillmentDisplayLabel(item.fulfillment)).filter(Boolean)),
+  ) as string[];
+  if (itemLabels.length === 1) return itemLabels[0] ?? null;
+  if (itemLabels.length > 1) return itemLabels.join(" + ");
+  if (row.is_takeaway) return "Takeaway";
+  return null;
+}
+
 function registerLifecycleLabel(status: string) {
   switch (status) {
     case "reconciling":
@@ -423,8 +454,12 @@ export default function RegisterReports({
           sku: i.sku,
           quantity: i.quantity,
           reg_price: i.reg_price || i.price,
-          price: i.price
-        }))
+          price: i.price,
+          fulfillment: i.fulfillment,
+        })),
+        fulfillment_label: activityFulfillmentLabel(a),
+        is_takeaway: a.is_takeaway,
+        channel: a.channel,
       }))
     });
   };
@@ -754,7 +789,11 @@ export default function RegisterReports({
                                </div>
                                <div className="mt-3 flex items-center gap-1.5 flex-wrap">
                                   <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">#{row.short_id || row.order_id?.slice(0, 8)}</span>
-	                                  {row.is_takeaway && <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-warning">Takeaway</span>}
+                                  {activityFulfillmentLabel(row) && (
+                                    <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-warning">
+                                      {activityFulfillmentLabel(row)}
+                                    </span>
+                                  )}
 	                                  {row.channel === 'web' && <span className="flex items-center gap-1 rounded bg-app-info/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-info"><Globe size={10}/> Online</span>}
                                </div>
                             </div>

@@ -6,6 +6,7 @@ import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/
 
 export interface CustomerOrder {
   id: string;
+  transaction_id?: string;
   customer_id?: string | null;
   display_id: string;
   order_payment_display_id?: string | null;
@@ -104,7 +105,7 @@ export default function OrderLoadModal({
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error || `Could not load transaction items (${res.status})`);
+      throw new Error(body.error || `Could not load order lines (${res.status})`);
     }
     const data = (await res.json()) as OrderItem[];
     return Array.isArray(data) ? data : [];
@@ -123,7 +124,7 @@ export default function OrderLoadModal({
       setSelectedOrderItems([]);
       setLineDrafts({});
       toast(
-        e instanceof Error ? e.message : "We couldn't load those transaction items. Please try again.",
+        e instanceof Error ? e.message : "We couldn't load those order lines. Please try again.",
         "error",
       );
     }
@@ -141,16 +142,21 @@ export default function OrderLoadModal({
       headers: apiAuth(),
     })
       .then(async (r) => {
-        if (!r.ok) throw new Error("Could not load customer transactions");
+        if (!r.ok) throw new Error("Could not load customer orders");
         return r.json();
       })
       .then((data) => {
         const rows = Array.isArray(data?.items) ? data.items : [];
-        setOrders(rows);
+        setOrders(
+          rows.map((row: CustomerOrder) => ({
+            ...row,
+            id: row.id ?? row.transaction_id,
+          })),
+        );
       })
       .catch(() => {
         setOrders([]);
-        toast("We couldn't load this customer's transactions. Please try again.", "error");
+        toast("We couldn't load this customer's orders. Please try again.", "error");
       })
       .finally(() => setLoading(false));
   }, [isOpen, customerId, registerSessionId, baseUrl, apiAuth, toast]);
@@ -199,15 +205,19 @@ export default function OrderLoadModal({
     if (parseMoneyToCents(order.amount_paid) > 0) {
       return isWedding
         ? "A wedding deposit has been recorded. Collect the remaining balance only when the linked member is ready for pickup."
-        : "A deposit has been recorded on this Transaction Record. Collect the remaining balance only when the order is ready.";
+        : "A deposit has been recorded on this order. Collect the remaining balance only when the order is ready.";
     }
     return isWedding
       ? "No payment is on this wedding order yet. Confirm member readiness before collecting money or promising pickup."
-      : "No payment is on this Transaction Record yet. Confirm receiving and pickup status before collecting money.";
+      : "No payment is on this order yet. Confirm receiving and pickup status before collecting money.";
   };
 
   const copyOrderItems = async (order: CustomerOrder) => {
     try {
+      if (!order.id) {
+        toast("This order is missing its transaction reference. Reopen the customer and try again.", "error");
+        return;
+      }
       const items = await fetchOrderItems(order.id);
       const unfulfilled = items.filter((item) => !item.is_fulfilled);
       if (unfulfilled.length === 0) {
@@ -228,7 +238,7 @@ export default function OrderLoadModal({
   const openPaymentEntry = (order: CustomerOrder) => {
     const dueCents = parseMoneyToCents(order.balance_due);
     if (dueCents <= 0) {
-      toast("That Transaction Record does not have a balance due.", "info");
+      toast("That order does not have a balance due.", "info");
       return;
     }
     setPaymentOrder(order);
@@ -240,11 +250,11 @@ export default function OrderLoadModal({
     const amountCents = parseMoneyToCents(paymentAmount);
     const dueCents = parseMoneyToCents(paymentOrder.balance_due);
     if (amountCents <= 0) {
-      toast("Enter a transaction payment amount greater than $0.00.", "error");
+      toast("Enter an order payment amount greater than $0.00.", "error");
       return;
     }
     if (amountCents > dueCents) {
-      toast("Transaction payment cannot be more than the balance due.", "error");
+      toast("Order payment cannot be more than the balance due.", "error");
       return;
     }
     onMakePayment?.(paymentOrder, amountCents);
@@ -257,7 +267,7 @@ export default function OrderLoadModal({
     if (!selectedOrder || !onAddItemToOrder) return;
     const sku = addSku.trim();
     if (!sku) {
-      toast("Scan or enter a SKU before adding it to this Transaction Record.", "error");
+      toast("Scan or enter a SKU before adding it to this order.", "error");
       return;
     }
     setOrderMutationBusy(true);
@@ -265,7 +275,7 @@ export default function OrderLoadModal({
       const ok = await onAddItemToOrder(selectedOrder, sku);
       if (ok) {
         setAddSku("");
-        await loadOrderItems(selectedOrder.id);
+        if (selectedOrder.id) await loadOrderItems(selectedOrder.id);
       }
     } finally {
       setOrderMutationBusy(false);
@@ -294,7 +304,7 @@ export default function OrderLoadModal({
         quantity,
         unit_price: centsToFixed2(priceCents),
       });
-      if (ok) await loadOrderItems(selectedOrder.id);
+      if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
     } finally {
       setOrderMutationBusy(false);
     }
@@ -308,7 +318,7 @@ export default function OrderLoadModal({
         <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
           <div className="flex items-center gap-2">
             <Package size={20} className="text-blue-600" />
-            <span className="font-black text-app-text">Customer Transactions</span>
+            <span className="font-black text-app-text">Customer Orders</span>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 hover:bg-app-surface-2">
             <X size={20} />
@@ -323,18 +333,18 @@ export default function OrderLoadModal({
         <div className="flex-1 overflow-y-auto p-3.5 sm:p-4">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <span className="animate-pulse text-app-text-muted">Loading transaction records...</span>
+              <span className="animate-pulse text-app-text-muted">Loading customer orders...</span>
             </div>
           ) : orders.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-8 text-center">
               <AlertCircle size={32} className="text-app-text-muted" />
-              <span className="text-app-text-muted">No open Transaction Records for this customer</span>
+              <span className="text-app-text-muted">No open orders for this customer</span>
             </div>
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
               {orders.map((order) => (
                 <div
-                  key={order.id}
+                  key={order.id ?? order.display_id}
                   className="grid gap-4 rounded-xl border border-app-border bg-app-surface-2/50 p-4 xl:grid-cols-[minmax(0,1fr)_12rem]"
                 >
                   <div className="flex flex-1 flex-col gap-1">
@@ -395,7 +405,7 @@ export default function OrderLoadModal({
                     <button
                       type="button"
                       onClick={() => {
-                        void loadOrderItems(order.id);
+                        if (order.id) void loadOrderItems(order.id);
                       }}
                       className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-blue-500/40 bg-blue-50 px-3 text-xs font-bold text-blue-700 transition-all hover:bg-blue-500 hover:text-white"
                     >
@@ -421,7 +431,7 @@ export default function OrderLoadModal({
             <div className="mt-4 border-t border-app-border pt-4">
               <div className="mb-2 flex items-center justify-between">
                 <span className="font-medium text-app-text">
-                  {selectedOrder?.display_id ?? "Transaction"} lines
+                  {selectedOrder?.display_id ?? "Order"} lines
                 </span>
                 <button
                   onClick={() => {
@@ -509,8 +519,8 @@ export default function OrderLoadModal({
                 ))}
               </div>
               <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
-                Add or save lines to update the original Transaction Record. Copying items starts a
-                new register sale and does not collect payment on the original Transaction Record.
+                Add or save lines to update the original order. Copying items starts a
+                new register sale and does not collect payment on the original order.
               </p>
               {selectedOrder?.order_kind === "wedding_order" && (
                 <p className="mt-2 text-[11px] font-semibold text-rose-700">
@@ -536,7 +546,7 @@ export default function OrderLoadModal({
                       onClick={() => void addSkuToSelectedOrder()}
                       className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
                     >
-                      Add to Record
+                      Add to Order
                     </button>
                   </div>
                 )}
@@ -565,7 +575,7 @@ export default function OrderLoadModal({
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
-                  Existing Transaction Payment
+                  Existing Order Payment
                 </p>
                 <h3 className="text-lg font-black text-app-text">
                   {paymentOrder.display_id}
@@ -575,7 +585,7 @@ export default function OrderLoadModal({
                 type="button"
                 onClick={() => setPaymentOrder(null)}
                 className="rounded-lg p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-                aria-label="Close transaction payment entry"
+                aria-label="Close order payment entry"
               >
                 <X size={18} />
               </button>

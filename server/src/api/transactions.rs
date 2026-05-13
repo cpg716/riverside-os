@@ -393,12 +393,36 @@ impl TransactionDetailResponse {
         transaction_line_ids: Option<&[Uuid]>,
     ) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
         let selected = self.selected_receipt_items_with_effective_qty(transaction_line_ids)?;
+        let subtotal_price = selected
+            .iter()
+            .fold(Decimal::ZERO, |sum, (it, effective_qty)| {
+                sum + it.unit_price * Decimal::from(*effective_qty)
+            });
+        let tax_total = selected
+            .iter()
+            .fold(Decimal::ZERO, |sum, (it, effective_qty)| {
+                sum + (it.state_tax + it.local_tax) * Decimal::from(*effective_qty)
+            });
+        let total_savings =
+            selected
+                .iter()
+                .fold(Decimal::ZERO, |sum, (it, effective_qty)| {
+                    match it.receipt_original_unit_price {
+                        Some(original) if original > it.unit_price && original > Decimal::ZERO => {
+                            sum + (original - it.unit_price) * Decimal::from(*effective_qty)
+                        }
+                        _ => sum,
+                    }
+                });
 
         Ok(receipt_shared::ReceiptOrder {
             transaction_id: self.transaction_id,
             booked_at: self.booked_at,
             status: self.status,
+            subtotal_price,
+            tax_total,
             total_price: self.total_price,
+            total_savings,
             amount_paid: self.amount_paid,
             balance_due: self.balance_due,
             payment_methods_summary: self.payment_methods_summary.clone(),
