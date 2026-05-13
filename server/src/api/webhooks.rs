@@ -983,6 +983,7 @@ async fn post_corecard_webhook(
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/podium", post(post_podium_webhook))
+        .route("/card-events", post(post_helcim_webhook))
         .route("/helcim", post(post_helcim_webhook))
         .route("/corecard", post(post_corecard_webhook))
 }
