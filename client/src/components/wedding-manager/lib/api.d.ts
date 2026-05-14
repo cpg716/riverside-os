@@ -91,7 +91,8 @@ export interface WmReadinessSummary {
   days_until_event: number;
   readiness_score: number;
   status: WmReadinessStatus;
-  lifecycle?: {
+  lifecycle: {
+    needs_measurements: number;
     ntbo: number;
     ordered: number;
     received: number;
@@ -99,14 +100,44 @@ export interface WmReadinessSummary {
     picked_up: number;
     open: number;
   };
-  pickup?: {
+  member_counts: {
+    total: number;
+    measured: number;
+    ordered: number;
+    received: number;
+    fitting: number;
+    pickup_complete: number;
+  };
+  pickup: {
     ready_members: number;
     blocked_members: number;
     partial_ready_members: number;
     balance_blocked_members: number;
   };
+  vendor_risk: {
+    ntbo_count: number;
+    stale_ordered_count: number;
+    missing_vendor_count: number;
+    delayed_vendor_count: number;
+    next_eta?: string | null;
+  };
   blockers: WmReadinessBlocker[];
   next_safe_action: string;
+}
+
+export interface WmReadinessMember {
+  wedding_member_id: string;
+  customer_name: string;
+  role: string;
+  status: 'ready' | 'partial' | 'blocked' | 'balance_blocked' | 'complete';
+  balance_due: string | number;
+  lifecycle: NonNullable<WmReadinessSummary['lifecycle']>;
+  blockers: WmReadinessBlocker[];
+  next_safe_action: string;
+}
+
+export interface WmReadinessDetail extends WmReadinessSummary {
+  members: WmReadinessMember[];
 }
 
 export interface WmReadinessDashboard {
@@ -118,13 +149,63 @@ export interface WmReadinessDashboard {
   parties: WmReadinessSummary[];
 }
 
+export interface WmCutoverPartySummary {
+  party_id: string;
+  party_name: string;
+  event_date: string;
+  salesperson?: string | null;
+  review_status: 'not_required' | 'needs_review' | 'in_review' | 'blocked' | 'reviewed';
+  member_count: number;
+  linked_transaction_count: number;
+  candidate_transaction_count: number;
+  needs_measurements: number;
+  ntbo: number;
+  ordered: number;
+  received: number;
+  ready_for_pickup: number;
+  picked_up: number;
+}
+
+export interface WmCutoverMember {
+  member_id: string;
+  customer_id?: string | null;
+  name: string;
+  role: string;
+  phone?: string | null;
+  customer_verified: boolean;
+}
+
+export interface WmCutoverCandidate {
+  suggested_member_id: string;
+  transaction_id: string;
+  display_id: string;
+  booked_at: string;
+  total_price: string | number;
+  balance_due: string | number;
+  customer_name: string;
+  customer_code?: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  reason: string;
+  lines: Array<Record<string, unknown>>;
+}
+
+export interface WmCutoverPartyDetail {
+  party: WmCutoverPartySummary;
+  members: WmCutoverMember[];
+  candidates: WmCutoverCandidate[];
+}
+
 export const api: {
   getSalespeople: () => Promise<string[]>;
   getParties: (params?: WmPaginationParams) => Promise<{ data: WmParty[]; pagination: WmPagination }>;
   getParty: (id: string) => Promise<WmParty | null>;
   getWeddingHealth: (id: string) => Promise<WmHealthScore>;
   getReadinessDashboard: (params?: WmPaginationParams) => Promise<WmReadinessDashboard>;
-  getPartyReadiness: (id: string) => Promise<unknown>;
+  getPartyReadiness: (id: string) => Promise<WmReadinessDetail>;
+  getCutoverSummary: () => Promise<{ parties: WmCutoverPartySummary[] }>;
+  getPartyCutover: (id: string) => Promise<WmCutoverPartyDetail>;
+  linkCutoverTransaction: (payload: Record<string, unknown>) => Promise<{ status: string; line_count: number }>;
+  markCutoverReviewed: (partyId: string, payload: Record<string, unknown>) => Promise<{ status: string }>;
   updateParty: (id: string, updates: Partial<WmParty>) => Promise<WmParty>;
   updateMember: (id: string, updates: Partial<WmMember>) => Promise<WmMember>;
   addMember: (partyId: string, memberData: Partial<WmMember>) => Promise<WmMember>;

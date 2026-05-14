@@ -298,6 +298,7 @@ export default function Cart({
     updateLineFulfillment,
     updateLineSalesperson,
     updateLineGiftWrapStatus,
+    updateLineOrderLifecycleStatus,
     handleNumpadKey: hookHandleNumpadKey,
     applyDiscountEvent: hookApplyDiscountEvent,
     ensureSaleCashier,
@@ -605,7 +606,7 @@ export default function Cart({
     async (
       order: CustomerOrder,
       item: OrderItem,
-      patch: { quantity?: number; unit_price?: string },
+      patch: { quantity?: number; unit_price?: string; variant_id?: string; order_lifecycle_status?: string },
     ) => {
       try {
         const res = await fetch(
@@ -628,6 +629,31 @@ export default function Cart({
         return true;
       } catch {
         toast("We couldn't update that Transaction Record line. Please try again.", "error");
+        return false;
+      }
+    },
+    [apiAuth, baseUrl, toast],
+  );
+
+  const deleteExistingOrderItem = useCallback(
+    async (order: CustomerOrder, item: OrderItem) => {
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/transactions/${order.id}/items/${item.transaction_line_id}`,
+          {
+            method: "DELETE",
+            headers: apiAuth(),
+          },
+        );
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => ({}))) as { error?: string };
+          toast(payload.error || "We couldn't delete that Transaction Record line.", "error");
+          return false;
+        }
+        toast("Transaction Record line deleted. Booked totals were refreshed for that record.", "success");
+        return true;
+      } catch {
+        toast("We couldn't delete that Transaction Record line. Please try again.", "error");
         return false;
       }
     },
@@ -3007,6 +3033,7 @@ export default function Cart({
             onMakePayment={addOrderPaymentLine}
             onAddItemToOrder={addItemToExistingOrder}
             onUpdateOrderItem={updateExistingOrderItem}
+            onDeleteOrderItem={deleteExistingOrderItem}
           />
 
           <OrderReviewModal
@@ -3024,6 +3051,7 @@ export default function Cart({
               fulfillment: l.fulfillment,
               is_rush: l.is_rush,
               need_by_date: l.need_by_date ?? null,
+              order_lifecycle_status: l.order_lifecycle_status,
             }))}
             customer={selectedCustomer ? {
               id: selectedCustomer.id,
@@ -3049,6 +3077,7 @@ export default function Cart({
               setOrderReviewOpen(false);
               setCheckoutDrawerOpen(true);
             }}
+            onUpdateLineLifecycleStatus={updateLineOrderLifecycleStatus}
           />
 
         </>

@@ -27,6 +27,7 @@ export type ReadinessStatus = "safe" | "watch" | "at_risk" | "critical" | "compl
 export type ReadinessDetail = {
   status: ReadinessStatus;
   lifecycle: {
+    needs_measurements: number;
     ntbo: number;
     ordered: number;
     ready_for_pickup: number;
@@ -66,6 +67,7 @@ export async function checkoutWeddingOrderSeed(
     customerId: string;
     products: CreatedProduct[];
     amountPaid?: string;
+    orderLifecycleStatus?: "needs_measurements" | "ntbo";
   },
 ): Promise<CheckoutResponse> {
   const { sessionId, sessionToken } = await ensureSessionAuth(request);
@@ -104,6 +106,7 @@ export async function checkoutWeddingOrderSeed(
         state_tax: "0.00",
         local_tax: "0.00",
         salesperson_id: operatorStaffId,
+        order_lifecycle_status: options.orderLifecycleStatus,
       })),
     },
     failOnStatusCode: false,

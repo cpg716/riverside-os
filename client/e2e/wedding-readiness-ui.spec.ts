@@ -18,6 +18,16 @@ test.describe("Phase 4 wedding readiness UI", () => {
           complete_count: 1,
           parties: [
             readinessParty({
+              id: "party-measurements",
+              partyName: "Phase 4 Walkthrough Measurements",
+              status: "critical",
+              blockerLabel: "Needs measurements",
+              blockerAction: "Measure members and update exact variations before creating vendor orders.",
+              needsMeasurements: 1,
+              blocked: 1,
+              days: 12,
+            }),
+            readinessParty({
               id: "party-critical",
               partyName: "Phase 4 Walkthrough Critical NTBO",
               status: "critical",
@@ -91,6 +101,7 @@ test.describe("Phase 4 wedding readiness UI", () => {
     await expect(dashboard.getByText("Safe").first()).toBeVisible();
 
     await expect(dashboard.getByText("Phase 4 Walkthrough Critical NTBO")).toBeVisible();
+    await expect(dashboard.getByText("Needs measurements")).toBeVisible();
     await expect(dashboard.getByText("Needs vendor order")).toBeVisible();
     await expect(dashboard.getByText("Vendor delay risk")).toBeVisible();
     await expect(dashboard.getByText("Pickup blocked until balance is cleared")).toBeVisible();
@@ -98,7 +109,7 @@ test.describe("Phase 4 wedding readiness UI", () => {
     await dashboard.getByLabel("Search wedding readiness").fill("balance");
     await expect(dashboard.getByText("Phase 4 Walkthrough Balance Blocked")).toBeVisible();
     await expect(dashboard.getByText("Phase 4 Walkthrough Critical NTBO")).toHaveCount(0);
-    await expect(dashboard.getByText("Showing 1 of 6 party readiness record(s).")).toBeVisible();
+    await expect(dashboard.getByText("Showing 1 of 7 party readiness record(s).")).toBeVisible();
   });
 });
 
@@ -110,6 +121,7 @@ function readinessParty(options: {
   blockerAction?: string;
   nextAction?: string;
   ntbo?: number;
+  needsMeasurements?: number;
   ordered?: number;
   ready?: number;
   pickedUp?: number;
@@ -127,6 +139,7 @@ function readinessParty(options: {
   const ready = options.ready ?? 0;
   const pickedUp = options.pickedUp ?? 0;
   const ntbo = options.ntbo ?? 0;
+  const needsMeasurements = options.needsMeasurements ?? 0;
   const ordered = options.ordered ?? 0;
   return {
     wedding_party_id: options.id,
@@ -137,12 +150,13 @@ function readinessParty(options: {
     readiness_score: options.status === "complete" ? 1 : options.status === "safe" ? 0.9 : 0.42,
     status: options.status,
     lifecycle: {
+      needs_measurements: needsMeasurements,
       ntbo,
       ordered,
       received: 0,
       ready_for_pickup: ready,
       picked_up: pickedUp,
-      open: ntbo + ordered + ready,
+      open: needsMeasurements + ntbo + ordered + ready,
     },
     member_counts: {
       total: 1,

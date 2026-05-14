@@ -18,6 +18,7 @@ import PartyDetail from '../components/PartyDetail';
 import OrderDashboard from '../components/OrderDashboard';
 import ReportsDashboard from '../components/ReportsDashboard';
 import WeddingHealthHeatmap from '../components/WeddingHealthHeatmap';
+import CutoverReviewPanel from '../components/CutoverReviewPanel';
 import { useModal } from '../hooks/useModal';
 
 const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
@@ -335,6 +336,13 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                         Readiness
                                     </button>
                                     <button type="button"
+                                        onClick={() => setActiveTab('cutover')}
+                                        className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'cutover' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
+                                    >
+                                        <Icon name="ClipboardList" size={16} className={activeTab === 'cutover' ? 'text-gold-400' : ''} />
+                                        Cutover
+                                    </button>
+                                    <button type="button"
                                         onClick={() => setActiveTab('reports')}
                                         className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'reports' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
                                     >
@@ -365,6 +373,10 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                         {activeTab === 'health' ? (
                             <div className="px-4 md:px-0">
                                 <WeddingHealthHeatmap onPartyClick={handlePartyClick} />
+                            </div>
+                        ) : activeTab === 'cutover' ? (
+                            <div className="px-4 md:px-0">
+                                <CutoverReviewPanel />
                             </div>
                         ) : activeTab === 'reports' ? (
                             <div className="px-4 md:px-0">

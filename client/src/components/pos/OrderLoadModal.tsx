@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Package, Clock, AlertCircle, ArrowRight, CreditCard } from "lucide-react";
+import { X, Package, Clock, AlertCircle, ArrowRight, CreditCard, Plus, Save, Trash2 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
+import VariantSearchInput, { type VariantSearchResult } from "../ui/VariantSearchInput";
 
 export interface CustomerOrder {
   id: string;
@@ -32,6 +33,7 @@ export interface OrderItem {
   quantity: number;
   unit_price: string;
   fulfillment: string;
+  order_lifecycle_status?: string | null;
   is_fulfilled: boolean;
   is_rush?: boolean;
   need_by_date?: string | null;
@@ -50,8 +52,9 @@ interface OrderLoadModalProps {
   onUpdateOrderItem?: (
     order: CustomerOrder,
     item: OrderItem,
-    patch: { quantity?: number; unit_price?: string },
+    patch: { quantity?: number; unit_price?: string; variant_id?: string; order_lifecycle_status?: string },
   ) => Promise<boolean>;
+  onDeleteOrderItem?: (order: CustomerOrder, item: OrderItem) => Promise<boolean>;
 }
 
 const fulfillmentLabel = (fulfillment: string) => {
@@ -82,6 +85,7 @@ export default function OrderLoadModal({
   onMakePayment,
   onAddItemToOrder,
   onUpdateOrderItem,
+  onDeleteOrderItem,
 }: OrderLoadModalProps) {
   const { toast } = useToast();
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
@@ -92,7 +96,14 @@ export default function OrderLoadModal({
   const [paymentAmount, setPaymentAmount] = useState("");
   const [addSku, setAddSku] = useState("");
   const [orderMutationBusy, setOrderMutationBusy] = useState(false);
-  const [lineDrafts, setLineDrafts] = useState<Record<string, { quantity: string; unit_price: string }>>({});
+  const [lineDrafts, setLineDrafts] = useState<Record<string, {
+    quantity: string;
+    unit_price: string;
+    variant_id: string;
+    sku: string;
+    variation_label: string | null;
+    order_lifecycle_status: string;
+  }>>({});
 
   const fetchOrderItems = async (orderId: string) => {
     const params = new URLSearchParams();
@@ -116,7 +127,14 @@ export default function OrderLoadModal({
       setSelectedOrderItems(items);
       setLineDrafts(Object.fromEntries(items.map((item) => [
         item.transaction_line_id,
-        { quantity: String(item.quantity), unit_price: item.unit_price },
+        {
+          quantity: String(item.quantity),
+          unit_price: item.unit_price,
+          variant_id: item.variant_id,
+          sku: item.sku,
+          variation_label: item.variation_label,
+          order_lifecycle_status: item.order_lifecycle_status ?? "ntbo",
+        },
       ])));
     } catch (e) {
       setSelectedOrderItems([]);
@@ -210,6 +228,25 @@ export default function OrderLoadModal({
       : "No payment is on this order yet. Confirm receiving and pickup status before collecting money.";
   };
 
+  const lineLifecycleLabel = (status?: string | null) => {
+    switch (status) {
+      case "needs_measurements":
+        return "Needs Measurements";
+      case "ntbo":
+        return "Ready to Order";
+      case "ordered":
+        return "Ordered";
+      case "received":
+        return "Received";
+      case "ready_for_pickup":
+        return "Ready for Pickup";
+      case "picked_up":
+        return "Picked Up";
+      default:
+        return "Order Review";
+    }
+  };
+
   const openPaymentEntry = (order: CustomerOrder) => {
     const dueCents = parseMoneyToCents(order.balance_due);
     if (dueCents <= 0) {
@@ -257,11 +294,26 @@ export default function OrderLoadModal({
     }
   };
 
+  const addVariantToSelectedOrder = async (variant: VariantSearchResult) => {
+    if (!selectedOrder || !onAddItemToOrder) return;
+    setOrderMutationBusy(true);
+    try {
+      const ok = await onAddItemToOrder(selectedOrder, variant.sku);
+      if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
+    } finally {
+      setOrderMutationBusy(false);
+    }
+  };
+
   const saveLineDraft = async (item: OrderItem) => {
     if (!selectedOrder || !onUpdateOrderItem) return;
     const draft = lineDrafts[item.transaction_line_id] ?? {
       quantity: String(item.quantity),
       unit_price: item.unit_price,
+      variant_id: item.variant_id,
+      sku: item.sku,
+      variation_label: item.variation_label,
+      order_lifecycle_status: item.order_lifecycle_status ?? "ntbo",
     };
     const quantity = Number.parseInt(draft.quantity, 10);
     const priceCents = parseMoneyToCents(draft.unit_price);
@@ -278,7 +330,23 @@ export default function OrderLoadModal({
       const ok = await onUpdateOrderItem(selectedOrder, item, {
         quantity,
         unit_price: centsToFixed2(priceCents),
+        variant_id: draft.variant_id !== item.variant_id ? draft.variant_id : undefined,
+        order_lifecycle_status:
+          draft.order_lifecycle_status !== (item.order_lifecycle_status ?? "ntbo")
+            ? draft.order_lifecycle_status
+            : undefined,
       });
+      if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
+    } finally {
+      setOrderMutationBusy(false);
+    }
+  };
+
+  const deleteLine = async (item: OrderItem) => {
+    if (!selectedOrder || !onDeleteOrderItem) return;
+    setOrderMutationBusy(true);
+    try {
+      const ok = await onDeleteOrderItem(selectedOrder, item);
       if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
     } finally {
       setOrderMutationBusy(false);
@@ -288,51 +356,69 @@ export default function OrderLoadModal({
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="ui-overlay-backdrop !z-[200]">
-      <div className="flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[84vh] sm:w-[min(920px,calc(100vw-2rem))] sm:rounded-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
-          <div className="flex items-center gap-2">
-            <Package size={20} className="text-blue-600" />
-            <span className="font-black text-app-text">Customer Orders</span>
+    <div className="ui-overlay-backdrop !z-[200]" onClick={onClose}>
+      <div
+        className="ui-modal flex max-h-[96dvh] w-full max-w-none animate-workspace-snap flex-col overflow-hidden rounded-t-3xl outline-none sm:max-h-[90vh] sm:w-[min(1080px,calc(100vw-2rem))] sm:rounded-3xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="ui-modal-header flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-app-accent/20 bg-app-accent/10 text-app-accent">
+              <Package size={22} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
+                Register Order Lookup
+              </p>
+              <h2 className="mt-1 text-xl font-black tracking-tight text-app-text">
+                Customer Orders
+              </h2>
+            </div>
           </div>
           <button
             type="button"
             aria-label="Close customer orders"
             onClick={onClose}
-            className="rounded-lg p-1 hover:bg-app-surface-2"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text-muted transition-colors hover:text-app-text"
           >
             <X size={20} />
           </button>
         </div>
 
-        <div className="flex flex-col gap-2 border-b border-app-border bg-app-surface-2/30 px-5 py-2">
-          <span className="text-xs text-app-text-muted">Customer</span>
-          <span className="font-medium text-app-text">{customerName}</span>
+        <div className="border-b border-app-border bg-app-surface-2/50 px-5 py-4 sm:px-6">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Customer
+          </p>
+          <p className="mt-1 truncate text-lg font-black text-app-text">{customerName}</p>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3.5 sm:p-4">
+        <div className="ui-modal-body flex-1 overflow-y-auto p-4 sm:p-6">
           {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <span className="animate-pulse text-app-text-muted">Loading customer orders...</span>
+            <div className="flex min-h-48 items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface-2 text-center">
+              <span className="animate-pulse text-sm font-black uppercase tracking-widest text-app-text-muted">
+                Loading customer orders
+              </span>
             </div>
           ) : orders.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <AlertCircle size={32} className="text-app-text-muted" />
-              <span className="text-app-text-muted">No open orders for this customer</span>
+            <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-8 text-center">
+              <AlertCircle size={34} className="text-app-text-muted" />
+              <span className="text-sm font-black uppercase tracking-widest text-app-text-muted">
+                No open orders for this customer
+              </span>
             </div>
           ) : (
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="grid gap-3">
               {orders.map((order) => (
                 <div
                   key={order.id ?? order.display_id}
-                  className="grid gap-4 rounded-xl border border-app-border bg-app-surface-2/50 p-4 xl:grid-cols-[minmax(0,1fr)_12rem]"
+                  className="ui-panel grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_13rem]"
                 >
                   <div className="flex flex-1 flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-app-text">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-lg font-black text-app-text">
                         {order.display_id}
                       </span>
-                      <span className="rounded bg-app-surface px-1.5 py-0.5 text-[10px] font-bold uppercase text-app-text-muted">
+                      <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                         {order.order_kind === "wedding_order"
                           ? "Wedding"
                           : order.order_kind === "custom"
@@ -340,43 +426,51 @@ export default function OrderLoadModal({
                             : "Order"}
                       </span>
                       {order.is_rush && (
-                        <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-700">
+                        <span className="rounded-full border border-app-danger/20 bg-app-danger/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-danger">
                           RUSH
                         </span>
                       )}
                       {order.need_by_date && (
-                        <span className="flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-700">
+                        <span className="flex items-center gap-1 rounded-full border border-app-warning/25 bg-app-warning/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
                           <Clock size={10} />
                           {formatDate(order.need_by_date)}
                         </span>
                       )}
                       {order.party_name && (
-                        <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-rose-700">
+                        <span className="rounded-full border border-app-danger/20 bg-app-danger/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-danger">
                           {order.party_name}
                         </span>
                       )}
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs text-app-text-muted sm:grid-cols-4">
-                      <span>{formatDate(order.booked_at)}</span>
-                      <span className="font-medium text-emerald-600">
-                        Paid: {formatCurrency(order.amount_paid)}
-                      </span>
-                      <span className="font-medium text-amber-600">
-                        Due: {formatCurrency(order.balance_due)}
-                      </span>
-                      <span className="uppercase">{lifecycleLabel(order)}</span>
+                    <div className="mt-3 grid gap-2 text-xs sm:grid-cols-4">
+                      <div className="ui-metric-cell px-3 py-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Booked</p>
+                        <p className="mt-1 font-black text-app-text">{formatDate(order.booked_at)}</p>
+                      </div>
+                      <div className="ui-metric-cell px-3 py-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Paid</p>
+                        <p className="mt-1 font-black text-app-success">{formatCurrency(order.amount_paid)}</p>
+                      </div>
+                      <div className="ui-metric-cell px-3 py-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Due</p>
+                        <p className="mt-1 font-black text-app-warning">{formatCurrency(order.balance_due)}</p>
+                      </div>
+                      <div className="ui-metric-cell px-3 py-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Status</p>
+                        <p className="mt-1 font-black text-app-text">{lifecycleLabel(order)}</p>
+                      </div>
                     </div>
-                    <p className="text-[11px] font-semibold text-app-text-muted">
+                    <p className="mt-2 text-xs font-semibold leading-relaxed text-app-text-muted">
                       {lifecycleNote(order)}
                     </p>
                   </div>
-                  <div className="grid shrink-0 grid-cols-1 gap-1 sm:grid-cols-3 xl:grid-cols-1">
+                  <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
                     {onMakePayment && parseMoneyToCents(order.balance_due) > 0 ? (
                       <button
                         type="button"
                         data-testid={`pos-order-make-payment-${order.display_id}`}
                         onClick={() => openPaymentEntry(order)}
-                        className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-violet-500/40 bg-violet-50 px-3 text-xs font-bold text-violet-700 transition-all hover:bg-violet-600 hover:text-white"
+                        className="ui-btn-primary flex min-h-11 items-center justify-center gap-2 px-3 text-[10px]"
                       >
                         <CreditCard size={14} />
                         Payment Only
@@ -387,7 +481,7 @@ export default function OrderLoadModal({
                       onClick={() => {
                         if (order.id) void loadOrderItems(order.id);
                       }}
-                      className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-blue-500/40 bg-blue-50 px-3 text-xs font-bold text-blue-700 transition-all hover:bg-blue-500 hover:text-white"
+                      className="ui-btn-secondary flex min-h-11 items-center justify-center gap-2 px-3 text-[10px]"
                     >
                       View Lines
                       <ArrowRight size={14} />
@@ -399,9 +493,9 @@ export default function OrderLoadModal({
           )}
 
           {selectedOrderItems.length > 0 && (
-            <div className="mt-4 border-t border-app-border pt-4">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="font-medium text-app-text">
+            <div className="mt-5 rounded-2xl border border-app-border bg-app-surface p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <span className="font-black text-app-text">
                   {selectedOrder?.display_id ?? "Order"} lines
                 </span>
                 <button
@@ -409,35 +503,49 @@ export default function OrderLoadModal({
                     setSelectedOrderItems([]);
                     setViewingItemsOrderId(null);
                   }}
-                  className="text-xs text-app-text-muted hover:text-app-text"
+                  className="text-xs font-black uppercase tracking-widest text-app-text-muted hover:text-app-text"
                 >
                   Close
                 </button>
               </div>
-              <div className="max-h-40 space-y-1 overflow-y-auto">
+              <div className="max-h-72 space-y-2 overflow-y-auto">
                 {selectedOrderItems.map((item) => (
                   <div
                     key={item.transaction_line_id}
-                    className={`flex items-center justify-between rounded-lg border p-2 text-xs ${
+                    className={`flex flex-col gap-3 rounded-xl border p-3 text-xs ${
                       item.is_fulfilled
                         ? "border-emerald-200 bg-emerald-50/50 opacity-60"
                         : "border-app-border bg-app-surface-2/30"
                     }`}
                   >
-                    <div className="flex flex-1 flex-col">
-                      <span className="font-medium text-app-text">{item.product_name}</span>
-                      <span className="text-app-text-muted">
-                        {item.sku} · {fulfillmentLabel(item.fulfillment)}
-                      </span>
-                      {item.fulfillment === "wedding_order" && (
-                        <span className="mt-1 text-[10px] font-bold uppercase tracking-widest text-rose-600">
-                          Keep wedding payment and pickup work tied to the linked member.
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex flex-1 flex-col">
+                        <span className="font-medium text-app-text">{item.product_name}</span>
+                        <span className="text-app-text-muted">
+                          {lineDrafts[item.transaction_line_id]?.sku ?? item.sku} ·{" "}
+                          {lineDrafts[item.transaction_line_id]?.variation_label ??
+                            item.variation_label ??
+                            "Standard"}{" "}
+                          · {fulfillmentLabel(item.fulfillment)}
                         </span>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end">
-                      {onUpdateOrderItem && !item.is_fulfilled ? (
-                        <div className="grid w-40 grid-cols-[4rem_minmax(0,1fr)] gap-1">
+                        <span
+                          className={`mt-2 w-fit rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${
+                            item.order_lifecycle_status === "needs_measurements"
+                              ? "border-app-warning/25 bg-app-warning/10 text-app-warning"
+                              : "border-app-border bg-app-surface text-app-text-muted"
+                          }`}
+                        >
+                          {lineLifecycleLabel(item.order_lifecycle_status)}
+                        </span>
+                        {item.fulfillment === "wedding_order" && (
+                          <span className="mt-1 text-[10px] font-bold uppercase tracking-widest text-rose-600">
+                            Keep wedding payment and pickup work tied to the linked member.
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end">
+                        {onUpdateOrderItem && !item.is_fulfilled ? (
+                          <div className="grid w-full gap-2 sm:w-[24rem] sm:grid-cols-[4rem_minmax(0,1fr)]">
                           <input
                             aria-label={`Quantity for ${item.sku}`}
                             value={lineDrafts[item.transaction_line_id]?.quantity ?? String(item.quantity)}
@@ -445,8 +553,18 @@ export default function OrderLoadModal({
                               setLineDrafts((prev) => ({
                                 ...prev,
                                 [item.transaction_line_id]: {
+                                  ...prev[item.transaction_line_id],
                                   quantity: e.target.value,
                                   unit_price: prev[item.transaction_line_id]?.unit_price ?? item.unit_price,
+                                  variant_id: prev[item.transaction_line_id]?.variant_id ?? item.variant_id,
+                                  sku: prev[item.transaction_line_id]?.sku ?? item.sku,
+                                  variation_label:
+                                    prev[item.transaction_line_id]?.variation_label ??
+                                    item.variation_label,
+                                  order_lifecycle_status:
+                                    prev[item.transaction_line_id]?.order_lifecycle_status ??
+                                    item.order_lifecycle_status ??
+                                    "ntbo",
                                 },
                               }))
                             }
@@ -460,31 +578,114 @@ export default function OrderLoadModal({
                               setLineDrafts((prev) => ({
                                 ...prev,
                                 [item.transaction_line_id]: {
+                                  ...prev[item.transaction_line_id],
                                   quantity: prev[item.transaction_line_id]?.quantity ?? String(item.quantity),
                                   unit_price: e.target.value,
+                                  variant_id: prev[item.transaction_line_id]?.variant_id ?? item.variant_id,
+                                  sku: prev[item.transaction_line_id]?.sku ?? item.sku,
+                                  variation_label:
+                                    prev[item.transaction_line_id]?.variation_label ??
+                                    item.variation_label,
+                                  order_lifecycle_status:
+                                    prev[item.transaction_line_id]?.order_lifecycle_status ??
+                                    item.order_lifecycle_status ??
+                                    "ntbo",
                                 },
                               }))
                             }
                             inputMode="decimal"
                             className="rounded-lg border border-app-border bg-app-surface px-2 py-1 text-right font-black text-app-text"
                           />
+                          <div className="col-span-2">
+                            <VariantSearchInput
+                              placeholder="Search this item for the correct size or variation"
+                              onSelect={(variant) => {
+                                if (variant.product_id !== item.product_id) {
+                                  toast("Use Delete and Add when changing to a different item.", "error");
+                                  return;
+                                }
+                                setLineDrafts((prev) => ({
+                                  ...prev,
+                                  [item.transaction_line_id]: {
+                                    quantity:
+                                      prev[item.transaction_line_id]?.quantity ??
+                                      String(item.quantity),
+                                    unit_price:
+                                      prev[item.transaction_line_id]?.unit_price ??
+                                      item.unit_price,
+                                    variant_id: variant.variant_id,
+                                    sku: variant.sku,
+                                    variation_label: variant.variation_label ?? null,
+                                    order_lifecycle_status:
+                                      prev[item.transaction_line_id]?.order_lifecycle_status ??
+                                      item.order_lifecycle_status ??
+                                      "ntbo",
+                                  },
+                                }));
+                              }}
+                            />
+                          </div>
+                          <select
+                            aria-label={`Lifecycle for ${item.sku}`}
+                            value={
+                              lineDrafts[item.transaction_line_id]?.order_lifecycle_status ??
+                              item.order_lifecycle_status ??
+                              "ntbo"
+                            }
+                            onChange={(e) =>
+                              setLineDrafts((prev) => ({
+                                ...prev,
+                                [item.transaction_line_id]: {
+                                  quantity:
+                                    prev[item.transaction_line_id]?.quantity ??
+                                    String(item.quantity),
+                                  unit_price:
+                                    prev[item.transaction_line_id]?.unit_price ?? item.unit_price,
+                                  variant_id:
+                                    prev[item.transaction_line_id]?.variant_id ?? item.variant_id,
+                                  sku: prev[item.transaction_line_id]?.sku ?? item.sku,
+                                  variation_label:
+                                    prev[item.transaction_line_id]?.variation_label ??
+                                    item.variation_label,
+                                  order_lifecycle_status: e.target.value,
+                                },
+                              }))
+                            }
+                            className="col-span-2 rounded-lg border border-app-border bg-app-surface px-2 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
+                          >
+                            <option value="needs_measurements">Needs Measurements</option>
+                            <option value="ntbo">Ready to Order</option>
+                          </select>
                           <button
                             type="button"
                             disabled={orderMutationBusy}
                             onClick={() => void saveLineDraft(item)}
-                            className="col-span-2 rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
+                            className="ui-btn-secondary col-span-2 flex min-h-9 items-center justify-center gap-2 px-2 text-[10px] disabled:opacity-50"
                           >
+                            <Save size={12} />
                             Save Line
                           </button>
-                        </div>
-                      ) : (
-                        <>
-                          <span className="font-medium text-app-text">
-                            {formatCurrency(item.unit_price)}
-                          </span>
-                          <span className="text-app-text-muted">×{item.quantity}</span>
-                        </>
-                      )}
+                          {onDeleteOrderItem ? (
+                            <button
+                              type="button"
+                              disabled={orderMutationBusy}
+                              onClick={() => void deleteLine(item)}
+                              className="col-span-2 flex min-h-9 items-center justify-center gap-2 rounded-lg border border-app-danger/20 bg-app-danger/10 px-2 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
+                            >
+                              <Trash2 size={12} />
+                              Delete Line
+                            </button>
+                          ) : null}
+                          </div>
+                        ) : (
+                          <>
+                            <span className="font-medium text-app-text">
+                              {formatCurrency(item.unit_price)}
+                            </span>
+                            <span className="text-app-text-muted">×{item.quantity}</span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -499,9 +700,14 @@ export default function OrderLoadModal({
                   member after this POS review.
                 </p>
               )}
-              <div className="mt-2 flex gap-2">
+              <div className="mt-3 flex flex-col gap-2">
                 {onAddItemToOrder && (
-                  <div className="flex flex-[1.5] gap-2">
+                  <>
+                  <VariantSearchInput
+                    placeholder="Search products by name or SKU to add"
+                    onSelect={(variant) => void addVariantToSelectedOrder(variant)}
+                  />
+                  <div className="flex gap-2">
                     <input
                       value={addSku}
                       onChange={(e) => setAddSku(e.target.value)}
@@ -509,17 +715,19 @@ export default function OrderLoadModal({
                         if (e.key === "Enter") void addSkuToSelectedOrder();
                       }}
                       placeholder="Scan SKU to add"
-                      className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text outline-none focus:border-app-accent"
+                      className="ui-input min-w-0 flex-1 text-xs font-semibold"
                     />
                     <button
                       type="button"
                       disabled={orderMutationBusy}
                       onClick={() => void addSkuToSelectedOrder()}
-                      className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+                      className="ui-btn-primary flex items-center gap-2 px-3 text-xs disabled:opacity-50"
                     >
+                      <Plus size={14} />
                       Add to Order
                     </button>
                   </div>
+                  </>
                 )}
               </div>
             </div>
@@ -527,9 +735,9 @@ export default function OrderLoadModal({
         </div>
       </div>
       {paymentOrder && (
-        <div className="ui-overlay-backdrop !z-[210]">
+        <div className="ui-overlay-backdrop !z-[210]" onClick={() => setPaymentOrder(null)}>
           <div
-            className="w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-sm sm:rounded-2xl"
+            className="ui-modal w-full max-w-none rounded-t-3xl p-5 shadow-2xl sm:max-w-sm sm:rounded-3xl"
             data-testid="pos-order-payment-entry-modal"
             onClick={e => e.stopPropagation()}
           >

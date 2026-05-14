@@ -6,12 +6,13 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
-import { AlertTriangle, Clock, Truck, ListFilter, Sparkles, Plus } from "lucide-react";
+import { AlertTriangle, Clock, Truck, ListFilter, Sparkles, Plus, Printer, Mail } from "lucide-react";
 import DashboardGridCard from "../ui/DashboardGridCard";
 
 interface PurchaseOrder {
   id: string;
   po_number: string;
+  vendor_id: string;
   status: string;
   vendor_name: string;
   po_kind?: string;
@@ -31,11 +32,60 @@ interface WeddingNonInventoryItem {
 interface Vendor {
   id: string;
   name: string;
+  email?: string | null;
+}
+
+interface NtboLifecycleItem {
+  transaction_line_id: string;
+  transaction_display_id: string;
+  customer_name: string;
+  product_name: string;
+  sku: string;
+  variation_label?: string | null;
+  quantity: number;
+  is_rush: boolean;
+  need_by_date?: string | null;
+  risk_level: string;
+}
+
+interface PurchaseOrderLineDetail {
+  line_id: string;
+  sku: string;
+  product_name: string;
+  variation_label?: string | null;
+  qty_ordered: number;
+  qty_previously_received: number;
+  unit_cost: string;
+}
+
+interface PurchaseOrderDetail {
+  id: string;
+  po_number: string;
+  status: string;
+  vendor_id: string;
+  vendor_name: string;
+  po_kind: string;
+  lines: PurchaseOrderLineDetail[];
 }
 
 type PurchaseOrderPanelMode = "order" | "receive";
 
 const baseUrl = getBaseUrl();
+
+function dateDisplay(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 function purchaseOrderTypeLabel(kind?: string): string {
   return kind === "direct_invoice" ? "Direct invoice" : "Purchase order";
@@ -46,7 +96,7 @@ function purchaseOrderStatusLabel(status: string): string {
     case "draft":
       return "Draft";
     case "submitted":
-      return "Ready to receive";
+      return "Sent to vendor";
     case "partially_received":
       return "Partially received";
     case "closed":
@@ -56,6 +106,19 @@ function purchaseOrderStatusLabel(status: string): string {
     default:
       return status.replace(/_/g, " ");
   }
+}
+
+function poEmailText(detail: PurchaseOrderDetail): string {
+  const lines = detail.lines.map((line) => (
+    `${line.qty_ordered} x ${line.product_name}${line.variation_label ? ` - ${line.variation_label}` : ""} (${line.sku}) @ $${line.unit_cost}`
+  ));
+  return [
+    `Purchase Order: ${detail.po_number}`,
+    `Vendor: ${detail.vendor_name}`,
+    `Status: ${purchaseOrderStatusLabel(detail.status)}`,
+    "",
+    ...lines,
+  ].join("\n");
 }
 
 export default function PurchaseOrderPanel({
@@ -68,10 +131,11 @@ export default function PurchaseOrderPanel({
   mode?: PurchaseOrderPanelMode;
 }) {
   const { toast } = useToast();
-  const { backofficeHeaders } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const consumedInitialPo = useRef(false);
   const ordersLoadedOnce = useRef(false);
   const lastLoadedOrders = useRef<PurchaseOrder[]>([]);
+  const canManageLifecycle = hasPermission("orders.lifecycle_manage");
 
   useEffect(() => {
     consumedInitialPo.current = false;
@@ -88,6 +152,12 @@ export default function PurchaseOrderPanel({
   const [unitCost, setUnitCost] = useState("0.00");
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
   const [nonInventoryNeeds, setNonInventoryNeeds] = useState<WeddingNonInventoryItem[]>([]);
+  const [ntboItems, setNtboItems] = useState<NtboLifecycleItem[]>([]);
+  const [ntboLoading, setNtboLoading] = useState(false);
+  const [ntboError, setNtboError] = useState<string | null>(null);
+  const [selectedNtboIds, setSelectedNtboIds] = useState<Set<string>>(() => new Set());
+  const [ntboVendorId, setNtboVendorId] = useState("");
+  const [ntboPoBusy, setNtboPoBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setOrdersLoading(true);
@@ -123,6 +193,33 @@ export default function PurchaseOrderPanel({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const loadNtboItems = useCallback(async () => {
+    setNtboLoading(true);
+    setNtboError(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/order-lifecycle/items?status=ntbo&unlinked_only=true`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (!res.ok) throw new Error("ntbo_load_failed");
+      const rows = (await res.json()) as NtboLifecycleItem[];
+      const nextItems = Array.isArray(rows) ? rows : [];
+      setNtboItems(nextItems);
+      setSelectedNtboIds((prev) => {
+        const visible = new Set(nextItems.map((item) => item.transaction_line_id));
+        return new Set([...prev].filter((id) => visible.has(id)));
+      });
+    } catch {
+      setNtboError("NTBO queue could not refresh. Vendor paperwork is still available below.");
+    } finally {
+      setNtboLoading(false);
+    }
+  }, [backofficeHeaders]);
+
+  useEffect(() => {
+    if (mode !== "order") return;
+    void loadNtboItems();
+  }, [loadNtboItems, mode]);
 
   useEffect(() => {
     const id = initialPoId?.trim();
@@ -240,14 +337,68 @@ export default function PurchaseOrderPanel({
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      toast(body.error ?? "Could not submit purchase order", "error");
+      toast(body.error ?? "Could not mark purchase order sent.", "error");
       return;
     }
-    toast("Purchase order submitted", "success");
+    toast("Purchase order marked sent. Linked NTBO items are now ordered.", "success");
     void refresh();
   };
 
   const selected = orders.find((o) => o.id === selectedPo);
+  const isReceiveMode = mode === "receive";
+  useEffect(() => {
+    if (isReceiveMode) return;
+    if (selected?.status === "draft" && selected.po_kind !== "direct_invoice") {
+      setNtboVendorId(selected.vendor_id);
+    }
+  }, [isReceiveMode, selected?.id, selected?.po_kind, selected?.status, selected?.vendor_id]);
+
+  const selectedDraftForNtbo =
+    selected &&
+    selected.status === "draft" &&
+    selected.po_kind !== "direct_invoice" &&
+    selected.vendor_id === ntboVendorId
+      ? selected
+      : null;
+
+  const createPoFromNtbo = useCallback(async () => {
+    if (!ntboVendorId || selectedNtboIds.size === 0) return;
+    setNtboPoBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/order-lifecycle/ntbo/create-po`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(backofficeHeaders() as Record<string, string>),
+        },
+        body: JSON.stringify({
+          purchase_order_id: selectedDraftForNtbo?.id,
+          vendor_id: ntboVendorId,
+          transaction_line_ids: [...selectedNtboIds],
+          notes: selectedDraftForNtbo
+            ? "Added from Inventory Order Stock NTBO queue"
+            : "Created from Inventory Order Stock NTBO queue",
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Could not create purchase order from NTBO items.", "error");
+        return;
+      }
+      const body = (await res.json()) as { purchase_order_id?: string; po_number?: string; linked_line_count?: number };
+      toast(
+        `${body.po_number ?? "Purchase order"} ${selectedDraftForNtbo ? "updated" : "started"} with ${body.linked_line_count ?? selectedNtboIds.size} NTBO item(s). Mark Sent when it has been sent to the vendor.`,
+        "success",
+      );
+      setSelectedNtboIds(new Set());
+      await loadNtboItems();
+      await refresh();
+      if (body.purchase_order_id) setSelectedPo(body.purchase_order_id);
+    } finally {
+      setNtboPoBusy(false);
+    }
+  }, [backofficeHeaders, loadNtboItems, ntboVendorId, refresh, selectedDraftForNtbo, selectedNtboIds, toast]);
+
   const canSubmitSelected =
     !!selected &&
     selected.status === "draft" &&
@@ -263,7 +414,76 @@ export default function PurchaseOrderPanel({
     order.status !== "cancelled" &&
     order.status !== "closed" &&
     (order.po_kind === "direct_invoice" ? true : order.status !== "draft");
-  const isReceiveMode = mode === "receive";
+  const selectedVendor = selected ? vendors.find((vendor) => vendor.id === selected.vendor_id) : null;
+
+  const loadPurchaseOrderDetail = useCallback(async (poId: string): Promise<PurchaseOrderDetail | null> => {
+    const res = await fetch(`${baseUrl}/api/purchase-orders/${poId}`, {
+      headers: backofficeHeaders() as Record<string, string>,
+    });
+    if (!res.ok) {
+      toast("Could not load purchase order details.", "error");
+      return null;
+    }
+    return (await res.json()) as PurchaseOrderDetail;
+  }, [backofficeHeaders, toast]);
+
+  const printSelectedPo = useCallback(async () => {
+    if (!selectedPo) return;
+    const detail = await loadPurchaseOrderDetail(selectedPo);
+    if (!detail) return;
+    const printWindow = window.open("", "_blank", "width=900,height=700");
+    if (!printWindow) {
+      toast("Could not open print window.", "error");
+      return;
+    }
+    const rows = detail.lines.map((line) => `
+      <tr>
+        <td>${line.qty_ordered}</td>
+        <td>${escapeHtml(line.sku)}</td>
+        <td>${escapeHtml(`${line.product_name}${line.variation_label ? ` - ${line.variation_label}` : ""}`)}</td>
+        <td>$${line.unit_cost}</td>
+      </tr>
+    `).join("");
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${detail.po_number}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 32px; color: #111827; }
+            h1 { margin: 0 0 4px; font-size: 24px; }
+            p { margin: 0 0 18px; color: #4b5563; }
+            table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+            th, td { border-bottom: 1px solid #e5e7eb; padding: 10px; text-align: left; font-size: 13px; }
+            th { text-transform: uppercase; letter-spacing: .12em; font-size: 10px; color: #6b7280; }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(detail.po_number)}</h1>
+          <p>${escapeHtml(detail.vendor_name)} - ${escapeHtml(purchaseOrderStatusLabel(detail.status))}</p>
+          <table>
+            <thead><tr><th>Qty</th><th>SKU</th><th>Item</th><th>Unit Cost</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }, [loadPurchaseOrderDetail, selectedPo, toast]);
+
+  const emailSelectedPo = useCallback(async () => {
+    if (!selectedPo) return;
+    if (!selectedVendor?.email) {
+      toast("Add an email to this vendor before emailing a purchase order.", "error");
+      return;
+    }
+    const detail = await loadPurchaseOrderDetail(selectedPo);
+    if (!detail) return;
+    const subject = encodeURIComponent(`Purchase Order ${detail.po_number}`);
+    const body = encodeURIComponent(poEmailText(detail));
+    window.location.href = `mailto:${selectedVendor.email}?subject=${subject}&body=${body}`;
+  }, [loadPurchaseOrderDetail, selectedPo, selectedVendor, toast]);
 
   return (
     <div className="flex flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
@@ -285,6 +505,130 @@ export default function PurchaseOrderPanel({
           {isReceiveMode ? "Vendor Paperwork to Receive" : "Purchase Orders & Receiving"}
         </h2>
       </div>
+
+      {!isReceiveMode && (
+        <DashboardGridCard
+          title="NTBO Vendor Queue"
+          subtitle={`${ntboItems.length} item${ntboItems.length === 1 ? "" : "s"} still need vendor ordering`}
+          icon={Truck}
+        >
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="max-w-3xl">
+                <p className="text-sm font-black text-app-text">
+                  Create vendor paperwork from customer order items that are not yet ordered.
+                </p>
+                <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
+                  Selected lines are staged on draft vendor paperwork. They move from NTBO to Ordered only when the PO is marked sent.
+                </p>
+                {selectedDraftForNtbo ? (
+                  <p className="mt-2 text-xs font-black text-app-accent">
+                    Selected draft: {selectedDraftForNtbo.po_number}. NTBO items will be added to this PO.
+                  </p>
+                ) : null}
+                {ntboError ? (
+                  <p className="mt-2 text-xs font-bold text-app-warning">{ntboError}</p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={ntboVendorId}
+                  onChange={(event) => setNtboVendorId(event.target.value)}
+                  className="ui-input h-10 min-w-[220px] px-3 text-[10px] font-black uppercase tracking-widest"
+                  disabled={!canManageLifecycle || ntboPoBusy}
+                >
+                  <option value="">Vendor: Select</option>
+                  {vendors.map((vendor) => (
+                    <option key={vendor.id} value={vendor.id}>
+                      {vendor.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void createPoFromNtbo()}
+                  disabled={!canManageLifecycle || !ntboVendorId || selectedNtboIds.size === 0 || ntboPoBusy}
+                  className="h-10 rounded-xl border border-app-accent/30 bg-app-accent px-4 text-[10px] font-black uppercase tracking-widest text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {ntboPoBusy
+                    ? "Working..."
+                    : `${selectedDraftForNtbo ? "Add to PO" : "Start PO"} (${selectedNtboIds.size})`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void loadNtboItems()}
+                  disabled={ntboLoading}
+                  className="h-10 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text disabled:opacity-50"
+                >
+                  {ntboLoading ? "Refreshing" : "Refresh"}
+                </button>
+              </div>
+            </div>
+
+            {ntboItems.length > 0 ? (
+              <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+                {ntboItems.map((item) => {
+                  const selectedItem = selectedNtboIds.has(item.transaction_line_id);
+                  return (
+                    <label
+                      key={item.transaction_line_id}
+                      className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${
+                        selectedItem
+                          ? "border-app-accent/40 bg-app-accent/10"
+                          : "border-app-border bg-app-surface-2 hover:border-app-border-hover"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedItem}
+                        disabled={!canManageLifecycle}
+                        onChange={(event) => {
+                          setSelectedNtboIds((prev) => {
+                            const next = new Set(prev);
+                            if (event.target.checked) next.add(item.transaction_line_id);
+                            else next.delete(item.transaction_line_id);
+                            return next;
+                          });
+                        }}
+                        className="mt-1 h-4 w-4 accent-app-accent"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-xs font-black text-app-text">
+                          {item.quantity}x {item.product_name}
+                        </span>
+                        <span className="mt-1 block truncate text-[11px] font-semibold text-app-text-muted">
+                          {item.transaction_display_id} · {item.customer_name} · {item.sku}
+                        </span>
+                        <span className="mt-2 flex flex-wrap gap-1.5">
+                          {item.is_rush ? (
+                            <span className="rounded-full border border-app-danger/20 bg-app-danger/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-danger">
+                              Rush
+                            </span>
+                          ) : null}
+                          <span className="rounded-full border border-app-border bg-app-surface px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+                            {item.risk_level.replace(/_/g, " ")}
+                          </span>
+                          {item.need_by_date ? (
+                            <span className="rounded-full border border-app-border bg-app-surface px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+                              Need {dateDisplay(item.need_by_date)}
+                            </span>
+                          ) : null}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-6 text-center">
+                <p className="text-sm font-black text-app-text">
+                  {ntboLoading ? "Refreshing NTBO items..." : "No NTBO items need vendor ordering."}
+                </p>
+              </div>
+            )}
+          </div>
+        </DashboardGridCard>
+      )}
 
       <DashboardGridCard 
         title={isReceiveMode ? "Ready-to-Receive Documents" : "Active Purchase Orders"}
@@ -319,17 +663,34 @@ export default function PurchaseOrderPanel({
           >
             <Sparkles size={14} /> {isReceiveMode ? "Direct Invoice - Arrived Stock" : "Direct Invoice"}
           </button>
+          <button
+            type="button"
+            disabled={!selectedPo}
+            onClick={() => void printSelectedPo()}
+            className="flex h-10 items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all hover:text-app-text disabled:opacity-40"
+          >
+            <Printer size={14} /> Print PO
+          </button>
+          <button
+            type="button"
+            disabled={!selectedPo || !selectedVendor?.email}
+            onClick={() => void emailSelectedPo()}
+            className="flex h-10 items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all hover:text-app-text disabled:opacity-40"
+            title={selectedVendor?.email ? "Email selected PO" : "Vendor email required"}
+          >
+            <Mail size={14} /> Email PO
+          </button>
         </div>
         <div className="mb-6 rounded-2xl border border-app-border bg-app-surface/30 px-5 py-4">
           <p className="text-sm font-black text-app-text">
             {isReceiveMode
-              ? "Receive from a submitted PO below, or create a Direct Invoice when merchandise is already here without a pre-built order."
-              : "To receive stock, choose an open purchase order below and click Receive."}
+              ? "Receive from a sent PO below, or create a Direct Invoice when merchandise is already here without a pre-built order."
+              : "Build draft POs here, print or email them, then mark sent before receiving."}
           </p>
           <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
             {isReceiveMode
-              ? "Submitted PO = ready to receive. Direct invoice = arrived without a pre-built PO. Draft PO = order setup; submit before receiving."
-              : "If the shipment arrived without an order, select the vendor and create a Direct Invoice. If there is no vendor yet, add the vendor in Vendors first."}
+              ? "Sent PO = ready to receive. Direct invoice = arrived without a pre-built PO. Draft PO = order setup; mark sent before receiving."
+              : "NTBO lines stay NTBO while a PO is in draft. Mark Sent moves linked order items to Ordered."}
           </p>
         </div>
         {ordersLoadError && (
@@ -439,7 +800,7 @@ export default function PurchaseOrderPanel({
                             }}
                             className="inline-flex h-8 items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 text-[9px] font-black uppercase tracking-widest text-app-text shadow-sm hover:border-app-accent hover:text-app-accent transition-all active:scale-95"
                           >
-                            Submit
+                            Mark Sent
                           </button>
                         ) : null}
                         <button
@@ -532,8 +893,8 @@ export default function PurchaseOrderPanel({
               </p>
               <p className="text-xs text-app-text-muted">
                 {isReceiveMode
-                  ? "Open Receive Stock when the submitted PO or direct invoice matches the paperwork in hand."
-                  : "Standard purchase orders must be submitted before receiving. Direct invoices can open receiving immediately."}
+                  ? "Open Receive Stock when the sent PO or direct invoice matches the paperwork in hand."
+                  : "Standard purchase orders must be marked sent before receiving. Direct invoices can open receiving immediately."}
               </p>
             </div>
             <div className="flex gap-3">
@@ -543,7 +904,7 @@ export default function PurchaseOrderPanel({
                   onClick={() => void submitPo()}
                   className="h-12 rounded-2xl border border-app-border bg-app-surface px-5 text-[10px] font-black uppercase tracking-widest text-app-text shadow-sm hover:border-app-accent hover:text-app-accent transition-all active:scale-95"
                 >
-                  Submit PO
+                  Mark Sent
                 </button>
               ) : null}
               <button

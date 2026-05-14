@@ -284,6 +284,7 @@ pub async fn query_paged_transactions(
                         'quantity', oi.quantity,
                         'status',
                         CASE
+                            WHEN oi.order_lifecycle_status = 'needs_measurements' THEN 'Needs measurements'
                             WHEN oi.order_lifecycle_status = 'picked_up' THEN 'Picked up'
                             WHEN oi.order_lifecycle_status = 'ready_for_pickup' THEN 'Ready for pickup'
                             WHEN oi.order_lifecycle_status = 'received' THEN 'Received'

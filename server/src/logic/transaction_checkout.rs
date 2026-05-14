@@ -30,7 +30,8 @@ use crate::logic::transaction_recalc;
 use crate::logic::weather;
 use crate::logic::weddings as wedding_logic;
 use crate::models::{
-    DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderStatus, DbTransactionCategory,
+    DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderItemLifecycleStatus, DbOrderStatus,
+    DbTransactionCategory,
 };
 use crate::services::inventory;
 use sqlx::types::Json;
@@ -86,6 +87,8 @@ pub struct CheckoutItem {
     pub need_by_date: Option<chrono::NaiveDate>,
     #[serde(default)]
     pub needs_gift_wrap: bool,
+    #[serde(default)]
+    pub order_lifecycle_status: Option<DbOrderItemLifecycleStatus>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -748,6 +751,27 @@ fn creates_fulfillment_order(fulfillment: DbFulfillmentType) -> bool {
     )
 }
 
+fn initial_order_lifecycle_status(
+    fulfillment: DbFulfillmentType,
+    line_fulfilled: bool,
+    requested: Option<DbOrderItemLifecycleStatus>,
+) -> Result<DbOrderItemLifecycleStatus, CheckoutError> {
+    let default = order_lifecycle::initial_status_for_line(fulfillment, line_fulfilled);
+    if line_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
+        return Ok(default);
+    }
+    match requested {
+        Some(DbOrderItemLifecycleStatus::NeedsMeasurements) => {
+            Ok(DbOrderItemLifecycleStatus::NeedsMeasurements)
+        }
+        Some(DbOrderItemLifecycleStatus::Ntbo) | None => Ok(default),
+        Some(other) => Err(CheckoutError::InvalidPayload(format!(
+            "checkout cannot initialize order line lifecycle as {}",
+            other.as_str()
+        ))),
+    }
+}
+
 fn is_alteration_service_item(item: &CheckoutItem) -> bool {
     checkout_line_type(item) == "alteration_service"
 }
@@ -1206,6 +1230,7 @@ async fn expand_bundle_checkout_items(
                 is_rush: item.is_rush,
                 need_by_date: item.need_by_date,
                 needs_gift_wrap: item.needs_gift_wrap,
+                order_lifecycle_status: item.order_lifecycle_status,
             });
         }
     }
@@ -3130,7 +3155,11 @@ pub async fn execute_checkout(
         order_lifecycle::initialize_line_tx(
             &mut tx,
             transaction_line_id,
-            order_lifecycle::initial_status_for_line(fulfillment, line_fulfilled),
+            initial_order_lifecycle_status(
+                fulfillment,
+                line_fulfilled,
+                item.order_lifecycle_status,
+            )?,
             Some(payload.operator_staff_id),
             "checkout",
         )

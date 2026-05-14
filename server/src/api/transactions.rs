@@ -840,13 +840,18 @@ pub struct AddTransactionLineRequest {
     pub local_tax: Decimal,
     #[serde(default)]
     pub salesperson_id: Option<Uuid>,
+    #[serde(default)]
+    pub order_lifecycle_status: Option<DbOrderItemLifecycleStatus>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PatchTransactionLineRequest {
+    pub variant_id: Option<Uuid>,
     pub quantity: Option<i32>,
     pub unit_price: Option<Decimal>,
     pub fulfillment: Option<DbFulfillmentType>,
+    #[serde(default)]
+    pub order_lifecycle_status: Option<DbOrderItemLifecycleStatus>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3657,7 +3662,7 @@ async fn add_transaction_line(
     headers: HeaderMap,
     Json(body): Json<AddTransactionLineRequest>,
 ) -> Result<Json<TransactionDetailResponse>, TransactionError> {
-    middleware::require_staff_with_permission(&state, &headers, ORDERS_MODIFY)
+    let staff = middleware::require_staff_with_permission(&state, &headers, ORDERS_MODIFY)
         .await
         .map_err(map_perm_err)?;
     if body.quantity <= 0 {
@@ -3680,13 +3685,14 @@ async fn add_transaction_line(
         body.fulfillment,
     )
     .map_err(|m| TransactionError::InvalidPayload(m.to_string()))?;
-    sqlx::query(
+    let transaction_line_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO transaction_lines (
             transaction_id, product_id, variant_id, fulfillment, quantity,
             unit_price, unit_cost, state_tax, local_tax, is_fulfilled, salesperson_id
         )
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        RETURNING id
         "#,
     )
     .bind(transaction_id)
@@ -3700,7 +3706,27 @@ async fn add_transaction_line(
     .bind(body.local_tax)
     .bind(false)
     .bind(body.salesperson_id)
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
+    .await?;
+    let initial_status = match body.order_lifecycle_status {
+        Some(DbOrderItemLifecycleStatus::NeedsMeasurements) => {
+            DbOrderItemLifecycleStatus::NeedsMeasurements
+        }
+        Some(DbOrderItemLifecycleStatus::Ntbo) | None => DbOrderItemLifecycleStatus::Ntbo,
+        Some(other) => {
+            return Err(TransactionError::InvalidPayload(format!(
+                "order line cannot be added as {}",
+                other.as_str()
+            )));
+        }
+    };
+    order_lifecycle::initialize_line_tx(
+        &mut tx,
+        transaction_line_id,
+        initial_status,
+        Some(staff.id),
+        "transaction_line_add",
+    )
     .await?;
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
@@ -3731,7 +3757,7 @@ async fn update_transaction_line(
     headers: HeaderMap,
     Json(body): Json<PatchTransactionLineRequest>,
 ) -> Result<Json<TransactionDetailResponse>, TransactionError> {
-    middleware::require_staff_with_permission(&state, &headers, ORDERS_MODIFY)
+    let staff = middleware::require_staff_with_permission(&state, &headers, ORDERS_MODIFY)
         .await
         .map_err(map_perm_err)?;
     let mut tx = state.db.begin().await?;
@@ -3752,6 +3778,72 @@ async fn update_transaction_line(
         None => None,
     };
 
+    let current_line: Option<(Uuid, DbOrderItemLifecycleStatus, bool, DbFulfillmentType)> =
+        sqlx::query_as(
+            r#"
+            SELECT product_id, order_lifecycle_status, is_fulfilled, fulfillment
+            FROM transaction_lines
+            WHERE id = $1
+              AND transaction_id = $2
+            FOR UPDATE
+            "#,
+        )
+        .bind(transaction_line_id)
+        .bind(transaction_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let Some((current_product_id, current_lifecycle_status, is_fulfilled, current_fulfillment)) =
+        current_line
+    else {
+        return Err(TransactionError::NotFound);
+    };
+
+    if let Some(next_variant_id) = body.variant_id {
+        let variant_product_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT product_id FROM product_variants WHERE id = $1")
+                .bind(next_variant_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        match variant_product_id {
+            Some(product_id) if product_id == current_product_id => {}
+            Some(_) => {
+                return Err(TransactionError::InvalidPayload(
+                    "Use Delete and Add when changing to a different item.".to_string(),
+                ));
+            }
+            None => {
+                return Err(TransactionError::InvalidPayload(
+                    "variant not found".to_string(),
+                ))
+            }
+        }
+    }
+
+    if let Some(next_status) = body.order_lifecycle_status {
+        if is_fulfilled || current_fulfillment == DbFulfillmentType::Takeaway {
+            return Err(TransactionError::InvalidPayload(
+                "fulfilled lines cannot be moved back into order review.".to_string(),
+            ));
+        }
+        if !matches!(
+            current_lifecycle_status,
+            DbOrderItemLifecycleStatus::NeedsMeasurements | DbOrderItemLifecycleStatus::Ntbo
+        ) {
+            return Err(TransactionError::InvalidPayload(
+                "only lines waiting on measurements or vendor ordering can be changed here"
+                    .to_string(),
+            ));
+        }
+        if !matches!(
+            next_status,
+            DbOrderItemLifecycleStatus::NeedsMeasurements | DbOrderItemLifecycleStatus::Ntbo
+        ) {
+            return Err(TransactionError::InvalidPayload(
+                "line edit can only mark Needs Measurements or Ready to Order".to_string(),
+            ));
+        }
+    }
+
     let mut touched = false;
     if let Some(q) = body.quantity {
         if q <= 0 {
@@ -3764,6 +3856,9 @@ async fn update_transaction_line(
     if body.unit_price.is_some() {
         touched = true;
     }
+    if body.variant_id.is_some() {
+        touched = true;
+    }
     if normalized_fulfillment.is_some() {
         touched = true;
     }
@@ -3774,17 +3869,31 @@ async fn update_transaction_line(
             SET
                 quantity = COALESCE($1, quantity),
                 unit_price = COALESCE($2, unit_price),
-                fulfillment = COALESCE($3, fulfillment)
-            WHERE id = $4
-              AND transaction_id = $5
+                fulfillment = COALESCE($3, fulfillment),
+                variant_id = COALESCE($4, variant_id)
+            WHERE id = $5
+              AND transaction_id = $6
             "#,
         )
         .bind(body.quantity)
         .bind(body.unit_price)
         .bind(normalized_fulfillment)
+        .bind(body.variant_id)
         .bind(transaction_line_id)
         .bind(transaction_id)
         .execute(&mut *tx)
+        .await?;
+    }
+    if let Some(next_status) = body.order_lifecycle_status {
+        order_lifecycle::apply_transition_tx(
+            &mut tx,
+            &[transaction_line_id],
+            next_status,
+            Some(staff.id),
+            "transaction_line_edit",
+            Some("Order line review updated"),
+            json!({ "transaction_line_id": transaction_line_id }),
+        )
         .await?;
     }
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
@@ -3803,7 +3912,14 @@ async fn update_transaction_line(
         customer_id,
         "item_updated",
         "Order line edited",
-        json!({ "transaction_line_id": transaction_line_id, "quantity": body.quantity, "unit_price": body.unit_price, "fulfillment": normalized_fulfillment }),
+        json!({
+            "transaction_line_id": transaction_line_id,
+            "variant_id": body.variant_id,
+            "quantity": body.quantity,
+            "unit_price": body.unit_price,
+            "fulfillment": normalized_fulfillment,
+            "order_lifecycle_status": body.order_lifecycle_status.map(|s| s.as_str()),
+        }),
     )
     .await?;
     let detail = load_transaction_detail(&state.db, transaction_id).await?;

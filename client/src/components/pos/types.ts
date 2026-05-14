@@ -41,6 +41,14 @@ export type FulfillmentKind =
   | "custom"
   | "layaway";
 
+export type OrderLifecycleStatus =
+  | "needs_measurements"
+  | "ntbo"
+  | "ordered"
+  | "received"
+  | "ready_for_pickup"
+  | "picked_up";
+
 export interface CartLineItem extends ResolvedSkuItem {
   line_type?: "merchandise" | "alteration_service";
   quantity: number;
@@ -59,6 +67,7 @@ export interface CartLineItem extends ResolvedSkuItem {
   /** Preserved tax rates from catalog to prevent compounding rounding errors during recalculation. */
   nominal_state_tax_rate?: number;
   nominal_local_tax_rate?: number;
+  order_lifecycle_status?: OrderLifecycleStatus;
 }
 
 export type AlterationSourceType =

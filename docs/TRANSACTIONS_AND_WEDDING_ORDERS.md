@@ -51,6 +51,15 @@ The lifecycle belongs to each ordered item, not only to the Transaction or Fulfi
 
 Lifecycle changes write audit events in `transaction_line_lifecycle_events`. Manual lifecycle repair paths require `orders.lifecycle_manage`; risky transitions must continue through receiving and pickup workflows so inventory, revenue, commission, and reporting contracts stay intact.
 
+### Mid-Season Wedding Cutover
+
+When ROS starts mid-year, existing wedding parties may be imported into Wedding Manager while their current sales/orders arrive from Counterpoint sync. Use the cutover linking workflow in [`WEDDING_COUNTERPOINT_CUTOVER_LINKING.md`](WEDDING_COUNTERPOINT_CUTOVER_LINKING.md):
+
+- Counterpoint-synced Transaction Records remain the financial source of truth.
+- Wedding Manager staff confirm which party/member owns each imported transaction line.
+- The confirmed transaction-line lifecycle becomes the operational source for Readiness, Orders, Inventory, and Register.
+- Placeholder wedding items stay **Needs Measurements** until the exact product variation is known.
+
 ### 2. Deposits & Accounting
 - The customer may pay a partial deposit against the **Transaction**.
 - The partial deposit is booked exclusively as Liability. 

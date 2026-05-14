@@ -67,6 +67,25 @@ If a customer has an order from Counterpoint (legacy) that should belong to this
 4. Select the matching **Wedding Party** and **Member** to link them.
 5. Once linked, the order status and balances will reflect in the **Action Board** pipeline.
 
+### Mid-season Counterpoint cutover
+
+If ROS starts while weddings are already in progress, managers should use the planned **Cutover Review** workflow before trusting party readiness.
+
+Plain rule: **do not retype money into Wedding Manager.** Counterpoint-synced Transaction Records carry the paid amount, balance, and line items. Staff only confirm which party/member owns each imported sale or order and where each item currently stands.
+
+Recommended review order:
+
+1. Confirm the party and member list imported correctly.
+2. Link each member to the right ROS customer.
+3. Review suggested imported Transaction Records.
+4. Attach the correct order lines to the member.
+5. Confirm item status: **Needs measurements**, **Ready to order**, **Ordered**, **Received**, **Ready for pickup**, or **Picked up**.
+6. Leave uncertain matches unresolved for manager review.
+
+Wedding placeholder suits should stay **Needs measurements** until measurements are complete and the exact variation is selected. After review, Wedding Readiness, Orders, Inventory, and Register should all read the same ROS lifecycle state.
+
+Full design: [../WEDDING_COUNTERPOINT_CUTOVER_LINKING.md](../WEDDING_COUNTERPOINT_CUTOVER_LINKING.md).
+
 ### Ledger and financial context
 
 - **Ledger** (`party` → **Ledger**): payment-oriented detail.

@@ -22,6 +22,27 @@ test.describe("Phase 4 wedding readiness certification", () => {
     test.setTimeout(180_000);
     const fixture = await seedRmsFixture(request, "single_valid", "Phase 4 Wedding Readiness");
 
+    const measurementProduct = await createSingleVariantProduct(request, uniqueSuffix("phase4-measurement"), {
+      namePrefix: "Phase 4 Needs Measurement",
+      skuPrefix: "P4M",
+    });
+    const measurementCheckout = await checkoutWeddingOrderSeed(request, {
+      customerId: fixture.customer.id,
+      products: [measurementProduct],
+      orderLifecycleStatus: "needs_measurements",
+    });
+    const measurementMember = await attachToNewWedding(
+      request,
+      measurementCheckout.transaction_id,
+      "Measurements",
+      12,
+    );
+    const measurementReadiness = await fetchReadiness(request, measurementMember.wedding_party_id);
+    expect(measurementReadiness.status).toBe("critical");
+    expect(measurementReadiness.lifecycle.needs_measurements).toBeGreaterThan(0);
+    expect(measurementReadiness.lifecycle.ntbo).toBe(0);
+    expect(measurementReadiness.blockers.some((b) => b.label === "Needs measurements")).toBeTruthy();
+
     const criticalProduct = await createSingleVariantProduct(request, uniqueSuffix("phase4-critical"), {
       namePrefix: "Phase 4 Critical",
       skuPrefix: "P4C",

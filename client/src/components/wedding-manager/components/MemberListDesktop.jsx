@@ -2,7 +2,18 @@ import React from 'react';
 import Icon from './Icon';
 import { formatPhone, formatDate } from '../lib/utils';
 
-const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberId = {}, onMemberClick, onUpdateMember, toggleStatus, onAppointmentClick }) => {
+function lifecycleBadge(readiness) {
+    const lifecycle = readiness?.lifecycle || {};
+    if (lifecycle.needs_measurements > 0) return { label: 'Needs measurements', className: 'bg-rose-100 text-rose-700' };
+    if (lifecycle.ntbo > 0) return { label: 'Ready to order', className: 'bg-amber-100 text-amber-700' };
+    if (lifecycle.ordered > 0) return { label: 'Ordered', className: 'bg-blue-100 text-blue-700' };
+    if (lifecycle.received > 0) return { label: 'Received', className: 'bg-indigo-100 text-indigo-700' };
+    if (lifecycle.ready_for_pickup > 0) return { label: 'Ready pickup', className: 'bg-emerald-100 text-emerald-700' };
+    if (lifecycle.picked_up > 0) return { label: 'Picked up', className: 'bg-slate-100 text-slate-700' };
+    return null;
+}
+
+const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberId = {}, readinessByMemberId = {}, onMemberClick, onUpdateMember, toggleStatus, onAppointmentClick }) => {
     return (
         <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-app-border">
@@ -73,6 +84,7 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                     : paymentStatus === 'PARTIAL'
                                         ? 'bg-amber-100 text-amber-700'
                                         : 'bg-rose-100 text-rose-700';
+                            const orderLifecycle = lifecycleBadge(readinessByMemberId[member.id]);
 
                             return (
                                 <tr key={member.id} className="hover:bg-app-surface-2 transition-colors group border-b border-app-border/80 last:border-0">
@@ -93,6 +105,11 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${paymentBadgeClass}`}>
                                                         {paymentStatus}
                                                     </span>
+                                                    {orderLifecycle && (
+                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${orderLifecycle.className}`}>
+                                                            {orderLifecycle.label}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 {member.pinNote === 1 && member.notes && (
                                                     <div className="mt-1.5 px-2 py-1 bg-gold-50 border border-gold-200 rounded text-[10px] text-gold-700 font-medium italic break-words max-w-[200px] whitespace-normal shadow-sm">

@@ -21,6 +21,7 @@ use crate::logic::order_lifecycle;
 use crate::logic::procurement;
 use crate::logic::template_variant_pricing::effective_cost_usd;
 use crate::middleware;
+use crate::models::DbOrderItemLifecycleStatus;
 
 #[derive(Debug, Error)]
 pub enum PurchaseOrderError {
@@ -93,6 +94,7 @@ pub struct CreateDraftPoRequest {
 pub struct PurchaseOrderSummary {
     pub id: Uuid,
     pub po_number: String,
+    pub vendor_id: Uuid,
     pub status: String,
     pub vendor_name: String,
     pub po_kind: String,
@@ -271,7 +273,7 @@ async fn list_purchase_orders(
     require_po(&state, &headers, PROCUREMENT_VIEW).await?;
     let rows = sqlx::query_as::<_, PurchaseOrderSummary>(
         r#"
-        SELECT po.id, po.po_number, po.status::text AS status, v.name AS vendor_name,
+        SELECT po.id, po.po_number, po.vendor_id, po.status::text AS status, v.name AS vendor_name,
                po.po_kind
         FROM purchase_orders po
         JOIN vendors v ON v.id = po.vendor_id
@@ -311,6 +313,7 @@ async fn create_draft_po(
         RETURNING
             id,
             po_number,
+            vendor_id,
             status::text AS status,
             (SELECT name FROM vendors WHERE id = vendor_id) AS vendor_name,
             po_kind
@@ -350,6 +353,7 @@ async fn create_direct_invoice_draft(
         RETURNING
             id,
             po_number,
+            vendor_id,
             status::text AS status,
             (SELECT name FROM vendors WHERE id = vendor_id) AS vendor_name,
             po_kind
@@ -409,7 +413,7 @@ async fn submit_po(
     Path(po_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, PurchaseOrderError> {
-    require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
+    let staff = require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
     #[derive(Debug, FromRow)]
     struct SubmitContext {
         status: String,
@@ -417,6 +421,7 @@ async fn submit_po(
         line_count: i64,
     }
 
+    let mut tx = state.db.begin().await?;
     let context = sqlx::query_as::<_, SubmitContext>(
         r#"
         SELECT
@@ -430,7 +435,7 @@ async fn submit_po(
         "#,
     )
     .bind(po_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(PurchaseOrderError::NotFound)?;
 
@@ -461,37 +466,57 @@ async fn submit_po(
         "#,
     )
     .bind(po_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
 
     if result.rows_affected() == 0 {
         return Err(PurchaseOrderError::NotFound);
     }
 
-    // --- Wedding Manager Integration: Mark members as 'ordered' ---
-    // Find all variants on this PO
-    let variants: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT variant_id FROM purchase_order_lines WHERE purchase_order_id = $1",
+    let linked_ntbo_line_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM transaction_lines
+        WHERE po_id = $1
+          AND order_lifecycle_status = 'ntbo'
+        "#,
     )
     .bind(po_id)
-    .fetch_all(&state.db)
+    .fetch_all(&mut *tx)
     .await?;
 
-    if !variants.is_empty() {
-        // Update wedding members matching these variants
-        sqlx::query(
-            r#"
-            UPDATE wedding_members
-            SET status = 'ordered',
-                suit_ordered = true
-            WHERE suit_variant_id = ANY($1)
-              AND status IN ('measured', 'pending')
-            "#,
-        )
-        .bind(&variants)
-        .execute(&state.db)
-        .await?;
-    }
+    order_lifecycle::apply_transition_tx(
+        &mut tx,
+        &linked_ntbo_line_ids,
+        DbOrderItemLifecycleStatus::Ordered,
+        Some(staff.id),
+        "purchase_order_mark_sent",
+        Some("Purchase order marked sent to vendor"),
+        json!({ "po_id": po_id }),
+    )
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE wedding_members wm
+        SET status = CASE
+                WHEN wm.status IN ('measured', 'pending', 'prospect') THEN 'ordered'
+                ELSE wm.status
+            END,
+            suit_ordered = TRUE
+        FROM transactions t
+        INNER JOIN transaction_lines tl ON tl.transaction_id = t.id
+        WHERE t.wedding_member_id = wm.id
+          AND tl.po_id = $1
+          AND tl.order_lifecycle_status = 'ordered'
+          AND tl.fulfillment::text = 'wedding_order'
+        "#,
+    )
+    .bind(po_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
 
     Ok(Json(json!({ "status": "submitted" })))
 }
@@ -1141,24 +1166,6 @@ async fn receive_po(
             .execute(&mut *tx)
             .await?;
         }
-
-        // --- WEDDING SYNC ---
-        // If this variant is assigned to any wedding members as their suit selection,
-        // mark them as received.
-        sqlx::query(
-            r#"
-            UPDATE wedding_members
-            SET 
-                received = TRUE,
-                received_date = COALESCE(received_date, NOW()),
-                status = CASE WHEN status = 'ordered' THEN 'received' ELSE status END
-            WHERE suit_variant_id = $1
-              AND (received IS NULL OR received = FALSE)
-            "#,
-        )
-        .bind(row.variant_id)
-        .execute(&mut *tx)
-        .await?;
     }
 
     let received_po_line_ids = lines.iter().map(|line| line.po_line_id).collect::<Vec<_>>();
@@ -1169,6 +1176,26 @@ async fn receive_po(
         receive_event_id,
     )
     .await?;
+
+    if !received_po_line_ids.is_empty() {
+        sqlx::query(
+            r#"
+            UPDATE wedding_members wm
+            SET received = TRUE,
+                received_date = COALESCE(received_date, NOW()),
+                status = CASE WHEN wm.status = 'ordered' THEN 'received' ELSE wm.status END
+            FROM transactions t
+            INNER JOIN transaction_lines tl ON tl.transaction_id = t.id
+            WHERE t.wedding_member_id = wm.id
+              AND tl.po_line_id = ANY($1)
+              AND tl.fulfillment::text = 'wedding_order'
+              AND tl.order_lifecycle_status = 'received'
+            "#,
+        )
+        .bind(&received_po_line_ids)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     let has_short = sqlx::query_scalar::<_, bool>(
         r#"

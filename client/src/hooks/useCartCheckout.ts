@@ -305,6 +305,10 @@ export function useCartCheckout({
             is_rush: l.is_rush || (appliesOrderOptions ? Boolean(options?.is_rush) : false),
             need_by_date: l.need_by_date ?? (appliesOrderOptions ? options?.need_by_date ?? null : null),
             needs_gift_wrap: l.needs_gift_wrap,
+            order_lifecycle_status:
+              appliesOrderOptions && l.order_lifecycle_status === "needs_measurements"
+                ? "needs_measurements"
+                : undefined,
             ...(l.discount_event_id ? { discount_event_id: l.discount_event_id } : {}),
             ...(l.gift_card_load_code?.trim() ? { gift_card_load_code: l.gift_card_load_code.trim().toUpperCase() } : {}),
           };

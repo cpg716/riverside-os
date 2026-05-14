@@ -91,6 +91,7 @@ pub fn router() -> Router<AppState> {
 #[derive(Debug, Deserialize)]
 pub struct LifecycleItemsQuery {
     pub status: Option<String>,
+    pub unlinked_only: Option<bool>,
     pub vendor_id: Option<Uuid>,
     pub wedding_party_id: Option<Uuid>,
     pub rush: Option<bool>,
@@ -233,6 +234,7 @@ async fn list_lifecycle_items(
           AND ($9::date IS NULL OR COALESCE(tl.need_by_date, t.need_by_date) <= $9)
           AND ($10::date IS NULL OR COALESCE(tl.wedding_date, wp.event_date) >= $10)
           AND ($11::date IS NULL OR COALESCE(tl.wedding_date, wp.event_date) <= $11)
+          AND ($12::bool IS NOT TRUE OR (tl.po_id IS NULL AND tl.po_line_id IS NULL))
         ORDER BY
             COALESCE(tl.is_rush, t.is_rush, false) DESC,
             COALESCE(tl.need_by_date, t.need_by_date) NULLS LAST,
@@ -253,6 +255,7 @@ async fn list_lifecycle_items(
     .bind(q.need_by_to)
     .bind(q.wedding_date_from)
     .bind(q.wedding_date_to)
+    .bind(q.unlinked_only)
     .fetch_all(&state.db)
     .await?;
 
@@ -468,6 +471,7 @@ async fn transition_item(
 
 #[derive(Debug, Deserialize)]
 pub struct CreatePoFromNtboRequest {
+    pub purchase_order_id: Option<Uuid>,
     pub vendor_id: Uuid,
     pub transaction_line_ids: Vec<Uuid>,
     pub expected_at: Option<String>,
@@ -535,6 +539,8 @@ async fn create_po_from_ntbo(
           AND tl.fulfillment::text <> 'takeaway'
           AND tl.is_fulfilled = FALSE
           AND tl.order_lifecycle_status = 'ntbo'
+          AND tl.po_id IS NULL
+          AND tl.po_line_id IS NULL
         ORDER BY tl.id
         FOR UPDATE OF tl
         "#,
@@ -549,35 +555,59 @@ async fn create_po_from_ntbo(
         ));
     }
 
-    let (purchase_order_id, po_number): (Uuid, String) = sqlx::query_as(
-        r#"
-        INSERT INTO purchase_orders (
-            po_number, vendor_id, status, expected_at, notes, created_by, po_kind, submitted_at
-        )
-        VALUES (
-            CONCAT(
-                'PO-',
-                TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS-MS'),
-                '-',
-                LPAD((FLOOR(random() * 1000))::int::text, 3, '0')
-            ),
-            $1,
-            'submitted',
-            $2::timestamptz,
-            $3,
-            $4,
-            'standard',
-            NOW()
-        )
-        RETURNING id, po_number
-        "#,
-    )
-    .bind(payload.vendor_id)
-    .bind(payload.expected_at)
-    .bind(payload.notes)
-    .bind(staff.id)
-    .fetch_one(&mut *tx)
-    .await?;
+    let (purchase_order_id, po_number): (Uuid, String) =
+        if let Some(existing_po_id) = payload.purchase_order_id {
+            let row = sqlx::query_as::<_, (Uuid, String)>(
+                r#"
+                SELECT id, po_number
+                FROM purchase_orders
+                WHERE id = $1
+                  AND vendor_id = $2
+                  AND status = 'draft'
+                  AND po_kind = 'standard'
+                FOR UPDATE
+                "#,
+            )
+            .bind(existing_po_id)
+            .bind(payload.vendor_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                OrderLifecycleError::InvalidPayload(
+                    "Selected purchase order must be a draft for this vendor".to_string(),
+                )
+            })?;
+            row
+        } else {
+            sqlx::query_as(
+                r#"
+                INSERT INTO purchase_orders (
+                    po_number, vendor_id, status, expected_at, notes, created_by, po_kind
+                )
+                VALUES (
+                    CONCAT(
+                        'PO-',
+                        TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS-MS'),
+                        '-',
+                        LPAD((FLOOR(random() * 1000))::int::text, 3, '0')
+                    ),
+                    $1,
+                    'draft',
+                    $2::timestamptz,
+                    $3,
+                    $4,
+                    'standard'
+                )
+                RETURNING id, po_number
+                "#,
+            )
+            .bind(payload.vendor_id)
+            .bind(payload.expected_at)
+            .bind(payload.notes)
+            .bind(staff.id)
+            .fetch_one(&mut *tx)
+            .await?
+        };
 
     let mut links: Vec<(Uuid, Uuid)> = Vec::with_capacity(candidates.len());
     for candidate in &candidates {
@@ -599,15 +629,8 @@ async fn create_po_from_ntbo(
         links.push((candidate.transaction_line_id, po_line_id));
     }
 
-    order_lifecycle::link_lines_to_po_tx(
-        &mut tx,
-        &links,
-        purchase_order_id,
-        payload.vendor_id,
-        staff.id,
-        "ntbo_create_po",
-    )
-    .await?;
+    order_lifecycle::attach_lines_to_po_tx(&mut tx, &links, purchase_order_id, payload.vendor_id)
+        .await?;
     tx.commit().await?;
 
     Ok(Json(CreatePoFromNtboResponse {
@@ -702,6 +725,7 @@ async fn wedding_readiness(
 
 fn parse_lifecycle_status(raw: &str) -> Result<DbOrderItemLifecycleStatus, OrderLifecycleError> {
     match raw.trim() {
+        "needs_measurements" => Ok(DbOrderItemLifecycleStatus::NeedsMeasurements),
         "ntbo" => Ok(DbOrderItemLifecycleStatus::Ntbo),
         "ordered" => Ok(DbOrderItemLifecycleStatus::Ordered),
         "received" => Ok(DbOrderItemLifecycleStatus::Received),

@@ -467,7 +467,16 @@ export function useCartActions({
       return;
     }
     setLines((prev) =>
-      prev.map((l) => (l.cart_row_id === rowId ? { ...l, fulfillment: next } : l))
+      prev.map((l) =>
+        l.cart_row_id === rowId
+          ? {
+              ...l,
+              fulfillment: next,
+              order_lifecycle_status:
+                next === "takeaway" ? undefined : l.order_lifecycle_status,
+            }
+          : l,
+      )
     );
   }, [lines, rmsPaymentMeta, giftCardLoadMeta, toast]);
 
@@ -482,6 +491,17 @@ export function useCartActions({
       prev.map((l) => (l.cart_row_id === rowId ? { ...l, needs_gift_wrap: status } : l))
     );
   }, []);
+
+  const updateLineOrderLifecycleStatus = useCallback(
+    (rowId: string, status: CartLineItem["order_lifecycle_status"]) => {
+      setLines((prev) =>
+        prev.map((l) =>
+          l.cart_row_id === rowId ? { ...l, order_lifecycle_status: status } : l,
+        ),
+      );
+    },
+    [],
+  );
 
   const handleNumpadKey = useCallback((key: string) => {
     if (!selectedLineKey) return;
@@ -620,6 +640,7 @@ export function useCartActions({
     updateLineFulfillment,
     updateLineSalesperson,
     updateLineGiftWrapStatus,
+    updateLineOrderLifecycleStatus,
     handleNumpadKey,
     applyDiscountEvent,
     ensureSaleCashier,

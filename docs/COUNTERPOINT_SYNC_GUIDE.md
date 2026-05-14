@@ -4,6 +4,7 @@ End-to-end reference for setting up and operating the one-way data ingest from *
 
 **Companion docs:**
 - [`COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md`](COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) — **operator manual**: direct vs staging, hub, prerequisites, bridge/API updates, troubleshooting
+- [`WEDDING_COUNTERPOINT_CUTOVER_LINKING.md`](WEDDING_COUNTERPOINT_CUTOVER_LINKING.md) — how imported wedding parties are reviewed and linked to Counterpoint-synced customers, transactions, and item lifecycle states
 - [`PLAN_COUNTERPOINT_ROS_SYNC.md`](PLAN_COUNTERPOINT_ROS_SYNC.md) — implementation roadmap and schema mapping tables
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
 - [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — full `.env` reference with example SQL

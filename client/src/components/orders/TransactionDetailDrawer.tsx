@@ -44,6 +44,8 @@ const baseUrl = getBaseUrl();
 export interface TransactionDrawerItem {
   transaction_line_id?: string;
   order_item_id?: string;
+  product_id: string;
+  variant_id: string;
   sku: string;
   product_name: string;
   variation_label: string | null;
@@ -148,6 +150,8 @@ export interface TransactionDrawerOrderActions {
       quantity?: number;
       unit_price?: string;
       fulfillment?: FulfillmentKind;
+      variant_id?: string;
+      order_lifecycle_status?: string;
     },
   ) => Promise<void>;
   setSku?: (sku: string) => void;
@@ -296,6 +300,8 @@ function orderKindLabel(detail: TransactionDrawerDetail): string {
 
 function lifecycleStatusLabel(value?: string | null) {
   switch (value) {
+    case "needs_measurements":
+      return "Needs measurements";
     case "ntbo":
       return "NTBO";
     case "ordered":
@@ -689,6 +695,10 @@ export default function TransactionDetailDrawer({
   const [editUnitPrice, setEditUnitPrice] = useState("");
   const [editFulfillment, setEditFulfillment] =
     useState<EditableFulfillmentKind>("special_order");
+  const [editVariantId, setEditVariantId] = useState("");
+  const [editVariantSku, setEditVariantSku] = useState("");
+  const [editVariantLabel, setEditVariantLabel] = useState<string | null>(null);
+  const [editLifecycleStatus, setEditLifecycleStatus] = useState("ntbo");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [readyTarget, setReadyTarget] = useState<TransactionDrawerItem | null>(null);
@@ -797,6 +807,10 @@ export default function TransactionDetailDrawer({
     setEditFulfillment(
       (item.fulfillment as EditableFulfillmentKind) ?? "special_order",
     );
+    setEditVariantId(item.variant_id);
+    setEditVariantSku(item.sku);
+    setEditVariantLabel(item.variation_label ?? null);
+    setEditLifecycleStatus(item.order_lifecycle_status ?? "ntbo");
     setEditError(null);
   }, []);
   const cancelLineEdit = useCallback(() => {
@@ -993,14 +1007,22 @@ export default function TransactionDetailDrawer({
         quantity?: number;
         unit_price?: string;
         fulfillment?: FulfillmentKind;
+        variant_id?: string;
+        order_lifecycle_status?: string;
       } = {};
       if (quantity !== item.quantity) patch.quantity = quantity;
       if (nextPrice !== String(item.unit_price)) patch.unit_price = nextPrice;
       if (editFulfillment !== item.fulfillment) patch.fulfillment = editFulfillment;
+      if (editVariantId && editVariantId !== item.variant_id) patch.variant_id = editVariantId;
+      if (editLifecycleStatus !== (item.order_lifecycle_status ?? "ntbo")) {
+        patch.order_lifecycle_status = editLifecycleStatus;
+      }
       if (
         patch.quantity === undefined &&
         patch.unit_price === undefined &&
-        patch.fulfillment === undefined
+        patch.fulfillment === undefined &&
+        patch.variant_id === undefined &&
+        patch.order_lifecycle_status === undefined
       ) {
         setEditingLineId(null);
         return;
@@ -1033,7 +1055,7 @@ export default function TransactionDetailDrawer({
         setEditBusy(false);
       }
     },
-    [editFulfillment, editQuantity, editUnitPrice, orderActions],
+    [editFulfillment, editLifecycleStatus, editQuantity, editUnitPrice, editVariantId, orderActions],
   );
 
   const subtitle = detail ? (
@@ -1790,6 +1812,47 @@ export default function TransactionDetailDrawer({
                                   ))}
                                 </select>
                               </label>
+                              <div className="sm:col-span-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                  Size / Variation
+                                </p>
+                                <p className="mt-1 text-[11px] font-semibold text-app-text">
+                                  {editVariantSku}
+                                  {editVariantLabel ? ` · ${editVariantLabel}` : ""}
+                                </p>
+                                <div className="mt-2">
+                                  <VariantSearchInput
+                                    placeholder="Search this item for the correct size or variation"
+                                    onSelect={(variant) => {
+                                      if (variant.product_id !== item.product_id) {
+                                        setEditError(
+                                          "Use Delete and Add when changing to a different item.",
+                                        );
+                                        return;
+                                      }
+                                      setEditVariantId(variant.variant_id);
+                                      setEditVariantSku(variant.sku);
+                                      setEditVariantLabel(variant.variation_label ?? null);
+                                      setEditError(null);
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              {item.order_lifecycle_status === "needs_measurements" ||
+                              item.order_lifecycle_status === "ntbo" ? (
+                                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-3">
+                                  Order Step
+                                  <select
+                                    value={editLifecycleStatus}
+                                    onChange={(event) => setEditLifecycleStatus(event.target.value)}
+                                    disabled={editBusy}
+                                    className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                                  >
+                                    <option value="needs_measurements">Needs Measurements</option>
+                                    <option value="ntbo">Ready to Order</option>
+                                  </select>
+                                </label>
+                              ) : null}
                             </div>
                             {editError ? (
                               <p className="mt-3 text-[11px] font-semibold text-rose-700">

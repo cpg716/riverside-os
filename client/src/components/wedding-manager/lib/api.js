@@ -372,6 +372,18 @@ export const api = {
   getPartyReadiness: async (partyId) => {
     return wmJson("GET", `${API_URL}/weddings/parties/${partyId}/readiness`);
   },
+  getCutoverSummary: async () => {
+    return wmJson("GET", `${API_URL}/weddings/cutover/summary`);
+  },
+  getPartyCutover: async (partyId) => {
+    return wmJson("GET", `${API_URL}/weddings/parties/${partyId}/cutover`);
+  },
+  linkCutoverTransaction: async (payload) => {
+    return wmJson("POST", `${API_URL}/weddings/cutover/links`, { body: payload });
+  },
+  markCutoverReviewed: async (partyId, payload) => {
+    return wmJson("POST", `${API_URL}/weddings/parties/${partyId}/cutover/review`, { body: payload });
+  },
 
   importParties: async (parties) => {
     const created = [];
@@ -396,6 +408,7 @@ export const api = {
         bride_phone: p.bridePhone || null,
         bride_email: p.brideEmail || null,
         accessories: p.accessories || {},
+        cutover_review_status: "needs_review",
       };
       const createdBody = await wmJson("POST", `${API_URL}/weddings/parties`, { body: payload });
       const partyId = partyIdFromWeddingCreateResponse(createdBody);

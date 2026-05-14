@@ -46,6 +46,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
     const [pendingOrderToggle, setPendingOrderToggle] = useState(null);
     const [pendingStockUpdate, setPendingStockUpdate] = useState(null); // { memberId, field, value }
     const [paymentStatusByMemberId, setPaymentStatusByMemberId] = useState({});
+    const [readinessByMemberId, setReadinessByMemberId] = useState({});
     const [financialContext, setFinancialContext] = useState(null);
 
     useEffect(() => {
@@ -75,6 +76,35 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
             }
         };
         void run();
+    }, [party?.id, party?.members]);
+
+    useEffect(() => {
+        if (!party?.id) {
+            setReadinessByMemberId({});
+            return;
+        }
+        let ignore = false;
+        const run = async () => {
+            try {
+                const readiness = await api.getPartyReadiness(party.id);
+                if (ignore) return;
+                const next = {};
+                const rows = Array.isArray(readiness?.members) ? readiness.members : [];
+                rows.forEach((row) => {
+                    if (row?.wedding_member_id) {
+                        next[row.wedding_member_id] = row;
+                    }
+                });
+                setReadinessByMemberId(next);
+            } catch (err) {
+                console.error("Failed to load order lifecycle readiness:", err);
+                if (!ignore) setReadinessByMemberId({});
+            }
+        };
+        void run();
+        return () => {
+            ignore = true;
+        };
     }, [party?.id, party?.members]);
 
     /** Scoped appointment fetch + short TTL cache (avoids full-calendar pulls on every status toggle). */
@@ -1279,6 +1309,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                                     members={party.members || []}
                                     partyId={party.id}
                                     paymentStatusByMemberId={paymentStatusByMemberId}
+                                    readinessByMemberId={readinessByMemberId}
                                     onMemberClick={handleMemberClick}
                                     onUpdateMember={handleUpdateMember}
                                     toggleStatus={toggleStatus}
@@ -1290,6 +1321,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                                     members={party.members || []}
                                     partyId={party.id}
                                     paymentStatusByMemberId={paymentStatusByMemberId}
+                                    readinessByMemberId={readinessByMemberId}
                                     onMemberClick={handleMemberClick}
                                     onUpdateMember={handleUpdateMember}
                                     toggleStatus={toggleStatus}

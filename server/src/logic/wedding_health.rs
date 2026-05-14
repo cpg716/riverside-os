@@ -54,6 +54,7 @@ pub struct WeddingReadinessBlocker {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct WeddingLifecycleCounts {
+    pub needs_measurements: i64,
     pub ntbo: i64,
     pub ordered: i64,
     pub received: i64,
@@ -164,6 +165,7 @@ struct MemberReadinessRow {
     fitting: bool,
     pickup_status: Option<String>,
     balance_due: Decimal,
+    needs_measurements_count: i64,
     ntbo_count: i64,
     ordered_count: i64,
     received_count: i64,
@@ -316,6 +318,7 @@ pub async fn calculate_wedding_readiness(
               AND tl.fulfillment::text <> 'takeaway'
         )
         SELECT
+            COUNT(*) FILTER (WHERE lifecycle_status = 'needs_measurements')::bigint AS needs_measurements_count,
             COUNT(*) FILTER (WHERE lifecycle_status = 'ntbo')::bigint AS ntbo_count,
             COUNT(*) FILTER (WHERE lifecycle_status = 'ordered')::bigint AS ordered_count,
             COUNT(*) FILTER (WHERE lifecycle_status = 'received')::bigint AS received_count,
@@ -347,6 +350,9 @@ pub async fn calculate_wedding_readiness(
     .await?;
 
     let lifecycle = WeddingLifecycleCounts {
+        needs_measurements: lifecycle_row
+            .get::<Option<i64>, _>("needs_measurements_count")
+            .unwrap_or(0),
         ntbo: lifecycle_row
             .get::<Option<i64>, _>("ntbo_count")
             .unwrap_or(0),
@@ -392,6 +398,7 @@ pub async fn calculate_wedding_readiness(
         line_counts AS (
             SELECT
                 t.wedding_member_id,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'needs_measurements')::bigint AS needs_measurements_count,
                 COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ntbo')::bigint AS ntbo_count,
                 COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ordered')::bigint AS ordered_count,
                 COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'received')::bigint AS received_count,
@@ -415,6 +422,7 @@ pub async fn calculate_wedding_readiness(
             COALESCE(wm.fitting, false) AS fitting,
             wm.pickup_status,
             COALESCE(b.balance_due, 0)::numeric(12,2) AS balance_due,
+            COALESCE(lc.needs_measurements_count, 0)::bigint AS needs_measurements_count,
             COALESCE(lc.ntbo_count, 0)::bigint AS ntbo_count,
             COALESCE(lc.ordered_count, 0)::bigint AS ordered_count,
             COALESCE(lc.received_count, 0)::bigint AS received_count,
@@ -449,6 +457,7 @@ pub async fn calculate_wedding_readiness(
     let mut members = Vec::with_capacity(member_rows.len());
     for row in member_rows {
         let member_lifecycle = WeddingLifecycleCounts {
+            needs_measurements: row.needs_measurements_count,
             ntbo: row.ntbo_count,
             ordered: row.ordered_count,
             received: row.received_count,
@@ -629,6 +638,18 @@ fn member_readiness_state(
             "Clear balance before pickup release.".to_string(),
         );
     }
+    if lifecycle.needs_measurements > 0 {
+        blockers.push(WeddingReadinessBlocker {
+            severity: WeddingReadinessSeverity::Blocking,
+            label: "Needs measurements".to_string(),
+            explanation:
+                "At least one placeholder item still needs measurements before vendor ordering."
+                    .to_string(),
+            next_safe_action:
+                "Measure the member, update the line variation, then mark it Ready to Order."
+                    .to_string(),
+        });
+    }
     if lifecycle.ntbo > 0 {
         blockers.push(WeddingReadinessBlocker {
             severity: WeddingReadinessSeverity::Blocking,
@@ -712,6 +733,23 @@ fn party_blockers(
         return blockers;
     }
     let days_until = (event_date - Utc::now().date_naive()).num_days();
+    if lifecycle.needs_measurements > 0 {
+        blockers.push(WeddingReadinessBlocker {
+            severity: if days_until <= 30 {
+                WeddingReadinessSeverity::Blocking
+            } else {
+                WeddingReadinessSeverity::Warning
+            },
+            label: "Needs measurements".to_string(),
+            explanation: format!(
+                "{} item(s) need measurements before they can move to NTBO.",
+                lifecycle.needs_measurements
+            ),
+            next_safe_action:
+                "Measure members and update exact variations before creating vendor orders."
+                    .to_string(),
+        });
+    }
     if lifecycle.ntbo > 0 {
         blockers.push(WeddingReadinessBlocker {
             severity: WeddingReadinessSeverity::Blocking,
@@ -792,7 +830,7 @@ fn party_status(
     if (days_until_event < 0 && lifecycle.open > 0)
         || (days_until_event <= 14 && has_blocking)
         || vendor_risk.delayed_vendor_count > 0
-        || (days_until_event <= 30 && lifecycle.ntbo > 0)
+        || (days_until_event <= 30 && (lifecycle.needs_measurements > 0 || lifecycle.ntbo > 0))
     {
         WeddingReadinessStatus::Critical
     } else if has_blocking || pickup.balance_blocked_members > 0 {
@@ -812,7 +850,8 @@ fn readiness_score(
     pickup: &WeddingPickupReadiness,
     vendor_risk: &WeddingVendorRisk,
 ) -> f64 {
-    let lifecycle_total = lifecycle.ntbo
+    let lifecycle_total = lifecycle.needs_measurements
+        + lifecycle.ntbo
         + lifecycle.ordered
         + lifecycle.received
         + lifecycle.ready_for_pickup
@@ -836,6 +875,7 @@ fn readiness_score(
     let risk_penalty = ((vendor_risk.delayed_vendor_count
         + vendor_risk.stale_ordered_count
         + vendor_risk.missing_vendor_count
+        + lifecycle.needs_measurements
         + pickup.balance_blocked_members) as f64
         * 0.08)
         .min(0.35);
@@ -856,6 +896,10 @@ fn party_next_safe_action(
     }
     if pickup.ready_members > 0 || pickup.partial_ready_members > 0 {
         return "Use guarded pickup for ready members; do not release blocked items.".to_string();
+    }
+    if lifecycle.needs_measurements > 0 {
+        return "Complete measurements and update exact line variations before vendor ordering."
+            .to_string();
     }
     if lifecycle.received > 0 {
         return "Review received garments and mark ready only after prep is complete.".to_string();

@@ -23,7 +23,18 @@ function buildWeddingWorkflow(member) {
     };
 }
 
-const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId = {}, onMemberClick, onUpdateMember, toggleStatus, onAppointmentClick }) => {
+function lifecycleBadge(readiness) {
+    const lifecycle = readiness?.lifecycle || {};
+    if (lifecycle.needs_measurements > 0) return { label: 'Needs measurements', className: 'bg-rose-100 text-rose-700' };
+    if (lifecycle.ntbo > 0) return { label: 'Ready to order', className: 'bg-amber-100 text-amber-700' };
+    if (lifecycle.ordered > 0) return { label: 'Ordered', className: 'bg-blue-100 text-blue-700' };
+    if (lifecycle.received > 0) return { label: 'Received', className: 'bg-indigo-100 text-indigo-700' };
+    if (lifecycle.ready_for_pickup > 0) return { label: 'Ready pickup', className: 'bg-emerald-100 text-emerald-700' };
+    if (lifecycle.picked_up > 0) return { label: 'Picked up', className: 'bg-slate-100 text-slate-700' };
+    return null;
+}
+
+const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId = {}, readinessByMemberId = {}, onMemberClick, onUpdateMember, toggleStatus, onAppointmentClick }) => {
     if (members.length === 0) {
         return (
             <div className="md:hidden p-8 text-center text-app-text-muted italic bg-app-surface-2 border-b border-app-border">
@@ -68,6 +79,7 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                             ? 'bg-amber-100 text-amber-700'
                             : 'bg-rose-100 text-rose-700';
                 const workflow = buildWeddingWorkflow(member);
+                const orderLifecycle = lifecycleBadge(readinessByMemberId[member.id]);
 
                 return (
                     <div key={member.id} className="bg-app-surface rounded-lg shadow-sm border border-app-border p-4 active:scale-[0.99] transition-transform duration-200">
@@ -85,6 +97,11 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                                     <span className={`font-bold uppercase ${['Groom', 'Customer'].includes(member.role) ? 'text-gold-600' : 'text-app-text-muted'}`}>{member.role}</span>
                                     {member.oot && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">OOT</span>}
                                     <span className={`px-1.5 py-0.5 rounded font-bold uppercase ${paymentBadgeClass}`}>{paymentStatus}</span>
+                                    {orderLifecycle && (
+                                        <span className={`px-1.5 py-0.5 rounded font-bold uppercase ${orderLifecycle.className}`}>
+                                            {orderLifecycle.label}
+                                        </span>
+                                    )}
                                     {member.alteration_status && (
                                         <span className="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold uppercase flex items-center gap-1">
                                             <Icon name="Activity" size={10} /> {member.alteration_status}

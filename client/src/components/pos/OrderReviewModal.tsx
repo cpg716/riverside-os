@@ -28,6 +28,7 @@ interface CartLineItem {
   custom_order_details?: CustomOrderDetails | null;
   is_rush?: boolean;
   need_by_date?: string | null;
+  order_lifecycle_status?: "needs_measurements" | "ntbo" | "ordered" | "received" | "ready_for_pickup" | "picked_up";
 }
 
 interface Customer {
@@ -44,6 +45,10 @@ interface OrderReviewModalProps {
   items: CartLineItem[];
   customer?: Customer | null;
   onComplete: (options: OrderOptions) => void;
+  onUpdateLineLifecycleStatus?: (
+    cartRowId: string,
+    status: CartLineItem["order_lifecycle_status"],
+  ) => void;
 }
 
 export default function OrderReviewModal({
@@ -52,6 +57,7 @@ export default function OrderReviewModal({
   items,
   customer: _customer,
   onComplete,
+  onUpdateLineLifecycleStatus,
 }: OrderReviewModalProps) {
   void _customer; // reserved for future use
   
@@ -120,48 +126,72 @@ export default function OrderReviewModal({
             {items.map((item) => (
               <div
                 key={item.cart_row_id}
-                className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface-2 p-3"
+                className="flex flex-col gap-3 rounded-xl border border-app-border bg-app-surface-2 p-3"
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-app-border bg-app-surface">
-                  <Package size={16} className="text-app-text-muted" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold text-app-text">{item.name}</p>
-                  <div className="flex items-center gap-2 text-xs text-app-text-muted">
-                    <span className="font-mono uppercase">{item.sku}</span>
-                    {item.variation_label && (
-                      <span className="rounded bg-app-surface px-1.5 py-0.5">{item.variation_label}</span>
-                    )}
-                    <span>×{item.quantity}</span>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-app-border bg-app-surface">
+                    <Package size={16} className="text-app-text-muted" />
                   </div>
-                  {item.custom_item_type && (
-                    <div className="mt-2 space-y-0.5 rounded-xl border border-app-border/70 bg-app-surface px-2 py-2 text-[10px] font-semibold text-app-text-muted">
-                      <p className="font-black uppercase tracking-widest text-app-text">
-                        {item.custom_item_type}
-                      </p>
-                      {item.custom_order_details?.vendor_form_family && (
-                        <p className="font-black uppercase tracking-widest text-app-text">
-                          {customVendorLabel(item.custom_order_details.vendor_form_family)}
-                        </p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-app-text">{item.name}</p>
+                    <div className="flex items-center gap-2 text-xs text-app-text-muted">
+                      <span className="font-mono uppercase">{item.sku}</span>
+                      {item.variation_label && (
+                        <span className="rounded bg-app-surface px-1.5 py-0.5">{item.variation_label}</span>
                       )}
-                      {customOrderDetailEntries(item.custom_order_details)
-                        .slice(0, 6)
-                        .map((entry) => (
-                          <p key={entry.label}>
-                            {entry.label}: {entry.value}
-                          </p>
-                        ))}
+                      <span>×{item.quantity}</span>
                     </div>
-                  )}
+                    {item.custom_item_type && (
+                      <div className="mt-2 space-y-0.5 rounded-xl border border-app-border/70 bg-app-surface px-2 py-2 text-[10px] font-semibold text-app-text-muted">
+                        <p className="font-black uppercase tracking-widest text-app-text">
+                          {item.custom_item_type}
+                        </p>
+                        {item.custom_order_details?.vendor_form_family && (
+                          <p className="font-black uppercase tracking-widest text-app-text">
+                            {customVendorLabel(item.custom_order_details.vendor_form_family)}
+                          </p>
+                        )}
+                        {customOrderDetailEntries(item.custom_order_details)
+                          .slice(0, 6)
+                          .map((entry) => (
+                            <p key={entry.label}>
+                              {entry.label}: {entry.value}
+                            </p>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-app-text">
+                      ${(parseFloat(item.standard_retail_price) * item.quantity).toFixed(2)}
+                    </p>
+                    <p className="text-xs uppercase text-app-text-muted">
+                      {item.fulfillment === "wedding_order" ? "Wedding" : item.fulfillment}
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold text-app-text">
-                    ${(parseFloat(item.standard_retail_price) * item.quantity).toFixed(2)}
-                  </p>
-                  <p className="text-xs uppercase text-app-text-muted">
-                    {item.fulfillment === "wedding_order" ? "Wedding" : item.fulfillment}
-                  </p>
-                </div>
+                {onUpdateLineLifecycleStatus && item.fulfillment !== "takeaway" ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateLineLifecycleStatus(
+                        item.cart_row_id,
+                        item.order_lifecycle_status === "needs_measurements"
+                          ? undefined
+                          : "needs_measurements",
+                      )
+                    }
+                    className={`rounded-xl border px-3 py-2 text-left text-[11px] font-black uppercase tracking-widest transition-colors ${
+                      item.order_lifecycle_status === "needs_measurements"
+                        ? "border-app-warning/40 bg-app-warning/15 text-app-warning"
+                        : "border-app-border bg-app-surface text-app-text-muted hover:text-app-text"
+                    }`}
+                  >
+                    {item.order_lifecycle_status === "needs_measurements"
+                      ? "Needs Measurements"
+                      : "Mark Needs Measurements"}
+                  </button>
+                ) : null}
               </div>
             ))}
           </div>

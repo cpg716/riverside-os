@@ -196,27 +196,7 @@ pub async fn link_lines_to_po_tx(
     actor_staff_id: Uuid,
     source_workflow: &str,
 ) -> Result<(), sqlx::Error> {
-    for (transaction_line_id, po_line_id) in links {
-        sqlx::query(
-            r#"
-            UPDATE transaction_lines
-            SET
-                po_id = $2,
-                po_line_id = $3,
-                vendor_id = $4,
-                ordered_at = COALESCE(ordered_at, CURRENT_TIMESTAMP),
-                ordered_by = COALESCE(ordered_by, $5)
-            WHERE id = $1
-            "#,
-        )
-        .bind(transaction_line_id)
-        .bind(po_id)
-        .bind(po_line_id)
-        .bind(vendor_id)
-        .bind(actor_staff_id)
-        .execute(&mut **tx)
-        .await?;
-    }
+    attach_lines_to_po_tx(tx, links, po_id, vendor_id).await?;
 
     let line_ids = links
         .iter()
@@ -228,10 +208,38 @@ pub async fn link_lines_to_po_tx(
         DbOrderItemLifecycleStatus::Ordered,
         Some(actor_staff_id),
         source_workflow,
-        Some("Attached to vendor purchase order"),
+        Some("Attached to sent vendor purchase order"),
         json!({ "po_id": po_id }),
     )
     .await
+}
+
+pub async fn attach_lines_to_po_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    links: &[(Uuid, Uuid)],
+    po_id: Uuid,
+    vendor_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    for (transaction_line_id, po_line_id) in links {
+        sqlx::query(
+            r#"
+            UPDATE transaction_lines
+            SET
+                po_id = $2,
+                po_line_id = $3,
+                vendor_id = $4
+            WHERE id = $1
+            "#,
+        )
+        .bind(transaction_line_id)
+        .bind(po_id)
+        .bind(po_line_id)
+        .bind(vendor_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
 }
 
 pub async fn mark_received_for_po_lines_tx(

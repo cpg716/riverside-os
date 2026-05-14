@@ -11,10 +11,12 @@ use axum::{
     routing::{get, patch, post},
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use futures_core::stream::Stream;
-use serde::Deserialize;
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::QueryBuilder;
+use sqlx::{QueryBuilder, Row};
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,6 +39,7 @@ use crate::logic::wedding_queries::{
 };
 use crate::logic::weddings as wedding_logic;
 use crate::middleware;
+use crate::models::DbOrderItemLifecycleStatus;
 
 pub(crate) async fn rosie_wedding_actions(
     state: &AppState,
@@ -167,6 +170,22 @@ fn resolve_actor(o: Option<String>) -> String {
     o.map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "Riverside POS".to_string())
+}
+
+fn normalize_cutover_status(raw: Option<String>) -> Result<String, WeddingError> {
+    let value = raw
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("not_required");
+    match value {
+        "not_required" | "needs_review" | "in_review" | "blocked" | "reviewed" => {
+            Ok(value.to_string())
+        }
+        _ => Err(WeddingError::BadRequest(
+            "unsupported cutover review status".to_string(),
+        )),
+    }
 }
 
 fn wedding_client_sender(headers: &HeaderMap) -> Option<String> {
@@ -334,6 +353,8 @@ pub struct CreatePartyRequest {
     pub bride_customer_id: Option<Uuid>,
     /// Base suit variant for the party (can be overridden per member)
     pub base_suit_variant_id: Option<Uuid>,
+    #[serde(default)]
+    pub cutover_review_status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -506,6 +527,92 @@ pub struct AttachOrderRequest {
     pub actor_name: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct CutoverSummaryResponse {
+    parties: Vec<CutoverPartySummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct CutoverPartySummary {
+    party_id: Uuid,
+    party_name: String,
+    event_date: chrono::NaiveDate,
+    salesperson: Option<String>,
+    review_status: String,
+    member_count: i64,
+    linked_transaction_count: i64,
+    candidate_transaction_count: i64,
+    needs_measurements: i64,
+    ntbo: i64,
+    ordered: i64,
+    received: i64,
+    ready_for_pickup: i64,
+    picked_up: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct CutoverPartyDetail {
+    party: CutoverPartySummary,
+    members: Vec<CutoverMember>,
+    candidates: Vec<CutoverCandidate>,
+}
+
+#[derive(Debug, Serialize)]
+struct CutoverMember {
+    member_id: Uuid,
+    customer_id: Option<Uuid>,
+    name: String,
+    role: String,
+    phone: Option<String>,
+    customer_verified: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CutoverCandidate {
+    suggested_member_id: Uuid,
+    transaction_id: Uuid,
+    display_id: String,
+    booked_at: DateTime<Utc>,
+    total_price: Decimal,
+    balance_due: Decimal,
+    customer_name: String,
+    customer_code: Option<String>,
+    confidence: String,
+    reason: String,
+    lines: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct CutoverLinkRequest {
+    party_id: Uuid,
+    member_id: Uuid,
+    transaction_id: Uuid,
+    #[serde(default)]
+    transaction_line_ids: Vec<Uuid>,
+    lifecycle_status: String,
+    #[serde(default)]
+    actor_name: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CutoverReviewRequest {
+    status: String,
+    #[serde(default)]
+    actor_name: Option<String>,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CutoverRejectRequest {
+    #[serde(default)]
+    actor_name: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/events", get(wedding_events_stream))
@@ -513,6 +620,12 @@ pub fn router() -> Router<AppState> {
         .route("/activity-feed", get(get_activity_feed))
         .route("/actions", get(get_actions))
         .route("/readiness-dashboard", get(get_readiness_dashboard))
+        .route("/cutover/summary", get(get_cutover_summary))
+        .route("/cutover/links", post(post_cutover_link))
+        .route(
+            "/cutover/suggestions/{suggestion_id}/reject",
+            post(post_cutover_reject),
+        )
         .route(
             "/non-inventory",
             get(list_non_inventory_items).post(create_non_inventory_item),
@@ -541,6 +654,11 @@ pub fn router() -> Router<AppState> {
         .route("/parties/{party_id}/restore", post(restore_party))
         .route("/parties/{party_id}/health", get(get_health))
         .route("/parties/{party_id}/readiness", get(get_party_readiness))
+        .route("/parties/{party_id}/cutover", get(get_party_cutover))
+        .route(
+            "/parties/{party_id}/cutover/review",
+            post(post_party_cutover_review),
+        )
         .route("/parties/{party_id}/members", post(add_member))
         .route(
             "/parties/{party_id}",
@@ -611,6 +729,7 @@ async fn insert_party_and_respond(
     };
 
     let party_type = body.party_type.as_deref().unwrap_or("Wedding").to_string();
+    let cutover_review_status = normalize_cutover_status(body.cutover_review_status.clone())?;
 
     // Handle groom and bride customer creation/linking
     let groom_customer_id = if let Some(gcid) = body.groom_customer_id {
@@ -740,9 +859,9 @@ async fn insert_party_and_respond(
             party_type, sign_up_date, salesperson, style_info, price_info,
             groom_phone, groom_email, bride_name, bride_phone, bride_email,
             accessories, groom_phone_clean, bride_phone_clean, is_deleted,
-            suit_variant_id
+            suit_variant_id, cutover_review_status
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,FALSE,$19)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,FALSE,$19,$20)
         RETURNING id
         "#,
     )
@@ -765,6 +884,7 @@ async fn insert_party_and_respond(
     .bind(&gpc)
     .bind(&bpc)
     .bind(body.base_suit_variant_id)
+    .bind(&cutover_review_status)
     .fetch_one(&state.db)
     .await?;
 
@@ -2254,6 +2374,639 @@ async fn post_attach_order(
         .await?
         .ok_or(WeddingError::MemberNotFound)?;
     Ok(Json(member))
+}
+
+fn parse_cutover_lifecycle(value: &str) -> Result<DbOrderItemLifecycleStatus, WeddingError> {
+    match value.trim() {
+        "needs_measurements" => Ok(DbOrderItemLifecycleStatus::NeedsMeasurements),
+        "ntbo" => Ok(DbOrderItemLifecycleStatus::Ntbo),
+        "ordered" => Ok(DbOrderItemLifecycleStatus::Ordered),
+        "received" => Ok(DbOrderItemLifecycleStatus::Received),
+        "ready_for_pickup" => Ok(DbOrderItemLifecycleStatus::ReadyForPickup),
+        "picked_up" => Ok(DbOrderItemLifecycleStatus::PickedUp),
+        _ => Err(WeddingError::BadRequest(
+            "Choose a valid item status before saving.".to_string(),
+        )),
+    }
+}
+
+async fn load_cutover_summary(
+    pool: &sqlx::PgPool,
+    party_id: Option<Uuid>,
+) -> Result<Vec<CutoverPartySummary>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        WITH member_counts AS (
+            SELECT wedding_party_id, COUNT(*)::bigint AS member_count
+            FROM wedding_members
+            GROUP BY wedding_party_id
+        ),
+        member_signals AS (
+            SELECT
+                wm.wedding_party_id,
+                wm.id AS wedding_member_id,
+                wm.customer_id,
+                NULLIF(REGEXP_REPLACE(COALESCE(c.phone, wm.import_customer_phone, ''), '[^0-9]', '', 'g'), '') AS member_phone_digits,
+                NULLIF(
+                    LOWER(REGEXP_REPLACE(
+                        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), wm.import_customer_name, ''),
+                        '[^a-z0-9]+',
+                        '',
+                        'g'
+                    )),
+                    ''
+                ) AS member_name_key
+            FROM wedding_members wm
+            LEFT JOIN customers c ON c.id = wm.customer_id
+        ),
+        candidate_counts AS (
+            SELECT
+                ms.wedding_party_id,
+                COUNT(DISTINCT t.id)::bigint AS candidate_transaction_count
+            FROM member_signals ms
+            JOIN transactions t ON t.wedding_member_id IS NULL
+            JOIN customers c ON c.id = t.customer_id
+            WHERE t.wedding_member_id IS NULL
+              AND t.status::text <> 'cancelled'
+              AND (
+                t.customer_id = ms.customer_id
+                OR (
+                    ms.member_phone_digits IS NOT NULL
+                    AND LENGTH(ms.member_phone_digits) >= 7
+                    AND REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g') = ms.member_phone_digits
+                )
+                OR (
+                    ms.member_name_key IS NOT NULL
+                    AND LENGTH(ms.member_name_key) >= 5
+                    AND LOWER(REGEXP_REPLACE(COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.company_name, ''), '[^a-z0-9]+', '', 'g')) = ms.member_name_key
+                )
+              )
+              AND (
+                t.is_counterpoint_import = TRUE
+                OR t.counterpoint_ticket_ref IS NOT NULL
+                OR t.counterpoint_doc_ref IS NOT NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM transaction_lines tl
+                    WHERE tl.transaction_id = t.id
+                      AND tl.fulfillment::text <> 'takeaway'
+                )
+              )
+            GROUP BY ms.wedding_party_id
+        ),
+        lifecycle AS (
+            SELECT
+                wm.wedding_party_id,
+                COUNT(DISTINCT t.id)::bigint AS linked_transaction_count,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'needs_measurements')::bigint AS needs_measurements,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ntbo')::bigint AS ntbo,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ordered')::bigint AS ordered,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'received')::bigint AS received,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ready_for_pickup')::bigint AS ready_for_pickup,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'picked_up')::bigint AS picked_up
+            FROM wedding_members wm
+            JOIN transactions t ON t.wedding_member_id = wm.id
+            LEFT JOIN transaction_lines tl ON tl.transaction_id = t.id AND tl.fulfillment::text <> 'takeaway'
+            GROUP BY wm.wedding_party_id
+        )
+        SELECT
+            wp.id AS party_id,
+            COALESCE(NULLIF(TRIM(wp.party_name), ''), wp.groom_name, 'Wedding party') AS party_name,
+            wp.event_date,
+            wp.salesperson,
+            COALESCE(wp.cutover_review_status, 'not_required') AS review_status,
+            COALESCE(mc.member_count, 0)::bigint AS member_count,
+            COALESCE(l.linked_transaction_count, 0)::bigint AS linked_transaction_count,
+            COALESCE(cc.candidate_transaction_count, 0)::bigint AS candidate_transaction_count,
+            COALESCE(l.needs_measurements, 0)::bigint AS needs_measurements,
+            COALESCE(l.ntbo, 0)::bigint AS ntbo,
+            COALESCE(l.ordered, 0)::bigint AS ordered,
+            COALESCE(l.received, 0)::bigint AS received,
+            COALESCE(l.ready_for_pickup, 0)::bigint AS ready_for_pickup,
+            COALESCE(l.picked_up, 0)::bigint AS picked_up
+        FROM wedding_parties wp
+        LEFT JOIN member_counts mc ON mc.wedding_party_id = wp.id
+        LEFT JOIN candidate_counts cc ON cc.wedding_party_id = wp.id
+        LEFT JOIN lifecycle l ON l.wedding_party_id = wp.id
+        WHERE (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+          AND ($1::uuid IS NULL OR wp.id = $1)
+        ORDER BY
+            CASE COALESCE(wp.cutover_review_status, 'not_required')
+                WHEN 'blocked' THEN 0
+                WHEN 'needs_review' THEN 1
+                WHEN 'in_review' THEN 2
+                WHEN 'not_required' THEN 3
+                ELSE 4
+            END,
+            wp.event_date ASC,
+            wp.created_at ASC
+        "#,
+    )
+    .bind(party_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| CutoverPartySummary {
+            party_id: row.get("party_id"),
+            party_name: row.get("party_name"),
+            event_date: row.get("event_date"),
+            salesperson: row.get("salesperson"),
+            review_status: row.get("review_status"),
+            member_count: row.get("member_count"),
+            linked_transaction_count: row.get("linked_transaction_count"),
+            candidate_transaction_count: row.get("candidate_transaction_count"),
+            needs_measurements: row.get("needs_measurements"),
+            ntbo: row.get("ntbo"),
+            ordered: row.get("ordered"),
+            received: row.get("received"),
+            ready_for_pickup: row.get("ready_for_pickup"),
+            picked_up: row.get("picked_up"),
+        })
+        .collect())
+}
+
+async fn get_cutover_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<CutoverSummaryResponse>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let parties = load_cutover_summary(&state.db, None).await?;
+    Ok(Json(CutoverSummaryResponse { parties }))
+}
+
+async fn get_party_cutover(
+    State(state): State<AppState>,
+    Path(party_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<CutoverPartyDetail>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let mut summaries = load_cutover_summary(&state.db, Some(party_id)).await?;
+    let party = summaries.pop().ok_or(WeddingError::PartyNotFound)?;
+
+    let member_rows = sqlx::query(
+        r#"
+        SELECT
+            wm.id AS member_id,
+            wm.customer_id,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), wm.import_customer_name, 'Wedding member') AS name,
+            wm.role,
+            COALESCE(NULLIF(TRIM(c.phone), ''), NULLIF(TRIM(wm.import_customer_phone), '')) AS phone,
+            COALESCE(wm.customer_verified, wm.customer_id IS NOT NULL) AS customer_verified
+        FROM wedding_members wm
+        LEFT JOIN customers c ON c.id = wm.customer_id
+        WHERE wm.wedding_party_id = $1
+        ORDER BY wm.member_index ASC, wm.created_at ASC
+        "#,
+    )
+    .bind(party_id)
+    .fetch_all(&state.db)
+    .await?;
+    let members = member_rows
+        .into_iter()
+        .map(|row| CutoverMember {
+            member_id: row.get("member_id"),
+            customer_id: row.get("customer_id"),
+            name: row.get("name"),
+            role: row.get("role"),
+            phone: row.get("phone"),
+            customer_verified: row.get("customer_verified"),
+        })
+        .collect::<Vec<_>>();
+
+    let candidate_rows = sqlx::query(
+        r#"
+        WITH member_signals AS (
+            SELECT
+                wm.id AS wedding_member_id,
+                wm.customer_id,
+                NULLIF(REGEXP_REPLACE(COALESCE(c.phone, wm.import_customer_phone, ''), '[^0-9]', '', 'g'), '') AS member_phone_digits,
+                NULLIF(
+                    LOWER(REGEXP_REPLACE(
+                        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), wm.import_customer_name, ''),
+                        '[^a-z0-9]+',
+                        '',
+                        'g'
+                    )),
+                    ''
+                ) AS member_name_key
+            FROM wedding_members wm
+            LEFT JOIN customers c ON c.id = wm.customer_id
+            WHERE wm.wedding_party_id = $1
+        ),
+        matched AS (
+            SELECT *
+            FROM (
+                SELECT
+                    ms.wedding_member_id AS suggested_member_id,
+                    t.id AS transaction_id,
+                    CASE
+                        WHEN t.customer_id = ms.customer_id THEN 1
+                        WHEN ms.member_phone_digits IS NOT NULL
+                          AND LENGTH(ms.member_phone_digits) >= 7
+                          AND REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g') = ms.member_phone_digits THEN 2
+                        ELSE 3
+                    END AS match_rank,
+                    CASE
+                        WHEN t.customer_id = ms.customer_id THEN 'high'
+                        WHEN ms.member_phone_digits IS NOT NULL
+                          AND LENGTH(ms.member_phone_digits) >= 7
+                          AND REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g') = ms.member_phone_digits THEN 'high'
+                        ELSE 'medium'
+                    END AS confidence,
+                    CASE
+                        WHEN t.customer_id = ms.customer_id THEN 'Customer on the imported Transaction Record matches this wedding member.'
+                        WHEN ms.member_phone_digits IS NOT NULL
+                          AND LENGTH(ms.member_phone_digits) >= 7
+                          AND REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g') = ms.member_phone_digits THEN 'Phone number matches this wedding member.'
+                        ELSE 'Customer name matches this wedding member.'
+                    END AS reason,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ms.wedding_member_id, t.id
+                        ORDER BY
+                            CASE
+                                WHEN t.customer_id = ms.customer_id THEN 1
+                                WHEN ms.member_phone_digits IS NOT NULL
+                                  AND LENGTH(ms.member_phone_digits) >= 7
+                                  AND REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g') = ms.member_phone_digits THEN 2
+                                ELSE 3
+                            END
+                    ) AS rn
+                FROM member_signals ms
+                JOIN transactions t ON t.wedding_member_id IS NULL
+                JOIN customers c ON c.id = t.customer_id
+                WHERE t.status::text <> 'cancelled'
+                  AND (
+                    t.customer_id = ms.customer_id
+                    OR (
+                        ms.member_phone_digits IS NOT NULL
+                        AND LENGTH(ms.member_phone_digits) >= 7
+                        AND REGEXP_REPLACE(COALESCE(c.phone, ''), '[^0-9]', '', 'g') = ms.member_phone_digits
+                    )
+                    OR (
+                        ms.member_name_key IS NOT NULL
+                        AND LENGTH(ms.member_name_key) >= 5
+                        AND LOWER(REGEXP_REPLACE(COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.company_name, ''), '[^a-z0-9]+', '', 'g')) = ms.member_name_key
+                    )
+                  )
+                  AND (
+                    t.is_counterpoint_import = TRUE
+                    OR t.counterpoint_ticket_ref IS NOT NULL
+                    OR t.counterpoint_doc_ref IS NOT NULL
+                    OR EXISTS (
+                        SELECT 1
+                        FROM transaction_lines tl_exists
+                        WHERE tl_exists.transaction_id = t.id
+                          AND tl_exists.fulfillment::text <> 'takeaway'
+                    )
+                  )
+            ) ranked
+            WHERE rn = 1
+        )
+        SELECT
+            matched.suggested_member_id,
+            t.id AS transaction_id,
+            COALESCE(t.display_id, t.counterpoint_doc_ref, t.counterpoint_ticket_ref, t.id::text) AS display_id,
+            t.booked_at,
+            COALESCE(t.total_price, 0)::numeric(12,2) AS total_price,
+            COALESCE(t.balance_due, 0)::numeric(12,2) AS balance_due,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.company_name, 'Customer') AS customer_name,
+            NULLIF(TRIM(c.customer_code), '') AS customer_code,
+            matched.confidence,
+            matched.reason,
+            COALESCE(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'line_id', tl.id,
+                        'description', COALESCE(NULLIF(tl.size_specs->>'counterpoint_description', ''), p.name, pv.sku, 'Line item'),
+                        'sku', COALESCE(NULLIF(pv.sku, ''), NULLIF(tl.size_specs->>'counterpoint_sku', ''), NULLIF(tl.size_specs->>'counterpoint_item_key', '')),
+                        'quantity', tl.quantity,
+                        'fulfillment', tl.fulfillment::text,
+                        'lifecycle_status', tl.order_lifecycle_status::text
+                    )
+                    ORDER BY tl.line_display_id NULLS LAST, tl.id
+                ) FILTER (WHERE tl.id IS NOT NULL),
+                '[]'::jsonb
+            ) AS lines
+        FROM matched
+        JOIN transactions t ON t.id = matched.transaction_id
+        JOIN customers c ON c.id = t.customer_id
+        LEFT JOIN transaction_lines tl ON tl.transaction_id = t.id AND tl.fulfillment::text <> 'takeaway'
+        LEFT JOIN products p ON p.id = tl.product_id
+        LEFT JOIN product_variants pv ON pv.id = tl.variant_id
+        GROUP BY matched.suggested_member_id, matched.match_rank, matched.confidence, matched.reason, t.id, c.id
+        ORDER BY matched.match_rank ASC, t.booked_at DESC, display_id ASC
+        "#,
+    )
+    .bind(party_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let candidates = candidate_rows
+        .into_iter()
+        .map(|row| CutoverCandidate {
+            suggested_member_id: row.get("suggested_member_id"),
+            transaction_id: row.get("transaction_id"),
+            display_id: row.get("display_id"),
+            booked_at: row.get("booked_at"),
+            total_price: row.get("total_price"),
+            balance_due: row.get("balance_due"),
+            customer_name: row.get("customer_name"),
+            customer_code: row.get("customer_code"),
+            confidence: row.get("confidence"),
+            reason: row.get("reason"),
+            lines: row.get("lines"),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(CutoverPartyDetail {
+        party,
+        members,
+        candidates,
+    }))
+}
+
+async fn post_cutover_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CutoverLinkRequest>,
+) -> Result<Json<serde_json::Value>, WeddingError> {
+    require_weddings_mutate(&state, &headers).await?;
+    let lifecycle = parse_cutover_lifecycle(&body.lifecycle_status)?;
+    let actor = resolve_actor(body.actor_name.clone());
+    let mut tx = state.db.begin().await?;
+
+    let member_party: Option<Uuid> =
+        sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
+            .bind(body.member_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if member_party != Some(body.party_id) {
+        return Err(WeddingError::BadRequest(
+            "Choose a member from this wedding party.".to_string(),
+        ));
+    }
+
+    let existing_member_row: Option<(Option<Uuid>,)> =
+        sqlx::query_as("SELECT wedding_member_id FROM transactions WHERE id = $1")
+            .bind(body.transaction_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let existing_member = existing_member_row
+        .ok_or_else(|| WeddingError::BadRequest("Transaction Record not found.".to_string()))?
+        .0;
+    match existing_member {
+        Some(id) if id != body.member_id => {
+            return Err(WeddingError::BadRequest(
+                "This Transaction Record is already linked to another wedding member.".to_string(),
+            ));
+        }
+        _ => {}
+    }
+
+    sqlx::query("UPDATE transactions SET wedding_member_id = $1 WHERE id = $2")
+        .bind(body.member_id)
+        .bind(body.transaction_id)
+        .execute(&mut *tx)
+        .await?;
+
+    let mut line_ids = body.transaction_line_ids.clone();
+    if line_ids.is_empty() {
+        line_ids = sqlx::query_scalar(
+            r#"
+            SELECT id
+            FROM transaction_lines
+            WHERE transaction_id = $1
+              AND fulfillment::text <> 'takeaway'
+            ORDER BY line_display_id NULLS LAST, id
+            "#,
+        )
+        .bind(body.transaction_id)
+        .fetch_all(&mut *tx)
+        .await?;
+    }
+
+    if !line_ids.is_empty() {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM transaction_lines
+            WHERE transaction_id = $1
+              AND id = ANY($2)
+              AND fulfillment::text <> 'takeaway'
+            "#,
+        )
+        .bind(body.transaction_id)
+        .bind(&line_ids)
+        .fetch_one(&mut *tx)
+        .await?;
+        if count != line_ids.len() as i64 {
+            return Err(WeddingError::BadRequest(
+                "One or more selected items do not belong to this Transaction Record.".to_string(),
+            ));
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE transaction_lines tl
+            SET fulfillment = 'wedding_order',
+                wedding_id = wm.wedding_party_id,
+                wedding_date = wp.event_date
+            FROM wedding_members wm
+            JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+            WHERE wm.id = $1
+              AND tl.transaction_id = $2
+              AND tl.id = ANY($3)
+              AND tl.fulfillment::text <> 'takeaway'
+            "#,
+        )
+        .bind(body.member_id)
+        .bind(body.transaction_id)
+        .bind(&line_ids)
+        .execute(&mut *tx)
+        .await?;
+
+        crate::logic::order_lifecycle::apply_transition_tx(
+            &mut tx,
+            &line_ids,
+            lifecycle,
+            None,
+            "counterpoint_cutover_review",
+            body.note.as_deref().or(Some("Wedding cutover review")),
+            json!({
+                "party_id": body.party_id,
+                "wedding_member_id": body.member_id,
+                "transaction_id": body.transaction_id,
+                "actor_name": actor,
+            }),
+        )
+        .await?;
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE wedding_parties
+        SET cutover_review_status = CASE
+                WHEN cutover_review_status = 'reviewed' THEN 'reviewed'
+                ELSE 'in_review'
+            END
+        WHERE id = $1
+        "#,
+    )
+    .bind(body.party_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO wedding_cutover_match_suggestions (
+            wedding_party_id, wedding_member_id, customer_id, transaction_id,
+            transaction_line_id, confidence, reason, status, reviewed_by, reviewed_at, metadata
+        )
+        SELECT
+            $1, $2, t.customer_id, $3, line_id, 'high',
+            'Accepted during Cutover Review', 'accepted', $4, NOW(),
+            jsonb_build_object('lifecycle_status', $5::text, 'note', $6::text)
+        FROM transactions t
+        CROSS JOIN unnest(CASE WHEN cardinality($7::uuid[]) = 0 THEN ARRAY[NULL]::uuid[] ELSE $7::uuid[] END) AS line_id
+        WHERE t.id = $3
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(body.party_id)
+    .bind(body.member_id)
+    .bind(body.transaction_id)
+    .bind(&actor)
+    .bind(lifecycle.as_str())
+    .bind(body.note.clone())
+    .bind(&line_ids)
+    .execute(&mut *tx)
+    .await?;
+
+    if let Err(e) = wedding_logic::insert_wedding_activity(
+        &mut *tx,
+        body.party_id,
+        Some(body.member_id),
+        &actor,
+        "CUTOVER_REVIEW",
+        "Counterpoint Transaction Record linked during cutover review",
+        json!({
+            "transaction_id": body.transaction_id,
+            "line_count": line_ids.len(),
+            "lifecycle_status": lifecycle.as_str(),
+        }),
+    )
+    .await
+    {
+        tracing::warn!(error = %e, "Wedding cutover activity log failed");
+    }
+
+    tx.commit().await?;
+    state
+        .wedding_events
+        .parties_updated(wedding_client_sender(&headers).as_deref());
+    spawn_meilisearch_wedding_party(&state, body.party_id);
+    Ok(Json(
+        json!({ "status": "linked", "line_count": line_ids.len() }),
+    ))
+}
+
+async fn post_party_cutover_review(
+    State(state): State<AppState>,
+    Path(party_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<CutoverReviewRequest>,
+) -> Result<Json<serde_json::Value>, WeddingError> {
+    require_weddings_mutate(&state, &headers).await?;
+    let status = normalize_cutover_status(Some(body.status))?;
+    if status == "not_required" {
+        return Err(WeddingError::BadRequest(
+            "Choose a review status before saving.".to_string(),
+        ));
+    }
+    let actor = resolve_actor(body.actor_name.clone());
+    let rows = sqlx::query(
+        r#"
+        UPDATE wedding_parties
+        SET cutover_review_status = $2,
+            cutover_reviewed_at = CASE WHEN $2 = 'reviewed' THEN NOW() ELSE cutover_reviewed_at END,
+            cutover_reviewed_by = CASE WHEN $2 = 'reviewed' THEN $3 ELSE cutover_reviewed_by END,
+            cutover_review_notes = $4
+        WHERE id = $1
+        "#,
+    )
+    .bind(party_id)
+    .bind(&status)
+    .bind(&actor)
+    .bind(&body.notes)
+    .execute(&state.db)
+    .await?
+    .rows_affected();
+    if rows == 0 {
+        return Err(WeddingError::PartyNotFound);
+    }
+    wedding_logic::insert_wedding_activity(
+        &state.db,
+        party_id,
+        None,
+        &actor,
+        "CUTOVER_REVIEW",
+        &format!("Cutover review marked {status}"),
+        json!({ "status": status, "notes": body.notes }),
+    )
+    .await
+    .ok();
+    state
+        .wedding_events
+        .parties_updated(wedding_client_sender(&headers).as_deref());
+    Ok(Json(json!({ "status": status })))
+}
+
+async fn post_cutover_reject(
+    State(state): State<AppState>,
+    Path(suggestion_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<CutoverRejectRequest>,
+) -> Result<Json<serde_json::Value>, WeddingError> {
+    require_weddings_mutate(&state, &headers).await?;
+    let actor = resolve_actor(body.actor_name);
+    let row: Option<(Uuid, Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        r#"
+        UPDATE wedding_cutover_match_suggestions
+        SET status = 'rejected',
+            reviewed_by = $2,
+            reviewed_at = NOW(),
+            metadata = metadata || jsonb_build_object('reject_reason', $3::text)
+        WHERE id = $1
+        RETURNING wedding_party_id, wedding_member_id, transaction_id
+        "#,
+    )
+    .bind(suggestion_id)
+    .bind(&actor)
+    .bind(body.reason)
+    .fetch_optional(&state.db)
+    .await?;
+    let Some((party_id, member_id, transaction_id)) = row else {
+        return Err(WeddingError::BadRequest(
+            "Suggestion not found.".to_string(),
+        ));
+    };
+    wedding_logic::insert_wedding_activity(
+        &state.db,
+        party_id,
+        member_id,
+        &actor,
+        "CUTOVER_REVIEW",
+        "Cutover match suggestion rejected",
+        json!({ "suggestion_id": suggestion_id, "transaction_id": transaction_id }),
+    )
+    .await
+    .ok();
+    state
+        .wedding_events
+        .parties_updated(wedding_client_sender(&headers).as_deref());
+    Ok(Json(json!({ "status": "rejected" })))
 }
 
 async fn get_health(

@@ -299,9 +299,9 @@ function ReadinessCard({ party, opening, onOpen }: { party: WmReadinessSummary; 
             </div>
 
             <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                <MiniMetric label="Measure" value={party.lifecycle?.needs_measurements ?? 0} />
                 <MiniMetric label="NTBO" value={party.lifecycle?.ntbo ?? 0} />
                 <MiniMetric label="Ready" value={party.lifecycle?.ready_for_pickup ?? 0} />
-                <MiniMetric label="Blocked" value={party.pickup?.blocked_members ?? 0} />
             </div>
 
             <div className="mt-auto flex items-center justify-between pt-5 text-xs font-black uppercase tracking-widest text-app-accent">

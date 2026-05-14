@@ -22,7 +22,6 @@ import {
   RotateCcw,
   Wallet,
   Printer,
-  Truck,
 } from "lucide-react";
 import AttachOrderToWeddingModal from "./AttachOrderToWeddingModal";
 import TransactionDetailDrawer, {
@@ -83,6 +82,7 @@ interface OrderItem {
   state_tax: string;
   local_tax: string;
   fulfillment: FulfillmentKind;
+  order_lifecycle_status?: string;
   /** Takeaway lines can be fulfilled at checkout; orders at pickup. */
   is_fulfilled: boolean;
 }
@@ -116,33 +116,6 @@ interface OrderPrintItem {
   quantity: number;
   status: string;
 }
-
-interface LifecycleItem {
-  transaction_line_id: string;
-  transaction_display_id: string;
-  customer_name: string;
-  product_name: string;
-  sku: string;
-  variation_label?: string | null;
-  quantity: number;
-  vendor_id?: string | null;
-  vendor_name?: string | null;
-  salesperson_name?: string | null;
-  is_rush: boolean;
-  need_by_date?: string | null;
-  wedding_date?: string | null;
-  days_outstanding: number;
-  risk_level: string;
-  safe_next_action: string;
-}
-
-interface VendorOption {
-  id: string;
-  name: string;
-}
-
-
-
 
 interface ScanItem {
   product_id: string;
@@ -470,6 +443,8 @@ interface OrderRowActions {
       quantity?: number;
       unit_price?: string;
       fulfillment?: FulfillmentKind;
+      variant_id?: string;
+      order_lifecycle_status?: string;
     },
   ) => Promise<void>;
   setSku: (s: string) => void;
@@ -808,7 +783,6 @@ export default function OrdersWorkspace({
   const canCancel = hasPermission("orders.cancel");
   const canVoidUnpaid = hasPermission("orders.void_sale");
   const canRefund = hasPermission("orders.refund_process");
-  const canManageLifecycle = hasPermission("orders.lifecycle_manage");
 
   const [transactionRows, setTransactionRows] = useState<TransactionRow[]>([]);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
@@ -856,46 +830,7 @@ export default function OrdersWorkspace({
     defaultViewPreset,
   );
   const [hydratedOrderLines, setHydratedOrderLines] = useState<Record<string, OrderLineSummary>>({});
-  const [ntboItems, setNtboItems] = useState<LifecycleItem[]>([]);
-  const [ntboLoading, setNtboLoading] = useState(false);
-  const [ntboError, setNtboError] = useState<string | null>(null);
-  const [selectedNtboIds, setSelectedNtboIds] = useState<Set<string>>(() => new Set());
-  const [vendors, setVendors] = useState<VendorOption[]>([]);
-  const [ntboVendorId, setNtboVendorId] = useState("");
-  const [ntboPoBusy, setNtboPoBusy] = useState(false);
-
   const section: Section = viewPreset === "all" ? "all" : "open";
-
-  const loadNtboItems = useCallback(async () => {
-    setNtboLoading(true);
-    setNtboError(null);
-    try {
-      const [itemsRes, vendorsRes] = await Promise.all([
-        fetch(`${baseUrl}/api/order-lifecycle/items?status=ntbo`, {
-          headers: backofficeHeaders(),
-        }),
-        fetch(`${baseUrl}/api/vendors`, {
-          headers: backofficeHeaders(),
-        }),
-      ]);
-      if (!itemsRes.ok) throw new Error("ntbo_load_failed");
-      const items = (await itemsRes.json()) as LifecycleItem[];
-      const nextItems = Array.isArray(items) ? items : [];
-      setNtboItems(nextItems);
-      setSelectedNtboIds((prev) => {
-        const visible = new Set(nextItems.map((item) => item.transaction_line_id));
-        return new Set([...prev].filter((id) => visible.has(id)));
-      });
-      if (vendorsRes.ok) {
-        const rows = (await vendorsRes.json()) as VendorOption[];
-        setVendors(Array.isArray(rows) ? rows : []);
-      }
-    } catch {
-      setNtboError("NTBO queue could not refresh. Existing orders are still shown below.");
-    } finally {
-      setNtboLoading(false);
-    }
-  }, [backofficeHeaders, baseUrl]);
 
   useEffect(() => {
     setViewPreset(defaultViewPreset);
@@ -1036,10 +971,6 @@ export default function OrdersWorkspace({
   }, [loadTransactions]);
 
   useEffect(() => {
-    void loadNtboItems();
-  }, [loadNtboItems]);
-
-  useEffect(() => {
     const rowsNeedingNames = transactionRows.filter(
       (row) => row.item_count > 0 && !row.order_items_summary?.trim() && !hydratedOrderLines[row.transaction_id],
     );
@@ -1105,11 +1036,10 @@ export default function OrdersWorkspace({
     if (refreshSignal === 0) return;
     void loadPipelineStats();
     void loadTransactions();
-    void loadNtboItems();
     if (selectedId) {
       void loadDetail(selectedId);
     }
-  }, [loadDetail, loadNtboItems, loadPipelineStats, loadTransactions, refreshSignal, selectedId]);
+  }, [loadDetail, loadPipelineStats, loadTransactions, refreshSignal, selectedId]);
 
   const addBySku = async (skuOverride?: string): Promise<boolean> => {
     const enteredSku = (skuOverride ?? sku).trim();
@@ -1238,6 +1168,8 @@ export default function OrdersWorkspace({
         quantity?: number;
         unit_price?: string;
         fulfillment?: FulfillmentKind;
+        variant_id?: string;
+        order_lifecycle_status?: string;
       },
     ) => {
       if (!detail || !canModify || !item.transaction_line_id) return;
@@ -1245,6 +1177,8 @@ export default function OrdersWorkspace({
         quantity?: number;
         unit_price?: string;
         fulfillment?: FulfillmentKind;
+        variant_id?: string;
+        order_lifecycle_status?: string;
       } = {};
       if (patch.quantity !== undefined) {
         body.quantity = patch.quantity;
@@ -1255,10 +1189,18 @@ export default function OrdersWorkspace({
       if (patch.fulfillment !== undefined) {
         body.fulfillment = patch.fulfillment;
       }
+      if (patch.variant_id !== undefined) {
+        body.variant_id = patch.variant_id;
+      }
+      if (patch.order_lifecycle_status !== undefined) {
+        body.order_lifecycle_status = patch.order_lifecycle_status;
+      }
       if (
         body.quantity === undefined &&
         body.unit_price === undefined &&
-        body.fulfillment === undefined
+        body.fulfillment === undefined &&
+        body.variant_id === undefined &&
+        body.order_lifecycle_status === undefined
       ) {
         return;
       }
@@ -1388,37 +1330,6 @@ export default function OrdersWorkspace({
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [transactionRows]);
-
-  const createPoFromNtbo = useCallback(async () => {
-    if (!ntboVendorId || selectedNtboIds.size === 0) return;
-    setNtboPoBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/order-lifecycle/ntbo/create-po`, {
-        method: "POST",
-        headers: jsonHeaders(backofficeHeaders),
-        body: JSON.stringify({
-          vendor_id: ntboVendorId,
-          transaction_line_ids: [...selectedNtboIds],
-          notes: "Created from ROS NTBO queue",
-        }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(body.error ?? "Could not create purchase order from NTBO items.", "error");
-        return;
-      }
-      const body = (await res.json()) as { po_number?: string; linked_line_count?: number };
-      toast(
-        `${body.po_number ?? "Purchase order"} created for ${body.linked_line_count ?? selectedNtboIds.size} item(s).`,
-        "success",
-      );
-      setSelectedNtboIds(new Set());
-      await loadNtboItems();
-      await loadTransactions();
-    } finally {
-      setNtboPoBusy(false);
-    }
-  }, [backofficeHeaders, baseUrl, loadNtboItems, loadTransactions, ntboVendorId, selectedNtboIds, toast]);
 
   const orderIntegritySummary = useMemo<OrderIntegritySummary>(() => {
     return transactionRows.reduce(
@@ -1795,119 +1706,6 @@ export default function OrdersWorkspace({
                 ) : null}
             </div>
 
-            <div className="border-b border-app-border bg-app-surface px-4 py-4 lg:px-5">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 rounded-xl border border-app-warning/25 bg-app-warning/10 p-2 text-app-warning">
-                    <Truck size={18} />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      NTBO Vendor Queue
-                    </p>
-                    <p className="mt-1 text-sm font-semibold text-app-text">
-                      {ntboLoading
-                        ? "Refreshing items that still need vendor ordering..."
-                        : `${ntboItems.length} item${ntboItems.length === 1 ? "" : "s"} still need vendor ordering.`}
-                    </p>
-                    <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      Creates exact PO-line links and moves selected items from NTBO to Ordered.
-                    </p>
-                    {ntboError ? (
-                      <p className="mt-2 text-xs font-bold text-app-warning">{ntboError}</p>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={ntboVendorId}
-                    onChange={(event) => setNtboVendorId(event.target.value)}
-                    className="ui-input h-10 min-w-[220px] px-3 text-[10px] font-black uppercase tracking-widest"
-                    disabled={!canManageLifecycle || ntboPoBusy}
-                  >
-                    <option value="">Vendor: Select</option>
-                    {vendors.map((vendor) => (
-                      <option key={vendor.id} value={vendor.id}>
-                        {vendor.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => void createPoFromNtbo()}
-                    disabled={!canManageLifecycle || !ntboVendorId || selectedNtboIds.size === 0 || ntboPoBusy}
-                    className="rounded-xl border border-app-accent/30 bg-app-accent px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {ntboPoBusy ? "Creating..." : `Create PO (${selectedNtboIds.size})`}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void loadNtboItems()}
-                    disabled={ntboLoading}
-                    className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text disabled:opacity-50"
-                  >
-                    Refresh
-                  </button>
-                </div>
-              </div>
-              {ntboItems.length > 0 ? (
-                <div className="mt-3 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
-                  {ntboItems.slice(0, 6).map((item) => {
-                    const selected = selectedNtboIds.has(item.transaction_line_id);
-                    return (
-                      <label
-                        key={item.transaction_line_id}
-                        className={cn(
-                          "flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors",
-                          selected
-                            ? "border-app-accent/40 bg-app-accent/10"
-                            : "border-app-border bg-app-surface-2 hover:border-app-border-hover",
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          disabled={!canManageLifecycle}
-                          onChange={(event) => {
-                            setSelectedNtboIds((prev) => {
-                              const next = new Set(prev);
-                              if (event.target.checked) next.add(item.transaction_line_id);
-                              else next.delete(item.transaction_line_id);
-                              return next;
-                            });
-                          }}
-                          className="mt-1 h-4 w-4"
-                        />
-                        <span className="min-w-0">
-                          <span className="block text-xs font-black text-app-text">
-                            {item.quantity}x {item.product_name}
-                          </span>
-                          <span className="mt-1 block truncate text-[11px] font-semibold text-app-text-muted">
-                            {item.transaction_display_id} · {item.customer_name} · {item.sku}
-                          </span>
-                          <span className="mt-2 flex flex-wrap gap-1.5">
-                            {item.is_rush ? (
-                              <span className="rounded-full border border-app-danger/20 bg-app-danger/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-danger">
-                                Rush
-                              </span>
-                            ) : null}
-                            <span className="rounded-full border border-app-border bg-app-surface px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-text-muted">
-                              {item.risk_level.replace(/_/g, " ")}
-                            </span>
-                            {item.need_by_date ? (
-                              <span className="rounded-full border border-app-border bg-app-surface px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-text-muted">
-                                Need {dateDisplay(item.need_by_date)}
-                              </span>
-                            ) : null}
-                          </span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-
             <div className="grid gap-3 p-3 xl:hidden">
               {transactionRows.map((r) => (
                 <OrderMobileCard
@@ -2041,7 +1839,6 @@ export default function OrdersWorkspace({
         onLifecycleChanged={async () => {
           if (selectedId) await loadDetail(selectedId);
           await loadTransactions();
-          await loadNtboItems();
         }}
         orderActions={{
           onOpenInRegister: openInRegisterAndClose,

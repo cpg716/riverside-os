@@ -57,6 +57,7 @@ pub enum DbOrderFulfillmentMethod {
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "order_item_lifecycle_status", rename_all = "snake_case")]
 pub enum DbOrderItemLifecycleStatus {
+    NeedsMeasurements,
     Ntbo,
     Ordered,
     Received,
@@ -67,6 +68,7 @@ pub enum DbOrderItemLifecycleStatus {
 impl DbOrderItemLifecycleStatus {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::NeedsMeasurements => "needs_measurements",
             Self::Ntbo => "ntbo",
             Self::Ordered => "ordered",
             Self::Received => "received",
