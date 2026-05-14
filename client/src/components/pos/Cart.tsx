@@ -1143,65 +1143,32 @@ export default function Cart({
       );
 
       if (unfulfilled.length === 0) {
-        toast("All transaction lines are already marked complete.", "info");
+        setExchangeWizardInitialTransactionId(detail.transaction_id);
+        setExchangeWizardOpen(true);
+        return true;
+      }
+
+      if (!detail.customer) {
+        toast("This Transaction Record has no customer attached, so it cannot be reopened from the customer order menu.", "error");
         return false;
       }
-
-      clearCartAndAlterations();
-      setActiveWeddingMember(null);
-      setActiveWeddingPartyName(null);
-      setDisbursementMembers([]);
-      setPosShipping(null);
-      setCheckoutOrderOptions(null);
-      setSelectedLineKey(null);
-
-      if (detail.customer) {
-        setSelectedCustomer({
-          id: detail.customer.id,
-          customer_code: detail.customer.customer_code ?? "",
-          first_name: detail.customer.first_name,
-          last_name: detail.customer.last_name,
-          company_name: detail.customer.company_name ?? null,
-          email: detail.customer.email ?? null,
-          phone: detail.customer.phone ?? null,
-        });
-      } else {
-        setSelectedCustomer(null);
-      }
-
-      setLines(
-        unfulfilled.map((item) => ({
-          product_id: item.product_id,
-          variant_id: item.variant_id,
-          sku: item.sku,
-          name: item.product_name,
-          variation_label: item.variation_label ?? "",
-          standard_retail_price: item.unit_price,
-          unit_cost: item.unit_cost ?? "0",
-          state_tax: item.state_tax ?? "0",
-          local_tax: item.local_tax ?? "0",
-          quantity: Math.max(1, item.quantity),
-          fulfillment: item.fulfillment,
-          cart_row_id: newCartRowId(),
-          custom_item_type: item.custom_item_type ?? undefined,
-          custom_order_details: item.custom_order_details ?? null,
-        })),
+      setSelectedCustomer({
+        id: detail.customer.id,
+        customer_code: detail.customer.customer_code ?? "",
+        first_name: detail.customer.first_name,
+        last_name: detail.customer.last_name,
+        company_name: detail.customer.company_name ?? null,
+        email: detail.customer.email ?? null,
+        phone: detail.customer.phone ?? null,
+      });
+      setOrderLoadOpen(true);
+      toast(
+        `Opened ${detail.transaction_display_id ?? "transaction"} in Customer Orders. Add payments or edit the original order there; ROS will not start a new sale for this order.`,
+        "info",
       );
-
-      if (detail.fulfillment_method === "ship" || parseMoneyToCents(detail.shipping_amount_usd ?? "0") > 0) {
-        toast(
-          `Loaded ${detail.transaction_display_id ?? "transaction"} into the register. Review shipping details before checkout because this handoff starts a new sale.`,
-          "info",
-        );
-      } else {
-        toast(
-          `Loaded ${detail.transaction_display_id ?? "transaction"} into the register. This starts a new sale and does not collect payment on the original transaction.`,
-          "info",
-        );
-      }
       return true;
     },
-    [apiAuth, baseUrl, clearCartAndAlterations, setActiveWeddingMember, setActiveWeddingPartyName, setCheckoutOrderOptions, setDisbursementMembers, setLines, setPosShipping, setSelectedLineKey, toast],
+    [apiAuth, baseUrl, setSelectedCustomer, toast],
   );
 
   useEffect(() => {
@@ -3030,46 +2997,6 @@ export default function Cart({
             onMakePayment={addOrderPaymentLine}
             onAddItemToOrder={addItemToExistingOrder}
             onUpdateOrderItem={updateExistingOrderItem}
-            onCopyOrder={(order, items) => {
-              void (async () => {
-                try {
-                  // Clear cart and setup for recall
-                  clearCartAndAlterations();
-                  setOrderLoadOpen(false);
-                  
-                  items.forEach(item => {
-                    addItem({
-                      product_id: item.product_id,
-                      variant_id: item.variant_id,
-                      sku: item.sku,
-                      name: item.product_name,
-                      variation_label: item.variation_label || "",
-                      standard_retail_price: parseMoneyToCents(item.unit_price),
-                      unit_cost: 0,
-                      state_tax: 0,
-                      local_tax: 0,
-                    }, undefined, item.fulfillment as FulfillmentKind);
-                    // Explicitly apply metadata since addItem doesn't expose it as a direct arg yet for recall
-                    setLines(prev => prev.map(l => {
-                      if (l.sku === item.sku && l.variant_id === item.variant_id && !l.is_rush && !l.need_by_date) {
-                        return { ...l, is_rush: item.is_rush, need_by_date: item.need_by_date };
-                      }
-                      return l;
-                    }));
-                  });
-                  toast(
-                    `Unfulfilled lines from ${order.display_id} were copied into the register. This starts a new sale and does not collect payment on the original order.`,
-                    "info",
-                  );
-                } catch (e) {
-                  console.error("Could not copy order items into register", e);
-                  toast(
-                    "We couldn't copy those items into the register. Please try again.",
-                    "error",
-                  );
-                }
-              })();
-            }}
           />
 
           <OrderReviewModal

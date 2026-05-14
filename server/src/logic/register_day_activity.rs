@@ -76,6 +76,10 @@ pub struct RegisterActivityItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_phone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub deposits_paid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub balance_due: Option<String>,
@@ -98,7 +102,7 @@ pub struct RegisterDaySummary {
     /// Stats/timeline were loaded from the Z-close snapshot for this calendar day (single-day historical, store-wide).
     #[serde(default)]
     pub from_eod_snapshot: bool,
-    /// `booked` = date of sale (`booked_at`); `completed` = pickup day (`fulfilled_at`, fulfilled orders only).
+    /// `booked` = date of sale (`booked_at`); `completed` = recognition date (takeaway sale time, pickup fulfillment time, or shipping recognition).
     #[serde(default = "default_reporting_basis")]
     pub reporting_basis: String,
     pub sales_count: i64,
@@ -193,11 +197,21 @@ pub async fn store_local_date_for_utc(
 /// Defaults: `to` = store today, `from` = `to` − 90 days when omitted.
 pub async fn utc_window_store_local_closed_at(
     pool: &PgPool,
+    preset: Option<String>,
     from: Option<NaiveDate>,
     to: Option<NaiveDate>,
 ) -> Result<(chrono::DateTime<Utc>, chrono::DateTime<Utc>), RegisterDayActivityError> {
     let tz_name = receipt_timezone(pool).await?;
     let tz = effective_tz(Some(tz_name));
+    let preset_ref = preset
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "recent");
+    if preset_ref.is_some() {
+        let (from_l, to_l, _) = resolve_register_day_range(tz, preset_ref, from, to)
+            .map_err(RegisterDayActivityError::InvalidRange)?;
+        return local_day_bounds(tz, from_l, to_l).map_err(RegisterDayActivityError::InvalidRange);
+    }
     let today = store_today_naive(tz);
     let to_l = to.unwrap_or(today);
     let from_default = to_l
@@ -579,6 +593,8 @@ pub async fn fetch_register_day_summary(
         customer_first: Option<String>,
         customer_last: Option<String>,
         customer_code: Option<String>,
+        customer_phone: Option<String>,
+        customer_email: Option<String>,
         is_takeaway: bool,
         channel: String,
         pay: Option<String>,
@@ -615,6 +631,8 @@ pub async fn fetch_register_day_summary(
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             c.customer_code,
+            c.phone AS customer_phone,
+            c.email AS customer_email,
             COALESCE(BOOL_AND(oi.fulfillment::text = 'takeaway'), false) AS is_takeaway,
             o.sale_channel::text AS channel,
             (
@@ -673,7 +691,7 @@ pub async fn fetch_register_day_summary(
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         WHERE {order_in_range}
         {ORDER_SESSION_FILTER}
-        GROUP BY o.id, {sale_ts}, o.total_price, o.balance_due, wp.id, wp.party_name, c.first_name, c.last_name, c.customer_code, o.sale_channel::text
+        GROUP BY o.id, {sale_ts}, o.total_price, o.balance_due, wp.id, wp.party_name, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
         ORDER BY {sale_order_by}
         LIMIT 120
         "#
@@ -708,7 +726,13 @@ pub async fn fetch_register_day_summary(
 
     for s in sales {
         let title = match basis {
-            ReportBasis::Completed => "Order Taken (Fulfilled)".to_string(),
+            ReportBasis::Completed => {
+                if s.is_takeaway {
+                    "POS Retail Sale (Completed)".to_string()
+                } else {
+                    "Order Taken (Fulfilled)".to_string()
+                }
+            }
             ReportBasis::Booked => {
                 if s.is_takeaway {
                     "POS Retail Sale".to_string()
@@ -783,6 +807,8 @@ pub async fn fetch_register_day_summary(
             net_amount: s.net_amount.map(money_label),
             customer_name: customer_full,
             customer_code: s.customer_code,
+            customer_phone: s.customer_phone,
+            customer_email: s.customer_email,
             deposits_paid: deposits,
             balance_due: balance,
             fulfillment_type: s.fulfillment_type,

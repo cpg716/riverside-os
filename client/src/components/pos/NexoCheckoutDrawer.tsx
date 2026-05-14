@@ -1560,7 +1560,8 @@ export default function NexoCheckoutDrawer({
       return {
         title: "Could not refresh payment terminal status",
         detail: providerSettingsError,
-        action: "Open terminal settings or use a non-card tender until payment health is confirmed.",
+        action: "Safe to retry the health check. Use a non-card tender only if store policy allows degraded checkout.",
+        escalation: "Requires manager review if card payments remain unavailable.",
         tone: "danger",
       };
     }
@@ -1569,6 +1570,7 @@ export default function NexoCheckoutDrawer({
         title: "Payment outcome needs review",
         detail: helcimUnverifiedNotice ?? HELCIM_UNVERIFIED_OUTCOME_MESSAGE,
         action: "Do not retry the card until terminal status is checked or support confirms the outcome.",
+        escalation: "Requires Payments Health review before another card attempt.",
         tone: "danger",
       };
     }
@@ -1576,7 +1578,8 @@ export default function NexoCheckoutDrawer({
       return {
         title: "Waiting on payment terminal",
         detail: helcimAttemptDetail(helcimAttempt),
-        action: helcimAttemptSafeNextAction(helcimAttempt),
+        action: "Do not start another card attempt. Customer should finish or cancel on the terminal, then tap Check.",
+        escalation: "Safe retry only after Helcim reports approved, declined, or canceled.",
         tone: "warning",
       };
     }
@@ -1585,6 +1588,10 @@ export default function NexoCheckoutDrawer({
         title: helcimAttemptStatusLabel(helcimAttempt.status),
         detail: helcimAttemptDetail(helcimAttempt),
         action: helcimAttemptSafeNextAction(helcimAttempt),
+        escalation:
+          helcimAttempt.status === "failed"
+            ? "Safe to retry card if the customer approves another attempt."
+            : "Safe to retry only after the customer confirms the terminal was canceled.",
         tone: "warning",
       };
     }
@@ -1593,6 +1600,7 @@ export default function NexoCheckoutDrawer({
         title: "Register is not ready for terminal payments",
         detail: "This checkout is not attached to an open register lane.",
         action: "Reopen or rejoin the register before taking a terminal payment.",
+        escalation: "Requires manager help if the register cannot be reopened cleanly.",
         tone: "warning",
       };
     }
@@ -1601,6 +1609,7 @@ export default function NexoCheckoutDrawer({
         title: "Selected terminal is in use",
         detail: `Terminal is currently tied to Register #${selectedTerminalInUseBy}.`,
         action: "Choose an available terminal or continue with a safe non-card tender.",
+        escalation: "Do not force-release another register's terminal under line pressure.",
         tone: "warning",
       };
     }
@@ -1612,7 +1621,8 @@ export default function NexoCheckoutDrawer({
       return {
         title: "Terminal payments are not ready",
         detail: "Helcim is configured, but live terminal payments are not ready from the loaded provider settings.",
-        action: "Check terminal setup before taking card payments. Cash/check tenders are still available.",
+        action: "Check terminal setup before taking card payments. Cash/check tenders are still available if store policy allows.",
+        escalation: "Degraded but operational; escalate if customers need card payment now.",
         tone: "warning",
       };
     }
@@ -1621,6 +1631,7 @@ export default function NexoCheckoutDrawer({
         title: "Non-default terminal needs confirmation",
         detail: "Manager Access confirmation is required before sending this checkout to the selected terminal.",
         action: "Confirm the terminal override or choose the register default terminal.",
+        escalation: "Requires Manager Access before routing payment to a non-default terminal.",
         tone: "info",
       };
     }
@@ -1968,6 +1979,9 @@ export default function NexoCheckoutDrawer({
                   </p>
                   <p className="mt-1 text-xs font-black opacity-90">
                     Next safe action: {terminalRecoveryState.action}
+                  </p>
+                  <p className="mt-1 text-xs font-black opacity-90">
+                    Escalation: {terminalRecoveryState.escalation}
                   </p>
                 </div>
               </div>

@@ -315,14 +315,24 @@ function fulfillmentSummary(detail: TransactionDrawerDetail) {
   const customerVisibleItems = detail.items.filter((item) => !item.is_internal);
   const fulfilledItems = customerVisibleItems.filter((item) => item.is_fulfilled);
   const pendingItems = customerVisibleItems.filter((item) => !item.is_fulfilled);
+  const readyPendingItems = pendingItems.filter(
+    (item) => item.order_lifecycle_status === "ready_for_pickup",
+  );
+  const blockedPendingItems = pendingItems.filter(
+    (item) => item.order_lifecycle_status !== "ready_for_pickup",
+  );
   const fulfilled = fulfilledItems.length;
   const pending = pendingItems.length;
   return {
     total: customerVisibleItems.length,
     fulfilled,
     pending,
+    readyPending: readyPendingItems.length,
+    blockedPending: blockedPendingItems.length,
     fulfilledUnits: fulfilledItems.reduce((sum, item) => sum + item.quantity, 0),
     pendingUnits: pendingItems.reduce((sum, item) => sum + item.quantity, 0),
+    readyPendingUnits: readyPendingItems.reduce((sum, item) => sum + item.quantity, 0),
+    blockedPendingUnits: blockedPendingItems.reduce((sum, item) => sum + item.quantity, 0),
     returnedUnits: customerVisibleItems.reduce(
       (sum, item) => sum + (item.quantity_returned ?? 0),
       0,
@@ -402,13 +412,23 @@ function readinessSummary(
     };
   }
 
-  if (summary.pending > 0) {
+  if (summary.blockedPending > 0) {
     return {
       readinessLabel,
       readinessTone,
       remainingWorkLabel,
       releaseLabel: isShip ? "Balance Clear, Work Still Open" : "Balance Clear, Pickup Still Blocked",
       releaseTone: "info",
+    };
+  }
+
+  if (summary.readyPending > 0) {
+    return {
+      readinessLabel: "Ready Lines Available",
+      readinessTone: "success",
+      remainingWorkLabel,
+      releaseLabel: isShip ? "Ready for Shipping Release" : "Ready for Pickup Release",
+      releaseTone: "success",
     };
   }
 
@@ -473,12 +493,12 @@ function buildReadinessCheck(
     blockers.push("Measurements/details still need follow-up.");
   }
 
-  if (summary.pending > 0) {
+  if (summary.blockedPending > 0) {
     const workType = isShip ? "shipping" : "pickup";
     blockers.push(
-      summary.pending === 1
-        ? `1 ${workType} line is still open.`
-        : `${summary.pending} ${workType} lines are still open.`,
+      summary.blockedPending === 1
+        ? `1 ${workType} line is not ready.`
+        : `${summary.blockedPending} ${workType} lines are not ready.`,
     );
   }
 
@@ -681,7 +701,12 @@ export default function TransactionDetailDrawer({
   const [managerPin, setManagerPin] = useState("");
   const [readyBusy, setReadyBusy] = useState(false);
   const [readyError, setReadyError] = useState<string | null>(null);
-  useShellBackdropLayer(Boolean(readyTarget));
+  const [showPickupReleaseModal, setShowPickupReleaseModal] = useState(false);
+  const [pickupOverride, setPickupOverride] = useState(false);
+  const [pickupOverrideReason, setPickupOverrideReason] = useState("");
+  const [pickupBusy, setPickupBusy] = useState(false);
+  const [pickupError, setPickupError] = useState<string | null>(null);
+  useShellBackdropLayer(Boolean(readyTarget) || showPickupReleaseModal);
 
   const usesControlledData =
     controlledDetail !== undefined ||
@@ -753,6 +778,17 @@ export default function TransactionDetailDrawer({
     () => (detail && summary ? buildReadinessCheck(detail, summary) : null),
     [detail, summary],
   );
+  const pickupReleaseLines = useMemo(() => {
+    const openLines =
+      detail?.items.filter(
+        (item) => !item.is_internal && !item.is_fulfilled && item.transaction_line_id,
+      ) ?? [];
+    return {
+      open: openLines,
+      ready: openLines.filter((item) => item.order_lifecycle_status === "ready_for_pickup"),
+      blocked: openLines.filter((item) => item.order_lifecycle_status !== "ready_for_pickup"),
+    };
+  }, [detail?.items]);
   const beginLineEdit = useCallback((item: TransactionDrawerItem) => {
     if (!item.transaction_line_id) return;
     setEditingLineId(item.transaction_line_id);
@@ -782,6 +818,19 @@ export default function TransactionDetailDrawer({
     setReadyTarget(null);
     setReadyError(null);
   }, [readyBusy]);
+
+  const openPickupReleaseModal = useCallback(() => {
+    setPickupOverride(false);
+    setPickupOverrideReason("");
+    setPickupError(null);
+    setShowPickupReleaseModal(true);
+  }, []);
+
+  const closePickupReleaseModal = useCallback(() => {
+    if (pickupBusy) return;
+    setShowPickupReleaseModal(false);
+    setPickupError(null);
+  }, [pickupBusy]);
 
   const submitReadyTransition = useCallback(async () => {
     if (!readyTarget?.transaction_line_id) return;
@@ -839,6 +888,78 @@ export default function TransactionDetailDrawer({
     onLifecycleChanged,
     readyChecklist,
     readyTarget,
+    toast,
+    usesControlledData,
+  ]);
+
+  const submitPickupRelease = useCallback(async () => {
+    if (!detail || !summary) return;
+    const dueCents = parseMoneyToCents(detail.balance_due);
+    if (dueCents > 0) {
+      setPickupError("Collect the Balance Due before pickup release.");
+      return;
+    }
+    const targetLines = pickupOverride ? pickupReleaseLines.open : pickupReleaseLines.ready;
+    const deliveredItemIds = targetLines
+      .map((item) => item.transaction_line_id)
+      .filter((id): id is string => Boolean(id));
+    if (deliveredItemIds.length === 0) {
+      setPickupError("No ready pickup lines are selected for release.");
+      return;
+    }
+    const reason = pickupOverrideReason.trim();
+    if (pickupOverride && reason.length < 12) {
+      setPickupError("Enter a clear readiness override reason before releasing blocked lines.");
+      return;
+    }
+    setPickupBusy(true);
+    setPickupError(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/transactions/${detail.transaction_id}/pickup`, {
+        method: "POST",
+        headers: {
+          ...auth(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          delivered_item_ids: deliveredItemIds,
+          actor: "Transaction Record",
+          override_readiness: pickupOverride,
+          override_reason: pickupOverride ? reason : undefined,
+          register_session_id: detail.register_session_id ?? undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setPickupError(body.error ?? "Pickup release could not be completed.");
+        return;
+      }
+      toast(
+        pickupOverride
+          ? "Pickup released with readiness override recorded."
+          : "Ready pickup lines released.",
+        "success",
+      );
+      setShowPickupReleaseModal(false);
+      setPickupOverride(false);
+      setPickupOverrideReason("");
+      await onLifecycleChanged?.();
+      if (!usesControlledData) {
+        await load();
+      }
+    } finally {
+      setPickupBusy(false);
+    }
+  }, [
+    auth,
+    detail,
+    load,
+    onLifecycleChanged,
+    pickupOverride,
+    pickupOverrideReason,
+    pickupReleaseLines.open,
+    pickupReleaseLines.ready,
+    summary,
     toast,
     usesControlledData,
   ]);
@@ -951,6 +1072,12 @@ export default function TransactionDetailDrawer({
 	    await orderActions.addBySku();
 	  }, [orderActions]);
 
+  const pickupBalanceDueCents = detail ? parseMoneyToCents(detail.balance_due) : 0;
+  const pickupCanSubmit =
+    Boolean(detail) &&
+    pickupBalanceDueCents <= 0 &&
+    (pickupOverride ? pickupReleaseLines.open.length > 0 : pickupReleaseLines.ready.length > 0);
+
   return (
     <>
       <DetailDrawer
@@ -961,7 +1088,7 @@ export default function TransactionDetailDrawer({
         panelMaxClassName="max-w-3xl"
         actions={mapOrderActionButtons(detail, orderActions)}
         footer={
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <button
               type="button"
               onClick={() => setShowReceiptModal(true)}
@@ -971,6 +1098,19 @@ export default function TransactionDetailDrawer({
               <Printer size={16} />
               Reprint Receipt
             </button>
+            {detail &&
+            detail.fulfillment_method !== "ship" &&
+            !["fulfilled", "cancelled"].includes(detail.status) ? (
+              <button
+                type="button"
+                onClick={openPickupReleaseModal}
+                disabled={pickupReleaseLines.open.length === 0}
+                className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:opacity-90 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ShieldCheck size={16} />
+                Release Pickup
+              </button>
+            ) : null}
             {detail && orderActions?.onOpenInRegister ? (
               <button
                 type="button"
@@ -1139,6 +1279,22 @@ export default function TransactionDetailDrawer({
                     </p>
                     <p className="mt-1 text-sm font-black text-app-warning">
                       {summary?.pending ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Ready Now
+                    </p>
+                    <p className="mt-1 text-sm font-black text-app-success">
+                      {summary?.readyPending ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Blocked
+                    </p>
+                    <p className="mt-1 text-sm font-black text-app-warning">
+                      {summary?.blockedPending ?? 0}
                     </p>
                   </div>
                   <div>
@@ -1777,6 +1933,177 @@ export default function TransactionDetailDrawer({
           </div>
         )}
       </DetailDrawer>
+
+      {showPickupReleaseModal && detail && drawerRoot
+        ? createPortal(
+            <div className="ui-overlay-backdrop z-200 flex items-center justify-center p-4">
+              <div className="ui-modal w-full max-w-2xl">
+                <div className="ui-modal-header flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Pickup Release
+                    </p>
+                    <h3 className="mt-1 text-xl font-black text-app-text">
+                      {detail.transaction_display_id ?? detail.transaction_id.slice(0, 8)}
+                    </h3>
+                    <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                      Recognition, inventory, commission, and reporting move when pickup is released.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closePickupReleaseModal}
+                    disabled={pickupBusy}
+                    className="rounded-xl p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                    aria-label="Close pickup release"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="ui-modal-body space-y-4">
+                  {pickupBalanceDueCents > 0 ? (
+                    <div className="rounded-xl border border-app-danger/25 bg-app-danger/10 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
+                        Balance Blocks Pickup
+                      </p>
+                      <p className="mt-2 text-sm font-bold text-app-text">
+                        {fmtMoney(detail.balance_due)} is still due. Collect the balance before release.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-app-success/25 bg-app-success/10 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-success">
+                        Balance Clear
+                      </p>
+                      <p className="mt-2 text-sm font-bold text-app-text">
+                        Payment is clear. Release only lines that are ready, or record an override.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Ready Lines
+                      </p>
+                      <p className="mt-1 text-lg font-black text-app-success">
+                        {pickupReleaseLines.ready.length}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Blocked Lines
+                      </p>
+                      <p className="mt-1 text-lg font-black text-app-warning">
+                        {pickupReleaseLines.blocked.length}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Releasing
+                      </p>
+                      <p className="mt-1 text-lg font-black text-app-text">
+                        {pickupOverride
+                          ? pickupReleaseLines.open.length
+                          : pickupReleaseLines.ready.length}
+                      </p>
+                    </div>
+                  </div>
+
+                  {pickupReleaseLines.ready.length > 0 ? (
+                    <div className="rounded-xl border border-app-success/20 bg-app-success/8 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-success">
+                        Ready to Release
+                      </p>
+                      <ul className="mt-2 space-y-2 text-sm font-semibold text-app-text">
+                        {pickupReleaseLines.ready.slice(0, 5).map((item) => (
+                          <li key={item.transaction_line_id} className="flex justify-between gap-3">
+                            <span>{item.product_name}</span>
+                            <span className="shrink-0 text-app-text-muted">{item.sku}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {pickupReleaseLines.blocked.length > 0 ? (
+                    <div className="rounded-xl border border-app-warning/25 bg-app-warning/10 p-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
+                        Still Blocked
+                      </p>
+                      <ul className="mt-2 space-y-2 text-sm font-semibold text-app-text">
+                        {pickupReleaseLines.blocked.slice(0, 5).map((item) => (
+                          <li key={item.transaction_line_id} className="flex justify-between gap-3">
+                            <span>{item.product_name}</span>
+                            <span className="shrink-0 text-app-text-muted">
+                              {lifecycleStatusLabel(item.order_lifecycle_status) ?? "Not ready"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {pickupReleaseLines.blocked.length > 0 ? (
+                    <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                      <label className="flex items-start gap-3 text-sm font-bold text-app-text">
+                        <input
+                          type="checkbox"
+                          checked={pickupOverride}
+                          onChange={(event) => setPickupOverride(event.target.checked)}
+                          disabled={pickupBusy || pickupBalanceDueCents > 0}
+                          className="mt-0.5 h-4 w-4"
+                        />
+                        Record readiness override and release blocked lines
+                      </label>
+                      {pickupOverride ? (
+                        <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Override Reason
+                          <textarea
+                            value={pickupOverrideReason}
+                            onChange={(event) => setPickupOverrideReason(event.target.value)}
+                            disabled={pickupBusy}
+                            className="mt-1 min-h-24 w-full rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm font-semibold normal-case tracking-normal text-app-text outline-none"
+                            placeholder="Explain why blocked lines are being released now."
+                          />
+                        </label>
+                      ) : (
+                        <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                          Without override, only Ready for Pickup lines will be released.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {pickupError ? (
+                    <p className="rounded-xl border border-app-danger/25 bg-app-danger/10 p-3 text-sm font-bold text-app-danger">
+                      {pickupError}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="ui-modal-footer flex gap-3">
+                  <button
+                    type="button"
+                    onClick={closePickupReleaseModal}
+                    disabled={pickupBusy}
+                    className="ui-btn-secondary flex-1"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitPickupRelease()}
+                    disabled={pickupBusy || !pickupCanSubmit}
+                    className="flex-1 rounded-xl border-b-4 border-app-success bg-app-success px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
+                  >
+                    {pickupBusy ? "Releasing..." : pickupOverride ? "Release with Override" : "Release Ready Lines"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            drawerRoot,
+          )
+        : null}
 
       {readyTarget && drawerRoot
         ? createPortal(

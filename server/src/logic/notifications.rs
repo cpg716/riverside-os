@@ -143,6 +143,7 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "po_submitted_no_expected_date",
     "qbo_sync_failed",
     "register_cash_discrepancy",
+    "rms_account_list_weekly_upload",
     "review_invite_sent",
     "rms_r2s_charge",
     "special_order_ready_to_stage",
@@ -176,9 +177,11 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
 
     match semantic_kind {
         "admin_broadcast" => Some(Handling::Configurable(Category::Announcements)),
-        "alteration_due" | "morning_alteration_due" | "rms_r2s_charge" | "task_due_soon" => {
-            Some(Handling::Configurable(Category::Tasks))
-        }
+        "alteration_due"
+        | "morning_alteration_due"
+        | "rms_account_list_weekly_upload"
+        | "rms_r2s_charge"
+        | "task_due_soon" => Some(Handling::Configurable(Category::Tasks)),
         "appointment_soon" | "morning_wedding_today" | "wedding_soon" => {
             Some(Handling::Configurable(Category::WeddingsAppointments))
         }

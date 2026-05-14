@@ -455,6 +455,8 @@ test.describe("commission audit contract", () => {
       },
       data: {
         actor: "E2E Commission Timing",
+        override_readiness: true,
+        override_reason: "Commission audit fixture controls pickup timing explicitly.",
       },
       failOnStatusCode: false,
     });

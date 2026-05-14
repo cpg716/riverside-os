@@ -154,6 +154,7 @@ export default function CloseRegisterModal({
   const [actualCash, setActualCash] = useState("");
   const [notes, setNotes] = useState("");
   const [closingComments, setClosingComments] = useState("");
+  const [countEditReason, setCountEditReason] = useState("");
   const [recon, setRecon] = useState<Reconciliation | null>(null);
   const [reconError, setReconError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -322,13 +323,17 @@ export default function CloseRegisterModal({
     }
     if (await blockForOfflineQueue()) return;
     setLoading(true);
+    const countEditNote = countEditReason.trim()
+      ? `Count edit note: ${countEditReason.trim()}`
+      : "";
+    const closingNotesWithAudit = [notes.trim(), countEditNote].filter(Boolean).join("\n");
     try {
       const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/close`, {
         method: "POST",
         headers: jsonAuthHeaders(),
         body: JSON.stringify({ 
           actual_cash: centsToFixed2(parseMoneyToCents(actualCash)), 
-          closing_notes: notes.trim() || null,
+          closing_notes: closingNotesWithAudit || null,
           closing_comments: closingComments.trim() || null
         }),
       });
@@ -741,6 +746,37 @@ export default function CloseRegisterModal({
               <div className="flex justify-between text-app-text-muted font-medium"><span>Net adjustments:</span><span className="font-mono text-app-warning">${centsToFixed2(netAdjCents)}</span></div>
               <div className="flex justify-between pt-3 border-t border-app-border font-black text-app-text uppercase text-xs"><span>Expected Cash:</span><span className="font-mono">${centsToFixed2(expectedCents)}</span></div>
               <div className="flex justify-between pt-1 font-black text-app-accent text-lg"><span>Actual Counted:</span><span className="font-mono">${centsToFixed2(actualCents)}</span></div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <label className="flex-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Edit count reason
+                  <input
+                    value={countEditReason}
+                    onChange={(event) => setCountEditReason(event.target.value)}
+                    className="ui-input mt-1 w-full p-3 text-xs normal-case tracking-normal"
+                    placeholder="Required if you re-open the drawer count after reviewing discrepancy"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!countEditReason.trim()) {
+                      toast("Add a reason before editing the counted amount.", "error");
+                      return;
+                    }
+                    setStep("count");
+                  }}
+                  className="ui-btn-secondary px-4 py-3 text-xs font-black uppercase tracking-widest"
+                >
+                  Edit Count
+                </button>
+              </div>
+              {countEditReason.trim() ? (
+                <p className="mt-2 text-[10px] font-bold text-app-text-muted">
+                  This reason will be saved in the internal Z-report notes with the staff member closing the shift.
+                </p>
+              ) : null}
             </div>
             {isOff && (
               <div className="ui-panel ui-tint-danger mt-4 p-4">

@@ -916,6 +916,22 @@ test.describe("Orders custom vs special contract", () => {
     expect(detail.amount_paid).toBe("44.00");
     expect(detail.financial_summary?.total_applied_deposit_amount).toBe("44.00");
     expect(Number.parseFloat(detail.balance_due ?? "0")).toBeCloseTo(43.99, 2);
+
+    const pickupRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        actor: "E2E Balance Due Guard",
+        override_readiness: true,
+        override_reason: "Balance guard should still block release.",
+      },
+      failOnStatusCode: false,
+    });
+    const pickupText = await pickupRes.text();
+    expect(pickupRes.status(), pickupText.slice(0, 1000)).toBe(400);
+    expect(pickupText).toContain("Balance Due");
   });
 
   test("transaction items endpoint supports review before and after pickup", async ({
@@ -951,6 +967,8 @@ test.describe("Orders custom vs special contract", () => {
       },
       data: {
         actor: "E2E Pickup Lifecycle",
+        override_readiness: true,
+        override_reason: "Lifecycle contract confirms item endpoint after explicit release.",
       },
       failOnStatusCode: false,
     });

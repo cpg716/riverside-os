@@ -1314,6 +1314,9 @@ pub struct RegisterSessionHistoryRow {
     pub actual_cash: Option<Decimal>,
     pub discrepancy: Option<Decimal>,
     pub total_sales: Decimal,
+    pub closing_notes: Option<String>,
+    pub closing_comments: Option<String>,
+    pub z_report_json: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1398,6 +1401,7 @@ async fn register_day_activity_summary(
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterSessionsQuery {
+    pub preset: Option<String>,
     /// Inclusive start (store-local calendar date, receipt timezone) for `closed_at`.
     pub from: Option<NaiveDate>,
     /// Inclusive end (store-local) for `closed_at`.
@@ -1429,7 +1433,7 @@ async fn register_session_history(
         })?;
 
     let (start, end) =
-        register_day_activity::utc_window_store_local_closed_at(&state.db, q.from, q.to)
+        register_day_activity::utc_window_store_local_closed_at(&state.db, q.preset, q.from, q.to)
             .await
             .map_err(|e| match e {
                 register_day_activity::RegisterDayActivityError::InvalidRange(m) => {
@@ -1456,6 +1460,9 @@ async fn register_session_history(
             rs.expected_cash,
             rs.actual_cash,
             rs.discrepancy,
+            rs.closing_notes,
+            rs.closing_comments,
+            rs.z_report_json,
             (
                 SELECT COALESCE(SUM(o.total_price), 0)::numeric(14,2)
                 FROM transactions o
@@ -1702,6 +1709,7 @@ pub async fn rosie_reporting_run(
                 request.params,
             )?;
             let query = RegisterSessionsQuery {
+                preset: None,
                 from: params.from,
                 to: params.to,
                 limit: params.limit,

@@ -69,13 +69,17 @@ export default function PosRefundModal({
           </label>
           <label className="block text-xs font-bold text-app-text-muted">
             Payment method
-            <input
-              type="text"
+            <select
               value={method}
               onChange={(e) => setMethod(e.target.value)}
               className="ui-input mt-1 w-full text-sm"
-              placeholder="cash, card_present, gift_card, …"
-            />
+            >
+              <option value="card_present">Card refund</option>
+              <option value="cash">Cash</option>
+              <option value="check">Check</option>
+              <option value="store_credit">Store credit</option>
+              <option value="gift_card">Gift card</option>
+            </select>
           </label>
           {method.toLowerCase().includes("gift") && (
             <label className="block text-xs font-bold text-app-text-muted animate-in slide-in-from-top-2">

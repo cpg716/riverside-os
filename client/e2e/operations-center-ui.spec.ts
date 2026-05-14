@@ -149,6 +149,16 @@ test.describe("ROS Operations Center", () => {
         body: JSON.stringify([{ id: "pay-1", issue_label: "Missing Payment", severity: "critical", status: "open" }]),
       });
     });
+    await page.route("**/api/order-lifecycle/items", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          { lifecycle_status: "ntbo", risk_level: "at_risk", is_rush: true },
+          { lifecycle_status: "received", risk_level: "normal", is_rush: false },
+        ]),
+      });
+    });
 
     await signInToBackOffice(page);
     await page.getByRole("button", { name: /^operations center$/i }).click();
@@ -158,6 +168,8 @@ test.describe("ROS Operations Center", () => {
     await expect(page.getByText(/overall store readiness/i)).toBeVisible();
     await expect(page.getByText(/blocked/i).first()).toBeVisible();
     await expect(page.getByText(/Store open readiness has blockers/i)).toBeVisible();
+    await expect(page.getByText(/Priority: resolve blockers before opening/i)).toBeVisible();
+    await expect(page.getByText(/Store open\/close checklist/i)).toBeVisible();
     await expect(page.getByText(/Terminal payments not ready/i).first()).toBeVisible();
     await expect(page.getByText(/Review RMS blocking mismatches/i).first()).toBeVisible();
     await expect(page.getByText(/do not treat the queue as clear/i)).toHaveCount(0);

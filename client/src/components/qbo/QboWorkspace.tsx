@@ -58,6 +58,23 @@ type QboStageMetadata = {
   note?: string;
 };
 
+type QboWarningTone = "blocking" | "warning" | "info";
+
+type QboWarningItem = {
+  message: string;
+  tone: QboWarningTone;
+};
+
+type QboPayload = {
+  qbo_stage?: QboStageMetadata;
+  activity_date?: string;
+  business_timezone?: string;
+  generated_at?: string;
+  warnings?: string[];
+  totals?: { debits?: string; credits?: string; balanced?: boolean };
+  lines?: { debit: string; credit: string; memo: string }[];
+};
+
 interface StagingDrilldown {
   line_index: number;
   memo: string;
@@ -75,8 +92,8 @@ interface AccessLogRow {
 }
 
 type ConfirmAction =
-  | { kind: "approve"; id: string; label: string }
-  | { kind: "sync"; id: string; label: string }
+  | { kind: "approve"; id: string; label: string; message: string }
+  | { kind: "sync"; id: string; label: string; message: string }
   | null;
 
 function moneyJson(n: unknown): string {
@@ -93,11 +110,113 @@ function qboStageMetadata(payload: Record<string, unknown>): QboStageMetadata {
   return stage as QboStageMetadata;
 }
 
+function qboPayload(row: SyncLogRow): QboPayload {
+  return row.payload as QboPayload;
+}
+
 function qboStageLabel(payload: Record<string, unknown>): string {
   const stage = qboStageMetadata(payload);
   return stage.entry_type === "daily_general_journal_revision"
     ? "Revision"
     : "Daily JE";
+}
+
+function classifyQboWarning(message: string, row?: SyncLogRow): QboWarningTone {
+  const lower = message.toLowerCase();
+  if (
+    row?.status === "failed" ||
+    lower.includes("not balanced") ||
+    lower.includes("journal not balanced") ||
+    lower.includes("missing") ||
+    lower.includes("no `") ||
+    lower.includes("omitted") ||
+    lower.includes("failed")
+  ) {
+    return "blocking";
+  }
+  if (
+    lower.includes("refund") ||
+    lower.includes("deposit") ||
+    lower.includes("effective_date") ||
+    lower.includes("correction") ||
+    lower.includes("merchant") ||
+    lower.includes("imported") ||
+    lower.includes("asynchronous") ||
+    lower.includes("store credit") ||
+    lower.includes("gift card") ||
+    lower.includes("tax")
+  ) {
+    return "warning";
+  }
+  return "info";
+}
+
+function qboWarningsForRow(row: SyncLogRow): QboWarningItem[] {
+  const payload = qboPayload(row);
+  const warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
+  const items = warnings.map((message) => ({
+    message,
+    tone: classifyQboWarning(message, row),
+  }));
+  if (payload.totals?.balanced === false) {
+    items.unshift({
+      message: "Journal is not balanced. Fix mappings and regenerate before approval or posting.",
+      tone: "blocking",
+    });
+  }
+  if (row.status === "failed" && row.error_message) {
+    items.unshift({
+      message: `QuickBooks posting failed: ${row.error_message}`,
+      tone: "blocking",
+    });
+  }
+  return items;
+}
+
+function warningCounts(items: QboWarningItem[]) {
+  return {
+    blocking: items.filter((item) => item.tone === "blocking").length,
+    warning: items.filter((item) => item.tone === "warning").length,
+    info: items.filter((item) => item.tone === "info").length,
+  };
+}
+
+function warningSummaryLabel(items: QboWarningItem[]): string {
+  const counts = warningCounts(items);
+  if (counts.blocking > 0) return `${counts.blocking} blocking`;
+  if (counts.warning > 0) return `${counts.warning} review`;
+  if (counts.info > 0) return `${counts.info} note`;
+  return "No warnings";
+}
+
+function statusLabel(row: SyncLogRow): string {
+  switch (row.status) {
+    case "pending":
+      return "Pending review";
+    case "approved":
+      return "Approved, not posted";
+    case "synced":
+      return "Posted to QuickBooks";
+    case "failed":
+      return "Posting failed";
+    default:
+      return row.status.replace(/_/g, " ");
+  }
+}
+
+function statusClassName(row: SyncLogRow, hasBlocking: boolean): string {
+  if (hasBlocking || row.status === "failed") return "bg-red-100 text-red-800";
+  if (row.status === "synced") return "bg-emerald-100 text-emerald-800";
+  if (row.status === "approved") return "bg-blue-100 text-blue-800";
+  if (row.status === "pending") return "bg-amber-100 text-amber-900";
+  return "bg-app-surface-2 text-app-text-muted";
+}
+
+function latestByDate(rows: SyncLogRow[]): SyncLogRow | null {
+  if (rows.length === 0) return null;
+  return [...rows].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  )[0];
 }
 
 function qboStageRevisionCount(payload: Record<string, unknown>): number {
@@ -198,6 +317,71 @@ export default function QboWorkspace({
       granular.length > 0 || ledger.some((row) => !!row.qbo_account_id?.trim()),
     [granular.length, ledger],
   );
+  const accountingSummary = useMemo(() => {
+    const rowWarnings = staging.map((row) => ({
+      row,
+      warnings: qboWarningsForRow(row),
+    }));
+    const blockingRows = rowWarnings.filter(
+      ({ warnings }) => warningCounts(warnings).blocking > 0,
+    );
+    const warningRows = rowWarnings.filter(
+      ({ warnings }) => warningCounts(warnings).warning > 0,
+    );
+    const infoRows = rowWarnings.filter(
+      ({ warnings }) => warningCounts(warnings).info > 0,
+    );
+    const latestPosted = latestByDate(staging.filter((row) => row.status === "synced"));
+    const latestFailed = latestByDate(staging.filter((row) => row.status === "failed"));
+    const latestStaged = latestByDate(staging);
+    return {
+      blockingRows,
+      warningRows,
+      infoRows,
+      latestPosted,
+      latestFailed,
+      latestStaged,
+      pendingCount: staging.filter((row) => row.status === "pending").length,
+      approvedCount: staging.filter((row) => row.status === "approved").length,
+      postedCount: staging.filter((row) => row.status === "synced").length,
+      failedCount: staging.filter((row) => row.status === "failed").length,
+    };
+  }, [staging]);
+
+  const copySupportSnapshot = async () => {
+    const latestPosted = accountingSummary.latestPosted;
+    const latestFailed = accountingSummary.latestFailed;
+    const lines = [
+      "ROS Financial Support Snapshot",
+      `Generated: ${new Date().toLocaleString()}`,
+      `Connection: ${connectionReady ? "ready" : "needs setup"}`,
+      `Mappings: ${mappingsReady ? "ready" : "needs review"}`,
+      `Queue: ${staging.length} staged rows`,
+      `Pending review: ${accountingSummary.pendingCount}`,
+      `Approved, not posted: ${accountingSummary.approvedCount}`,
+      `Posted to QuickBooks: ${accountingSummary.postedCount}`,
+      `Posting failed: ${accountingSummary.failedCount}`,
+      `Blocking rows: ${accountingSummary.blockingRows.length}`,
+      `Rows requiring accounting review: ${accountingSummary.warningRows.length}`,
+      `Info-note rows: ${accountingSummary.infoRows.length}`,
+      `Latest posted: ${
+        latestPosted
+          ? `${latestPosted.sync_date} / JE ${latestPosted.journal_entry_id ?? "unknown"} / ${new Date(latestPosted.created_at).toLocaleString()}`
+          : "none in current queue"
+      }`,
+      `Latest failed: ${
+        latestFailed
+          ? `${latestFailed.sync_date} / ${latestFailed.error_message ?? "no error detail"}`
+          : "none in current queue"
+      }`,
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      toast("Financial support snapshot copied.", "success");
+    } catch {
+      toast("Could not copy the support snapshot.", "error");
+    }
+  };
 
   const proposeJournal = async () => {
     setBusy(true);
@@ -235,7 +419,7 @@ export default function QboWorkspace({
         throw new Error(j.error ?? "Approve failed");
       }
       await refreshCore();
-      toast("Marked approved.", "success");
+      toast("Approved for QuickBooks posting.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Approve failed", "error");
     } finally {
@@ -258,8 +442,8 @@ export default function QboWorkspace({
       await refreshCore();
       toast(
         data.journal_entry_id
-          ? `Synced (simulated): ${data.journal_entry_id}`
-          : "Synced.",
+          ? `Posted to QuickBooks: ${data.journal_entry_id}`
+          : "Posted to QuickBooks.",
         "success"
       );
     } catch (e) {
@@ -300,6 +484,26 @@ export default function QboWorkspace({
     } catch (e) {
       toast(e instanceof Error ? e.message : "Drill-down failed", "error");
     }
+  };
+
+  const buildConfirmMessage = (row: SyncLogRow, kind: "approve" | "sync") => {
+    const warnings = qboWarningsForRow(row);
+    const counts = warningCounts(warnings);
+    const action =
+      kind === "approve"
+        ? "Approve this staged journal for QuickBooks posting"
+        : "Post this approved JournalEntry to QuickBooks";
+    return [
+      `${action}: ${row.sync_date}`,
+      `Status: ${statusLabel(row)}`,
+      `Balance: ${qboPayload(row).totals?.balanced ? "balanced" : "not balanced"}`,
+      `Accounting review: ${counts.blocking} blocking / ${counts.warning} review / ${counts.info} info`,
+      counts.blocking > 0
+        ? "Blocking issues must be resolved before this can be treated as safe."
+        : counts.warning > 0
+          ? "Review warning-bearing journals before continuing. Balanced does not mean fully safe."
+          : "No warning-bearing issues are visible on this proposal.",
+    ].join("\n");
   };
 
   return (
@@ -347,7 +551,7 @@ export default function QboWorkspace({
             2 Mappings {mappingsReady ? "ready" : "pending"}
           </span>
             <span className="rounded-full bg-app-surface px-2 py-1 text-app-text-muted">
-            3 Stage + approve + sync
+            3 Stage + approve + post
           </span>
         </div>
       </div>
@@ -357,9 +561,123 @@ export default function QboWorkspace({
         </p>
         <p className="mt-1 text-sm font-semibold text-app-text">
           Stage Daily General Journal entries by business date, review source
-          lines, approve balanced entries, and send current or historical dates
-          to QuickBooks. Manage connection and mappings in Settings →
+          lines, review warning-bearing entries, approve balanced entries, and post
+          current or historical dates to QuickBooks. Manage connection and mappings in Settings →
           Integrations → QuickBooks Online.
+        </p>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <div className="ui-card bg-app-surface-2 px-5 py-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Accounting review state
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Blocking
+              </p>
+              <p className="mt-1 text-2xl font-black text-red-700">
+                {accountingSummary.blockingRows.length}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Requires review
+              </p>
+              <p className="mt-1 text-2xl font-black text-amber-700">
+                {accountingSummary.warningRows.length}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Approved, not posted
+              </p>
+              <p className="mt-1 text-lg font-black text-blue-700">
+                {accountingSummary.approvedCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Posted to QuickBooks
+              </p>
+              <p className="mt-1 text-lg font-black text-emerald-700">
+                {accountingSummary.postedCount}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
+            A balanced journal can still require accounting review when tax, refunds,
+            deposits, merchant clearing, imported activity, or timing corrections are present.
+          </p>
+        </div>
+
+        <div className="ui-card bg-app-surface-2 px-5 py-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Reconciliation confidence
+          </p>
+          <div className="mt-3 space-y-3 text-xs font-semibold text-app-text">
+            <p>
+              Latest posted:{" "}
+              <span className="font-black">
+                {accountingSummary.latestPosted
+                  ? `${accountingSummary.latestPosted.sync_date} / ${accountingSummary.latestPosted.journal_entry_id ?? "JE pending"}`
+                  : "No posted journal in current queue"}
+              </span>
+            </p>
+            <p>
+              Latest failure:{" "}
+              <span className="font-black text-red-700">
+                {accountingSummary.latestFailed
+                  ? `${accountingSummary.latestFailed.sync_date}: ${accountingSummary.latestFailed.error_message ?? "review failure detail"}`
+                  : "No failed posting in current queue"}
+              </span>
+            </p>
+            <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-app-text-muted">
+              Safe rerun guidance: refresh a pending business date to rebuild local staging;
+              approved or posted dates create reviewable revision proposals instead of silently replacing history.
+            </p>
+          </div>
+        </div>
+
+        <div className="ui-card bg-app-surface-2 px-5 py-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Financial timing guide
+          </p>
+          <div className="mt-3 space-y-2 text-xs font-semibold text-app-text-muted">
+            <p>
+              Booked date explains when the sale was created. Completed date explains when
+              pickup/shipping recognized revenue, tax, and commission.
+            </p>
+            <p>
+              Payment effective date can differ from created time after a correction; tender
+              evidence follows the effective date while journal proposals stay tied to the
+              reviewed business date.
+            </p>
+            <p>
+              Merchant reconciliation can lag reporting when card fees settle later. Treat that
+              as reviewable timing, not proof that the journal is unsafe by itself.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void copySupportSnapshot()}
+            className="mt-4 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
+          >
+            Copy support snapshot
+          </button>
+        </div>
+      </div>
+
+      <div className="ui-card bg-[color-mix(in_srgb,var(--app-warning)_10%,var(--app-surface-2))] px-5 py-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Refund, exchange, and liability review
+        </p>
+        <p className="mt-2 text-sm font-semibold text-app-text">
+          Normal refunds, manual refunds, exchanges, store credit, open deposits, and gift cards
+          can change liability, tender clearing, and QBO staging on different dates. Review any
+          warning-bearing journal before posting, especially when refund payout and return activity
+          do not happen on the same business date.
         </p>
       </div>
 
@@ -390,7 +708,7 @@ export default function QboWorkspace({
               onClick={() => void proposeJournal()}
               className="ui-btn-primary px-5 py-2.5 disabled:opacity-50"
             >
-              Stage / refresh journal
+              Stage journal
             </button>
             <button
               type="button"
@@ -410,6 +728,7 @@ export default function QboWorkspace({
                   <th className="px-4 py-3">Entry</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Balance</th>
+                  <th className="px-4 py-3">Accounting review</th>
                   <th className="px-4 py-3">QBO JE</th>
                   <th className="px-4 py-3">Fault</th>
                   <th className="px-4 py-3 text-right">Actions</th>
@@ -417,11 +736,10 @@ export default function QboWorkspace({
               </thead>
               <tbody className="divide-y divide-app-border">
                 {staging.map((r) => {
-                  const p = r.payload as {
-                    qbo_stage?: QboStageMetadata;
-                    totals?: { debits?: string; credits?: string; balanced?: boolean };
-                    lines?: { debit: string; credit: string; memo: string }[];
-                  };
+                  const p = qboPayload(r);
+                  const warnings = qboWarningsForRow(r);
+                  const counts = warningCounts(warnings);
+                  const hasBlocking = counts.blocking > 0;
                   const bal = p.totals?.balanced ? "Yes" : "No";
                   const revisionCount = qboStageRevisionCount(r.payload);
                   return (
@@ -441,21 +759,30 @@ export default function QboWorkspace({
                         <td className="px-4 py-3">
                           <span
                             className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${
-                              r.status === "synced"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : r.status === "approved"
-                                  ? "bg-blue-100 text-blue-800"
-                                  : r.status === "pending"
-                                    ? "bg-amber-100 text-amber-900"
-                                    : "bg-app-surface-2 text-app-text-muted"
+                              statusClassName(r, hasBlocking)
                             }`}
                           >
-                            {r.status}
+                            {statusLabel(r)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-xs">
                           DR {moneyJson(p.totals?.debits)} / CR{" "}
                           {moneyJson(p.totals?.credits)} · {bal}
+                        </td>
+                        <td className="px-4 py-3 text-xs">
+                          <span
+                            className={`rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-widest ${
+                              hasBlocking
+                                ? "bg-red-100 text-red-800"
+                                : counts.warning > 0
+                                  ? "bg-amber-100 text-amber-900"
+                                  : counts.info > 0
+                                    ? "bg-sky-100 text-sky-800"
+                                    : "bg-emerald-100 text-emerald-800"
+                            }`}
+                          >
+                            {warningSummaryLabel(warnings)}
+                          </span>
                         </td>
                         <td className="px-4 py-3 font-mono text-xs">
                           {r.journal_entry_id ?? "—"}
@@ -489,6 +816,7 @@ export default function QboWorkspace({
                                   kind: "approve",
                                   id: r.id,
                                   label: `Approve staged journal ${r.sync_date}?`,
+                                  message: buildConfirmMessage(r, "approve"),
                                 })
                               }
                             >
@@ -506,18 +834,51 @@ export default function QboWorkspace({
                                   id: r.id,
                                   label:
                                     "Send this approved journal to QuickBooks now?",
+                                  message: buildConfirmMessage(r, "sync"),
                                 })
                               }
                             >
-                              Send to QBO
+                              Post to QBO
                             </button>
                           ) : null}
                         </td>
                       </tr>
                       {expandedId === r.id ? (
                         <tr>
-                          <td colSpan={7} className="bg-app-text px-4 py-3">
-                            <div className="space-y-2">
+                          <td colSpan={8} className="bg-app-text px-4 py-3">
+                            <div className="space-y-3">
+                              {warnings.length > 0 ? (
+                                <div className="space-y-2 rounded border border-white/15 bg-black/35 p-3">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-cyan-200">
+                                    Accounting review items
+                                  </p>
+                                  {warnings.map((warning, index) => (
+                                    <div
+                                      key={`${r.id}-warning-${index}`}
+                                      className={`rounded px-3 py-2 text-[11px] font-semibold ${
+                                        warning.tone === "blocking"
+                                          ? "bg-red-900/50 text-red-100"
+                                          : warning.tone === "warning"
+                                            ? "bg-amber-900/45 text-amber-100"
+                                            : "bg-sky-900/45 text-sky-100"
+                                      }`}
+                                    >
+                                      <span className="mr-2 font-black uppercase">
+                                        {warning.tone === "blocking"
+                                          ? "Blocking"
+                                          : warning.tone === "warning"
+                                            ? "Requires review"
+                                            : "Info"}
+                                      </span>
+                                      {warning.message}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="rounded border border-white/15 bg-black/35 px-3 py-2 text-[11px] font-semibold text-emerald-100">
+                                  No proposal warnings are visible. Continue normal journal-line review before posting.
+                                </div>
+                              )}
                               {(p.lines ?? []).map((ln, idx) => (
                                 <div
                                   key={`${r.id}-line-${idx}`}
@@ -559,7 +920,7 @@ export default function QboWorkspace({
 
           <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
             <div className="border-b border-app-border bg-app-surface-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Sync history
+              Posting history
             </div>
             <table className="w-full text-left text-xs">
               <thead className="bg-app-surface-2/60 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
@@ -567,30 +928,35 @@ export default function QboWorkspace({
                   <th className="px-4 py-2">Created</th>
                   <th className="px-4 py-2">Date</th>
                   <th className="px-4 py-2">Status</th>
+                  <th className="px-4 py-2">Review</th>
                   <th className="px-4 py-2">QBO ID</th>
                   <th className="px-4 py-2">Approved by</th>
                   <th className="px-4 py-2">Fault detail</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-border">
-                {staging.map((r) => (
-                  <tr key={`history-${r.id}`}>
-                    <td className="px-4 py-2 font-mono text-[11px]">
-                      {new Date(r.created_at).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-2 font-mono">{r.sync_date}</td>
-                    <td className="px-4 py-2">{r.status}</td>
-                    <td className="px-4 py-2 font-mono">{r.journal_entry_id ?? "—"}</td>
-                    <td className="px-4 py-2 text-app-text-muted">
-                      {accessLog.find(
-                        (a) =>
-                          a.event_kind === "qbo_staging_approve" &&
-                          String(a.metadata?.staging_id ?? "") === r.id,
-                      )?.staff_name ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 text-red-700">{r.error_message ?? "—"}</td>
-                  </tr>
-                ))}
+                {staging.map((r) => {
+                  const warnings = qboWarningsForRow(r);
+                  return (
+                    <tr key={`history-${r.id}`}>
+                      <td className="px-4 py-2 font-mono text-[11px]">
+                        {new Date(r.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-2 font-mono">{r.sync_date}</td>
+                      <td className="px-4 py-2">{statusLabel(r)}</td>
+                      <td className="px-4 py-2">{warningSummaryLabel(warnings)}</td>
+                      <td className="px-4 py-2 font-mono">{r.journal_entry_id ?? "—"}</td>
+                      <td className="px-4 py-2 text-app-text-muted">
+                        {accessLog.find(
+                          (a) =>
+                            a.event_kind === "qbo_staging_approve" &&
+                            String(a.metadata?.staging_id ?? "") === r.id,
+                        )?.staff_name ?? "—"}
+                      </td>
+                      <td className="px-4 py-2 text-red-700">{r.error_message ?? "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -647,8 +1013,8 @@ export default function QboWorkspace({
         <ConfirmationModal
           isOpen={true}
           title="Confirm Financial Action"
-          message={confirmAction.label}
-          confirmLabel="Execute"
+          message={confirmAction.message}
+          confirmLabel={confirmAction.kind === "sync" ? "Post to QBO" : "Approve"}
           onConfirm={runConfirmedAction}
           onClose={() => setConfirmAction(null)}
           variant="info"

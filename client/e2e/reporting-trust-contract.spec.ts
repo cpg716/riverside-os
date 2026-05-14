@@ -456,6 +456,8 @@ async function markPickup(request: APIRequestContext, transactionId: string): Pr
     data: {
       delivered_item_ids: [],
       actor: "Reporting trust contract",
+      override_readiness: true,
+      override_reason: "Reporting trust fixture controls pickup recognition timing.",
     },
     failOnStatusCode: false,
   });
@@ -628,6 +630,40 @@ test.describe("Reporting trust contracts", () => {
     );
     expect(activity?.payment_summary?.toLowerCase()).toContain("cash");
     expect(parseMoneyToCents(activity?.balance_due)).toBe(0);
+  });
+
+  test("daily sales completed basis includes immediate takeaway sales", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const opened = await openFreshPrimarySession(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createReportingTrustProduct(request, operatorStaffId);
+
+    const checkout = await checkoutCashSale(request, {
+      ...product,
+      sessionId: opened.session_id,
+      sessionToken: opened.pos_api_token ?? "",
+      operatorStaffId,
+      fulfillment: "takeaway",
+    });
+
+    const fulfilledReport = await fetchDailySalesActivity(request, opened.session_id, {
+      basis: "fulfilled",
+    });
+
+    expect(fulfilledReport.reporting_basis).toBe("completed");
+    expect(fulfilledReport.sales_count).toBeGreaterThanOrEqual(1);
+    expect(parseMoneyToCents(fulfilledReport.sales_subtotal_no_tax)).toBeGreaterThanOrEqual(10000);
+
+    const activity = fulfilledReport.activities.find(
+      (row) => row.transaction_id === checkout.transaction_id,
+    );
+    expect(activity).toBeTruthy();
+    expect(activity?.is_takeaway).toBe(true);
+    expect(activity?.items?.every((item) => item.fulfillment === "takeaway")).toBe(true);
+    expect(parseMoneyToCents(activity?.sales_total)).toBe(10875);
   });
 
   test("margin pivot uses effective quantity after partial return", async ({

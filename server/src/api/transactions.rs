@@ -786,6 +786,13 @@ struct PaymentSummaryRow {
     metadata: Option<serde_json::Value>,
 }
 
+#[derive(Debug, FromRow)]
+struct PickupGuardLine {
+    sku: String,
+    product_name: String,
+    order_lifecycle_status: DbOrderItemLifecycleStatus,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TransactionReadQuery {
     #[serde(default)]
@@ -812,6 +819,10 @@ pub struct PickupTransactionRequest {
     pub delivered_item_ids: Vec<Uuid>,
     #[serde(default)]
     pub actor: Option<String>,
+    #[serde(default)]
+    pub override_readiness: bool,
+    #[serde(default)]
+    pub override_reason: Option<String>,
     /// POS pickup without BO headers when this session has a positive allocation to the order.
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
@@ -895,6 +906,12 @@ pub struct ProcessRefundRequest {
 #[derive(Debug, Deserialize)]
 pub struct PostTransactionReturnsRequest {
     pub lines: Vec<TransactionReturnLineBody>,
+    #[serde(default)]
+    pub manager_staff_id: Option<Uuid>,
+    #[serde(default)]
+    pub manager_pin: Option<String>,
+    #[serde(default)]
+    pub manager_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1094,6 +1111,7 @@ async fn authorize_transaction_modify_bo_or_register(
     headers: &HeaderMap,
     transaction_id: Uuid,
     register_session_id: Option<Uuid>,
+    manager_approval: Option<(Uuid, &str, Option<&str>)>,
 ) -> Result<Option<Uuid>, TransactionError> {
     if let Some(sid) = register_session_id {
         if !register_session_is_open(&state.db, sid).await? {
@@ -1112,7 +1130,7 @@ async fn authorize_transaction_modify_bo_or_register(
             return Ok(None);
         }
 
-        // 2. Not in session? Check age (60 day policy)
+        // 2. Not in session? Check age (30 day policy)
         let booked_at = sqlx::query_scalar::<_, DateTime<Utc>>(
             "SELECT booked_at FROM transactions WHERE id = $1",
         )
@@ -1122,12 +1140,42 @@ async fn authorize_transaction_modify_bo_or_register(
         .ok_or(TransactionError::NotFound)?;
 
         let days_old = (Utc::now() - booked_at).num_days();
-        if days_old <= 60 {
-            // Within 60 days, any register session can process the return/exchange
+        if days_old <= 30 {
+            // Within 30 days, any register session can process the return/exchange.
             return Ok(None);
         }
 
-        // 3. Older than 60 days? Require BO permission (Manager Approval)
+        if let Some((manager_staff_id, manager_pin, manager_reason)) = manager_approval {
+            let manager =
+                pins::authenticate_staff_by_id(&state.db, manager_staff_id, Some(manager_pin))
+                    .await
+                    .map_err(|_| {
+                        TransactionError::InvalidPayload("invalid manager PIN".to_string())
+                    })?;
+            if manager.role != crate::models::DbStaffRole::Admin {
+                return Err(TransactionError::Forbidden(
+                    "admin authorization required for older return".to_string(),
+                ));
+            }
+            let reason = manager_reason
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("older return approval");
+            let _ = log_staff_access(
+                &state.db,
+                manager.id,
+                "older_return_approval",
+                json!({
+                    "transaction_id": transaction_id,
+                    "days_old": days_old,
+                    "reason": reason,
+                }),
+            )
+            .await;
+            return Ok(Some(manager.id));
+        }
+
+        // 3. Older than 30 days? Require BO permission or manager approval.
         if let Ok(s) =
             middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY).await
         {
@@ -1135,7 +1183,7 @@ async fn authorize_transaction_modify_bo_or_register(
         }
 
         return Err(TransactionError::Forbidden(
-            "transaction is older than 60 days; manager approval required".to_string(),
+            "transaction is older than 30 days; manager approval required".to_string(),
         ));
     }
     let s = middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY)
@@ -1448,6 +1496,7 @@ async fn mark_transaction_pickup(
         &headers,
         transaction_id,
         body.register_session_id,
+        None,
     )
     .await?;
 
@@ -1457,6 +1506,105 @@ async fn mark_transaction_pickup(
             .bind(transaction_id)
             .fetch_one(&mut *tx)
             .await?;
+
+    let balance_due: Decimal = sqlx::query_scalar(
+        "SELECT COALESCE(balance_due, 0)::numeric(14,2) FROM transactions WHERE id = $1",
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if balance_due > Decimal::ZERO {
+        return Err(TransactionError::InvalidPayload(format!(
+            "Pickup blocked: Balance Due is ${balance_due}. Collect the balance before release."
+        )));
+    }
+
+    let pickup_guard_lines: Vec<PickupGuardLine> = if body.delivered_item_ids.is_empty() {
+        sqlx::query_as(
+            r#"
+            SELECT
+                COALESCE(pv.sku, 'Unknown SKU') AS sku,
+                COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Unknown item') AS product_name,
+                oi.order_lifecycle_status
+            FROM transaction_lines oi
+            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+            LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE oi.transaction_id = $1
+              AND oi.is_fulfilled = FALSE
+              AND COALESCE(oi.is_internal, false) = FALSE
+              AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
+            ORDER BY p.name, pv.sku, oi.id
+            FOR UPDATE OF oi
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_all(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT
+                COALESCE(pv.sku, 'Unknown SKU') AS sku,
+                COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Unknown item') AS product_name,
+                oi.order_lifecycle_status
+            FROM transaction_lines oi
+            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+            LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE oi.transaction_id = $1
+              AND oi.id = ANY($2)
+              AND oi.is_fulfilled = FALSE
+              AND COALESCE(oi.is_internal, false) = FALSE
+              AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
+            ORDER BY p.name, pv.sku, oi.id
+            FOR UPDATE OF oi
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(&body.delivered_item_ids)
+        .fetch_all(&mut *tx)
+        .await?
+    };
+
+    let unready_lines = pickup_guard_lines
+        .iter()
+        .filter(|line| line.order_lifecycle_status != DbOrderItemLifecycleStatus::ReadyForPickup)
+        .collect::<Vec<_>>();
+    let override_reason = body.override_reason.as_deref().map(str::trim).unwrap_or("");
+    if !unready_lines.is_empty() && !body.override_readiness {
+        let examples = unready_lines
+            .iter()
+            .take(3)
+            .map(|line| {
+                format!(
+                    "{} ({}, {})",
+                    line.product_name,
+                    line.sku,
+                    line.order_lifecycle_status.as_str()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(TransactionError::InvalidPayload(format!(
+            "Pickup blocked: {count} line(s) are not Ready for Pickup. {examples}. Mark lines ready first, or use an explicit readiness override with a reason.",
+            count = unready_lines.len()
+        )));
+    }
+    if !unready_lines.is_empty() && override_reason.len() < 12 {
+        return Err(TransactionError::InvalidPayload(
+            "Pickup readiness override requires a clear reason.".to_string(),
+        ));
+    }
+
     let claimed_fulfillment_line_ids: Vec<Uuid> = if body.delivered_item_ids.is_empty() {
         sqlx::query_scalar(
             r#"
@@ -1670,7 +1818,12 @@ async fn mark_transaction_pickup(
         customer_id,
         "pickup",
         &format!("Pickup completed in Register by {}", who.trim()),
-        json!({ "delivered_item_count": body.delivered_item_ids.len() }),
+        json!({
+            "delivered_item_count": claimed_fulfillment_line_ids.len(),
+            "requested_delivered_item_count": body.delivered_item_ids.len(),
+            "readiness_override": body.override_readiness,
+            "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
+        }),
     )
     .await?;
 
@@ -3246,6 +3399,9 @@ async fn post_transaction_returns(
         &headers,
         transaction_id,
         q.register_session_id,
+        body.manager_staff_id
+            .zip(body.manager_pin.as_deref())
+            .map(|(staff_id, pin)| (staff_id, pin, body.manager_reason.as_deref())),
     )
     .await?;
 
@@ -3298,6 +3454,7 @@ async fn post_transaction_exchange_link(
             &headers,
             body.other_transaction_id,
             Some(sid),
+            None,
         )
         .await?;
     } else {
@@ -3684,6 +3841,7 @@ async fn post_suit_component_swap(
             &headers,
             transaction_id,
             Some(reg_sid),
+            None,
         )
         .await?;
         let opened_by: Option<Uuid> = sqlx::query_scalar(

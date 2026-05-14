@@ -730,6 +730,8 @@ async function markPickup(request: APIRequestContext, transactionId: string) {
     data: {
       delivered_item_ids: [],
       actor: "QBO layaway audit",
+      override_readiness: true,
+      override_reason: "QBO audit fixture releases controlled layaway transaction.",
     },
     failOnStatusCode: false,
   });

@@ -45,7 +45,6 @@ interface OrderLoadModalProps {
   baseUrl: string;
   apiAuth: () => Record<string, string>;
   onClose: () => void;
-  onCopyOrder: (order: CustomerOrder, items: OrderItem[]) => void;
   onMakePayment?: (order: CustomerOrder, amountCents: number) => void;
   onAddItemToOrder?: (order: CustomerOrder, sku: string) => Promise<boolean>;
   onUpdateOrderItem?: (
@@ -80,7 +79,6 @@ export default function OrderLoadModal({
   baseUrl,
   apiAuth,
   onClose,
-  onCopyOrder,
   onMakePayment,
   onAddItemToOrder,
   onUpdateOrderItem,
@@ -210,29 +208,6 @@ export default function OrderLoadModal({
     return isWedding
       ? "No payment is on this wedding order yet. Confirm member readiness before collecting money or promising pickup."
       : "No payment is on this order yet. Confirm receiving and pickup status before collecting money.";
-  };
-
-  const copyOrderItems = async (order: CustomerOrder) => {
-    try {
-      if (!order.id) {
-        toast("This order is missing its transaction reference. Reopen the customer and try again.", "error");
-        return;
-      }
-      const items = await fetchOrderItems(order.id);
-      const unfulfilled = items.filter((item) => !item.is_fulfilled);
-      if (unfulfilled.length === 0) {
-        toast("All fulfillment lines are already marked complete.", "info");
-        return;
-      }
-      onCopyOrder(order, unfulfilled);
-    } catch (e) {
-      toast(
-        e instanceof Error
-          ? e.message
-          : "We couldn't prepare these items for the register. Please try again.",
-        "error",
-      );
-    }
   };
 
   const openPaymentEntry = (order: CustomerOrder) => {
@@ -399,7 +374,7 @@ export default function OrderLoadModal({
                         className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-violet-500/40 bg-violet-50 px-3 text-xs font-bold text-violet-700 transition-all hover:bg-violet-600 hover:text-white"
                       >
                         <CreditCard size={14} />
-                        Add Payment
+                        Payment Only
                       </button>
                     ) : null}
                     <button
@@ -411,15 +386,6 @@ export default function OrderLoadModal({
                     >
                       View Lines
                       <ArrowRight size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void copyOrderItems(order);
-                      }}
-                      className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-emerald-600/40 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 transition-all hover:bg-emerald-600 hover:text-white"
-                    >
-                      Copy Items
                     </button>
                   </div>
                 </div>
@@ -519,8 +485,8 @@ export default function OrderLoadModal({
                 ))}
               </div>
               <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
-                Add or save lines to update the original order. Copying items starts a
-                new register sale and does not collect payment on the original order.
+                Add or save lines to update the original order. Existing order work stays tied
+                to this Transaction Record and does not start a new register sale.
               </p>
               {selectedOrder?.order_kind === "wedding_order" && (
                 <p className="mt-2 text-[11px] font-semibold text-rose-700">
@@ -550,16 +516,6 @@ export default function OrderLoadModal({
                     </button>
                   </div>
                 )}
-                <button
-                  onClick={() => {
-                    if (!selectedOrder) return;
-                    const unfulfilled = selectedOrderItems.filter((i) => !i.is_fulfilled);
-                    onCopyOrder(selectedOrder, unfulfilled);
-                  }}
-                  className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-bold text-white"
-                >
-                  Copy Unfulfilled Items
-                </button>
               </div>
             </div>
           )}

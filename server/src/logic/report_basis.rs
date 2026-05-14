@@ -1,6 +1,7 @@
 //! BOOKED vs COMPLETED axis for revenue and order analytics.
 //! - **Booked**: date of sale (`orders.booked_at`) — registers, deposits on open orders.
-//! - **Completed** (recognition): pickup / in-store takeaway uses `orders.fulfilled_at`; **ship**
+//! - **Completed** (recognition): in-store takeaway uses sale time; pickup orders use
+//!   `orders.fulfilled_at`; **ship**
 //!   (POS or web, `fulfillment_method = ship`) uses the earliest qualifying `shipment_event`
 //!   (`label_purchased` or manual `in_transit` / `delivered` patch — same rule as `reporting.order_recognition_at`).
 
@@ -27,6 +28,19 @@ impl ReportBasis {
 /// `reporting.order_recognition_at` in migration `106_reporting_order_recognition.sql`.
 pub const ORDER_RECOGNITION_TS_SQL: &str = r#"(CASE
     WHEN o.status::text = 'cancelled' THEN NULL::timestamptz
+    WHEN COALESCE(NULLIF(BTRIM(o.fulfillment_method::text), ''), 'pickup') = 'pickup'
+      AND EXISTS (
+          SELECT 1
+          FROM transaction_lines tl_takeaway
+          WHERE tl_takeaway.transaction_id = o.id
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM transaction_lines tl_non_takeaway
+          WHERE tl_non_takeaway.transaction_id = o.id
+            AND tl_non_takeaway.fulfillment::text <> 'takeaway'
+      )
+      THEN o.booked_at
     WHEN COALESCE(NULLIF(BTRIM(o.fulfillment_method::text), ''), 'pickup') = 'pickup' THEN o.fulfilled_at
     ELSE (
         SELECT MIN(se.at)

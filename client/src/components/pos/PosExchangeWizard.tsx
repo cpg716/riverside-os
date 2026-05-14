@@ -3,20 +3,27 @@ import { createPortal } from "react-dom";
 import { ArrowLeftRight, X, Loader2, Package } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
-import { parseMoney, formatMoney } from "../../lib/money";
+import { centsToFixed2, parseMoney, parseMoneyToCents, formatMoney } from "../../lib/money";
 import type { Customer } from "../pos/CustomerSelector";
 import TransactionSearchInput from "../ui/TransactionSearchInput";
 import ManagerApprovalModal from "./ManagerApprovalModal";
+import PosRefundModal from "./PosRefundModal";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
 interface TransactionItemRow {
   transaction_line_id: string;
+  product_id: string;
+  variant_id: string;
   sku: string;
   product_name: string;
   variation_label: string | null;
   quantity: number;
   quantity_returned: number;
+  unit_price: string;
+  unit_cost: string;
+  state_tax: string;
+  local_tax: string;
   fulfillment: FulfillmentKind;
 }
 
@@ -28,7 +35,15 @@ interface TransactionDetailLite {
   amount_paid: string;
   balance_due: string;
   payment_methods_summary?: string;
-  customer: { id: string; first_name: string; last_name: string } | null;
+  customer: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    customer_code?: string | null;
+    company_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  } | null;
   items: TransactionItemRow[];
 }
 
@@ -59,8 +74,8 @@ const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
   },
   {
     id: "done",
-    label: "Sell replacements",
-    hint: "Move the customer into a replacement sale and finish checkout there.",
+    label: "Refund or replace",
+    hint: "Refund the customer now, or continue into a replacement sale if this is an exchange.",
   },
 ];
 
@@ -95,6 +110,15 @@ export default function PosExchangeWizard({
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [pendingManagerApproval, setPendingManagerApproval] = useState<TransactionDetailLite | null>(null);
+  const [managerApproval, setManagerApproval] = useState<{ staffId: string; pin: string } | null>(null);
+  const [returnedLines, setReturnedLines] = useState<
+    { transaction_line_id: string; sku: string; product_name: string; quantity: number; unit_price_cents: number; tax_cents: number }[]
+  >([]);
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundMethod, setRefundMethod] = useState("card_present");
+  const [refundGiftCode, setRefundGiftCode] = useState("");
   const workflowIndex = EXCHANGE_WORKFLOW_STEPS.findIndex((item) => item.id === step);
  
    const sessionQs = `register_session_id=${encodeURIComponent(sessionId)}`;
@@ -104,6 +128,12 @@ export default function PosExchangeWizard({
     setDetail(null);
     setReturnQtyDraft({});
     setPendingManagerApproval(null);
+    setManagerApproval(null);
+    setReturnedLines([]);
+    setRefundModalOpen(false);
+    setRefundBusy(false);
+    setRefundAmount("");
+    setRefundGiftCode("");
   }, []);
 
   const loadTransaction = useCallback(async (id: string) => {
@@ -128,7 +158,7 @@ export default function PosExchangeWizard({
       }
       
       const daysOld = (Date.now() - new Date(d.booked_at).getTime()) / (1000 * 60 * 60 * 24);
-      if (daysOld > 60) {
+      if (daysOld > 30) {
         setPendingManagerApproval(d);
       } else {
         setDetail(d);
@@ -149,9 +179,9 @@ export default function PosExchangeWizard({
     }
   }, [open, initialTransactionId, reset, loadTransaction]);
 
-  const submitReturns = async () => {
+  const selectedReturnLines = useCallback(() => {
     if (!detail) return;
-    const lines: { transaction_line_id: string; quantity: number; reason?: string }[] = [];
+    const lines: { transaction_line_id: string; quantity: number; item: TransactionItemRow }[] = [];
     for (const it of detail.items) {
       const raw = (returnQtyDraft[it.transaction_line_id] ?? "").trim();
       if (!raw) continue;
@@ -159,14 +189,29 @@ export default function PosExchangeWizard({
       if (!Number.isFinite(q) || q <= 0) continue;
       const max = it.quantity - (it.quantity_returned ?? 0);
       if (q > max) {
-        toast(`Return qty too high for ${it.sku} (max ${max})`, "error");
-        return;
+        return null;
       }
       lines.push({
         transaction_line_id: it.transaction_line_id,
         quantity: q,
-        reason: "exchange",
+        item: it,
       });
+    }
+    return lines;
+  }, [detail, returnQtyDraft]);
+
+  const selectedRefundCents = (selectedReturnLines() ?? []).reduce((sum, line) => {
+    const unitCents = parseMoneyToCents(line.item.unit_price);
+    const taxCents = parseMoneyToCents(line.item.state_tax) + parseMoneyToCents(line.item.local_tax);
+    return sum + (unitCents + taxCents) * line.quantity;
+  }, 0);
+
+  const submitReturns = async (nextAction: "refund" | "exchange") => {
+    if (!detail) return;
+    const lines = selectedReturnLines();
+    if (!lines) {
+      toast("Fix return quantities before continuing.", "error");
+      return;
     }
     if (lines.length === 0) {
       toast("Enter return quantities for at least one line", "info");
@@ -179,7 +224,16 @@ export default function PosExchangeWizard({
         {
           method: "POST",
           headers: jsonHeaders(apiAuth()),
-          body: JSON.stringify({ lines }),
+          body: JSON.stringify({
+            lines: lines.map(({ transaction_line_id, quantity }) => ({
+              transaction_line_id,
+              quantity,
+              reason: nextAction === "refund" ? "refund" : "exchange",
+            })),
+            manager_staff_id: managerApproval?.staffId,
+            manager_pin: managerApproval?.pin,
+            manager_reason: managerApproval ? "Admin approved return outside 30-day policy" : undefined,
+          }),
         },
       );
       if (!res.ok) {
@@ -187,8 +241,28 @@ export default function PosExchangeWizard({
         toast(b.error ?? "Return failed", "error");
         return;
       }
-      toast("Return recorded. Process any refund due from the Transactions workspace if needed.", "success");
+      const refundLines = lines.map(({ item, quantity }) => ({
+        transaction_line_id: item.transaction_line_id,
+        sku: item.sku,
+        product_name: item.product_name,
+        quantity,
+        unit_price_cents: parseMoneyToCents(item.unit_price),
+        tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
+      }));
+      setReturnedLines(refundLines);
+      const refundCents = refundLines.reduce(
+        (sum, line) => sum + (line.unit_price_cents + line.tax_cents) * line.quantity,
+        0,
+      );
+      setRefundAmount(centsToFixed2(refundCents));
+      toast(
+        nextAction === "refund"
+          ? "Return recorded. Refund-only is ready for tender selection."
+          : "Return recorded. Continue with replacement items, then refund any remaining credit if needed.",
+        "success",
+      );
       setStep("done");
+      if (nextAction === "refund") setRefundModalOpen(true);
     } catch {
       toast("Return failed", "error");
     } finally {
@@ -204,9 +278,9 @@ export default function PosExchangeWizard({
       customer_code: "",
       first_name: c.first_name,
       last_name: c.last_name,
-      company_name: null,
-      email: null,
-      phone: null,
+      company_name: c.company_name ?? null,
+      email: c.email ?? null,
+      phone: c.phone ?? null,
     };
   };
 
@@ -217,6 +291,43 @@ export default function PosExchangeWizard({
       customer: applyCustomer(),
     });
     onClose();
+  };
+
+  const submitRefund = async () => {
+    if (!detail) return;
+    const amountCents = parseMoneyToCents(refundAmount);
+    if (amountCents <= 0) {
+      toast("Enter a refund amount.", "error");
+      return;
+    }
+    setRefundBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${encodeURIComponent(detail.transaction_id)}/refunds/process`,
+        {
+          method: "POST",
+          headers: jsonHeaders(apiAuth()),
+          body: JSON.stringify({
+            session_id: sessionId,
+            payment_method: refundMethod,
+            amount: centsToFixed2(amountCents),
+            gift_card_code: refundMethod.toLowerCase().includes("gift") ? refundGiftCode.trim() : undefined,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Refund failed. Check tender and approval.", "error");
+        return;
+      }
+      toast("Refund completed and recorded on the original transaction.", "success");
+      setRefundModalOpen(false);
+      onClose();
+    } catch {
+      toast("Refund failed.", "error");
+    } finally {
+      setRefundBusy(false);
+    }
   };
 
   if (!open) return null;
@@ -314,7 +425,7 @@ export default function PosExchangeWizard({
                 </div>
                 <h3 className="text-sm font-black text-app-text">Locate Original Transaction</h3>
                 <p className="mt-2 text-xs leading-relaxed text-app-text-muted">
-                  Search by customer name, phone, or Short ID to pull up the eligible items for return.
+                  Search by customer name, phone, Short ID, or scan a receipt barcode to pull up eligible return items.
                 </p>
               </div>
 
@@ -330,9 +441,8 @@ export default function PosExchangeWizard({
                  />
               </div>
               <p className="text-[10px] text-app-text-muted leading-relaxed opacity-60">
-                The transaction must have a payment on this open register session,
-                or use Back Office instead. For uneven wedding group payments, confirm return
-                quantities against the correct member record in Back Office.
+                Transactions older than 30 days require Admin approval. For uneven wedding group payments,
+                confirm return quantities against the correct member record before refunding.
               </p>
             </div>
           )}
@@ -345,7 +455,7 @@ export default function PosExchangeWizard({
                     Transaction Source
                   </p>
                   <p className="mt-1 text-sm font-black text-app-text">
-                    ID: <span className="font-mono text-app-accent">{detail.transaction_id.slice(0, 8).toUpperCase()}</span>
+                    Receipt: <span className="font-mono text-app-accent">{detail.transaction_id.slice(0, 8).toUpperCase()}</span>
                   </p>
                 </div>
                 <div className="flex gap-4 border-l border-app-border/50 pl-4">
@@ -421,6 +531,9 @@ export default function PosExchangeWizard({
                             <span className="text-[10px] font-bold text-app-text-muted opacity-60 italic">
                               Max return: {max}
                             </span>
+                            <span className="text-[10px] font-black text-app-danger">
+                              -${centsToFixed2(parseMoneyToCents(it.unit_price))}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -446,28 +559,68 @@ export default function PosExchangeWizard({
                 })}
                 </div>
               </div>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => void submitReturns()}
-                className="ui-btn-primary flex w-full items-center justify-center gap-2 py-4 font-black uppercase tracking-[0.2em] shadow-glow-accent-xs"
-              >
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Record returns & Proceed
-              </button>
+              {selectedRefundCents > 0 ? (
+                <div className="rounded-2xl border border-app-danger/20 bg-app-danger/5 p-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-danger">
+                    Return cart
+                  </p>
+                  <p className="mt-1 text-sm font-black text-app-text">
+                    Selected returns create a customer credit of -${centsToFixed2(selectedRefundCents)} before any replacement items.
+                  </p>
+                </div>
+              ) : null}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => void submitReturns("refund")}
+                  className="ui-btn-secondary flex w-full items-center justify-center gap-2 py-4 font-black uppercase tracking-[0.16em]"
+                >
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Refund only
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => void submitReturns("exchange")}
+                  className="ui-btn-primary flex w-full items-center justify-center gap-2 py-4 font-black uppercase tracking-[0.16em] shadow-glow-accent-xs"
+                >
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Exchange for new items
+                </button>
+              </div>
             </div>
           )}
 
           {step === "done" && detail && (
             <div className="space-y-4 text-center">
               <Package className="mx-auto h-12 w-12 text-emerald-600" />
-              <p className="text-sm font-bold text-app-text">
-                Returns are saved. Add replacement items to the cart, then complete checkout.
-              </p>
+              <p className="text-sm font-bold text-app-text">Returns are saved on the original transaction.</p>
+              <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                  Negative return lines
+                </p>
+                <div className="mt-3 space-y-2">
+                  {returnedLines.map((line) => (
+                    <div key={line.transaction_line_id} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="font-bold text-app-text">{line.quantity}x {line.product_name}</span>
+                      <span className="font-mono font-black text-app-danger">
+                        -${centsToFixed2((line.unit_price_cents + line.tax_cents) * line.quantity)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <p className="text-xs text-app-text-muted">
-                After checkout, transactions link automatically for exchange reporting when both sales are
-                part of the same register session.
+                Refund-only can be tendered now. Exchanges can continue into a replacement sale; refund any remaining credit after replacement items are selected.
               </p>
+              <button
+                type="button"
+                onClick={() => setRefundModalOpen(true)}
+                className="ui-btn-secondary w-full py-3 font-black uppercase tracking-widest"
+              >
+                Refund customer now
+              </button>
               <button
                 type="button"
                 onClick={handleContinue}
@@ -484,7 +637,7 @@ export default function PosExchangeWizard({
         <ManagerApprovalModal
           isOpen={true}
           title="Return Deadline Exceeded"
-          message="This original sale is older than 60 days. A Manager PIN is required to process an exchange/return."
+          message="This original sale is older than 30 days. An Admin PIN is required to process an exchange/return."
           onClose={() => {
             setPendingManagerApproval(null);
             setLoading(false);
@@ -493,17 +646,38 @@ export default function PosExchangeWizard({
              const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
                method: "POST",
                headers: { ...jsonHeaders(apiAuth()) },
-               body: JSON.stringify({ staff_id: managerId, pin_hash: pin })
+               body: JSON.stringify({
+                 staff_id: managerId,
+                 pin,
+                 authorize_action: "older_return_approval",
+                 authorize_metadata: {
+                   transaction_id: pendingManagerApproval.transaction_id,
+                   reason: "Admin approved return outside 30-day policy",
+                 },
+               })
              });
              if (!res.ok) {
                throw new Error("Invalid Manager PIN.");
              }
+             setManagerApproval({ staffId: managerId, pin });
              setDetail(pendingManagerApproval);
              setStep("return");
              setPendingManagerApproval(null);
           }}
         />
       ) : null}
+      <PosRefundModal
+        isOpen={refundModalOpen}
+        onClose={() => setRefundModalOpen(false)}
+        onSubmit={() => void submitRefund()}
+        busy={refundBusy}
+        amount={refundAmount}
+        setAmount={setRefundAmount}
+        method={refundMethod}
+        setMethod={setRefundMethod}
+        giftCode={refundGiftCode}
+        setGiftCode={setRefundGiftCode}
+      />
     </div>,
     document.getElementById("drawer-root")!
   );

@@ -346,6 +346,8 @@ async function pickupTransaction(
     },
     data: {
       actor: "E2E Inventory Audit",
+      override_readiness: true,
+      override_reason: "Inventory audit uses controlled fixture readiness.",
     },
     failOnStatusCode: false,
   });
@@ -418,6 +420,20 @@ test.describe("inventory audit contract", () => {
     const lineBeforePickup = detailBeforePickup.items.find((item) => item.sku === product.sku);
     expect(lineBeforePickup?.is_fulfilled).toBe(false);
 
+    const blockedPickupRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        actor: "E2E Inventory Audit",
+      },
+      failOnStatusCode: false,
+    });
+    const blockedPickupText = await blockedPickupRes.text();
+    expect(blockedPickupRes.status(), blockedPickupText.slice(0, 1000)).toBe(400);
+    expect(blockedPickupText).toContain("not Ready for Pickup");
+
     const pickupRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`, {
       headers: {
         ...staffHeaders(),
@@ -425,6 +441,8 @@ test.describe("inventory audit contract", () => {
       },
       data: {
         actor: "E2E Inventory Audit",
+        override_readiness: true,
+        override_reason: "Inventory audit confirms stock movement after explicit override.",
       },
       failOnStatusCode: false,
     });

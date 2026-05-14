@@ -143,8 +143,8 @@ export default function FulfillmentCommandCenter({
           active={filter === "ready"}
           onClick={() => setFilter(filter === "ready" ? "all" : "ready")}
         />
-        <StatCard 
-          label="Rush Orders" 
+        <StatCard
+          label="Rush Pickups"
           count={stats.rush} 
           icon={<AlertTriangle className="text-red-500" />} 
           active={filter === "rush"}
@@ -174,7 +174,7 @@ export default function FulfillmentCommandCenter({
               Pickup Queue
             </h2>
             <p className="text-xs text-app-text-muted">
-              Prioritized order follow-up for pickup readiness, rush work, and blocked items.
+              Prioritized operational release view for safe pickups, blocked pickups, wedding risk, and rush work.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -209,7 +209,7 @@ export default function FulfillmentCommandCenter({
                   onClick={() => {
                      openProfessionalTablePrint({
                         title: `Pickup Queue - ${filter.toUpperCase()}`,
-                        subtitle: `Order pickup and follow-up priority view`,
+                        subtitle: `Pickup and follow-up priority view`,
                         columns: ["order_short_id", "customer_name", "urgency", "next_deadline", "item_count"],
                         rows: filteredItems.map(i => ({
                            ...i,
@@ -237,6 +237,35 @@ export default function FulfillmentCommandCenter({
              <span className="whitespace-nowrap text-xs font-bold text-app-text-muted">
                {filteredItems.length} / {items.length} items
              </span>
+          </div>
+        </div>
+
+        <div className="mb-4 rounded-xl border border-app-border bg-app-surface px-4 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Rush-condition pickup guidance
+              </p>
+              <p className="mt-1 text-sm font-semibold text-app-text">
+                {stats.blocked > 0
+                  ? "Blocked pickups first: do not release garments until balance, readiness, or lifecycle blockers are cleared."
+                  : stats.rush > 0
+                    ? "Rush pickups next: verify payment, readiness, fitting context, and customer identity before release."
+                    : "Operate from ready pickups first; partial-ready work must stay explicit and item-level."}
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center sm:min-w-72">
+              {[
+                ["Blocked", stats.blocked],
+                ["Rush", stats.rush],
+                ["Ready", stats.ready],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-app-border bg-app-bg px-3 py-2">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">{label}</p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">{value}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -273,7 +302,7 @@ export default function FulfillmentCommandCenter({
                 ? "Pickup queue could not refresh."
                 : queueSearch.trim()
                   ? "No pickup work matches this search."
-                  : "No orders match this priority level."}
+                  : "No pickup records match this priority level."}
             </p>
             <p className="mt-2 max-w-sm text-center text-sm">
               {queueRefreshError && items.length === 0
@@ -390,14 +419,22 @@ function pickupContext(item: FulfillmentItem): { label: string; className: strin
 }
 
 function pickupNextSafeAction(item: FulfillmentItem): string {
-  if (item.urgency === "blocked") return "Open order before releasing garments.";
-  if (item.balance_due > 0) return "Collect balance before pickup release.";
+  if (item.balance_due > 0) return "Pickup blocked until balance is cleared.";
+  if (item.urgency === "blocked") return "Open Transaction Record before releasing garments.";
   if (item.fulfilled_item_count > 0 && item.fulfilled_item_count < item.item_count) {
-    return "Verify remaining items before pickup.";
+    return "Partial-ready: release only confirmed ready garments.";
   }
   if (item.wedding_party_name) return "Confirm fitting and wedding member before release.";
   if (item.urgency === "ready") return "Ready after ID and garment check.";
-  return "Open order for pickup readiness details.";
+  return "Open Transaction Record for pickup readiness details.";
+}
+
+function pickupEscalation(item: FulfillmentItem): string {
+  if (item.balance_due > 0) return "Requires payment collection before release.";
+  if (item.urgency === "blocked") return "Requires manager review if staff believe release is still necessary.";
+  if (item.urgency === "rush") return "Escalate if deadline conflicts with readiness.";
+  if (item.wedding_party_name) return "Escalate wedding-risk mismatches before releasing partial work.";
+  return "Standard release path.";
 }
 
 function QueueItem({
@@ -478,6 +515,9 @@ function QueueItem({
           ))}
           <span className="min-w-0 rounded-full border border-app-border bg-app-bg px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
             Next: {pickupNextSafeAction(item)}
+          </span>
+          <span className="min-w-0 rounded-full border border-app-border bg-app-bg px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+            Escalation: {pickupEscalation(item)}
           </span>
         </div>
       </div>

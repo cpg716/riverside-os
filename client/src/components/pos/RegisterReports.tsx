@@ -18,10 +18,11 @@ import {
   Banknote,
   User,
   Clock,
+  Search,
 } from "lucide-react";
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
 import ProductHubDrawer from "../inventory/ProductHubDrawer";
-import { openProfessionalDailySalesPrint } from "./zReportPrint";
+import { openProfessionalDailySalesPrint, openProfessionalZReportPrint } from "./zReportPrint";
 
 const baseUrl = getBaseUrl();
 
@@ -49,6 +50,7 @@ interface RegisterActivityItem {
   occurred_at: string;
   title: string;
   subtitle?: string | null;
+  transaction_id?: string | null;
   order_id?: string | null;
   wedding_party_id?: string | null;
   amount_label?: string | null;
@@ -61,6 +63,8 @@ interface RegisterActivityItem {
   items?: ActivityItemDetail[] | null;
   customer_name?: string | null;
   customer_code?: string | null;
+  customer_phone?: string | null;
+  customer_email?: string | null;
   deposits_paid?: string | null;
   balance_due?: string | null;
   fulfillment_type?: string | null;
@@ -108,6 +112,31 @@ interface RegisterSessionRow {
   actual_cash: string | null;
   discrepancy: string | null;
   total_sales: string;
+  closing_notes?: string | null;
+  closing_comments?: string | null;
+  z_report_json?: ZReportSnapshot | null;
+}
+
+interface ZReportSnapshot {
+  session_id?: string;
+  opening_float?: string;
+  net_cash_adjustments?: string;
+  expected_cash?: string;
+  actual_cash?: string;
+  discrepancy?: string;
+  tenders?: Array<{ payment_method: string; total_amount: string; tx_count: number }>;
+  override_summary?: Array<{ reason: string; line_count: number; total_delta: string }>;
+  tenders_by_lane?: Array<{
+    register_lane: number;
+    tenders: Array<{ payment_method: string; total_amount: string; tx_count: number }>;
+  }>;
+  transactions?: Array<{
+    created_at: string;
+    payment_method: string;
+    amount: string;
+    customer_name: string;
+    register_lane?: number | null;
+  }>;
 }
 
 interface OpenRegisterSessionRow {
@@ -191,6 +220,35 @@ function activityFulfillmentLabel(row: RegisterActivityItem): string | null {
   return null;
 }
 
+function activityTransactionId(row: RegisterActivityItem): string | null {
+  return row.transaction_id ?? row.order_id ?? null;
+}
+
+function activitySearchText(row: RegisterActivityItem): string {
+  return [
+    row.title,
+    row.kind,
+    row.transaction_id,
+    row.order_id,
+    row.short_id,
+    row.customer_name,
+    row.customer_code,
+    row.customer_phone,
+    row.customer_email,
+    row.payment_summary,
+    row.wedding_party_name,
+    row.fulfillment_type,
+    ...(row.items ?? []).flatMap((item) => [
+      item.name,
+      item.sku,
+      item.fulfillment,
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function registerLifecycleLabel(status: string) {
   switch (status) {
     case "reconciling":
@@ -219,6 +277,37 @@ function primaryRegisterSession(
   sessions: OpenRegisterSessionRow[],
 ): OpenRegisterSessionRow | null {
   return sessions.find((session) => session.register_lane === 1) ?? sessions[0] ?? null;
+}
+
+function openZReportFromSession(session: RegisterSessionRow): void {
+  const snapshot = session.z_report_json;
+  const cashTender = snapshot?.tenders?.find(
+    (tender) => tender.payment_method.toLowerCase() === "cash",
+  );
+  openProfessionalZReportPrint({
+    title: "Z-Report",
+    sessionId: snapshot?.session_id ?? session.id,
+    registerOrdinal: session.register_ordinal,
+    cashierLabel: session.cashier_name,
+    openedAt: session.opened_at,
+    openingCents: parseMoneyToCents(snapshot?.opening_float ?? session.opening_float),
+    cashSalesCents: parseMoneyToCents(cashTender?.total_amount ?? "0"),
+    netAdjustmentsCents: parseMoneyToCents(snapshot?.net_cash_adjustments ?? "0"),
+    expectedCents: parseMoneyToCents(snapshot?.expected_cash ?? session.expected_cash ?? "0"),
+    actualCents: parseMoneyToCents(snapshot?.actual_cash ?? session.actual_cash ?? "0"),
+    discrepancyCents: parseMoneyToCents(snapshot?.discrepancy ?? session.discrepancy ?? "0"),
+    tenders: snapshot?.tenders ?? [],
+    overrideSummary: snapshot?.override_summary ?? [],
+    tendersByLane: snapshot?.tenders_by_lane ?? [],
+    transactions:
+      snapshot?.transactions?.map((transaction) => ({
+        created_at: transaction.created_at,
+        payment_method: transaction.payment_method,
+        amount: transaction.amount,
+        customer_name: transaction.customer_name,
+        register_lane: transaction.register_lane ?? session.register_lane,
+      })) ?? [],
+  });
 }
 
 export default function RegisterReports({
@@ -250,6 +339,7 @@ export default function RegisterReports({
   const [zPreset, setZPreset] = useState<ZPresetId>("recent");
   const [customFromZ, setCustomFromZ] = useState("");
   const [customToZ, setCustomToZ] = useState("");
+  const [activitySearch, setActivitySearch] = useState("");
 
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
@@ -386,8 +476,11 @@ export default function RegisterReports({
   const groupedActivities = useMemo((): GroupedDayActivity[] => {
     const source = reportBasis === "booked" ? summaryBooked : summary;
     if (!source?.activities?.length) return [];
+    const needle = activitySearch.trim().toLowerCase();
     const groups: Record<string, RegisterActivityItem[]> = {};
-    source.activities.forEach((a) => {
+    source.activities
+      .filter((a) => !needle || activitySearchText(a).includes(needle))
+      .forEach((a) => {
       const date = new Date(a.occurred_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
       if (!groups[date]) groups[date] = [];
       groups[date].push(a);
@@ -400,7 +493,8 @@ export default function RegisterReports({
       total_tax: acts.reduce((sum, a) => sum + (parseFloat(a.tax_total || "0") || 0), 0).toFixed(2),
       count: acts.length,
     }));
-  }, [summary, summaryBooked, reportBasis]);
+  }, [summary, summaryBooked, reportBasis, activitySearch]);
+  const activitySourceCount = (reportBasis === "booked" ? summaryBooked : summary)?.activities?.length ?? 0;
 
   const coordinationGroups = useMemo((): RegisterCoordinationGroup[] => {
     const grouped = new Map<string, OpenRegisterSessionRow[]>();
@@ -726,11 +820,27 @@ export default function RegisterReports({
               <p className="font-bold text-app-text">{error}</p>
               <button type="button" onClick={() => { fetchSummary("booked"); fetchSummary("fulfilled"); }} className="mt-4 text-sm font-bold text-app-accent hover:underline">Try again</button>
             </div>
-          ) : groupedActivities.length === 0 ? (
+          ) : activitySourceCount === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center py-20 text-app-text-muted">No activity in this range.</div>
           ) : (
             <div className="flex flex-col gap-4 p-3 sm:p-4">
-              <div className="flex justify-end gap-2 mb-2">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <label className="relative min-w-0 md:w-[420px]">
+                  <Search
+                    size={15}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted"
+                    aria-hidden
+                  />
+                  <input
+                    type="search"
+                    value={activitySearch}
+                    onChange={(event) => setActivitySearch(event.target.value)}
+                    placeholder="Search name, phone, email, customer #, receipt barcode, or item"
+                    className="ui-input h-11 w-full rounded-xl pl-9 pr-3 text-sm font-semibold"
+                    aria-label="Search daily sales activity"
+                  />
+                </label>
+              <div className="flex justify-end gap-2">
                 <button type="button" onClick={handlePrint} className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white">
                   <Printer size={12} />Print
                 </button>
@@ -738,7 +848,12 @@ export default function RegisterReports({
                   <Download size={12} />Export
                 </button>
               </div>
-              {groupedActivities.map((group) => (
+              </div>
+              {groupedActivities.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center py-20 text-app-text-muted">
+                  No daily sales activity matches this search.
+                </div>
+              ) : groupedActivities.map((group) => (
                 <div key={group.date} className="flex flex-col gap-2">
                   <div className="flex items-center justify-between border-b border-app-border pb-2">
                     <div>
@@ -789,7 +904,7 @@ export default function RegisterReports({
                                  )}
                                </div>
                                <div className="mt-3 flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">#{row.short_id || row.order_id?.slice(0, 8)}</span>
+                                  <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">#{row.short_id || activityTransactionId(row)?.slice(0, 8)}</span>
                                   {activityFulfillmentLabel(row) && (
                                     <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-xs font-bold leading-none text-app-warning">
                                       {activityFulfillmentLabel(row)}
@@ -801,7 +916,10 @@ export default function RegisterReports({
                           </div>
                           
                           <div className="mt-4 pt-4 border-t border-app-border/40">
-	                             <button type="button" onClick={() => setReceiptOrderId(row.order_id!)} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white">
+	                             <button type="button" onClick={() => {
+                                const transactionId = activityTransactionId(row);
+                                if (transactionId) setReceiptOrderId(transactionId);
+                              }} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white">
                                 <Receipt size={14} /> Receipt
                              </button>
                           </div>
@@ -1121,6 +1239,13 @@ export default function RegisterReports({
                             Discrepancy ${centsToFixed2(parseMoneyToCents(session.discrepancy))}
                           </p>
                         ) : null}
+                        <button
+                          type="button"
+                          onClick={() => openZReportFromSession(session)}
+                          className="mt-2 rounded-lg border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white"
+                        >
+                          Open Report
+                        </button>
                       </div>
                     </li>
                   ))}

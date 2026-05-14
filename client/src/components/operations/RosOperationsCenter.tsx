@@ -265,16 +265,31 @@ function reconciliationSeverityBand(severity?: string | null): HealthStatus {
 function checklistGuidance(mode: ChecklistMode, category: OperationsCategory): string {
   if (category.status === "blocked") {
     return mode === "open"
-      ? "Resolve this before treating the store as open-ready."
-      : "Resolve or document ownership before treating close as complete.";
+      ? "Blocked unsafe state. Resolve or assign a manager owner before treating the store as open-ready."
+      : "Review before closing register. Resolve or document ownership before treating close as complete.";
   }
   if (category.status === "degraded") {
-    return "Refresh or confirm the source workflow; last-loaded data may be stale.";
+    return "Degraded but operational only with awareness. Refresh first; if still degraded, confirm the source workflow before signoff.";
   }
   if (category.status === "review") {
-    return "Manager review recommended before calling the ritual clear.";
+    return "Needs Review. Manager review recommended before open/close signoff.";
   }
-  return "Clear from loaded sources.";
+  return "Ready from loaded sources.";
+}
+
+function checklistPriority(status: HealthStatus, mode: ChecklistMode): string {
+  if (status === "blocked") {
+    return mode === "open"
+      ? "Priority: resolve blockers before opening."
+      : "Priority: resolve checkout, pickup, reconciliation, or support blockers before close.";
+  }
+  if (status === "degraded") {
+    return "Priority: refresh stale sources, then decide whether degraded operation is acceptable.";
+  }
+  if (status === "review") {
+    return "Priority: assign review owners and continue only after manager acknowledgment.";
+  }
+  return "Priority: continue the normal checklist rhythm.";
 }
 
 export default function RosOperationsCenter({
@@ -691,6 +706,15 @@ export default function RosOperationsCenter({
   const checklistStatus = worstStatus(
     readinessChecklist.map((item) => item.category.status),
   );
+  const checklistCounts = useMemo(
+    () => ({
+      ready: readinessChecklist.filter((item) => item.category.status === "ready").length,
+      review: readinessChecklist.filter((item) => item.category.status === "review").length,
+      degraded: readinessChecklist.filter((item) => item.category.status === "degraded").length,
+      blocked: readinessChecklist.filter((item) => item.category.status === "blocked").length,
+    }),
+    [readinessChecklist],
+  );
 
   const copySnapshot = useCallback(async () => {
     try {
@@ -778,7 +802,7 @@ export default function RosOperationsCenter({
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
-                Store ritual checklist
+                Store open/close checklist
               </p>
               <h3 className="mt-1 text-xl font-black text-app-text">
                 {checklistMode === "open" ? "Open Store" : "Close Store"} readiness
@@ -818,6 +842,22 @@ export default function RosOperationsCenter({
                     ? "Operationally possible with manager review of highlighted items."
                     : "Ready from the currently loaded operational sources."}
             </p>
+            <p className="mt-2 text-xs font-black opacity-90">
+              {checklistPriority(checklistStatus, checklistMode)}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                ["Ready", checklistCounts.ready],
+                ["Needs Review", checklistCounts.review],
+                ["Degraded", checklistCounts.degraded],
+                ["Blocked", checklistCounts.blocked],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-current/20 bg-app-surface/60 px-3 py-2">
+                  <p className="text-[8px] font-black uppercase tracking-widest opacity-70">{label}</p>
+                  <p className="mt-1 text-lg font-black tabular-nums">{value}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="mt-4 grid gap-3 xl:grid-cols-2">

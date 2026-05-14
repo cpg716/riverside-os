@@ -189,7 +189,7 @@ test.describe("Phase 3 failure-state coverage", () => {
     await expect(
       page.getByText("Do not treat the queue as clear until refresh succeeds.").first(),
     ).toBeVisible();
-    await expect(page.getByText("No orders match this priority level.")).toHaveCount(0);
+    await expect(page.getByText("No pickup records match this priority level.")).toHaveCount(0);
 
     await page.getByRole("button", { name: /^podium inbox$/i }).first().click();
     await expect(page.getByText("Could not refresh Podium inbox.")).toBeVisible({
@@ -199,6 +199,57 @@ test.describe("Phase 3 failure-state coverage", () => {
       page.getByText("Do not treat the inbox as empty until refresh succeeds."),
     ).toBeVisible();
     await expect(page.getByText("No Podium conversations yet")).toHaveCount(0);
+  });
+
+  test("pickup queue surfaces rush-condition release guidance", async ({ page }) => {
+    await page.route("**/api/transactions/fulfillment-queue", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            order_id: "txn-phase3-blocked",
+            order_short_id: "PH3-BLOCKED",
+            booked_at: "2026-05-13T12:00:00Z",
+            status: "open",
+            customer_name: "Phase Three Blocked",
+            item_count: 2,
+            fulfilled_item_count: 0,
+            urgency: "blocked",
+            next_deadline: "2026-05-13",
+            balance_due: 25,
+            wedding_party_name: "Phase Three Wedding",
+          },
+          {
+            order_id: "txn-phase3-ready",
+            order_short_id: "PH3-READY",
+            booked_at: "2026-05-13T12:05:00Z",
+            status: "open",
+            customer_name: "Phase Three Ready",
+            item_count: 1,
+            fulfilled_item_count: 1,
+            urgency: "ready",
+            next_deadline: null,
+            balance_due: 0,
+            wedding_party_name: null,
+          },
+        ]),
+      });
+    });
+
+    await signInToBackOffice(page);
+    await page.getByRole("button", { name: /^pickup queue$/i }).first().click();
+
+    await expect(page.getByText("Rush-condition pickup guidance")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByText("Blocked pickups first: do not release garments until balance, readiness, or lifecycle blockers are cleared."),
+    ).toBeVisible();
+    await expect(page.getByText("Next: Pickup blocked until balance is cleared.")).toBeVisible();
+    await expect(
+      page.getByText("Escalation: Requires payment collection before release."),
+    ).toBeVisible();
   });
 
   test("inventory control board shows outage guidance instead of empty filters", async ({ page }) => {

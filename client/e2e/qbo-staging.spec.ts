@@ -37,7 +37,7 @@ test.beforeEach(() => {
   );
 });
 
-test("QBO staging shell: map to propose approve sync", async ({ page }) => {
+test("QBO staging shell: warning-aware staging and posting language", async ({ page }) => {
   test.setTimeout(90_000);
   await signInToBackOffice(page);
   const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
@@ -62,12 +62,14 @@ test("QBO staging shell: map to propose approve sync", async ({ page }) => {
     )
     .toBeTruthy();
   await expect(page.getByText(/financial bridge panel/i)).toBeVisible();
-  await expect(
-    page.getByText(/workflow:\s*connection\s*→\s*mappings\s*→\s*staging/i),
-  ).toBeVisible({ timeout: 15_000 });
-  const stagingButton = page.getByRole("button", { name: /3 .*staging/i });
-  await expect(stagingButton).toBeVisible({ timeout: 15_000 });
-  await expect(stagingButton).toBeEnabled();
-  await stagingButton.click();
-  await expect(page.getByRole("button", { name: /propose journal/i })).toBeVisible();
+  await expect(page.getByText(/accounting review state/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/reconciliation confidence/i)).toBeVisible();
+  await expect(page.getByText(/financial timing guide/i)).toBeVisible();
+  await expect(page.getByText(/refund, exchange, and liability review/i)).toBeVisible();
+  await expect(page.getByText(/stage \+ approve \+ post/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: /stage journal/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /copy support snapshot/i })).toBeVisible();
+  await expect(page.getByText(/posting history/i)).toBeVisible();
+  await expect(page.getByText(/posted to quickbooks/i)).toBeVisible();
+  await expect(page.getByText(/balanced journal can still require accounting review/i)).toBeVisible();
 });
