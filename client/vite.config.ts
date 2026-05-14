@@ -15,6 +15,10 @@ const pkg = JSON.parse(
 };
 
 function gitShort(): string {
+  if (process.env.GITHUB_SHA) {
+    return process.env.GITHUB_SHA.slice(0, 8);
+  }
+
   try {
     return execSync("git rev-parse --short HEAD", {
       cwd: path.join(__dirname, ".."),
