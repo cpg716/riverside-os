@@ -37,6 +37,7 @@ Example values:
 ## Notes
 
 - The last selected staff member is remembered on that device.
+- On the Backoffice / Server PC, if the app is pointed at `localhost` or `127.0.0.1` and the staff roster cannot load, Riverside tries to start the installed **Riverside OS Server** Windows scheduled task and then retries the roster check.
 - If your name does not appear, the device may be pointed at the wrong host URL for its current role or location.
 - For lockout recovery, use the in-app **Lockout Recovery Manual** from Help.
 
@@ -44,4 +45,5 @@ Example values:
 
 - Confirm the correct staff member is selected before entering the PIN.
 - Use **API Host Settings** only when the device truly needs a different Riverside host.
+- If the server auto-start message says the scheduled task is missing, ask support to run Backoffice / Server **Repair** from the deployment package.
 - Escalate lockout or missing-roster problems instead of guessing at host values on a live station.

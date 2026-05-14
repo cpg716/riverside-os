@@ -23,6 +23,8 @@ Before you **scan**, **search**, use the **numpad**, or tap **Pay**, the registe
 
 That person is recorded as the checkout **operator** for the transaction. **After you complete a sale**, you stay signed in as that cashier; use **Logout** or **Switch cashier** only if someone else should ring the next sale. Clearing the cart or starting a new sale does **not** sign you out. This is separate from **who opened the drawer** (session) and separate from the **Salesperson** (assigned via the avatar-picker at top or on each line) used for commissions.
 
+Every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a **Salesperson** before payment can finish. Select a default Salesperson at the top of the cart, or assign a Salesperson on individual lines. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
+
 ## Local draft cart (this device)
 
 While the till is open, an **in-progress sale** is **saved in the browser** on this device (`localforage`, key `ros_pos_active_sale`, scoped to your **register session id**) **only after you have at least one line item** in the cart (lines, linked customer, shipping selection, default salesperson, and cashier-for-sale).
@@ -91,7 +93,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 ## Checkout (Complete Sale)
 
 1. Review **subtotal**, **tax**, and **balance due** with the customer.
-2. Tap **Pay** / **Complete Sale** (or equivalent green action). If the transaction requires Rush/Due Date details or special fulfillment, the **Transaction Review** screen appears before payment. If the customer wants delivery, use **Ship current sale** from the cart before payment so checkout has a valid quote and address snapshot.
+2. Tap **Pay** / **Complete Sale** (or equivalent green action). If the transaction requires Rush/Due Date details or special fulfillment, the **Transaction Review** screen appears before payment. If the customer wants delivery, use **Ship current sale** from the cart before payment so checkout has a valid quote and address snapshot. Riverside will stop the flow if no Salesperson is assigned.
 3. **Payment:** choose the method, enter the amount on the keypad, then **Add Payment** for each tender before completing the sale. Enter cash, card, gift card, or **Split Payment** tenders per training. Wait for **approved** state on card; do not hand back change until tender is confirmed on screen.
     - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Add Payment**.
     - The **keypad** stays fixed in the payment panel — scroll only affects the tender and balance area above it if the screen is very short.
@@ -138,7 +140,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 | Search returns **no results** | Type **SKU** only; scan again; one slow second between scans | Inventory checks **active** SKU in Back Office **Inventory List** |
 | Picker won’t close | **Cancel** or tap outside if allowed; clear search | Refresh **only if no tender in progress**; manager |
 | **Price override** blocked | Expected at cap | Manager with higher cap or admin |
-| **Complete Sale** disabled | Missing customer, zero-total line, open modal, or (fulfillment items) need to pay balance **or** set deposit per on-screen hint | Read the hint; add payment and/or set deposit |
+| **Complete Sale** disabled | Missing customer, missing Salesperson on sale lines, zero-total line, open modal, or (fulfillment items) need to pay balance **or** set deposit per on-screen hint | Read the hint; select a Salesperson if prompted; add payment and/or set deposit |
 | Card stuck on **connecting** | Wait full timeout once | Retry tender; if repeated, use fallback SOP (other lane / manual auth) |
 | **Balance due** wrong after discount | Remove and re-add discount | Manager reviews transaction lines |
 | Wrong item on ticket | **Before pay:** remove line, re-add | **After pay:** return/exchange flow — manager |

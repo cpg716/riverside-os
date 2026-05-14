@@ -131,6 +131,8 @@ The script:
 - Creates a startup scheduled task named `Riverside OS Server`.
 - Starts the server and checks the local app URL.
 
+The Backoffice / Server desktop app also has a local recovery path: if it opens on the server PC, is pointed at `localhost` / `127.0.0.1`, and the roster check cannot reach the API, it asks Windows to start the installed `Riverside OS Server` scheduled task and then retries the roster check. If the task is missing, run **Repair** from the Deployment Manager instead of manually creating a different task name.
+
 PostgreSQL and `psql.exe` must be installed or referenced by `server.database.psqlPath`. The Deployment Manager can find common PostgreSQL installs and write the path into the config.
 
 ## Register #1 install
@@ -162,6 +164,8 @@ On first launch, the Tauri app imports `station-config.json` and saves:
 - Cash drawer setting
 
 If settings changed, the app reloads once so early API calls use the installed API base.
+
+The packaged Windows app icon should show the Riverside logo mark. A solid red square means the station is running an older placeholder-icon build and should be updated with the current register/workstation artifact.
 
 ## Back Office Workstation install
 

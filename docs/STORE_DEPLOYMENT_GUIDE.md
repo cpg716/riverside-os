@@ -115,8 +115,8 @@ Use this checklist for the Windows PC that owns the store database and API:
 6. Start the API manually once and confirm the log says it is listening on the expected bind address.
 7. Open Windows Firewall inbound **TCP 3000** only for trusted LAN/Tailscale networks.
 8. Configure the final run method:
-   - Windows service or scheduled task is acceptable, but store-specific and not shipped by this repo.
-   - Record the exact start/stop command in the store deployment log.
+   - The Windows deployment package creates the scheduled task **`Riverside OS Server`**. Keep that exact task name so the Backoffice / Server desktop app can recover the local server automatically when it opens and `localhost` is not responding.
+   - If using a store-specific Windows service instead, record the exact start/stop command in the store deployment log and do not expect desktop app auto-start recovery to control that service.
 9. Open the app from the server PC browser and confirm staff sign-in, **Settings → General → About this build**, **Settings → Updates**, and **Settings → Remote Access**.
 10. If this PC is also the **Shop Host**, start **Shop Host** from **Settings → Remote Access** and smoke-test a second device on the same network before opening.
 
@@ -157,6 +157,7 @@ After first install, normal desktop app updates are handled in ROS from **Settin
 - [ ] If using the deployment package, run **`install-register.ps1`** as Administrator so the desktop app, API base, and printer station settings are installed together.
 - [ ] Confirm Windows user account and local admin rights for install/update.
 - [ ] Install the correct Riverside desktop artifact for the release version.
+- [ ] Confirm the installed Windows app icon is the Riverside logo mark, not the old solid red placeholder.
 - [ ] Launch app and verify **Settings → General → About this build** shows expected app version + API base.
 - [ ] Confirm station reaches API origin and can sign in with staff PIN flow.
 - [ ] Confirm station-specific Printing Hub values are set (receipt/report destinations).

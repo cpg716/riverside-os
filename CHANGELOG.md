@@ -6,11 +6,16 @@ The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Added
+- Added Windows desktop app recovery for the Backoffice / Server PC: when the local API is unreachable on sign-in, the app can start the installed `Riverside OS Server` scheduled task and retry the staff roster check.
+
 ### Changed
 - Updated v0.50 GOLD release-certification documentation to reflect the 2026-05-14 Playwright evidence: the standard release gate passed with 310 passed / 31 skipped / 0 failed, and the previously skipped environment/visual-gated lanes were certified separately with 31 passed / 0 skipped / 0 failed.
+- Replaced the Windows/Tauri placeholder app icon assets with the Riverside logo mark.
 
 ### Fixed
 - Hardened release documentation around visual baseline, Payments Operations, Back Office sign-in, and E2E environment requirements so the certification record no longer treats those lanes as unresolved skips.
+- Restored the Register salesperson requirement across normal Pay, special-order Review Order, and checkout-finalize paths; the server now rejects sale lines without a sale-level or line-level salesperson.
 
 ## [0.4.5] — 2026-05-07
 ### Added
