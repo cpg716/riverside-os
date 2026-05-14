@@ -85,7 +85,12 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "issue-donated", label: "Issue Donated" },
     { id: "issue-promo", label: "Issue Promo" },
   ],
-  loyalty: [],
+  loyalty: [
+    { id: "eligible", label: "Monthly Eligible" },
+    { id: "history", label: "Reward History" },
+    { id: "adjust", label: "Adjust Points" },
+    { id: "settings", label: "Program Settings" },
+  ],
   staff: [
     { id: "team", label: "Team" },
     { id: "tasks", label: "Tasks" },
