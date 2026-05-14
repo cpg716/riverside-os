@@ -764,6 +764,12 @@ export default function Cart({
   const isRmsPaymentCart = useMemo(() => lines.some(l => rmsPaymentMeta && l.sku === rmsPaymentMeta.sku), [lines, rmsPaymentMeta]);
   const isGiftCardOnlyCart = useMemo(() => lines.length > 0 && lines.every(l => !!l.gift_card_load_code), [lines]);
   const hasCheckoutWork = lines.length > 0 || orderPaymentLines.length > 0;
+  const hasSalespersonAttribution = useCallback(() => {
+    return (
+      primarySalespersonId.trim() !== "" ||
+      lines.some((l) => (l.salesperson_id?.trim() ?? "") !== "")
+    );
+  }, [lines, primarySalespersonId]);
 
   const ensurePosTokenForSession = useCallback(async () => {
     const success = await hydratePosRegisterAuthIfNeeded({
@@ -2090,10 +2096,7 @@ export default function Cart({
                }
 
                if (lines.length > 0 && !isRmsPaymentCart && !isGiftCardOnlyCart) {
-                 const hasAttribution =
-                   primarySalespersonId.trim() !== "" ||
-                   lines.some((l) => (l.salesperson_id?.trim() ?? "") !== "");
-                 if (!hasAttribution) {
+                 if (!hasSalespersonAttribution()) {
                    toast(
                      "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
                      "error",
@@ -2231,6 +2234,13 @@ export default function Cart({
         onOpenProfileGate={() => {}}
         busy={checkoutBusy}
         onFinalize={async (applied, op, ledger) => {
+          if (lines.length > 0 && !isRmsPaymentCart && !isGiftCardOnlyCart && !hasSalespersonAttribution()) {
+            toast(
+              "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
+              "error",
+            );
+            return;
+          }
           setLastReceiptOrderPaymentLines(orderPaymentLines);
           await executeCheckout(applied, op, ledger, checkoutOrderOptions || undefined);
         }}
@@ -3023,6 +3033,13 @@ export default function Cart({
               phone: selectedCustomer.phone ?? undefined,
             } : null}
             onComplete={(options) => {
+              if (lines.length > 0 && !isRmsPaymentCart && !isGiftCardOnlyCart && !hasSalespersonAttribution()) {
+                toast(
+                  "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
+                  "error",
+                );
+                return;
+              }
               setCheckoutOrderOptions({
                 is_rush: options.isRush,
                 need_by_date: options.needByDate,

@@ -2027,6 +2027,17 @@ pub async fn execute_checkout(
             inventory::InventoryError::Database(d) => CheckoutError::Database(d),
         })?;
         let kind = resolved.pos_line_kind.as_deref();
+        if payload.primary_salesperson_id.is_none()
+            && item.salesperson_id.is_none()
+            && !matches!(
+                kind,
+                Some("pos_gift_card_load") | Some("rms_charge_payment")
+            )
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "salesperson_id or primary_salesperson_id is required for sale lines".to_string(),
+            ));
+        }
         let has_code = item
             .gift_card_load_code
             .as_deref()
