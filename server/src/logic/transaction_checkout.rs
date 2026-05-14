@@ -257,6 +257,14 @@ fn metadata_optional_text(metadata: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn helcim_attempt_comparison_cents(split_amount_cents: i64, is_refund_attempt: bool) -> i64 {
+    if is_refund_attempt {
+        split_amount_cents.abs()
+    } else {
+        split_amount_cents
+    }
+}
+
 async fn canonical_custom_item_type_for_variant(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     fulfillment: DbFulfillmentType,
@@ -1504,9 +1512,9 @@ async fn validate_helcim_payment_splits(
                 CheckoutError::InvalidPayload("Helcim card payment amount is not valid".to_string())
             })?;
 
-        let attempt: Option<(String, i64, Option<Uuid>)> = sqlx::query_as(
+        let attempt: Option<(String, i64, Option<Uuid>, Option<String>)> = sqlx::query_as(
             r#"
-            SELECT status, amount_cents, register_session_id
+            SELECT status, amount_cents, register_session_id, raw_audit_reference
             FROM payment_provider_attempts
             WHERE provider = 'helcim'
               AND (
@@ -1523,7 +1531,12 @@ async fn validate_helcim_payment_splits(
         .bind(provider_payment_id)
         .fetch_optional(pool)
         .await?;
-        let Some((attempt_status, attempt_amount_cents, attempt_register_session_id)) = attempt
+        let Some((
+            attempt_status,
+            attempt_amount_cents,
+            attempt_register_session_id,
+            raw_audit_reference,
+        )) = attempt
         else {
             return Err(CheckoutError::InvalidPayload(
                 "Helcim card payment has not been confirmed by the terminal".to_string(),
@@ -1540,7 +1553,14 @@ async fn validate_helcim_payment_splits(
                 "Helcim card payment must be approved before checkout can be completed".to_string(),
             ));
         }
-        if attempt_amount_cents != split_amount_cents {
+        let is_refund_attempt = split.method.trim().eq_ignore_ascii_case("card_credit")
+            || raw_audit_reference
+                .as_deref()
+                .map(|value| value.to_ascii_lowercase().contains("refund"))
+                .unwrap_or(false);
+        let comparable_split_cents =
+            helcim_attempt_comparison_cents(split_amount_cents, is_refund_attempt);
+        if attempt_amount_cents != comparable_split_cents {
             return Err(CheckoutError::InvalidPayload(
                 "Helcim card payment amount does not match the approved terminal amount"
                     .to_string(),
@@ -4221,7 +4241,7 @@ mod tests {
     use super::{
         apply_corecard_result_to_metadata, build_payment_allocation_plan,
         corecard_error_to_checkout, evaluate_combo_incentives, execute_checkout,
-        fetch_variant_pos_line_kind, parse_combo_reward_amount,
+        fetch_variant_pos_line_kind, helcim_attempt_comparison_cents, parse_combo_reward_amount,
         validate_checkout_alteration_intakes, validate_order_payment_against_target,
         validate_order_payment_shape, CheckoutAlterationIntake, CheckoutDone, CheckoutItem,
         CheckoutOrderPayment, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
@@ -4270,6 +4290,13 @@ mod tests {
         let reward = parse_combo_reward_amount(&rule).unwrap();
 
         assert_eq!(reward, Decimal::new(1234, 2));
+    }
+
+    #[test]
+    fn helcim_refund_attempts_compare_against_absolute_refund_amount() {
+        assert_eq!(helcim_attempt_comparison_cents(-1000, true), 1000);
+        assert_eq!(helcim_attempt_comparison_cents(1000, true), 1000);
+        assert_eq!(helcim_attempt_comparison_cents(-1000, false), -1000);
     }
 
     #[test]

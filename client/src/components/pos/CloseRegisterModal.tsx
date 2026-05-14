@@ -45,6 +45,18 @@ interface Reconciliation {
   cash_adjustments?: CashAdjustmentLine[];
   override_summary?: OverrideSummary[];
   transactions: TransactionLine[];
+  unresolved_helcim_attempts?: HelcimCloseReviewAttempt[];
+}
+
+interface HelcimCloseReviewAttempt {
+  id: string;
+  register_session_id: string;
+  register_lane: number;
+  status: string;
+  amount_cents: number;
+  selected_terminal_key?: string | null;
+  review_reason: "waiting_on_terminal" | "approved_not_recorded" | "outcome_needs_review" | string;
+  created_at: string;
 }
 
 interface TransactionLine {
@@ -270,6 +282,28 @@ export default function CloseRegisterModal({
     return true;
   }, [baseUrl, jsonAuthHeaders, reconcileCashierCode, refreshOfflineQueueSummary, registerLane, sessionId, toast]);
 
+  const unresolvedHelcimAttempts = useMemo(
+    () => recon?.unresolved_helcim_attempts ?? [],
+    [recon?.unresolved_helcim_attempts],
+  );
+  const helcimReviewMessage = useMemo(() => {
+    if (unresolvedHelcimAttempts.length === 0) return null;
+    const approved = unresolvedHelcimAttempts.filter((attempt) => attempt.review_reason === "approved_not_recorded").length;
+    const pending = unresolvedHelcimAttempts.filter((attempt) => attempt.review_reason === "waiting_on_terminal").length;
+    const review = unresolvedHelcimAttempts.filter((attempt) => attempt.review_reason === "outcome_needs_review").length;
+    const parts: string[] = [];
+    if (approved > 0) parts.push(`${approved} card approval${approved === 1 ? "" : "s"} not recorded in ROS`);
+    if (pending > 0) parts.push(`${pending} card outcome${pending === 1 ? "" : "s"} still waiting on the terminal`);
+    if (review > 0) parts.push(`${review} card outcome${review === 1 ? "" : "s"} unresolved`);
+    return `Card payment review required before Z-close: ${parts.join(", ")}. Resolve in checkout or Payments Health so the Z report includes every card outcome.`;
+  }, [unresolvedHelcimAttempts]);
+
+  const blockForHelcimReview = useCallback(() => {
+    if (!helcimReviewMessage) return false;
+    toast(helcimReviewMessage, "error");
+    return true;
+  }, [helcimReviewMessage, toast]);
+
   const handleBlindCountSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const bills = denominationTotal;
@@ -296,6 +330,7 @@ export default function CloseRegisterModal({
     if (totalCents == null || totalCents < 0) return;
     void (async () => {
       if (await blockForOfflineQueue()) return;
+      if (blockForHelcimReview()) return;
       setActualCash(centsToFixed2(totalCents));
       setStep("report");
     })();
@@ -334,6 +369,7 @@ export default function CloseRegisterModal({
       return;
     }
     if (await blockForOfflineQueue()) return;
+    if (blockForHelcimReview()) return;
     setLoading(true);
     const countEditNote = countEditReason.trim()
       ? `Count edit note: ${countEditReason.trim()}`
@@ -434,6 +470,31 @@ export default function CloseRegisterModal({
             : null}
           {" "}Resolve checkout recovery before closing the shared drawer so the Z report includes every completed sale.
         </p>
+      </div>
+    );
+  };
+
+  const renderHelcimReviewBlocker = () => {
+    if (!helcimReviewMessage) return null;
+    return (
+      <div className="ui-panel ui-tint-danger p-4 text-xs text-app-text-muted">
+        <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
+          Card payment review required
+        </p>
+        <p className="mt-1 leading-relaxed">{helcimReviewMessage}</p>
+        <div className="mt-3 space-y-1.5">
+          {unresolvedHelcimAttempts.slice(0, 4).map((attempt) => (
+            <p key={attempt.id} className="rounded-xl border border-app-border bg-app-surface/70 px-3 py-2 font-semibold text-app-text">
+              Register #{attempt.register_lane} · ${centsToFixed2(Math.abs(attempt.amount_cents))} · {
+                attempt.review_reason === "approved_not_recorded"
+                  ? "Approved, not recorded"
+                  : attempt.review_reason === "waiting_on_terminal"
+                    ? "Waiting on terminal"
+                    : "Outcome unresolved"
+              }
+            </p>
+          ))}
+        </div>
       </div>
     );
   };
@@ -566,6 +627,7 @@ export default function CloseRegisterModal({
             ) : null}
             {renderWorkflowSummary("count")}
             {renderOfflineQueueBlocker()}
+            {renderHelcimReviewBlocker()}
             <p className="text-xs text-app-text-muted">
               Blind count: use the denomination helper (recommended) or enter a total. System expected cash is hidden until next step.
             </p>
@@ -739,6 +801,7 @@ export default function CloseRegisterModal({
         <div className="ui-modal-body flex-1 overflow-y-auto space-y-6">
           {renderWorkflowSummary("report")}
           {renderOfflineQueueBlocker()}
+          {renderHelcimReviewBlocker()}
           {(recon.tenders_by_lane?.length ?? 0) > 1 ? (
             <div className="ui-panel ui-tint-accent p-4 text-xs text-app-text-muted">
               <p className="font-black uppercase tracking-widest text-[10px] text-app-text mb-1">

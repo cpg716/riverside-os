@@ -465,13 +465,6 @@ async fn post_helcim_webhook(
     let verification = match verify_helcim_webhook(&headers, body.as_ref(), Utc::now()) {
         Ok(verification) => verification,
         Err(status) => {
-            if status == StatusCode::INTERNAL_SERVER_ERROR && !helcim_webhook_secret_configured() {
-                tracing::warn!(
-                    target = "helcim_webhook",
-                    "webhook received before HELCIM_WEBHOOK_SECRET was configured; acknowledging setup probe without processing"
-                );
-                return StatusCode::OK.into_response();
-            }
             tracing::warn!(target = "helcim_webhook", status = ?status, "verification failed");
             return status.into_response();
         }
@@ -1066,6 +1059,24 @@ mod tests {
         assert!(helcim_webhook_secret_configured());
 
         std::env::remove_var("HELCIM_WEBHOOK_SECRET");
+    }
+
+    #[test]
+    fn helcim_missing_secret_is_not_successfully_acknowledged() {
+        std::env::remove_var("HELCIM_WEBHOOK_SECRET");
+        let body = br#"{"type":"cardTransaction","id":"123"}"#;
+        let mut headers = HeaderMap::new();
+        headers.insert("webhook-id", HeaderValue::from_static("evt-missing-secret"));
+        headers.insert(
+            "webhook-timestamp",
+            HeaderValue::from_str(&Utc::now().timestamp().to_string()).unwrap(),
+        );
+        headers.insert("webhook-signature", HeaderValue::from_static("v1,unused"));
+
+        let err = verify_helcim_webhook(&headers, body, Utc::now()).unwrap_err();
+
+        assert_eq!(err, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!err.is_success());
     }
 
     #[test]

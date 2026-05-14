@@ -135,14 +135,14 @@ function isStaleHelcimSessionError(message: string): boolean {
 }
 
 const HELCIM_UNVERIFIED_OUTCOME_MESSAGE =
-  "ROS could not confirm the terminal outcome. Check Payments Health > Helcim Terminal Review before retrying.";
+  "Card outcome is unresolved. Do not start another card attempt until Payments Health or support confirms the outcome.";
 
 function helcimAttemptStatusLabel(status: HelcimAttempt["status"]): string {
-  if (status === "pending") return "Waiting for Approval";
-  if (status === "approved" || status === "captured") return "Provider Approved";
+  if (status === "pending") return "Waiting on Terminal";
+  if (status === "approved" || status === "captured") return "Card Approved";
   if (status === "failed") return "Declined";
   if (status === "canceled") return "Canceled";
-  return "Expired / Outcome Unverified";
+  return "Outcome Unresolved";
 }
 
 function helcimAttemptTerminalName(attempt: HelcimAttempt): string {
@@ -164,12 +164,12 @@ function helcimAttemptAgeLabel(attempt: HelcimAttempt): string {
 }
 
 function helcimAttemptSafeNextAction(attempt: HelcimAttempt): string {
-  if (attempt.status === "pending") return "Wait for the terminal, then tap Check.";
+  if (attempt.status === "pending") return "Wait for the terminal, then check the status.";
   if (attempt.status === "approved" || attempt.status === "captured") {
-    return "Provider approved. Finish checkout to record this payment in ROS.";
+    return "Card approved. Finish checkout so ROS records the payment.";
   }
-  if (attempt.status === "failed") return "Declined by provider. Retry is safe if the customer wants to try again.";
-  if (attempt.status === "canceled") return "Canceled on terminal. Retry is safe if the customer still wants to pay by card.";
+  if (attempt.status === "failed") return "Card was declined. Start a new attempt only if the customer wants to try again.";
+  if (attempt.status === "canceled") return "Canceled on terminal. Start a new attempt only if the customer still wants to pay by card.";
   return HELCIM_UNVERIFIED_OUTCOME_MESSAGE;
 }
 
@@ -179,12 +179,12 @@ function helcimAttemptDetail(attempt: HelcimAttempt): string {
   }
 
   if (attempt.status === "approved" || attempt.status === "captured") {
-    return "Provider approved. Finish checkout to record this payment in ROS.";
+    return "Card approved by processor. Finish checkout so ROS records the payment.";
   }
 
   if (attempt.status === "expired") return HELCIM_UNVERIFIED_OUTCOME_MESSAGE;
 
-  return attempt.safe_message ?? attempt.error_message ?? "Helcim did not approve the payment.";
+  return attempt.error_message ?? "Card attempt was not approved.";
 }
 
 function normalizeRegisterLane(value: number | null | undefined): number | null {
@@ -961,7 +961,7 @@ export default function NexoCheckoutDrawer({
           const body = (await res.json().catch(() => ({}))) as {
             error?: string;
           };
-          throw new Error(body.error ?? "Could not check Helcim payment.");
+          throw new Error(body.error ?? "Could not check card status.");
         }
         const attempt = (await res.json()) as HelcimAttempt;
         setHelcimAttempt(attempt);
@@ -972,15 +972,15 @@ export default function NexoCheckoutDrawer({
             pendingHelcimTenderRef.current.method,
             pendingHelcimTenderRef.current.label,
           );
-          toast("Provider approved. Finish checkout to record this payment in ROS.", "success");
+          toast("Card approved. Finish checkout so ROS records the payment.", "success");
         } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
           pendingHelcimCentsRef.current = 0;
           pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
-          toast(attempt.status === "expired" ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE : attempt.error_message ?? "Helcim payment did not complete.", "error");
+          toast(attempt.status === "expired" ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE : attempt.error_message ?? "Card attempt was not approved.", "error");
         }
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "Could not check Helcim payment.";
+          error instanceof Error ? error.message : "Could not check card status.";
         if (isStaleHelcimSessionError(message)) {
           setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
           if (!options.quietStaleSession) {
@@ -1044,11 +1044,11 @@ export default function NexoCheckoutDrawer({
             pendingHelcimTenderRef.current.method,
             pendingHelcimTenderRef.current.label,
           );
-          toast("Provider approved. Finish checkout to record this payment in ROS.", "success");
+          toast("Card approved. Finish checkout so ROS records the payment.", "success");
         } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
           pendingHelcimCentsRef.current = 0;
           pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
-          toast(attempt.status === "expired" ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE : attempt.error_message ?? "Simulated Helcim payment did not complete.", "info");
+          toast(attempt.status === "expired" ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE : attempt.error_message ?? "Card attempt was not approved.", "info");
         }
       } catch (error) {
         toast(
@@ -1163,7 +1163,7 @@ export default function NexoCheckoutDrawer({
         if (body.status === "approved" || body.status === "captured") {
           pendingHelcimCentsRef.current = amtCents;
           addApprovedHelcimAttempt(body, "card_saved", "HELCIM VAULT");
-          toast("Provider approved. Finish checkout to record this payment in ROS.", "success");
+          toast("Card approved. Finish checkout so ROS records the payment.", "success");
         } else {
           toast(body.error_message ?? "Helcim saved card was not approved.", "error");
         }
@@ -1252,7 +1252,7 @@ export default function NexoCheckoutDrawer({
         return;
       }
       if (helcimAttempt?.status === "pending") {
-        toast("A Helcim payment is already pending on the terminal.", "error");
+        toast("A card outcome is still waiting on the terminal.", "error");
         return;
       }
       if (helcimAttemptOutcomeUnverified) {
@@ -1320,7 +1320,7 @@ export default function NexoCheckoutDrawer({
           setHelcimAttempt(attempt);
           setHelcimUnverifiedNotice(null);
           setKeypad("");
-          toast("Sent refund to Helcim terminal. Waiting for approval.", "info");
+          toast("Refund sent to terminal. Waiting for the card outcome.", "info");
         } catch (error) {
           pendingHelcimCentsRef.current = 0;
           pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
@@ -1366,8 +1366,8 @@ export default function NexoCheckoutDrawer({
         setKeypad("");
         toast(
           tenderMethod === "card_manual"
-            ? "Sent to Helcim terminal. Key the card on the terminal and wait for approval."
-            : "Sent to Helcim terminal. Waiting for approval.",
+            ? "Sent to terminal. Key the card on the terminal and wait for the card outcome."
+            : "Sent to terminal. Waiting for the card outcome.",
           "info",
         );
       } catch (error) {
@@ -1560,14 +1560,14 @@ export default function NexoCheckoutDrawer({
       return {
         title: "Could not refresh payment terminal status",
         detail: providerSettingsError,
-        action: "Safe to retry the health check. Use a non-card tender only if store policy allows degraded checkout.",
+        action: "Try the status check again. Use a non-card tender only if store policy allows degraded checkout.",
         escalation: "Requires manager review if card payments remain unavailable.",
         tone: "danger",
       };
     }
     if (helcimUnverifiedNotice || helcimAttempt?.status === "expired") {
       return {
-        title: "Payment outcome needs review",
+        title: "Card outcome needs review",
         detail: helcimUnverifiedNotice ?? HELCIM_UNVERIFIED_OUTCOME_MESSAGE,
         action: "Do not retry the card until terminal status is checked or support confirms the outcome.",
         escalation: "Requires Payments Health review before another card attempt.",
@@ -1578,8 +1578,8 @@ export default function NexoCheckoutDrawer({
       return {
         title: "Waiting on payment terminal",
         detail: helcimAttemptDetail(helcimAttempt),
-        action: "Do not start another card attempt. Customer should finish or cancel on the terminal, then tap Check.",
-        escalation: "Safe retry only after Helcim reports approved, declined, or canceled.",
+        action: "Do not start another card attempt. Customer should finish or cancel on the terminal, then check the status.",
+        escalation: "Start another card attempt only after the card outcome is approved, declined, or canceled.",
         tone: "warning",
       };
     }
@@ -1590,8 +1590,8 @@ export default function NexoCheckoutDrawer({
         action: helcimAttemptSafeNextAction(helcimAttempt),
         escalation:
           helcimAttempt.status === "failed"
-            ? "Safe to retry card if the customer approves another attempt."
-            : "Safe to retry only after the customer confirms the terminal was canceled.",
+            ? "Start another card attempt only if the customer approves another attempt."
+            : "Start another card attempt only after the customer confirms the terminal was canceled.",
         tone: "warning",
       };
     }
@@ -1608,7 +1608,7 @@ export default function NexoCheckoutDrawer({
       return {
         title: "Selected terminal is in use",
         detail: `Terminal is currently tied to Register #${selectedTerminalInUseBy}.`,
-        action: "Choose an available terminal or continue with a safe non-card tender.",
+        action: "Choose an available terminal or use an approved non-card tender.",
         escalation: "Do not force-release another register's terminal under line pressure.",
         tone: "warning",
       };
@@ -1684,7 +1684,7 @@ export default function NexoCheckoutDrawer({
                   onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
                   className="min-h-9 rounded-lg border border-app-border bg-app-bg px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted disabled:opacity-50"
                 >
-                  {helcimAttemptLoading ? "Checking" : "Check"}
+                  {helcimAttemptLoading ? "Checking" : "Check Status"}
                 </button>
                 <button
                   type="button"
@@ -1831,7 +1831,7 @@ export default function NexoCheckoutDrawer({
       isOpen={isOpen}
       onClose={onClose}
       title="Checkout"
-      subtitle="Collect Payment & Complete Sale"
+      subtitle="Collect Payment & Record Sale"
       panelMaxClassName="max-w-5xl"
       noPadding
       contentContained
@@ -1846,7 +1846,7 @@ export default function NexoCheckoutDrawer({
                   </span>
                   {canFinalize ? (
                     <span className="mt-1 text-[10px] font-black uppercase tracking-widest text-emerald-600">
-                      Ready to complete
+                      Ready to record
                     </span>
                   ) : null}
                   {tab === "cash" && cashRounding.adjustment !== 0 && (
@@ -1944,7 +1944,7 @@ export default function NexoCheckoutDrawer({
                   ) : (
                     <>
                       <CheckCircle2 className="h-5 w-5" />
-                      <span className="whitespace-nowrap">Complete Sale</span>
+                      <span className="whitespace-nowrap">Record Sale</span>
                     </>
                   )}
                 </button>
@@ -1958,7 +1958,7 @@ export default function NexoCheckoutDrawer({
         {busy && (
           <div className="absolute inset-0 z-50 bg-white/60 dark:bg-black/60 backdrop-blur-md flex flex-col items-center justify-center">
              <div className="h-20 w-20 rounded-full border-4 border-app-accent border-t-transparent animate-spin mb-6" />
-             <p className="text-xl font-black uppercase italic tracking-wider text-app-text">Completing Sale...</p>
+             <p className="text-xl font-black uppercase italic tracking-wider text-app-text">Recording Sale...</p>
           </div>
         )}
 
@@ -1969,7 +1969,7 @@ export default function NexoCheckoutDrawer({
                 <AlertTriangle size={20} className="mt-0.5 shrink-0" />
                 <div className="min-w-0">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em]">
-                    Payment recovery visible
+                    Card outcome review
                   </p>
                   <h3 className="mt-1 text-sm font-black uppercase tracking-wide">
                     {terminalRecoveryState.title}
@@ -1978,10 +1978,10 @@ export default function NexoCheckoutDrawer({
                     {terminalRecoveryState.detail}
                   </p>
                   <p className="mt-1 text-xs font-black opacity-90">
-                    Next safe action: {terminalRecoveryState.action}
+                    Next action: {terminalRecoveryState.action}
                   </p>
                   <p className="mt-1 text-xs font-black opacity-90">
-                    Escalation: {terminalRecoveryState.escalation}
+                    Review: {terminalRecoveryState.escalation}
                   </p>
                 </div>
               </div>
@@ -1998,18 +1998,8 @@ export default function NexoCheckoutDrawer({
                   disabled={helcimAttemptLoading}
                   className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
                 >
-                  {helcimAttemptLoading ? "Checking" : "Check Terminal"}
+                  {helcimAttemptLoading ? "Checking" : activeTerminalAttemptIdForRefresh ? "Check Status" : "Review Terminal"}
                 </button>
-                {activeTerminalAttemptIdForRefresh ? (
-                  <button
-                    type="button"
-                    onClick={() => void refreshHelcimAttempt(activeTerminalAttemptIdForRefresh)}
-                    disabled={helcimAttemptLoading}
-                    className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
-                  >
-                    Retry Status
-                  </button>
-                ) : null}
                 {helcimAttempt?.status === "pending" ? (
                   <button
                     type="button"
@@ -2026,7 +2016,7 @@ export default function NexoCheckoutDrawer({
                   disabled={helcimAttemptLoading}
                   className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text"
                 >
-                  Continue Safely
+                  Mark Unresolved
                 </button>
               </div>
             </div>
@@ -2677,10 +2667,10 @@ export default function NexoCheckoutDrawer({
                    {!helcimAttempt && helcimUnverifiedNotice && (
                      <div className="rounded-xl border border-rose-400/25 bg-rose-400/10 p-3">
                        <p className="text-[9px] font-black uppercase tracking-[0.18em] text-zinc-500">
-                         Terminal Transaction
+                         Terminal Outcome
                        </p>
                        <p className="mt-1 text-xs font-black uppercase tracking-wide text-white">
-                         Outcome Unverified
+                         Outcome Unresolved
                        </p>
                        <p className="mt-1 text-[11px] font-semibold leading-snug text-zinc-300">
                          {helcimUnverifiedNotice}
@@ -2713,7 +2703,7 @@ export default function NexoCheckoutDrawer({
                            />
                            <div className="min-w-0">
                              <p className="text-[9px] font-black uppercase tracking-[0.18em] text-zinc-500">
-                               Terminal Transaction
+                               Terminal Outcome
                              </p>
                              <p className="mt-1 truncate text-xs font-black uppercase tracking-wide text-white">
                                {helcimAttemptStatusLabel(helcimAttempt.status)}
@@ -2742,7 +2732,7 @@ export default function NexoCheckoutDrawer({
                                onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
                                className="min-h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:bg-white/10 disabled:opacity-50"
                              >
-                               {helcimAttemptLoading ? "Checking" : "Check"}
+                               {helcimAttemptLoading ? "Checking" : "Check Status"}
                              </button>
                              <button
                                type="button"

@@ -125,7 +125,8 @@ Webhook intake:
 ## Webhook behavior
 
 - Inbound Helcim webhooks require signature verification and timestamp freshness before processing.
-- Local terminal readiness does not require a public webhook URL. `HELCIM_WEBHOOK_SECRET` is optional and only needed when Helcim can reach a public ROS webhook endpoint. Local POS terminals rely on provider polling/status checks when webhooks are not configured.
+- Local terminal readiness does not require a public webhook URL. `HELCIM_WEBHOOK_SECRET` is optional only when Helcim cannot reach this ROS server. If a public webhook endpoint is configured, the signing secret is required and unsigned deliveries fail closed.
+- Local POS terminals can check the status of a known terminal attempt when webhook delivery is not available. That status check is a recovery aid, not a general replay system, settlement check, or proof that ROS recorded the payment.
 - Accepted events are stored in `helcim_event_log` before mutation.
 - Stored payloads are redacted for card-sensitive fields.
 - Duplicate events do not re-enter processing once already processed or ignored.
@@ -148,9 +149,12 @@ Do not use `localhost`, `127.0.0.1`, a register workstation URL, or any non-HTTP
 Operational wording matters:
 
 - **Webhook received by ROS** means a signed Helcim delivery reached this server and was stored for review.
-- **Provider event attached to ROS checkout** means ROS matched that stored provider event to one safe pending terminal attempt.
+- **Card approved by processor** means Helcim reported approval. It does not mean ROS has written the sale payment yet.
+- **Payment recorded in ROS** means checkout finalization wrote the ROS payment rows used by register close, reporting, and accounting.
+- **Provider event attached to ROS checkout** means ROS matched that stored provider event to one pending terminal attempt.
 - Webhook delivery does not by itself create ROS payment ledger rows, close a checkout, or prove that ROS recorded a payment.
-- Unmatched approved provider events must remain labeled **Provider event not attached to ROS checkout** until staff review.
+- Unmatched approved provider events must remain labeled as unresolved card outcomes until staff review.
+- Staff UI should avoid telling staff to retry or continue safely while a card outcome is still pending, approved-but-not-recorded, or unresolved.
 
 If the signing secret is missing or wrong, ROS fails closed before storing the event. Those rejected deliveries may require server-log review because unsigned or bad-signature payloads are not trusted enough to enter `helcim_event_log`.
 

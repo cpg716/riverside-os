@@ -109,6 +109,15 @@ type CheckoutResponse = {
   transaction_id: string;
 };
 
+type HelcimAttemptResponse = {
+  id: string;
+  status: string;
+  amount_cents: number;
+  provider_payment_id?: string | null;
+  provider_transaction_id?: string | null;
+  selected_terminal_key?: string | null;
+};
+
 type TransactionDetailResponse = {
   total_price: string;
 };
@@ -247,6 +256,139 @@ async function closeRegisterGroup(
     failOnStatusCode: false,
   });
   expect(res.status()).toBe(200);
+}
+
+async function expectCloseBlockedForHelcimReview(
+  request: Parameters<typeof test>[0]["request"],
+  sessionId: string,
+  sessionToken: string,
+): Promise<void> {
+  const recon = await fetchReconciliation(request, sessionId, sessionToken);
+  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
+    },
+    data: {
+      actual_cash: recon.expected_cash,
+      closing_notes: null,
+      closing_comments: null,
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(400);
+  expect(bodyText).toMatch(/Helcim payment review required before Z-close/i);
+}
+
+async function startHelcimPurchaseOrSkip(
+  request: Parameters<typeof test>[0]["request"],
+  sessionId: string,
+  sessionToken: string,
+  amountCents: number,
+): Promise<HelcimAttemptResponse> {
+  const res = await request.post(`${apiBase()}/api/payments/providers/helcim/purchase`, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
+    },
+    data: {
+      amount_cents: amountCents,
+      currency: "usd",
+      selected_terminal_key: "terminal_1",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  if (res.status() !== 200) {
+    test.skip(true, `Helcim simulator is not available for this environment: ${bodyText.slice(0, 300)}`);
+  }
+  const attempt = JSON.parse(bodyText) as HelcimAttemptResponse;
+  expect(attempt.id).toBeTruthy();
+  expect(attempt.status).toBe("pending");
+  return attempt;
+}
+
+async function simulateHelcimAttempt(
+  request: Parameters<typeof test>[0]["request"],
+  sessionId: string,
+  sessionToken: string,
+  attemptId: string,
+  outcome: "approve" | "decline" | "cancel",
+): Promise<HelcimAttemptResponse> {
+  const res = await request.post(
+    `${apiBase()}/api/payments/providers/helcim/attempts/${attemptId}/simulate`,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      data: { outcome },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as HelcimAttemptResponse;
+}
+
+async function checkoutWithApprovedHelcimAttempt(
+  request: Parameters<typeof test>[0]["request"],
+  sessionId: string,
+  sessionToken: string,
+  operatorStaffId: string,
+  product: { productId: string; variantId: string },
+  attempt: HelcimAttemptResponse,
+): Promise<void> {
+  const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
+    },
+    data: {
+      session_id: sessionId,
+      operator_staff_id: operatorStaffId,
+      primary_salesperson_id: operatorStaffId,
+      customer_id: null,
+      payment_method: "card_terminal",
+      total_price: "108.75",
+      amount_paid: "108.75",
+      payment_splits: [
+        {
+          payment_method: "card_terminal",
+          amount: "108.75",
+          metadata: {
+            payment_provider: "helcim",
+            payment_provider_attempt_id: attempt.id,
+            provider_status: attempt.status,
+            provider_payment_id: attempt.provider_payment_id,
+            provider_transaction_id: attempt.provider_transaction_id,
+            selected_terminal_key: attempt.selected_terminal_key,
+          },
+        },
+      ],
+      items: [
+        {
+          product_id: product.productId,
+          variant_id: product.variantId,
+          fulfillment: "takeaway",
+          quantity: 1,
+          unit_price: "100.00",
+          unit_cost: "40.00",
+          state_tax: "4.00",
+          local_tax: "4.75",
+          salesperson_id: operatorStaffId,
+        },
+      ],
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
 async function closeAnyExistingOpenGroup(
@@ -406,6 +548,73 @@ test.describe("Register close / reconciliation", () => {
       },
     );
     expect(withNotes.status()).toBe(200);
+  });
+
+  test("pending Helcim terminal attempt blocks Z-close", async ({ request }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const opened = await openFreshPrimarySession(request);
+    const attempt = await startHelcimPurchaseOrSkip(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      10875,
+    );
+
+    await expectCloseBlockedForHelcimReview(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+
+    await simulateHelcimAttempt(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      attempt.id,
+      "cancel",
+    );
+    await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
+  });
+
+  test("approved Helcim attempt without ROS payment blocks Z-close", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const operatorStaffId = await verifyAdminStaffId(request);
+    const opened = await openFreshPrimarySession(request);
+    const product = await createDeterministicProduct(request, operatorStaffId);
+    const pendingAttempt = await startHelcimPurchaseOrSkip(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      10875,
+    );
+    const approvedAttempt = await simulateHelcimAttempt(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      pendingAttempt.id,
+      "approve",
+    );
+    expect(approvedAttempt.status).toBe("approved");
+
+    await expectCloseBlockedForHelcimReview(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+
+    await checkoutWithApprovedHelcimAttempt(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      operatorStaffId,
+      product,
+      approvedAttempt,
+    );
+    await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
   });
 
   test("historical Z session list stays unified to Register #1 for a till-close group", async ({
