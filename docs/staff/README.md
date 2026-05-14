@@ -73,6 +73,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Bug reports — **admin triage** | [bug-reports-admin-manual.md](bug-reports-admin-manual.md) |
 | POS Dashboard | [pos-dashboard.md](pos-dashboard.md) |
 | POS Register (cart) | [pos-register-cart.md](pos-register-cart.md) |
+| POS Register wedding checklist reference | [../POS_WEDDING_REGISTER_WORKFLOW.md](../POS_WEDDING_REGISTER_WORKFLOW.md) |
 | POS RMS Charge quick guide | [pos-rms-charge.md](pos-rms-charge.md) |
 | POS Tasks | [pos-tasks.md](pos-tasks.md) |
 | POS Weddings | [pos-weddings.md](pos-weddings.md) |

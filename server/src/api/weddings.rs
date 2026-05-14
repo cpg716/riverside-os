@@ -40,6 +40,8 @@ use crate::logic::wedding_queries::{
 use crate::logic::weddings as wedding_logic;
 use crate::middleware;
 use crate::models::DbOrderItemLifecycleStatus;
+use crate::services::inventory::resolve_variant_by_id;
+use crate::services::ResolvedSkuItem;
 
 pub(crate) async fn rosie_wedding_actions(
     state: &AppState,
@@ -93,6 +95,72 @@ pub use crate::logic::wedding_api_types::{
     WeddingMemberApi, WeddingMemberFinancialRow, WeddingNonInventoryItem,
     WeddingPartyFinancialContext, WeddingPartyRow, WeddingPartyWithMembers,
 };
+
+#[derive(Debug, Serialize)]
+pub struct CustomerWeddingPurchaseContext {
+    pub memberships: Vec<CustomerWeddingPurchaseMembership>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CustomerWeddingPurchaseMembership {
+    pub wedding_member_id: Uuid,
+    pub wedding_party_id: Uuid,
+    pub transaction_id: Option<Uuid>,
+    pub party_name: String,
+    pub event_date: chrono::NaiveDate,
+    pub role: String,
+    pub status: String,
+    pub active: bool,
+    pub measured: bool,
+    pub suit_ordered: bool,
+    pub customer_id: Uuid,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub customer_email: Option<String>,
+    pub customer_phone: Option<String>,
+    pub is_free_suit_promo: bool,
+    pub purchase_items: Vec<CustomerWeddingPurchaseItem>,
+    pub checklist_items: Vec<CustomerWeddingChecklistItem>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CustomerWeddingPurchaseItem {
+    #[serde(flatten)]
+    pub item: ResolvedSkuItem,
+    pub source: String,
+    pub already_tracked: bool,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct CustomerWeddingChecklistItem {
+    pub id: Uuid,
+    pub description: String,
+    pub quantity: i32,
+    pub status: String,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct CustomerWeddingPurchaseRow {
+    wedding_member_id: Uuid,
+    wedding_party_id: Uuid,
+    transaction_id: Option<Uuid>,
+    party_name: String,
+    event_date: chrono::NaiveDate,
+    role: String,
+    status: String,
+    active: bool,
+    measured: bool,
+    suit_ordered: bool,
+    customer_id: Uuid,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    customer_email: Option<String>,
+    customer_phone: Option<String>,
+    is_free_suit_promo: bool,
+    suit_variant_id: Option<Uuid>,
+    suit_source: Option<String>,
+}
 
 #[derive(Debug, Error)]
 pub enum WeddingError {
@@ -645,6 +713,10 @@ pub fn router() -> Router<AppState> {
                 .patch(update_appointment)
                 .delete(delete_appointment),
         )
+        .route(
+            "/customers/{customer_id}/purchase-context",
+            get(get_customer_purchase_context),
+        )
         .route("/parties", get(list_parties).post(create_party))
         .route("/parties/{party_id}/ledger", get(get_ledger))
         .route(
@@ -673,6 +745,141 @@ pub fn router() -> Router<AppState> {
                 .patch(update_member)
                 .delete(delete_member_handler),
         )
+}
+
+async fn get_customer_purchase_context(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<CustomerWeddingPurchaseContext>, WeddingError> {
+    middleware::require_staff_perm_or_pos_session(&state, &headers, WEDDINGS_VIEW)
+        .await
+        .map(|_| ())
+        .map_err(map_wed_perm)?;
+
+    let rows = sqlx::query_as::<_, CustomerWeddingPurchaseRow>(
+        r#"
+        SELECT
+            wm.id AS wedding_member_id,
+            wp.id AS wedding_party_id,
+            wm.transaction_id,
+            COALESCE(
+                NULLIF(TRIM(wp.party_name), ''),
+                NULLIF(TRIM(CONCAT_WS(' / ', NULLIF(wp.groom_name, ''), NULLIF(wp.bride_name, ''))), ''),
+                'Wedding party'
+            ) AS party_name,
+            wp.event_date,
+            wm.role,
+            wm.status,
+            (wp.event_date >= CURRENT_DATE) AS active,
+            COALESCE(wm.measured, FALSE) AS measured,
+            COALESCE(wm.suit_ordered, FALSE) AS suit_ordered,
+            wm.customer_id,
+            c.first_name,
+            c.last_name,
+            c.email AS customer_email,
+            c.phone AS customer_phone,
+            COALESCE(wm.is_free_suit_promo, FALSE) AS is_free_suit_promo,
+            COALESCE(wm.suit_variant_id, wp.suit_variant_id) AS suit_variant_id,
+            CASE
+                WHEN wm.suit_variant_id IS NOT NULL THEN 'member_suit'
+                WHEN wp.suit_variant_id IS NOT NULL THEN 'party_suit'
+                ELSE NULL
+            END AS suit_source
+        FROM wedding_members wm
+        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+        JOIN customers c ON c.id = wm.customer_id
+        WHERE wm.customer_id = $1
+          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+          AND (
+              wp.event_date >= CURRENT_DATE - INTERVAL '90 days'
+              OR LOWER(COALESCE(wm.status, '')) NOT IN ('picked_up', 'complete', 'completed', 'cancelled', 'canceled')
+          )
+        ORDER BY wp.event_date ASC, wp.created_at DESC
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut memberships = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut purchase_items = Vec::new();
+        if let Some(variant_id) = row.suit_variant_id {
+            match resolve_variant_by_id(&state.db, variant_id, state.global_employee_markup).await {
+                Ok(item) => {
+                    let already_tracked: bool = sqlx::query_scalar(
+                        r#"
+                        SELECT EXISTS(
+                            SELECT 1
+                            FROM transactions t
+                            JOIN transaction_lines tl ON tl.transaction_id = t.id
+                            WHERE t.wedding_member_id = $1
+                              AND tl.variant_id = $2
+                        )
+                        "#,
+                    )
+                    .bind(row.wedding_member_id)
+                    .bind(variant_id)
+                    .fetch_one(&state.db)
+                    .await?;
+                    purchase_items.push(CustomerWeddingPurchaseItem {
+                        item,
+                        source: row
+                            .suit_source
+                            .clone()
+                            .unwrap_or_else(|| "wedding_item".to_string()),
+                        already_tracked,
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        %variant_id,
+                        wedding_member_id = %row.wedding_member_id,
+                        "wedding purchase context skipped unresolved suit variant"
+                    );
+                }
+            }
+        }
+        let checklist_items = sqlx::query_as::<_, CustomerWeddingChecklistItem>(
+            r#"
+            SELECT id, description, quantity, status, notes
+            FROM wedding_non_inventory_items
+            WHERE wedding_party_id = $1
+              AND (wedding_member_id IS NULL OR wedding_member_id = $2)
+              AND LOWER(COALESCE(status, '')) NOT IN ('done', 'complete', 'completed', 'cancelled', 'canceled')
+            ORDER BY created_at ASC, id ASC
+            "#,
+        )
+        .bind(row.wedding_party_id)
+        .bind(row.wedding_member_id)
+        .fetch_all(&state.db)
+        .await?;
+
+        memberships.push(CustomerWeddingPurchaseMembership {
+            wedding_member_id: row.wedding_member_id,
+            wedding_party_id: row.wedding_party_id,
+            transaction_id: row.transaction_id,
+            party_name: row.party_name,
+            event_date: row.event_date,
+            role: row.role,
+            status: row.status,
+            active: row.active,
+            measured: row.measured,
+            suit_ordered: row.suit_ordered,
+            customer_id: row.customer_id,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            customer_email: row.customer_email,
+            customer_phone: row.customer_phone,
+            is_free_suit_promo: row.is_free_suit_promo,
+            purchase_items,
+            checklist_items,
+        });
+    }
+
+    Ok(Json(CustomerWeddingPurchaseContext { memberships }))
 }
 
 async fn list_parties(

@@ -16,6 +16,20 @@ POS **Weddings** keeps **party lookup**, **balances**, and **next steps** beside
 
 ## Common tasks
 
+### Help a wedding member at the Register
+
+1. POS → **Register**.
+2. Attach the customer profile.
+3. If they belong to a current wedding, the customer strip shows the party and the cart rail shows **Wedding Checklist**.
+4. Confirm the party name and event date.
+5. Add each needed linked item:
+   - **Take now** for in-store items the customer will leave with.
+   - **Order** for exact items that need vendor ordering or later fulfillment.
+   - **Measure** when measurements or the exact size/variation are not final.
+6. Complete checkout normally.
+
+If an item is shown as a checklist-only note, it is not linked to a sellable ROS product yet. Open the full party before charging for it.
+
 ### Open the correct party
 
 1. POS → **Weddings**.
@@ -43,6 +57,7 @@ Wedding orders also appear in the shared **Orders** views.
 - Deposits, group pay, and pickup follow-up should stay tied to the linked wedding member record.
 - A fully paid wedding order is not automatically ready for pickup. Staff still need to confirm measurements, receiving, and member readiness before handing anything over.
 - In POS order review, treat a wedding-linked order as a member follow-up step, not a generic open order.
+- Register uses the same Wedding Manager source. If a member still needs measurements, use **Measure** so the line stays **Needs measurements** until the exact variation is selected.
 
 ## Helping a coworker
 
@@ -71,4 +86,4 @@ Wedding orders also appear in the shared **Orders** views.
 - [weddings-back-office.md](weddings-back-office.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-05-14

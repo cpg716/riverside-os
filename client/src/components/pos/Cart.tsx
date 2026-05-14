@@ -51,6 +51,7 @@ import WeddingLookupDrawer, { type WeddingMember } from "./WeddingLookupDrawer";
 import PosShippingModal, {
   type PosShippingSelection,
 } from "./PosShippingModal";
+import type { WeddingMembership } from "./customerProfileTypes";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import { newCartRowId, scanPayloadToResolvedItem } from "../../lib/posUtils";
 import { customOrderItemTypeForSku } from "../../lib/customOrders";
@@ -137,6 +138,46 @@ interface HandoffOrderDetail {
   }>;
 }
 
+interface WeddingPurchaseItem extends ResolvedSkuItem {
+  available_stock?: number;
+  reserved_stock?: number;
+  source: string;
+  already_tracked: boolean;
+}
+
+interface WeddingChecklistItem {
+  id: string;
+  description: string;
+  quantity: number;
+  status: string;
+  notes?: string | null;
+}
+
+interface WeddingPurchaseMembership {
+  wedding_member_id: string;
+  wedding_party_id: string;
+  transaction_id?: string | null;
+  party_name: string;
+  event_date: string;
+  role: string;
+  status: string;
+  active: boolean;
+  measured: boolean;
+  suit_ordered: boolean;
+  customer_id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  is_free_suit_promo: boolean;
+  purchase_items: WeddingPurchaseItem[];
+  checklist_items: WeddingChecklistItem[];
+}
+
+interface WeddingPurchaseContext {
+  memberships: WeddingPurchaseMembership[];
+}
+
 interface CartProps {
   sessionId: string;
   registerLane?: number | null;
@@ -221,6 +262,8 @@ export default function Cart({
   const [activeWeddingMember, setActiveWeddingMember] = useState<WeddingMember | null>(null);
   const [activeWeddingPartyName, setActiveWeddingPartyName] = useState<string | null>(null);
   const [disbursementMembers, setDisbursementMembers] = useState<WeddingMember[]>([]);
+  const [weddingPurchaseContext, setWeddingPurchaseContext] = useState<WeddingPurchaseContext | null>(null);
+  const [weddingPurchaseLoading, setWeddingPurchaseLoading] = useState(false);
 
   const [roleMaxDiscountPct, setRoleMaxDiscountPct] = useState(30);
   const [salePinCredential, setSalePinCredential] = useState("");
@@ -336,6 +379,11 @@ export default function Cart({
     apiAuth,
 	  });
 
+  const isRmsPaymentCart = useMemo(
+    () => lines.some((l) => rmsPaymentMeta && l.sku === rmsPaymentMeta.sku),
+    [lines, rmsPaymentMeta],
+  );
+
 	  const clearCartAndAlterations = useCallback(() => {
     clearCart();
     setPendingAlterationIntakes([]);
@@ -356,6 +404,132 @@ export default function Cart({
       return next.length === prev.length ? prev : next;
     });
   }, [selectedCustomer?.id]);
+
+  useEffect(() => {
+    const customerId = selectedCustomer?.id;
+    if (!customerId) {
+      setWeddingPurchaseContext(null);
+      setWeddingPurchaseLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setWeddingPurchaseLoading(true);
+    fetch(`${baseUrl}/api/weddings/customers/${customerId}/purchase-context`, {
+      headers: { ...apiAuth() },
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json()) as WeddingPurchaseContext;
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        setWeddingPurchaseContext(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setWeddingPurchaseContext(null);
+      })
+      .finally(() => {
+        if (!cancelled) setWeddingPurchaseLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth, baseUrl, selectedCustomer?.id]);
+
+  const weddingMemberships = useMemo<WeddingMembership[]>(
+    () =>
+      (weddingPurchaseContext?.memberships ?? []).map((membership) => ({
+        wedding_member_id: membership.wedding_member_id,
+        wedding_party_id: membership.wedding_party_id,
+        order_id: membership.transaction_id ?? null,
+        party_name: membership.party_name,
+        event_date: membership.event_date,
+        role: membership.role,
+        status: membership.status,
+        active: membership.active,
+      })),
+    [weddingPurchaseContext],
+  );
+
+  const activateWeddingMembership = useCallback(
+    (membership: WeddingPurchaseMembership, item?: WeddingPurchaseItem) => {
+      setActiveWeddingMember({
+        id: membership.wedding_member_id,
+        first_name: membership.first_name ?? selectedCustomer?.first_name ?? "Wedding",
+        last_name: membership.last_name ?? selectedCustomer?.last_name ?? "Member",
+        role: membership.role,
+        status: membership.status,
+        measured: membership.measured,
+        suit_ordered: membership.suit_ordered,
+        customer_id: membership.customer_id,
+        customer_email: membership.customer_email ?? undefined,
+        customer_phone: membership.customer_phone ?? undefined,
+        suit_variant_id: item?.variant_id ?? null,
+        is_free_suit_promo: membership.is_free_suit_promo,
+      });
+      setActiveWeddingPartyName(membership.party_name);
+    },
+    [selectedCustomer?.first_name, selectedCustomer?.last_name],
+  );
+
+  const addWeddingPurchaseItem = useCallback(
+    (
+      membership: WeddingPurchaseMembership,
+      item: WeddingPurchaseItem,
+      mode: "takeaway" | "order" | "needs_measurements",
+    ) => {
+      if (!checkoutOperator) {
+        toast("Sign in as cashier on the register sign-in screen before adding wedding items.", "error");
+        return;
+      }
+      if (isRmsPaymentCart) {
+        toast("Remove the RMS CHARGE PAYMENT line before adding wedding items.", "error");
+        return;
+      }
+      if (lines.some((line) => line.variant_id === item.variant_id)) {
+        toast("That wedding item is already in the cart.", "info");
+        return;
+      }
+
+      activateWeddingMembership(membership, item);
+      const isFree = Boolean(membership.is_free_suit_promo);
+      const line: CartLineItem = {
+        ...item,
+        quantity: 1,
+        fulfillment: mode === "takeaway" ? "takeaway" : "wedding_order",
+        cart_row_id: newCartRowId(),
+        order_lifecycle_status: mode === "needs_measurements" ? "needs_measurements" : undefined,
+        ...(isFree
+          ? {
+              standard_retail_price: "0.00",
+              original_unit_price: String(item.standard_retail_price),
+              price_override_reason: "Wedding Promo (Free Suit Selection)",
+            }
+          : {}),
+      };
+      setLines((prev) => [...prev, line]);
+      setSelectedLineKey(line.cart_row_id);
+      toast(
+        mode === "takeaway"
+          ? "Wedding item added for take-now sale."
+          : mode === "needs_measurements"
+            ? "Wedding item added and marked needs measurements."
+            : "Wedding item added for ordering.",
+        "success",
+      );
+    },
+    [
+      activateWeddingMembership,
+      checkoutOperator,
+      isRmsPaymentCart,
+      lines,
+      setLines,
+      setSelectedLineKey,
+      toast,
+    ],
+  );
 
   useEffect(() => {
     const intakeIds = new Set(pendingAlterationIntakes.map((intake) => intake.id));
@@ -787,7 +961,6 @@ export default function Cart({
     };
   }, [lines, disbursementMembers, orderPaymentLines, posShipping]);
 
-  const isRmsPaymentCart = useMemo(() => lines.some(l => rmsPaymentMeta && l.sku === rmsPaymentMeta.sku), [lines, rmsPaymentMeta]);
   const isGiftCardOnlyCart = useMemo(() => lines.length > 0 && lines.every(l => !!l.gift_card_load_code), [lines]);
   const hasCheckoutWork = lines.length > 0 || orderPaymentLines.length > 0;
   const hasSalespersonAttribution = useCallback(() => {
@@ -1897,12 +2070,165 @@ export default function Cart({
               setCustomerProfileHubOpen(true);
             }}
             onOpenMeasurements={() => setMeasDrawerOpen(true)}
-            weddingMemberships={[]}
+            weddingMemberships={weddingMemberships}
+            onOpenWeddingParty={onOpenWeddingParty}
             showWalkInOption
             hasParkedSales={parkedRows.length > 0}
             onOpenParkedSales={() => setParkedListOpen(true)}
           />
         </div>
+
+        {weddingPurchaseLoading ? (
+          <div className="shrink-0 border-b border-app-border/50 px-2.5 py-2">
+            <div className="rounded-2xl border border-app-info/20 bg-app-info/5 px-3 py-2 text-[11px] font-bold text-app-info">
+              Checking wedding checklist...
+            </div>
+          </div>
+        ) : weddingPurchaseContext?.memberships.length ? (
+          <div className="shrink-0 border-b border-app-border/50 px-2.5 py-2">
+            <div className="space-y-2 rounded-2xl border border-app-accent/25 bg-app-accent/8 p-3 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-accent">
+                    Wedding Checklist
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-semibold leading-snug text-app-text-muted">
+                    Add this member's required items, or mark an item for measurements before ordering.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const firstPartyId = weddingPurchaseContext.memberships[0]?.wedding_party_id;
+                    if (firstPartyId) onOpenWeddingParty?.(firstPartyId);
+                  }}
+                  className="shrink-0 rounded-lg border border-app-border/70 bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-wider text-app-text-muted hover:border-app-accent hover:text-app-accent"
+                >
+                  Open
+                </button>
+              </div>
+              <div className="space-y-2">
+                {weddingPurchaseContext.memberships.map((membership) => (
+                  <div
+                    key={membership.wedding_member_id}
+                    className="rounded-xl border border-app-border/70 bg-app-surface p-2"
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-black text-app-text">{membership.party_name}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-app-text-muted">
+                          {membership.role || "Member"} · {membership.event_date}
+                        </p>
+                      </div>
+                      {!membership.measured ? (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800 ring-1 ring-amber-200">
+                          Measure
+                        </span>
+                      ) : null}
+                    </div>
+                    {membership.purchase_items.length ? (
+                      <div className="space-y-2">
+                        {membership.purchase_items.map((item) => {
+                          const inCart = lines.some((line) => line.variant_id === item.variant_id);
+                          const tracked = item.already_tracked;
+                          const takeNowAvailable = (item.available_stock ?? item.stock_on_hand ?? 0) > 0;
+                          const itemLocked = tracked || inCart;
+                          return (
+                            <div
+                              key={`${membership.wedding_member_id}-${item.variant_id}`}
+                              className="rounded-xl border border-app-border/60 bg-app-surface-2 p-2"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-black text-app-text">{item.name}</p>
+                                  <p className="truncate text-[10px] font-semibold text-app-text-muted">
+                                    {item.variation_label || item.sku} · Stock {item.available_stock ?? item.stock_on_hand ?? 0}
+                                  </p>
+                                </div>
+                                <span className="shrink-0 text-xs font-black text-app-text">
+                                  ${centsToFixed2(parseMoneyToCents(item.standard_retail_price))}
+                                </span>
+                              </div>
+                              {tracked ? (
+                                <p className="mt-2 rounded-lg bg-app-success/10 px-2 py-1 text-[10px] font-bold text-app-success">
+                                  Already tracked for this wedding member.
+                                </p>
+                              ) : inCart ? (
+                                <p className="mt-2 rounded-lg bg-app-info/10 px-2 py-1 text-[10px] font-bold text-app-info">
+                                  In the current cart.
+                                </p>
+                              ) : (
+                                <div className="mt-2 grid grid-cols-3 gap-1.5">
+                                  <button
+                                    type="button"
+                                    disabled={itemLocked || !takeNowAvailable}
+                                    onClick={() => addWeddingPurchaseItem(membership, item, "takeaway")}
+                                    className="rounded-lg border border-app-border bg-app-surface px-1.5 py-1.5 text-[9px] font-black uppercase tracking-wide text-app-text-muted hover:border-app-success hover:text-app-success disabled:cursor-not-allowed disabled:opacity-45"
+                                  >
+                                    Take now
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={itemLocked}
+                                    onClick={() => addWeddingPurchaseItem(membership, item, "order")}
+                                    className="rounded-lg border border-app-border bg-app-surface px-1.5 py-1.5 text-[9px] font-black uppercase tracking-wide text-app-text-muted hover:border-app-accent hover:text-app-accent disabled:cursor-not-allowed disabled:opacity-45"
+                                  >
+                                    Order
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={itemLocked}
+                                    onClick={() => addWeddingPurchaseItem(membership, item, "needs_measurements")}
+                                    className="rounded-lg border border-amber-200 bg-amber-50 px-1.5 py-1.5 text-[9px] font-black uppercase tracking-wide text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-45"
+                                  >
+                                    Measure
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="rounded-lg bg-app-surface-2 px-2 py-1.5 text-[10px] font-semibold text-app-text-muted">
+                        No linked product is set yet. Open the wedding party to choose the exact item.
+                      </p>
+                    )}
+                    {membership.checklist_items.length ? (
+                      <div className="mt-2 space-y-1.5">
+                        {membership.checklist_items.map((checklistItem) => (
+                          <div
+                            key={checklistItem.id}
+                            className="rounded-lg border border-dashed border-app-border/80 bg-app-surface-2 px-2 py-1.5"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-[11px] font-black text-app-text">
+                                  {checklistItem.quantity}x {checklistItem.description}
+                                </p>
+                                {checklistItem.notes ? (
+                                  <p className="truncate text-[10px] font-semibold text-app-text-muted">
+                                    {checklistItem.notes}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <span className="shrink-0 rounded-full bg-app-surface px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-app-text-muted ring-1 ring-app-border">
+                                Checklist
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                              Not linked to a sellable product yet. Open the wedding party if this should be added to the sale.
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* ── Totals summary ── */}
         <div className="shrink-0 px-2.5 pt-2">

@@ -86,6 +86,21 @@ Wedding placeholder suits should stay **Needs measurements** until measurements 
 
 Full design: [../WEDDING_COUNTERPOINT_CUTOVER_LINKING.md](../WEDDING_COUNTERPOINT_CUTOVER_LINKING.md).
 
+### Register checklist connection
+
+Wedding Manager also feeds the POS Register.
+
+When a customer is attached to the Register, POS shows current wedding memberships and a **Wedding Checklist** if that customer belongs to a current or unresolved party. Staff can add linked sellable items as **Take now**, **Order**, or **Measure**.
+
+Manager setup matters:
+
+- Set the party/member's exact ROS product variation when it is known.
+- Leave placeholder suits as **Needs measurements** until the size/variation is known.
+- Use checklist-only items for notes or non-catalog tasks, but do not expect POS to charge for them until they are linked to a sellable product.
+- If staff report that Register only shows a checklist note, review the party/member item setup and product link.
+
+The detailed Register behavior is documented in [../POS_WEDDING_REGISTER_WORKFLOW.md](../POS_WEDDING_REGISTER_WORKFLOW.md).
+
 ### Ledger and financial context
 
 - **Ledger** (`party` → **Ledger**): payment-oriented detail.
@@ -127,4 +142,4 @@ Full design: [../WEDDING_COUNTERPOINT_CUTOVER_LINKING.md](../WEDDING_COUNTERPOIN
 - [appointments.md](appointments.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-05-14

@@ -8,10 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 ### Added
 - Added Windows desktop app recovery for the Backoffice / Server PC: when the local API is unreachable on sign-in, the app can start the installed `Riverside OS Server` scheduled task and retry the staff roster check.
+- Added the POS Wedding Register workflow documentation covering customer wedding detection, checklist-driven item add, measurement gating, and Wedding Manager source-of-truth rules.
 
 ### Changed
 - Updated v0.50 GOLD release-certification documentation to reflect the 2026-05-14 Playwright evidence: the standard release gate passed with 310 passed / 31 skipped / 0 failed, and the previously skipped environment/visual-gated lanes were certified separately with 31 passed / 0 skipped / 0 failed.
 - Replaced the Windows/Tauri placeholder app icon assets with the Riverside logo mark.
+- Documented the Wedding Manager to Register handoff across the fulfillment contract, cutover design, and staff Register/Weddings guides.
 
 ### Fixed
 - Hardened release documentation around visual baseline, Payments Operations, Back Office sign-in, and E2E environment requirements so the certification record no longer treats those lanes as unresolved skips.

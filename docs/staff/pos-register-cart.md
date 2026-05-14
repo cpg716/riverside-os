@@ -80,6 +80,23 @@ When adding or completing a customer profile at the register, the **Address** fi
 
 **Employee pricing:** If the attached customer is your **linked employee CRM profile** (set by an admin on **Staff → Team**), new lines default to **employee price** when the catalog provides it; checkout still validates prices against allowed tiers.
 
+## Wedding customers at the register
+
+If the attached customer belongs to a current wedding party, the customer strip shows the wedding membership and the register shows a **Wedding Checklist** beside the cart.
+
+Use the checklist this way:
+
+1. Confirm the party name and event date with the customer.
+2. Review each listed item.
+3. Tap **Take now** when the item is in store and the customer is taking it today.
+4. Tap **Order** when the exact item is known and needs vendor ordering or later fulfillment.
+5. Tap **Measure** when measurements are still needed or the size/variation is not final.
+6. Continue checkout like a normal sale after the correct items are in the cart.
+
+Checklist-only notes are not sellable cart lines. If a checklist item should be charged, open the wedding party and make sure the exact ROS product variation is selected first.
+
+Wedding placeholder suits should stay **Measure** / **Needs measurements** until measurements are complete and the exact variation is chosen. Do not move a placeholder to vendor ordering just to get it into the NTBO queue.
+
 ## Park (hold cart)
 
 Your store may offer **Park** to save the **current cart** on the **server** (not just this browser) while the register session stays open. Use **Park** when you need a **named, auditable** hold or to work across devices; the **local draft** (above) still helps if you only switched screens on the same device.
@@ -165,4 +182,4 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-04-16
+**Last reviewed:** 2026-05-14

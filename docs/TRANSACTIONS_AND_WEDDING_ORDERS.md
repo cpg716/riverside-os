@@ -41,11 +41,12 @@ When the cashier completes checkout, a Transaction is generated. If items cannot
 
 Every non-takeaway ordered item is tracked at the `transaction_lines` level with an authoritative item lifecycle status:
 
-1. **NTBO** — needs to be ordered from a vendor.
-2. **Ordered** — attached to vendor ordering or a purchase order.
-3. **Received** — physically received through the receiving workflow.
-4. **Ready for Pickup** — verified ready for customer release.
-5. **Picked Up** — fulfilled through the existing pickup path.
+1. **Needs Measurements** — the customer still needs measurements or the exact variation is not known.
+2. **NTBO** — exact product/variation is known and needs to be ordered from a vendor.
+3. **Ordered** — attached to vendor ordering or a purchase order.
+4. **Received** — physically received through the receiving workflow.
+5. **Ready for Pickup** — verified ready for customer release.
+6. **Picked Up** — fulfilled through the existing pickup path.
 
 The lifecycle belongs to each ordered item, not only to the Transaction or Fulfillment Order. A single customer order may therefore contain a jacket that is **Received**, pants that are still **Ordered**, and an accessory that is **Ready for Pickup**. Orders list rows, order detail, lifecycle queues, wedding readiness, Operations Center counts, and printable Open Orders reports should read these fields instead of inferring item status from product or PO history.
 
@@ -59,6 +60,18 @@ When ROS starts mid-year, existing wedding parties may be imported into Wedding 
 - Wedding Manager staff confirm which party/member owns each imported transaction line.
 - The confirmed transaction-line lifecycle becomes the operational source for Readiness, Orders, Inventory, and Register.
 - Placeholder wedding items stay **Needs Measurements** until the exact product variation is known.
+
+### POS Wedding Register Checklist
+
+When a customer attached to the Register belongs to a current or unresolved wedding party, POS reads Wedding Manager context and shows a **Wedding Checklist** beside the cart. This is a guided cart entry surface, not a separate source of truth.
+
+- Linked sellable wedding items can be added as **Take now**, **Order**, or **Measure**.
+- **Take now** keeps the line as normal takeaway when stock is available.
+- **Order** creates a `wedding_order` fulfillment line.
+- **Measure** creates a `wedding_order` line with `needs_measurements`.
+- Non-inventory wedding checklist entries are shown as checklist-only notes until a manager links the exact ROS product variation.
+
+Detailed workflow: [`POS_WEDDING_REGISTER_WORKFLOW.md`](POS_WEDDING_REGISTER_WORKFLOW.md).
 
 ### 2. Deposits & Accounting
 - The customer may pay a partial deposit against the **Transaction**.

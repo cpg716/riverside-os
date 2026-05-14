@@ -207,6 +207,7 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `AGENTS.md` | Invariants, edit map, commands, migration cheat sheet | Agents / devs |
 | `docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md` | Baseline migrations, seed separation, runtime validation, future migration rules | Developers / agents |
 | `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md` | Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival. | Developers / ops |
+| `docs/POS_WEDDING_REGISTER_WORKFLOW.md` | Register workflow for wedding members, checklist-driven item add, measurement gating, and Wedding Manager source-of-truth rules | Ops / devs |
 | `docs/ORBSTACK_GUIDE.md` | Local Docker management, context switch, VirtioFS | Devs |
 | `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
 | `docs/HELCIM.md` | Helcim POS/Payments integration contract, provider attempts, terminal health, webhooks, settlement, refunds | Devs / ops |

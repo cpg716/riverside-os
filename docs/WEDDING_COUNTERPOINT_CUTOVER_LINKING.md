@@ -36,6 +36,7 @@ Staff are not re-entering money. Staff are only connecting existing ROS records 
 4. **Matching suggestions are not final.** ROS may suggest a party/member/order match, but a staff member must confirm before it affects readiness or lifecycle.
 5. **Placeholder items do not become NTBO.** If the exact product/variation is not known because measurements are still needed, the item must stay **Needs Measurements** until staff update the exact variation.
 6. **No silent financial changes.** Linking imported records to wedding members cannot change transaction totals, tender rows, tax, deposit liability, or revenue recognition.
+7. **Register follows Wedding Manager.** POS can surface a member's wedding checklist and add linked sellable items to the cart, but checklist-only or placeholder items remain Wedding Manager review items until the exact ROS product variation is known.
 
 ## Proposed Staff Workflow
 
@@ -122,6 +123,18 @@ After attaching lines, staff confirm each item status.
 | Picked up | `picked_up` | Item was already released to the customer |
 
 For wedding placeholder suits, the safest default is **Needs measurements**. Staff must update the item to the exact variation before moving it to Ready to Order / NTBO.
+
+### Register handoff after review
+
+After a party/member is reviewed, the Register uses the same Wedding Manager context:
+
+1. Staff attach the customer in POS Register.
+2. POS shows current wedding memberships and a **Wedding Checklist**.
+3. Linked sellable product variations can be added as **Take now**, **Order**, or **Measure**.
+4. Checklist-only entries stay visible but are not charged until a sellable ROS product variation is linked.
+5. Checkout creates normal ROS Transaction Records and keeps the `wedding_member_id` link for readiness.
+
+This means cutover review should focus on linking customers, transaction lines, and exact product variations cleanly. If a member still has an uncertain suit, leave it **Needs measurements** so Register and Order Stock do not treat it as ready for vendor ordering.
 
 ### 6. Resolve Exceptions
 
