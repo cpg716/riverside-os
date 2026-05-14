@@ -1798,6 +1798,7 @@ export function CustomerRelationshipHubDrawer({
       actions={
         <div role="tablist" aria-label="Customer hub sections" className="flex flex-wrap gap-2">
           {tabBtn("profile", "Profile")}
+          {tabBtn("messages", "Messages")}
           {canOrdersView ? tabBtn("transactions", "History") : null}
           {canOrdersView ? tabBtn("orders", "Orders") : null}
           {canOrdersView ? tabBtn("layaways", "Layaways") : null}
