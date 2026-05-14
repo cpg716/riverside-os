@@ -60,6 +60,9 @@ jobs:
         working-directory: client
         run: npm ci
 
+      - name: Check Riverside version parity
+        run: node scripts/check-version-parity.mjs
+
       - name: Install Windows ROSIE sidecar
         shell: pwsh
         working-directory: client

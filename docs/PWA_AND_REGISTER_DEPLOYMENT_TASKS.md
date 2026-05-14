@@ -11,6 +11,7 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 ## A. Build targets and configuration
 
 - [x] **Three artifacts:** (1) server binary + `client/dist`, (2) PWA (same bundle served by Axum or CDN), (3) Tauri installer (`npm run tauri:build` in `client/`).
+- [x] **One release version:** server, Windows app, PWA/web files, root metadata, and Tauri metadata must share the same Riverside version. Run `npm run check:version` before building release artifacts.
 - [x] **`VITE_API_BASE` per environment** — set at Vite build time when UI and API differ; when unset, browser/PWA builds use same-origin and desktop/non-HTTP shells fall back to `http://127.0.0.1:3000`.
 
 | Environment | Example `VITE_API_BASE` |
@@ -20,16 +21,16 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 | Tailscale / HTTPS | `https://your-host...` (see `REMOTE_ACCESS_GUIDE.md`) |
 
 - [x] **Separate PWA vs register builds:** `client/.env.pwa.example`, `client/.env.register.example` (copy to `.env.pwa` / `.env.register`, gitignored). Scripts: `npm run build:pwa`, `npm run build:register`. Tauri uses `beforeBuildCommand`: `npm run build:register` in `client/src-tauri/tauri.conf.json`.
-- [x] **Version display:** Settings → General → **About this build** (semver, git SHA, Tauri version, API base).
+- [x] **Version display:** Settings → **Updates** shows one Riverside version and reports **Update incomplete** if Windows app, server API, or PWA/web files do not match. Settings → General → **About this build** keeps diagnostic build/API details.
 
-### A.1 Current release artifact status (2026-05-07)
+### A.1 Current release artifact status (2026-05-14)
 
-- [x] Target app version is now **`v0.4.5`** for the release-prep build.
-- [ ] **`v0.4.5` Windows installer/updater assets are not published yet.** Required Windows release artifacts are `latest.json`, the Windows MSI, and the `.sig`.
-- [x] Previous updater proof exists: **`v0.2.1`** release includes `latest.json`, MSI, and `.sig`.
-- [ ] Before installing Windows stations for **`v0.4.5`**, run the Windows updater release workflow, use a manual workflow artifact, or produce an approved local Windows build and record the artifact URL.
+- [x] Target Riverside version is now **`v0.50.0`** across root, client/PWA, server, and Tauri metadata.
+- [x] The Windows updater release workflow publishes `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for the same Riverside version.
+- [x] Release workflows run `npm run check:version` so mismatched release metadata blocks packaging.
+- [ ] Before installing Windows stations, confirm the target GitHub release does not retain older Riverside MSI/signature assets beside the current release assets.
 - [ ] Latest `main` **Lint Checks** must be green before calling the current head release-ready. Local release-prep validation has passed targeted client/server checks; CI still needs a fresh run after commit/push.
-- [ ] Latest `main` **Playwright E2E** must be green before calling the current head release-ready. Local gift card browser smoke and gift card E2E specs passed during `v0.4.5` release prep; CI still needs a fresh run after commit/push.
+- [ ] Latest `main` **Playwright E2E** must be green before calling the current head release-ready. Use the latest release-certification evidence plus a fresh CI run after commit/push.
 
 ---
 
@@ -58,7 +59,7 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **Release pipeline:** Local: `npm run tauri:build` from `client/` (runs `build:register` first). CI template: `.github/workflows/tauri-register-build.yml` (Windows, `workflow_dispatch`). Add a code-signing step before `tauri build` if SmartScreen requires it.
 - [x] **Windows 11 smoke:** Use `docs/WINDOWS11_TAURI_SMOKE_CHECKLIST_V021.md` for release sign-off on v0.2.1 auth/identity hardening (Unified Guard, authenticated staff persona priority, restricted POS Settings, POS hardware access).
 - [x] **Thermal / ESC-POS:** **Desktop / Tauri:** `client/src/lib/printerBridge.ts` → Tauri `invoke("print_*")` → `client/src-tauri/src/hardware.rs` to either the selected installed Windows printer or direct TCP printer address. Prefer direct **Network address** for Register #1 Epson receipts/cash drawer when the printer has a stable IP. **PWA / browser:** same module falls back to `POST /api/hardware/print`, then browser print fallback.
-- [x] **Auto-update (desktop):** Tauri updater is supported via the release workflow `.github/workflows/tauri-register-updater-release.yml`. It emits `latest.json` + signed Windows updater artifacts for your hosted update endpoint. Installed Windows stations use **Settings → Updates → Windows app** for check/install.
+- [x] **Auto-update (desktop):** Tauri updater is supported via the release workflow `.github/workflows/tauri-register-updater-release.yml`. It emits `latest.json` + signed Windows updater artifacts for your hosted update endpoint. Installed Windows stations use **Settings → Updates → Windows app** for check/install, and the same screen verifies the loaded app files and server API are on the same Riverside release.
 - [x] **Kiosk-ish (optional):** Not bundled; use Windows assigned access / shell replacement, or Tauri fullscreen + `tauri-plugin-single-instance` if you add it later.
 
 ### D.1 Windows install paths
@@ -122,7 +123,7 @@ Station role rules:
 2. Tailscale / DNS: [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md).
 3. HTTPS clock skew and certificate validity.
 4. Hard refresh; clear site data or reinstall the home screen icon.
-5. Collect **Settings → General → About this build** (version, git, API base).
+5. Collect **Settings → Updates** (Riverside version / Update incomplete detail) and **Settings → General → About this build** (diagnostic build/API base).
 
 ### PWA install / update contract
 
@@ -130,7 +131,7 @@ Station role rules:
 2. On **iPad / iPhone**, use **Share → Add to Home Screen** and launch Riverside from the icon instead of a browser tab.
 3. Use **Settings → Updates → iPad and browser app → Check app files** to ask the installed PWA to look for a refreshed build.
 4. When the **PWA update prompt** appears, use **Reload now** after the active task or sale is at a safe stopping point.
-5. If the shell still looks stale after reload, close and reopen the installed icon first, then fall back to clear site data or reinstall only if needed.
+5. Confirm **Settings → Updates** reports the expected Riverside version. If it shows **Update incomplete**, finish the matching server/station update before continuing.
 
 ### Register app will not print
 

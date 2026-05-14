@@ -62,21 +62,20 @@ flowchart TB
 | **Other Windows PCs / laptops** | **PWA or optional Tauri** | Use a browser-installed PWA for Back Office/POS where hardware printing is not required; use Tauri where native printer/scanner reliability is required. |
 | **Off-site phones / laptops** | **PWA over Tailscale** | Use **Tailscale** (or equivalent private mesh) and **HTTPS** when the device is not on the same local network as the host. Do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
 
-### 2.1 Current deployment status snapshot (2026-05-07)
+### 2.1 Current deployment status snapshot (2026-05-14)
 
 This is the current repo/deployment status to verify before a live install:
 
 | Item | Current status | Deployment impact |
 |------|----------------|-------------------|
-| Target release version | **`v0.4.5`** | Version metadata is bumped locally for the release-prep build. |
-| Latest published GitHub release | **`v0.4.0`** published 2026-05-01 | The new `v0.4.5` tag/release has not been published yet. |
-| `v0.4.5` Windows installer assets | **Not published yet** | Do **not** install Windows stations until `latest.json`, the Windows MSI, and the `.sig` are produced by the updater release workflow, a manual workflow artifact, or an approved local Windows build. |
-| Last published Windows updater installer assets | **`v0.2.1`** release has `latest.json`, MSI, and `.sig` | Good evidence the updater pipeline works, but not current for `v0.4.5`. |
+| Target release version | **`v0.50.0`** | Root, client/PWA bundle, server, and Tauri metadata must all match. Run `npm run check:version` before publishing artifacts. |
+| Latest published GitHub release | **`v0.50-GOLD`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
+| Windows installer/updater assets | **Required for the same Riverside release** | The release must contain `latest.json`, one current Windows MSI, and the matching `.sig`; old Riverside MSI/signature assets must be removed before upload. |
 | Latest Playwright E2E on `main` | Local gift card browser smoke and gift card contract specs passed for promo gift card release prep; full GitHub checks still need to run on the release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
 | Latest Lint Checks on `main` | Local client lint/typecheck and targeted Rust suites passed during promo gift card validation; full GitHub checks still need to run on the release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
 | Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |
 
-Before installing the two Windows PCs and PWA devices for production use, create or publish a current Windows installer/updater artifact for **`v0.4.5`** and record its release/run URL in the deployment log.
+Before installing the two Windows PCs and PWA devices for production use, publish one complete Riverside release and record its release/run URL in the deployment log. The Windows app, server API, and PWA/web app files must all report the same Riverside version.
 
 For a near-turnkey Windows setup package, use [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOWS_INSTALLER_PACKAGE.md). That package automates the Server PC install, migration apply, startup task, firewall rule, Register #1 desktop install, station API base, and printer settings import.
 
@@ -148,9 +147,9 @@ Use one of these paths:
 2. **Manual artifact path:** run **Tauri register (Windows)** (`.github/workflows/tauri-register-build.yml`) and download the `tauri-windows-bundle` artifact from the completed workflow run.
 3. **Local build path:** on a Windows build machine with Rust/Node prerequisites, build from `client/` with `npm ci` then `npm run tauri:build`.
 
-Record the installer version, GitHub run URL or release URL, and target API base in the deployment log. Do not reuse an older installer just because it is the latest release asset; confirm **About this build** matches the software version you intend to deploy.
+Record the installer version, GitHub run URL or release URL, and target API base in the deployment log. Do not reuse an older installer just because it is present on the release; confirm **Settings → Updates** shows one expected **Riverside version**.
 
-After first install, normal desktop app updates are handled in ROS from **Settings → Updates → Windows app**. That panel checks the signed updater release and installs the update on the current Windows station. It does not replace the store server or run database migrations.
+After first install, desktop station updates are handled in ROS from **Settings → Updates → Windows app**. The release version must still match the server and PWA/web app files. If **Settings → Updates** shows **Update incomplete**, finish the matching server or station update before continuing operations.
 
 #### 3.2.1 Tauri station install checklist (per Windows station)
 
@@ -191,7 +190,7 @@ After first install, normal desktop app updates are handled in ROS from **Settin
 3. From **`client/`**: `npm run build:pwa`.
 4. Deploy the resulting assets so they are served with the API (Axum static) or from your CDN, consistently with your TLS strategy.
 
-**Version visibility:** Settings → General → **About this build** (semver, git SHA, Tauri version on desktop, API base). **Update controls:** Settings → **Updates**.
+**Version visibility:** Settings → **Updates** shows the single Riverside release version and flags **Update incomplete** when the Windows app, server API, or PWA/web files are out of sync. Settings → General → **About this build** keeps diagnostic build/API details.
 
 **Quality gates:** See section G in [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) (Playwright, soak, backup drill).
 

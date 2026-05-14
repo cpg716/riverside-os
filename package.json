@@ -5,6 +5,7 @@
   "description": "Root scripts only; app code lives in server/ and client/",
   "scripts": {
     "bump": "node scripts/bump-version.mjs",
+    "check:version": "node scripts/check-version-parity.mjs",
     "help:aidocs:check": "uvx --from aidocs aidocs check",
     "generate:help": "cd client && npm run generate:help",
     "generate:help:screenshots": "cd client && npm run generate:help:screenshots",

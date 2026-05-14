@@ -24,6 +24,11 @@ type PwaUpdateStatus = {
   message: string;
 };
 
+type ServerVersionStatus = {
+  version: string;
+  component: string;
+};
+
 function isStandaloneDisplay(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -80,6 +85,8 @@ export default function UpdateManagerPanel() {
   const [desktopBusy, setDesktopBusy] = useState(false);
   const [pwaBusy, setPwaBusy] = useState(false);
   const [pwaStatus, setPwaStatus] = useState<PwaUpdateStatus | null>(null);
+  const [serverVersion, setServerVersion] = useState<ServerVersionStatus | null>(null);
+  const [serverVersionError, setServerVersionError] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -91,17 +98,44 @@ export default function UpdateManagerPanel() {
       }
     })();
     void refreshPwaStatus();
-  }, []);
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/version`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setServerVersion((await res.json()) as ServerVersionStatus);
+        setServerVersionError(false);
+      } catch {
+        setServerVersion(null);
+        setServerVersionError(true);
+      }
+    })();
+  }, [baseUrl]);
 
   const surfaceLabel = useMemo(
     () =>
       tauriShellVersion != null
-        ? `Desktop app (Tauri ${tauriShellVersion})`
+        ? "Windows desktop app"
         : isStandaloneDisplay()
           ? "Installed PWA"
           : "Web browser",
     [tauriShellVersion],
   );
+  const desktopVersionMismatch =
+    tauriShellVersion != null && tauriShellVersion !== CLIENT_SEMVER;
+  const serverVersionMismatch =
+    serverVersion != null && serverVersion.version !== CLIENT_SEMVER;
+  const releaseMismatch = desktopVersionMismatch || serverVersionMismatch;
+  const releaseDiagnostic = [
+    `app files ${CLIENT_SEMVER}`,
+    tauriShellVersion != null ? `Windows app ${tauriShellVersion}` : null,
+    serverVersion != null
+      ? `server ${serverVersion.version}`
+      : serverVersionError
+        ? "server unavailable"
+        : "server checking",
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   const refreshPwaStatus = async () => {
     try {
@@ -200,8 +234,8 @@ export default function UpdateManagerPanel() {
           Updates
         </h2>
         <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
-          Check the installed version, update Windows app stations, and refresh
-          browser or iPad app installs from one place.
+          Check the Riverside version installed on this station and run the
+          correct update path.
         </p>
       </header>
 
@@ -215,15 +249,17 @@ export default function UpdateManagerPanel() {
             <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-3">
                 <dt className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
-                  Surface
+                  Station type
                 </dt>
                 <dd className="mt-1 font-mono text-app-text">{surfaceLabel}</dd>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-3">
                 <dt className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
-                  Client version
+                  Riverside version
                 </dt>
-                <dd className="mt-1 font-mono text-app-text">{CLIENT_SEMVER}</dd>
+                <dd className="mt-1 font-mono text-app-text">
+                  {releaseMismatch ? "Update incomplete" : CLIENT_SEMVER}
+                </dd>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-3">
                 <dt className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
@@ -240,6 +276,14 @@ export default function UpdateManagerPanel() {
                 </dd>
               </div>
             </dl>
+            {releaseMismatch ? (
+              <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-900">
+                This station did not finish updating. Close and reopen the
+                Windows app. If this is the Backoffice / Server PC, also run the
+                server update package so the server web files are replaced.
+                Diagnostic detail: {releaseDiagnostic}.
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
@@ -253,7 +297,7 @@ export default function UpdateManagerPanel() {
                 Windows app
               </h3>
               <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
-                Use this for Register #1 and other Windows desktop app stations.
+                Updates this Windows station to the current Riverside release.
               </p>
             </div>
           </div>
@@ -292,7 +336,8 @@ export default function UpdateManagerPanel() {
                 iPad and browser app
               </h3>
               <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
-                Use this for Register #2, iPad, and browser-installed stations.
+                Refreshes browser and iPad app files for the current Riverside
+                release.
               </p>
             </div>
           </div>
@@ -331,8 +376,8 @@ export default function UpdateManagerPanel() {
                 Server update
               </h3>
               <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
-                The store server update still needs a backup, migrations, and a
-                restart window.
+                Updates the Backoffice / Server PC to the current Riverside
+                release.
               </p>
             </div>
           </div>

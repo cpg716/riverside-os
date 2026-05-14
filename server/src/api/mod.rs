@@ -1,7 +1,8 @@
 //! HTTP API (Axum): maps domain types to JSON and status codes for the Tauri POS.
 
-use axum::Router;
+use axum::{routing::get, Json, Router};
 use rust_decimal::Decimal;
+use serde::Serialize;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -53,6 +54,19 @@ use crate::logic::wedding_push::WeddingEventBus;
 use crate::observability::ServerLogRing;
 use meilisearch_sdk::client::Client as MeilisearchClient;
 
+#[derive(Serialize)]
+struct ApiVersionResponse {
+    version: &'static str,
+    component: &'static str,
+}
+
+async fn api_version() -> Json<ApiVersionResponse> {
+    Json(ApiVersionResponse {
+        version: env!("CARGO_PKG_VERSION"),
+        component: "server",
+    })
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -86,6 +100,7 @@ pub struct AppState {
 }
 pub fn build_router() -> Router<AppState> {
     let mut router = Router::new()
+        .route("/api/version", get(api_version))
         .merge(metabase_proxy::router())
         .nest("/api/inventory", inventory::router())
         .nest("/api/inventory/physical", physical_inventory::router())

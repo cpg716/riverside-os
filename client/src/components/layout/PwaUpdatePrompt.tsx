@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { isTauri } from "@tauri-apps/api/core";
 import { useRegisterSW } from "virtual:pwa-register/react";
 
 type BeforeInstallPromptEvent = Event & {
@@ -51,6 +52,23 @@ function writeInstallDismissed(): void {
   } catch {
     /* ignore */
   }
+}
+
+function DesktopPwaCacheCleanup() {
+  useEffect(() => {
+    void (async () => {
+      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      if (typeof window !== "undefined" && "caches" in window) {
+        const cacheNames = await window.caches.keys();
+        await Promise.all(cacheNames.map((cacheName) => window.caches.delete(cacheName)));
+      }
+    })();
+  }, []);
+
+  return null;
 }
 
 function PwaUpdatePromptInner() {
@@ -210,5 +228,6 @@ function PwaUpdatePromptInner() {
 
 export default function PwaUpdatePrompt() {
   if (!import.meta.env.PROD) return null;
+  if (isTauri()) return <DesktopPwaCacheCleanup />;
   return <PwaUpdatePromptInner />;
 }

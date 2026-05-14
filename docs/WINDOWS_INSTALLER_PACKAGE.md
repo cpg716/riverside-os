@@ -13,7 +13,7 @@ The primary entry point is **`Start-RiversideDeployment.cmd`**. It opens the Riv
 Build output:
 
 ```text
-RiversideOS-v0.4.5-Windows-Deployment/
+RiversideOS-v0.50.0-Windows-Deployment/
   Start-RiversideDeployment.cmd
   Start-RiversideDeployment.ps1
   install-server.ps1
@@ -79,12 +79,14 @@ Generated Riverside passwords intentionally use URL-safe letters and numbers so 
 
 The same Deployment Manager handles later maintenance:
 
-- **Server update**: copies the new server and web files, applies pending migrations, refreshes the firewall/task setup, and restarts Riverside.
-- **Workstation update**: rewrites station settings and installs the included Riverside desktop app package.
+- **Server update**: copies the new server and web files for the same Riverside release, applies pending migrations, refreshes the firewall/task setup, and restarts Riverside.
+- **Workstation update**: rewrites station settings and installs the included Riverside desktop app package for the same Riverside release.
 - **Server repair**: reruns the server setup in an idempotent way to restore service, firewall, env, and migration state.
 - **Workstation repair**: rewrites station settings without reinstalling the app.
 - **Workstation uninstall**: removes the Riverside desktop app and station settings.
 - **Server uninstall**: removes the server scheduled task, firewall rule, and app files. It keeps the database, backups, and logs by default.
+
+Server, Windows app, and PWA/web files are one release. After any update, open **Settings → Updates** and confirm it shows the expected **Riverside version**. If it shows **Update incomplete**, finish the matching server or workstation update before using that station for production work.
 
 Manual fallback:
 

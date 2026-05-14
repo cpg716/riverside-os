@@ -43,6 +43,10 @@ jobs:
       - name: Install client dependencies
         run: npm ci
 
+      - name: Check Riverside version parity
+        working-directory: ${{ github.workspace }}
+        run: node scripts/check-version-parity.mjs
+
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
@@ -72,6 +76,23 @@ jobs:
           RIVERSIDE_LLAMA_EXTRA_ARGS: --reasoning off
           RIVERSIDE_LLAMA_MODEL_PATH: ${{ runner.temp }}\missing-rosie-model.gguf
         run: ./scripts/smoke-rosie-sidecar-package.ps1 -AllowMissingModel
+
+      - name: Build and verify register client bundle
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
+          npm run build:register
+
+          $pkg = Get-Content "package.json" | ConvertFrom-Json
+          $gitShort = $env:GITHUB_SHA.Substring(0, 8)
+          $scripts = Get-ChildItem -Path "dist/assets" -Filter "*.js" -Recurse
+
+          if (-not ($scripts | Select-String -Pattern $pkg.version -SimpleMatch -List)) {
+            throw "Built client bundle does not contain package version $($pkg.version)."
+          }
+          if (-not ($scripts | Select-String -Pattern $gitShort -SimpleMatch -List)) {
+            throw "Built client bundle does not contain git short $gitShort."
+          }
 
       - name: Build signed updater bundle
         shell: pwsh
@@ -171,5 +192,14 @@ jobs:
           gh release view $env:TAG *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $env:TAG --title "Riverside POS $env:TAG" --notes "$env:RELEASE_NOTES"
+          }
+          $release = gh release view $env:TAG --json assets | ConvertFrom-Json
+          foreach ($asset in $release.assets) {
+            $managedAsset = $asset.name -eq "latest.json" `
+              -or $asset.name -eq "riverside-updater-build-manifest.json" `
+              -or $asset.name -match '^Riverside\.POS_.*_x64_en-US\.msi(\.sig)?$'
+            if ($managedAsset) {
+              gh release delete-asset $env:TAG $asset.name --yes
+            }
           }
           gh release upload $env:TAG updater-dist/* --clobber
