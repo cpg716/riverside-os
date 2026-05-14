@@ -73,7 +73,7 @@ test.describe("Inventory receiving operator verification", () => {
     await signInToBackOffice(page, { persistSession: true });
     await openInventoryReceiveStock(page);
 
-    await expect(page.getByText(/receive from a submitted po below/i)).toBeVisible({
+    await expect(page.getByText(/pick an existing purchase order/i)).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.getByText(/direct invoice/i).first()).toBeVisible({

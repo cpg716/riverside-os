@@ -296,17 +296,21 @@ async fn match_customer_by_email(
     .await
 }
 
+struct CustomerEmailMessage<'a> {
+    direction: &'a str,
+    subject: Option<&'a str>,
+    body_text: Option<&'a str>,
+    body_html: Option<&'a str>,
+    staff_id: Option<Uuid>,
+    to_email: Option<&'a str>,
+}
+
 async fn record_customer_email_message(
     pool: &PgPool,
     customer_id: Uuid,
-    direction: &str,
-    subject: Option<&str>,
-    body_text: Option<&str>,
-    body_html: Option<&str>,
-    staff_id: Option<Uuid>,
-    to_email: Option<&str>,
+    message: CustomerEmailMessage<'_>,
 ) -> Result<(), sqlx::Error> {
-    let body = match (subject, body_text, body_html) {
+    let body = match (message.subject, message.body_text, message.body_html) {
         (Some(subject), Some(text), _) if !subject.trim().is_empty() => {
             format!("Subject: {}\n\n{}", subject.trim(), text.trim())
         }
@@ -322,10 +326,10 @@ async fn record_customer_email_message(
         customer_id,
         "email",
         &body,
-        staff_id,
+        message.staff_id,
         None,
-        to_email,
-        if direction == "automated" {
+        message.to_email,
+        if message.direction == "automated" {
             "automated"
         } else {
             "outbound"
@@ -504,12 +508,14 @@ pub async fn send_email(
         let _ = record_customer_email_message(
             pool,
             customer_id,
-            direction,
-            Some(subject),
-            None,
-            Some(&html),
-            staff_id,
-            Some(&to),
+            CustomerEmailMessage {
+                direction,
+                subject: Some(subject),
+                body_text: None,
+                body_html: Some(&html),
+                staff_id,
+                to_email: Some(&to),
+            },
         )
         .await;
     }
@@ -638,7 +644,7 @@ fn fetch_imap_messages(
     for message in messages.iter() {
         if let (Some(uid), Some(body)) = (message.uid, message.body()) {
             out.push(RawInboundMessage {
-                provider_uid: format!("imap:{}", uid),
+                provider_uid: format!("imap:{uid}"),
                 bytes: body.to_vec(),
             });
         }
