@@ -7,6 +7,10 @@ on:
         description: "Release notes shown in updater prompts"
         required: false
         default: "Riverside POS update"
+      release_tag:
+        description: "GitHub release tag to publish updater assets to, e.g. v0.50-GOLD. Defaults to v<client package version>."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -24,6 +28,7 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       RIVERSIDE_UPDATER_BASE_URL: https://github.com/${{ github.repository }}/releases/latest/download
       RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
       LLAMA_CPP_RELEASE: b8994
       LLAMA_CPP_WIN_CPU_ASSET: llama-b8994-bin-win-cpu-x64.zip
     steps:
@@ -115,7 +120,11 @@ jobs:
 
           $pkg = Get-Content "package.json" | ConvertFrom-Json
           $version = $pkg.version
-          $tag = "v$version"
+          $requestedTag = if ($null -eq $env:RELEASE_TAG) { "" } else { $env:RELEASE_TAG.Trim() }
+          $tag = if ([string]::IsNullOrWhiteSpace($requestedTag)) { "v$version" } else { $requestedTag }
+          if ($tag -notmatch '^v.+') {
+            throw "release_tag must include the leading v, for example v0.50-GOLD"
+          }
           $gitShort = $env:GITHUB_SHA.Substring(0, 8)
           $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           $artifactName = [System.IO.Path]::GetFileName($artifactPath)
