@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PORTS=(3000 3002 5173)
+SERVER_ENV="$(cd "$(dirname "$0")/.." && pwd)/server/.env"
 
 reclaim_port() {
   local port="$1"
@@ -31,6 +32,68 @@ reclaim_port() {
   fi
 }
 
+database_url() {
+  if [[ -n "${DATABASE_URL:-}" ]]; then
+    printf '%s\n' "$DATABASE_URL"
+    return 0
+  fi
+
+  if [[ ! -f "$SERVER_ENV" ]]; then
+    return 0
+  fi
+
+  local raw
+  raw="$(grep -E "^DATABASE_URL=" "$SERVER_ENV" | tail -n 1 || true)"
+  if [[ -z "$raw" ]]; then
+    return 0
+  fi
+
+  local value="${raw#*=}"
+  if [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; then
+    value="${value:1:${#value}-2}"
+  elif [[ "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  printf '%s\n' "$value"
+}
+
+check_database_ready() {
+  local url
+  url="$(database_url)"
+  if [[ -z "$url" ]]; then
+    return 0
+  fi
+
+  local endpoint
+  endpoint="$(DATABASE_URL="$url" node -e '
+const raw = process.env.DATABASE_URL;
+try {
+  const parsed = new URL(raw);
+  if (!["postgres:", "postgresql:"].includes(parsed.protocol)) process.exit(0);
+  const port = parsed.port || "5432";
+  process.stdout.write(`${parsed.hostname} ${port}`);
+} catch {
+  process.exit(0);
+}
+' 2>/dev/null || true)"
+  if [[ -z "$endpoint" ]]; then
+    return 0
+  fi
+
+  local host port
+  read -r host port <<< "$endpoint"
+  if nc -z "$host" "$port" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "[dev-preflight] PostgreSQL is not reachable at ${host}:${port} from DATABASE_URL." >&2
+  echo "[dev-preflight] Start or wake the local Docker/OrbStack engine, then run: npm run docker:db" >&2
+  echo "[dev-preflight] For a fresh database, also run: ./scripts/apply-migrations-docker.sh" >&2
+  exit 1
+}
+
 for port in "${PORTS[@]}"; do
   reclaim_port "$port"
 done
+
+check_database_ready
