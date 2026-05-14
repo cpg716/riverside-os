@@ -359,7 +359,7 @@ test.describe("Phase 3 failure-state coverage", () => {
 
     await signInToBackOffice(page);
     await page.getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ }).click();
-    await expect(page.getByText("Low stock needs review")).toBeVisible({
+    await expect(page.getByRole("button", { name: "Low stock needs review — Open" })).toBeVisible({
       timeout: 20_000,
     });
     await page.getByRole("button", { name: /mark new read/i }).click();

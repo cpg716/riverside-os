@@ -317,10 +317,12 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
     return;
   }
 
-  await expect(cashierDlg).toHaveAttribute("data-roster-ready", "true", {
-    timeout: 15_000,
-  });
-  await selectFirstStaffMember(cashierDlg);
+  if ((await cashierDlg.getAttribute("data-staff-selected").catch(() => null)) !== "true") {
+    await expect(cashierDlg).toHaveAttribute("data-roster-ready", "true", {
+      timeout: 15_000,
+    });
+    await selectFirstStaffMember(cashierDlg);
+  }
   await expect(cashierDlg).toHaveAttribute("data-pin-entry-ready", "true", {
     timeout: 10_000,
   });
