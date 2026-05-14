@@ -359,6 +359,19 @@ export const api = {
   getWeddingHealth: async (partyId) => {
     return wmJson("GET", `${API_URL}/weddings/parties/${partyId}/health`);
   },
+  getReadinessDashboard: async (params = {}) => {
+    const query = {
+      start_date: params.startDate,
+      end_date: params.endDate,
+      salesperson: params.salesperson,
+      status: params.status,
+      limit: params.limit ?? 100,
+    };
+    return wmJson("GET", `${API_URL}/weddings/readiness-dashboard`, { params: query });
+  },
+  getPartyReadiness: async (partyId) => {
+    return wmJson("GET", `${API_URL}/weddings/parties/${partyId}/readiness`);
+  },
 
   importParties: async (parties) => {
     const created = [];

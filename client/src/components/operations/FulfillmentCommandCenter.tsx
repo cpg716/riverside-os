@@ -45,16 +45,19 @@ interface FulfillmentItem {
   urgency: Urgency;
   next_deadline: string | null;
   balance_due: number;
+  wedding_party_id: string | null;
   wedding_party_name: string | null;
 }
 
 interface FulfillmentCommandCenterProps {
   onOpenTransaction: (orderId: string) => void;
+  onOpenWeddingParty?: (partyId: string) => void;
   refreshSignal?: number;
 }
 
 export default function FulfillmentCommandCenter({ 
   onOpenTransaction, 
+  onOpenWeddingParty,
   refreshSignal = 0 
 }: FulfillmentCommandCenterProps) {
   const { backofficeHeaders } = useBackofficeAuth();
@@ -318,6 +321,7 @@ export default function FulfillmentCommandCenter({
                 item={item} 
                 compact={compactQueue}
                 onOpen={() => onOpenTransaction(item.order_id)}
+                onOpenWeddingParty={item.wedding_party_id && onOpenWeddingParty ? () => onOpenWeddingParty(item.wedding_party_id!) : undefined}
                 onPrint={() => {
                   openProfessionalTablePrint({
                     title: `Pickup Queue - ${item.order_short_id}`,
@@ -441,11 +445,13 @@ function QueueItem({
   item,
   compact,
   onOpen,
+  onOpenWeddingParty,
   onPrint,
 }: {
   item: FulfillmentItem;
   compact: boolean;
   onOpen: () => void;
+  onOpenWeddingParty?: () => void;
   onPrint: () => void;
 }) {
   const urgencyStyles = {
@@ -527,6 +533,15 @@ function QueueItem({
           {item.balance_due > 0 ? `$${item.balance_due}` : "Paid"}
         </p>
         <div className="mt-1 flex justify-end gap-1">
+          {onOpenWeddingParty && !compact ? (
+            <button
+              type="button"
+              onClick={onOpenWeddingParty}
+              className="rounded-lg border border-violet-300 bg-violet-50 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-violet-700 hover:bg-violet-100"
+            >
+              Readiness
+            </button>
+          ) : null}
           {!compact ? (
             <button
               type="button"

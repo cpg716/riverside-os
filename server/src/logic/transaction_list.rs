@@ -23,6 +23,7 @@ pub struct FulfillmentItem {
     pub urgency: String,
     pub next_deadline: Option<DateTime<Utc>>,
     pub balance_due: Decimal,
+    pub wedding_party_id: Option<Uuid>,
     pub wedding_party_name: Option<String>,
     pub counterpoint_customer_code: Option<String>,
 }
@@ -645,6 +646,7 @@ pub async fn query_fulfillment_queue(
             END AS urgency,
             NULL::timestamptz AS next_deadline, -- Logic for deadline moves to fulfillment_orders soon
             COALESCE(t.balance_due, 0) AS balance_due,
+            wp.id AS wedding_party_id,
             {SQL_PARTY_TRACKING_LABEL_WP} AS wedding_party_name,
             NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code
         FROM fulfillment_orders o

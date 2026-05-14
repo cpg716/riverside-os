@@ -2,7 +2,7 @@
 
 **Audience:** Wedding managers and consultants.
 
-**Where in ROS:** Back Office → **Weddings**. Subsections: **Action Board**, **Parties**, **Calendar**.
+**Where in ROS:** Back Office → **Weddings**. Subsections: **Action Board**, **Parties**, **Calendar**, **Readiness**.
 
 **Related permissions:** **weddings.view** to read wedding data; **weddings.mutate** to create/update/delete parties, members, appointments; **wedding_manager.open** to open the full Wedding Manager shell/tab from navigation.
 
@@ -26,6 +26,28 @@ Use **Weddings** to manage **groups**, **money**, and **dates** for formalwear p
 **Party detail:** When marking **Measured** or **Fitting** complete, ROS may warn if a **scheduled appointment** is still open; appointment checks use a **date window** around the party (not the entire calendar) so the screen stays responsive.
 
 **Tip:** If the board feels empty, widen **event date** or clear filters.
+
+## Readiness
+
+**Purpose:** Answer “Is this wedding safe?” before staff promise pickup, vendor follow-up, or final release.
+
+1. **Weddings** → **Readiness**.
+2. Review parties sorted with **Critical** and **At risk** first.
+3. Use filters for event window, salesperson, and readiness status.
+4. Open a party card to view the party-level readiness panel.
+5. Resolve blockers in the source workflow: vendor ordering in **Orders / PO receiving**, payment in the **Transaction Record**, and release in the guarded **Pickup** workflow.
+
+Readiness uses existing ROS truth. It does not move lifecycle states automatically.
+
+Common readiness labels:
+
+| Label | Meaning | Next action |
+|-------|---------|-------------|
+| Needs vendor order | One or more items are still NTBO | Create or attach vendor purchase orders |
+| Vendor delay risk | Ordered items are stale or past ETA | Call vendor and update ETA |
+| Ready for pickup | Garments are verified ready | Use guarded pickup workflow |
+| Pickup blocked until balance is cleared | Garments are ready but money is still due | Collect payment before release |
+| Partial party readiness | Some members can release, others remain blocked | Release only verified ready items |
 
 ## Parties
 

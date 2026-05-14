@@ -74,11 +74,57 @@ export interface WmHealthScore {
   reason: string;
 }
 
+export type WmReadinessStatus = 'safe' | 'watch' | 'at_risk' | 'critical' | 'complete';
+
+export interface WmReadinessBlocker {
+  severity: 'blocking' | 'warning' | 'info';
+  label: string;
+  explanation: string;
+  next_safe_action: string;
+}
+
+export interface WmReadinessSummary {
+  wedding_party_id: string;
+  party_name: string;
+  event_date: string;
+  salesperson?: string | null;
+  days_until_event: number;
+  readiness_score: number;
+  status: WmReadinessStatus;
+  lifecycle?: {
+    ntbo: number;
+    ordered: number;
+    received: number;
+    ready_for_pickup: number;
+    picked_up: number;
+    open: number;
+  };
+  pickup?: {
+    ready_members: number;
+    blocked_members: number;
+    partial_ready_members: number;
+    balance_blocked_members: number;
+  };
+  blockers: WmReadinessBlocker[];
+  next_safe_action: string;
+}
+
+export interface WmReadinessDashboard {
+  safe_count: number;
+  watch_count: number;
+  at_risk_count: number;
+  critical_count: number;
+  complete_count: number;
+  parties: WmReadinessSummary[];
+}
+
 export const api: {
   getSalespeople: () => Promise<string[]>;
   getParties: (params?: WmPaginationParams) => Promise<{ data: WmParty[]; pagination: WmPagination }>;
   getParty: (id: string) => Promise<WmParty | null>;
   getWeddingHealth: (id: string) => Promise<WmHealthScore>;
+  getReadinessDashboard: (params?: WmPaginationParams) => Promise<WmReadinessDashboard>;
+  getPartyReadiness: (id: string) => Promise<unknown>;
   updateParty: (id: string, updates: Partial<WmParty>) => Promise<WmParty>;
   updateMember: (id: string, updates: Partial<WmMember>) => Promise<WmMember>;
   addMember: (partyId: string, memberData: Partial<WmMember>) => Promise<WmMember>;

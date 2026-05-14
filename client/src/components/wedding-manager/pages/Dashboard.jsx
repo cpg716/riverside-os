@@ -332,7 +332,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                         className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'health' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
                                     >
                                         <Icon name="Activity" size={16} className={activeTab === 'health' ? 'text-gold-400' : ''} />
-                                        Health
+                                        Readiness
                                     </button>
                                     <button type="button"
                                         onClick={() => setActiveTab('reports')}

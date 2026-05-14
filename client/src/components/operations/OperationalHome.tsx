@@ -1382,6 +1382,7 @@ export default function OperationalHome({
           ) : (
             <FulfillmentCommandCenter
               onOpenTransaction={onOpenTransactionInBackoffice}
+              onOpenWeddingParty={onOpenWeddingParty}
               refreshSignal={refreshSignal}
             />
           )}

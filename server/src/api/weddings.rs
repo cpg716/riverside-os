@@ -512,6 +512,7 @@ pub fn router() -> Router<AppState> {
         .route("/morning-compass", get(get_morning_compass))
         .route("/activity-feed", get(get_activity_feed))
         .route("/actions", get(get_actions))
+        .route("/readiness-dashboard", get(get_readiness_dashboard))
         .route(
             "/non-inventory",
             get(list_non_inventory_items).post(create_non_inventory_item),
@@ -539,6 +540,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/parties/{party_id}/restore", post(restore_party))
         .route("/parties/{party_id}/health", get(get_health))
+        .route("/parties/{party_id}/readiness", get(get_party_readiness))
         .route("/parties/{party_id}/members", post(add_member))
         .route(
             "/parties/{party_id}",
@@ -2264,4 +2266,72 @@ async fn get_health(
         .await
         .map_err(WeddingError::Database)?;
     Ok(Json(score))
+}
+
+#[derive(Debug, Deserialize)]
+struct ReadinessDashboardQuery {
+    #[serde(default)]
+    start_date: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    end_date: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    salesperson: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+fn parse_readiness_status(
+    raw: Option<&str>,
+) -> Result<Option<crate::logic::wedding_health::WeddingReadinessStatus>, WeddingError> {
+    let Some(value) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let status = match value {
+        "safe" => crate::logic::wedding_health::WeddingReadinessStatus::Safe,
+        "watch" => crate::logic::wedding_health::WeddingReadinessStatus::Watch,
+        "at_risk" => crate::logic::wedding_health::WeddingReadinessStatus::AtRisk,
+        "critical" => crate::logic::wedding_health::WeddingReadinessStatus::Critical,
+        "complete" => crate::logic::wedding_health::WeddingReadinessStatus::Complete,
+        other => {
+            return Err(WeddingError::BadRequest(format!(
+                "unsupported readiness status: {other}"
+            )));
+        }
+    };
+    Ok(Some(status))
+}
+
+async fn get_readiness_dashboard(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ReadinessDashboardQuery>,
+) -> Result<Json<crate::logic::wedding_health::WeddingReadinessDashboard>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let dashboard = crate::logic::wedding_health::list_wedding_readiness_dashboard(
+        &state.db,
+        crate::logic::wedding_health::WeddingReadinessDashboardFilter {
+            start_date: query.start_date,
+            end_date: query.end_date,
+            salesperson: query.salesperson,
+            status: parse_readiness_status(query.status.as_deref())?,
+            limit: query.limit.unwrap_or(100),
+        },
+    )
+    .await
+    .map_err(WeddingError::Database)?;
+    Ok(Json(dashboard))
+}
+
+async fn get_party_readiness(
+    State(state): State<AppState>,
+    Path(party_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<crate::logic::wedding_health::WeddingReadinessDetail>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let readiness = crate::logic::wedding_health::calculate_wedding_readiness(&state.db, party_id)
+        .await
+        .map_err(WeddingError::Database)?;
+    Ok(Json(readiness))
 }
