@@ -23,6 +23,7 @@ expected=(
   "016_counterpoint_staging_apply_claim_metadata.sql"
   "017_counterpoint_staging_observability.sql"
   "018_order_item_lifecycle.sql"
+  "019_takeaway_completed_recognition.sql"
 )
 
 active=()
@@ -76,4 +77,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-018 only."
+echo "Migration layout OK: active baseline 001-019 only."

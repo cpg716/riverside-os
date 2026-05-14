@@ -5,7 +5,7 @@ function apiBase(): string {
   const raw =
     process.env.E2E_API_BASE?.trim() ||
     process.env.VITE_API_BASE?.trim() ||
-    "http://127.0.0.1:3000";
+    "http://127.0.0.1:43300";
   return raw.replace(/\/$/, "");
 }
 
