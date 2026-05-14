@@ -6,6 +6,8 @@
 **Branch audited:** `main`  
 **Audit endpoint:** Audit + Fix Plan
 
+> Superseding automated release evidence: the v0.50 GOLD certification on 2026-05-14 is recorded in [`../releases/v0.50-gold-certification.md`](../releases/v0.50-gold-certification.md). The audit below remains the historical 2026-04-25 production-hardening review and still applies for human/environment signoff context.
+
 ## Executive Decision
 
 **Status: NOT READY FOR UNCONDITIONAL RETAIL DEPLOYMENT.**

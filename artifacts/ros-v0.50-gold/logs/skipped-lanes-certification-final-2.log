@@ -1,0 +1,50 @@
+
+> riverside-pos@0.4.7 test:e2e
+> playwright test e2e/backoffice-signin.spec.ts e2e/high-risk-regressions.spec.ts e2e/intelligence-and-finance.spec.ts e2e/payments-operations-contract.spec.ts e2e/payments-operations-ui.spec.ts e2e/podium-settings.spec.ts e2e/register-close-reconciliation.spec.ts e2e/staff-tasks.spec.ts e2e/visual-baselines.spec.ts --workers=1
+
+[2m[WebServer] [22m Container riverside-os-db Running 
+[2m[WebServer] [22m Container riverside-os-db Running 
+[2m[WebServer] [22m(node:8355) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[2m[WebServer] [22m(Use `node --trace-warnings ...` to show where the warning was created)
+[2m[WebServer] [22m(node:8760) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[2m[WebServer] [22m(Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 31 tests using 1 worker
+
+(node:8972) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:8972) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [chromium] › e2e/backoffice-signin.spec.ts:78:3 › Back Office sign-in gate › 4-digit code reaches Operations shell (27.7s)
+  ✓   2 [chromium] › e2e/backoffice-signin.spec.ts:115:3 › Back Office sign-in gate › wrong code shows an error (1.0s)
+  ✓   3 [chromium] › e2e/backoffice-signin.spec.ts:134:3 › Back Office sign-in gate › Switch staff returns to sign-in (26.4s)
+  ✓   4 [chromium] › e2e/high-risk-regressions.spec.ts:85:3 › High-risk API regressions › migration smoke: critical routes are mounted (not 404) (11ms)
+  ✓   5 [chromium] › e2e/high-risk-regressions.spec.ts:119:3 › High-risk API regressions › tax audit endpoint requires auth and returns expected shape for admin (271ms)
+  ✓   6 [chromium] › e2e/high-risk-regressions.spec.ts:159:3 › High-risk API regressions › revenue basis aliases are accepted and shape remains stable (1.1s)
+  ✓   7 [chromium] › e2e/high-risk-regressions.spec.ts:187:3 › High-risk API regressions › help manager admin ops enforce RBAC and return stable payloads (709ms)
+  ✓   8 [chromium] › e2e/high-risk-regressions.spec.ts:281:3 › High-risk API regressions › session resilience: current/list-open routes are auth-gated and staff-accessible (266ms)
+  ✓   9 [chromium] › e2e/high-risk-regressions.spec.ts:309:3 › High-risk API regressions › permission boundary: sensitive insights and help-admin endpoints reject non-admin staff (6ms)
+  ✓  10 [chromium] › e2e/intelligence-and-finance.spec.ts:67:3 › Core Intelligence & Finance Contracts › Wedding Health summary returns valid counts for the dashboard (279ms)
+  ✓  11 [chromium] › e2e/intelligence-and-finance.spec.ts:87:3 › Core Intelligence & Finance Contracts › Inventory Brain provides contract-safe recommendations payload (263ms)
+  ✓  12 [chromium] › e2e/intelligence-and-finance.spec.ts:114:3 › Core Intelligence & Finance Contracts › Commission Trace rationale is human-readable/exact (265ms)
+  ✓  13 [chromium] › e2e/intelligence-and-finance.spec.ts:133:5 › Core Intelligence & Finance Contracts › Payment config returns Helcim provider without secrets (3ms)
+  ✓  14 [chromium] › e2e/intelligence-and-finance.spec.ts:147:3 › Optional Data-Dependent Diagnostics › Detailed Wedding Health Scorecard returns per-party risk analysis (520ms)
+  ✓  15 [chromium] › e2e/intelligence-and-finance.spec.ts:180:3 › Optional Data-Dependent Diagnostics › Product Intelligence returns detailed sales velocity and stock levels (528ms)
+  ✓  16 [chromium] › e2e/intelligence-and-finance.spec.ts:212:3 › Optional Data-Dependent Diagnostics › Commission Trace rationale is human-readable/exact (527ms)
+  ✓  17 [chromium] › e2e/payments-operations-contract.spec.ts:386:3 › Payments Operations backend contract › read endpoints expose staff-safe operations shapes without inferred fee or net (2.1s)
+  ✓  18 [chromium] › e2e/payments-operations-contract.spec.ts:460:3 › Payments Operations backend contract › reconciliation status and note actions preserve audit history (1.6s)
+  ✓  19 [chromium] › e2e/payments-operations-contract.spec.ts:521:3 › Payments Operations backend contract › guarded payment linking accepts only safe Helcim matches (1.4s)
+  ✓  20 [chromium] › e2e/payments-operations-contract.spec.ts:580:3 › Payments Operations backend contract › actual deposit workflow links expected batches without mutating money fields (2.0s)
+  ✓  21 [chromium] › e2e/payments-operations-ui.spec.ts:176:3 › Payments Operations workspace smoke › tabs, drawers, empty states, and staff-safe copy render (29.5s)
+  ✓  22 [chromium] › e2e/podium-settings.spec.ts:50:3 › Settings Podium integration › Integrations tab shows Podium section (26.4s)
+  ✓  23 [chromium] › e2e/register-close-reconciliation.spec.ts:356:3 › Register close / reconciliation › cash discrepancies over five dollars require closing notes (841ms)
+  ✓  24 [chromium] › e2e/register-close-reconciliation.spec.ts:411:3 › Register close / reconciliation › historical Z session list stays unified to Register #1 for a till-close group (2.8s)
+  ✓  25 [chromium] › e2e/register-close-reconciliation.spec.ts:500:3 › Register close / reconciliation › open session coordination exposes pending close state for the full till group (1.6s)
+  ✓  26 [chromium] › e2e/staff-tasks.spec.ts:44:3 › Staff tasks › Tasks subsection shows My tasks panel (26.5s)
+  ✓  27 [chromium] › e2e/visual-baselines.spec.ts:47:3 › visual baselines (local screenshots) › visual baseline: register closed overlay (27.8s)
+  ✓  28 [chromium] › e2e/visual-baselines.spec.ts:56:3 › visual baselines (local screenshots) › visual baseline: qbo workspace (26.5s)
+  ✓  29 [chromium] › e2e/visual-baselines.spec.ts:67:3 › visual baselines (local screenshots) › visual baseline: dark mode inventory (27.3s)
+  ✓  30 [chromium] › e2e/visual-baselines.spec.ts:94:3 › visual baselines (local screenshots) › visual baseline: customers workspace (26.6s)
+  ✓  31 [chromium] › e2e/visual-baselines.spec.ts:105:3 › visual baselines (local screenshots) › visual baseline: operations command center (26.1s)
+
+  31 passed (5.0m)

@@ -12,7 +12,11 @@ import {
   openBackofficeSidebarTab,
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
-import { enterPosShell, ensurePosSaleCashierSignedIn } from "./helpers/openPosRegister";
+import {
+  enterPosShell,
+  ensurePosRegisterSessionOpen,
+  ensurePosSaleCashierSignedIn,
+} from "./helpers/openPosRegister";
 
 async function openSettingsHelpCenterManager(
   page: Parameters<typeof test>[0]["page"],
@@ -102,6 +106,7 @@ test("opens Help from POS top bar", async ({ page }) => {
   await signInToBackOffice(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await enterPosShell(page);
+  await ensurePosRegisterSessionOpen(page);
   await ensurePosSaleCashierSignedIn(page);
   await page.getByTestId("help-center-trigger").click();
   await expect(page.getByRole("dialog", { name: /help/i })).toBeVisible();

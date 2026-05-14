@@ -35,8 +35,8 @@ for (const viewport of SETTINGS_VIEWPORTS) {
       timeout: 20_000,
     });
 
-    await openSettingsSubItem(page, /^general$/i);
-    await expect(page.getByRole("heading", { name: /system settings/i })).toBeVisible({
+    await openSettingsSubItem(page, /^profile$/i);
+    await expect(page.getByRole("heading", { name: /staff profile/i })).toBeVisible({
       timeout: 20_000,
     });
 

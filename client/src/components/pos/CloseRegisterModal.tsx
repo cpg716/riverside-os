@@ -186,6 +186,9 @@ export default function CloseRegisterModal({
     if (!reconcileCashierCode) return;
     void (async () => {
       try {
+        const summary = await getCheckoutQueueSummary();
+        setOfflineQueueSummary(summary);
+        if (summary.totalCount > 0) return;
         const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
           method: "POST",
           headers: jsonAuthHeaders(),
@@ -250,13 +253,22 @@ export default function CloseRegisterModal({
   const blockForOfflineQueue = useCallback(async () => {
     const summary = await refreshOfflineQueueSummary();
     if (summary.totalCount === 0) return false;
+    try {
+      if ((registerLane == null || registerLane === 1) && reconcileCashierCode) {
+        await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
+          method: "POST",
+          headers: jsonAuthHeaders(),
+          body: JSON.stringify({ active: false, cashier_code: reconcileCashierCode }),
+        });
+      }
+    } catch { /* optional recovery; the close remains blocked either way */ }
     const message =
       summary.blockedCount > 0
         ? `${summary.blockedCount} completed checkout${summary.blockedCount === 1 ? "" : "s"} need manager recovery before Z-close.`
         : `${summary.pendingCount} completed checkout${summary.pendingCount === 1 ? "" : "s"} still need to sync before Z-close.`;
     toast(message, "error");
     return true;
-  }, [refreshOfflineQueueSummary, toast]);
+  }, [baseUrl, jsonAuthHeaders, reconcileCashierCode, refreshOfflineQueueSummary, registerLane, sessionId, toast]);
 
   const handleBlindCountSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,6 +1,6 @@
 # Riverside OS Production Hardening Audit Plan
 
-## Current Execution Status — 2026-04-25
+## Current Execution Status — 2026-05-14
 
 This plan has now been executed as an AI/code hardening pass. The current source-of-truth outputs are:
 
@@ -8,8 +8,9 @@ This plan has now been executed as an AI/code hardening pass. The current source
 - [`docs/PRODUCTION_HARDENING_FIX_PLAN.md`](docs/PRODUCTION_HARDENING_FIX_PLAN.md)
 - [`docs/PRODUCTION_COVERAGE_GAP_MATRIX.md`](docs/PRODUCTION_COVERAGE_GAP_MATRIX.md)
 - [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md)
+- [`docs/releases/v0.50-gold-certification.md`](docs/releases/v0.50-gold-certification.md)
 
-Code-level P0/P1 audit findings identified in this pass are remediated or converted into explicit release gates. The latest local full release gate reported **181 passed, 7 skipped, 0 failed**.
+Code-level P0/P1 audit findings identified in this pass are remediated or converted into explicit release gates. The v0.50 GOLD local release gate reported **310 passed, 31 skipped, 0 failed** on 2026-05-14. The 31 environment/visual-gated lanes were then run with the E2E API/DB env and `E2E_RUN_VISUAL=1`, reporting **31 passed, 0 skipped, 0 failed**.
 
 The remaining blockers are not hidden code-audit checklist items; they are release-environment signoffs:
 

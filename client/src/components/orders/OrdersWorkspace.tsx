@@ -833,6 +833,10 @@ export default function OrdersWorkspace({
   const [refundMethod, setRefundMethod] = useState("cash");
   const [refundGiftCode, setRefundGiftCode] = useState("");
   const [refundBusy, setRefundBusy] = useState(false);
+  const openInRegisterAndClose = useCallback((orderId: string) => {
+    setSelectedId(null);
+    onOpenInRegister?.(orderId);
+  }, [onOpenInRegister]);
   const [registerRequiredOpen, setRegisterRequiredOpen] = useState(false);
   useShellBackdropLayer(refundModalOpen || registerRequiredOpen);
   // exchangeOtherId removed
@@ -1912,7 +1916,7 @@ export default function OrdersWorkspace({
                   isSelected={selectedId === r.transaction_id}
                   onClick={() => setSelectedId(selectedId === r.transaction_id ? null : r.transaction_id)}
                   actions={{
-                    onOpenInRegister,
+                    onOpenInRegister: openInRegisterAndClose,
                     onAttachToWedding: () => setAttachWeddingModalOpen(true),
                     onCancel: () => setCancelConfirmOpen(true),
                     onReturnAll: () => setReturnConfirmOpen(true),
@@ -1951,7 +1955,7 @@ export default function OrdersWorkspace({
                     isSelected={selectedId === r.transaction_id}
                     onClick={() => setSelectedId(selectedId === r.transaction_id ? null : r.transaction_id)}
                     actions={{
-                      onOpenInRegister,
+                      onOpenInRegister: openInRegisterAndClose,
                       onAttachToWedding: () => setAttachWeddingModalOpen(true),
                       onCancel: () => setCancelConfirmOpen(true),
                       onReturnAll: () => setReturnConfirmOpen(true),
@@ -2040,7 +2044,7 @@ export default function OrdersWorkspace({
           await loadNtboItems();
         }}
         orderActions={{
-          onOpenInRegister,
+          onOpenInRegister: openInRegisterAndClose,
           onAttachToWedding: () => setAttachWeddingModalOpen(true),
           onCancel: () => setCancelConfirmOpen(true),
           onReturnAll: () => setReturnConfirmOpen(true),

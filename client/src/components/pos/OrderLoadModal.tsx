@@ -295,7 +295,12 @@ export default function OrderLoadModal({
             <Package size={20} className="text-blue-600" />
             <span className="font-black text-app-text">Customer Orders</span>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1 hover:bg-app-surface-2">
+          <button
+            type="button"
+            aria-label="Close customer orders"
+            onClick={onClose}
+            className="rounded-lg p-1 hover:bg-app-surface-2"
+          >
             <X size={20} />
           </button>
         </div>

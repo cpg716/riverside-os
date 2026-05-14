@@ -9,6 +9,12 @@ const ELIGIBLE_STAFF = [
 const WEEK_START = "2026-04-26";
 const WEEK_END = "2026-05-02";
 
+function addDaysYmd(start: string, days: number) {
+    const date = new Date(`${start}T00:00:00`);
+    date.setDate(date.getDate() + days);
+    return date.toISOString().slice(0, 10);
+}
+
 test.describe("Staff Scheduler E2E", () => {
     test.beforeEach(async ({ page }) => {
         // Mock eligible staff
@@ -22,32 +28,31 @@ test.describe("Staff Scheduler E2E", () => {
 
         // Mock weekly view (Public Roster)
         await page.route("**/api/staff/schedule/weekly-view?*", async (route) => {
+            const url = new URL(route.request().url());
+            const from = url.searchParams.get("from") ?? WEEK_START;
+            const to = url.searchParams.get("to") ?? addDaysYmd(from, 6);
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
                 body: JSON.stringify({
-                    from: WEEK_START,
-                    to: WEEK_END,
+                    from,
+                    to,
                     rows: ELIGIBLE_STAFF.map(s => ({
                         staff_id: s.id,
                         full_name: s.full_name,
                         role: s.role,
-                        days: [
-                            { date: "2026-04-26", working: true, shift_label: "9-5" },
-                            { date: "2026-04-27", working: true, shift_label: "9-5" },
-                            { date: "2026-04-28", working: true, shift_label: "9-5" },
-                            { date: "2026-04-29", working: true, shift_label: "9-5" },
-                            { date: "2026-04-30", working: true, shift_label: "9-5" },
-                            { date: "2026-05-01", working: true, shift_label: "9-5" },
-                            { date: "2026-05-02", working: true, shift_label: "9-5" },
-                        ]
+                        days: Array.from({ length: 7 }, (_, i) => ({
+                            date: addDaysYmd(from, i),
+                            working: true,
+                            shift_label: "9-5"
+                        }))
                     })),
                 }),
             });
         });
 
         // Mock specific week data for Scheduler (Draft/Published)
-        await page.route(`**/api/staff/schedule/weeks/${WEEK_START}*`, async (route) => {
+        await page.route("**/api/staff/schedule/weeks/*", async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
@@ -55,7 +60,7 @@ test.describe("Staff Scheduler E2E", () => {
                     staff_id: s.id,
                     full_name: s.full_name,
                     role: s.role,
-                    status: "Published",
+                    status: "published",
                     weekdays: Array.from({ length: 7 }, (_, i) => ({
                         weekday: i,
                         works: true,
@@ -63,6 +68,14 @@ test.describe("Staff Scheduler E2E", () => {
                         is_highlighted: false
                     }))
                 }))),
+            });
+        });
+
+        await page.route("**/api/staff/schedule/events*", async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify([]),
             });
         });
 
@@ -140,7 +153,7 @@ test.describe("Staff Scheduler E2E", () => {
         await expect(page.getByText("Plan specific weeks")).toBeVisible();
 
         // Verify status badge
-        await expect(page.getByText("Published week")).toBeVisible();
+        await expect(page.getByText("Published week", { exact: true })).toBeVisible();
 
         // Verify Excel Import button existence
         await expect(page.getByText("Upload Excel")).toBeVisible();
@@ -149,13 +162,15 @@ test.describe("Staff Scheduler E2E", () => {
     test("can manage store events (meetings/holidays)", async ({ page }) => {
         // Mock events fetch
         await page.route("**/api/staff/schedule/events*", async (route) => {
+            const url = new URL(route.request().url());
+            const from = url.searchParams.get("from") ?? WEEK_START;
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
                 body: JSON.stringify([
                     { 
                         id: "evt-1", 
-                        event_date: "2026-04-27", 
+                        event_date: addDaysYmd(from, 1), 
                         label: "Memorial Day", 
                         kind: "holiday", 
                         is_all_staff: true, 

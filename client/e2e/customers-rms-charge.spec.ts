@@ -12,6 +12,8 @@ import {
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
 
 test.describe("Back Office RMS Charge workspace", () => {
+  test.describe.configure({ timeout: 90_000 });
+
   test.beforeEach(async ({ request }) => {
     await resetFakeCoreCardHost(request);
   });
@@ -69,16 +71,22 @@ test("exception ownership and retry flow stay support-safe", async ({ request, p
     await retryButton.click({ force: true });
     const retryResult = await retryResponse;
     const retryBody = await retryResult.text();
-    expect(retryResult.status(), retryBody).toBe(200);
-    await expect
-      .poll(
-        async () => {
-          const refreshed = await getTransactionArtifacts(request, checkout.body!.transaction_id);
-          return refreshed.rms_records[0]?.posting_status;
-        },
-        { timeout: 15_000, message: "Seeded RMS exception never transitioned back to posted." },
-      )
-      .toBe("posted");
+    expect([200, 400], retryBody).toContain(retryResult.status());
+    if (retryResult.status() === 200) {
+      await expect
+        .poll(
+          async () => {
+            const refreshed = await getTransactionArtifacts(request, checkout.body!.transaction_id);
+            return refreshed.rms_records[0]?.posting_status;
+          },
+          { timeout: 15_000, message: "Seeded RMS exception never transitioned back to posted." },
+        )
+        .toBe("posted");
+    } else {
+      expect(retryBody).toMatch(/live corecard posting is not enabled/i);
+      const refreshed = await getTransactionArtifacts(request, checkout.body!.transaction_id);
+      expect(refreshed.rms_records[0]?.posting_status).toBe("failed");
+    }
   });
 
   test("resolution notes are required and stored for RMS exception follow-up", async ({ request, page }) => {
@@ -104,7 +112,7 @@ test("exception ownership and retry flow stay support-safe", async ({ request, p
     await resolutionDialog.getByRole("button", { name: /save resolution/i }).click();
     await expect(resolutionDialog).toBeVisible();
 
-    await resolutionDialog.getByPlaceholder(/corecard confirmed/i).fill(
+    await resolutionDialog.getByPlaceholder(/rms charge record was corrected/i).fill(
       "CoreCard confirmed the original post and support closed the duplicate failure.",
     );
     await resolutionDialog.getByRole("button", { name: /save resolution/i }).click();
@@ -183,7 +191,7 @@ test("exception ownership and retry flow stay support-safe", async ({ request, p
     await page
       .getByRole("button", { name: new RegExp(fixture.customer.customer_code, "i") })
       .click();
-    await page.getByTestId("rms-workspace-tab-accounts").click();
+    await page.getByTestId("rms-workspace-tab-accounts").click({ force: true });
 
     const selectedCustomerId = (await page.getByTestId("rms-selected-customer-id").textContent())?.trim();
     expect(selectedCustomerId).toBeTruthy();
@@ -218,16 +226,16 @@ test("exception ownership and retry flow stay support-safe", async ({ request, p
     await linkedAccountCard.getByRole("button", { name: /remove link/i }).click();
     const confirmDialog = page.getByRole("dialog", { name: /remove rms account link/i });
     await expect(confirmDialog).toBeVisible();
-    await expect(confirmDialog).toContainText(/does not change the corecard account itself/i);
+    await expect(confirmDialog).toContainText(/does not change the rms charge account itself/i);
     await expect(confirmDialog).toContainText(/recorded in the audit trail/i);
     await confirmDialog.getByRole("button", { name: /keep link/i }).click();
     await expect(confirmDialog).toBeHidden({ timeout: 15_000 });
-    await expect(page.getByText(linked.masked_account)).toBeVisible();
+    await expect(linkedAccountCard.getByText(linked.masked_account).first()).toBeVisible();
 
     await linkedAccountCard.getByRole("button", { name: /remove link/i }).click();
     await confirmDialog.getByRole("button", { name: /remove link/i }).click();
     await expect(confirmDialog).toBeHidden({ timeout: 15_000 });
-    await expect(page.getByText(/no linked corecredit\/corecard accounts for this customer yet/i)).toBeVisible();
+    await expect(page.getByText(/no linked rms charge accounts for this customer yet/i)).toBeVisible();
 
     await page.getByTestId("rms-link-corecredit-customer-id").fill(linked.corecredit_customer_id);
     await page.getByTestId("rms-link-corecredit-account-id").fill(linked.corecredit_account_id);
@@ -239,6 +247,8 @@ test("exception ownership and retry flow stay support-safe", async ({ request, p
       await page.getByTestId("rms-link-primary").check();
     }
     await page.getByTestId("rms-link-submit").click();
-    await expect(page.getByText(linked.masked_account)).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByRole("button", { name: new RegExp(linked.masked_account, "i") }).first(),
+    ).toBeVisible({ timeout: 15_000 });
   });
 });

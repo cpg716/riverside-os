@@ -110,6 +110,29 @@ export interface CustomerHubData extends CustomerProfile {
   snapshot_items: CustomerSnapshotItem[];
 }
 
+function normalizeCustomerHubData(data: CustomerHubData): CustomerHubData {
+  return {
+    ...data,
+    profile_complete: data.profile_complete ?? false,
+    weddings: data.weddings ?? [],
+    stats: {
+      lifetime_spend_usd: data.stats?.lifetime_spend_usd ?? "0.00",
+      balance_due_usd: data.stats?.balance_due_usd ?? "0.00",
+      wedding_party_count: data.stats?.wedding_party_count ?? 0,
+      last_activity_at: data.stats?.last_activity_at ?? null,
+      days_since_last_visit: data.stats?.days_since_last_visit ?? null,
+      marketing_needs_attention: data.stats?.marketing_needs_attention ?? false,
+      loyalty_points: data.stats?.loyalty_points ?? data.loyalty_points ?? 0,
+      lifecycle_state: data.stats?.lifecycle_state ?? "new",
+    },
+    partner: data.partner ?? null,
+    couple_id: data.couple_id ?? null,
+    couple_primary_id: data.couple_primary_id ?? null,
+    couple_linked_at: data.couple_linked_at ?? null,
+    snapshot_items: data.snapshot_items ?? [],
+  };
+}
+
 export interface CustomerTimelineEvent {
   at: string;
   kind: string;
@@ -655,7 +678,7 @@ export function CustomerRelationshipHubDrawer({
         headers: apiAuth(),
       });
       if (res.ok) {
-        setHub((await res.json()) as CustomerHubData);
+        setHub(normalizeCustomerHubData((await res.json()) as CustomerHubData));
       } else {
         // Fallback path keeps drawer usable even if /hub stats fail.
         const profileRes = await fetch(
@@ -670,7 +693,7 @@ export function CustomerRelationshipHubDrawer({
           stats: {
             lifetime_spend_usd: "0.00",
             balance_due_usd: "0.00",
-            wedding_party_count: profile.weddings.length,
+            wedding_party_count: profile.weddings?.length ?? 0,
             last_activity_at: null,
             days_since_last_visit: null,
             marketing_needs_attention:
@@ -685,6 +708,7 @@ export function CustomerRelationshipHubDrawer({
           couple_primary_id: null,
           couple_linked_at: null,
           snapshot_items: [],
+          weddings: profile.weddings ?? [],
         });
       }
     } catch {

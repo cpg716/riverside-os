@@ -166,6 +166,17 @@ async function openPosOrdersSection(page: Parameters<typeof signInToBackOffice>[
   await posNav.getByRole("button", { name: "Orders", exact: true }).click();
 }
 
+async function expectOrderLoadedInRegister(
+  page: Parameters<typeof signInToBackOffice>[0],
+  order: SeededOrder,
+) {
+  await expect(page.getByText("Customer Orders", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(order.displayId).first()).toBeVisible();
+  await page.getByRole("button", { name: /view lines/i }).first().click();
+  await expect(page.getByText(order.productName).first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: /close customer orders/i }).click();
+}
+
 test.describe("Orders detail drawer and POS handoff", () => {
   test("Back Office orders open the detail drawer and load the selected order into Register", async ({
     page,
@@ -221,7 +232,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(drawer).toContainText("Readiness Check");
     await expect(drawer).toContainText("Blocks Release");
     await expect(drawer).toContainText("Balance due before release");
-    await expect(drawer).toContainText("1 pickup line is still open.");
+    await expect(drawer).toContainText("1 pickup line is not ready.");
     await expect(drawer).toContainText("1 linked alteration is overdue.");
     await expect(drawer).toContainText("Still Open");
     expect(insightRequests).toHaveLength(0);
@@ -240,7 +251,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
         title: "Readiness Check",
         bullets: expect.arrayContaining([
           expect.objectContaining({ label: expect.stringContaining("Balance due before release") }),
-          expect.objectContaining({ label: "1 pickup line is still open." }),
+          expect.objectContaining({ label: "1 pickup line is not ready." }),
           expect.objectContaining({ label: "1 linked alteration is overdue." }),
         ]),
       },
@@ -249,7 +260,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();
 
     await ensurePosSaleCashierSignedIn(page);
-    await expect(page.getByText(order.productName).first()).toBeVisible({ timeout: 20_000 });
+    await expectOrderLoadedInRegister(page, order);
   });
 
   test("POS orders open the same detail drawer contract", async ({ page, request }) => {
@@ -314,7 +325,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();
 
     await ensurePosSaleCashierSignedIn(page);
-    await expect(page.getByText(order.productName).first()).toBeVisible({ timeout: 20_000 });
+    await expectOrderLoadedInRegister(page, order);
   });
 
   test("POS order round-trip reopens with authoritative detail after register activity", async ({
@@ -335,7 +346,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await drawer.getByRole("button", { name: "Open in Register" }).first().click();
 
     await ensurePosSaleCashierSignedIn(page);
-    await expect(page.getByText(order.productName).first()).toBeVisible({ timeout: 20_000 });
+    await expectOrderLoadedInRegister(page, order);
 
     const patchRes = await request.patch(
       `${apiBase()}/api/transactions/${order.transactionId}/items/${order.transactionLineId}`,

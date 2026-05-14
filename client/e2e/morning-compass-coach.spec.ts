@@ -96,7 +96,8 @@ test.describe("Morning Compass coach", () => {
     expect(insightBodies).toHaveLength(0);
 
     await insight.getByRole("button", { name: /today at riverside rosie insight/i }).click();
-    await expect(insight.locator("li")).toHaveCount(3);
+    await expect.poll(() => insightBodies.length).toBe(1);
+    await expect(insight.locator("li")).toHaveCount(3, { timeout: 15_000 });
     expect(insightBodies).toHaveLength(1);
     expect(insightBodies[0]).toMatchObject({
       surface: "daily_operational_briefing",

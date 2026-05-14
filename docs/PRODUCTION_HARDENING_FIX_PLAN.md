@@ -94,7 +94,8 @@ All of the following must pass after fixes:
 - `npm run check:server`
 - `npm run lint`
 - `npm --prefix client run build`
-- `npm run test:e2e:release` — passed locally on 2026-04-25 after audit-contract additions, RMS helper/isolation fix, offline recovery coverage, QBO business-date coverage, parked-sale close coverage, physical-inventory read/snapshot fixes, deterministic non-admin RBAC seed/auth coverage, and checkout tender financial contract coverage; 181 passed, 7 skipped, 0 failed.
+- `npm run test:e2e:release` — passed locally on 2026-05-14 for v0.50 GOLD after audit-contract additions, RMS helper/isolation fix, offline recovery coverage, QBO business-date coverage, parked-sale close coverage, physical-inventory read/snapshot fixes, deterministic non-admin RBAC seed/auth coverage, checkout tender financial contract coverage, lifecycle/pickup certification, Payments Operations, and Help Center/visual workflow hardening; 310 passed, 31 skipped, 0 failed.
+- Skipped-lane certification — passed locally on 2026-05-14 with the E2E API/DB env and `E2E_RUN_VISUAL=1`; 31 passed, 0 skipped, 0 failed.
 - `npm --prefix client run test:e2e -- e2e/api-gates.spec.ts e2e/high-risk-regressions.spec.ts e2e/phase2-finance-and-help-lifecycle.spec.ts e2e/rms-permissions.spec.ts --workers=1` — passed locally on 2026-04-25; 33 passed, 0 skipped.
 - `npm run test:e2e:high-risk` — passed locally on 2026-04-25.
 - `npm run test:e2e:phase2` — passed locally on 2026-04-25.

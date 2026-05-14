@@ -287,7 +287,7 @@ test.describe("POS exchange wizard", () => {
     await expect(wizardDialog.getByText(/record return items/i).first()).toBeVisible({
       timeout: 10_000,
     });
-    await expect(wizardDialog.getByText(/sell replacements/i).first()).toBeVisible({
+    await expect(wizardDialog.getByText(/refund or replace/i).first()).toBeVisible({
       timeout: 10_000,
     });
   });

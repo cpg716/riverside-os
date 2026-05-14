@@ -420,7 +420,7 @@ test.describe("operational rollout smoke", () => {
     await expect(wizard.getByText(seeded.detail.items[0]!.product_name).first()).toBeVisible();
     await expect(wizard.getByText(/max return: 1/i)).toBeVisible();
     await wizard.locator("input[placeholder='0']").first().fill("1");
-    await wizard.getByRole("button", { name: /record returns & proceed/i }).click();
+    await wizard.getByRole("button", { name: /exchange for new items/i }).click();
     await expect(wizard.getByText(/returns are saved/i)).toBeVisible({ timeout: 20_000 });
 
     const returned = await fetchTransactionDetail(request, seeded.checkout.transaction_id);
@@ -506,7 +506,7 @@ test.describe("operational rollout smoke", () => {
     await expect(refundModal).toBeVisible({ timeout: 10_000 });
     await expect(refundModal.getByLabel(/Amount \(USD\)/i)).toBeVisible();
     await refundModal.getByLabel(/Amount \(USD\)/i).fill(refundBefore.amount_due);
-    await refundModal.getByLabel(/Payment method/i).fill("cash");
+    await refundModal.getByLabel(/Payment method/i).selectOption("cash");
     await refundModal.getByRole("button", { name: /submit refund/i }).click();
     await expect(page.getByText(/Refund completed/i)).toBeVisible({ timeout: 20_000 });
     await expect(refundModal).toBeHidden({ timeout: 20_000 });

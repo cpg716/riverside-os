@@ -60,7 +60,7 @@ export default function PosSaleCashierSignInOverlay({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[120] flex min-h-[100dvh] flex-col items-center justify-center bg-app-bg p-4 font-sans antialiased sm:p-6"
+      className="fixed inset-0 z-[300] flex min-h-[100dvh] flex-col items-center justify-center bg-app-bg p-4 font-sans antialiased sm:p-6"
       data-testid="pos-sale-cashier-overlay"
       data-roster-ready={roster.length > 0 ? "true" : "false"}
       data-staff-selected={selectedStaffId ? "true" : "false"}

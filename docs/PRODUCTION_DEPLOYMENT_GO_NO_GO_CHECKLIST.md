@@ -34,15 +34,18 @@ Target: Hybrid Tauri Host retail deployment.
 
 ## Code Gate
 
+- [x] v0.50 GOLD automated certification evidence is recorded in [`docs/releases/v0.50-gold-certification.md`](releases/v0.50-gold-certification.md).
 - [x] No unresolved AI-actionable code-level P0/P1 findings remain in `docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`; human/environment verification gates below remain required.
 - [x] `cargo fmt --manifest-path server/Cargo.toml --check` — passed locally for v0.4.0 readiness on 2026-05-01.
 - [x] `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` — passed locally for v0.4.0 readiness on 2026-05-01 after the Meilisearch helper refactor.
 - [x] `cargo check --manifest-path server/Cargo.toml` — passed locally for v0.4.0 readiness on 2026-05-01.
 - [x] `cargo fmt --check --manifest-path server/Cargo.toml` — passed locally on 2026-04-25.
-- [x] `npm run check:server` — passed locally on 2026-04-25.
-- [x] `npm run lint` — passed locally on 2026-04-25.
+- [x] `npm run check:server` — passed locally on 2026-05-14 after v0.50 GOLD skipped-lane certification.
+- [x] `npm run lint` / `npm --prefix client run lint` — passed locally on 2026-05-14 after v0.50 GOLD skipped-lane certification.
+- [x] `npm --prefix client run typecheck` — passed locally on 2026-05-14 after v0.50 GOLD skipped-lane certification.
 - [x] `npm --prefix client run build` — passed locally on 2026-04-25.
-- [x] `npm run test:e2e:release` — passed locally on 2026-04-25 after offline recovery, QBO business-date, parked-sale close, checkout tender financial, tax, commission, inventory, register, restore, RMS helper, physical-inventory, and deterministic RBAC hardening; suite reported 181 passed, 7 skipped, 0 failed.
+- [x] `npm run test:e2e:release` — passed locally on 2026-05-14 for v0.50 GOLD after offline recovery, QBO, lifecycle, pickup, RMS, Payments Operations, visual workflow, mobile/responsive, and Help Center hardening; suite reported 310 passed, 31 skipped, 0 failed.
+- [x] Skipped-lane certification: `E2E_API_BASE=http://127.0.0.1:43300 E2E_DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os_e2e DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os_e2e RIVERSIDE_DB_NAME=riverside_os_e2e E2E_RUN_VISUAL=1 npm --prefix client run test:e2e -- e2e/backoffice-signin.spec.ts e2e/high-risk-regressions.spec.ts e2e/intelligence-and-finance.spec.ts e2e/payments-operations-contract.spec.ts e2e/payments-operations-ui.spec.ts e2e/podium-settings.spec.ts e2e/register-close-reconciliation.spec.ts e2e/staff-tasks.spec.ts e2e/visual-baselines.spec.ts --workers=1` — passed locally on 2026-05-14; suite reported 31 passed, 0 skipped, 0 failed.
 - [x] Non-admin/RBAC skip cleanup: `npm --prefix client run test:e2e -- e2e/api-gates.spec.ts e2e/high-risk-regressions.spec.ts e2e/phase2-finance-and-help-lifecycle.spec.ts e2e/rms-permissions.spec.ts --workers=1` reported 33 passed, 0 skipped on 2026-04-25.
 - [x] `npm run test:e2e:high-risk` — passed locally on 2026-04-25; suite reported 4 passed, 2 built-in skips.
 - [x] `npm run test:e2e:phase2` — passed locally on 2026-04-25; suite reported 3 passed, 2 built-in skips.

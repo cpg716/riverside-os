@@ -35,6 +35,11 @@ npm run test:e2e:release
 
 Result: 181 passed, 7 skipped, 0 failed.
 
+Superseding v0.50 GOLD evidence on 2026-05-14:
+
+- `npm run test:e2e:release`: 310 passed, 31 skipped, 0 failed.
+- Environment/visual-gated certification with `E2E_API_BASE=http://127.0.0.1:43300`, `E2E_DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os_e2e`, `DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os_e2e`, `RIVERSIDE_DB_NAME=riverside_os_e2e`, and `E2E_RUN_VISUAL=1`: 31 passed, 0 skipped, 0 failed.
+
 ## Residual Guidance
 
 Keep future POS browser specs aligned to the explicit contracts above. Avoid adding new helpers that infer readiness from broad text, transient loading copy, or nav-only visibility.

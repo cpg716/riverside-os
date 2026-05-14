@@ -1,0 +1,6 @@
+
+> riverside-os@0.4.7 check:server
+> bash scripts/cargo-server.sh check
+
+    Checking riverside-server v0.4.5 (/Users/cpg/riverside-os/server)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.36s

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 import {
   clearBackofficeSession,
   e2eBackofficeStaffCode,
@@ -15,6 +15,36 @@ function apiBase(): string {
 }
 
 let canaryStaffOk = false;
+
+async function closeOpenRegisterSessions(request: APIRequestContext) {
+  const code = e2eBackofficeStaffCode();
+  const headers = {
+    "x-riverside-staff-code": code,
+    "x-riverside-staff-pin": code,
+  };
+  const listRes = await request.get(`${apiBase()}/api/sessions/list-open`, {
+    headers,
+    failOnStatusCode: false,
+  });
+  if (listRes.status() !== 200) return;
+  const rows = (await listRes.json()) as Array<{ id?: string; session_id?: string }>;
+  for (const row of rows) {
+    const sessionId = row.session_id || row.id;
+    if (!sessionId) continue;
+    await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
+      headers: {
+        ...headers,
+        "Content-Type": "application/json",
+      },
+      data: {
+        actual_cash: "0.00",
+        closing_notes: "E2E sign-in reset",
+        closing_comments: "E2E sign-in reset",
+      },
+      failOnStatusCode: false,
+    });
+  }
+}
 
 test.beforeAll(async ({ request }) => {
   const code = e2eBackofficeStaffCode();
@@ -101,19 +131,16 @@ test.describe("Back Office sign-in gate", () => {
     ).toBeVisible({ timeout: 15_000 });
   });
 
-  test("Switch staff returns to sign-in", async ({ page }) => {
+  test("Switch staff returns to sign-in", async ({ page, request }) => {
+    await closeOpenRegisterSessions(request);
     await signInToBackOffice(page);
-    const switchBtn = page.getByRole("button", { name: /switch staff/i });
-    if (!(await switchBtn.isVisible().catch(() => false))) {
-      test.skip(
-        true,
-        "Switch staff is hidden while a register session is open (till open). Close the till for this test.",
-      );
-    }
-    await switchBtn.click();
+    const userMenuButton = page.locator('button[aria-haspopup="true"]').last();
+    await expect(userMenuButton).toBeVisible({ timeout: 15_000 });
+    await userMenuButton.click();
+    await page.getByRole("button", { name: /change staff member/i }).click();
     await expect(
       page.getByRole("heading", {
-        name: /sign in to (back office|riverside os)/i,
+        name: /^sign in$|sign in to (back office|riverside os)/i,
       }),
     ).toBeVisible({ timeout: 15_000 });
   });

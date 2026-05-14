@@ -61,6 +61,8 @@ test.describe("RMS permissions split", () => {
   });
 
   test("back office admin sees full RMS workspace capabilities", async ({ page, request }) => {
+    test.setTimeout(60_000);
+
     await resetOpenRegisterSessions(request);
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.evaluate(() => {

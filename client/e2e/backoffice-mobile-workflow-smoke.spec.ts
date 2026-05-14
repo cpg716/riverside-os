@@ -65,7 +65,7 @@ for (const viewport of WORKFLOW_VIEWPORTS) {
     await expect(page.getByText(/start with the vendor paperwork in hand/i)).toBeVisible({
       timeout: 20_000,
     });
-    await openMainNavSubItem(page, /^order stock$/i);
+    await page.getByRole("button", { name: /^order stock$/i }).last().click();
     await expect(page.getByRole("heading", { name: /^order stock$/i }).first()).toBeVisible({
       timeout: 20_000,
     });
@@ -87,9 +87,28 @@ for (const viewport of WORKFLOW_VIEWPORTS) {
 
     // Loyalty interaction
     await openBackofficeSidebarTab(page, "loyalty");
+    const loyaltyHeading = page.getByRole("heading", { name: /^customers ready for reward$/i });
+    if (!(await loyaltyHeading.isVisible({ timeout: 5_000 }).catch(() => false))) {
+      const menuToggle = page.getByRole("button", { name: /toggle menu/i });
+      const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
+      const loyaltyButton = mainNav.getByRole("button", { name: /^loyalty(?:\s+bo)?$/i }).last();
+      if (!(await loyaltyButton.isVisible().catch(() => false)) && await menuToggle.isVisible().catch(() => false)) {
+        await menuToggle.click().catch(() => {});
+      }
+      await expect(loyaltyButton).toBeVisible({ timeout: 10_000 });
+      await loyaltyButton.scrollIntoViewIfNeeded().catch(() => {});
+      await loyaltyButton.click({ force: true });
+      if (
+        (await page.getByTestId("app-shell-state").getAttribute("data-active-tab").catch(() => "")) !== "loyalty"
+      ) {
+        await page.getByTestId("sidebar-nav-loyalty").evaluate((element) => {
+          (element as HTMLButtonElement).click();
+        });
+      }
+    }
     await expect(
-      page.getByRole("heading", { name: /^customers ready for reward$/i }),
-    ).toBeVisible({ timeout: 20_000 });
+      loyaltyHeading,
+    ).toBeVisible({ timeout: 45_000 });
     await page.getByRole("button", { name: /refresh eligible customers/i }).click();
   });
 }

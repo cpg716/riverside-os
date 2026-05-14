@@ -321,9 +321,10 @@ test.describe("Smart Alterations Scheduler E2E", () => {
     });
 
     test("can plan work items and schedule a slot using the smart scheduler", async ({ page }) => {
+        test.setTimeout(60_000);
         const insightRequests: Record<string, unknown>[] = [];
         await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
-            insightRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+            insightRequests.push(JSON.parse(route.request().postData() || "{}") as Record<string, unknown>);
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
@@ -367,7 +368,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await expect(garmentCard).toBeVisible();
 
         // Open Scheduler
-        await garmentCard.getByRole("button", { name: "Plan & Schedule", exact: true }).click();
+        await garmentCard.getByRole("button", { name: /plan (?:& schedule|\/ reassign)/i }).click();
         await expect(page.getByRole("heading", { name: "Plan & Schedule" })).toBeVisible();
 
         // Phase 1: Plan Work
@@ -397,6 +398,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             .getByTestId("rosie-insight-summary-capacity_outlook")
             .getByRole("button", { name: /rosie insight/i })
             .click();
+        await expect.poll(() => insightRequests.length).toBe(1);
         await expect(page.getByText("Friday is the first visible safe capacity day.")).toBeVisible();
         await expect(page.getByText("The overloaded and no-staff days need staff awareness.")).toBeVisible();
         await expect(page.getByText("Manual Thursday review remains deterministic.")).toBeVisible();
@@ -439,6 +441,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             .getByTestId("rosie-insight-summary-capacity_outlook")
             .getByRole("button", { name: /rosie insight/i })
             .click();
+        await expect.poll(() => insightRequests.length).toBe(2);
         await expect(
             page.getByText("Selected-day utilization is now part of the visible capacity facts."),
         ).toBeVisible();

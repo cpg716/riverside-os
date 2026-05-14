@@ -104,7 +104,7 @@ npm run test:e2e:tender
 - `test:e2e:phase2` runs the Phase 2 finance/help lifecycle suite.
 - `test:e2e:tender` runs the deterministic tender contract suite.
 
-The standard release gate also includes the production hardening audit contracts for checkout tender financials, tax, commission, inventory, offline recovery, QBO, and register close. The latest local production-hardening run on 2026-04-25 reported **181 passed, 7 skipped, 0 failed**.
+The release validation package includes production hardening audit contracts for checkout tender financials, tax, commission, inventory, offline recovery, QBO, register close, Payments Operations, register reconciliation, high-risk API, intelligence/finance, staff tasks, Podium settings, and visual baselines. The v0.50 GOLD standard local release gate on 2026-05-14 reported **310 passed, 31 skipped, 0 failed**. The 31 environment/visual-gated lanes were then run with the E2E API/DB env and `E2E_RUN_VISUAL=1`, reporting **31 passed, 0 skipped, 0 failed**.
 
 > If you see `ERR_CONNECTION_REFUSED` to `localhost:43173`, the dedicated E2E UI server is not running.
 > Local Playwright now auto-boots this same dedicated stack unless `E2E_AUTO_BOOT=0` is set.

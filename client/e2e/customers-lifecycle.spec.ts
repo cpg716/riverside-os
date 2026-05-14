@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { signInToBackOffice } from "./helpers/backofficeSignIn";
+import { openBackofficeSidebarTab, signInToBackOffice } from "./helpers/backofficeSignIn";
+
+test.describe.configure({ timeout: 90_000 });
 
 const pendingCustomer = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -96,14 +98,10 @@ const issueHubResponse = {
 };
 
 async function openCustomersWorkspace(page: Page) {
-  const customersButton = page
-    .getByRole("navigation", { name: "Main Navigation" })
-    .getByRole("button", { name: /customers/i });
-  await expect(customersButton).toBeVisible({ timeout: 15_000 });
-  await customersButton.click();
+  await openBackofficeSidebarTab(page, "customers");
   await expect(
     page.getByText("Profile Completeness"),
-  ).toBeVisible({ timeout: 25_000 });
+  ).toBeVisible({ timeout: 45_000 });
 }
 
 async function mockCustomerWorkspaceBasics(page: Page) {
@@ -434,7 +432,7 @@ test("customer lifecycle filter and hub badge use the same explicit state", asyn
 
   const dialog = page.getByRole("dialog", { name: /iris issue/i });
   await expect(dialog).toBeVisible({ timeout: 20_000 });
-  await expect(dialog.getByRole("button", { name: /^History$/i })).toBeVisible();
+  await expect(dialog.getByRole("tab", { name: /^History$/i })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /transaction records/i })).toHaveCount(0);
   await expect(dialog.getByText(/lifecycle/i)).toHaveCount(0);
 

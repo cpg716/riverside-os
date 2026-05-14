@@ -516,6 +516,7 @@ export default function RmsChargeAdminSection({
   const [latestAccountListStatus, setLatestAccountListStatus] = useState<RmsAccountListLatestStatus | null>(null);
   const [loadingAccountListStatus, setLoadingAccountListStatus] = useState(false);
   const [assigningExceptionId, setAssigningExceptionId] = useState("");
+  const [retryingExceptionId, setRetryingExceptionId] = useState("");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [from, setFrom] = useState(() => {
@@ -931,6 +932,27 @@ export default function RmsChargeAdminSection({
   const resolveException = useCallback(async (exceptionId: string) => {
     setResolvingException(exceptions.find((row) => row.id === exceptionId) ?? null);
   }, [exceptions]);
+
+  const retryException = useCallback(async (exception: RmsExceptionRow) => {
+    setRetryingExceptionId(exception.id);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/rms-charge/exceptions/${encodeURIComponent(exception.id)}/retry`,
+        {
+          method: "POST",
+          headers: apiAuth(),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "We couldn't retry this RMS issue.");
+      toast("RMS issue retry completed.", "success");
+      await loadOperationalData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "We couldn't retry this RMS issue.", "error");
+    } finally {
+      setRetryingExceptionId("");
+    }
+  }, [apiAuth, loadOperationalData, toast]);
 
   const submitResolutionNote = useCallback(async (note: string) => {
     const trimmed = note.trim();
@@ -1809,6 +1831,15 @@ export default function RmsChargeAdminSection({
                         ) : null}
                         <button type="button" data-testid={`rms-exception-resolve-${exception.id}`} onClick={() => void resolveException(exception.id)} className="ui-btn-secondary px-3 py-2 text-[10px]">
                           Resolve
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`rms-exception-retry-${exception.id}`}
+                          disabled={retryingExceptionId === exception.id}
+                          onClick={() => void retryException(exception)}
+                          className="ui-btn-secondary px-3 py-2 text-[10px] disabled:opacity-60"
+                        >
+                          {retryingExceptionId === exception.id ? "Retrying…" : "Retry"}
                         </button>
                       </div>
                     ) : null}

@@ -174,10 +174,26 @@ test.describe.serial("Payments Operations workspace smoke", () => {
   });
 
   test("tabs, drawers, empty states, and staff-safe copy render", async ({ page }) => {
+    test.setTimeout(60_000);
+
     const consoleErrors: string[] = [];
+    const failedApiResponses: string[] = [];
     page.on("console", (message) => {
-      if (message.type() === "error") {
-        consoleErrors.push(message.text());
+      const text = message.text();
+      if (
+        message.type() === "error" &&
+        !/^Failed to load resource: the server responded with a status of 404/.test(text)
+      ) {
+        consoleErrors.push(text);
+      }
+    });
+    page.on("response", (response) => {
+      const status = response.status();
+      if (status < 400) return;
+      const url = new URL(response.url());
+      if (status === 404 && url.pathname === "/api/sessions/current") return;
+      if (url.pathname.startsWith("/api/")) {
+        failedApiResponses.push(`${status} ${url.pathname}`);
       }
     });
     page.on("pageerror", (error) => {
@@ -234,7 +250,9 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await expect(page.getByText(seed.sourceReference)).toBeVisible();
     await page.getByText(seed.sourceReference).click();
     await expect(page.getByRole("dialog")).toContainText("Actual Bank Deposit");
-    await expect(page.getByRole("dialog")).toContainText("Expected Deposit");
+    await expect(page.getByRole("dialog")).toContainText("Expected Deposit", {
+      timeout: 15_000,
+    });
     await expect(page.getByRole("dialog")).toContainText("Reviewing does not post to QuickBooks");
     await page.keyboard.press("Escape");
 
@@ -251,5 +269,6 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     const bodyText = await page.locator("body").innerText();
     expect(bodyText).not.toMatch(/\bwebhook\b|\bpayload\b|\bidempotency\b|settlement item/i);
     expect(consoleErrors).toEqual([]);
+    expect(failedApiResponses).toEqual([]);
   });
 });

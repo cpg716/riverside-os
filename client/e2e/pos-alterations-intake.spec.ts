@@ -49,7 +49,7 @@ const OPEN_ORDER = {
 };
 
 async function openPosRegisterSurface(page: Page): Promise<void> {
-  await signInToBackOffice(page);
+  await signInToBackOffice(page, { staffName: "Avery Staff" });
 
   await page
     .getByRole("navigation", { name: "Main Navigation" })
