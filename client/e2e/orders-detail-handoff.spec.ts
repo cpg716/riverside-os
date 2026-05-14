@@ -55,7 +55,7 @@ async function createSpecialOrder(
     data: {
       session_id: sessionId,
       operator_staff_id: operatorStaffId,
-      primary_salesperson_id: null,
+      primary_salesperson_id: operatorStaffId,
       customer_id: fixture.customer.id,
       wedding_member_id: null,
       payment_method: "cash",

@@ -138,13 +138,6 @@ fn verify_helcim_webhook(
     verify_helcim_webhook_with_token(headers, body, now, &verifier_token)
 }
 
-fn helcim_webhook_secret_configured() -> bool {
-    std::env::var("HELCIM_WEBHOOK_SECRET")
-        .ok()
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false)
-}
-
 fn verify_helcim_webhook_with_token(
     headers: &HeaderMap,
     body: &[u8],

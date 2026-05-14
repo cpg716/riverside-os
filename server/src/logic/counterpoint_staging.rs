@@ -98,7 +98,7 @@ pub async fn insert_staging_batch(
         .unwrap_or(0);
 
     let mut tx = pool.begin().await?;
-    let replay_identity = format!("{entity}\n{}", payload);
+    let replay_identity = format!("{entity}\n{payload}");
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(&replay_identity)
         .execute(&mut *tx)

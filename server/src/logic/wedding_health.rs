@@ -789,9 +789,8 @@ fn party_status(
         .any(|b| b.severity == WeddingReadinessSeverity::Blocking);
     let all_open_items_ready =
         lifecycle.open > 0 && lifecycle.open == lifecycle.ready_for_pickup && blockers.is_empty();
-    if days_until_event < 0 && lifecycle.open > 0 {
-        WeddingReadinessStatus::Critical
-    } else if (days_until_event <= 14 && has_blocking)
+    if (days_until_event < 0 && lifecycle.open > 0)
+        || (days_until_event <= 14 && has_blocking)
         || vendor_risk.delayed_vendor_count > 0
         || (days_until_event <= 30 && lifecycle.ntbo > 0)
     {

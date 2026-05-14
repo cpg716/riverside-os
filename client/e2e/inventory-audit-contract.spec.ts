@@ -88,11 +88,14 @@ function movementEvidenceCount(
       AND it.quantity_delta = ${expected.quantityDelta}
       ${referenceClause}
   `;
-  const output = execFileSync(
-    "docker",
-    ["exec", "riverside-os-db", "psql", "-U", "postgres", "-d", dbName, "-At", "-c", sql],
-    { encoding: "utf8" },
-  ).trim();
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  const output = databaseUrl
+    ? execFileSync("psql", [databaseUrl, "-At", "-c", sql], { encoding: "utf8" }).trim()
+    : execFileSync(
+        "docker",
+        ["exec", "riverside-os-db", "psql", "-U", "postgres", "-d", dbName, "-At", "-c", sql],
+        { encoding: "utf8" },
+      ).trim();
   return Number(output);
 }
 
