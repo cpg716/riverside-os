@@ -1,7 +1,10 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 
-import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { 
+  AlertTriangle,
+  ArrowRight,
   Printer, 
   RefreshCw, 
   Star, 
@@ -13,7 +16,8 @@ import {
   FileText,
   Mail,
   ShoppingCart,
-  Gift
+  Gift,
+  X
 } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -73,30 +77,36 @@ function printMailingLabels(customers: (LoyaltyEligibleCustomer | RewardFulfillm
   const labels = customers
     .map(c => {
       const name = c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : (('customer_code' in c ? c.customer_code : null) || "Customer");
-      const addr = [
+      const street = 'address_line1' in c ? c.address_line1 : null;
+      const cityStateZip = [
+        'city' in c ? c.city : null,
+        'state' in c ? c.state : null,
+        'zip' in c ? c.zip : null
+      ].filter(Boolean).join(", ");
+      const fallback = [
         'address_line1' in c ? c.address_line1 : null,
         'city' in c ? c.city : null,
         'state' in c ? c.state : null,
         'zip' in c ? c.zip : null
       ].filter(Boolean).join(", ");
-      const pts = ('loyalty_points' in c && c.loyalty_points !== undefined) ? `${c.loyalty_points.toLocaleString()} pts` : "";
       return `
         <div class="label">
           <p class="name">${name}</p>
-          ${addr ? `<p class="addr">${addr}</p>` : ""}
-          <p class="pts">${pts}</p>
+          ${street ? `<p>${street}</p>` : ""}
+          ${cityStateZip ? `<p>${cityStateZip}</p>` : fallback ? `<p>${fallback}</p>` : ""}
         </div>`;
     })
     .join("");
   w.document.write(`<!DOCTYPE html><html><head><title>Mailing Labels</title>
   <style>
-    body { font-family: sans-serif; margin: 0; padding: 12px; }
-    .label { border: 1px solid #ccc; padding: 10px 14px; margin: 6px; inline-size: 240px; display: inline-block; font-size: 12px; vertical-align: top; border-radius: 8px; }
-    .name { font-weight: bold; margin: 0 0 3px; color: #111; }
-    .addr { color: #555; margin: 0 0 3px; font-size: 11px; }
-    .pts { color: #d97706; font-size: 10px; font-weight: bold; margin: 0; border-top: 1px solid #eee; padding-top: 4px; margin-top: 4px; }
-    @media print { body { padding: 0; } }
-  </style></head><body>${labels}<script>window.onload=function(){window.print();}</script></body></html>`);
+    @page { size: letter; margin: 0.5in 0.1875in; }
+    body { font-family: Arial, sans-serif; margin: 0; color: #111; }
+    .sheet { display: grid; grid-template-columns: repeat(3, 2.625in); grid-auto-rows: 1in; column-gap: 0.125in; row-gap: 0; }
+    .label { box-sizing: border-box; inline-size: 2.625in; block-size: 1in; padding: 0.12in 0.16in; overflow: hidden; font-size: 10pt; line-height: 1.15; }
+    .name { font-weight: 700; margin: 0 0 0.04in; }
+    p { margin: 0; }
+    @media screen { body { padding: 12px; background: #f4f4f5; } .sheet { background: white; width: 8.125in; min-height: 10in; padding: 0.5in 0.1875in; box-shadow: 0 8px 30px rgba(15,23,42,.18); } .label { outline: 1px dashed #ddd; } }
+  </style></head><body><div class="sheet">${labels}</div><script>window.onload=function(){window.print();}</script></body></html>`);
   w.document.close();
 }
 
@@ -471,6 +481,380 @@ function AdjustPanel() {
   );
 }
 
+interface BatchIssuedReward {
+  customer: LoyaltyEligibleCustomer;
+  card_code: string;
+  points_deducted: number;
+  reward_amount: string;
+}
+
+function LoyaltyBatchRedeemDialog({
+  isOpen,
+  customers,
+  settings,
+  getAuthHeaders,
+  onClose,
+  onFinished,
+}: {
+  isOpen: boolean;
+  customers: LoyaltyEligibleCustomer[];
+  settings: LoyaltySettings;
+  getAuthHeaders: () => HeadersInit;
+  onClose: () => void;
+  onFinished: () => void;
+}) {
+  const [customerIndex, setCustomerIndex] = useState(0);
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  const [cardCode, setCardCode] = useState("");
+  const [pointsDraft, setPointsDraft] = useState("");
+  const [issued, setIssued] = useState<BatchIssuedReward[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cardInputRef = useRef<HTMLInputElement>(null);
+
+  const threshold = settings.loyalty_point_threshold || 5000;
+  const rewardCents = parseMoneyToCents(settings.loyalty_reward_amount);
+  const current = customers[customerIndex] ?? null;
+  const currentBalance = current ? (balances[current.id] ?? current.loyalty_points) : 0;
+  const maxUnits = Math.floor(currentBalance / threshold);
+  const selectedPoints = Number.parseInt(pointsDraft || "0", 10);
+  const selectedUnits =
+    Number.isFinite(selectedPoints) && threshold > 0
+      ? Math.floor(selectedPoints / threshold)
+      : 0;
+  const selectedReward = centsToFixed2(rewardCents * selectedUnits);
+  const completed = current == null || customerIndex >= customers.length;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setCustomerIndex(0);
+    setBalances(Object.fromEntries(customers.map((customer) => [customer.id, customer.loyalty_points])));
+    setCardCode("");
+    setPointsDraft(String(settings.loyalty_point_threshold || 5000));
+    setIssued([]);
+    setBusy(false);
+    setError(null);
+  }, [customers, isOpen, settings.loyalty_point_threshold]);
+
+  useEffect(() => {
+    if (!isOpen || !current) return;
+    const nextUnits = Math.max(1, Math.min(1, maxUnits));
+    setPointsDraft(String(nextUnits * threshold));
+    setCardCode("");
+    setError(null);
+    window.setTimeout(() => cardInputRef.current?.focus(), 50);
+  }, [current, isOpen, maxUnits, threshold]);
+
+  if (!isOpen) return null;
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  const uniqueIssuedCustomers = Array.from(
+    new Map(issued.map((row) => [row.customer.id, row.customer])).values(),
+  );
+
+  const moveNext = () => {
+    const nextIndex = customerIndex + 1;
+    setCustomerIndex(nextIndex);
+    setCardCode("");
+    setError(null);
+  };
+
+  const issueCurrentCard = async () => {
+    if (!current || busy) return;
+    setError(null);
+    const points = Number.parseInt(pointsDraft, 10);
+    if (!Number.isFinite(points) || points <= 0) {
+      setError("Enter the points being redeemed for this card.");
+      return;
+    }
+    if (points % threshold !== 0) {
+      setError(`Points must be a multiple of ${threshold.toLocaleString()}.`);
+      return;
+    }
+    if (points > currentBalance) {
+      setError("This customer does not have enough points for that redemption.");
+      return;
+    }
+    if (!cardCode.trim()) {
+      setError("Scan or enter the gift card code before issuing.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`${BASE}/api/loyalty/redeem-reward`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          customer_id: current.id,
+          points_to_redeem: points,
+          apply_to_sale: centsToFixed2(0),
+          remainder_card_code: cardCode.trim(),
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        new_balance?: number;
+        points_deducted?: number;
+        remainder_loaded?: string | number;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? "Reward card could not be issued.");
+      }
+      const rewardAmount = centsToFixed2(parseMoneyToCents(data.remainder_loaded ?? selectedReward));
+      const issuedRow: BatchIssuedReward = {
+        customer: current,
+        card_code: cardCode.trim(),
+        points_deducted: data.points_deducted ?? points,
+        reward_amount: rewardAmount,
+      };
+      setIssued((rows) => [...rows, issuedRow]);
+      setBalances((currentBalances) => ({
+        ...currentBalances,
+        [current.id]: data.new_balance ?? Math.max(0, currentBalance - points),
+      }));
+      printLoyaltyLetter({ ...current, card_code: cardCode.trim() }, settings.loyalty_letter_template || "", rewardAmount);
+      setCardCode("");
+      const nextBalance = data.new_balance ?? Math.max(0, currentBalance - points);
+      if (nextBalance < threshold) {
+        moveNext();
+      } else {
+        setPointsDraft(String(threshold));
+        window.setTimeout(() => cardInputRef.current?.focus(), 50);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Reward card could not be issued.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const finish = () => {
+    onFinished();
+    onClose();
+  };
+
+  return createPortal(
+    <div className="ui-overlay-backdrop animate-in fade-in duration-300">
+      <div className="relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-app-border bg-app-surface shadow-[0_32px_128px_rgba(0,0,0,0.55)]">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-app-border bg-app-surface-2 px-6 py-5">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted">
+              Loyalty reward batch
+            </p>
+            <h2 className="mt-1 text-2xl font-black tracking-tight text-app-text">
+              Issue cards, print letters, then print labels
+            </h2>
+            <p className="mt-1 max-w-3xl text-xs font-semibold leading-5 text-app-text-muted">
+              Scan each loyalty gift card, confirm the points for that card, and ROS prints the award letter after the card is issued.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-app-border bg-app-surface text-app-text-muted hover:text-app-text disabled:opacity-50"
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[18rem_minmax(0,1fr)]">
+          <aside className="min-h-0 overflow-auto border-b border-app-border bg-app-surface-2/60 p-4 lg:border-b-0 lg:border-r">
+            <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Selected customers
+            </p>
+            <div className="space-y-2">
+              {customers.map((customer, index) => {
+                const balance = balances[customer.id] ?? customer.loyalty_points;
+                const done = balance < threshold;
+                return (
+                  <button
+                    key={customer.id}
+                    type="button"
+                    onClick={() => setCustomerIndex(index)}
+                    className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+                      index === customerIndex
+                        ? "border-app-accent bg-app-accent/10"
+                        : "border-app-border bg-app-surface"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-black text-app-text">
+                        {loyaltyEligibleDisplayName(customer)}
+                      </span>
+                      <span className={done ? "text-app-success" : "text-app-warning"}>
+                        {done ? "Done" : `${Math.floor(balance / threshold)}x`}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] font-bold text-app-text-muted">
+                      {balance.toLocaleString()} pts remaining
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          <main className="min-h-0 overflow-auto p-5 sm:p-6">
+            {completed ? (
+              <div className="flex min-h-[30rem] flex-col items-center justify-center text-center">
+                <Award className="mb-4 h-14 w-14 text-app-success" aria-hidden />
+                <h3 className="text-2xl font-black text-app-text">Batch complete</h3>
+                <p className="mt-2 max-w-md text-sm font-semibold leading-6 text-app-text-muted">
+                  {issued.length} reward card{issued.length === 1 ? "" : "s"} issued. Print the mailing labels for the customers completed in this batch.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => printMailingLabels(uniqueIssuedCustomers)}
+                  disabled={uniqueIssuedCustomers.length === 0}
+                  className="ui-btn-primary mt-6 inline-flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  <Printer className="h-4 w-4" aria-hidden />
+                  Print mailing labels
+                </button>
+                <button
+                  type="button"
+                  onClick={finish}
+                  className="ui-btn-secondary mt-3 px-5 py-2 text-[10px] font-black uppercase tracking-widest"
+                >
+                  Close batch
+                </button>
+              </div>
+            ) : current ? (
+              <div className="space-y-5">
+                <div className="rounded-[28px] border border-app-border bg-app-surface-2 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Customer {customerIndex + 1} of {customers.length}
+                      </p>
+                      <h3 className="mt-1 text-2xl font-black text-app-text">
+                        {loyaltyEligibleDisplayName(current)}
+                      </h3>
+                      <p className="mt-1 text-xs font-bold text-app-text-muted">
+                        {current.customer_code || "No customer code"} · {current.email || "No email"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Available
+                      </p>
+                      <p className="text-3xl font-black text-app-warning">
+                        {currentBalance.toLocaleString()} pts
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,16rem)]">
+                  <label className="block">
+                    <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Gift card code
+                    </span>
+                    <input
+                      ref={cardInputRef}
+                      value={cardCode}
+                      onChange={(event) => setCardCode(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void issueCurrentCard();
+                      }}
+                      className="ui-input h-14 w-full px-4 font-mono text-lg font-black uppercase tracking-[0.18em]"
+                      placeholder="Scan card..."
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Points for this card
+                    </span>
+                    <select
+                      value={pointsDraft}
+                      onChange={(event) => setPointsDraft(event.target.value)}
+                      className="ui-input h-14 w-full px-4 text-sm font-black"
+                    >
+                      {Array.from({ length: Math.max(1, maxUnits) }, (_, index) => {
+                        const units = index + 1;
+                        const points = units * threshold;
+                        return (
+                          <option key={points} value={points}>
+                            {points.toLocaleString()} pts · ${centsToFixed2(rewardCents * units)}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+                </div>
+
+                {error ? (
+                  <div className="flex items-center gap-3 rounded-2xl border border-app-danger/25 bg-app-danger/10 px-4 py-3 text-sm font-bold text-app-danger">
+                    <AlertTriangle className="h-4 w-4" aria-hidden />
+                    {error}
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[28px] border border-app-border bg-app-surface-2 p-4">
+                  <div>
+                    <p className="text-sm font-black text-app-text">
+                      This card will load ${selectedReward}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                      The award letter prints immediately after the gift card is issued.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={moveNext}
+                      disabled={busy}
+                      className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                    >
+                      Skip customer
+                      <ArrowRight className="h-4 w-4" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void issueCurrentCard()}
+                      disabled={busy || !cardCode.trim() || maxUnits <= 0}
+                      className="ui-btn-primary inline-flex items-center gap-2 px-5 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                    >
+                      <Award className="h-4 w-4" aria-hidden />
+                      {busy ? "Issuing..." : "Issue and print letter"}
+                    </button>
+                  </div>
+                </div>
+
+                {issued.length > 0 ? (
+                  <section className="rounded-[28px] border border-app-border bg-app-surface p-4">
+                    <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Issued in this batch
+                    </p>
+                    <div className="max-h-44 space-y-2 overflow-auto">
+                      {issued.map((row, index) => (
+                        <div key={`${row.customer.id}-${row.card_code}-${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-app-surface-2 px-3 py-2">
+                          <span className="text-sm font-bold text-app-text">
+                            {loyaltyEligibleDisplayName(row.customer)}
+                          </span>
+                          <span className="font-mono text-[10px] font-black text-app-text-muted">
+                            {row.card_code} · {row.points_deducted.toLocaleString()} pts · ${row.reward_amount}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+          </main>
+        </div>
+      </div>
+    </div>,
+    root,
+  );
+}
+
 function EligibleList({ 
   settings, 
   onRedeemSuccess 
@@ -482,6 +866,8 @@ function EligibleList({
   const [customers, setCustomers] = useState<LoyaltyEligibleCustomer[]>([]);
   const [loading, setLoading] = useState(false);
   const [redeemCustomer, setRedeemCustomer] = useState<LoyaltyEligibleCustomer | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchOpen, setBatchOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -489,7 +875,14 @@ function EligibleList({
       const res = await fetch(`${BASE}/api/loyalty/monthly-eligible`, {
         headers: backofficeHeaders(),
       });
-      if (res.ok) setCustomers((await res.json()) as LoyaltyEligibleCustomer[]);
+      if (res.ok) {
+        const rows = (await res.json()) as LoyaltyEligibleCustomer[];
+        setCustomers(rows);
+        setSelectedIds((current) => {
+          const valid = new Set(rows.map((customer) => customer.id));
+          return new Set(Array.from(current).filter((id) => valid.has(id)));
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -498,6 +891,29 @@ function EligibleList({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const selectedCustomers = useMemo(
+    () => customers.filter((customer) => selectedIds.has(customer.id)),
+    [customers, selectedIds],
+  );
+
+  const toggleSelected = (customerId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(customerId)) next.delete(customerId);
+      else next.add(customerId);
+      return next;
+    });
+  };
+
+  const allSelected = customers.length > 0 && selectedIds.size === customers.length;
+  const toggleAll = () => {
+    setSelectedIds(
+      allSelected
+        ? new Set()
+        : new Set(customers.map((customer) => customer.id)),
+    );
+  };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -521,11 +937,30 @@ function EligibleList({
             {customers.length > 0 && (
               <button
                 type="button"
-                onClick={() => printMailingLabels(customers)}
+                onClick={toggleAll}
+                className="ui-btn-secondary flex items-center gap-2 px-4 py-2 border-app-border/50 shadow-sm"
+              >
+                {allSelected ? "Clear Selection" : "Select All"}
+              </button>
+            )}
+            {selectedCustomers.length > 0 && settings && (
+              <button
+                type="button"
+                onClick={() => setBatchOpen(true)}
+                className="ui-btn-primary flex items-center gap-2 px-4 py-2 shadow-sm"
+              >
+                <Award className="h-4 w-4" />
+                Start Batch ({selectedCustomers.length})
+              </button>
+            )}
+            {customers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => printMailingLabels(selectedCustomers.length > 0 ? selectedCustomers : customers)}
                 className="ui-btn-secondary flex items-center gap-2 px-4 py-2 border-app-border/50 shadow-sm"
               >
                 <Printer className="h-4 w-4" />
-                Bulk Labels
+                Print Labels
               </button>
             )}
           </div>
@@ -556,6 +991,7 @@ function EligibleList({
               {customers.map(c => {
                 const isMultiReward = c.loyalty_points >= (settings?.loyalty_point_threshold || 5000) * 2;
                 const pointsValue = c.loyalty_points.toLocaleString();
+                const selected = selectedIds.has(c.id);
                 
                 return (
                   <div
@@ -566,6 +1002,15 @@ function EligibleList({
                     {/* ID & Basic Info */}
                     <div className="lg:w-[1fr] lg:flex-1 lg:pl-6 lg:py-4">
                       <div className="flex items-center gap-4">
+                        <label className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-app-border bg-app-surface-2 text-app-text-muted">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleSelected(c.id)}
+                            className="h-4 w-4 accent-app-accent"
+                            aria-label={`Select ${loyaltyEligibleDisplayName(c)} for loyalty batch`}
+                          />
+                        </label>
                         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-app-surface-2 ring-1 ring-app-border border-b-4 border-app-border/50 text-[13px] font-black text-app-text transition-all duration-500 group-hover:border-app-warning/30 group-hover:text-app-warning">
                            {c.first_name?.[0]}{c.last_name?.[0]}
                         </div>
@@ -642,18 +1087,32 @@ function EligibleList({
       </div>
 
       {settings && (
-        <LoyaltyRedeemDialog
-          isOpen={redeemCustomer !== null}
-          customer={redeemCustomer}
-          rewardAmountRaw={settings.loyalty_reward_amount}
-          pointThreshold={settings.loyalty_point_threshold}
-          getAuthHeaders={backofficeHeaders}
-          onClose={() => setRedeemCustomer(null)}
-          onSuccess={() => {
-            void load();
-            void onRedeemSuccess();
-          }}
-        />
+        <>
+          <LoyaltyRedeemDialog
+            isOpen={redeemCustomer !== null}
+            customer={redeemCustomer}
+            rewardAmountRaw={settings.loyalty_reward_amount}
+            pointThreshold={settings.loyalty_point_threshold}
+            getAuthHeaders={backofficeHeaders}
+            onClose={() => setRedeemCustomer(null)}
+            onSuccess={() => {
+              void load();
+              void onRedeemSuccess();
+            }}
+          />
+          <LoyaltyBatchRedeemDialog
+            isOpen={batchOpen}
+            customers={selectedCustomers}
+            settings={settings}
+            getAuthHeaders={backofficeHeaders}
+            onClose={() => setBatchOpen(false)}
+            onFinished={() => {
+              setSelectedIds(new Set());
+              void load();
+              void onRedeemSuccess();
+            }}
+          />
+        </>
       )}
     </div>
   );

@@ -358,6 +358,10 @@ async fn adjust_points(
 #[derive(Debug, Deserialize)]
 pub struct RedeemRewardRequest {
     pub customer_id: Uuid,
+    /// Optional override for batch fulfillment. Defaults to one configured reward threshold.
+    /// Must be a positive multiple of the configured threshold.
+    #[serde(default)]
+    pub points_to_redeem: Option<i32>,
     /// Compatibility field. Must be `0.00`; loyalty redemptions issue to a loyalty gift card only.
     pub apply_to_sale: Decimal,
     /// Required: the loyalty gift card code that will receive the reward.
@@ -446,11 +450,25 @@ async fn redeem_reward(
     require_staff_or_pos_session(&state, &headers).await?;
 
     // Load settings.
-    let (threshold, reward_amount): (i32, Decimal) = sqlx::query_as(
+    let (threshold, reward_amount_per_threshold): (i32, Decimal) = sqlx::query_as(
         "SELECT loyalty_point_threshold, loyalty_reward_amount FROM store_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
     .await?;
+
+    let points_to_deduct = body.points_to_redeem.unwrap_or(threshold);
+    if points_to_deduct <= 0 {
+        return Err(LoyaltyError::InvalidPayload(
+            "points_to_redeem must be positive".to_string(),
+        ));
+    }
+    if points_to_deduct % threshold != 0 {
+        return Err(LoyaltyError::InvalidPayload(format!(
+            "points_to_redeem must be a multiple of {threshold}"
+        )));
+    }
+    let reward_units = points_to_deduct / threshold;
+    let reward_amount = reward_amount_per_threshold * Decimal::from(reward_units);
 
     let (remainder, reward_card_code) = resolve_redemption_contract(
         body.apply_to_sale,
@@ -473,13 +491,13 @@ async fn redeem_reward(
         RETURNING loyalty_points
         "#,
     )
-    .bind(threshold)
+    .bind(points_to_deduct)
     .bind(effective_customer_id)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| {
         LoyaltyError::InvalidPayload(format!(
-            "Customer does not have enough points (need {threshold})"
+            "Customer does not have enough points (need {points_to_deduct})"
         ))
     })?;
 
@@ -491,12 +509,14 @@ async fn redeem_reward(
         "#,
     )
     .bind(effective_customer_id)
-    .bind(-threshold)
+    .bind(-points_to_deduct)
     .bind(new_balance)
     .bind("reward_redemption")
     .bind(body.transaction_id)
     .bind(json!({
         "reward_amount": reward_amount,
+        "reward_amount_per_threshold": reward_amount_per_threshold,
+        "reward_units": reward_units,
         "applied_to_sale": body.apply_to_sale,
         "remainder": remainder,
         "remainder_card_code": reward_card_code,
@@ -588,7 +608,7 @@ async fn redeem_reward(
             "#,
         )
         .bind(effective_customer_id)
-        .bind(threshold)
+        .bind(points_to_deduct)
         .bind(reward_amount)
         .bind(body.apply_to_sale)
         .bind(card_id)
@@ -610,7 +630,7 @@ async fn redeem_reward(
         let ats = body.apply_to_sale;
         let rem = remainder;
         let nb = new_balance;
-        let th = threshold;
+        let th = points_to_deduct;
         tokio::spawn(async move {
             if let Err(e) = MessagingService::notify_loyalty_reward_redeemed(
                 &pool, &http, &cache, cid, ns, ne, ra, ats, rem, nb, th,
@@ -623,7 +643,7 @@ async fn redeem_reward(
     }
 
     Ok(Json(RedeemRewardResponse {
-        points_deducted: threshold,
+        points_deducted: points_to_deduct,
         new_balance,
         effective_customer_id,
         applied_to_sale: body.apply_to_sale,

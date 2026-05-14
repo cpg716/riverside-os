@@ -55,10 +55,12 @@ Purchased gift cards are sold or reloaded from **Register** only. Do not issue c
 **Purpose:** Review who qualifies for periodic rewards before you message or fulfill perks.
 
 1. **Loyalty** → **Monthly Eligible** (requires **loyalty.program_settings**).
-2. Scan the list; export only on **secure** machines — **PII** applies.
-3. Use **Redeem** to deduct the points and issue the full reward to a loyalty gift card.
-4. Run outreach per **program settings** (email/SMS rules and opt-ins).
-5. After redeeming, open **History** to confirm the reward card code and print any letter or label the customer needs.
+2. Select the customers you want to fulfill in this batch.
+3. Click **Start Batch**.
+4. For each customer, scan the loyalty gift card, choose the points block being redeemed, and click **Issue and print letter**.
+5. If the customer has enough points for another reward, scan the next card for that same customer. Otherwise continue to the next selected customer.
+6. When the batch is complete, print the mailing labels for the completed customers.
+7. Open **Reward History** if you need to reprint an award letter or an individual mailing label.
 
 ### Adjust Points
 
