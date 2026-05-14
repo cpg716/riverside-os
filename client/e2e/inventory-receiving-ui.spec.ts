@@ -121,7 +121,7 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(submitButton).toBeVisible({ timeout: 10_000 });
     await submitButton.click();
 
-    await expect(poRow).toContainText(/ready to receive/i, { timeout: 20_000 });
+    await expect(poRow).toContainText(/sent to vendor/i, { timeout: 20_000 });
 
     const receiveButton = poRow.getByRole("button", { name: /receive/i });
     await expect(receiveButton).toBeVisible({ timeout: 10_000 });
