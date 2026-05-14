@@ -3,10 +3,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
+use std::sync::Arc;
 use thiserror::Error;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::logic::notifications::{admin_staff_ids, staff_ids_with_permission, upsert_bundle_item};
+use crate::logic::podium::{self, PodiumTokenCache};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -60,11 +63,30 @@ pub enum ReviewInviteError {
     Db(#[from] sqlx::Error),
     #[error("order not found")]
     NotFound,
+    #[error("podium error: {0}")]
+    Podium(#[from] podium::PodiumError),
 }
 
-/// Persist cashier choice at end of receipt flow. Stub invite when not skipped and policy allows.
+type OrderReviewGateRow = (
+    Option<Uuid>,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<String>,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    bool,
+    bool,
+    bool,
+);
+
+/// Persist cashier choice at end of receipt flow. Sends a Podium review invite only
+/// for completed, fulfilled sales and enforces one invite per customer per 180 days.
 pub async fn apply_post_sale_review_choice(
     pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
     transaction_id: Uuid,
     skip_invite: bool,
 ) -> Result<(), ReviewInviteError> {
@@ -72,30 +94,70 @@ pub async fn apply_post_sale_review_choice(
 
     let mut tx = pool.begin().await?;
 
-    type OrderReviewGateRow = (
-        Option<Uuid>,
-        Option<chrono::DateTime<chrono::Utc>>,
-        Option<chrono::DateTime<chrono::Utc>>,
-        String,
-    );
     let row: Option<OrderReviewGateRow> = sqlx::query_as(
         r#"
-        SELECT customer_id, review_invite_suppressed_at, review_invite_sent_at, display_id
-        FROM transactions WHERE id = $1 FOR UPDATE
+        SELECT
+            t.customer_id,
+            t.review_invite_suppressed_at,
+            t.review_invite_sent_at,
+            t.podium_review_invite_id,
+            t.display_id,
+            t.status::text,
+            c.phone,
+            c.email,
+            EXISTS (
+                SELECT 1 FROM transaction_lines tl
+                WHERE tl.transaction_id = t.id
+                  AND COALESCE(tl.is_internal, false) = false
+            ) AS has_reviewable_lines,
+            NOT EXISTS (
+                SELECT 1 FROM transaction_lines tl
+                WHERE tl.transaction_id = t.id
+                  AND COALESCE(tl.is_internal, false) = false
+                  AND COALESCE(tl.is_fulfilled, false) = false
+            ) AS all_reviewable_lines_fulfilled,
+            EXISTS (
+                SELECT 1 FROM transactions recent
+                WHERE recent.customer_id = t.customer_id
+                  AND recent.id <> t.id
+                  AND recent.review_invite_sent_at > NOW() - INTERVAL '180 days'
+            ) AS recent_customer_invite
+        FROM transactions t
+        LEFT JOIN customers c ON c.id = t.customer_id
+        WHERE t.id = $1
+        FOR UPDATE OF t
         "#,
     )
     .bind(transaction_id)
     .fetch_optional(&mut *tx)
     .await?;
 
-    let Some((customer_id, suppressed_at, sent_at, display_id)) = row else {
+    let Some((
+        customer_id,
+        suppressed_at,
+        sent_at,
+        provider_id,
+        display_id,
+        status,
+        phone,
+        email,
+        has_reviewable_lines,
+        all_reviewable_lines_fulfilled,
+        recent_customer_invite,
+    )) = row
+    else {
         return Err(ReviewInviteError::NotFound);
     };
 
     if skip_invite {
         if suppressed_at.is_none() {
             sqlx::query(
-                r#"UPDATE transactions SET review_invite_suppressed_at = NOW() WHERE id = $1"#,
+                r#"
+                UPDATE transactions
+                SET review_invite_suppressed_at = NOW(),
+                    podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_staff_skipped')
+                WHERE id = $1
+                "#,
             )
             .bind(transaction_id)
             .execute(&mut *tx)
@@ -115,24 +177,86 @@ pub async fn apply_post_sale_review_choice(
         return Ok(());
     }
 
-    if customer_id.is_none() {
+    if status != "fulfilled"
+        || customer_id.is_none()
+        || !has_reviewable_lines
+        || !all_reviewable_lines_fulfilled
+    {
         tx.commit().await?;
         return Ok(());
     }
+
+    if recent_customer_invite {
+        sqlx::query(
+            r#"
+            UPDATE transactions
+            SET review_invite_suppressed_at = NOW(),
+                podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_skipped_recent_180d')
+            WHERE id = $1
+            "#,
+        )
+        .bind(transaction_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        return Ok(());
+    }
+
+    let has_review_phone = phone
+        .as_deref()
+        .and_then(podium::normalize_phone_e164)
+        .is_some();
+    let has_review_email = email
+        .as_deref()
+        .map(podium::looks_like_email)
+        .unwrap_or(false);
+    if !has_review_phone && !has_review_email {
+        sqlx::query(
+            r#"
+            UPDATE transactions
+            SET review_invite_suppressed_at = NOW(),
+                podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_skipped_no_contact')
+            WHERE id = $1
+            "#,
+        )
+        .bind(transaction_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        return Ok(());
+    }
+
+    tx.commit().await?;
+
+    let invite = podium::create_podium_review_invite(
+        pool,
+        http,
+        podium_cache,
+        phone.as_deref(),
+        email.as_deref(),
+    )
+    .await?;
+    let final_provider_id = invite
+        .provider_id
+        .as_deref()
+        .or(provider_id.as_deref())
+        .unwrap_or("podium_review_invite_sent")
+        .to_string();
 
     sqlx::query(
         r#"
         UPDATE transactions
         SET review_invite_sent_at = NOW(),
-            podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_stub_pending_podium_api')
+            podium_review_invite_id = $2
         WHERE id = $1
+          AND review_invite_sent_at IS NULL
+          AND review_invite_suppressed_at IS NULL
         "#,
     )
     .bind(transaction_id)
-    .execute(&mut *tx)
+    .bind(final_provider_id)
+    .execute(pool)
     .await?;
-
-    tx.commit().await?;
 
     if let Ok(nid) = upsert_bundle_item(
         pool,

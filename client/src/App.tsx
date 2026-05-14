@@ -585,6 +585,7 @@ function App() {
           "quickbooks",
           "weather",
           "podium",
+          "email",
           "insights",
         ]);
         setActiveSubSection(allowed.has(sec) ? sec : "general");

@@ -23,13 +23,14 @@ use thiserror::Error;
 use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
 use crate::auth::pins::log_staff_access;
+use crate::logic::email::{self, StoreEmailConfig};
 use crate::logic::nuorder::{NuorderClient, NuorderCredentials};
 use crate::logic::nuorder_sync;
 use crate::logic::podium::{
-    build_podium_oauth_authorize_url, exchange_podium_oauth_authorization_code,
-    podium_rest_api_base, validate_podium_oauth_redirect_uri, validate_podium_oauth_state,
-    PodiumEnvCredentials, PodiumOAuthAppCredentials, PodiumSmsSettingsResponse,
-    StorePodiumSmsConfig,
+    build_podium_oauth_authorize_url_for_base, exchange_podium_oauth_authorization_code,
+    podium_effective_rest_api_base, validate_podium_oauth_redirect_uri,
+    validate_podium_oauth_state, PodiumEnvCredentials, PodiumOAuthAppCredentials,
+    PodiumSmsSettingsResponse, StorePodiumSmsConfig,
 };
 use crate::logic::podium_reviews::{self, StoreReviewPolicy};
 use crate::logic::podium_webhook::{
@@ -1296,14 +1297,17 @@ async fn put_staff_sop(
     }))
 }
 
-fn podium_sms_settings_response(cfg: StorePodiumSmsConfig) -> PodiumSmsSettingsResponse {
+async fn podium_sms_settings_response(
+    pool: &sqlx::PgPool,
+    cfg: StorePodiumSmsConfig,
+) -> PodiumSmsSettingsResponse {
     let templates_effective = cfg.templates.merged_defaults();
     let email_templates_effective = cfg.email_templates.merged_defaults();
     PodiumSmsSettingsResponse {
         settings: cfg,
         templates_effective,
         email_templates_effective,
-        credentials_configured: PodiumEnvCredentials::from_env().is_some(),
+        credentials_configured: PodiumEnvCredentials::load(pool).await.is_some(),
         oauth_authorize_url: "https://api.podium.com/oauth/authorize",
         oauth_token_url_hint: "https://api.podium.com/oauth/token — set RIVERSIDE_PODIUM_OAUTH_TOKEN_URL if Podium instructs a different token host (some samples use accounts.podium.com).",
     }
@@ -1319,7 +1323,7 @@ async fn get_podium_sms_settings(
             .fetch_one(&state.db)
             .await?;
     let cfg = StorePodiumSmsConfig::load_from_json(raw);
-    Ok(Json(podium_sms_settings_response(cfg)))
+    Ok(Json(podium_sms_settings_response(&state.db, cfg).await))
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1436,7 +1440,110 @@ async fn patch_podium_sms_settings(
         .execute(&state.db)
         .await?;
 
-    Ok(Json(podium_sms_settings_response(current)))
+    Ok(Json(podium_sms_settings_response(&state.db, current).await))
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PatchEmailSettingsBody {
+    enabled: Option<bool>,
+    from_email: Option<String>,
+    from_name: Option<String>,
+    reply_to_email: Option<String>,
+    imap_host: Option<String>,
+    imap_port: Option<u16>,
+    imap_tls: Option<bool>,
+    imap_folder: Option<String>,
+    smtp_host: Option<String>,
+    smtp_port: Option<u16>,
+    smtp_tls: Option<String>,
+    sync_enabled: Option<bool>,
+    sync_limit: Option<i64>,
+}
+
+async fn get_email_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<email::EmailSettingsResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    email::email_settings_response(&state.db)
+        .await
+        .map(Json)
+        .map_err(|error| match error {
+            email::EmailError::Db(error) => SettingsError::Database(error),
+            other => SettingsError::InvalidPayload(other.to_string()),
+        })
+}
+
+fn clean_email_text(value: String, label: &str, max_len: usize) -> Result<String, SettingsError> {
+    let trimmed = value.trim();
+    if trimmed.len() > max_len {
+        return Err(SettingsError::InvalidPayload(format!(
+            "{label} exceeds {max_len} characters"
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
+async fn patch_email_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PatchEmailSettingsBody>,
+) -> Result<Json<email::EmailSettingsResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let mut cfg: StoreEmailConfig = email::load_store_email_config(&state.db).await?;
+    if let Some(v) = body.enabled {
+        cfg.enabled = v;
+    }
+    if let Some(v) = body.from_email {
+        cfg.from_email = clean_email_text(v, "from_email", 320)?;
+    }
+    if let Some(v) = body.from_name {
+        cfg.from_name = clean_email_text(v, "from_name", 160)?;
+    }
+    if let Some(v) = body.reply_to_email {
+        cfg.reply_to_email = clean_email_text(v, "reply_to_email", 320)?;
+    }
+    if let Some(v) = body.imap_host {
+        cfg.imap_host = clean_email_text(v, "imap_host", 255)?;
+    }
+    if let Some(v) = body.imap_port {
+        cfg.imap_port = v;
+    }
+    if let Some(v) = body.imap_tls {
+        cfg.imap_tls = v;
+    }
+    if let Some(v) = body.imap_folder {
+        cfg.imap_folder = clean_email_text(v, "imap_folder", 120)?;
+    }
+    if let Some(v) = body.smtp_host {
+        cfg.smtp_host = clean_email_text(v, "smtp_host", 255)?;
+    }
+    if let Some(v) = body.smtp_port {
+        cfg.smtp_port = v;
+    }
+    if let Some(v) = body.smtp_tls {
+        let mode = clean_email_text(v, "smtp_tls", 20)?;
+        if !matches!(mode.as_str(), "ssl_tls" | "starttls") {
+            return Err(SettingsError::InvalidPayload(
+                "smtp_tls must be ssl_tls or starttls".to_string(),
+            ));
+        }
+        cfg.smtp_tls = mode;
+    }
+    if let Some(v) = body.sync_enabled {
+        cfg.sync_enabled = v;
+    }
+    if let Some(v) = body.sync_limit {
+        cfg.sync_limit = v.clamp(1, 250);
+    }
+    email::save_store_email_config(&state.db, &cfg).await?;
+    email::email_settings_response(&state.db)
+        .await
+        .map(Json)
+        .map_err(|error| match error {
+            email::EmailError::Db(error) => SettingsError::Database(error),
+            other => SettingsError::InvalidPayload(other.to_string()),
+        })
 }
 
 #[derive(Debug, Serialize)]
@@ -1464,11 +1571,11 @@ async fn get_podium_sms_readiness(
             .await?;
     let cfg = StorePodiumSmsConfig::load_from_json(raw);
     Ok(Json(PodiumSmsReadinessResponse {
-        credentials_configured: PodiumEnvCredentials::from_env().is_some(),
+        credentials_configured: PodiumEnvCredentials::load(&state.db).await.is_some(),
         webhook_secret_configured: podium_webhook_secret_from_env().is_some(),
         allow_unsigned_webhook: allow_unsigned_podium_webhook(),
         inbound_inbox_preview_enabled: podium_inbound_inbox_enabled(),
-        api_base: podium_rest_api_base(),
+        api_base: podium_effective_rest_api_base(&state.db).await,
         sms_send_enabled: cfg.sms_send_enabled,
         email_send_enabled: cfg.email_send_enabled,
         location_uid_configured: !cfg.location_uid.trim().is_empty(),
@@ -1505,16 +1612,16 @@ async fn get_podium_oauth_authorize_url(
             "state must be non-empty, at most 200 chars, [A-Za-z0-9_-]".to_string(),
         ));
     }
-    let client_id = std::env::var("RIVERSIDE_PODIUM_CLIENT_ID")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            SettingsError::InvalidPayload("RIVERSIDE_PODIUM_CLIENT_ID is not set".to_string())
-        })?;
+    let Some(app) = PodiumOAuthAppCredentials::load(&state.db).await else {
+        return Err(SettingsError::InvalidPayload(
+            "Podium client ID is not configured".to_string(),
+        ));
+    };
     let scope = q.scope.as_deref();
-    let url = build_podium_oauth_authorize_url(
-        client_id.as_str(),
+    let api_base = podium_effective_rest_api_base(&state.db).await;
+    let url = build_podium_oauth_authorize_url_for_base(
+        api_base.as_str(),
+        app.client_id.as_str(),
         q.redirect_uri.trim(),
         q.state.trim(),
         scope,
@@ -1534,9 +1641,9 @@ async fn post_podium_oauth_exchange(
     Json(body): Json<PodiumOauthExchangeBody>,
 ) -> Result<Json<Value>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
-    let Some(app) = PodiumOAuthAppCredentials::from_env() else {
+    let Some(app) = PodiumOAuthAppCredentials::load(&state.db).await else {
         return Err(SettingsError::InvalidPayload(
-            "RIVERSIDE_PODIUM_CLIENT_ID and RIVERSIDE_PODIUM_CLIENT_SECRET must be set".to_string(),
+            "Podium client ID and client secret must be configured".to_string(),
         ));
     };
     if !validate_podium_oauth_redirect_uri(&body.redirect_uri) {
@@ -1926,6 +2033,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/podium-sms",
             get(get_podium_sms_settings).patch(patch_podium_sms_settings),
+        )
+        .route(
+            "/email",
+            get(get_email_settings).patch(patch_email_settings),
         )
         .route("/podium-sms/readiness", get(get_podium_sms_readiness))
         .route(

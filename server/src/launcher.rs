@@ -355,6 +355,40 @@ async fn launch_server_inner(
         }
     });
 
+    let email_sync_interval_secs = std::env::var("RIVERSIDE_EMAIL_SYNC_INTERVAL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(300)
+        .max(60);
+    let email_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
+            email_sync_interval_secs,
+        ));
+        loop {
+            ticker.tick().await;
+            match crate::logic::email::sync_inbox(&email_state.db).await {
+                Ok(summary) if summary.inserted > 0 => {
+                    tracing::info!(
+                        target: "email",
+                        fetched = summary.fetched,
+                        inserted = summary.inserted,
+                        matched_customers = summary.matched_customers,
+                        "Store email inbox synced"
+                    );
+                }
+                Ok(_) | Err(crate::logic::email::EmailError::NotConfigured) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        target: "email",
+                        error = %error,
+                        "Store email inbox sync failed"
+                    );
+                }
+            }
+        }
+    });
+
     if state.corecard_config.is_configured() {
         let corecard_state = state.clone();
         tokio::spawn(async move {

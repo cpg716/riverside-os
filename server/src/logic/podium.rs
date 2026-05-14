@@ -4,13 +4,15 @@
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::logic::integration_credentials;
 use crate::logic::podium_messaging;
 
 const DEFAULT_READY_PICKUP: &str =
@@ -28,6 +30,14 @@ const DEFAULT_EMAIL_APPOINTMENT_SUBJECT: &str = "Appointment confirmed — River
 const DEFAULT_EMAIL_APPOINTMENT_HTML: &str = "<p>Hi {first_name},</p><p>Your <b>{appointment_type}</b> appointment is scheduled for <b>{starts_at}</b>.</p>{notes_block}";
 const DEFAULT_EMAIL_LOYALTY_REDEEMED_SUBJECT: &str = "Your Riverside loyalty reward";
 const DEFAULT_EMAIL_LOYALTY_REDEEMED_HTML: &str = "<p>Hi {first_name},</p><p>We have processed your <b>${reward_amount}</b> loyalty reward.</p>{reward_breakdown_html}<p>Your loyalty balance is now <b>{new_balance}</b> points.</p><p>We may also mail a physical gift card when applicable.</p><p>Thank you for shopping with us.</p>";
+const DEFAULT_PODIUM_API_VERSION: &str = "2021.04.01";
+const PODIUM_CREDENTIAL_KEYS: &[&str] = &[
+    "client_id",
+    "client_secret",
+    "refresh_token",
+    "oauth_token_url",
+    "api_base_url",
+];
 
 /// In-memory access token (refresh via env-backed OAuth).
 #[derive(Debug, Default, Clone)]
@@ -184,6 +194,8 @@ pub enum PodiumError {
     RefreshTokenMissing,
     #[error("podium send failed: HTTP {0}")]
     SendHttp(u16),
+    #[error("podium review invite failed: HTTP {0}")]
+    ReviewInviteHttp(u16),
     #[error("reqwest error: {0}")]
     Http(#[from] reqwest::Error),
 }
@@ -218,15 +230,39 @@ impl PodiumOAuthAppCredentials {
             token_url,
         })
     }
+
+    pub async fn load(pool: &PgPool) -> Option<Self> {
+        let values = load_podium_credential_values(pool).await;
+        let client_id = credential_value(&values, "client_id", "RIVERSIDE_PODIUM_CLIENT_ID")?;
+        let client_secret =
+            credential_value(&values, "client_secret", "RIVERSIDE_PODIUM_CLIENT_SECRET")?;
+        let token_url = credential_value(
+            &values,
+            "oauth_token_url",
+            "RIVERSIDE_PODIUM_OAUTH_TOKEN_URL",
+        )
+        .unwrap_or_else(|| {
+            format!(
+                "{}/oauth/token",
+                podium_rest_api_base_from_values(&values).trim_end_matches('/')
+            )
+        });
+        Some(Self {
+            client_id,
+            client_secret,
+            token_url,
+        })
+    }
 }
 
-/// OAuth client credentials from environment (never logged).
+/// OAuth client credentials from encrypted Settings credentials, falling back to env (never logged).
 #[derive(Debug, Clone)]
 pub struct PodiumEnvCredentials {
     pub client_id: String,
     pub client_secret: String,
     pub refresh_token: String,
     pub token_url: String,
+    pub api_base_url: String,
 }
 
 impl PodiumEnvCredentials {
@@ -241,8 +277,61 @@ impl PodiumEnvCredentials {
             client_secret: app.client_secret,
             refresh_token,
             token_url: app.token_url,
+            api_base_url: podium_rest_api_base(),
         })
     }
+
+    pub async fn load(pool: &PgPool) -> Option<Self> {
+        let values = load_podium_credential_values(pool).await;
+        let app = PodiumOAuthAppCredentials::load(pool).await?;
+        let refresh_token =
+            credential_value(&values, "refresh_token", "RIVERSIDE_PODIUM_REFRESH_TOKEN")?;
+        Some(Self {
+            client_id: app.client_id,
+            client_secret: app.client_secret,
+            refresh_token,
+            token_url: app.token_url,
+            api_base_url: podium_rest_api_base_from_values(&values),
+        })
+    }
+}
+
+async fn load_podium_credential_values(pool: &PgPool) -> HashMap<String, String> {
+    match integration_credentials::load_integration_credentials(
+        pool,
+        "podium",
+        PODIUM_CREDENTIAL_KEYS,
+    )
+    .await
+    {
+        Ok(values) => values,
+        Err(error) => {
+            tracing::warn!(
+                target = "podium",
+                event = "credential_load_failed",
+                error = %error,
+                "Falling back to Podium environment credentials"
+            );
+            HashMap::new()
+        }
+    }
+}
+
+fn credential_value(
+    values: &HashMap<String, String>,
+    credential_key: &str,
+    env_key: &str,
+) -> Option<String> {
+    values
+        .get(credential_key)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::env::var(env_key)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 /// Restrict `redirect_uri` for authorization-code helpers (open-redirect hardening).
@@ -298,10 +387,23 @@ pub fn build_podium_oauth_authorize_url(
     state: &str,
     scope: Option<&str>,
 ) -> String {
-    let base = format!(
-        "{}/oauth/authorize",
-        podium_rest_api_base().trim_end_matches('/')
-    );
+    build_podium_oauth_authorize_url_for_base(
+        &podium_rest_api_base(),
+        client_id,
+        redirect_uri,
+        state,
+        scope,
+    )
+}
+
+pub fn build_podium_oauth_authorize_url_for_base(
+    base_url: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    state: &str,
+    scope: Option<&str>,
+) -> String {
+    let base = format!("{}/oauth/authorize", base_url.trim_end_matches('/'));
     let mut url = format!(
         "{}?response_type=code&client_id={}&redirect_uri={}&state={}",
         base,
@@ -332,8 +434,7 @@ pub async fn exchange_podium_oauth_authorization_code(
     code: &str,
     redirect_uri: &str,
 ) -> Result<PodiumAuthCodeExchangeResult, PodiumError> {
-    let res = http
-        .post(&creds.token_url)
+    let res = add_podium_headers(http.post(&creds.token_url), None)
         .header("Content-Type", "application/json")
         .json(&json!({
             "grant_type": "authorization_code",
@@ -370,18 +471,54 @@ pub fn podium_rest_api_base() -> String {
         .unwrap_or_else(|| "https://api.podium.com".to_string())
 }
 
-fn podium_messages_url() -> String {
-    format!(
-        "{}/v4/messages",
-        podium_rest_api_base().trim_end_matches('/')
-    )
+fn podium_rest_api_base_from_values(values: &HashMap<String, String>) -> String {
+    values
+        .get("api_base_url")
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::env::var("RIVERSIDE_PODIUM_API_BASE")
+                .ok()
+                .map(|s| s.trim().trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_else(|| "https://api.podium.com".to_string())
 }
 
-fn podium_messages_attachment_url() -> String {
-    format!(
-        "{}/v4/messages/attachment",
-        podium_rest_api_base().trim_end_matches('/')
-    )
+pub async fn podium_effective_rest_api_base(pool: &PgPool) -> String {
+    podium_rest_api_base_from_values(&load_podium_credential_values(pool).await)
+}
+
+pub fn podium_api_version() -> String {
+    std::env::var("RIVERSIDE_PODIUM_API_VERSION")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_PODIUM_API_VERSION.to_string())
+}
+
+fn add_podium_headers(
+    builder: reqwest::RequestBuilder,
+    token: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let builder = builder.header("podium-version", podium_api_version());
+    if let Some(token) = token {
+        builder.header("Authorization", format!("Bearer {token}"))
+    } else {
+        builder
+    }
+}
+
+fn podium_messages_url(base_url: &str) -> String {
+    format!("{}/v4/messages", base_url.trim_end_matches('/'))
+}
+
+fn podium_messages_attachment_url(base_url: &str) -> String {
+    format!("{}/v4/messages/attachment", base_url.trim_end_matches('/'))
+}
+
+fn podium_review_invites_url(base_url: &str) -> String {
+    format!("{}/v4/reviews/invites", base_url.trim_end_matches('/'))
 }
 
 #[derive(Debug, Deserialize)]
@@ -449,13 +586,13 @@ pub async fn try_send_operational_sms(
     body: String,
     crm_customer_id: Option<Uuid>,
 ) {
-    let creds = match PodiumEnvCredentials::from_env() {
+    let creds = match PodiumEnvCredentials::load(pool).await {
         Some(c) => c,
         None => {
             tracing::debug!(
                 target = "podium",
                 event = "podium_send_skip",
-                reason = "no_env_credentials"
+                reason = "no_credentials"
             );
             return;
         }
@@ -507,6 +644,7 @@ pub async fn try_send_operational_sms(
         phone_digits.as_str(),
         body.as_str(),
         None,
+        None,
     )
     .await
     {
@@ -541,6 +679,7 @@ pub async fn try_send_operational_sms(
                 PodiumError::TokenMissing => "token_missing",
                 PodiumError::RefreshTokenMissing => "refresh_token_missing",
                 PodiumError::SendHttp(_s) => "send_http",
+                PodiumError::ReviewInviteHttp(_s) => "review_invite_http",
                 PodiumError::Http(_) => "http",
             };
             tracing::warn!(target = "podium", event = "podium_send_err", reason_class = reason, error = %e);
@@ -564,9 +703,10 @@ async fn send_v4_message(
     identifier: &str,
     body: &str,
     subject: Option<&str>,
+    sender_name: Option<&str>,
 ) -> Result<(), PodiumError> {
     let token = get_valid_access_token(http, token_cache, creds).await?;
-    let url = podium_messages_url();
+    let url = podium_messages_url(&creds.api_base_url);
     let mut payload = json!({
         "channel": {
             "identifier": identifier,
@@ -581,10 +721,14 @@ async fn send_v4_message(
             payload["subject"] = json!(st);
         }
     }
+    if let Some(sender) = sender_name {
+        let sender_t = sender.trim();
+        if !sender_t.is_empty() {
+            payload["senderName"] = json!(sender_t);
+        }
+    }
 
-    let res = http
-        .post(url)
-        .header("Authorization", format!("Bearer {token}"))
+    let res = add_podium_headers(http.post(url), Some(&token))
         .header("Content-Type", "application/json")
         .json(&payload)
         .send()
@@ -597,6 +741,116 @@ async fn send_v4_message(
     Err(PodiumError::SendHttp(status.as_u16()))
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct PodiumReviewInviteResult {
+    pub provider_id: Option<String>,
+    pub review_url: Option<String>,
+    pub raw_response: Value,
+}
+
+fn first_string_at(value: &Value, pointers: &[&str]) -> Option<String> {
+    pointers.iter().find_map(|pointer| {
+        value
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+    })
+}
+
+pub async fn create_podium_review_invite(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    to_phone_raw: Option<&str>,
+    to_email: Option<&str>,
+) -> Result<PodiumReviewInviteResult, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let cfg = load_store_podium_config(pool).await.map_err(|e| {
+        tracing::error!(error = %e, "podium load_store_podium_config failed (review invite)");
+        PodiumError::NotConfigured
+    })?;
+    let loc = cfg.location_uid.trim();
+    if loc.is_empty() {
+        return Err(PodiumError::NotConfigured);
+    }
+
+    let e164 = to_phone_raw.and_then(normalize_phone_e164);
+    let email = to_email
+        .map(str::trim)
+        .filter(|addr| looks_like_email(addr))
+        .map(ToOwned::to_owned);
+    if e164.is_none() && email.is_none() {
+        return Err(PodiumError::NotConfigured);
+    }
+
+    let mut payload = json!({
+        "locationUid": loc,
+    });
+    if let Some(phone) = e164 {
+        payload["phoneNumber"] = json!(phone);
+    }
+    if let Some(addr) = email {
+        payload["email"] = json!(addr);
+    }
+
+    let token = get_valid_access_token(http, token_cache, &creds).await?;
+    let res = add_podium_headers(
+        http.post(podium_review_invites_url(&creds.api_base_url)),
+        Some(&token),
+    )
+    .header("Content-Type", "application/json")
+    .json(&payload)
+    .send()
+    .await?;
+
+    let status = res.status();
+    if !status.is_success() {
+        return Err(PodiumError::ReviewInviteHttp(status.as_u16()));
+    }
+
+    let raw_response: Value = res.json().await.unwrap_or_else(|_| json!({}));
+    let provider_id = first_string_at(
+        &raw_response,
+        &[
+            "/id",
+            "/uid",
+            "/inviteId",
+            "/data/id",
+            "/data/uid",
+            "/data/inviteId",
+            "/invite/id",
+            "/invite/uid",
+        ],
+    );
+    let review_url = first_string_at(
+        &raw_response,
+        &[
+            "/url",
+            "/link",
+            "/reviewUrl",
+            "/shortUrl",
+            "/data/url",
+            "/data/link",
+            "/data/reviewUrl",
+            "/data/shortUrl",
+            "/invite/url",
+            "/invite/link",
+            "/invite/reviewUrl",
+            "/invite/shortUrl",
+        ],
+    );
+
+    Ok(PodiumReviewInviteResult {
+        provider_id,
+        review_url,
+        raw_response,
+    })
+}
+
 /// Send one SMS via Podium (`channel.type`: `phone`); returns error for API callers (e.g. POS receipt).
 pub async fn send_podium_sms_message(
     pool: &PgPool,
@@ -605,7 +859,20 @@ pub async fn send_podium_sms_message(
     to_phone_raw: &str,
     body: &str,
 ) -> Result<(), PodiumError> {
-    let creds = PodiumEnvCredentials::from_env().ok_or(PodiumError::NotConfigured)?;
+    send_podium_sms_message_with_sender(pool, http, token_cache, to_phone_raw, body, None).await
+}
+
+pub async fn send_podium_sms_message_with_sender(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    to_phone_raw: &str,
+    body: &str,
+    sender_name: Option<&str>,
+) -> Result<(), PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
     let cfg = load_store_podium_config(pool).await.map_err(|e| {
         tracing::error!(error = %e, "podium load_store_podium_config failed (sms send)");
         PodiumError::NotConfigured
@@ -637,6 +904,7 @@ pub async fn send_podium_sms_message(
         phone_digits.as_str(),
         body_t,
         None,
+        sender_name,
     )
     .await
 }
@@ -650,7 +918,9 @@ pub async fn send_podium_phone_message_with_png_attachment(
     body: &str,
     attachment_png: Vec<u8>,
 ) -> Result<(), PodiumError> {
-    let creds = PodiumEnvCredentials::from_env().ok_or(PodiumError::NotConfigured)?;
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
     let cfg = load_store_podium_config(pool).await.map_err(|e| {
         tracing::error!(error = %e, "podium load_store_podium_config failed (sms attachment send)");
         PodiumError::NotConfigured
@@ -696,12 +966,13 @@ pub async fn send_podium_phone_message_with_png_attachment(
         .text("data", data_str)
         .part("attachment", part);
 
-    let res = http
-        .post(podium_messages_attachment_url())
-        .header("Authorization", format!("Bearer {token}"))
-        .multipart(form)
-        .send()
-        .await?;
+    let res = add_podium_headers(
+        http.post(podium_messages_attachment_url(&creds.api_base_url)),
+        Some(&token),
+    )
+    .multipart(form)
+    .send()
+    .await?;
 
     let status = res.status();
     if status.is_success() {
@@ -731,7 +1002,30 @@ pub async fn send_podium_email_message(
     subject: &str,
     html_body: &str,
 ) -> Result<(), PodiumError> {
-    let creds = PodiumEnvCredentials::from_env().ok_or(PodiumError::NotConfigured)?;
+    send_podium_email_message_with_sender(
+        pool,
+        http,
+        token_cache,
+        to_email,
+        subject,
+        html_body,
+        None,
+    )
+    .await
+}
+
+pub async fn send_podium_email_message_with_sender(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    to_email: &str,
+    subject: &str,
+    html_body: &str,
+    sender_name: Option<&str>,
+) -> Result<(), PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
     let cfg = load_store_podium_config(pool).await.map_err(|e| {
         tracing::error!(error = %e, "podium load_store_podium_config failed (email send)");
         PodiumError::NotConfigured
@@ -763,6 +1057,7 @@ pub async fn send_podium_email_message(
         addr,
         html_body,
         Some(sub),
+        sender_name,
     )
     .await
 }
@@ -811,6 +1106,7 @@ pub async fn try_send_operational_email(
                 PodiumError::TokenMissing => "token_missing",
                 PodiumError::RefreshTokenMissing => "refresh_token_missing",
                 PodiumError::SendHttp(_s) => "send_http",
+                PodiumError::ReviewInviteHttp(_s) => "review_invite_http",
                 PodiumError::Http(_) => "http",
             };
             tracing::warn!(target = "podium", event = "podium_send_err", reason_class = reason, channel = "email", error = %e);
@@ -831,8 +1127,7 @@ async fn get_valid_access_token(
         }
     }
 
-    let res = http
-        .post(&creds.token_url)
+    let res = add_podium_headers(http.post(&creds.token_url), None)
         .header("Content-Type", "application/json")
         .json(&json!({
             "client_id": creds.client_id,
@@ -968,6 +1263,7 @@ mod tests {
             "15551234567",
             "pickup ready",
             None,
+            None,
         )
         .await;
         assert!(r.is_ok(), "{r:?}");
@@ -1043,6 +1339,7 @@ mod tests {
             "buyer@example.com",
             "<p>Hello</p>",
             Some("Subject line"),
+            None,
         )
         .await;
         assert!(r.is_ok(), "{r:?}");

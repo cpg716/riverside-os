@@ -2,9 +2,9 @@
 
 **Audience:** Managers and staff with access to the Operations area.
 
-**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Daily Sales**, **Pickup Queue**, **Podium Inbox**, **Reviews**.
+**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Daily Sales**, **Pickup Queue**, **Podium Inbox**, **Mailbox**, **Reviews**.
 
-**Related permissions:** **weddings.view** for wedding/compass blocks and the activity feed. **notifications.view** for bell. **tasks.complete** for task widgets. **customers.hub_view** for Podium Inbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **orders.view** for Pickup Queue. **alterations.manage** for the alterations snapshot. Weather often needs no special permission.
+**Related permissions:** **weddings.view** for wedding/compass blocks and the activity feed. **notifications.view** for bell. **tasks.complete** for task widgets. **customers.hub_view** for Podium Inbox and Mailbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **orders.view** for Pickup Queue. **alterations.manage** for the alterations snapshot. Weather often needs no special permission.
 
 ---
 
@@ -44,8 +44,16 @@ Use the full **Alterations Hub** when you need search, source filters, or status
 ## Podium Inbox
 
 1. **Operations** → **Podium Inbox**.
-2. Requires **customers.hub_view**. This is the shared Podium SMS/email thread list, not a generic task inbox.
+2. Requires **customers.hub_view**. This is the shared Podium SMS thread list, not a generic task inbox.
 3. Open a row to jump into the full customer conversation in the Customer Hub.
+
+## Mailbox
+
+1. **Operations** → **Mailbox**.
+2. Requires **customers.hub_view**. Use this for store email from `info@riversidemens.com`.
+3. Click **Sync inbox** to pull recent IONOS email into ROS.
+4. Matched customer email appears here and in the customer **Messages** tab. Unmatched email stays here until staff can identify or answer it.
+5. Use **Quick email** for general customer email. SMS still belongs in **Podium Inbox** or the customer **Messages** tab.
 
 ## Reviews
 
@@ -80,6 +88,7 @@ Use the full **Alterations Hub** when you need search, source filters, or status
 ## See also
 
 - [pos-dashboard.md](pos-dashboard.md) (POS dashboard — different screen)
+- [../EMAIL_MAILBOX.md](../EMAIL_MAILBOX.md)
 - [../PLAN_NOTIFICATION_CENTER.md](../PLAN_NOTIFICATION_CENTER.md)
 - [../STAFF_SCHEDULE_AND_CALENDAR.md](../STAFF_SCHEDULE_AND_CALENDAR.md)
 - [../WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md)

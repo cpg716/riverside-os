@@ -18,6 +18,7 @@ pub mod help;
 pub mod insights;
 pub mod inventory;
 pub mod loyalty;
+pub mod mailbox;
 pub mod metabase_proxy;
 pub mod notifications;
 pub mod ops;
@@ -113,6 +114,7 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/gift-cards", gift_cards::router())
         .nest("/api/help", help::router())
         .nest("/api/loyalty", loyalty::router())
+        .nest("/api/mailbox", mailbox::router())
         .nest("/api/reviews", reviews::router())
         .nest("/api/notifications", notifications::router())
         .nest("/api/ops", ops::router())

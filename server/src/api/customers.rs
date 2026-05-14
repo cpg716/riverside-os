@@ -43,6 +43,7 @@ use crate::logic::customer_transaction_history::{
 use crate::logic::customers::{
     insert_customer, is_profile_complete, InsertCustomerParams, ProfileFields,
 };
+use crate::logic::email as store_email;
 use crate::logic::lightspeed_customers::{
     execute_lightspeed_customer_import, LightspeedCustomerImportPayload,
     LightspeedCustomerImportSummary,
@@ -641,17 +642,49 @@ async fn require_customer_perm_or_pos(
         .map_err(map_perm_or_pos_err)
 }
 
-async fn staff_id_from_customer_perm_or_pos(
+#[derive(Debug, Clone)]
+struct CustomerMessageActor {
+    staff_id: Option<Uuid>,
+    sender_name: Option<String>,
+}
+
+async fn customer_message_actor_from_perm_or_pos(
     state: &AppState,
     headers: &HeaderMap,
     permission: &str,
-) -> Result<Option<Uuid>, CustomerError> {
+) -> Result<CustomerMessageActor, CustomerError> {
     match middleware::require_staff_perm_or_pos_session(state, headers, permission)
         .await
         .map_err(map_perm_or_pos_err)?
     {
-        middleware::StaffOrPosSession::Staff(s) => Ok(Some(s.id)),
-        middleware::StaffOrPosSession::PosSession { .. } => Ok(None),
+        middleware::StaffOrPosSession::Staff(s) => Ok(CustomerMessageActor {
+            staff_id: Some(s.id),
+            sender_name: Some(s.full_name),
+        }),
+        middleware::StaffOrPosSession::PosSession { session_id } => {
+            let row: Option<(Uuid, String)> = sqlx::query_as(
+                r#"
+                SELECT s.id, s.full_name
+                FROM register_sessions rs
+                JOIN staff s ON s.id = COALESCE(rs.shift_primary_staff_id, rs.opened_by)
+                WHERE rs.id = $1
+                  AND rs.is_open = true
+                "#,
+            )
+            .bind(session_id)
+            .fetch_optional(&state.db)
+            .await?;
+            Ok(match row {
+                Some((id, full_name)) => CustomerMessageActor {
+                    staff_id: Some(id),
+                    sender_name: Some(full_name),
+                },
+                None => CustomerMessageActor {
+                    staff_id: None,
+                    sender_name: None,
+                },
+            })
+        }
     }
 }
 
@@ -4088,7 +4121,8 @@ async fn post_customer_podium_email(
     Path(customer_id): Path<Uuid>,
     Json(body): Json<PostCustomerPodiumEmailBody>,
 ) -> Result<Json<serde_json::Value>, CustomerError> {
-    let staff_id = staff_id_from_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let actor =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
     let sub = body.subject.trim();
     let html = body.html_body.trim();
     if sub.is_empty() || html.is_empty() {
@@ -4107,36 +4141,20 @@ async fn post_customer_podium_email(
             "Customer email is missing or invalid".to_string(),
         ));
     }
-    match podium::send_podium_email_message(
+    match store_email::send_email(
         &state.db,
-        &state.http_client,
-        &state.podium_token_cache,
         em,
         sub,
         html,
+        actor.staff_id,
+        actor.sender_name.as_deref(),
+        "outbound",
     )
     .await
     {
-        Ok(()) => {
-            let em_t = em.trim();
-            if let Err(e) = podium_messaging::record_outbound_message(
-                &state.db,
-                customer_id,
-                "email",
-                html,
-                staff_id,
-                None,
-                Some(em_t),
-                "outbound",
-            )
-            .await
-            {
-                tracing::error!(error = %e, "record podium outbound email");
-            }
-            Ok(Json(json!({ "status": "sent" })))
-        }
+        Ok(_) => Ok(Json(json!({ "status": "sent" }))),
         Err(e) => Err(CustomerError::PodiumUnavailable(format!(
-            "Could not send via Podium ({e}). Enable operational email in Integrations, set location UID, and verify Podium env credentials."
+            "Could not send email ({e}). Check Mailbox settings and saved IONOS credentials."
         ))),
     }
 }
@@ -4187,8 +4205,8 @@ async fn post_customer_podium_reply(
     Path(customer_id): Path<Uuid>,
     Json(body): Json<PostCustomerPodiumReplyBody>,
 ) -> Result<Json<serde_json::Value>, CustomerError> {
-    let id_for_insert =
-        staff_id_from_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let actor =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
     let ch = body.channel.trim().to_ascii_lowercase();
     let text = body.body.trim();
     if text.is_empty() {
@@ -4202,12 +4220,13 @@ async fn post_customer_podium_reply(
                     "Customer has no phone on file".to_string(),
                 ));
             };
-            podium::send_podium_sms_message(
+            podium::send_podium_sms_message_with_sender(
                 &state.db,
                 &state.http_client,
                 &state.podium_token_cache,
                 ph,
                 text,
+                actor.sender_name.as_deref(),
             )
             .await
             .map_err(|e| {
@@ -4221,7 +4240,7 @@ async fn post_customer_podium_reply(
                 customer_id,
                 "sms",
                 text,
-                id_for_insert,
+                actor.staff_id,
                 e164.as_deref(),
                 None,
                 "outbound",
@@ -4246,33 +4265,21 @@ async fn post_customer_podium_reply(
                     "Customer email is invalid".to_string(),
                 ));
             }
-            podium::send_podium_email_message(
+            store_email::send_email(
                 &state.db,
-                &state.http_client,
-                &state.podium_token_cache,
                 em,
                 sub,
                 text,
+                actor.staff_id,
+                actor.sender_name.as_deref(),
+                "outbound",
             )
             .await
             .map_err(|e| {
                 CustomerError::PodiumUnavailable(format!(
-                    "Could not send email via Podium ({e}). Check Integrations and env credentials."
+                    "Could not send email ({e}). Check Mailbox settings and saved IONOS credentials."
                 ))
             })?;
-            let em_t = em.trim();
-            podium_messaging::record_outbound_message(
-                &state.db,
-                customer_id,
-                "email",
-                text,
-                id_for_insert,
-                None,
-                Some(em_t),
-                "outbound",
-            )
-            .await
-            .map_err(CustomerError::Database)?;
         }
         _ => {
             return Err(CustomerError::BadRequest(

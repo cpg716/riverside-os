@@ -108,6 +108,9 @@ Environment variables:
 | `RIVERSIDE_PODIUM_WEBHOOK_SECRET` | _(unset)_ | Deployment fallback for **`POST /api/webhooks/podium`** HMAC secret; routine setup belongs in Backoffice Settings. |
 | `RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED` | _(unset)_ | Dev only: accept unsigned webhooks when secret unset — **`server/.env.example`** |
 | `RIVERSIDE_PODIUM_INBOUND_DISABLED` | _(unset)_ | When truthy, **`POST /api/webhooks/podium`** skips CRM ingest (threads + notifications); idempotent webhook ledger still accepts deliveries — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
+| `RIVERSIDE_EMAIL_IMAP_USERNAME` / `RIVERSIDE_EMAIL_IMAP_PASSWORD` | _(unset)_ | Deployment fallback for the first-party store email inbox. Routine IONOS setup belongs in Backoffice Settings → Email — **`docs/EMAIL_MAILBOX.md`** |
+| `RIVERSIDE_EMAIL_SMTP_USERNAME` / `RIVERSIDE_EMAIL_SMTP_PASSWORD` | _(unset)_ | Deployment fallback for first-party store email sending. If omitted, ROS uses the IMAP credentials for SMTP — **`docs/EMAIL_MAILBOX.md`** |
+| `RIVERSIDE_EMAIL_SYNC_INTERVAL_SECS` | `300` | Background inbox sync interval, minimum 60 seconds. Disabled automatically when Settings → Email is disabled or credentials are missing. |
 | `RUST_LOG` | `riverside_server=info,warn` | Structured log level |
 | `OTEL_*` / `RIVERSIDE_OTEL_ENABLED` | _(unset)_ | Optional **OTLP** distributed traces — [`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md), [`server/.env.example`](server/.env.example) |
 | `RIVERSIDE_MAX_BODY_BYTES` | _(unset)_ | Optional cap override for large **`POST /api/products/import`** bodies (`DEVELOPER.md`, **`docs/CATALOG_IMPORT.md`**) |

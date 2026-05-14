@@ -1251,12 +1251,26 @@ async fn post_transaction_review_invite(
         q.register_session_id,
     )
     .await?;
-    podium_reviews::apply_post_sale_review_choice(&state.db, transaction_id, body.skip)
-        .await
-        .map_err(|e| match e {
-            podium_reviews::ReviewInviteError::Db(d) => TransactionError::Database(d),
-            podium_reviews::ReviewInviteError::NotFound => TransactionError::NotFound,
-        })?;
+    podium_reviews::apply_post_sale_review_choice(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        transaction_id,
+        body.skip,
+    )
+    .await
+    .map_err(|e| match e {
+        podium_reviews::ReviewInviteError::Db(d) => TransactionError::Database(d),
+        podium_reviews::ReviewInviteError::NotFound => TransactionError::NotFound,
+        podium_reviews::ReviewInviteError::Podium(podium::PodiumError::NotConfigured) => {
+            TransactionError::InvalidPayload(
+                "Podium review requests are not configured".to_string(),
+            )
+        }
+        podium_reviews::ReviewInviteError::Podium(err) => {
+            TransactionError::BadGateway(format!("Podium review request failed: {err}"))
+        }
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 

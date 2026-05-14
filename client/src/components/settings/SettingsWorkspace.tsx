@@ -26,6 +26,7 @@ import {
   Gauge,
   Cloud,
   Info,
+  Mail,
   Monitor,
   Plug,
   Printer,
@@ -55,6 +56,7 @@ import BugReportsSettingsPanel from "./BugReportsSettingsPanel";
 import NuorderSettingsPanel from "./NuorderSettingsPanel";
 import WeatherSettingsPanel from "./WeatherSettingsPanel";
 import PodiumSettingsPanel from "./PodiumSettingsPanel";
+import EmailSettingsPanel from "./EmailSettingsPanel";
 import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
@@ -169,6 +171,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   updates: "App updates, PWA refresh, and server update steps.",
   integrations: "Overview cards for connected services and integration setup.",
   podium: "Podium messaging, review invites, and communication readiness.",
+  email: "IONOS mailbox setup, automated email, inbox sync, and staff signatures.",
   shippo: "Shipping account setup, carrier rates, and label configuration.",
   helcim: "Helcim payments, terminal readiness, and card processing setup.",
   corecard: "CoreCard host credentials for RMS Charge and CoreCredit posting.",
@@ -219,6 +222,7 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   updates: RefreshCw,
   integrations: Plug,
   podium: Plug,
+  email: Mail,
   shippo: Plug,
   helcim: Plug,
   corecard: Plug,
@@ -1222,6 +1226,10 @@ export default function SettingsWorkspace({
 
             {activeTab === "podium" && hasPermission("settings.admin") && (
               <PodiumSettingsPanel baseUrl={baseUrl} />
+            )}
+
+            {activeTab === "email" && hasPermission("settings.admin") && (
+              <EmailSettingsPanel baseUrl={baseUrl} />
             )}
 
             {activeTab === "quickbooks" && hasPermission("settings.admin") && (

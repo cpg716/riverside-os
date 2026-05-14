@@ -282,7 +282,7 @@ function customerTimelineKindLabel(kind: string): string {
   }
 }
 
-/** Server: `inbound` = customer; `automated` = system templates; `outbound` = ROS staff or Podium app sender name. */
+/** Server: `inbound` = customer; `automated` = system templates; `outbound` = ROS staff or integration sender name. */
 function podiumThreadSentByLabel(m: {
   direction: string;
   staff_full_name?: string | null;
@@ -296,7 +296,7 @@ function podiumThreadSentByLabel(m: {
     if (ros) return ros;
     const podium = m.podium_sender_name?.trim();
     if (podium) return podium;
-    return "Podium";
+    return "Riverside";
   }
   return d;
 }
@@ -584,6 +584,7 @@ export function CustomerRelationshipHubDrawer({
   const [podiumComposeSubject, setPodiumComposeSubject] = useState("");
   const [podiumComposeHtml, setPodiumComposeHtml] = useState("");
   const [podiumComposeBusy, setPodiumComposeBusy] = useState(false);
+  const [messageComposeMode, setMessageComposeMode] = useState<"sms" | "email">("sms");
   const [podiumThread, setPodiumThread] = useState<
     {
       id: string;
@@ -1365,7 +1366,7 @@ export function CustomerRelationshipHubDrawer({
         toast("Could not send email. Try again.", "error");
         return;
       }
-      toast("Email sent via Podium", "success");
+      toast("Email sent", "success");
       setPodiumComposeSubject("");
       setPodiumComposeHtml("");
       void loadPodiumThread();
@@ -2962,12 +2963,17 @@ export function CustomerRelationshipHubDrawer({
 
           {tab === "messages" && (
             <div className="space-y-6">
-              <section className="rounded-2xl border border-app-border bg-app-surface p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                    <MessageSquarePlus size={14} aria-hidden />
-                    This customer’s messages
-                  </h3>
+              <section className="overflow-hidden rounded-2xl border border-app-border bg-app-surface">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-app-border bg-app-surface-2/70 px-4 py-3">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                      <MessageSquarePlus size={14} aria-hidden />
+                      Customer messages
+                    </h3>
+                    <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                      SMS, automated notices, and email history for this customer.
+                    </p>
+                  </div>
                   <button
                     type="button"
                     onClick={() => void loadPodiumThread()}
@@ -2976,143 +2982,157 @@ export function CustomerRelationshipHubDrawer({
                     Refresh
                   </button>
                 </div>
-                {podiumThreadLoading ? (
-                  <p className="text-xs text-app-text-muted">
-                    Loading messages…
-                  </p>
-                ) : podiumThreadLoadError ? (
-                  <InlineDegradedState
-                    message={podiumThreadLoadError}
-                    onRetry={() => void loadPodiumThread()}
-                  />
-                ) : podiumThread.length === 0 ? (
-                  <p className="text-xs text-app-text-muted">
-                    No messages yet. New SMS or email messages for this customer appear here.
-                  </p>
-                ) : (
-                  <ul className="max-h-[280px] space-y-2 overflow-y-auto pr-1">
-                    {podiumThread.map((m) => {
-                      const inbound = m.direction === "inbound";
-                      const auto = m.direction === "automated";
-                      const preview = formatMessagePreview(m.body, m.channel);
-                      const sentBy = podiumThreadSentByLabel(m);
-                      return (
-                        <li
-                          key={m.id}
-                          className={`flex ${inbound ? "justify-start" : "justify-end"}`}
+
+                <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_22rem]">
+                  <div className="min-h-[26rem] bg-app-surface px-4 py-4">
+                    {podiumThreadLoading ? (
+                      <p className="text-xs text-app-text-muted">Loading messages…</p>
+                    ) : podiumThreadLoadError ? (
+                      <InlineDegradedState
+                        message={podiumThreadLoadError}
+                        onRetry={() => void loadPodiumThread()}
+                      />
+                    ) : podiumThread.length === 0 ? (
+                      <div className="flex min-h-[18rem] items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface-2/50 px-4 text-center text-xs font-semibold text-app-text-muted">
+                        No messages yet. New SMS and email activity for this customer appears here.
+                      </div>
+                    ) : (
+                      <ul className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+                        {podiumThread.map((m) => {
+                          const inbound = m.direction === "inbound";
+                          const auto = m.direction === "automated";
+                          const preview = formatMessagePreview(m.body, m.channel);
+                          const sentBy = podiumThreadSentByLabel(m);
+                          return (
+                            <li
+                              key={m.id}
+                              className={`flex ${inbound ? "justify-start" : "justify-end"}`}
+                            >
+                              <div
+                                className={`max-w-[84%] rounded-2xl border px-3 py-2 text-sm shadow-sm ${
+                                  inbound
+                                    ? "rounded-bl-md border-app-border bg-app-surface-2 text-app-text"
+                                    : auto
+                                      ? "border-app-border/60 bg-app-surface-2/60 text-app-text-muted"
+                                      : "rounded-br-md border-app-success/25 bg-app-success/10 text-app-text"
+                                }`}
+                              >
+                                <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                  <span>{m.channel}</span>
+                                  <span className="text-app-text/90 normal-case tracking-normal">
+                                    {sentBy}
+                                  </span>
+                                  <span className="font-normal normal-case tracking-normal">
+                                    {new Date(m.created_at).toLocaleString()}
+                                  </span>
+                                </div>
+                                <p className="whitespace-pre-wrap break-words leading-relaxed">
+                                  {preview}
+                                </p>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className="border-t border-app-border bg-app-surface-2/60 p-4 lg:border-l lg:border-t-0">
+                    <div className="mb-3 grid grid-cols-2 rounded-xl border border-app-border bg-app-surface p-1">
+                      {(["sms", "email"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setMessageComposeMode(mode)}
+                          className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                            messageComposeMode === mode
+                              ? "bg-app-accent text-white"
+                              : "text-app-text-muted hover:bg-app-surface-3"
+                          }`}
                         >
-                          <div
-                            className={`max-w-[92%] rounded-xl border px-3 py-2 text-xs ${
-                              inbound
-                                ? "border-app-border bg-app-surface-2 text-app-text"
-                                : auto
-                                  ? "border-app-border/60 bg-app-surface-2/50 text-app-text-muted"
-                                  : "border-app-success/20 bg-app-success/10 text-app-text"
-                            }`}
-                          >
-                            <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                              <span>{m.channel}</span>
-                              <span className="text-app-text/90 normal-case tracking-normal">
-                                {sentBy}
-                              </span>
-                              <span className="ml-auto font-normal normal-case tracking-normal">
-                                {new Date(m.created_at).toLocaleString()}
-                              </span>
-                            </div>
-                            <p className="whitespace-pre-wrap break-words">
-                              {preview}
-                            </p>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </section>
+                          {mode === "sms" ? "SMS" : "Email"}
+                        </button>
+                      ))}
+                    </div>
 
-              <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
-                <h3 className="mb-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                  Reply SMS
-                </h3>
-                {!hub.phone ? (
-                  <p className="mb-2 text-xs font-semibold text-app-warning">
-                    Add a phone number on the Profile tab to reply by SMS.
-                  </p>
-                ) : null}
-                <textarea
-                  className="ui-input mb-2 min-h-[72px] w-full resize-y p-2 text-sm"
-                  value={smsReplyDraft}
-                  onChange={(e) => setSmsReplyDraft(e.target.value)}
-                  disabled={!canHubEdit || !hub.phone}
-                  placeholder="Type SMS reply…"
-                />
-                <button
-                  type="button"
-                  disabled={
-                    smsReplyBusy ||
-                    !canHubEdit ||
-                    !hub.phone ||
-                    !smsReplyDraft.trim()
-                  }
-                  onClick={() => void sendPodiumSmsReply()}
-                  className="rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
-                >
-                  {smsReplyBusy ? "Sending…" : "Send SMS"}
-                </button>
-              </section>
-
-              <section className="rounded-2xl border border-app-border bg-app-surface p-4">
-                <h3 className="mb-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                  Send email
-                </h3>
-                <p className="mb-3 text-xs text-app-text-muted leading-relaxed">
-                  Sends to the email on this customer&apos;s profile.
-                </p>
-                {!hub.email ? (
-                  <p className="mb-3 text-sm font-semibold text-app-warning">
-                    Add an email address on the Profile tab before sending.
-                  </p>
-                ) : null}
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Subject
-                </label>
-                <input
-                  className="ui-input mb-3 w-full px-3 py-2 text-sm"
-                  value={podiumComposeSubject}
-                  onChange={(e) => setPodiumComposeSubject(e.target.value)}
-                  disabled={!canHubEdit || !hub.email}
-                  placeholder="Regarding your recent visit…"
-                />
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Email message
-                </label>
-                <textarea
-                  className="ui-input mb-3 min-h-[120px] w-full resize-y p-3 font-mono text-xs"
-                  value={podiumComposeHtml}
-                  onChange={(e) => setPodiumComposeHtml(e.target.value)}
-                  disabled={!canHubEdit || !hub.email}
-                  placeholder="Write the email message…"
-                  spellCheck={false}
-                />
-                <button
-                  type="button"
-                  disabled={
-                    podiumComposeBusy ||
-                    !canHubEdit ||
-                    !hub.email ||
-                    !podiumComposeSubject.trim() ||
-                    !podiumComposeHtml.trim()
-                  }
-                  onClick={() => void sendPodiumEmail()}
-                  className="rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
-                >
-                  {podiumComposeBusy ? "Sending…" : "Send via Podium"}
-                </button>
-                {!canHubEdit ? (
-                  <p className="mt-2 text-xs text-app-text-muted">
-                    Manager access is needed to send from this customer profile.
-                  </p>
-                ) : null}
+                    {messageComposeMode === "sms" ? (
+                      <>
+                        {!hub.phone ? (
+                          <p className="mb-3 rounded-xl border border-app-warning/25 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
+                            Add a phone number on the Profile tab to send SMS.
+                          </p>
+                        ) : null}
+                        <textarea
+                          className="ui-input mb-3 min-h-[9rem] w-full resize-y p-3 text-sm"
+                          value={smsReplyDraft}
+                          onChange={(e) => setSmsReplyDraft(e.target.value)}
+                          disabled={!canHubEdit || !hub.phone}
+                          placeholder="Type a text message…"
+                        />
+                        <button
+                          type="button"
+                          disabled={
+                            smsReplyBusy ||
+                            !canHubEdit ||
+                            !hub.phone ||
+                            !smsReplyDraft.trim()
+                          }
+                          onClick={() => void sendPodiumSmsReply()}
+                          className="w-full rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
+                        >
+                          {smsReplyBusy ? "Sending…" : "Send SMS"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {!hub.email ? (
+                          <p className="mb-3 rounded-xl border border-app-warning/25 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
+                            Add an email address on the Profile tab before sending.
+                          </p>
+                        ) : null}
+                        <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Subject
+                        </label>
+                        <input
+                          className="ui-input mb-3 w-full px-3 py-2 text-sm"
+                          value={podiumComposeSubject}
+                          onChange={(e) => setPodiumComposeSubject(e.target.value)}
+                          disabled={!canHubEdit || !hub.email}
+                          placeholder="Regarding your recent visit…"
+                        />
+                        <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Message
+                        </label>
+                        <textarea
+                          className="ui-input mb-3 min-h-[10rem] w-full resize-y p-3 text-sm"
+                          value={podiumComposeHtml}
+                          onChange={(e) => setPodiumComposeHtml(e.target.value)}
+                          disabled={!canHubEdit || !hub.email}
+                          placeholder="Write an email message…"
+                        />
+                        <button
+                          type="button"
+                          disabled={
+                            podiumComposeBusy ||
+                            !canHubEdit ||
+                            !hub.email ||
+                            !podiumComposeSubject.trim() ||
+                            !podiumComposeHtml.trim()
+                          }
+                          onClick={() => void sendPodiumEmail()}
+                          className="w-full rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
+                        >
+                          {podiumComposeBusy ? "Sending…" : "Send email"}
+                        </button>
+                      </>
+                    )}
+                    {!canHubEdit ? (
+                      <p className="mt-3 text-xs text-app-text-muted">
+                        Manager access is needed to send from this customer profile.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
               </section>
 
               <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">

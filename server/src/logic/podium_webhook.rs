@@ -58,6 +58,8 @@ pub enum PodiumWebhookVerifyError {
     MissingTimestamp,
     #[error("missing podium-signature header")]
     MissingSignature,
+    #[error("invalid podium-timestamp header")]
+    InvalidTimestamp,
     #[error("invalid signature")]
     BadSignature,
     #[error("webhook timestamp skew too large")]
@@ -107,11 +109,17 @@ pub fn verify_podium_webhook_headers(
     let sig_raw = header_first(headers, "podium-signature")
         .ok_or(PodiumWebhookVerifyError::MissingSignature)?;
 
-    if let Ok(ts_i) = ts.parse::<i64>() {
-        let now = chrono::Utc::now().timestamp();
-        if (now - ts_i).abs() > 300 {
-            return Err(PodiumWebhookVerifyError::StaleTimestamp);
-        }
+    let ts_i = ts
+        .parse::<i64>()
+        .map_err(|_| PodiumWebhookVerifyError::InvalidTimestamp)?;
+    let ts_seconds = if ts_i.abs() > 10_000_000_000 {
+        ts_i / 1000
+    } else {
+        ts_i
+    };
+    let now = chrono::Utc::now().timestamp();
+    if (now - ts_seconds).abs() > 300 {
+        return Err(PodiumWebhookVerifyError::StaleTimestamp);
     }
 
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())

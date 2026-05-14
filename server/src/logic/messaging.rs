@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::logic::email as store_email;
 use crate::logic::podium::{
     self, apply_template_placeholders, looks_like_email, normalize_phone_e164, PodiumTokenCache,
 };
@@ -97,7 +98,7 @@ fn loyalty_redeem_breakdown_html(apply: Decimal, remainder: Decimal) -> String {
 
 /// Core messaging dispatcher for automated notifications.
 /// SMS: Podium when env + `podium_sms_config.sms_send_enabled` + location_uid.
-/// Email: Podium when env + `podium_sms_config.email_send_enabled` + location_uid.
+/// Email: first-party store email (IONOS-compatible IMAP/SMTP) when enabled.
 pub struct MessagingService;
 
 impl MessagingService {
@@ -190,12 +191,10 @@ impl MessagingService {
                         event = "email_dispatch",
                         customer_id = %customer_id,
                         kind = "loyalty_reward_redeemed",
-                        "Loyalty redeem email (Podium) triggered"
+                        "Loyalty redeem email triggered"
                     );
-                    podium::try_send_operational_email(
+                    store_email::try_send_operational_email(
                         pool,
-                        http,
-                        podium_cache,
                         em,
                         subject,
                         html,
@@ -209,11 +208,11 @@ impl MessagingService {
         Ok(())
     }
 
-    /// New appointment with a linked `customer_id` — confirmation email via Podium when opted in.
+    /// New appointment with a linked `customer_id` — confirmation email when opted in.
     pub async fn trigger_appointment_confirmation(
         pool: &PgPool,
-        http: &reqwest::Client,
-        podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+        _http: &reqwest::Client,
+        _podium_cache: &Arc<Mutex<PodiumTokenCache>>,
         appt: &AppointmentRow,
     ) -> Result<(), sqlx::Error> {
         let Some(customer_id) = appt.customer_id else {
@@ -268,16 +267,7 @@ impl MessagingService {
             "Appointment confirmation email triggered"
         );
 
-        podium::try_send_operational_email(
-            pool,
-            http,
-            podium_cache,
-            em,
-            subject,
-            html,
-            Some(customer_id),
-        )
-        .await;
+        store_email::try_send_operational_email(pool, em, subject, html, Some(customer_id)).await;
 
         Ok(())
     }
@@ -366,12 +356,10 @@ impl MessagingService {
                         customer_id = %customer_id,
                         transaction_id = %transaction_id,
                         kind = "ready_for_pickup",
-                        "Ready for Pickup email (Podium) triggered"
+                        "Ready for Pickup email triggered"
                     );
-                    podium::try_send_operational_email(
+                    store_email::try_send_operational_email(
                         pool,
-                        http,
-                        podium_cache,
                         email,
                         subject,
                         html,
@@ -469,12 +457,10 @@ impl MessagingService {
                         customer_id = %customer_id,
                         alteration_id = %alteration_id,
                         kind = "alteration_ready",
-                        "Alteration ready email (Podium) triggered"
+                        "Alteration ready email triggered"
                     );
-                    podium::try_send_operational_email(
+                    store_email::try_send_operational_email(
                         pool,
-                        http,
-                        podium_cache,
                         email,
                         subject,
                         html,

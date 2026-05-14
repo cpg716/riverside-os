@@ -90,6 +90,26 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "RIVERSIDE_PODIUM_WEBHOOK_SECRET",
     },
     IntegrationCredentialMapping {
+        integration_key: "email",
+        credential_key: "imap_username",
+        env_key: "RIVERSIDE_EMAIL_IMAP_USERNAME",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "email",
+        credential_key: "imap_password",
+        env_key: "RIVERSIDE_EMAIL_IMAP_PASSWORD",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "email",
+        credential_key: "smtp_username",
+        env_key: "RIVERSIDE_EMAIL_SMTP_USERNAME",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "email",
+        credential_key: "smtp_password",
+        env_key: "RIVERSIDE_EMAIL_SMTP_PASSWORD",
+    },
+    IntegrationCredentialMapping {
         integration_key: "meilisearch",
         credential_key: "url",
         env_key: "RIVERSIDE_MEILISEARCH_URL",

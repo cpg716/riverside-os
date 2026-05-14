@@ -43,6 +43,7 @@ async fn post_podium_webhook(
             }
             PodiumWebhookVerifyError::MissingTimestamp
             | PodiumWebhookVerifyError::MissingSignature
+            | PodiumWebhookVerifyError::InvalidTimestamp
             | PodiumWebhookVerifyError::StaleTimestamp => StatusCode::BAD_REQUEST,
         };
         tracing::warn!(target = "podium_webhook", event = "verify_failed", reason = %e);

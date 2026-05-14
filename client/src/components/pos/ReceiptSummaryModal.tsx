@@ -766,7 +766,7 @@ export default function ReceiptSummaryModal({
         className="ui-overlay-backdrop !z-[200]"
         onClick={(e) => {
           e.stopPropagation();
-          onClose();
+          void closeWithReviewChoice();
         }}
       >
         <div
@@ -1048,7 +1048,8 @@ export default function ReceiptSummaryModal({
                     className="mt-0.5 h-4 w-4 shrink-0 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
                   />
                   <span className="text-left text-[10px] font-semibold leading-snug text-app-text">
-                    Send post-sale review invite for this fully fulfilled sale.
+                    Send a review request for this fulfilled sale. Riverside skips customers who
+                    received one in the last 180 days.
                   </span>
                 </label>
               ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
