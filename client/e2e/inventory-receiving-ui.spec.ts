@@ -117,7 +117,7 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(poRow).toBeVisible({ timeout: 20_000 });
     await poRow.click();
 
-    const submitButton = page.getByRole("button", { name: /^mark sent$/i });
+    const submitButton = poRow.getByRole("button", { name: /^mark sent$/i });
     await expect(submitButton).toBeVisible({ timeout: 10_000 });
     await submitButton.click();
 

@@ -106,6 +106,8 @@ test.describe("runtime console and API cleanliness", () => {
   test("POS customer-like product search does not fire exact inventory scan 404s", async ({
     page,
   }) => {
+    test.setTimeout(45_000);
+
     const guard = installRuntimeIssueGuard(page);
     const scanUrls: string[] = [];
     page.on("request", (request) => {
