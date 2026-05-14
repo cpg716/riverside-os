@@ -3,9 +3,12 @@ use riverside_server::observability::ServerLogRing;
 use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::process::Command;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::oneshot;
+use tokio::time::{sleep, Duration, Instant};
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -30,6 +33,12 @@ pub struct UnifiedServerStatus {
 pub struct UnifiedHostNetworkIdentity {
     pub hostname: Option<String>,
     pub lan_ipv4s: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct InstalledServerStartStatus {
+    pub started: bool,
+    pub message: String,
 }
 
 impl Default for UnifiedServerStatus {
@@ -155,6 +164,100 @@ fn host_message(bind_addr: &str, frontend_dist: &Path) -> String {
         "Unified host is running on {bind_addr} and serving satellite clients from {}.",
         frontend_dist.display()
     )
+}
+
+fn staff_roster_probe_url(server_url: &str) -> Result<String, String> {
+    let trimmed = server_url.trim().trim_end_matches('/');
+    let parsed = reqwest::Url::parse(trimmed)
+        .map_err(|_| "Riverside server URL is not a valid HTTP URL.".to_string())?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err("Riverside server URL must start with http:// or https://.".to_string());
+    }
+    Ok(format!("{trimmed}/api/staff/list-for-pos"))
+}
+
+async fn wait_for_roster_probe(server_url: &str) -> Result<(), String> {
+    let probe_url = staff_roster_probe_url(server_url)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .map_err(|e| format!("Could not prepare Riverside server check: {e}"))?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+
+    loop {
+        if let Ok(response) = client.get(&probe_url).send().await {
+            if response.status().is_success() {
+                let body = response.text().await.unwrap_or_default();
+                let trimmed = body.trim_start();
+                if trimmed.starts_with('[') || trimmed.starts_with('{') {
+                    return Ok(());
+                }
+            }
+        }
+
+        if Instant::now() >= deadline {
+            break;
+        }
+        sleep(Duration::from_millis(500)).await;
+    }
+
+    Err(format!(
+        "Riverside server did not respond at {probe_url} after starting the Windows task."
+    ))
+}
+
+#[cfg(windows)]
+fn start_windows_server_task() -> Result<(), String> {
+    let script = r#"
+$taskName = 'Riverside OS Server'
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($null -eq $task) {
+  Write-Error 'Riverside OS Server scheduled task was not found. Run Backoffice / Server repair from the deployment package.'
+  exit 2
+}
+Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+"#;
+
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ])
+        .output()
+        .map_err(|e| format!("Could not ask Windows to start Riverside OS Server: {e}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let detail = if !stderr.is_empty() { stderr } else { stdout };
+    Err(if detail.is_empty() {
+        "Windows could not start the Riverside OS Server scheduled task.".to_string()
+    } else {
+        detail
+    })
+}
+
+#[cfg(not(windows))]
+fn start_windows_server_task() -> Result<(), String> {
+    Err("Automatic server start is only available on the Windows server PC.".to_string())
+}
+
+#[tauri::command]
+pub async fn start_installed_windows_server(
+    server_url: String,
+) -> Result<InstalledServerStartStatus, String> {
+    start_windows_server_task()?;
+    wait_for_roster_probe(&server_url).await?;
+    Ok(InstalledServerStartStatus {
+        started: true,
+        message: "Riverside server is running.".to_string(),
+    })
 }
 
 fn normalize_hostname(value: Option<String>) -> Option<String> {

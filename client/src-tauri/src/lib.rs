@@ -47,6 +47,7 @@ pub fn run() {
             #[cfg(desktop)]
             app_updates::install_app_update,
             unified_server::start_unified_server,
+            unified_server::start_installed_windows_server,
             unified_server::get_unified_server_status,
             unified_server::get_unified_host_network_identity,
         ])

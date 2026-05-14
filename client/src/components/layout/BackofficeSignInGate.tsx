@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { ShieldCheck } from "lucide-react";
 import {
   useBackofficeAuth,
@@ -10,6 +11,28 @@ import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
 import RiversideLogo from "../../assets/images/riverside_logo.jpg";
 import { DEFAULT_BASE_URL } from "../../lib/apiConfig";
+
+interface InstalledServerStartStatus {
+  started: boolean;
+  message: string;
+}
+
+function isLoopbackServerUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isWindowsDesktop(): boolean {
+  return typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent);
+}
+
+function shouldAutoStartLocalServer(serverUrl: string): boolean {
+  return isTauri() && isWindowsDesktop() && isLoopbackServerUrl(serverUrl);
+}
 
 /**
  * Blocks the Back Office shell until a valid 4-digit staff credential is stored.
@@ -41,6 +64,7 @@ export default function BackofficeSignInGate({
   });
   const [showServerSetup, setShowServerSetup] = useState(false);
   const [tempUrl, setTempUrl] = useState(serverUrl);
+  const [serverStartupNotice, setServerStartupNotice] = useState<string | null>(null);
 
   const isTailscaleRemote = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -69,17 +93,58 @@ export default function BackofficeSignInGate({
   };
 
   useEffect(() => {
+    let cancelled = false;
+
     void (async () => {
       try {
         const res = await fetch(`${serverUrl}/api/staff/list-for-pos`);
         if (res.ok) {
           const data = await res.json();
+          if (cancelled) return;
           setRoster(data);
+          setServerStartupNotice(null);
+          return;
         }
       } catch {
-        setRoster([]);
+        // The Windows server app can recover the installed local server task below.
+      }
+
+      if (cancelled) return;
+      setRoster([]);
+
+      if (!shouldAutoStartLocalServer(serverUrl)) {
+        return;
+      }
+
+      setServerStartupNotice("Starting the local Riverside server...");
+      try {
+        const startResult = await invoke<InstalledServerStartStatus>(
+          "start_installed_windows_server",
+          { serverUrl },
+        );
+        if (cancelled) return;
+        setServerStartupNotice(startResult.message);
+
+        const retry = await fetch(`${serverUrl}/api/staff/list-for-pos`);
+        if (retry.ok) {
+          const data = await retry.json();
+          if (cancelled) return;
+          setRoster(data);
+          setServerStartupNotice(null);
+          return;
+        }
+
+        setServerStartupNotice("Local server started, but the staff list did not load.");
+      } catch (e) {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setServerStartupNotice(msg);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [serverUrl]);
 
   const handleStaffChange = (id: string) => {
@@ -189,6 +254,11 @@ export default function BackofficeSignInGate({
           {error ? (
             <p className="rounded-2xl border border-app-danger/20 bg-app-danger/5 px-4 py-3 text-center text-xs font-bold text-app-danger">
               {error}
+            </p>
+          ) : null}
+          {serverStartupNotice && !error ? (
+            <p className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-center text-xs font-bold text-amber-700">
+              {serverStartupNotice}
             </p>
           ) : null}
 
