@@ -163,6 +163,7 @@ pub struct NormalizedRate {
     pub carrier: String,
     pub service_name: String,
     pub shippo_rate_object_id: Option<String>,
+    pub shippo_carrier_account_object_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_days: Option<String>,
 }
@@ -173,6 +174,8 @@ pub struct RateWithQuoteId {
     pub amount_usd: Decimal,
     pub carrier: String,
     pub service_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shippo_carrier_account_object_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_days: Option<String>,
 }
@@ -302,6 +305,7 @@ pub fn stub_normalized_rates() -> Vec<NormalizedRate> {
             carrier: "USPS".into(),
             service_name: "Priority Mail".into(),
             shippo_rate_object_id: None,
+            shippo_carrier_account_object_id: None,
             estimated_days: Some("2-3".into()),
         },
         NormalizedRate {
@@ -309,6 +313,7 @@ pub fn stub_normalized_rates() -> Vec<NormalizedRate> {
             carrier: "USPS".into(),
             service_name: "Priority Mail Express".into(),
             shippo_rate_object_id: None,
+            shippo_carrier_account_object_id: None,
             estimated_days: Some("1-2".into()),
         },
         NormalizedRate {
@@ -316,6 +321,7 @@ pub fn stub_normalized_rates() -> Vec<NormalizedRate> {
             carrier: "UPS".into(),
             service_name: "Ground".into(),
             shippo_rate_object_id: None,
+            shippo_carrier_account_object_id: None,
             estimated_days: Some("3-5".into()),
         },
     ]
@@ -328,6 +334,7 @@ async fn fetch_live_rates(
     to: &ShippingAddressInput,
     parcels: &[Value],
     customs_declaration_object_id: Option<&str>,
+    is_return: bool,
 ) -> Result<Vec<NormalizedRate>, ShippoError> {
     if from.street1.trim().is_empty()
         || from.city.trim().is_empty()
@@ -355,8 +362,13 @@ async fn fetch_live_rates(
         "parcels": parcels,
         "async": false,
     });
-    if let (Some(obj), Some(customs)) = (body.as_object_mut(), customs_id) {
-        obj.insert("customs_declaration".to_string(), json!(customs));
+    if let Some(obj) = body.as_object_mut() {
+        if let Some(customs) = customs_id {
+            obj.insert("customs_declaration".to_string(), json!(customs));
+        }
+        if is_return {
+            obj.insert("extra".to_string(), json!({ "is_return": true }));
+        }
     }
 
     let resp = http
@@ -410,6 +422,10 @@ async fn fetch_live_rates(
             .get("object_id")
             .and_then(|x| x.as_str())
             .map(|s| s.to_string());
+        let carrier_account = r
+            .get("carrier_account")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
         let est = r
             .get("estimated_days")
             .and_then(|x| x.as_i64())
@@ -419,6 +435,7 @@ async fn fetch_live_rates(
             carrier,
             service_name,
             shippo_rate_object_id: oid,
+            shippo_carrier_account_object_id: carrier_account,
             estimated_days: est,
         });
     }
@@ -432,13 +449,19 @@ pub async fn persist_rate_quotes(
     rates: &[NormalizedRate],
     stub: bool,
     ship_to: &ShippingAddressInput,
+    is_return: bool,
 ) -> Result<Vec<RateWithQuoteId>, sqlx::Error> {
     let expires_at = Utc::now() + Duration::minutes(RATE_QUOTE_TTL_MINUTES);
     let ship_json = serde_json::to_value(ship_to).unwrap_or_else(|_| json!({}));
     let mut out = Vec::with_capacity(rates.len());
 
     for rate in rates {
-        let meta = json!({ "stub": stub, "ship_to": ship_json });
+        let meta = json!({
+            "stub": stub,
+            "ship_to": ship_json,
+            "is_return": is_return,
+            "shippo_carrier_account_object_id": rate.shippo_carrier_account_object_id
+        });
         let id: uuid::Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO store_shipping_rate_quote (
@@ -462,6 +485,7 @@ pub async fn persist_rate_quotes(
             amount_usd: rate.amount_usd,
             carrier: rate.carrier.clone(),
             service_name: rate.service_name.clone(),
+            shippo_carrier_account_object_id: rate.shippo_carrier_account_object_id.clone(),
             estimated_days: rate.estimated_days.clone(),
         });
     }
@@ -483,6 +507,7 @@ pub async fn store_shipping_rates(
     parcel_override: Option<&ParcelInput>,
     parcels_override: Option<&[ParcelInput]>,
     customs_declaration_object_id: Option<&str>,
+    is_return: bool,
     force_stub: bool,
 ) -> Result<StoreShippingRatesResult, ShippoError> {
     to.validate()?;
@@ -510,6 +535,7 @@ pub async fn store_shipping_rates(
             to,
             &parcels,
             customs_declaration_object_id,
+            is_return,
         )
         .await?;
         if rates.is_empty() {
@@ -522,7 +548,7 @@ pub async fn store_shipping_rates(
         (stub_normalized_rates(), true)
     };
 
-    let rates = persist_rate_quotes(pool, &normalized, stub, to)
+    let rates = persist_rate_quotes(pool, &normalized, stub, to, is_return)
         .await
         .map_err(|e| ShippoError::Api(e.to_string()))?;
     Ok(StoreShippingRatesResult {
@@ -533,6 +559,7 @@ pub async fn store_shipping_rates(
                 amount_usd: r.amount_usd,
                 carrier: r.carrier,
                 service_name: r.service_name,
+                shippo_carrier_account_object_id: r.shippo_carrier_account_object_id,
                 estimated_days: r.estimated_days,
             })
             .collect(),
@@ -547,6 +574,7 @@ pub async fn pos_shipping_rates(
     parcel_override: Option<&ParcelInput>,
     parcels_override: Option<&[ParcelInput]>,
     customs_declaration_object_id: Option<&str>,
+    is_return: bool,
     force_stub: bool,
 ) -> Result<StoreShippingRatesResult, ShippoError> {
     store_shipping_rates(
@@ -556,6 +584,7 @@ pub async fn pos_shipping_rates(
         parcel_override,
         parcels_override,
         customs_declaration_object_id,
+        is_return,
         force_stub,
     )
     .await
@@ -687,6 +716,197 @@ pub async fn request_label_refund(
             .get("transaction")
             .and_then(|x| x.as_str())
             .map(|s| s.to_string()),
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ShippoManifestResult {
+    pub object_id: Option<String>,
+    pub status: Option<String>,
+    pub document_url: Option<String>,
+    pub raw_response: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ShippoPickupResult {
+    pub object_id: Option<String>,
+    pub status: Option<String>,
+    pub confirmation_code: Option<String>,
+    pub raw_response: Value,
+}
+
+fn first_document_url(v: &Value) -> Option<String> {
+    v.get("documents")
+        .and_then(|docs| docs.as_array())
+        .and_then(|docs| docs.first())
+        .and_then(|doc| {
+            doc.as_str()
+                .map(str::to_string)
+                .or_else(|| doc.get("href").and_then(|x| x.as_str()).map(str::to_string))
+                .or_else(|| doc.get("url").and_then(|x| x.as_str()).map(str::to_string))
+        })
+        .filter(|s| !s.trim().is_empty())
+}
+
+pub async fn create_manifest(
+    http: &reqwest::Client,
+    carrier_account: &str,
+    shipment_date: &str,
+    transactions: &[String],
+    from: &ShippoAddressFields,
+) -> Result<ShippoManifestResult, ShippoError> {
+    let token = shippo_api_token_from_env()
+        .ok_or_else(|| ShippoError::Api("Shippo API token is not configured".into()))?;
+    let carrier_account = carrier_account.trim();
+    if carrier_account.is_empty() {
+        return Err(ShippoError::InvalidAddress(
+            "carrier account is required to create a manifest".into(),
+        ));
+    }
+    if transactions.is_empty() {
+        return Err(ShippoError::InvalidAddress(
+            "at least one label transaction is required to create a manifest".into(),
+        ));
+    }
+
+    let body = json!({
+        "carrier_account": carrier_account,
+        "shipment_date": shipment_date,
+        "address_from": address_to_shippo_json(from),
+        "transactions": transactions,
+        "async": false,
+    });
+    let resp = http
+        .post("https://api.goshippo.com/manifests/")
+        .header("Authorization", format!("ShippoToken {token}"))
+        .header("SHIPPO-API-VERSION", SHIPPO_API_VERSION)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| ShippoError::Api(e.to_string()))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        tracing::warn!(status = %status, "shippo manifest create failed");
+        return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
+    }
+
+    let v: Value = resp
+        .json::<Value>()
+        .await
+        .map_err(|e| ShippoError::Api(e.to_string()))?;
+    Ok(ShippoManifestResult {
+        object_id: v
+            .get("object_id")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
+        status: v.get("status").and_then(|x| x.as_str()).map(str::to_string),
+        document_url: first_document_url(&v),
+        raw_response: v,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PickupLocationInput {
+    pub requested_start_time: String,
+    pub requested_end_time: String,
+    pub building_location_type: String,
+    #[serde(default)]
+    pub building_type: Option<String>,
+    #[serde(default)]
+    pub instructions: Option<String>,
+}
+
+pub async fn create_pickup(
+    http: &reqwest::Client,
+    carrier_account: &str,
+    transactions: &[String],
+    from: &ShippoAddressFields,
+    pickup: &PickupLocationInput,
+) -> Result<ShippoPickupResult, ShippoError> {
+    let token = shippo_api_token_from_env()
+        .ok_or_else(|| ShippoError::Api("Shippo API token is not configured".into()))?;
+    let carrier_account = carrier_account.trim();
+    if carrier_account.is_empty() {
+        return Err(ShippoError::InvalidAddress(
+            "carrier account is required to schedule pickup".into(),
+        ));
+    }
+    if transactions.is_empty() {
+        return Err(ShippoError::InvalidAddress(
+            "at least one label transaction is required to schedule pickup".into(),
+        ));
+    }
+    if pickup.requested_start_time.trim().is_empty()
+        || pickup.requested_end_time.trim().is_empty()
+        || pickup.building_location_type.trim().is_empty()
+    {
+        return Err(ShippoError::InvalidAddress(
+            "pickup window and location are required".into(),
+        ));
+    }
+
+    let mut location = json!({
+        "building_location_type": pickup.building_location_type.trim(),
+        "address": address_to_shippo_json(from),
+    });
+    if let Some(obj) = location.as_object_mut() {
+        if let Some(building_type) = pickup
+            .building_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            obj.insert("building_type".to_string(), json!(building_type));
+        }
+        if let Some(instructions) = pickup
+            .instructions
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            obj.insert("instructions".to_string(), json!(instructions));
+        }
+    }
+    let body = json!({
+        "carrier_account": carrier_account,
+        "location": location,
+        "transactions": transactions,
+        "requested_start_time": pickup.requested_start_time.trim(),
+        "requested_end_time": pickup.requested_end_time.trim(),
+    });
+    let resp = http
+        .post("https://api.goshippo.com/pickups/")
+        .header("Authorization", format!("ShippoToken {token}"))
+        .header("SHIPPO-API-VERSION", SHIPPO_API_VERSION)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| ShippoError::Api(e.to_string()))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        tracing::warn!(status = %status, "shippo pickup create failed");
+        return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
+    }
+
+    let v: Value = resp
+        .json::<Value>()
+        .await
+        .map_err(|e| ShippoError::Api(e.to_string()))?;
+    Ok(ShippoPickupResult {
+        object_id: v
+            .get("object_id")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
+        status: v.get("status").and_then(|x| x.as_str()).map(str::to_string),
+        confirmation_code: v
+            .get("confirmation_code")
+            .and_then(|x| x.as_str())
+            .map(str::to_string),
+        raw_response: v,
     })
 }
 

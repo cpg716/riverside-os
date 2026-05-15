@@ -21,7 +21,7 @@ Use this guide for shipping quotes at checkout and for the follow-up shipment wo
 1. Link the correct customer profile before quoting shipment at the register.
 2. Add **Ship current sale** in the POS cart and confirm the quoted rate.
 3. Complete checkout with shipping paid correctly.
-4. Move into the **Shipments Hub** afterward to post tracking and status updates.
+4. Move into the **Shipments Hub** afterward to buy/open labels, request return labels, create carrier handoffs, and post tracking/status updates.
 
 ## 1. Shipping from the POS (Register)
 
@@ -35,7 +35,7 @@ Shipping **requires** a linked customer profile. Use the **Customer Selector** t
 2. Tap **Ship current sale** below the subtotal.
 3. The **Ship this Sale** window will open.
     - **Use customer address**: Quickly pull the saved address from the CRM.
-    - **Edit address**: Manually enter a one-time delivery address for this order.
+    - **Edit address**: Manually enter a one-time delivery address for this order, including address line 2, phone, email, or residential destination when needed.
 4. Tap **Get shipping rates**. The system will fetch live carrier pricing (USPS, UPS, FedEx) when Shippo live rates are enabled. Demo rates are shown only when live rates are not enabled.
 5. Select the desired rate and tap **Apply shipping to sale**.
 
@@ -58,6 +58,9 @@ Click on any shipment to open the **Shipment Detail** panel:
 1. **Enter Tracking**: Add the tracking number provided by your carrier.
 2. **Post Note**: Add internal notes (e.g., "Box 1 of 2") to the shipment timeline.
 3. **Change Status**: Once the parcel is picked up by the carrier, change the status to **Shipped**. This will update the order's timeline and notify the customer (if Podium is integrated).
+4. **Request unused-label refund**: If a label was purchased but the package will not ship, request the unused-label refund before handing anything to the carrier. ROS logs the request, and Shippo/carrier acceptance remains external.
+5. **Create return label**: If a customer needs to ship merchandise back, create the return-label workflow from the purchased outbound shipment, apply a return rate, and buy the return label.
+6. **Carrier handoff**: Select purchased labels that use the same carrier account, then create a manifest/SCAN form or schedule a pickup window.
 
 ## 3. Customer Visibility
 
@@ -70,6 +73,8 @@ Staff can view the shipping history of any customer directly within their **Rela
 - **Rates Expired?**: Shipping quotes are valid for approximately 15 minutes. If a customer hesitates at checkout, you may need to re-fetch rates before completing the sale.
 - **Address Validation**: Ensure the ZIP code and State match. Live rates will fail if the carrier cannot verify the address.
 - **Weight and Dimensions**: By default, the system uses your store's **Default Parcel** settings (found in Settings → Integrations). For oversized items, ensure you are quoting appropriately.
+- **Carrier handoff**: Manifests and pickups must use labels from the same carrier account. If ROS blocks a selection, split the labels by carrier.
+- **International shipments**: ROS requires a Shippo customs declaration before non-US live rates can be requested. Use manager/admin support until customs forms are built directly into the app.
 
 > [!TIP]
 > Use the **Shipments Hub** every morning to review **Pending** shipments. This ensures no orders are left to age in the backroom.

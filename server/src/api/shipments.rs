@@ -13,10 +13,11 @@ use uuid::Uuid;
 use crate::api::AppState;
 use crate::auth::permissions::{SHIPMENTS_MANAGE, SHIPMENTS_VIEW};
 use crate::logic::shipment::{
-    add_staff_note, apply_rate_quote, create_manual_shipment, fetch_rates_for_shipment,
-    get_shipment_detail, list_events, list_shipments, patch_shipment, purchase_shipment_label,
-    ApplyQuoteBody, CreateManualShipmentBody, PatchShipmentBody, ShipmentError, ShipmentListQuery,
-    StaffNoteBody,
+    add_staff_note, apply_rate_quote, create_manifest_batch, create_manual_shipment,
+    create_pickup_batch, create_return_shipment, fetch_rates_for_shipment, get_shipment_detail,
+    list_batch_candidates, list_events, list_shipment_batches, list_shipments, patch_shipment,
+    purchase_shipment_label, ApplyQuoteBody, CreateManifestBody, CreateManualShipmentBody,
+    CreatePickupBody, PatchShipmentBody, ShipmentError, ShipmentListQuery, StaffNoteBody,
 };
 use crate::logic::shippo::ParcelInput;
 use crate::middleware;
@@ -146,6 +147,64 @@ async fn post_refund_label(
     ))
 }
 
+async fn post_return_shipment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ShipmentsApiError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_MANAGE)
+        .await
+        .map_err(map_perm)?;
+    let return_id = create_return_shipment(&state.db, id, staff.id).await?;
+    Ok(Json(json!({ "shipment_id": return_id })))
+}
+
+async fn get_batch_candidates(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ShipmentsApiError> {
+    middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_MANAGE)
+        .await
+        .map_err(map_perm)?;
+    let rows = list_batch_candidates(&state.db).await?;
+    Ok(Json(json!({ "items": rows })))
+}
+
+async fn get_batches(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ShipmentsApiError> {
+    middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_VIEW)
+        .await
+        .map_err(map_perm)?;
+    let rows = list_shipment_batches(&state.db).await?;
+    Ok(Json(json!({ "items": rows })))
+}
+
+async fn post_manifest(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateManifestBody>,
+) -> Result<Json<serde_json::Value>, ShipmentsApiError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_MANAGE)
+        .await
+        .map_err(map_perm)?;
+    let row = create_manifest_batch(&state.db, &state.http_client, body, staff.id).await?;
+    Ok(Json(json!({ "batch": row })))
+}
+
+async fn post_pickup(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreatePickupBody>,
+) -> Result<Json<serde_json::Value>, ShipmentsApiError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_MANAGE)
+        .await
+        .map_err(map_perm)?;
+    let row = create_pickup_batch(&state.db, &state.http_client, body, staff.id).await?;
+    Ok(Json(json!({ "batch": row })))
+}
+
 async fn post_note(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -247,10 +306,15 @@ impl From<sqlx::Error> for ShipmentsApiError {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_shipments_handler).post(create_manual))
+        .route("/batch-candidates", get(get_batch_candidates))
+        .route("/batches", get(get_batches))
+        .route("/batches/manifest", post(post_manifest))
+        .route("/batches/pickup", post(post_pickup))
         .route("/{id}", get(get_shipment).patch(patch_shipment_handler))
         .route("/{id}/rates", post(post_rates))
         .route("/{id}/apply-quote", post(post_apply_quote))
         .route("/{id}/purchase-label", post(post_purchase_label))
         .route("/{id}/refund-label", post(post_refund_label))
+        .route("/{id}/return-shipment", post(post_return_shipment))
         .route("/{id}/notes", post(post_note))
 }

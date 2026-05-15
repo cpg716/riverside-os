@@ -2,7 +2,7 @@
 
 > **FUTURE ADDITION:** **Online Store** channel items below **rate estimates** on **`/shop`** — i.e. **Helcim checkout + `rate_quote_id` binding**, **guest-initiated label purchase**, and **web-specific post-payment automation** — stay **deferred** until **[`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md)** Phase C checkout exists. Implement and test **POS**, **Back Office Orders**, and **Shipments hub** first.
 
-**Status:** **Partially implemented.** Foundation + unified registry are documented in **[`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)** (migrations **74**–**75**, rate quotes, **`/api/shipments`**, POS/store rate endpoints). This document remains the **roadmap** for labels, webhooks, late-bound fulfillment gates, and deeper order/workspace UX. **Cross-cutting tracker** (Podium + notifications + reviews): **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**.
+**Status:** **Operational core implemented.** Foundation + unified registry are documented in **[`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)** (migrations **74**–**75** plus **`023_shippo_returns_manifests_pickups.sql`**, rate quotes, **`/api/shipments`**, POS/store rate endpoints, label purchase, tracking webhooks, unused-label refund requests, staff return labels, manifests/SCAN forms, and pickup scheduling). This document remains the **roadmap** for online-store paid-checkout label automation, customer self-service returns, late-bound fulfillment gates, and deeper order/workspace UX. **Cross-cutting tracker** (Podium + notifications + reviews): **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**.
 
 Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) integration in **two channels**:
 
@@ -22,11 +22,12 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 - **Audit**: who bought the label, cost, linked `order_id`.
 - **Late-bound shipping $**: Many in-store orders **do not** have a final shipping charge at sale time (unknown weight, ship-later, or “we’ll quote when it’s packed”). ROS must support **adding or finalizing the shipping charge later**, including at **fulfillment transitions** (e.g. when staff marks items **ready to ship** or completes **pickup / delivered** steps in Back Office or POS (**Register** cart) — see **`mark_order_pickup`** in [`server/src/api/orders.rs`](../server/src/api/orders.rs)).
 
-## Non-goals (initial phase)
+## Non-goals (current phase)
 
 - Multi-origin warehouses with automatic routing (start **one** `SHIPPO_FROM_ADDRESS_*` default).
-- International customs forms (add after domestic stable).
-- Customer-facing returns portal (later: Shippo return label API).
+- Generating customs items/declarations inside ROS. Current API paths accept a Shippo customs declaration id and block non-US live quotes without one.
+- Customer self-service returns portal. Staff-created return labels are implemented in the Shipments Hub, but customers do not yet initiate returns themselves.
+- Shippo platform/managed-account features. ROS is a single-store merchant shipper, not a shipping marketplace.
 
 ---
 
@@ -47,7 +48,7 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 | **`server/src/logic/shippo.rs`** | `get_rates(...)`, `create_shipment(...)`, `purchase_label(...)`, parse responses → `Decimal` |
 | **`server/src/api/shippo.rs`** or nested under **`orders`** + **`store`** | Thin handlers; staff vs public auth split |
 | **`orders` / `order_shipments` schema** | Persist addresses, selected rate id, shipment id, tracking, **shipping_charge** passed to totals |
-| **Webhook route** | `POST /api/integrations/shippo/webhook` — verify signature; update tracking state |
+| **Webhook route** | `POST /api/integrations/shippo/webhook` and `POST /api/webhooks/shippo` — verify token/HMAC; update tracking state |
 
 ### Data model (migrations — illustrative)
 
@@ -150,12 +151,14 @@ Tie-in with **§6 destination tax** in [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ON
 
 ### Phase 3 — Labels + tracking
 
-- Purchase label API; store PDF link; **Shippo webhooks** → update `orders` tracking state.
+- Purchase label API; store PDF link; **Shippo webhooks** → update shipment tracking state.
 - Back Office **batch print** queue (optional).
 
 ### Phase 4 — Polish
 
-- Address validation; multi-parcel; **return** labels.
+- Customer self-service return portal using the dedicated return-shipment records.
+- Deeper batch-print UX around the implemented manifest/SCAN-form and pickup workflow.
+- In-app customs item/declaration builder for international shipping.
 
 ---
 

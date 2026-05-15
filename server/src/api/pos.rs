@@ -206,6 +206,7 @@ async fn post_pos_shipping_rates(
         body.parcel.as_ref(),
         body.parcels.as_deref(),
         body.customs_declaration_object_id.as_deref(),
+        false,
         body.force_stub,
     )
     .await?;
