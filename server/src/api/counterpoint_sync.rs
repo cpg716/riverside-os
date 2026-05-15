@@ -927,15 +927,18 @@ async fn settings_status(
         Ok(resp) => {
             let mut value = serde_json::to_value(resp).unwrap_or_default();
             if let Some(obj) = value.as_object_mut() {
-                let open_staging_count =
-                    counterpoint_staging::count_pending_or_applying_staging(&state.db)
-                        .await
-                        .unwrap_or(0);
+                let pending_count = counterpoint_staging::count_pending_staging(&state.db)
+                    .await
+                    .unwrap_or(0);
                 let applying_count = counterpoint_staging::count_applying_staging(&state.db)
                     .await
                     .unwrap_or(0);
-                obj.insert("staging_pending_count".into(), json!(open_staging_count));
+                obj.insert("staging_pending_count".into(), json!(pending_count));
                 obj.insert("staging_applying_count".into(), json!(applying_count));
+                obj.insert(
+                    "staging_open_count".into(),
+                    json!(pending_count + applying_count),
+                );
             }
             Ok(Json(value))
         }

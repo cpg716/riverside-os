@@ -313,7 +313,7 @@ Gift-card cutover imports only cards with a current open balance. For the Rivers
 | `SY_GFT_CERT.ISSUE_DAT` | `gift_cards.created_at` + drives `expires_at` computation |
 | `SY_GFT_CERT.REASON_COD` | `gift_cards.card_kind` (via `counterpoint_gift_reason_map`) |
 
-**Reason code mapping:** `REASON_COD` values are resolved through `counterpoint_gift_reason_map`. If no mapping exists, the card defaults to `purchased`. Admins can populate the map via SQL or a future Settings UI.
+**Reason code mapping:** `REASON_COD` values are resolved through `counterpoint_gift_reason_map`. If no mapping exists, the card defaults to `purchased`. Admins can review and update these mappings in **Settings → Counterpoint → Gift reasons** before the accepted cutover run.
 
 **Expiration rules:** When no explicit `expires_at` is provided, expiration is computed from `ISSUE_DAT` + card kind:
 
@@ -372,7 +372,7 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `GIFT CERT` | `gift_card` |
 | `ON ACCOUNT` | `on_account` |
 
-Add custom mappings by inserting into `counterpoint_payment_method_map`.
+ROS ships common Counterpoint tender mappings, and admins can review or change them in **Settings → Counterpoint → Payments**. Unknown tender codes no longer silently fall back to cash; they import as `counterpoint_unmapped`, preserve the original Counterpoint tender code in payment metadata, and create an unresolved sync issue that must be reviewed before sign-off.
 
 ### 4f-2. Customer ID Matching & Prefix Logic (v0.8.0+)
 To handle mixed Counterpoint ID formats (legacy integers vs. newer `C-` prefixed strings), the ROS sync service employs a bidirectional resolution strategy during ticket and open-doc imports:
@@ -736,6 +736,7 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 | Products created without category | Add a row to `counterpoint_category_map` for the CP category string, or create a matching category name in ROS |
 | Duplicate ticket warning | Order with that `counterpoint_ticket_ref` already exists — idempotent skip, not an error |
 | Payment method shows as `cash` for everything | Add missing `PAY_COD` values to `counterpoint_payment_method_map` |
+| Payment method shows as `counterpoint_unmapped` | Add the missing Counterpoint tender code in **Settings → Counterpoint → Payments**, then reset/replay the affected import scope before final sign-off |
 | Gift cards all default to `purchased` | Add `REASON_COD` values to `counterpoint_gift_reason_map` |
 
 ---

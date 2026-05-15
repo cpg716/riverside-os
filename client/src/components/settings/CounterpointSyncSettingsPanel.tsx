@@ -1843,9 +1843,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
   ).length;
   const signoffBlockers = [
     !bridgeLive?.lastRun ? "No bridge run summary is visible yet." : null,
-    pendingN > 0
-      ? `${fmtNum(pendingN)} staging batch(es) are pending or currently applying.`
-      : null,
+    pendingN > 0 ? `${fmtNum(pendingN)} staging batch(es) are pending review.` : null,
     applyingN > 0
       ? `${fmtNum(applyingN)} staging batch(es) have active apply ownership.`
       : null,

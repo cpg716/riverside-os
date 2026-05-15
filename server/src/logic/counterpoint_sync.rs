@@ -8386,6 +8386,31 @@ fn cp_gift_hist_row_is_redemption(action: Option<&str>) -> bool {
     }
 }
 
+async fn resolve_counterpoint_payment_method(
+    pool: &PgPool,
+    pmt_map: &HashMap<String, String>,
+    entity: &str,
+    external_key: &str,
+    cp_pmt_typ: &str,
+) -> String {
+    let key = cp_pmt_typ.trim().to_uppercase();
+    if let Some(method) = pmt_map.get(&key).filter(|method| !method.trim().is_empty()) {
+        return method.trim().to_string();
+    }
+
+    record_sync_issue(
+        pool,
+        entity,
+        Some(external_key),
+        "error",
+        &format!(
+            "Unmapped Counterpoint payment method {key:?}; recorded as counterpoint_unmapped for review"
+        ),
+    )
+    .await;
+    "counterpoint_unmapped".to_string()
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ParentVariantCandidate {
     variant_id: Uuid,
@@ -8869,17 +8894,21 @@ pub async fn execute_counterpoint_ticket_batch(
         }
 
         for pmt in &tkt.payments {
-            let method = pmt_map
-                .get(&pmt.pmt_typ.trim().to_uppercase())
-                .cloned()
-                .unwrap_or_else(|| "cash".to_string());
+            let method = resolve_counterpoint_payment_method(
+                pool,
+                &pmt_map,
+                "tickets",
+                ticket_ref,
+                &pmt.pmt_typ,
+            )
+            .await;
 
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payment_transactions (
-                    payer_id, category, payment_method, amount, created_at
+                    payer_id, category, payment_method, amount, created_at, metadata
                 )
-                VALUES ($1, 'retail_sale', $2, $3, $4)
+                VALUES ($1, 'retail_sale', $2, $3, $4, $5)
                 RETURNING id
                 "#,
             )
@@ -8887,6 +8916,11 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(&method)
             .bind(pmt.amount)
             .bind(booked_at)
+            .bind(serde_json::json!({
+                "counterpoint_pmt_typ": pmt.pmt_typ.trim(),
+                "counterpoint_ticket_ref": ticket_ref,
+                "counterpoint_gift_cert_no": pmt.gift_cert_no.as_deref(),
+            }))
             .fetch_one(&mut *tx)
             .await?;
 
@@ -9434,17 +9468,21 @@ pub async fn execute_counterpoint_open_doc_batch(
         }
 
         for pmt in &doc.payments {
-            let method = pmt_map
-                .get(&pmt.pmt_typ.trim().to_uppercase())
-                .cloned()
-                .unwrap_or_else(|| "cash".to_string());
+            let method = resolve_counterpoint_payment_method(
+                pool,
+                &pmt_map,
+                "open_docs",
+                doc_ref,
+                &pmt.pmt_typ,
+            )
+            .await;
 
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payment_transactions (
-                    payer_id, category, payment_method, amount, created_at
+                    payer_id, category, payment_method, amount, created_at, metadata
                 )
-                VALUES ($1, 'retail_sale', $2, $3, $4)
+                VALUES ($1, 'retail_sale', $2, $3, $4, $5)
                 RETURNING id
                 "#,
             )
@@ -9452,6 +9490,11 @@ pub async fn execute_counterpoint_open_doc_batch(
             .bind(&method)
             .bind(pmt.amount)
             .bind(booked_at)
+            .bind(serde_json::json!({
+                "counterpoint_pmt_typ": pmt.pmt_typ.trim(),
+                "counterpoint_doc_ref": doc_ref,
+                "counterpoint_gift_cert_no": pmt.gift_cert_no.as_deref(),
+            }))
             .fetch_one(&mut *tx)
             .await?;
 
@@ -12358,6 +12401,203 @@ mod tests {
             .execute(&pool)
             .await
             .expect("cleanup product");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_ticket_payment_methods_preserve_mapping_and_unmapped_truth() {
+        let pool = connect_test_db().await;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let sku = format!("CP-PMT-SKU-{suffix}");
+        let cp_key = format!("CP-PMT-ITEM-{suffix}");
+        let ticket_ref = format!("CP-PMT-{suffix}");
+        let mapped_cp_method = format!("CPMAP{}", &suffix[..8]).to_uppercase();
+        let unmapped_cp_method = format!("CPUNKNOWN{}", &suffix[..8]).to_uppercase();
+
+        sqlx::query(
+            "INSERT INTO counterpoint_payment_method_map (cp_pmt_typ, ros_method) VALUES ($1, 'check')",
+        )
+        .bind(&mapped_cp_method)
+        .execute(&pool)
+        .await
+        .expect("insert payment method map");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, $4, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("Counterpoint Payment Fixture {suffix}"))
+        .bind(Decimal::new(4000, 2))
+        .bind(Decimal::new(1000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert payment fixture product");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, '{}'::jsonb, 1, $4)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .bind(&cp_key)
+        .execute(&pool)
+        .await
+        .expect("insert payment fixture variant");
+
+        execute_counterpoint_ticket_batch(
+            &pool,
+            CounterpointTicketsPayload {
+                rows: vec![CounterpointTicketRow {
+                    ticket_ref: ticket_ref.clone(),
+                    cust_no: None,
+                    booked_at: Some(Utc::now().to_rfc3339()),
+                    total_price: Decimal::new(4000, 2),
+                    amount_paid: Decimal::new(4000, 2),
+                    usr_id: None,
+                    sls_rep: None,
+                    notes: None,
+                    lines: vec![TicketLineRow {
+                        sku: Some(sku.clone()),
+                        counterpoint_item_key: Some(cp_key.clone()),
+                        lin_seq_no: Some(1),
+                        quantity: 1,
+                        unit_price: Decimal::new(4000, 2),
+                        unit_cost: Some(Decimal::new(1000, 2)),
+                        description: Some("Payment map test item".into()),
+                        reason_code: None,
+                    }],
+                    payments: vec![
+                        TicketPaymentRow {
+                            pmt_typ: mapped_cp_method.clone(),
+                            amount: Decimal::new(2500, 2),
+                            gift_cert_no: None,
+                        },
+                        TicketPaymentRow {
+                            pmt_typ: unmapped_cp_method.clone(),
+                            amount: Decimal::new(1500, 2),
+                            gift_cert_no: None,
+                        },
+                    ],
+                    gift_applications: vec![],
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("import ticket with mapped and unmapped payments");
+
+        let methods: Vec<(String, String)> = sqlx::query_as(
+            r#"
+            SELECT pt.payment_method, pt.metadata->>'counterpoint_pmt_typ'
+            FROM payment_allocations pa
+            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            INNER JOIN transactions t ON t.id = pa.target_transaction_id
+            WHERE t.counterpoint_ticket_ref = $1
+            ORDER BY pt.amount DESC
+            "#,
+        )
+        .bind(&ticket_ref)
+        .fetch_all(&pool)
+        .await
+        .expect("load imported payment methods");
+        assert_eq!(
+            methods,
+            vec![
+                ("check".to_string(), mapped_cp_method.clone()),
+                (
+                    "counterpoint_unmapped".to_string(),
+                    unmapped_cp_method.clone()
+                ),
+            ]
+        );
+
+        let unresolved_unmapped_issue_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_sync_issue
+            WHERE entity = 'tickets'
+              AND external_key = $1
+              AND severity = 'error'
+              AND NOT resolved
+              AND message LIKE '%counterpoint_unmapped%'
+            "#,
+        )
+        .bind(&ticket_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("count unmapped payment issue");
+        assert_eq!(unresolved_unmapped_issue_count, 1);
+
+        let payment_ids: Vec<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT pa.transaction_id
+            FROM payment_allocations pa
+            INNER JOIN transactions t ON t.id = pa.target_transaction_id
+            WHERE t.counterpoint_ticket_ref = $1
+            "#,
+        )
+        .bind(&ticket_ref)
+        .fetch_all(&pool)
+        .await
+        .expect("load payment ids for cleanup");
+        let transaction_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM transactions WHERE counterpoint_ticket_ref = $1")
+                .bind(&ticket_ref)
+                .fetch_all(&pool)
+                .await
+                .expect("load transaction ids for cleanup");
+
+        sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup payment allocations");
+        sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup transaction lines");
+        sqlx::query("DELETE FROM transactions WHERE id = ANY($1)")
+            .bind(&transaction_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup transactions");
+        sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
+            .bind(&payment_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup payment transactions");
+        sqlx::query(
+            "DELETE FROM counterpoint_sync_issue WHERE entity = 'tickets' AND external_key = $1",
+        )
+        .bind(&ticket_ref)
+        .execute(&pool)
+        .await
+        .expect("cleanup sync issue");
+        sqlx::query("DELETE FROM product_variants WHERE id = $1")
+            .bind(variant_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup variant");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup product");
+        sqlx::query("DELETE FROM counterpoint_payment_method_map WHERE cp_pmt_typ = $1")
+            .bind(&mapped_cp_method)
+            .execute(&pool)
+            .await
+            .expect("cleanup payment method map");
     }
 
     #[tokio::test]

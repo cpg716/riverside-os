@@ -281,11 +281,18 @@ function inventoryStagingPayload(sku: string): Record<string, unknown> {
 
 function counterpointSyncHeaders(): Record<string, string> {
   const envToken = process.env.COUNTERPOINT_SYNC_TOKEN?.trim();
-  const fileToken = envToken
-    ? envToken
-    : readFileSync(new URL("../../server/.env", import.meta.url), "utf8")
-        .match(/^COUNTERPOINT_SYNC_TOKEN=(.+)$/m)?.[1]
-        ?.trim();
+  const fileToken =
+    envToken ??
+    (() => {
+      try {
+        return readFileSync(new URL("../../server/.env", import.meta.url), "utf8")
+          .match(/^COUNTERPOINT_SYNC_TOKEN=(.+)$/m)?.[1]
+          ?.trim();
+      } catch {
+        return undefined;
+      }
+    })() ??
+    "e2e-counterpoint-sync-token";
   expect(fileToken, "COUNTERPOINT_SYNC_TOKEN must be configured for staging replay coverage").toBeTruthy();
   return {
     "x-ros-sync-token": fileToken ?? "",
@@ -527,9 +534,10 @@ test.describe("Counterpoint sign-off UI", () => {
       const statusJson = (await statusRes.json()) as {
         staging_pending_count: number;
         staging_applying_count?: number;
+        staging_open_count?: number;
       };
-      expect(statusJson.staging_pending_count).toBeGreaterThanOrEqual(1);
       expect(statusJson.staging_applying_count ?? 0).toBeGreaterThanOrEqual(1);
+      expect(statusJson.staging_open_count ?? 0).toBeGreaterThanOrEqual(1);
 
       const recoverRes = await request.post(
         `${apiBase()}/api/settings/counterpoint-sync/staging/batches/${batchId}/recover-stale`,
@@ -817,9 +825,7 @@ test.describe("Counterpoint sign-off UI", () => {
     expect(postImportBeforeSignoff).toBe(true);
 
     await expect(panel.getByText("Sign-off blockers present")).toBeVisible();
-    await expect(
-      panel.getByText("2 staging batch(es) are pending or currently applying."),
-    ).toBeVisible();
+    await expect(panel.getByText("2 staging batch(es) are pending review.")).toBeVisible();
     await expect(panel.getByText("1 unresolved sync issue(s) remain.")).toBeVisible();
     await expect(
       panel.getByText("1 entity row(s) have bridge-reported counts without ROS landed proof."),

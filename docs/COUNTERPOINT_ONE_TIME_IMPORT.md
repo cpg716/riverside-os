@@ -105,10 +105,12 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 ### Pre-run checklist
 
 - Confirm a current ROS database backup exists and is usable before changing import state.
+- Run `RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh` and `RIVERSIDE_DB_NAME=riverside_os bash scripts/migration-status-docker.sh`. Do not start final import if the active database is missing Counterpoint staging columns or has unapplied active migrations.
 - Confirm the Counterpoint bridge `.env` points at the correct Counterpoint company database and ROS server.
 - Confirm `COUNTERPOINT_SYNC_TOKEN`, `CP_IMPORT_SINCE`, `RUN_ONCE`, staging mode, and enabled `SYNC_*` entities in the bridge runtime snapshot.
 - Confirm the enabled entities follow the required order: staff / sales-rep stubs, vendors, customers, store credit opening, customer notes, catalog, inventory, vendor items, gift cards if used, tickets, open docs. Keep loyalty history disabled for the current-balance snapshot cutover.
 - Confirm gift cards and loyalty are configured as snapshots: leave `CP_GFC_HIST_QUERY` empty, leave `CP_TICKET_GIFT_QUERY` empty, keep `SYNC_LOYALTY_HIST=0`, and ensure `CP_CUSTOMERS_QUERY` selects the current Counterpoint points balance as `pts_bal`.
+- Review **Settings → Counterpoint → Payments** and confirm every active Counterpoint tender code is mapped before importing tickets/open docs. ROS ships common defaults, but unknown tenders import as `counterpoint_unmapped` and create an unresolved sync issue rather than silently reporting as cash.
 - Decide whether to run **Settings → Counterpoint → Status → Fresh baseline reset** before this pass. Use it when you need a clean ROS import baseline while preserving reviewed Counterpoint mapping configuration.
 - Decide whether to clear the bridge-local `.counterpoint-bridge-state.json` file before launch. Clear it only when the next run must replay from the beginning instead of continuing from saved bridge cursors.
 
@@ -133,6 +135,7 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 ### Acceptance criteria
 
 - No unresolved sync issues remain unless they are explicitly documented and accepted for this rehearsal pass.
+- No imported `payment_transactions.payment_method = 'counterpoint_unmapped'` rows remain for the accepted cutover run unless each is documented with the exact Counterpoint tender code and accounting treatment.
 - Every expected domain for the selected scope appears in Landing Verification.
 - Customer, catalog product, catalog variant/SKU, and inventory quantity reconciliation rows show passing source-vs-ROS counts.
 - Open-doc and open-doc line reconciliation rows show passing source-vs-ROS counts.

@@ -35,6 +35,10 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'qbo_mappings'),
                 ('public', 'integration_credentials'),
                 ('public', 'counterpoint_sync_runs'),
+                ('public', 'counterpoint_sync_issue'),
+                ('public', 'counterpoint_staging_batch'),
+                ('public', 'counterpoint_payment_method_map'),
+                ('public', 'counterpoint_gift_reason_map'),
                 ('public', 'shipment'),
                 ('public', 'ros_schema_migrations')
         ),
@@ -63,7 +67,16 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'payment_provider_attempts', 'terminal_route_source'),
                 ('public', 'payment_provider_attempts', 'terminal_override_staff_id'),
                 ('public', 'payment_provider_attempts', 'terminal_override_reason'),
-                ('public', 'fulfillment_orders', 'display_id')
+                ('public', 'fulfillment_orders', 'display_id'),
+                ('public', 'gift_cards', 'promo_event_name'),
+                ('public', 'counterpoint_staging_batch', 'apply_started_at'),
+                ('public', 'counterpoint_staging_batch', 'apply_claimed_by_staff_id'),
+                ('public', 'counterpoint_staging_batch', 'replay_count'),
+                ('public', 'counterpoint_staging_batch', 'last_replayed_at'),
+                ('public', 'counterpoint_staging_batch', 'payload_fingerprint'),
+                ('public', 'counterpoint_staging_batch', 'recovered_at'),
+                ('public', 'counterpoint_staging_batch', 'recovered_by_staff_id'),
+                ('public', 'counterpoint_staging_batch', 'recovery_reason')
         ),
         expected_views(schema_name, view_name) AS (
             VALUES
