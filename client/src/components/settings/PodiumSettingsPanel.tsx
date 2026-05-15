@@ -161,7 +161,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
         return;
       }
       sessionStorage.setItem(PODIUM_OAUTH_STATE_STORAGE_KEY, state);
-      sessionStorage.setItem(PODIUM_OAUTH_REDIRECT_STORAGE_KEY, window.location.pathname + window.location.search);
+      sessionStorage.setItem(PODIUM_OAUTH_REDIRECT_STORAGE_KEY, redirectUri);
       window.location.href = body.authorize_url;
     } catch {
       toast("Could not start Podium authorization.", "error");

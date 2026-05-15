@@ -101,6 +101,7 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    allowedHosts: ["ros.riversidemens.com"],
     // Listen on all interfaces so other machines on LAN / Tailscale can open :5173 (use http://, not https://).
     host: true,
     // Avoid stale index.html pointing at old hashed chunks after rebuild (index-*.js / vendor-*.js 404).
