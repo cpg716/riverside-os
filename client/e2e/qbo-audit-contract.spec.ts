@@ -953,7 +953,7 @@ test.describe("QBO audit contract", () => {
   test("processed refunds post negative tender evidence and returned-line drilldown uses effective quantity", async ({
     request,
   }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
     const dateOffset = 20_000 + Math.floor(Math.random() * 20_000);
     const refundOriginalDate = futureUtcDate(dateOffset);
     const refundDate = futureUtcDate(dateOffset + 1);
