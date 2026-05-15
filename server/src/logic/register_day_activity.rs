@@ -409,9 +409,20 @@ pub async fn fetch_register_day_summary(
         INNER JOIN (
             SELECT
                 transaction_id,
-                SUM((quantity::numeric) * oi.unit_price)::numeric(14,2) AS line_subtotal,
-                SUM(oi.state_tax + oi.local_tax)::numeric(14,2) AS line_tax
+                SUM(
+                    GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                    * oi.unit_price
+                )::numeric(14,2) AS line_subtotal,
+                SUM(
+                    GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                    * (oi.state_tax + oi.local_tax)
+                )::numeric(14,2) AS line_tax
             FROM transaction_lines oi
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
             GROUP BY transaction_id
         ) ln ON ln.transaction_id = o.id
         WHERE {order_in_range}
@@ -625,7 +636,10 @@ pub async fn fetch_register_day_summary(
             o.id AS transaction_id,
             {sale_ts} AS booked_at,
             o.total_price,
-            COALESCE(SUM(oi.state_tax + oi.local_tax), 0)::numeric(14,2) AS tax_total,
+            COALESCE(SUM(
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                * (oi.state_tax + oi.local_tax)
+            ), 0)::numeric(14,2) AS tax_total,
             wp.id AS wedding_party_id,
             wp.party_name,
             c.first_name AS customer_first,
@@ -689,6 +703,11 @@ pub async fn fetch_register_day_summary(
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+        LEFT JOIN (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ) orl ON orl.transaction_line_id = oi.id
         WHERE {order_in_range}
         {ORDER_SESSION_FILTER}
         GROUP BY o.id, {sale_ts}, o.total_price, o.balance_due, wp.id, wp.party_name, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text

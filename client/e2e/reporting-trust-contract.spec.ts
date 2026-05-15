@@ -49,11 +49,16 @@ type RegisterDaySummary = {
   reporting_basis: string;
   sales_count: number;
   cash_collected: string;
+  sales_subtotal_no_tax: string;
+  sales_tax_total: string;
   activities: Array<{
     transaction_id?: string | null;
     sales_total?: string | null;
+    tax_total?: string | null;
     payment_summary?: string | null;
     balance_due?: string | null;
+    is_takeaway?: boolean;
+    items?: Array<{ fulfillment?: string | null }>;
   }>;
 };
 
@@ -664,6 +669,37 @@ test.describe("Reporting trust contracts", () => {
     expect(activity?.is_takeaway).toBe(true);
     expect(activity?.items?.every((item) => item.fulfillment === "takeaway")).toBe(true);
     expect(parseMoneyToCents(activity?.sales_total)).toBe(10875);
+  });
+
+  test("daily sales activity reports tax using effective item quantity", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const opened = await openFreshPrimarySession(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createReportingTrustProduct(request, operatorStaffId);
+
+    const checkout = await checkoutCashSale(request, {
+      ...product,
+      sessionId: opened.session_id,
+      sessionToken: opened.pos_api_token ?? "",
+      operatorStaffId,
+      quantity: 2,
+    });
+
+    const dailySales = await fetchDailySalesActivity(request, opened.session_id);
+    expect(dailySales.reporting_basis).toBe("booked");
+    expect(dailySales.sales_count).toBe(1);
+    expect(parseMoneyToCents(dailySales.sales_subtotal_no_tax)).toBe(20000);
+    expect(parseMoneyToCents(dailySales.sales_tax_total)).toBe(1750);
+
+    const activity = dailySales.activities.find(
+      (row) => row.transaction_id === checkout.transaction_id,
+    );
+    expect(activity).toBeTruthy();
+    expect(parseMoneyToCents(activity?.sales_total)).toBe(21750);
+    expect(parseMoneyToCents(activity?.tax_total)).toBe(1750);
   });
 
   test("margin pivot uses effective quantity after partial return", async ({

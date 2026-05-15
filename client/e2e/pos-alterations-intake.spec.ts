@@ -284,7 +284,7 @@ test.describe("POS alteration intake", () => {
     await page.getByTestId("pos-alteration-intake-trigger").click();
     const dialog = page.getByTestId("pos-alteration-intake-dialog");
     await dialog.getByTestId("pos-alteration-cart-source-option").click();
-    await dialog.getByTestId("pos-alteration-work-requested").fill("Hem sleeves");
+    await dialog.getByRole("button", { name: /Shorten Sleeves · 4u/i }).click();
     await dialog.getByTestId("pos-alteration-save").click();
 
     let checkoutBody: Record<string, unknown> | null = null;
@@ -325,7 +325,7 @@ test.describe("POS alteration intake", () => {
             linked_transaction_display_id: "TXN-ALT-P3",
             source_type: "current_cart_item",
             item_description: "Phase 2 Suit Jacket - 40R",
-            work_requested: "Hem sleeves",
+            work_requested: "Shorten Sleeves",
             source_product_id: PRODUCT.product_id,
             source_variant_id: PRODUCT.variant_id,
             source_sku: PRODUCT.sku,
@@ -363,7 +363,9 @@ test.describe("POS alteration intake", () => {
           source_client_line_id: expect.any(String),
           source_type: "current_cart_item",
           item_description: "Phase 2 Suit Jacket - 40R",
-          work_requested: "Hem sleeves",
+          work_requested: "Shorten Sleeves",
+          capacity_bucket: "jacket",
+          capacity_units: 4,
           source_product_id: PRODUCT.product_id,
           source_variant_id: PRODUCT.variant_id,
           source_sku: PRODUCT.sku,
@@ -386,7 +388,7 @@ test.describe("POS alteration intake", () => {
 
     await page.getByRole("button", { name: "Alterations" }).click();
     const intakeSection = page.getByTestId("alteration-workbench-section-intake");
-    await expect(intakeSection.getByText("Hem sleeves").first()).toBeVisible({ timeout: 20_000 });
+    await expect(intakeSection.getByText("Shorten Sleeves").first()).toBeVisible({ timeout: 20_000 });
     await expect(intakeSection.getByText("TXN-ALT-P3")).toBeVisible();
   });
 

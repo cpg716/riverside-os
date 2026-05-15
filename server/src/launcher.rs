@@ -358,7 +358,7 @@ async fn launch_server_inner(
     let email_sync_interval_secs = std::env::var("RIVERSIDE_EMAIL_SYNC_INTERVAL_SECS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(300)
+        .unwrap_or(30 * 60)
         .max(60);
     let email_state = state.clone();
     tokio::spawn(async move {
@@ -376,6 +376,15 @@ async fn launch_server_inner(
                         matched_customers = summary.matched_customers,
                         "Store email inbox synced"
                     );
+                    if let Err(error) =
+                        crate::logic::email::notify_new_mail(&email_state.db, &summary).await
+                    {
+                        tracing::warn!(
+                            target: "email",
+                            error = %error,
+                            "Store email sync notification fan-out failed"
+                        );
+                    }
                 }
                 Ok(_) | Err(crate::logic::email::EmailError::NotConfigured) => {}
                 Err(error) => {

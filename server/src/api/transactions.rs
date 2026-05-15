@@ -26,6 +26,7 @@ use crate::auth::permissions::{
 };
 use crate::auth::pins::{self, log_staff_access};
 use crate::auth::pos_session;
+use crate::logic::email as store_email;
 use crate::logic::gift_card_ops;
 use crate::logic::helcim;
 use crate::logic::loyalty as loyalty_logic;
@@ -2691,7 +2692,13 @@ const RECEIPT_SMS_PNG_MAX_BYTES: usize = 6 * 1024 * 1024;
 
 fn map_podium_order_err(e: crate::logic::podium::PodiumError) -> TransactionError {
     TransactionError::BadGateway(format!(
-        "Could not send via Podium ({e}). Enable operational messaging in Settings → Integrations (Podium), verify credentials, and ensure email and SMS send are enabled."
+        "Could not send via Podium ({e}). Enable operational messaging in Settings → Integrations (Podium), verify credentials, and ensure SMS send is enabled."
+    ))
+}
+
+fn map_store_email_err(e: crate::logic::email::EmailError) -> TransactionError {
+    TransactionError::BadGateway(format!(
+        "Could not send email ({e}). Check Mailbox settings and saved IONOS credentials."
     ))
 }
 
@@ -2783,18 +2790,9 @@ async fn post_transaction_receipt_send_email(
         format!("Receipt — {order_ref}")
     };
 
-    match podium::send_podium_email_message(
-        &state.db,
-        &state.http_client,
-        &state.podium_token_cache,
-        &addr,
-        &subject,
-        &html,
-    )
-    .await
-    {
-        Ok(()) => Ok(Json(json!({ "status": "sent" }))),
-        Err(e) => Err(map_podium_order_err(e)),
+    match store_email::send_email(&state.db, &addr, &subject, &html, None, None, "outbound").await {
+        Ok(_) => Ok(Json(json!({ "status": "sent" }))),
+        Err(e) => Err(map_store_email_err(e)),
     }
 }
 

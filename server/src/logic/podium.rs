@@ -150,7 +150,7 @@ pub struct StorePodiumSmsConfig {
     /// When true and env credentials + location_uid are set, operational SMS uses Podium.
     #[serde(default)]
     pub sms_send_enabled: bool,
-    /// When true, transactional / templated emails use Podium (`channel.type`: `email`).
+    /// Legacy JSON field retained for older saved settings. Podium email is no longer used.
     #[serde(default)]
     pub email_send_enabled: bool,
     #[serde(default)]
@@ -167,16 +167,20 @@ pub struct StorePodiumSmsConfig {
 
 impl StorePodiumSmsConfig {
     pub fn load_from_json(v: serde_json::Value) -> Self {
-        serde_json::from_value(v).unwrap_or_default()
+        let mut cfg: Self = serde_json::from_value(v).unwrap_or_default();
+        cfg.email_send_enabled = false;
+        cfg
     }
 }
 
 #[derive(Debug, Serialize)]
 pub struct PodiumSmsSettingsResponse {
-    #[serde(flatten)]
-    pub settings: StorePodiumSmsConfig,
+    pub sms_send_enabled: bool,
+    pub location_uid: String,
+    pub widget_embed_enabled: bool,
+    pub widget_snippet_html: String,
+    pub templates: SmsTemplatesStored,
     pub templates_effective: SmsTemplatesStored,
-    pub email_templates_effective: EmailTemplatesStored,
     pub credentials_configured: bool,
     pub oauth_authorize_url: &'static str,
     pub oauth_token_url_hint: &'static str,
@@ -712,7 +716,7 @@ pub async fn try_send_operational_sms(
     }
 }
 
-/// Basic check for Podium email `identifier` (not full RFC validation).
+/// Basic check for an email address value (not full RFC validation).
 pub fn looks_like_email(s: &str) -> bool {
     let t = s.trim();
     !t.is_empty() && t.contains('@') && !t.starts_with('@') && !t.ends_with('@')
@@ -1018,7 +1022,7 @@ pub async fn send_podium_phone_message_with_png_attachment(
     Err(PodiumError::SendHttp(status.as_u16()))
 }
 
-/// Send one email via Podium; returns error for API callers (e.g. hub compose, POS receipt).
+/// Legacy Podium email entry point. Store email now uses the ROS IONOS mailbox path.
 pub async fn send_podium_email_message(
     pool: &PgPool,
     http: &reqwest::Client,
@@ -1048,43 +1052,17 @@ pub async fn send_podium_email_message_with_sender(
     html_body: &str,
     sender_name: Option<&str>,
 ) -> Result<(), PodiumError> {
-    let creds = PodiumEnvCredentials::load(pool)
-        .await
-        .ok_or(PodiumError::NotConfigured)?;
-    let cfg = load_store_podium_config(pool).await.map_err(|e| {
-        tracing::error!(error = %e, "podium load_store_podium_config failed (email send)");
-        PodiumError::NotConfigured
-    })?;
-    if !cfg.email_send_enabled {
-        return Err(PodiumError::NotConfigured);
-    }
-    let loc = cfg.location_uid.trim();
-    if loc.is_empty() {
-        return Err(PodiumError::NotConfigured);
-    }
-    let addr = to_email.trim();
-    if !looks_like_email(addr) {
-        return Err(PodiumError::NotConfigured);
-    }
-    let sub = subject.trim();
-    if sub.is_empty() {
-        return Err(PodiumError::NotConfigured);
-    }
-    if html_body.trim().is_empty() {
-        return Err(PodiumError::NotConfigured);
-    }
-    send_v4_message(
+    let _ = (
+        pool,
         http,
         token_cache,
-        &creds,
-        loc,
-        "email",
-        addr,
+        to_email,
+        subject,
         html_body,
-        Some(sub),
         sender_name,
-    )
-    .await
+    );
+    tracing::debug!("Podium email is disabled; use the ROS IONOS mailbox/email path");
+    Err(PodiumError::NotConfigured)
 }
 
 /// Fire-and-forget operational email (pickup, alterations, appointments, loyalty). Logs outcomes.

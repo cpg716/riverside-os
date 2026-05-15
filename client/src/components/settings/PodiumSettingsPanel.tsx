@@ -13,7 +13,6 @@ import {
 
 interface PodiumSmsConfig {
   sms_send_enabled: boolean;
-  email_send_enabled: boolean;
   location_uid: string;
   templates: {
     ready_for_pickup: string;
@@ -21,17 +20,8 @@ interface PodiumSmsConfig {
     unknown_sender_welcome: string;
     loyalty_reward_redeemed: string;
   };
-  email_templates: {
-    ready_for_pickup_subject: string;
-    ready_for_pickup_html: string;
-    alteration_ready_subject: string;
-    alteration_ready_html: string;
-    appointment_confirmation_subject: string;
-    appointment_confirmation_html: string;
-    loyalty_reward_subject: string;
-    loyalty_reward_html: string;
-  };
-  storefront_webchat_snippet: string;
+  widget_embed_enabled: boolean;
+  widget_snippet_html: string;
   credentials_configured: boolean;
   oauth_authorize_url: string;
   oauth_token_url_hint: string;
@@ -42,7 +32,6 @@ interface PodiumReadiness {
   webhook_secret_configured: boolean;
   allow_unsigned_webhook: boolean;
   inbound_inbox_preview_enabled: boolean;
-  email_send_enabled: boolean;
 }
 
 interface PodiumAuthorizeUrlResponse {
@@ -54,28 +43,56 @@ interface PodiumSettingsPanelProps {
 }
 
 const PODIUM_TEMPLATE_DEFAULTS = {
-  ready_for_pickup: "Hi {first_name}, your Riverside order ({order_ref}) is ready for pickup! See you soon.",
-  alteration_ready: "Hi {first_name}, your alteration ({alteration_ref}) is finished and ready for your final fitting/pickup.",
+  ready_for_pickup: "Hi {first_name}, your Riverside order {order_ref} is ready for pickup. We look forward to seeing you.",
+  alteration_ready: "Hi {first_name}, your alteration {alteration_ref} is ready for your final fitting or pickup.",
   unknown_sender_welcome: "Hi from Riverside! We've saved your contact info. Reply here for questions about your order.",
-  loyalty_reward_redeemed: "Hi {first_name}, you just redeemed a loyalty reward! Your new balance is {new_balance} points.",
+  loyalty_reward_redeemed: "Hi {first_name}, you redeemed {points_redeemed} points for {reward_amount}. Your new balance is {new_balance} points.",
 };
 
-const PODIUM_EMAIL_TEMPLATE_DEFAULTS = {
-  ready_for_pickup_subject: "Your Riverside Order is Ready",
-  ready_for_pickup_html: "<h1>Hi {first_name}</h1><p>Your order <strong>{order_ref}</strong> is ready for pickup.</p>",
-  alteration_ready_subject: "Alteration Finished",
-  alteration_ready_html: "<h1>Hi {first_name}</h1><p>Your alteration <strong>{alteration_ref}</strong> is ready for your fitting.</p>",
-  appointment_confirmation_subject: "Riverside Appointment Confirmation",
-  appointment_confirmation_html: "<h1>Hi {first_name}</h1><p>Your <strong>{appointment_type}</strong> is confirmed for <strong>{starts_at}</strong>.</p>",
-  loyalty_reward_subject: "Loyalty Reward Redeemed",
-  loyalty_reward_html: "<h1>Hi {first_name}</h1><p>You redeemed <strong>{points_redeemed}</strong> points for <strong>{reward_amount}</strong>!</p>",
-};
+type SmsTemplateKey = keyof PodiumSmsConfig["templates"];
 
-const PODIUM_EMAIL_UI_BLOCKS = [
-  { label: "Pickup ready", subjectKey: "ready_for_pickup_subject", htmlKey: "ready_for_pickup_html" },
-  { label: "Alteration ready", subjectKey: "alteration_ready_subject", htmlKey: "alteration_ready_html" },
-  { label: "Appointment confirm", subjectKey: "appointment_confirmation_subject", htmlKey: "appointment_confirmation_html" },
-  { label: "Loyalty reward", subjectKey: "loyalty_reward_subject", htmlKey: "loyalty_reward_html" },
+const PODIUM_SMS_TEMPLATE_BLOCKS: {
+  key: SmsTemplateKey;
+  label: string;
+  description: string;
+  tags: { token: string; label: string }[];
+}[] = [
+  {
+    key: "ready_for_pickup",
+    label: "Ready for pickup",
+    description: "Sent when order items are ready for pickup.",
+    tags: [
+      { token: "{first_name}", label: "First name" },
+      { token: "{order_ref}", label: "Transaction" },
+    ],
+  },
+  {
+    key: "alteration_ready",
+    label: "Alteration ready",
+    description: "Sent when an alteration is marked ready.",
+    tags: [
+      { token: "{first_name}", label: "First name" },
+      { token: "{alteration_ref}", label: "Alteration" },
+    ],
+  },
+  {
+    key: "loyalty_reward_redeemed",
+    label: "Loyalty reward",
+    description: "Sent when a customer redeems loyalty points.",
+    tags: [
+      { token: "{first_name}", label: "First name" },
+      { token: "{reward_amount}", label: "Reward amount" },
+      { token: "{points_redeemed}", label: "Points used" },
+      { token: "{new_balance}", label: "New balance" },
+      { token: "{reward_breakdown}", label: "Reward breakdown" },
+    ],
+  },
+  {
+    key: "unknown_sender_welcome",
+    label: "New text sender",
+    description: "Sent once when a new inbound phone number creates a customer stub.",
+    tags: [],
+  },
 ] as const;
 
 const PODIUM_OAUTH_SCOPE = [
@@ -177,6 +194,19 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
     }
   };
 
+  const insertSmsTag = (key: SmsTemplateKey, token: string) => {
+    if (!podiumSms) return;
+    const current = podiumSms.templates[key] ?? "";
+    const next = current.trimEnd().length > 0 ? `${current.trimEnd()} ${token}` : token;
+    setPodiumSms({
+      ...podiumSms,
+      templates: {
+        ...podiumSms.templates,
+        [key]: next,
+      },
+    });
+  };
+
   if (!podiumSms) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -196,8 +226,8 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
             imageClassName="h-10 w-auto object-contain"
           />
         </div>
-        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Messaging & Web Chat</h2>
-        <p className="text-sm text-app-text-muted mt-2 font-medium">Coordinate operational SMS, HTML email templates, and web chat widgets.</p>
+        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Text Messaging & Web Chat</h2>
+        <p className="text-sm text-app-text-muted mt-2 font-medium">Coordinate Podium SMS templates, review invites, and web chat widgets. Store email is managed in the Riverside IONOS mailbox.</p>
       </header>
 
       <ReviewInvitesSettingsCard baseUrl={baseUrl} />
@@ -269,12 +299,11 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
         </div>
 
         {podiumReadiness && (
-           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
               {[
                 { label: "API Channel", val: podiumReadiness.api_base.replace('https://', '') },
                 { label: "Webhooks", val: podiumReadiness.webhook_secret_configured ? "Verified" : "Unsigned" },
                 { label: "Inbox Sync", val: podiumReadiness.inbound_inbox_preview_enabled ? "Enabled" : "Disabled" },
-                { label: "Email Engine", val: podiumReadiness.email_send_enabled ? "Active" : "Ready" },
               ].map(stat => (
                 <div key={stat.label} className="ui-metric-cell ui-tint-neutral p-3">
                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">{stat.label}</p>
@@ -295,15 +324,14 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                  />
               </div>
               <div>
-                 <h3 className="text-lg font-black italic uppercase tracking-tight text-app-text">Communication Controls</h3>
-                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Lifecycle SMS & HTML Correspondence</p>
+                 <h3 className="text-lg font-black italic uppercase tracking-tight text-app-text">Text Message Controls</h3>
+                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Lifecycle SMS and inbound Podium messages</p>
               </div>
            </div>
            
            <div className="flex items-center gap-6">
               {[
                 { key: 'sms_send_enabled', label: "SMS Active" },
-                { key: 'email_send_enabled', label: "Email Active" },
               ].map(toggle => (
                 <label key={toggle.key} className="flex items-center gap-2 cursor-pointer group">
                    <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${podiumSms[toggle.key as keyof PodiumSmsConfig] ? 'bg-app-accent border-app-accent text-white' : 'border-app-border group-hover:border-app-accent'}`}>
@@ -325,67 +353,43 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
            {/* SMS TEMPLATES */}
            <div>
               <div className="flex items-center justify-between mb-4">
-                 <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">Automated SMS Templates</h4>
+                 <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">Automated Text Message Templates</h4>
                  <Info size={14} className="text-app-text-muted" />
               </div>
               <div className="grid gap-6 md:grid-cols-2">
-                 {(Object.entries(PODIUM_TEMPLATE_DEFAULTS) as [keyof PodiumSmsConfig['templates'], string][]).map(([key, def]) => (
-                   <div key={key} className="space-y-2">
-                      <div className="flex justify-between items-center px-1">
-                         <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{key.replace(/_/g, ' ')}</span>
+                 {PODIUM_SMS_TEMPLATE_BLOCKS.map((block) => (
+                   <div key={block.key} className="ui-card ui-tint-neutral p-5 space-y-3">
+                      <div className="flex justify-between items-start gap-3">
+                         <div>
+                           <span className="text-[10px] font-black uppercase tracking-widest text-app-accent">{block.label}</span>
+                           <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">{block.description}</p>
+                         </div>
                          <button 
-                           onClick={() => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [key]: def}})}
-                           className="text-[8px] font-black uppercase tracking-widest text-app-accent hover:text-app-text transition-colors"
+                           onClick={() => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [block.key]: PODIUM_TEMPLATE_DEFAULTS[block.key]}})}
+                           className="shrink-0 text-[8px] font-black uppercase tracking-widest text-app-accent hover:text-app-text transition-colors"
                          >
                            Reset
                          </button>
                       </div>
+                      {block.tags.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {block.tags.map((tag) => (
+                            <button
+                              key={`${block.key}-${tag.token}`}
+                              type="button"
+                              onClick={() => insertSmsTag(block.key, tag.token)}
+                              className="rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted transition hover:border-app-accent hover:text-app-accent"
+                            >
+                              {tag.label} <span className="normal-case tracking-normal">{tag.token}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                       <textarea 
                         className="ui-input w-full min-h-[100px] p-4 text-xs font-medium leading-relaxed border-app-border/60"
-                        value={podiumSms.templates[key]}
-                        onChange={e => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [key]: e.target.value}})}
+                        value={podiumSms.templates[block.key]}
+                        onChange={e => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [block.key]: e.target.value}})}
                       />
-                   </div>
-                 ))}
-              </div>
-           </div>
-
-           {/* EMAIL TEMPLATES */}
-           <div className="pt-10 border-t border-app-border/40">
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text mb-6">HTML Email System</h4>
-              <div className="space-y-8">
-                 {PODIUM_EMAIL_UI_BLOCKS.map(block => (
-                   <div key={block.label} className="ui-card ui-tint-neutral p-6 space-y-4">
-                      <div className="flex justify-between items-center">
-                         <span className="text-[10px] font-black uppercase tracking-widest text-app-accent">{block.label} Configuration</span>
-                         <button 
-                            onClick={() => setPodiumSms({
-                              ...podiumSms, 
-                              email_templates: {
-                                ...podiumSms.email_templates, 
-                                [block.subjectKey]: PODIUM_EMAIL_TEMPLATE_DEFAULTS[block.subjectKey as keyof typeof PODIUM_EMAIL_TEMPLATE_DEFAULTS],
-                                [block.htmlKey]: PODIUM_EMAIL_TEMPLATE_DEFAULTS[block.htmlKey as keyof typeof PODIUM_EMAIL_TEMPLATE_DEFAULTS]
-                              }
-                             })}
-                           className="text-[8px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text"
-                        >
-                           Reset Block
-                         </button>
-                      </div>
-                      <div className="grid gap-4">
-                         <input 
-                           placeholder="Email Subject"
-                           className="ui-input w-full px-4 py-3 text-xs font-bold"
-                           value={podiumSms.email_templates[block.subjectKey]}
-                           onChange={e => setPodiumSms({...podiumSms, email_templates: {...podiumSms.email_templates, [block.subjectKey]: e.target.value}})}
-                         />
-                         <textarea 
-                           placeholder="HTML Source Code"
-                           className="ui-input w-full min-h-[160px] p-4 font-mono text-[10px] leading-relaxed"
-                           value={podiumSms.email_templates[block.htmlKey]}
-                           onChange={e => setPodiumSms({...podiumSms, email_templates: {...podiumSms.email_templates, [block.htmlKey]: e.target.value}})}
-                         />
-                      </div>
                    </div>
                  ))}
               </div>
@@ -400,8 +404,8 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
               <textarea 
                  placeholder="<script>... podium.widget ...</script>"
                  className="ui-input w-full min-h-[120px] p-4 font-mono text-[10px]"
-                 value={podiumSms.storefront_webchat_snippet}
-                 onChange={e => setPodiumSms({...podiumSms, storefront_webchat_snippet: e.target.value})}
+                 value={podiumSms.widget_snippet_html}
+                 onChange={e => setPodiumSms({...podiumSms, widget_snippet_html: e.target.value})}
               />
            </div>
         </div>

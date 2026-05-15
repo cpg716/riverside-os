@@ -63,6 +63,19 @@ type QboJournalLine = {
   detail?: Array<Record<string, unknown>>;
 };
 
+type NysTaxAuditResponse = {
+  total_lines: number;
+  clothing_footwear_lines: number;
+  local_only_exempt_lines: number;
+  local_only_exempt_net_revenue: string;
+  local_only_exempt_state_tax: string;
+  local_only_exempt_local_tax: string;
+  standard_path_lines: number;
+  standard_path_net: string;
+  total_state_tax: string;
+  total_local_tax: string;
+};
+
 function uniqueSuffix(label: string): string {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -329,6 +342,19 @@ async function seedShippingQuote(request: APIRequestContext, amountUsd: string):
   return body.quote_id;
 }
 
+async function fetchNysTaxAudit(
+  request: APIRequestContext,
+  day: string,
+): Promise<NysTaxAuditResponse> {
+  const res = await request.get(`${apiBase()}/api/insights/nys-tax-audit?from=${day}&to=${day}`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  const text = await res.text();
+  expect(res.status(), text.slice(0, 1000)).toBe(200);
+  return JSON.parse(text) as NysTaxAuditResponse;
+}
+
 test.describe("tax audit contract", () => {
   test("category inheritance and parent-product override drive server tax rules", async ({
     request,
@@ -397,6 +423,85 @@ test.describe("tax audit contract", () => {
     });
     expect(staleInheritedTaxRes.status()).toBe(400);
     await expect(staleInheritedTaxRes.text()).resolves.toMatch(/Tax per unit/i);
+  });
+
+  test("NYS tax audit reports checkout tax categories and per-item threshold", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const day = localBusinessDate();
+    const before = await fetchNysTaxAudit(request, day);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+
+    const parentCategoryId = await createTaxCategory(
+      request,
+      operatorStaffId,
+      true,
+      uniqueSuffix("audit-parent-clothing"),
+    );
+    const childCategoryId = await createTaxCategory(
+      request,
+      operatorStaffId,
+      false,
+      uniqueSuffix("audit-child-inherits"),
+      parentCategoryId,
+    );
+    const twoUnitClothing = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "60.00",
+      categoryId: childCategoryId,
+      label: "audit-two-under-threshold",
+    });
+    const underTax = taxFor("clothing", "60.00");
+    expect(underTax).toEqual({ stateTax: "0.00", localTax: "2.85" });
+    const clothingRes = await checkoutTaxProduct(request, {
+      product: twoUnitClothing,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "60.00",
+      stateTax: underTax.stateTax,
+      localTax: underTax.localTax,
+      quantity: 2,
+    });
+    expect(clothingRes.status()).toBe(200);
+
+    const serviceOverride = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "60.00",
+      categoryId: parentCategoryId,
+      taxCategoryOverride: "service",
+      label: "audit-service-override",
+    });
+    const serviceRes = await checkoutTaxProduct(request, {
+      product: serviceOverride,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "60.00",
+      stateTax: "0.00",
+      localTax: "0.00",
+    });
+    expect(serviceRes.status()).toBe(200);
+
+    const after = await fetchNysTaxAudit(request, day);
+    expect(after.total_lines - before.total_lines).toBeGreaterThanOrEqual(2);
+    expect(after.clothing_footwear_lines - before.clothing_footwear_lines).toBe(1);
+    expect(after.local_only_exempt_lines - before.local_only_exempt_lines).toBe(1);
+    expect(
+      parseMoneyToCents(after.local_only_exempt_net_revenue) -
+        parseMoneyToCents(before.local_only_exempt_net_revenue),
+    ).toBe(12000);
+    expect(
+      parseMoneyToCents(after.local_only_exempt_state_tax) -
+        parseMoneyToCents(before.local_only_exempt_state_tax),
+    ).toBe(0);
+    expect(
+      parseMoneyToCents(after.local_only_exempt_local_tax) -
+        parseMoneyToCents(before.local_only_exempt_local_tax),
+    ).toBe(570);
+    expect(
+      parseMoneyToCents(after.total_local_tax) - parseMoneyToCents(before.total_local_tax),
+    ).toBe(570);
   });
 
   test("checkout enforces NYS/Erie clothing threshold and discount crossing at server boundary", async ({

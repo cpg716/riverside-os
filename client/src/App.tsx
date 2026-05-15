@@ -631,6 +631,7 @@ function App() {
           "daily-sales",
           "fulfillment",
           "inbox",
+          "mailbox",
           "reviews",
         ]);
         const normalizedSec =
@@ -655,6 +656,7 @@ function App() {
           "daily-sales",
           "fulfillment",
           "inbox",
+          "mailbox",
           "reviews",
         ]);
         const normalizedSub =

@@ -28,6 +28,8 @@ expected=(
   "021_wedding_cutover_review.sql"
   "022_email_mailbox.sql"
   "023_shippo_returns_manifests_pickups.sql"
+  "024_register_drawer_open_events.sql"
+  "025_qbo_bridge_mapping_hardening.sql"
 )
 
 active=()
@@ -81,4 +83,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-023 only."
+echo "Migration layout OK: active baseline 001-025 only."

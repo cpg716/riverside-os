@@ -881,79 +881,100 @@ async fn nys_tax_audit(
 
     let row = sqlx::query_as::<_, Agg>(&format!(
         r#"
+        WITH tax_lines AS (
+            SELECT
+                oi.*,
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) AS effective_qty,
+                COALESCE(
+                    p.tax_category_override::text,
+                    CASE
+                        WHEN rc.resolved_category_name IS NULL THEN 'other'
+                        WHEN LOWER(rc.resolved_category_name) LIKE '%shoe%'
+                          OR LOWER(rc.resolved_category_name) LIKE '%footwear%' THEN 'footwear'
+                        ELSE 'clothing'
+                    END
+                ) AS resolved_tax_category
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
+            INNER JOIN products p ON p.id = oi.product_id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            LEFT JOIN LATERAL (
+                WITH RECURSIVE cat_path AS (
+                    SELECT c.id, c.name, c.is_clothing_footwear, c.parent_id, 0 AS depth
+                    FROM categories c
+                    WHERE c.id = p.category_id
+                    UNION ALL
+                    SELECT parent.id, parent.name, parent.is_clothing_footwear, parent.parent_id, cat_path.depth + 1
+                    FROM categories parent
+                    JOIN cat_path ON cat_path.parent_id = parent.id
+                    WHERE cat_path.depth < 16
+                )
+                SELECT cp.name AS resolved_category_name
+                FROM cat_path cp
+                WHERE cp.is_clothing_footwear = true
+                ORDER BY cp.depth
+                LIMIT 1
+            ) rc ON true
+            WHERE {order_filter}
+        )
         SELECT
             COUNT(*)::bigint AS total_lines,
-            COUNT(*) FILTER (WHERE COALESCE(c.is_clothing_footwear, false))::bigint
+            COUNT(*) FILTER (WHERE resolved_tax_category IN ('clothing', 'footwear'))::bigint
                 AS clothing_footwear_lines,
             COUNT(*) FILTER (
-                WHERE COALESCE(c.is_clothing_footwear, false)
-                  AND oi.state_tax = 0
-                  AND oi.local_tax > 0
+                WHERE resolved_tax_category IN ('clothing', 'footwear')
+                  AND unit_price < $3
             )::bigint AS local_only_exempt_lines,
             COALESCE(
-                SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
-                    WHERE COALESCE(c.is_clothing_footwear, false)
-                      AND oi.state_tax = 0
-                      AND oi.local_tax > 0
+                SUM((unit_price * effective_qty)::numeric) FILTER (
+                    WHERE resolved_tax_category IN ('clothing', 'footwear')
+                      AND unit_price < $3
                 ),
                 0
             )::numeric(14, 2) AS local_only_exempt_net_revenue,
             COALESCE(
-                SUM((oi.state_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
-                    WHERE COALESCE(c.is_clothing_footwear, false)
-                      AND oi.state_tax = 0
-                      AND oi.local_tax > 0
+                SUM((state_tax * effective_qty)::numeric) FILTER (
+                    WHERE resolved_tax_category IN ('clothing', 'footwear')
+                      AND unit_price < $3
                 ),
                 0
             )::numeric(14, 2) AS local_only_exempt_state_tax,
             COALESCE(
-                SUM((oi.local_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
-                    WHERE COALESCE(c.is_clothing_footwear, false)
-                      AND oi.state_tax = 0
-                      AND oi.local_tax > 0
+                SUM((local_tax * effective_qty)::numeric) FILTER (
+                    WHERE resolved_tax_category IN ('clothing', 'footwear')
+                      AND unit_price < $3
                 ),
                 0
             )::numeric(14, 2) AS local_only_exempt_local_tax,
             COUNT(*) FILTER (
-                WHERE COALESCE(c.is_clothing_footwear, false)
-                  AND (oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric >= $3
+                WHERE resolved_tax_category IN ('clothing', 'footwear')
+                  AND unit_price >= $3
             )::bigint AS clothing_at_or_over_threshold_lines,
             COALESCE(
-                SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
-                    WHERE COALESCE(c.is_clothing_footwear, false)
-                      AND (oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric >= $3
+                SUM((unit_price * effective_qty)::numeric) FILTER (
+                    WHERE resolved_tax_category IN ('clothing', 'footwear')
+                      AND unit_price >= $3
                 ),
                 0
             )::numeric(14, 2) AS clothing_at_or_over_threshold_net,
             COUNT(*) FILTER (
-                WHERE NOT COALESCE(c.is_clothing_footwear, false)
-                   OR (
-                        COALESCE(c.is_clothing_footwear, false)
-                        AND NOT (oi.state_tax = 0 AND oi.local_tax > 0)
-                      )
+                WHERE resolved_tax_category NOT IN ('clothing', 'footwear')
+                   OR unit_price >= $3
             )::bigint AS standard_path_lines,
             COALESCE(
-                SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
-                    WHERE NOT COALESCE(c.is_clothing_footwear, false)
-                       OR (
-                            COALESCE(c.is_clothing_footwear, false)
-                            AND NOT (oi.state_tax = 0 AND oi.local_tax > 0)
-                          )
+                SUM((unit_price * effective_qty)::numeric) FILTER (
+                    WHERE resolved_tax_category NOT IN ('clothing', 'footwear')
+                       OR unit_price >= $3
                 ),
                 0
             )::numeric(14, 2) AS standard_path_net,
-            COALESCE(SUM((oi.state_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric), 0)::numeric(14, 2) AS total_state_tax,
-            COALESCE(SUM((oi.local_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric), 0)::numeric(14, 2) AS total_local_tax
-        FROM transaction_lines oi
-        INNER JOIN transactions o ON o.id = oi.transaction_id
-        INNER JOIN products p ON p.id = oi.product_id
-        LEFT JOIN categories c ON c.id = p.category_id
-        LEFT JOIN (
-            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
-            FROM transaction_return_lines
-            GROUP BY transaction_line_id
-        ) orl ON orl.transaction_line_id = oi.id
-        WHERE {order_filter}
+            COALESCE(SUM((state_tax * effective_qty)::numeric), 0)::numeric(14, 2) AS total_state_tax,
+            COALESCE(SUM((local_tax * effective_qty)::numeric), 0)::numeric(14, 2) AS total_local_tax
+        FROM tax_lines
         "#
     ))
     .bind(start)

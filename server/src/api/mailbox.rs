@@ -4,7 +4,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use serde::Deserialize;
@@ -41,6 +41,9 @@ impl IntoResponse for MailboxError {
                 StatusCode::BAD_REQUEST,
                 "Email is not configured".to_string(),
             ),
+            MailboxError::Email(email::EmailError::InvalidPayload(message)) => {
+                (StatusCode::BAD_REQUEST, message)
+            }
             MailboxError::Email(e) => (StatusCode::BAD_GATEWAY, e.to_string()),
             MailboxError::Database(e) => {
                 tracing::error!(error = %e, "mailbox database error");
@@ -100,6 +103,31 @@ pub fn router() -> Router<AppState> {
         .route("/sync", post(sync_mailbox))
         .route("/signature", get(get_signature).patch(patch_signature))
         .route("/customer/{customer_id}", get(list_customer_messages))
+        .route("/{id}", patch(patch_message_state))
+}
+
+#[derive(Debug, Deserialize)]
+struct PatchMailboxMessageBody {
+    folder: Option<String>,
+    status: Option<String>,
+}
+
+async fn patch_message_state(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<PatchMailboxMessageBody>,
+) -> Result<Json<email::MailboxMessageRow>, MailboxError> {
+    require_perm(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    Ok(Json(
+        email::update_mailbox_message_state(
+            &state.db,
+            id,
+            body.folder.as_deref(),
+            body.status.as_deref(),
+        )
+        .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,7 +170,15 @@ async fn sync_mailbox(
     headers: HeaderMap,
 ) -> Result<Json<email::MailboxSyncResult>, MailboxError> {
     require_perm(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
-    Ok(Json(email::sync_inbox(&state.db).await?))
+    let summary = email::sync_inbox(&state.db).await?;
+    if let Err(error) = email::notify_new_mail(&state.db, &summary).await {
+        tracing::warn!(
+            target: "email",
+            error = %error,
+            "Mailbox sync completed but notification fan-out failed"
+        );
+    }
+    Ok(Json(summary))
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +188,8 @@ struct SendMailboxMessageBody {
     html_body: String,
     #[serde(default)]
     signature_html: Option<String>,
+    #[serde(default)]
+    reply_to_message_id: Option<Uuid>,
 }
 
 async fn send_message(
@@ -160,7 +198,7 @@ async fn send_message(
     Json(body): Json<SendMailboxMessageBody>,
 ) -> Result<Json<serde_json::Value>, MailboxError> {
     let staff_id = require_perm(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
-    let id = email::send_email(
+    let id = email::send_email_with_reply_context(
         &state.db,
         &body.to_email,
         &body.subject,
@@ -168,6 +206,7 @@ async fn send_message(
         staff_id,
         body.signature_html.as_deref(),
         "outbound",
+        body.reply_to_message_id,
     )
     .await?;
     Ok(Json(json!({ "id": id, "status": "sent" })))

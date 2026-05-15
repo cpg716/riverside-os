@@ -1316,11 +1316,13 @@ async fn podium_sms_settings_response(
     cfg: StorePodiumSmsConfig,
 ) -> PodiumSmsSettingsResponse {
     let templates_effective = cfg.templates.merged_defaults();
-    let email_templates_effective = cfg.email_templates.merged_defaults();
     PodiumSmsSettingsResponse {
-        settings: cfg,
+        sms_send_enabled: cfg.sms_send_enabled,
+        location_uid: cfg.location_uid,
+        widget_embed_enabled: cfg.widget_embed_enabled,
+        widget_snippet_html: cfg.widget_snippet_html,
+        templates: cfg.templates,
         templates_effective,
-        email_templates_effective,
         credentials_configured: PodiumEnvCredentials::load(pool).await.is_some(),
         oauth_authorize_url: "https://api.podium.com/oauth/authorize",
         oauth_token_url_hint: "https://api.podium.com/oauth/token — set RIVERSIDE_PODIUM_OAUTH_TOKEN_URL if Podium instructs a different token host (some samples use accounts.podium.com).",
@@ -1349,26 +1351,12 @@ struct PatchPodiumSmsTemplatesBody {
 }
 
 #[derive(Debug, Deserialize, Default)]
-struct PatchPodiumEmailTemplatesBody {
-    ready_for_pickup_subject: Option<String>,
-    ready_for_pickup_html: Option<String>,
-    alteration_ready_subject: Option<String>,
-    alteration_ready_html: Option<String>,
-    appointment_confirmation_subject: Option<String>,
-    appointment_confirmation_html: Option<String>,
-    loyalty_reward_redeemed_subject: Option<String>,
-    loyalty_reward_redeemed_html: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
 struct PatchPodiumSmsBody {
     sms_send_enabled: Option<bool>,
-    email_send_enabled: Option<bool>,
     location_uid: Option<String>,
     widget_embed_enabled: Option<bool>,
     widget_snippet_html: Option<String>,
     templates: Option<PatchPodiumSmsTemplatesBody>,
-    email_templates: Option<PatchPodiumEmailTemplatesBody>,
 }
 
 async fn patch_podium_sms_settings(
@@ -1387,9 +1375,7 @@ async fn patch_podium_sms_settings(
     if let Some(v) = body.sms_send_enabled {
         current.sms_send_enabled = v;
     }
-    if let Some(v) = body.email_send_enabled {
-        current.email_send_enabled = v;
-    }
+    current.email_send_enabled = false;
     if let Some(s) = body.location_uid {
         current.location_uid = s;
     }
@@ -1418,33 +1404,6 @@ async fn patch_podium_sms_settings(
             current.templates.loyalty_reward_redeemed = s;
         }
     }
-    if let Some(et) = body.email_templates {
-        if let Some(s) = et.ready_for_pickup_subject {
-            current.email_templates.ready_for_pickup_subject = s;
-        }
-        if let Some(s) = et.ready_for_pickup_html {
-            current.email_templates.ready_for_pickup_html = s;
-        }
-        if let Some(s) = et.alteration_ready_subject {
-            current.email_templates.alteration_ready_subject = s;
-        }
-        if let Some(s) = et.alteration_ready_html {
-            current.email_templates.alteration_ready_html = s;
-        }
-        if let Some(s) = et.appointment_confirmation_subject {
-            current.email_templates.appointment_confirmation_subject = s;
-        }
-        if let Some(s) = et.appointment_confirmation_html {
-            current.email_templates.appointment_confirmation_html = s;
-        }
-        if let Some(s) = et.loyalty_reward_redeemed_subject {
-            current.email_templates.loyalty_reward_redeemed_subject = s;
-        }
-        if let Some(s) = et.loyalty_reward_redeemed_html {
-            current.email_templates.loyalty_reward_redeemed_html = s;
-        }
-    }
-
     let updated = serde_json::to_value(&current).map_err(|e| {
         SettingsError::InvalidPayload(format!("podium_sms_config serialization: {e}"))
     })?;
@@ -1569,7 +1528,6 @@ struct PodiumSmsReadinessResponse {
     /// Effective REST API base (env `RIVERSIDE_PODIUM_API_BASE` or default).
     api_base: String,
     sms_send_enabled: bool,
-    email_send_enabled: bool,
     location_uid_configured: bool,
     widget_embed_enabled: bool,
 }
@@ -1591,7 +1549,6 @@ async fn get_podium_sms_readiness(
         inbound_inbox_preview_enabled: podium_inbound_inbox_enabled(),
         api_base: podium_effective_rest_api_base(&state.db).await,
         sms_send_enabled: cfg.sms_send_enabled,
-        email_send_enabled: cfg.email_send_enabled,
         location_uid_configured: !cfg.location_uid.trim().is_empty(),
         widget_embed_enabled: cfg.widget_embed_enabled,
     }))

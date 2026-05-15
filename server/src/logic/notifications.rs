@@ -147,6 +147,7 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "rms_r2s_charge",
     "special_order_ready_to_stage",
     "staff_bug_report",
+    "store_email_inbound",
     "task_due_soon",
     "wedding_soon",
 ];
@@ -205,7 +206,8 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
         | "podium_email_inbound"
         | "podium_sms_bundle"
         | "podium_sms_inbound"
-        | "review_invite_sent" => Some(Handling::Configurable(Category::CustomersLoyalty)),
+        | "review_invite_sent"
+        | "store_email_inbound" => Some(Handling::Configurable(Category::CustomersLoyalty)),
         "morning_refund_queue"
         | "order_due_stale"
         | "order_fully_fulfilled"
