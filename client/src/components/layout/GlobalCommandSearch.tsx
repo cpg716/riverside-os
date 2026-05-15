@@ -874,10 +874,10 @@ export default function GlobalCommandSearch({
     <>
       <div
         className={cn(
-          "flex min-w-0 flex-none items-center",
+          "flex min-w-0 items-center",
           isPosVariant
-            ? "w-auto justify-start"
-            : "w-auto justify-center",
+            ? "w-auto justify-start lg:w-full lg:max-w-[20rem]"
+            : "w-auto justify-start lg:w-full lg:max-w-[22rem] lg:justify-center",
         )}
       >
         <button
@@ -888,8 +888,8 @@ export default function GlobalCommandSearch({
           className={cn(
             "group relative flex items-center text-left shadow-sm transition-all duration-150 hover:border-app-accent/20 hover:bg-app-surface hover:shadow-md active:scale-[0.995]",
             isPosVariant
-              ? "h-10 w-10 justify-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/95 px-0 2xl:w-auto 2xl:justify-start 2xl:px-2.5"
-              : "h-10 w-10 justify-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/90 px-0 lg:w-[15rem] lg:justify-start lg:px-2.5",
+              ? "h-10 w-10 justify-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/95 px-0 lg:w-full lg:justify-start lg:px-2.5"
+              : "h-10 w-10 justify-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/90 px-0 lg:w-full lg:justify-start lg:px-2.5",
           )}
           aria-label="Open universal search"
         >
@@ -901,9 +901,9 @@ export default function GlobalCommandSearch({
           >
             <Search size={16} aria-hidden />
           </div>
-          <div className={cn("min-w-0", isPosVariant ? "hidden 2xl:block" : "hidden lg:block")}>
+          <div className="hidden min-w-0 lg:block">
             <p className="truncate text-xs font-bold text-app-text">
-              {isPosVariant ? "Jump Search" : "Search"}
+              Search
             </p>
             <p className="truncate text-[11px] text-app-text-muted">
               {isPosVariant
@@ -911,12 +911,7 @@ export default function GlobalCommandSearch({
                 : "Jump to customers..."}
             </p>
           </div>
-          <div
-            className={cn(
-              "shrink-0 items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted shadow-sm",
-              isPosVariant ? "hidden 2xl:flex" : "hidden xl:flex",
-            )}
-          >
+          <div className="hidden shrink-0 items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted shadow-sm xl:flex">
             <Command size={12} aria-hidden />
             <span>K</span>
           </div>

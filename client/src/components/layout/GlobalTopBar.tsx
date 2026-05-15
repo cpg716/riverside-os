@@ -2,6 +2,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { 
   ChevronRight, 
+  LayoutDashboard,
   Menu,
   Sun,
   Moon,
@@ -51,6 +52,8 @@ interface GlobalTopBarProps {
   searchVariant?: "backoffice" | "pos";
   /** Toggles the responsive sidebar. */
   onToggleSidebar?: () => void;
+  shellReturnLabel?: string;
+  onShellReturn?: () => void;
   /** When false, show optional Back Office "Switch staff" (register not required for BO). */
   isRegisterOpen?: boolean;
   onOpenHelp?: () => void;
@@ -76,6 +79,8 @@ export default function GlobalTopBar({
   onSearchOpenAlteration,
   searchVariant = "backoffice",
   onToggleSidebar,
+  shellReturnLabel,
+  onShellReturn,
   isRegisterOpen = false,
   onOpenHelp,
   onOpenRosie,
@@ -121,7 +126,7 @@ export default function GlobalTopBar({
   }, []);
 
   return (
-    <header className="sticky top-0 z-50 flex h-16 shrink-0 flex-nowrap items-center gap-2 border-b border-app-border bg-[color-mix(in_srgb,var(--app-rail)_94%,transparent)] px-3 py-0 backdrop-blur-md sm:px-4 lg:gap-4 lg:px-6 relative">
+    <header className="sticky top-0 z-50 flex h-16 shrink-0 flex-nowrap items-center gap-2 border-b border-app-border bg-[color-mix(in_srgb,var(--app-rail)_94%,transparent)] px-3 py-0 backdrop-blur-md sm:px-4 lg:gap-4 lg:px-6">
       <div
         className={cn(
           "flex min-w-0 flex-none items-center gap-2 lg:h-full lg:gap-3",
@@ -173,31 +178,43 @@ export default function GlobalTopBar({
             </span>
           ))}
         </nav>
+        {onShellReturn ? (
+          <button
+            type="button"
+            onClick={onShellReturn}
+            className="inline-flex h-10 shrink-0 touch-manipulation items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[11px] font-black uppercase tracking-widest text-app-text shadow-sm transition-colors hover:border-app-accent/40 hover:bg-app-surface"
+          >
+            <LayoutDashboard size={16} aria-hidden />
+            <span className="hidden whitespace-nowrap min-[480px]:inline">
+              {shellReturnLabel ?? "Back to Back Office"}
+            </span>
+            <span className="whitespace-nowrap min-[480px]:hidden">Back</span>
+          </button>
+        ) : null}
       </div>
 
-      <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden -translate-x-1/2 -translate-y-1/2 justify-center min-[720px]:flex">
-        <div className="pointer-events-auto">
-          <GlobalCommandSearch
-            onNavigateRegister={onNavigateRegister}
-            onSelectCustomerForPos={onSelectCustomerForPos}
-            onSearchOpenCustomerDrawer={onSearchOpenCustomerDrawer}
-            onSearchOpenProductDrawer={onSearchOpenProductDrawer}
-            onSearchOpenWeddingPartyCustomers={onSearchOpenWeddingPartyCustomers}
-            onSearchOpenOrder={onSearchOpenOrder}
-            onSearchOpenShipment={onSearchOpenShipment}
-            onSearchOpenWeddingParty={onSearchOpenWeddingParty}
-            onSearchOpenAlteration={onSearchOpenAlteration}
-            onNavigateToTab={onNavigateToTab}
-            variant={searchVariant}
-          />
-        </div>
+      <div className="flex min-w-0 flex-1 items-center justify-start min-[720px]:justify-center">
+        <GlobalCommandSearch
+          onNavigateRegister={onNavigateRegister}
+          onSelectCustomerForPos={onSelectCustomerForPos}
+          onSearchOpenCustomerDrawer={onSearchOpenCustomerDrawer}
+          onSearchOpenProductDrawer={onSearchOpenProductDrawer}
+          onSearchOpenWeddingPartyCustomers={onSearchOpenWeddingPartyCustomers}
+          onSearchOpenOrder={onSearchOpenOrder}
+          onSearchOpenShipment={onSearchOpenShipment}
+          onSearchOpenWeddingParty={onSearchOpenWeddingParty}
+          onSearchOpenAlteration={onSearchOpenAlteration}
+          onNavigateToTab={onNavigateToTab}
+          variant={searchVariant}
+        />
       </div>
 
-      <div className="ml-auto flex flex-none items-center justify-end gap-2 sm:gap-3 z-20">
+      <div className="flex flex-none items-center justify-end gap-2 sm:gap-3">
         {/* Dynamic Slot Region */}
         <div
           className={cn(
             "hidden items-center border-r border-app-border empty:hidden",
+            onShellReturn && !isPosVariant ? "hidden" :
             isPosVariant ? "gap-2 px-3 xl:flex" : "gap-4 px-4 2xl:flex",
           )}
         >

@@ -1346,6 +1346,59 @@ function AppShell({
     [setActiveTab],
   );
 
+  const handleExitPosMode = useCallback(() => {
+    navigateDashboard();
+    setSidebarCollapsed(false);
+    triggerDashboardRefresh();
+  }, [navigateDashboard, setSidebarCollapsed, triggerDashboardRefresh]);
+
+  const handleExitInsightsMode = useCallback(() => {
+    setInsightsMode(false);
+    setSidebarCollapsed(false);
+    setActiveTab("home");
+    triggerDashboardRefresh();
+  }, [setActiveTab, setInsightsMode, setSidebarCollapsed, triggerDashboardRefresh]);
+
+  const handleExitWeddingMode = useCallback(() => {
+    setWeddingMode(false);
+    setSidebarCollapsed(false);
+    if (weddingReturnTarget === "pos") {
+      setPosMode(true);
+      setActiveTab(isRegisterOpen ? "register" : "pos-dashboard");
+    } else {
+      setActiveTab("home");
+      triggerDashboardRefresh();
+    }
+    setWeddingReturnTarget("backoffice");
+  }, [
+    isRegisterOpen,
+    setActiveTab,
+    setPosMode,
+    setSidebarCollapsed,
+    setWeddingMode,
+    setWeddingReturnTarget,
+    triggerDashboardRefresh,
+    weddingReturnTarget,
+  ]);
+
+  const shellReturnLabel = insightsMode
+    ? "Back to Back Office"
+    : weddingMode
+      ? weddingReturnTarget === "pos"
+        ? "Return to POS"
+        : "Back to Back Office"
+      : posMode
+        ? "Back to Back Office"
+        : undefined;
+
+  const onShellReturn = insightsMode
+    ? handleExitInsightsMode
+    : weddingMode
+      ? handleExitWeddingMode
+      : posMode
+        ? handleExitPosMode
+        : undefined;
+
   const content = (
     <BackofficeSignInGate>
       <div
@@ -1362,11 +1415,7 @@ function AppShell({
             onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
             activeSubSection={activeSubSection}
             onSubSectionChange={setActiveSubSection}
-            onExitPosMode={() => {
-              navigateDashboard();
-              setSidebarCollapsed(false);
-              triggerDashboardRefresh();
-            }}
+            onExitPosMode={handleExitPosMode}
             isRegisterOpen={isRegisterOpen}
             cashierName={cashierName}
             cashierCode={cashierCode}
@@ -1398,12 +1447,7 @@ function AppShell({
 
         ) : insightsMode ? (
           <InsightsShell
-            onExitInsightsMode={() => {
-              setInsightsMode(false);
-              setSidebarCollapsed(false);
-              setActiveTab("home");
-              triggerDashboardRefresh();
-            }}
+            onExitInsightsMode={handleExitInsightsMode}
           />
         ) : weddingMode ? (
           <WeddingShell
@@ -1411,18 +1455,7 @@ function AppShell({
             initialPartyId={pendingWmPartyId}
             onInitialPartyConsumed={onClearPendingWmPartyId}
             returnLabel={weddingReturnTarget === "pos" ? "Return to POS" : "Back to Back Office"}
-            onExitWeddingMode={() => {
-              setWeddingMode(false);
-              setSidebarCollapsed(false);
-              if (weddingReturnTarget === "pos") {
-                setPosMode(true);
-                setActiveTab(isRegisterOpen ? "register" : "pos-dashboard");
-              } else {
-                setActiveTab("home");
-                triggerDashboardRefresh();
-              }
-              setWeddingReturnTarget("backoffice");
-            }}
+            onExitWeddingMode={handleExitWeddingMode}
           />
         ) : (
           <div className="flex min-h-0 min-w-0 flex-1">
@@ -1609,6 +1642,8 @@ function AppShell({
         }}
         searchVariant={posMode ? "pos" : "backoffice"}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+        shellReturnLabel={shellReturnLabel}
+        onShellReturn={onShellReturn}
         isRegisterOpen={isRegisterOpen}
         onOpenHelp={() => {
           setHelpDrawerMode("browse");

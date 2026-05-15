@@ -29,7 +29,7 @@ import type { Customer } from "../pos/CustomerSelector";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import type { SidebarTabId } from "./sidebarSections";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { ArrowLeft, LogOut, ShieldCheck, ShieldAlert } from "lucide-react";
+import { ArrowLeft, ShieldCheck, ShieldAlert } from "lucide-react";
 import { getAppIcon, APP_ICON_SIZES } from "../../lib/icons";
 
 const REGISTER_ICON = getAppIcon("register");
@@ -259,14 +259,6 @@ export default function PosShell({
             <REGISTER_ICON size={APP_ICON_SIZES.badge} className="text-app-accent" /> Register #{registerLane}
           </div>
         )}
-
-        <button
-          type="button"
-          onClick={onExitPosMode}
-          className="h-10 px-6 rounded-xl bg-app-accent border-b-4 border-black/20 text-[10px] font-black uppercase tracking-widest text-white shadow-lg hover:brightness-110 active:translate-y-0.5 active:border-b-0 transition-all flex items-center gap-2 italic"
-        >
-          <LogOut size={16} strokeWidth={3} /> Exit POS
-        </button>
       </div>
     );
     return () => setSlotContent(null);
@@ -279,7 +271,6 @@ export default function PosShell({
     hasPermission,
     registerLane,
     setShowCloseModal,
-    onExitPosMode,
     setSlotContent,
   ]);
 
