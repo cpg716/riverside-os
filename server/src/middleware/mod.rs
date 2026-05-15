@@ -36,6 +36,15 @@ fn staff_headers(
     Ok((code, pin))
 }
 
+fn has_staff_code(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-riverside-staff-code")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some()
+}
+
 /// Active staff (POS PIN rules). Does not check permissions.
 pub async fn require_authenticated_staff_headers(
     state: &AppState,
@@ -105,6 +114,15 @@ pub async fn require_staff_or_pos_register_session(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<StaffOrPosSession, (StatusCode, axum::Json<serde_json::Value>)> {
+    let staff_attempt = if has_staff_code(headers) {
+        match require_authenticated_staff_headers(state, headers).await {
+            Ok(staff) => return Ok(StaffOrPosSession::Staff(staff)),
+            Err(err) => Some(err),
+        }
+    } else {
+        None
+    };
+
     if let Some((sid, tok)) = pos_session::pos_session_headers(headers) {
         match pos_session::verify_pos_session_token(&state.db, sid, &tok).await {
             Ok(true) => return Ok(StaffOrPosSession::PosSession { session_id: sid }),
@@ -124,6 +142,10 @@ pub async fn require_staff_or_pos_register_session(
         }
     }
 
+    if let Some(err) = staff_attempt {
+        return Err(err);
+    }
+
     let staff = require_authenticated_staff_headers(state, headers).await?;
     Ok(StaffOrPosSession::Staff(staff))
 }
@@ -136,6 +158,15 @@ pub async fn require_pos_session_secret_or_permission(
     session_id: Uuid,
     permission: &str,
 ) -> Result<(), (StatusCode, axum::Json<serde_json::Value>)> {
+    let permission_attempt = if has_staff_code(headers) {
+        match require_staff_with_permission(state, headers, permission).await {
+            Ok(_) => return Ok(()),
+            Err(err) => Some(err),
+        }
+    } else {
+        None
+    };
+
     if let Some((sid, tok)) = pos_session::pos_session_headers(headers) {
         if sid == session_id {
             match pos_session::verify_pos_session_token(&state.db, sid, &tok).await {
@@ -156,6 +187,9 @@ pub async fn require_pos_session_secret_or_permission(
             }
         }
     }
+    if let Some(err) = permission_attempt {
+        return Err(err);
+    }
     require_staff_with_permission(state, headers, permission)
         .await
         .map(|_| ())
@@ -168,6 +202,15 @@ pub async fn require_staff_perm_or_pos_session(
     headers: &HeaderMap,
     permission: &str,
 ) -> Result<StaffOrPosSession, (StatusCode, axum::Json<serde_json::Value>)> {
+    let permission_attempt = if has_staff_code(headers) {
+        match require_staff_with_permission(state, headers, permission).await {
+            Ok(staff) => return Ok(StaffOrPosSession::Staff(staff)),
+            Err(err) => Some(err),
+        }
+    } else {
+        None
+    };
+
     if let Some((sid, tok)) = pos_session::pos_session_headers(headers) {
         match pos_session::verify_pos_session_token(&state.db, sid, &tok).await {
             Ok(true) => return Ok(StaffOrPosSession::PosSession { session_id: sid }),
@@ -185,6 +228,9 @@ pub async fn require_staff_perm_or_pos_session(
                 ));
             }
         }
+    }
+    if let Some(err) = permission_attempt {
+        return Err(err);
     }
     let staff = require_staff_with_permission(state, headers, permission).await?;
     Ok(StaffOrPosSession::Staff(staff))
