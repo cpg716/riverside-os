@@ -62,9 +62,7 @@ export default function AlterationSchedulingDrawer({
   };
 
   const handleSlotSelected = async (date: string) => {
-    // 1. Update fitting_at
-    // 2. Create appointment (implicitly via backend or explicitly here)
-    // For now, let's just update fitting_at.
+    // Alterations are scheduled by work day and unit capacity, not appointment time.
     await updateAlteration({ fitting_at: `${date}T10:00:00Z` });
     setActiveTab("schedule");
   };
@@ -100,7 +98,7 @@ export default function AlterationSchedulingDrawer({
               <Scissors className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-lg font-black text-app-text tracking-tight">Plan & Schedule</h2>
+              <h2 className="text-lg font-black text-app-text tracking-tight">Plan Work Day</h2>
               <p className="text-xs text-app-text-muted font-bold uppercase tracking-widest mt-0.5 flex items-center gap-1.5">
                 <User className="w-3 h-3" />
                 {customerName}
@@ -143,7 +141,7 @@ export default function AlterationSchedulingDrawer({
               activeTab === "schedule" ? "bg-app-surface text-app-text shadow-sm border border-app-border" : "text-app-text-muted hover:text-app-text hover:bg-app-surface"
             }`}
           >
-            2. Schedule Slot
+            2. Schedule Day
           </button>
         </div>
 
@@ -201,7 +199,7 @@ export default function AlterationSchedulingDrawer({
             <div className="flex items-center gap-3">
               <div className={`w-2 h-2 rounded-full ${localAlt.fitting_at ? "bg-emerald-500 animate-pulse" : "bg-app-text-muted/20"}`} />
               <p className="text-[10px] text-app-text-muted uppercase font-bold tracking-widest">
-                {localAlt.fitting_at ? "Fitting Scheduled" : "Waiting for Slot"}
+                {localAlt.fitting_at ? "Work Day Scheduled" : "Waiting for Work Day"}
               </p>
             </div>
             {localAlt.fitting_at && (

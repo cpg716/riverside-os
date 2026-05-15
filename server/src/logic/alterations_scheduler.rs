@@ -4,6 +4,7 @@
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use serde::Serialize;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::logic::staff_schedule;
@@ -20,6 +21,8 @@ pub struct CapacitySummary {
     pub jacket_units_available: i32,
     pub pant_units_available: i32,
     pub is_manual_only: bool,
+    pub is_closed: bool,
+    pub closed_label: Option<String>,
     pub has_staff: bool,
 }
 
@@ -54,13 +57,31 @@ pub async fn get_capacity_for_range(
     .fetch_all(pool)
     .await?;
 
-    let used_map: std::collections::HashMap<NaiveDate, (i32, i32)> = used_units
+    let used_map: HashMap<NaiveDate, (i32, i32)> = used_units
         .into_iter()
         .map(|(d, j, p)| (d, (j, p)))
         .collect();
 
+    let closed_days: Vec<(NaiveDate, String)> = sqlx::query_as(
+        r#"
+        SELECT event_date, label
+        FROM staff_schedule_events
+        WHERE event_date >= $1
+          AND event_date <= $2
+          AND kind = 'holiday'
+          AND is_all_staff = TRUE
+        "#,
+    )
+    .bind(start_date)
+    .bind(end_date)
+    .fetch_all(pool)
+    .await?;
+    let closed_map: HashMap<NaiveDate, String> = closed_days.into_iter().collect();
+
     while curr <= end_date {
         let (used_j, used_p) = used_map.get(&curr).cloned().unwrap_or((0, 0));
+        let closed_label = closed_map.get(&curr).cloned();
+        let is_closed = closed_label.is_some();
 
         // 2. Check staff availability
         let working_staff = staff_schedule::list_working_floor_staff_for_date(pool, curr).await?;
@@ -71,7 +92,7 @@ pub async fn get_capacity_for_range(
         let is_thursday = curr.weekday() == chrono::Weekday::Thu;
 
         // If no staff, capacity is 0
-        let (max_j, max_p) = if has_alterations_staff {
+        let (max_j, max_p) = if has_alterations_staff && !is_closed {
             (MAX_JACKET_UNITS_PER_DAY, MAX_PANT_UNITS_PER_DAY)
         } else {
             (0, 0)
@@ -84,6 +105,8 @@ pub async fn get_capacity_for_range(
             jacket_units_available: (max_j - used_j).max(0),
             pant_units_available: (max_p - used_p).max(0),
             is_manual_only: is_thursday,
+            is_closed,
+            closed_label,
             has_staff: has_alterations_staff,
         });
 
@@ -120,6 +143,9 @@ pub async fn find_suggested_slots(
     let mut suggestions = Vec::new();
     for cap in capacity {
         if cap.is_manual_only {
+            continue;
+        }
+        if cap.is_closed {
             continue;
         }
         if !cap.has_staff {

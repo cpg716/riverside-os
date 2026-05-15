@@ -57,6 +57,8 @@ type CapacityDay = {
   jacket_units_available: number;
   pant_units_available: number;
   is_manual_only: boolean;
+  is_closed: boolean;
+  closed_label: string | null;
   has_staff: boolean;
 };
 
@@ -64,6 +66,7 @@ type CapacityOutlook = {
   requested: string;
   nextSafeDay: string | null;
   overloadedDays: number;
+  closedDays: number;
   noStaffDays: number;
   hasManualOnlyDay: boolean;
   selectedUtilization: string | null;
@@ -112,10 +115,10 @@ export default function AlterationSmartScheduler({
         const data = await res.json();
         setSlots(data);
       } else {
-        setError("No valid slots found for this capacity and due date.");
+        setError("No valid work days found for this capacity and due date.");
       }
     } catch {
-      setError("Failed to calculate capacity slots.");
+      setError("Failed to calculate capacity days.");
     } finally {
       setLoading(false);
     }
@@ -170,6 +173,7 @@ export default function AlterationSmartScheduler({
     const nextSafe = capacity.find(
       (day) =>
         day.has_staff &&
+        !day.is_closed &&
         !day.is_manual_only &&
         day.jacket_units_available >= jacketUnits &&
         day.pant_units_available >= pantUnits,
@@ -177,10 +181,12 @@ export default function AlterationSmartScheduler({
     const overloadedDays = capacity.filter(
       (day) =>
         day.has_staff &&
+        !day.is_closed &&
         !day.is_manual_only &&
         (day.jacket_units_available < jacketUnits ||
           day.pant_units_available < pantUnits),
     ).length;
+    const closedDays = capacity.filter((day) => day.is_closed).length;
     const noStaffDays = capacity.filter((day) => !day.has_staff).length;
     const selectedDay = currentFittingAt
       ? capacity.find((day) => day.date === toDateKey(currentFittingAt))
@@ -200,6 +206,7 @@ export default function AlterationSmartScheduler({
       )}.`,
       nextSafeDay: nextSafe ? `Next safe day: ${formatCapacityDate(nextSafe.date)}.` : null,
       overloadedDays,
+      closedDays,
       noStaffDays,
       hasManualOnlyDay: capacity.some((day) => day.is_manual_only),
       selectedUtilization,
@@ -214,7 +221,7 @@ export default function AlterationSmartScheduler({
     return (
       <div className="p-6 text-center border border-dashed border-white/10 rounded-xl bg-white/5">
         <Calendar className="w-8 h-8 text-white/20 mx-auto mb-2" />
-        <p className="text-sm text-white/40">Set a Due Date first to find scheduling slots</p>
+        <p className="text-sm text-white/40">Set a Due Date first to find work days</p>
       </div>
     );
   }
@@ -254,6 +261,12 @@ export default function AlterationSmartScheduler({
                   {capacityOutlook.overloadedDays} day
                   {capacityOutlook.overloadedDays === 1 ? " is" : "s are"} over capacity in this
                   window.
+                </li>
+              ) : null}
+              {capacityOutlook.closedDays > 0 ? (
+                <li>
+                  {capacityOutlook.closedDays} day
+                  {capacityOutlook.closedDays === 1 ? " is" : "s are"} marked closed.
                 </li>
               ) : null}
               {capacityOutlook.noStaffDays > 0 ? (
@@ -306,6 +319,15 @@ export default function AlterationSmartScheduler({
                         severity: "warning",
                       }]
                     : []),
+                  ...(capacityOutlook.closedDays > 0
+                    ? [{
+                        id: "capacity-closed-days",
+                        label: `${capacityOutlook.closedDays} day${
+                          capacityOutlook.closedDays === 1 ? " is" : "s are"
+                        } marked closed.`,
+                        severity: "warning",
+                      }]
+                    : []),
                   ...(capacityOutlook.hasManualOnlyDay
                     ? [{
                         id: "capacity-manual-only-day",
@@ -337,7 +359,7 @@ export default function AlterationSmartScheduler({
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white/90 flex items-center gap-2">
           <Clock className="w-4 h-4 text-purple-400" />
-          Smart Slot Suggestions
+          Smart Work Day Suggestions
         </h3>
         {slots.length > 0 && (
           <span className="text-[10px] text-white/40 uppercase font-bold">
@@ -356,7 +378,7 @@ export default function AlterationSmartScheduler({
           <AlertTriangle className="w-6 h-6 text-yellow-500/50 mx-auto mb-2" />
           <p className="text-sm text-white/40 font-medium">Over Capacity</p>
           <p className="text-[11px] text-white/30 max-w-[200px] mx-auto mt-1">
-            No days have enough open units before the due date. Manual override required.
+            No days have enough open units before the due date. Manual review required.
           </p>
         </div>
       ) : (
@@ -393,7 +415,7 @@ export default function AlterationSmartScheduler({
                         </span>
                       )}
                       <span className="text-[10px] text-white/40 font-medium">
-                        Suggested Finish Slot
+                        Suggested Work Day
                       </span>
                     </div>
                   </div>
@@ -413,7 +435,7 @@ export default function AlterationSmartScheduler({
       <div className="flex items-start gap-2.5 p-3 rounded-lg bg-blue-500/5 border border-blue-500/10">
         <Info className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
         <p className="text-[10px] text-blue-200/50 leading-relaxed">
-          The Smart Scheduler skips Thursdays to preserve capacity for last-minute repairs and ensures all work is completed at least 1 day before the due date.
+          The Smart Scheduler skips closed days and Thursdays to preserve capacity for last-minute repairs and keeps planned work at least 1 day before the due date.
         </p>
       </div>
     </div>

@@ -383,7 +383,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await expect(page.getByText("Pant: 2u")).toBeVisible();
 
         // Next Step: Schedule (using the new tab/button)
-        await page.getByRole("button", { name: "2. Schedule Slot", exact: true }).click();
+        await page.getByRole("button", { name: "2. Schedule Day", exact: true }).click();
 
         // Phase 2: Schedule
         await expect(page.getByRole("heading", { name: "Capacity Outlook" })).toBeVisible();
@@ -392,7 +392,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await expect(page.getByText("1 day is over capacity in this window.")).toBeVisible();
         await expect(page.getByText("1 day has no alterations staff scheduled.")).toBeVisible();
         await expect(page.getByText("Thursdays require manual review.")).toBeVisible();
-        await expect(page.getByText("Smart Slot Suggestions")).toBeVisible();
+        await expect(page.getByText("Smart Work Day Suggestions")).toBeVisible();
         expect(insightRequests).toHaveLength(0);
         await page
             .getByTestId("rosie-insight-summary-capacity_outlook")
@@ -431,7 +431,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await page.getByRole("button", { name: /Friday/i }).first().click();
 
         // Verify card updated
-        await expect(page.getByText("Fitting Scheduled")).toBeVisible();
+        await expect(page.getByText("Work Day Scheduled")).toBeVisible();
         await expect(page.getByText("5/15/2026")).toBeVisible();
         await expect(
             page.getByText("Selected day: 5/28 jacket units, 2/24 pant units booked."),

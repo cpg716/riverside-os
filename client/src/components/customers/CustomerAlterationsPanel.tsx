@@ -10,6 +10,8 @@ import {
   AlertTriangle,
   ClipboardList,
   Search,
+  Printer,
+  Plus,
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import AlterationSchedulingDrawer from "../alterations/scheduler/AlterationSchedulingDrawer";
@@ -50,6 +52,18 @@ type AlterationRow = {
   created_at: string;
 };
 
+type AlterationCapacityDay = {
+  date: string;
+  jacket_units_used: number;
+  pant_units_used: number;
+  jacket_units_available: number;
+  pant_units_available: number;
+  is_manual_only: boolean;
+  is_closed: boolean;
+  closed_label: string | null;
+  has_staff: boolean;
+};
+
 
 const STATUS_FILTERS = ["all", "intake", "in_work", "ready", "picked_up"] as const;
 const SOURCE_FILTERS = [
@@ -68,6 +82,19 @@ const DUE_FILTERS = [
 ] as const;
 
 const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+const dateInputValue = (date: Date) => {
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+};
+const localDateKey = (value: string | null) => value ? dateInputValue(new Date(value)) : null;
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 const isOpenWorkStatus = (status: string) => status !== "ready" && status !== "picked_up";
 const fulfillmentLooksLikeOrder = (snapshot: Record<string, unknown> | null | undefined) => {
   const fulfillment = String(snapshot?.fulfillment ?? "").toLowerCase();
@@ -205,6 +232,8 @@ export default function CustomerAlterationsPanel({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [schedulingAlt, setSchedulingAlt] = useState<AlterationRow | null>(null);
   const [compactQueue, setCompactQueue] = useState(false);
+  const [selectedScheduleDate, setSelectedScheduleDate] = useState(() => dateInputValue(new Date()));
+  const [scheduleDayCapacity, setScheduleDayCapacity] = useState<AlterationCapacityDay | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -236,6 +265,30 @@ export default function CustomerAlterationsPanel({
   }, [load]);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadCapacity = async () => {
+      try {
+        const params = new URLSearchParams({
+          start: selectedScheduleDate,
+          end: selectedScheduleDate,
+        });
+        const res = await fetch(`${baseUrl}/api/alterations/capacity?${params.toString()}`, {
+          headers: apiAuth(),
+        });
+        if (!res.ok) throw new Error("capacity");
+        const data = (await res.json()) as AlterationCapacityDay[];
+        if (!cancelled) setScheduleDayCapacity(data[0] ?? null);
+      } catch {
+        if (!cancelled) setScheduleDayCapacity(null);
+      }
+    };
+    void loadCapacity();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth, selectedScheduleDate]);
+
+  useEffect(() => {
     const id = highlightAlterationId?.trim();
     if (!id || rows.length === 0) return;
     if (!rows.some((r) => r.id === id)) return;
@@ -264,6 +317,97 @@ export default function CustomerAlterationsPanel({
     } finally {
       setBusy(false);
     }
+  };
+
+  const scheduleForSelectedDay = async (id: string) => {
+    if (scheduleDayCapacity?.is_closed) {
+      toast("That day is marked closed. Choose another work date.", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/alterations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({ fitting_at: `${selectedScheduleDate}T10:00:00Z` }),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(b.error ?? "Could not schedule alteration.", "error");
+        return;
+      }
+      toast("Alteration added to the daily schedule.", "success");
+      void load();
+    } catch {
+      toast("Network error", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const printDailySchedule = () => {
+    const capacityLine = scheduleDayCapacity
+      ? `Jacket ${scheduleDayCapacity.jacket_units_used}/${scheduleDayCapacity.jacket_units_used + scheduleDayCapacity.jacket_units_available}u · Pant ${scheduleDayCapacity.pant_units_used}/${scheduleDayCapacity.pant_units_used + scheduleDayCapacity.pant_units_available}u`
+      : "Capacity unavailable";
+    const closedLine = scheduleDayCapacity?.is_closed
+      ? `<p class="closed">Closed: ${escapeHtml(scheduleDayCapacity.closed_label ?? "Holiday")}</p>`
+      : "";
+    const rowsHtml = dailyScheduledRows.length > 0
+      ? dailyScheduledRows.map((row) => `
+          <tr>
+            <td>${escapeHtml(customerName(row))}</td>
+            <td>${escapeHtml(row.item_description ?? "")}</td>
+            <td>${escapeHtml(row.work_requested ?? "")}</td>
+            <td>${escapeHtml(row.status.replace("_", " "))}</td>
+            <td>${row.total_units_jacket}u / ${row.total_units_pant}u</td>
+            <td>${escapeHtml(row.notes ?? "")}</td>
+          </tr>
+        `).join("")
+      : `<tr><td colspan="6">No alterations scheduled for this day.</td></tr>`;
+    const printWindow = window.open("", "_blank", "width=900,height=700");
+    if (!printWindow) {
+      toast("Could not open print window.", "error");
+      return;
+    }
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Daily Alteration Schedule ${escapeHtml(selectedScheduleDate)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #111827; padding: 24px; }
+            h1 { font-size: 22px; margin: 0 0 4px; }
+            p { margin: 0 0 12px; }
+            .meta { color: #4b5563; font-size: 13px; }
+            .closed { color: #991b1b; font-weight: 700; }
+            table { border-collapse: collapse; width: 100%; margin-top: 18px; font-size: 12px; }
+            th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; vertical-align: top; }
+            th { background: #f3f4f6; text-transform: uppercase; font-size: 10px; letter-spacing: .08em; }
+          </style>
+        </head>
+        <body>
+          <h1>Daily Alteration Schedule</h1>
+          <p class="meta">${escapeHtml(selectedScheduleDate)} · ${dailyScheduledRows.length} scheduled · ${escapeHtml(capacityLine)}</p>
+          ${closedLine}
+          <table>
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Garment</th>
+                <th>Work</th>
+                <th>Status</th>
+                <th>Jacket / Pant</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
   };
 
   const getStatusColor = (status: string) => {
@@ -302,6 +446,9 @@ export default function CustomerAlterationsPanel({
     const statusMatches = filter === "all" || row.status === filter;
     return statusMatches && matchesSourceFilter(row) && matchesDueFilter(row) && rowMatchesSearch(row, search);
   });
+
+  const dailyScheduledRows = rows.filter((row) => localDateKey(row.fitting_at) === selectedScheduleDate);
+  const unscheduledOpenRows = rows.filter((row) => row.status !== "picked_up" && !row.fitting_at);
 
   const summaryCards = [
     {
@@ -612,6 +759,109 @@ export default function CustomerAlterationsPanel({
             </span>
           </div>
         </div>
+      </div>
+
+      <div className="px-4 pt-4 sm:px-6">
+        <section className="ui-card border-app-border bg-app-surface px-4 py-4 print:shadow-none">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-app-border/50 pb-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                Daily Alteration Schedule
+              </p>
+              <p className="mt-1 text-sm font-semibold text-app-text">
+                View, print, and assign alteration work by scheduled work date.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                value={selectedScheduleDate}
+                onChange={(event) => {
+                  if (event.target.value) setSelectedScheduleDate(event.target.value);
+                }}
+                className="ui-input h-9 rounded-xl py-1 text-[10px] font-black uppercase tracking-widest"
+                aria-label="Daily alteration schedule date"
+              />
+              <button
+                type="button"
+                onClick={printDailySchedule}
+                className="inline-flex h-9 items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface hover:text-app-text"
+              >
+                <Printer size={14} />
+                Print
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest">
+                <span className="rounded-full border border-app-border bg-app-surface-2 px-3 py-1 text-app-text">
+                  {dailyScheduledRows.length} scheduled
+                </span>
+                {scheduleDayCapacity ? (
+                  <>
+                    <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-blue-700">
+                      Jacket {scheduleDayCapacity.jacket_units_used}/{scheduleDayCapacity.jacket_units_used + scheduleDayCapacity.jacket_units_available}u
+                    </span>
+                    <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-emerald-700">
+                      Pant {scheduleDayCapacity.pant_units_used}/{scheduleDayCapacity.pant_units_used + scheduleDayCapacity.pant_units_available}u
+                    </span>
+                    {scheduleDayCapacity.is_closed ? (
+                      <span className="rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-red-700">
+                        Closed: {scheduleDayCapacity.closed_label ?? "Holiday"}
+                      </span>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+              {dailyScheduledRows.length > 0 ? (
+                <div className="grid gap-2">
+                  {dailyScheduledRows.map(renderAlterationCard)}
+                </div>
+              ) : (
+                <p className="rounded-2xl border border-dashed border-app-border bg-app-surface-2/70 px-4 py-5 text-sm font-semibold text-app-text-muted">
+                  No alterations are scheduled for this day.
+                </p>
+              )}
+            </div>
+
+            <aside className="min-w-0 rounded-2xl border border-app-border bg-app-surface-2 p-3">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Add Open Work
+                </p>
+                <span className="rounded-full border border-app-border bg-app-surface px-2 py-0.5 text-[10px] font-black text-app-text">
+                  {unscheduledOpenRows.length}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {unscheduledOpenRows.slice(0, 6).map((row) => (
+                  <div key={row.id} className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                    <p className="truncate text-xs font-black text-app-text">{customerName(row)}</p>
+                    <p className="mt-0.5 truncate text-[10px] font-semibold text-app-text-muted">
+                      {[row.item_description, row.work_requested].filter(Boolean).join(" · ") || "Garment work"}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={busy || scheduleDayCapacity?.is_closed}
+                      onClick={() => void scheduleForSelectedDay(row.id)}
+                      className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-app-accent/30 bg-app-accent/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Plus size={12} />
+                      Add to Day
+                    </button>
+                  </div>
+                ))}
+                {unscheduledOpenRows.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-app-border bg-app-surface px-3 py-4 text-xs font-semibold text-app-text-muted">
+                    No unscheduled open alterations loaded.
+                  </p>
+                ) : null}
+              </div>
+            </aside>
+          </div>
+        </section>
       </div>
 
       <div className="flex flex-1 flex-col p-3 sm:p-6 lg:min-h-0 lg:p-8 animate-workspace-snap">

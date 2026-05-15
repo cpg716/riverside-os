@@ -708,7 +708,11 @@ async fn patch_alteration(
         return Err(AlterationError::NotFound);
     }
 
-    let will_change = body.status.is_some() || body.due_at.is_some() || body.notes.is_some();
+    let will_change = body.status.is_some()
+        || body.due_at.is_some()
+        || body.fitting_at.is_some()
+        || body.appointment_id.is_some()
+        || body.notes.is_some();
     if !will_change {
         return Err(AlterationError::BadRequest(
             "no fields to update".to_string(),
@@ -789,6 +793,8 @@ async fn patch_alteration(
     let detail = json!({
         "status": normalized_status,
         "due_at": body.due_at.map(|d| d.to_rfc3339()),
+        "fitting_at": body.fitting_at.map(|d| d.to_rfc3339()),
+        "appointment_id": body.appointment_id,
         "notes_set": body.notes.is_some(),
     });
     sqlx::query(

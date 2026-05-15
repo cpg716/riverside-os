@@ -12,7 +12,9 @@
 
 The **Work queue** is the **system of record** for garment-based alteration jobs: intake → in progress → ready → picked up. POS **Alterations** uses the same queue as Back Office.
 
-This area tracks tailoring work orders attached to garments. The workbench starts with cards for **Overdue**, **Due Today**, **Ready for Pickup**, and **Total Open**, then groups attention by **Overdue**, **Due Today**, **Ready for Pickup**, **Intake / Not Started**, and **In Work** so staff can work the garment, not hunt by order. Alteration intake starts from the Register, where staff select the customer and source garment before checkout creates the work order. The queue still does **not** create Register charge lines, collect alteration payment, or print alteration tickets/barcodes.
+This area tracks tailoring work orders attached to garments. The workbench starts with cards for **Overdue**, **Due Today**, **Ready for Pickup**, and **Total Open**, then groups attention by **Overdue**, **Due Today**, **Ready for Pickup**, **Intake / Not Started**, and **In Work** so staff can work the garment, not hunt by order. Alteration intake starts from the Register, where staff select the customer and source garment before checkout creates the work order. Register alteration intake can add free or charged alteration service lines; this queue still does **not** print alteration tickets/barcodes.
+
+The **Daily Alteration Schedule** shows all alteration work assigned to a selected work date. Use it to review the day online, print the day list, or add unscheduled open alteration work to that day. Alterations are scheduled by **daily unit capacity**, not appointment times.
 
 ## Work queue
 
@@ -40,11 +42,18 @@ Order numbers appear only as source context when the garment came from a transac
 2. **In progress** when work starts; **Ready** when pressed/hung; **Picked up** when customer signs.
 3. **Save** after each transition; some transitions may **notify** the customer — follow messaging policy.
 
+### Plan a work day
+
+1. Use **Daily Alteration Schedule** to pick the work date.
+2. Review jacket/pant unit totals before adding more work.
+3. Use **Add to Day** for unscheduled open work, or **Plan / Reassign** on a card to define work items and choose a suggested work day.
+4. Days marked **Holiday (Closed)** in Staff Schedule are not suggested for alteration work.
+
 ### Rush or fee changes
 
 1. Use this queue to record whether an alteration is free/included or has an optional charge note.
 2. Handle actual **price**, **rush fee**, or payment collection through the approved Register/payment workflow outside this queue.
-3. Register toolbar intake can link free current-cart alterations at checkout; checkout-linked alteration charges are not built yet.
+3. Register toolbar intake can link free or charged alteration service lines at checkout.
 
 ## POS coordination
 
