@@ -187,6 +187,8 @@ Helcim can send signed terminal webhooks to ROS when the store has a public HTTP
 
 Admins configure the public delivery URL and signing secret in **Settings → Helcim**. Helcim should send only the terminal events ROS handles: `cardTransaction` and `terminalCancel`.
 
+For production, the public delivery URL must be reachable from the internet. If the store uses Cloudflare Tunnel, the tunnel service must be running on the host that can reach the ROS API. If Cloudflare shows a tunnel error such as `1033`, terminal approval/cancel webhooks cannot reach ROS even though ROS and the register may be open locally.
+
 Keep these two states separate during review:
 
 - **Webhook received by ROS** means a signed Helcim delivery reached ROS and was stored.

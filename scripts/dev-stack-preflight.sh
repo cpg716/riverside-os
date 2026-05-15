@@ -3,6 +3,8 @@ set -euo pipefail
 
 PORTS=(3000 3002 5173)
 SERVER_ENV="$(cd "$(dirname "$0")/.." && pwd)/server/.env"
+HELCIM_TUNNEL_AGENT="$HOME/Library/LaunchAgents/com.cloudflare.riverside-helcim.plist"
+HELCIM_TUNNEL_LABEL="com.cloudflare.riverside-helcim"
 
 reclaim_port() {
   local port="$1"
@@ -92,8 +94,36 @@ try {
   exit 1
 }
 
+ensure_helcim_tunnel() {
+  if [[ ! -f "$HELCIM_TUNNEL_AGENT" ]]; then
+    return 0
+  fi
+
+  if ! command -v cloudflared >/dev/null 2>&1; then
+    echo "[dev-preflight] Helcim Cloudflare tunnel agent exists, but cloudflared is not installed." >&2
+    echo "[dev-preflight] Live terminal webhooks will not reach ROS until cloudflared is available." >&2
+    return 0
+  fi
+
+  local domain="gui/$(id -u)"
+  if ! launchctl print "${domain}/${HELCIM_TUNNEL_LABEL}" >/dev/null 2>&1; then
+    if ! launchctl bootstrap "$domain" "$HELCIM_TUNNEL_AGENT" >/dev/null 2>&1; then
+      echo "[dev-preflight] Could not load Helcim Cloudflare tunnel agent." >&2
+      echo "[dev-preflight] Live terminal webhooks may not reach ROS until the tunnel is started." >&2
+      return 0
+    fi
+    launchctl enable "${domain}/${HELCIM_TUNNEL_LABEL}" >/dev/null 2>&1 || true
+  fi
+
+  launchctl kickstart -k "${domain}/${HELCIM_TUNNEL_LABEL}" >/dev/null 2>&1 || {
+    echo "[dev-preflight] Could not start Helcim Cloudflare tunnel agent." >&2
+    echo "[dev-preflight] Live terminal webhooks may not reach ROS until the tunnel is started." >&2
+  }
+}
+
 for port in "${PORTS[@]}"; do
   reclaim_port "$port"
 done
 
+ensure_helcim_tunnel
 check_database_ready

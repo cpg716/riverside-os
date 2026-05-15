@@ -34,6 +34,17 @@ interface PaymentProviderSettings {
   helcim: HelcimProviderStatus;
 }
 
+interface HelcimEventsHealth {
+  recent_event_count: number;
+  failed_event_count: number;
+  unmatched_event_count: number;
+  last_event_at: string | null;
+  webhook_delivery_status: string;
+  webhook_delivery_label: string;
+  webhook_delivery_detail: string;
+  webhook_delivery_action: string;
+}
+
 const HelcimSettingsPanel: React.FC = () => {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
@@ -49,6 +60,7 @@ const HelcimSettingsPanel: React.FC = () => {
   const [helcimError, setHelcimError] = useState<string | null>(null);
   const [providerSettings, setProviderSettings] =
     useState<PaymentProviderSettings | null>(null);
+  const [eventsHealth, setEventsHealth] = useState<HelcimEventsHealth | null>(null);
   const [providerSaving, setProviderSaving] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [simulatorEnabled, setSimulatorEnabled] = useState(false);
@@ -66,9 +78,18 @@ const HelcimSettingsPanel: React.FC = () => {
       const settings = (await res.json()) as PaymentProviderSettings;
       setProviderSettings(settings);
       setHelcimStatus(settings.helcim);
+      const healthRes = await fetch(`${baseUrl}/api/payments/providers/helcim/events/health`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (healthRes.ok) {
+        setEventsHealth((await healthRes.json()) as HelcimEventsHealth);
+      } else {
+        setEventsHealth(null);
+      }
     } catch (error) {
       setProviderSettings(null);
       setHelcimStatus(null);
+      setEventsHealth(null);
       setHelcimError(
         error instanceof Error
           ? error.message
@@ -463,6 +484,42 @@ const HelcimSettingsPanel: React.FC = () => {
               </div>
             </div>
             <div className="mt-3 rounded-xl border border-app-border bg-app-surface-2 p-4 text-xs font-semibold leading-5 text-app-text-muted">
+              {eventsHealth ? (
+                <div
+                  className={`mb-4 rounded-xl border p-4 ${
+                    eventsHealth.webhook_delivery_status === "receiving"
+                      ? "border-emerald-500/30 bg-emerald-500/10"
+                      : eventsHealth.webhook_delivery_status === "not_required"
+                        ? "border-app-border bg-app-surface"
+                        : "border-rose-500/30 bg-rose-500/10"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    {eventsHealth.webhook_delivery_status === "receiving" ? (
+                      <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-app-success" />
+                    ) : (
+                      <AlertTriangle size={16} className="mt-0.5 shrink-0 text-app-danger" />
+                    )}
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest text-app-text">
+                        {eventsHealth.webhook_delivery_label}
+                      </p>
+                      <p className="mt-2 text-xs font-semibold leading-5 text-app-text-muted">
+                        {eventsHealth.webhook_delivery_detail}
+                      </p>
+                      <p className="mt-2 text-xs font-black leading-5 text-app-text">
+                        Action: {eventsHealth.webhook_delivery_action}
+                      </p>
+                      <p className="mt-2 text-[11px] font-bold text-app-text-muted">
+                        Recent deliveries: {eventsHealth.recent_event_count} · Last delivery:{" "}
+                        {eventsHealth.last_event_at
+                          ? new Date(eventsHealth.last_event_at).toLocaleString()
+                          : "Never"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               <p>
                 <span className="font-black text-app-text">
                   Webhook received by ROS

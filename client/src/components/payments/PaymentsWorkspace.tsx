@@ -169,6 +169,10 @@ type EventsHealth = {
   last_event_at: string | null;
   last_failed_message: string | null;
   last_failed_event_id: string | null;
+  webhook_delivery_status: string;
+  webhook_delivery_label: string;
+  webhook_delivery_detail: string;
+  webhook_delivery_action: string;
   terminal_review_attempts: HelcimTerminalReviewAttempt[];
   terminal_review_events: HelcimTerminalReviewEvent[];
 };
@@ -1970,6 +1974,18 @@ function HealthPanel({
             >
               Replay Last Update
             </button>
+          </div>
+        ) : null}
+        {health && health.webhook_delivery_status !== "receiving" && health.webhook_delivery_status !== "not_required" ? (
+          <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm font-semibold text-app-text-muted">
+            <div className="font-black text-app-text">{health.webhook_delivery_label}</div>
+            <div className="mt-1">{health.webhook_delivery_detail}</div>
+            <div className="mt-2 font-black text-app-text">Action: {health.webhook_delivery_action}</div>
+          </div>
+        ) : health?.webhook_delivery_status === "receiving" ? (
+          <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm font-semibold text-app-text-muted">
+            <div className="font-black text-app-text">{health.webhook_delivery_label}</div>
+            <div className="mt-1">{health.webhook_delivery_detail}</div>
           </div>
         ) : null}
       </div>

@@ -119,6 +119,25 @@ Use this checklist for the Windows PC that owns the store database and API:
 9. Open the app from the server PC browser and confirm staff sign-in, **Settings → General → About this build**, **Settings → Updates**, and **Settings → Remote Access**.
 10. If this PC is also the **Shop Host**, start **Shop Host** from **Settings → Remote Access** and smoke-test a second device on the same network before opening.
 
+#### 3.1.2 Public webhooks and Cloudflare Tunnel
+
+Helcim terminal approvals and terminal cancels are most reliable when Helcim can deliver signed webhooks to the ROS API. The production delivery URL for the Riverside store is:
+
+```text
+https://ros.riversidemens.com/api/webhooks/helcim
+```
+
+If that hostname is backed by Cloudflare Tunnel, production must run `cloudflared` as a supervised host service on the machine that can reach the ROS API on port `3000`. Starting the Riverside app alone is not sufficient unless the deployment package also starts or supervises that tunnel service.
+
+Production checklist:
+
+1. Cloudflare public hostname routes `/api/webhooks/helcim` to `http://127.0.0.1:3000` or the production API origin.
+2. The `cloudflared` service or scheduled task is configured with restart-on-failure behavior.
+3. `HELCIM_WEBHOOK_SECRET` or the encrypted Settings -> Helcim webhook secret matches the Helcim webhook verifier/signing token.
+4. Helcim webhooks are enabled for `cardTransaction` and `terminalCancel`.
+5. A public unsigned probe reaches ROS and fails closed with `400`; Cloudflare `1033`, `403`, or challenge HTML means Helcim cannot reach ROS.
+6. A real terminal approval and terminal cancel both appear in Payments -> Health under Payment Updates.
+
 #### 3.1.2 Minimum server acceptance checks
 
 - [ ] `DATABASE_URL` points at the intended production database, not dev/staging.

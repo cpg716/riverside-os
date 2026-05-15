@@ -875,6 +875,10 @@ pub struct HelcimEventsHealthResponse {
     pub last_event_at: Option<DateTime<Utc>>,
     pub last_failed_message: Option<String>,
     pub last_failed_event_id: Option<Uuid>,
+    pub webhook_delivery_status: String,
+    pub webhook_delivery_label: String,
+    pub webhook_delivery_detail: String,
+    pub webhook_delivery_action: String,
     pub terminal_review_attempts: Vec<HelcimTerminalReviewAttemptRow>,
     pub terminal_review_events: Vec<HelcimTerminalReviewEventRow>,
 }
@@ -3314,6 +3318,57 @@ async fn get_helcim_events_health(
         .collect::<Vec<_>>();
     let mut recovery_actions =
         load_helcim_terminal_recovery_actions(&state.db, &attempt_ids, &event_ids).await?;
+    let helcim_status = helcim::HelcimConfig::from_env().status();
+    let live_terminal_webhooks_expected =
+        helcim_status.live_terminal_payments_ready && !helcim_status.simulator_enabled;
+    let (
+        webhook_delivery_status,
+        webhook_delivery_label,
+        webhook_delivery_detail,
+        webhook_delivery_action,
+    ) = if !live_terminal_webhooks_expected {
+        (
+            "not_required",
+            "Webhook delivery not required",
+            "Live Helcim terminal payments are not fully enabled, so webhook delivery is not required for this environment.",
+            "Finish Helcim terminal setup before treating webhook delivery as a launch gate.",
+        )
+    } else if !helcim_status.webhook_secret_configured {
+        (
+            "not_configured",
+            "Webhook signing secret missing",
+            "Live terminal payments are enabled, but ROS cannot verify Helcim webhook deliveries until the signing secret is saved.",
+            "Copy the verifier token from Helcim Webhooks into Settings -> Helcim Credentials.",
+        )
+    } else if row.last_event_at.is_none() {
+        (
+            "not_receiving",
+            "No Helcim webhook deliveries received",
+            "ROS has a webhook signing secret, but this server has not recorded any Helcim cardTransaction or terminalCancel delivery.",
+            "In Helcim, set the public HTTPS delivery URL to /api/webhooks/helcim and enable cardTransaction plus terminalCancel.",
+        )
+    } else if row.failed_event_count > 0 {
+        (
+            "failed",
+            "Helcim webhook delivery needs review",
+            "ROS has received Helcim webhook deliveries, but at least one delivery failed processing.",
+            "Open Payments Health, review the failed update, then replay only after the setup or data issue is corrected.",
+        )
+    } else if row.unmatched_event_count > 0 {
+        (
+            "unmatched",
+            "Helcim webhook received but not attached",
+            "ROS received signed Helcim events that could not be safely matched to a checkout attempt.",
+            "Review Helcim Terminal Review before retrying or assuming the checkout is settled.",
+        )
+    } else {
+        (
+            "receiving",
+            "Helcim webhook delivery active",
+            "ROS has received signed Helcim webhook deliveries and has no failed or unmatched provider updates requiring review.",
+            "No action needed.",
+        )
+    };
 
     let terminal_review_attempts = attempt_rows
         .into_iter()
@@ -3413,6 +3468,10 @@ async fn get_helcim_events_health(
         last_event_at: row.last_event_at,
         last_failed_message: row.last_failed_message,
         last_failed_event_id: row.last_failed_event_id,
+        webhook_delivery_status: webhook_delivery_status.to_string(),
+        webhook_delivery_label: webhook_delivery_label.to_string(),
+        webhook_delivery_detail: webhook_delivery_detail.to_string(),
+        webhook_delivery_action: webhook_delivery_action.to_string(),
         terminal_review_attempts,
         terminal_review_events,
     }))

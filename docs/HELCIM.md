@@ -58,6 +58,7 @@ POS and payment attempts:
 - `POST /providers/helcim/card/refund`
 - `POST /providers/helcim/card/reverse`
 - `GET /providers/helcim/attempts/{id}`
+- `GET /providers/helcim/attempts/{id}/stream`
 - `POST /providers/helcim/attempts/{id}/simulate` for local/e2e simulation only.
 
 HelcimPay.js provider boundary:
@@ -125,8 +126,11 @@ Webhook intake:
 ## Webhook behavior
 
 - Inbound Helcim webhooks require signature verification and timestamp freshness before processing.
+- Production Helcim terminal webhooks require a public HTTPS route to the ROS API. At Riverside, the intended store route is `https://ros.riversidemens.com/api/webhooks/helcim`.
+- If that public host is backed by Cloudflare Tunnel, `cloudflared` must run as a supervised OS service on the host that can reach ROS on port `3000`. Starting the ROS UI/API alone is not enough unless the deployment also starts or supervises the tunnel.
+- The local development preflight can kickstart the macOS `com.cloudflare.riverside-helcim` LaunchAgent when it exists. Production must use the equivalent host service or scheduled task for the deployment machine.
 - Local terminal readiness does not require a public webhook URL. The Helcim webhook signing secret is optional only when Helcim cannot reach this ROS server. If a public webhook endpoint is configured, the signing secret is required and unsigned deliveries fail closed.
-- Local POS terminals can check the status of a known terminal attempt when webhook delivery is not available. That status check is a recovery aid, not a general replay system, settlement check, or proof that ROS recorded the payment.
+- Local POS terminals subscribe to the ROS attempt stream for the current card attempt. ROS updates that stream from stored webhooks when Helcim deliveries arrive and can also refresh a known terminal attempt as a recovery aid. Manual status refresh is not a substitute for a working production webhook path.
 - Accepted events are stored in `helcim_event_log` before mutation.
 - Stored payloads are redacted for card-sensitive fields.
 - Duplicate events do not re-enter processing once already processed or ignored.
@@ -142,9 +146,12 @@ Configure Helcim webhooks only when ROS has a public HTTPS API URL that Helcim c
 3. Set the delivery URL to `https://<public-ros-api-host>/api/webhooks/helcim`.
 4. Enable the Helcim events ROS handles: `cardTransaction` and `terminalCancel`.
 5. Copy the Helcim webhook verifier/signing token into Settings -> Helcim -> Optional webhook signing secret.
-6. Send a test or live terminal event and verify it in Payments -> Health under Payment Updates and Helcim Terminal Review.
+6. Confirm the public route reaches ROS. An unsigned test POST should reach ROS and fail closed with `400`; Cloudflare `1033`, `403`, or HTML challenge responses mean Helcim cannot deliver to ROS.
+7. Send a test or live terminal event and verify it in Payments -> Health under Payment Updates and Helcim Terminal Review.
 
 Do not use `localhost`, `127.0.0.1`, a register workstation URL, or any non-HTTPS URL as the Helcim delivery URL.
+
+If Cloudflare returns `1033`, the tunnel is not connected to Cloudflare and Helcim webhooks cannot reach ROS. Start or repair the supervised `cloudflared` service before testing terminal cancel/approval behavior.
 
 Operational wording matters:
 
