@@ -153,7 +153,8 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 
 - Stored in: `transactions.shipping_amount_usd`
 - Included in transaction total at recalculation
-- **Gap**: Not yet explicitly mapped in QBO journal (needs `income_shipping` mapping in `qbo_mappings`)
+- QBO daily journals recognize customer-charged shipping on the same completed/fulfilled business date as the transaction.
+- Map **Shipping income** in **Settings → QuickBooks Online → QBO account mapping** (`income_shipping` / `default`). `REVENUE_SHIPPING` is the global fallback.
 
 ---
 
@@ -197,7 +198,6 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 
 | Gap | Description | Priority |
 |----|-------------|----------|
-| **QBO Shipping mapping** | Shipping fees not explicitly mapped in QBO journal (`income_shipping` missing in `qbo_mappings`) | Medium |
 | **Push to POS** | No "Push to POS" button in Transactions workspace to send transaction to register | Medium |
 | **Auto-charge at pickup** | Saved card not automatically charged for balance + shipping at pickup/release | Medium |
 | **Shippo label integration** | No Shippo integration for generating shipping labels from ROS | Low |

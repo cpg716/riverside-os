@@ -158,6 +158,7 @@ pub async fn propose_daily_journal(
         format!("Journal uses recognized fulfillment activity on store-local business date {activity_date} ({business_timezone}); shipped orders recognize at label purchase / in-transit / delivered events. Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync."),
         "Gift card: purchased-card sales credit `liability_gift_card` / default, purchased-card redemptions debit that liability, and loyalty/donated redemptions debit `expense_loyalty` / default when checkout stores canonical gift card metadata. Unmapped cases fall back to tender mapping.".to_string(),
         "Store credit and open deposit redemptions post as liability relief when mapped; they are not cash/card tender revenue.".to_string(),
+        "Customer-charged shipping posts as fulfillment-day shipping income when `income_shipping` / default or `REVENUE_SHIPPING` is mapped.".to_string(),
         "Revenue/COGS/tax for recognized transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate recognition-day nets.".to_string(),
     ];
 
@@ -363,6 +364,65 @@ pub async fn propose_daily_journal(
                 "Purchased gift card loads were excluded from merchandise revenue but no `liability_gift_card` / default mapping exists for the liability credit."
                     .to_string(),
             );
+        }
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct ShippingIncomeAgg {
+        total: Option<Decimal>,
+        transaction_count: i64,
+    }
+
+    let shipping_income: ShippingIncomeAgg = sqlx::query_as(&format!(
+        r#"
+        SELECT
+            COALESCE(SUM(recognized_shipping.shipping_amount_usd), 0)::numeric(14, 2) AS total,
+            COUNT(*)::bigint AS transaction_count
+        FROM (
+            SELECT DISTINCT
+                o.id,
+                COALESCE(o.shipping_amount_usd, 0)::numeric(14, 2) AS shipping_amount_usd
+            FROM transactions o
+            WHERE o.is_forfeited = false
+              AND o.status::text <> 'cancelled'
+              AND COALESCE(o.shipping_amount_usd, 0) <> 0
+              AND ({order_recognition_ts}) IS NOT NULL
+              AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+        ) recognized_shipping
+        "#
+    ))
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
+    let shipping_income_total = shipping_income.total.unwrap_or(Decimal::ZERO).round_dp(2);
+    if !shipping_income_total.is_zero() {
+        if let Some((aid, aname)) =
+            qbo_map_with_misc_fallback(pool, "income_shipping", "default", Some("REVENUE_SHIPPING"))
+                .await?
+        {
+            let abs_amount = shipping_income_total.abs();
+            let (debit, credit) = if shipping_income_total > Decimal::ZERO {
+                (Decimal::ZERO, abs_amount)
+            } else {
+                (abs_amount, Decimal::ZERO)
+            };
+            lines.push(JournalLine {
+                qbo_account_id: aid,
+                qbo_account_name: aname,
+                debit,
+                credit,
+                memo: "Customer-charged shipping income".to_string(),
+                detail: vec![serde_json::json!({
+                    "kind": "shipping_income",
+                    "transaction_count": shipping_income.transaction_count,
+                    "amount": shipping_income_total
+                })],
+            });
+        } else {
+            warnings.push(format!(
+                "Customer-charged shipping of ${shipping_income_total} detected, but no `income_shipping` / default, `REVENUE_SHIPPING`, or MISC mapping exists; shipping income omitted."
+            ));
         }
     }
 

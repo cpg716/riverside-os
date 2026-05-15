@@ -4,7 +4,7 @@ title: "QBO Workspace"
 order: 1082
 summary: "Review QuickBooks Online staging, balanced proposals, drilldown evidence, and liability tender treatment."
 source: client/src/components/qbo/QboWorkspace.tsx
-last_scanned: 2026-05-10
+last_scanned: 2026-05-15
 tags: qbo, quickbooks, accounting, journal, staging, finance
 status: approved
 ---
@@ -19,7 +19,7 @@ QBO Workspace is the review and staging area for QuickBooks Online journal propo
 
 1. Open the proposal for the accounting date being reviewed.
 2. Confirm the proposal is balanced.
-3. Review drilldown evidence for sales, refunds, gift cards, store credit, and open deposits.
+3. Review drilldown evidence for sales, shipping income, refunds, gift cards, store credit, and open deposits.
 4. Sync only after the proposal and evidence match the expected activity.
 
 ## Review proposals
@@ -47,6 +47,12 @@ Store credit and open deposit redemptions are liability-release activity. They s
 
 Manual store-credit adjustments are audit-sensitive and should only post to QBO when the configured accounting path intentionally includes them.
 
+## Shipping, alterations, and clearing accounts
+
+Customer-charged shipping posts to the mapped Shipping income account on the same completed business date as the sale. Alteration service lines, refund queue clearing, forfeited deposit income, RMS clearing, and cash rounding each require their own mapped accounts before syncing days that contain that activity.
+
+QBO posts use the staging row as the retry identity. Re-sending the same approved staging row uses the same request id so retry behavior stays recoverable.
+
 ## Gift card subtypes
 
 Purchased, loyalty, donated, and promo gift cards have different accounting intent. Review the QBO evidence to confirm each subtype follows the expected liability, loyalty, donation, or promotional path.
@@ -60,7 +66,7 @@ Historical imported Counterpoint activity should remain auditable but should not
 ## What to watch for
 
 - Do not sync an unbalanced proposal.
-- Confirm refund and liability evidence before syncing days with returns, store credit, deposits, or gift card activity.
+- Confirm refund, shipping, clearing, and liability evidence before syncing days with returns, store credit, deposits, shipping charges, or gift card activity.
 - If drilldown evidence does not match the visible transaction history, stop and ask for accounting review.
 
 ## Related workflows

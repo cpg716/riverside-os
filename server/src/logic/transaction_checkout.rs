@@ -4380,6 +4380,7 @@ mod tests {
             is_rush: false,
             need_by_date: None,
             needs_gift_wrap: false,
+            order_lifecycle_status: None,
         }
     }
 
@@ -4437,6 +4438,7 @@ mod tests {
             is_rush: false,
             need_by_date: None,
             needs_gift_wrap: false,
+            order_lifecycle_status: None,
         }
     }
 
@@ -5154,6 +5156,7 @@ mod tests {
                 is_rush: false,
                 need_by_date: None,
                 needs_gift_wrap: false,
+                order_lifecycle_status: None,
             }],
             alteration_intakes: vec![],
             actor_name: Some("Combo SPIFF Test".to_string()),

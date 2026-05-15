@@ -60,14 +60,35 @@ interface LedgerMapping {
 const baseUrl = getBaseUrl();
 
 const LEGACY_ROWS: { key: string; description: string }[] = [
-  { key: "REVENUE_CLOTHING", description: "Fallback revenue (unmapped category)" },
+  {
+    key: "REVENUE_CLOTHING",
+    description: "Fallback revenue (unmapped category)",
+  },
   { key: "REVENUE_FOOTWEAR", description: "Footwear revenue fallback" },
   { key: "REVENUE_SERVICE", description: "Service / alterations fallback" },
+  { key: "REVENUE_ALTERATIONS", description: "Alterations revenue fallback" },
+  {
+    key: "REVENUE_SHIPPING",
+    description: "Customer-charged shipping income fallback",
+  },
   { key: "INV_ASSET", description: "Default inventory asset" },
   { key: "COGS_DEFAULT", description: "Default COGS" },
   { key: "COGS_FREIGHT", description: "Inbound freight (PO)" },
   { key: "EXP_SHIPPING", description: "Shipping expense" },
   { key: "EXP_MERCHANT_FEE", description: "Card processing fees" },
+  { key: "CASH_ROUNDING", description: "Cash rounding adjustments" },
+  {
+    key: "RMS_CHARGE_FINANCING_CLEARING",
+    description: "RMS financed sales clearing",
+  },
+  {
+    key: "RMS_R2S_PAYMENT_CLEARING",
+    description: "R2S payment collections clearing",
+  },
+  {
+    key: "REFUND_LIABILITY_CLEARING",
+    description: "Refund queue liability fallback",
+  },
 ];
 
 export default function QuickBooksSettingsPanel({
@@ -107,15 +128,18 @@ export default function QuickBooksSettingsPanel({
 
   const loadMappingData = useCallback(async () => {
     const h = backofficeHeaders();
-    const [accountsRes, categoriesRes, granularRes, ledgerRes] = await Promise.all([
-      fetch(`${baseUrl}/api/qbo/accounts-cache`, { headers: h }),
-      fetch(`${baseUrl}/api/categories`, { headers: h }),
-      fetch(`${baseUrl}/api/qbo/granular-mappings`, { headers: h }),
-      fetch(`${baseUrl}/api/qbo/mappings`, { headers: h }),
-    ]);
+    const [accountsRes, categoriesRes, granularRes, ledgerRes] =
+      await Promise.all([
+        fetch(`${baseUrl}/api/qbo/accounts-cache`, { headers: h }),
+        fetch(`${baseUrl}/api/categories`, { headers: h }),
+        fetch(`${baseUrl}/api/qbo/granular-mappings`, { headers: h }),
+        fetch(`${baseUrl}/api/qbo/mappings`, { headers: h }),
+      ]);
     if (accountsRes.ok) setAccounts((await accountsRes.json()) as QboAccount[]);
-    if (categoriesRes.ok) setCategories((await categoriesRes.json()) as CategoryRow[]);
-    if (granularRes.ok) setGranular((await granularRes.json()) as GranularMapping[]);
+    if (categoriesRes.ok)
+      setCategories((await categoriesRes.json()) as CategoryRow[]);
+    if (granularRes.ok)
+      setGranular((await granularRes.json()) as GranularMapping[]);
     if (ledgerRes.ok) setLedger((await ledgerRes.json()) as LedgerMapping[]);
   }, [backofficeHeaders]);
 
@@ -181,7 +205,10 @@ export default function QuickBooksSettingsPanel({
         "success",
       );
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not refresh accounts", "error");
+      toast(
+        e instanceof Error ? e.message : "Could not refresh accounts",
+        "error",
+      );
     } finally {
       setMappingBusy(false);
     }
@@ -189,8 +216,14 @@ export default function QuickBooksSettingsPanel({
 
   const saveMatrixMappings = async (m: Record<string, AccountMapping>) => {
     const errors: string[] = [];
-    await Promise.all(
-      Object.values(m).map(async (val) => {
+    const removed = Object.keys(initialMatrixMappings)
+      .filter((key) => !m[key])
+      .map(matrixKeyToGranular)
+      .filter((parsed): parsed is { source_type: string; source_id: string } =>
+        Boolean(parsed),
+      );
+    await Promise.all([
+      ...Object.values(m).map(async (val) => {
         const parsed = matrixKeyToGranular(val.ros_id);
         if (!parsed || !val.qbo_account_id.trim()) return;
         const name =
@@ -213,7 +246,21 @@ export default function QuickBooksSettingsPanel({
           errors.push(j.error ?? val.ros_id);
         }
       }),
-    );
+      ...removed.map(async (parsed) => {
+        const res = await fetch(`${baseUrl}/api/qbo/granular-mappings`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify(parsed),
+        });
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          errors.push(j.error ?? `${parsed.source_type}:${parsed.source_id}`);
+        }
+      }),
+    ]);
     if (errors.length > 0) {
       toast(errors[0] ?? "Could not save mappings", "error");
       return;
@@ -239,6 +286,22 @@ export default function QuickBooksSettingsPanel({
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(j.error ?? "Could not save fallback mapping");
+    }
+    await loadMappingData();
+  };
+
+  const clearLegacy = async (internal_key: string) => {
+    const res = await fetch(`${baseUrl}/api/qbo/mappings`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        ...(backofficeHeaders() as Record<string, string>),
+      },
+      body: JSON.stringify({ internal_key }),
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(j.error ?? "Could not clear fallback mapping");
     }
     await loadMappingData();
   };
@@ -405,7 +468,7 @@ export default function QuickBooksSettingsPanel({
             </p>
             <p className="mt-1">
               {credentials.client_id_set
-                ? credentials.client_id_masked ?? "Saved"
+                ? (credentials.client_id_masked ?? "Saved")
                 : "Not saved"}
             </p>
           </div>
@@ -475,7 +538,10 @@ export default function QuickBooksSettingsPanel({
             try {
               await saveMatrixMappings(m);
             } catch (e) {
-              toast(e instanceof Error ? e.message : "Could not save mappings", "error");
+              toast(
+                e instanceof Error ? e.message : "Could not save mappings",
+                "error",
+              );
               throw e;
             }
           }}
@@ -500,20 +566,26 @@ export default function QuickBooksSettingsPanel({
                 return (
                   <tr key={row.key}>
                     <td className="px-4 py-3">
-                      <div className="font-mono text-xs font-bold">{row.key}</div>
-                      <p className="text-[10px] text-app-text-muted">{row.description}</p>
+                      <div className="font-mono text-xs font-bold">
+                        {row.key}
+                      </div>
+                      <p className="text-[10px] text-app-text-muted">
+                        {row.description}
+                      </p>
                     </td>
                     <td className="px-4 py-2">
                       <select
                         value={val}
                         onChange={(e) => {
                           const v = e.target.value;
-                          if (!v) return;
-                          void saveLegacy(row.key, v).catch((ex) =>
+                          const action = v
+                            ? saveLegacy(row.key, v)
+                            : clearLegacy(row.key);
+                          void action.catch((ex) =>
                             toast(
                               ex instanceof Error
                                 ? ex.message
-                                : "Could not save fallback mapping",
+                                : "Could not update fallback mapping",
                               "error",
                             ),
                           );

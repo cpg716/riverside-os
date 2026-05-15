@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::str::FromStr;
 use thiserror::Error;
@@ -42,6 +43,8 @@ const QBO_CREDENTIAL_KEYS: &[&str] = &[
     "access_token",
     "refresh_token",
 ];
+const QBO_MINOR_VERSION: &str = "75";
+const QBO_ACCOUNT_QUERY_PAGE_SIZE: i32 = 1000;
 
 #[derive(Debug, Error)]
 pub enum QboError {
@@ -162,6 +165,17 @@ pub struct SaveMappingRequest {
     pub internal_description: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DeleteMappingRequest {
+    pub internal_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteGranularMappingRequest {
+    pub source_type: String,
+    pub source_id: String,
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct QboSyncLogRow {
     pub id: Uuid,
@@ -209,10 +223,15 @@ pub fn router() -> Router<AppState> {
         .route("/tokens/refresh", post(refresh_tokens_stub))
         .route("/accounts-cache", get(list_accounts_cache))
         .route("/accounts-cache/refresh", post(refresh_accounts_cache))
-        .route("/mappings", get(list_mappings).post(save_mapping))
+        .route(
+            "/mappings",
+            get(list_mappings).post(save_mapping).delete(delete_mapping),
+        )
         .route(
             "/granular-mappings",
-            get(list_granular_mappings).post(save_granular_mapping),
+            get(list_granular_mappings)
+                .post(save_granular_mapping)
+                .delete(delete_granular_mapping),
         )
         .route("/staging", get(list_staging))
         .route("/staging/propose", post(propose_staging))
@@ -302,6 +321,66 @@ fn validate_staging_journal_balanced(payload: &serde_json::Value) -> Result<(), 
     if debits != credits {
         return Err(QboError::Conflict(format!(
             "QBO staging journal postable lines are not balanced (debits {debits:.2}, credits {credits:.2}). Fix missing mappings and regenerate before approval or sync."
+        )));
+    }
+
+    Ok(())
+}
+
+async fn validate_staging_accounts_active(
+    pool: &PgPool,
+    payload: &serde_json::Value,
+) -> Result<(), QboError> {
+    let lines = payload
+        .get("lines")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| QboError::InvalidPayload("staging payload has no lines".to_string()))?;
+
+    let mut ids = BTreeSet::new();
+    for line in lines {
+        if let Some(account_id) = line
+            .get("qbo_account_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            ids.insert(account_id.to_string());
+        }
+    }
+
+    if ids.is_empty() {
+        return Ok(());
+    }
+
+    let id_list: Vec<String> = ids.iter().cloned().collect();
+    let rows: Vec<(String, String, bool)> = sqlx::query_as(
+        r#"
+        SELECT id, name, is_active
+        FROM qbo_accounts_cache
+        WHERE id = ANY($1)
+        "#,
+    )
+    .bind(&id_list)
+    .fetch_all(pool)
+    .await?;
+
+    let accounts: BTreeMap<String, (String, bool)> = rows
+        .into_iter()
+        .map(|(id, name, active)| (id, (name, active)))
+        .collect();
+    let mut invalid = Vec::new();
+    for id in ids {
+        match accounts.get(&id) {
+            Some((_, true)) => {}
+            Some((name, false)) => invalid.push(format!("{name} ({id}) inactive")),
+            None => invalid.push(format!("{id} missing from QBO account cache")),
+        }
+    }
+
+    if !invalid.is_empty() {
+        return Err(QboError::Conflict(format!(
+            "QBO staging journal references missing or inactive accounts: {}. Refresh QuickBooks accounts and remap before approval or sync.",
+            invalid.join(", ")
         )));
     }
 
@@ -972,42 +1051,57 @@ async fn refresh_accounts_cache(
         _ => refresh_access_token(&state.db, &integ).await?,
     };
 
-    let query = "select * from Account where Active in (true, false) order by AcctNum, Name";
     let url = format!(
         "{}/v3/company/{}/query",
         qbo_base_url(integ.use_sandbox),
         realm_id
     );
-    let res = state
-        .http_client
-        .get(url)
-        .bearer_auth(access_token)
-        .query(&[("query", query), ("minorversion", "73")])
-        .send()
-        .await
-        .map_err(|e| QboError::Conflict(format!("QBO accounts request failed: {e}")))?;
-    let status = res.status();
-    if !status.is_success() {
-        let body = res
-            .text()
+    let mut start_position = 1_i32;
+    let mut all_accounts: Vec<QboRemoteAccount> = Vec::new();
+    loop {
+        let query = format!(
+            "select * from Account where Active in (true, false) order by AcctNum, Name STARTPOSITION {start_position} MAXRESULTS {QBO_ACCOUNT_QUERY_PAGE_SIZE}"
+        );
+        let res = state
+            .http_client
+            .get(&url)
+            .bearer_auth(&access_token)
+            .query(&[
+                ("query", query.as_str()),
+                ("minorversion", QBO_MINOR_VERSION),
+            ])
+            .send()
             .await
-            .unwrap_or_else(|_| "unknown QBO accounts error".to_string());
-        let _ = record_integration_failure(&state.db, "qbo_accounts_refresh", &body).await;
-        return Err(QboError::Conflict(format!(
-            "QuickBooks rejected the account refresh: {body}"
-        )));
+            .map_err(|e| QboError::Conflict(format!("QBO accounts request failed: {e}")))?;
+        let status = res.status();
+        if !status.is_success() {
+            let body = res
+                .text()
+                .await
+                .unwrap_or_else(|_| "unknown QBO accounts error".to_string());
+            let _ = record_integration_failure(&state.db, "qbo_accounts_refresh", &body).await;
+            return Err(QboError::Conflict(format!(
+                "QuickBooks rejected the account refresh: {body}"
+            )));
+        }
+        let body = res
+            .json::<QboQueryResponse>()
+            .await
+            .map_err(|e| QboError::Conflict(format!("invalid QBO accounts response: {e}")))?;
+        let fetched = body.query_response.accounts.len();
+        all_accounts.extend(body.query_response.accounts);
+        if fetched < QBO_ACCOUNT_QUERY_PAGE_SIZE as usize || fetched == 0 {
+            break;
+        }
+        start_position += QBO_ACCOUNT_QUERY_PAGE_SIZE;
     }
-    let body = res
-        .json::<QboQueryResponse>()
-        .await
-        .map_err(|e| QboError::Conflict(format!("invalid QBO accounts response: {e}")))?;
 
     let mut tx = state.db.begin().await?;
     sqlx::query("UPDATE qbo_accounts_cache SET is_active = false")
         .execute(&mut *tx)
         .await?;
     let mut count = 0_i64;
-    for account in body.query_response.accounts {
+    for account in all_accounts {
         let name = account.fully_qualified_name.unwrap_or(account.name);
         sqlx::query(
             r#"
@@ -1120,6 +1214,38 @@ async fn save_mapping(
     Ok(Json(row))
 }
 
+async fn delete_mapping(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<DeleteMappingRequest>,
+) -> Result<Json<serde_json::Value>, QboError> {
+    let admin = require_staff_with_permission(&state, &headers, QBO_MAPPING_EDIT)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+    let key = payload.internal_key.trim();
+    if key.is_empty() {
+        return Err(QboError::InvalidPayload(
+            "internal_key is required".to_string(),
+        ));
+    }
+
+    let deleted = sqlx::query("DELETE FROM ledger_mappings WHERE internal_key = $1")
+        .bind(key)
+        .execute(&state.db)
+        .await?
+        .rows_affected();
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "qbo_mapping_delete",
+        json!({ "internal_key": key, "deleted": deleted }),
+    )
+    .await;
+
+    Ok(Json(json!({ "status": "deleted", "deleted": deleted })))
+}
+
 async fn list_granular_mappings(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1202,6 +1328,40 @@ async fn save_granular_mapping(
     .await;
 
     Ok(Json(row))
+}
+
+async fn delete_granular_mapping(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<DeleteGranularMappingRequest>,
+) -> Result<Json<serde_json::Value>, QboError> {
+    let admin = require_staff_with_permission(&state, &headers, QBO_MAPPING_EDIT)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+    let st = payload.source_type.trim();
+    let sid = payload.source_id.trim();
+    if st.is_empty() || sid.is_empty() {
+        return Err(QboError::InvalidPayload(
+            "source_type and source_id are required".to_string(),
+        ));
+    }
+
+    let deleted = sqlx::query("DELETE FROM qbo_mappings WHERE source_type = $1 AND source_id = $2")
+        .bind(st)
+        .bind(sid)
+        .execute(&state.db)
+        .await?
+        .rows_affected();
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "qbo_granular_mapping_delete",
+        json!({ "source_type": st, "source_id": sid, "deleted": deleted }),
+    )
+    .await;
+
+    Ok(Json(json!({ "status": "deleted", "deleted": deleted })))
 }
 
 async fn list_staging(
@@ -1314,6 +1474,7 @@ async fn approve_staging(
         ));
     }
     validate_staging_journal_balanced(&payload)?;
+    validate_staging_accounts_active(&state.db, &payload).await?;
 
     let n = sqlx::query(
         r#"
@@ -1582,6 +1743,7 @@ async fn sync_staging(
         ));
     }
     validate_staging_journal_balanced(&payload)?;
+    validate_staging_accounts_active(&state.db, &payload).await?;
 
     let integ = integration_row(&state.db)
         .await?
@@ -1663,10 +1825,13 @@ async fn sync_staging(
         "TxnDate": sync_date,
         "Line": line_payloads
     });
+    let request_id = format!("ros-qbo-journal-{id}");
     let url = format!(
-        "{}/v3/company/{}/journalentry?minorversion=73",
+        "{}/v3/company/{}/journalentry?minorversion={}&requestid={}",
         qbo_base_url(integ.use_sandbox),
-        realm_id
+        realm_id,
+        QBO_MINOR_VERSION,
+        request_id
     );
     let http = Client::new();
     let resp = http
@@ -1712,7 +1877,7 @@ async fn sync_staging(
             &state.db,
             admin.id,
             "qbo_sync_failed",
-            json!({ "staging_id": id, "error_message": err_msg }),
+            json!({ "staging_id": id, "request_id": request_id.clone(), "error_message": err_msg }),
         )
         .await;
         return Err(QboError::Conflict(err_msg));
@@ -1742,7 +1907,7 @@ async fn sync_staging(
         &state.db,
         admin.id,
         "qbo_sync_success",
-        json!({ "staging_id": id, "journal_entry_id": je_id.clone() }),
+        json!({ "staging_id": id, "request_id": request_id, "journal_entry_id": je_id.clone() }),
     )
     .await;
 

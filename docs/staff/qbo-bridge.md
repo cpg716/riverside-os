@@ -27,9 +27,10 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 **Purpose:** Map ROS **accounts**, **products**, **tenders**, and **expense** paths to QBO entities.
 
-1. **Mappings** → work tab by tab (**Sales**, **Inventory**, **Expenses** if present). Map **Helcim card clearing** once for Helcim card, manual, vault, and web checkout tenders. If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+1. **Mappings** → work tab by tab. Map category revenue/inventory/COGS, Custom garment overrides, tenders, tax, deposit holding, gift card liability, loyalty expense, store credit liability, refund queue clearing, forfeited deposit income, alterations income, and shipping income. Map **Helcim card clearing** once for Helcim card, manual, vault, and web checkout tenders. If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
 2. **Save** after each section; screenshot or export **before** large changes.
-3. After mapping change, expect **new** staging rows to reflect the new chart.
+3. Use the blank option to clear a wrong mapping, then save. Cleared mappings are removed from ROS and future staging will warn if that account is required.
+4. After mapping change, expect **new** staging rows to reflect the new chart.
 
 ## Staging
 
@@ -38,7 +39,7 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 1. **Staging** → sort by **date** or **status**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
 3. After **Z-Close**, ROS stages the daily journal for that business date. If the pending row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.
-4. Open a row → **drilldown** to lines; fix **unmapped** SKUs or accounts **before** approve.
+4. Open a row → **drilldown** to lines; fix **unmapped** SKUs, shipping income, liability, clearing, or fallback accounts **before** approve.
 5. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
 6. **Approve** only when totals match **ROS** expectations for that close.
 7. **Sync** after approve; watch **History** for success/fail.
@@ -59,8 +60,8 @@ Payments → Deposits can record actual bank deposits and match them to expected
 
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
-| Sync failed | Read **error** in History | Fix mapping |
-| Duplicate journal | Do not re-approve same window | Accountant |
+| Sync failed | Read **error** in History | Fix mapping, refresh QBO accounts, and re-stage |
+| Duplicate journal concern after retry | Check History for the same staging row / request id | Accountant |
 | Class/location mismatch | Update mapping version | [QBO_JOURNAL_TEST_MATRIX.md](../QBO_JOURNAL_TEST_MATRIX.md) |
 | OAuth loop | Different browser | Intuit status |
 
@@ -68,6 +69,7 @@ Payments → Deposits can record actual bank deposits and match them to expected
 
 - **Month-end** inventory **asset** adjustments.
 - **Sales tax** filing questions — ROS supports ops; CPA decides filing.
+- Any remap of shipping income, store credit liability, refund queue clearing, forfeited deposit income, or RMS clearing accounts.
 
 ---
 
@@ -76,4 +78,4 @@ Payments → Deposits can record actual bank deposits and match them to expected
 - [../QBO_JOURNAL_TEST_MATRIX.md](../QBO_JOURNAL_TEST_MATRIX.md)
 - [../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md](../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md)
 
-**Last reviewed:** 2026-04-25
+**Last reviewed:** 2026-05-15

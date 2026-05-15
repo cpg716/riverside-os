@@ -8,6 +8,7 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 |----------|--------|
 | Pickup / in-store takeaway fulfilled on date D, no returns | Revenue/COGS/tax from effective qty = sold qty |
 | Shipped order label purchased / marked in transit / delivered on date D | Revenue/COGS/tax posts on the shipment recognition date, even when `transactions.fulfilled_at` is null |
+| Customer-charged shipping on a completed transaction | Credit mapped **Shipping income** (`income_shipping` / default, or `REVENUE_SHIPPING` fallback) on the same completed business date |
 | Partial return before journal re-run for D | Revenue/COGS/tax reduced proportionally vs `order_return_lines` |
 | Full return of fulfilled line | Category net for that merchandise → 0 for that line’s share |
 
@@ -45,6 +46,7 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 - [ ] Single tender, single category, balanced journal  
 - [ ] Multi-split checkout (multiple tenders)  
 - [ ] Gift card `sub_type` `paid_liability` vs `loyalty_giveaway` / `donated_giveaway` / `promo_gift_card`
+- [ ] Shipping income mapping is present before syncing a day with customer-charged shipping
 - [ ] Exchange pair (two transactions) does not double-count if only reporting by recognition
 - [ ] Shipped transaction has no QBO revenue before shipment recognition event
 
@@ -68,3 +70,5 @@ See also **[`SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md`](./SUIT_OUTFIT_COMPONENT_SWA
 ## Operational note
 
 `activity_date` is the store-local business date from `store_settings.receipt_config.timezone` through `reporting.effective_store_timezone()`. QBO uses the same recognition basis as reporting: pickup / in-store takeaway recognizes from fulfillment timestamps, and shipped transactions recognize from the earliest qualifying shipment event (`label_purchased`, `in_transit`, or `delivered`). Re-running **propose** for an older `activity_date` after returns restates that day’s recognition nets. Return-day contra lines appear on the **return** business date. Align with your accountant on recognition policy.
+
+QBO API posts use a deterministic Riverside request id per staging row. If a JournalEntry call is retried after an ambiguous network failure, the same staging row reuses the same request id instead of intentionally creating a second accounting record.

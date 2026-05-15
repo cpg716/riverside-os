@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { Info, Settings2, ShieldCheck } from "lucide-react";
-import type {
-  AccountMapping,
-  QboMatrixAccount,
-} from "./QboMappingLogic";
+import type { AccountMapping, QboMatrixAccount } from "./QboMappingLogic";
+import { QBO_MATRIX_FINANCIAL_ACCOUNTS } from "./QboMappingLogic";
 
 export interface QboMappingMatrixProps {
   categories: { id: string; name: string }[];
@@ -57,9 +55,8 @@ export default function QboMappingMatrix({
   initialMappings,
   onSave,
 }: QboMappingMatrixProps) {
-  const [mappings, setMappings] = useState<Record<string, AccountMapping>>(
-    initialMappings,
-  );
+  const [mappings, setMappings] =
+    useState<Record<string, AccountMapping>>(initialMappings);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -120,7 +117,9 @@ export default function QboMappingMatrix({
                     <AccountSelect
                       valueId={mappings[`rev_${cat.id}`]?.qbo_account_id ?? ""}
                       accounts={accounts}
-                      onPick={(id, name) => updateMapping(`rev_${cat.id}`, id, name)}
+                      onPick={(id, name) =>
+                        updateMapping(`rev_${cat.id}`, id, name)
+                      }
                       placeholder="e.g. 4010 Sales"
                     />
                   </td>
@@ -128,7 +127,9 @@ export default function QboMappingMatrix({
                     <AccountSelect
                       valueId={mappings[`inv_${cat.id}`]?.qbo_account_id ?? ""}
                       accounts={accounts}
-                      onPick={(id, name) => updateMapping(`inv_${cat.id}`, id, name)}
+                      onPick={(id, name) =>
+                        updateMapping(`inv_${cat.id}`, id, name)
+                      }
                       placeholder="e.g. 1200 Inventory"
                     />
                   </td>
@@ -156,7 +157,8 @@ export default function QboMappingMatrix({
               Custom garment mappings
             </h3>
             <p className="mt-1 text-[10px] font-bold uppercase text-app-text-muted">
-              Optional overrides for Custom order revenue, inventory, and COGS by garment type
+              Optional overrides for Custom order revenue, inventory, and COGS
+              by garment type
             </p>
           </div>
           <ShieldCheck size={18} className="text-app-text-muted" aria-hidden />
@@ -183,7 +185,10 @@ export default function QboMappingMatrix({
                   </td>
                   <td className="px-5 py-4">
                     <AccountSelect
-                      valueId={mappings[`custom_rev_${customType.id}`]?.qbo_account_id ?? ""}
+                      valueId={
+                        mappings[`custom_rev_${customType.id}`]
+                          ?.qbo_account_id ?? ""
+                      }
                       accounts={accounts}
                       onPick={(id, name) =>
                         updateMapping(`custom_rev_${customType.id}`, id, name)
@@ -193,7 +198,10 @@ export default function QboMappingMatrix({
                   </td>
                   <td className="px-5 py-4">
                     <AccountSelect
-                      valueId={mappings[`custom_inv_${customType.id}`]?.qbo_account_id ?? ""}
+                      valueId={
+                        mappings[`custom_inv_${customType.id}`]
+                          ?.qbo_account_id ?? ""
+                      }
                       accounts={accounts}
                       onPick={(id, name) =>
                         updateMapping(`custom_inv_${customType.id}`, id, name)
@@ -203,7 +211,10 @@ export default function QboMappingMatrix({
                   </td>
                   <td className="px-5 py-4">
                     <AccountSelect
-                      valueId={mappings[`custom_cogs_${customType.id}`]?.qbo_account_id ?? ""}
+                      valueId={
+                        mappings[`custom_cogs_${customType.id}`]
+                          ?.qbo_account_id ?? ""
+                      }
                       accounts={accounts}
                       onPick={(id, name) =>
                         updateMapping(`custom_cogs_${customType.id}`, id, name)
@@ -225,8 +236,8 @@ export default function QboMappingMatrix({
               Payment (tender) mapping
             </h3>
             <p className="mt-1 text-[10px] font-bold uppercase text-app-text-muted">
-              Cash, card clearing, AR — gift card redemptions debit liability when
-              mapped (see journal logic)
+              Cash, card clearing, AR — gift card redemptions debit liability
+              when mapped (see journal logic)
             </p>
           </div>
           <div className="space-y-4 p-5">
@@ -317,6 +328,28 @@ export default function QboMappingMatrix({
                 placeholder="2040 · Accrued vendor invoice"
               />
             </div>
+            <div className="border-t border-app-border pt-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Operational income & liability accounts
+              </p>
+            </div>
+            {QBO_MATRIX_FINANCIAL_ACCOUNTS.map((row) => (
+              <div key={row.key} className="flex flex-col gap-1">
+                <label className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  {row.label}
+                  <Info size={12} className="text-app-accent-2" aria-hidden />
+                </label>
+                <p className="text-[10px] font-semibold text-app-text-muted">
+                  {row.help}
+                </p>
+                <AccountSelect
+                  valueId={mappings[row.key]?.qbo_account_id ?? ""}
+                  accounts={accounts}
+                  onPick={(id, name) => updateMapping(row.key, id, name)}
+                  placeholder={row.placeholder}
+                />
+              </div>
+            ))}
           </div>
         </section>
       </div>

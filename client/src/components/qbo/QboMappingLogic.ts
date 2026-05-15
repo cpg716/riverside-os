@@ -25,6 +25,39 @@ export const QBO_MATRIX_CUSTOM_TYPES = [
   { id: "individualized_shirt", label: "Individualized Shirt" },
 ] as const;
 
+export const QBO_MATRIX_FINANCIAL_ACCOUNTS = [
+  {
+    key: "shipping_income",
+    label: "Shipping income",
+    help: "Customer-charged shipping recognized with fulfilled/completed sales.",
+    placeholder: "Shipping revenue income",
+  },
+  {
+    key: "alterations_income",
+    label: "Alterations income",
+    help: "Charged alteration service lines.",
+    placeholder: "Alterations/service income",
+  },
+  {
+    key: "store_credit_liability",
+    label: "Store credit liability",
+    help: "Store credit redemptions release this liability instead of posting as tender revenue.",
+    placeholder: "Store credit liability",
+  },
+  {
+    key: "refund_queue_liability",
+    label: "Refund queue clearing",
+    help: "Balances return day and payout day when a refund is approved before cash leaves.",
+    placeholder: "Refund liability clearing",
+  },
+  {
+    key: "forfeited_deposit_income",
+    label: "Forfeited deposit income",
+    help: "Layaway or order deposits retained after approved forfeiture.",
+    placeholder: "Forfeited deposit income",
+  },
+] as const;
+
 /** Matrix UI key → `qbo_mappings` row (server). */
 export function matrixKeyToGranular(
   key: string,
@@ -46,6 +79,21 @@ export function matrixKeyToGranular(
   }
   if (key === "tax_sales") {
     return { source_type: "tax", source_id: "SALES_TAX" };
+  }
+  if (key === "shipping_income") {
+    return { source_type: "income_shipping", source_id: "default" };
+  }
+  if (key === "alterations_income") {
+    return { source_type: "income_alterations", source_id: "default" };
+  }
+  if (key === "store_credit_liability") {
+    return { source_type: "liability_store_credit", source_id: "default" };
+  }
+  if (key === "refund_queue_liability") {
+    return { source_type: "liability_refund_queue", source_id: "default" };
+  }
+  if (key === "forfeited_deposit_income") {
+    return { source_type: "income_forfeited_deposit", source_id: "default" };
   }
   let m = /^rev_(.+)$/.exec(key);
   if (m) return { source_type: "category_revenue", source_id: m[1] };
@@ -95,6 +143,16 @@ export function granularToMatrixKey(
       return source_id === "default" ? "merchant_fee" : null;
     case "tax":
       return source_id === "SALES_TAX" ? "tax_sales" : null;
+    case "income_shipping":
+      return source_id === "default" ? "shipping_income" : null;
+    case "income_alterations":
+      return source_id === "default" ? "alterations_income" : null;
+    case "liability_store_credit":
+      return source_id === "default" ? "store_credit_liability" : null;
+    case "liability_refund_queue":
+      return source_id === "default" ? "refund_queue_liability" : null;
+    case "income_forfeited_deposit":
+      return source_id === "default" ? "forfeited_deposit_income" : null;
     default:
       return null;
   }
