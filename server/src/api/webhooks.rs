@@ -312,6 +312,7 @@ fn verify_helcim_webhook(
     verify_helcim_webhook_with_token(headers, body, now, &verifier_token)
 }
 
+#[cfg(test)]
 fn helcim_webhook_secret_configured() -> bool {
     std::env::var("HELCIM_WEBHOOK_SECRET")
         .ok()

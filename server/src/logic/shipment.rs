@@ -369,6 +369,7 @@ fn ship_to_to_input(v: &Value) -> Result<ShippingAddressInput, ShipmentError> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_rates_for_shipment(
     pool: &PgPool,
     http: &reqwest::Client,

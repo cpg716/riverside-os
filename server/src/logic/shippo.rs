@@ -500,6 +500,7 @@ pub async fn prune_expired_rate_quotes(pool: &PgPool) -> Result<(), sqlx::Error>
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn store_shipping_rates(
     pool: &PgPool,
     http: &reqwest::Client,
@@ -567,6 +568,7 @@ pub async fn store_shipping_rates(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn pos_shipping_rates(
     pool: &PgPool,
     http: &reqwest::Client,

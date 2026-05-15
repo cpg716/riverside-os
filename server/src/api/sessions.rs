@@ -1811,7 +1811,7 @@ fn parse_transaction_audit_items(value: serde_json::Value) -> Vec<TransactionAud
 
     items
         .iter()
-        .filter_map(|item| {
+        .map(|item| {
             let name = item
                 .get("name")
                 .and_then(|v| v.as_str())
@@ -1853,7 +1853,7 @@ fn parse_transaction_audit_items(value: serde_json::Value) -> Vec<TransactionAud
                 .filter(|s| !s.is_empty())
                 .map(ToOwned::to_owned);
 
-            Some(TransactionAuditItem {
+            TransactionAuditItem {
                 name,
                 sku,
                 quantity,
@@ -1861,7 +1861,7 @@ fn parse_transaction_audit_items(value: serde_json::Value) -> Vec<TransactionAud
                 fulfillment,
                 is_internal,
                 line_kind,
-            })
+            }
         })
         .collect()
 }

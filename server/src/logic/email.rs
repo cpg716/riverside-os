@@ -493,6 +493,7 @@ pub async fn send_email(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn send_email_with_reply_context(
     pool: &PgPool,
     to_email: &str,
