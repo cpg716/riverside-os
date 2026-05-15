@@ -57,8 +57,8 @@ Purchased gift cards are sold or reloaded from **Register** only. Do not issue c
 1. **Loyalty** → **Monthly Eligible** (requires **loyalty.program_settings**).
 2. Select the customers you want to fulfill in this batch.
 3. Click **Start Batch**.
-4. For each customer, scan the loyalty gift card, choose the points block being redeemed, and click **Issue and print letter**.
-5. If the customer has enough points for another reward, scan the next card for that same customer. Otherwise continue to the next selected customer.
+4. For each customer, scan one loyalty gift card per reward block. With the standard 5,000-point / $50 program, a customer with 15,000 points gets three separate $50 gift cards.
+5. ROS prints one award letter after the customer has no more reward blocks available. The letter can include the issue date, one-year expiration date, card count, card codes, and card table from the template.
 6. When the batch is complete, print the mailing labels for the completed customers.
 7. Open **Reward History** if you need to reprint an award letter or an individual mailing label.
 
@@ -79,7 +79,9 @@ Purchased gift cards are sold or reloaded from **Register** only. Do not issue c
 
 1. **Loyalty** → **Program Settings** (**loyalty.program_settings**).
 2. Change **one** variable at a time when possible; document **before/after** for the team chat or logbook.
-3. Test with a **low-value** internal customer account if policy allows.
+3. Use **Save Template** when only the award-letter wording changed. Use **Save Changes** when reward economics changed.
+4. Available letter tags include `{{first_name}}`, `{{reward_amount}}`, `{{total_reward_amount}}`, `{{card_code}}`, `{{card_codes}}`, `{{card_count}}`, `{{cards_table}}`, `{{issue_date}}`, and `{{expiration_date}}`.
+5. Test with a **low-value** internal customer account if policy allows.
 
 ---
 
