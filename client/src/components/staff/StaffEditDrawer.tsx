@@ -420,7 +420,7 @@ export default function StaffEditDrawer({
     >
       <div className="flex h-full min-h-0 flex-col">
         {/* Sub-navigation */}
-        <div className="sticky top-0 z-10 flex border-b border-app-border bg-app-surface/90 backdrop-blur-md px-8">
+        <div className="sticky top-0 z-10 flex flex-wrap gap-1 border-b border-app-border bg-app-surface/90 px-4 py-2 backdrop-blur-md">
           {[
             { id: "overview", label: "Overview", icon: User },
             { id: "economics", label: "Economics", icon: Percent },
@@ -431,10 +431,10 @@ export default function StaffEditDrawer({
             <button
               key={t.id}
               onClick={() => setTab(t.id as typeof tab)}
-              className={`flex items-center gap-2 border-b-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${
+              className={`flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
                 tab === t.id
-                  ? "border-app-accent text-app-text"
-                  : "border-transparent text-app-text-muted hover:text-app-text"
+                  ? "border-app-accent bg-app-accent/10 text-app-text"
+                  : "border-app-border/60 text-app-text-muted hover:border-app-border hover:text-app-text"
               }`}
             >
               <t.icon size={12} />

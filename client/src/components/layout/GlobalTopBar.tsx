@@ -121,11 +121,11 @@ export default function GlobalTopBar({
   }, []);
 
   return (
-    <header className="sticky top-0 z-50 flex min-h-[84px] shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-app-border bg-[color-mix(in_srgb,var(--app-rail)_94%,transparent)] px-3 py-3 backdrop-blur-md sm:px-4 lg:h-[84px] lg:flex-nowrap lg:gap-6 lg:px-8 lg:py-0">
+    <header className="sticky top-0 z-50 flex h-16 shrink-0 flex-nowrap items-center gap-2 border-b border-app-border bg-[color-mix(in_srgb,var(--app-rail)_94%,transparent)] px-3 py-0 backdrop-blur-md sm:px-4 lg:gap-4 lg:px-6">
       <div
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-3 lg:h-full lg:flex-none lg:gap-4",
-          isPosVariant ? "lg:min-w-0" : "lg:min-w-[240px]",
+          "flex min-w-0 flex-none items-center gap-2 lg:h-full lg:gap-3",
+          isPosVariant ? "lg:min-w-0" : "lg:min-w-[200px]",
         )}
       >
         {onToggleSidebar && (
@@ -201,7 +201,7 @@ export default function GlobalTopBar({
         </div>
 
         {/* Global Action Cluster */}
-        <div className="flex items-center gap-1 border-r border-app-border pr-2 sm:gap-1.5 sm:pr-4 md:mr-2">
+        <div className="flex items-center gap-1 border-r border-app-border pr-2 sm:gap-1.5 sm:pr-3 md:mr-1">
           {onOpenRosie ? <RosieTriggerButton onOpen={onOpenRosie} /> : null}
           {onOpenHelp ? <HelpCenterTriggerButton onOpen={onOpenHelp} /> : null}
           {onOpenBugReport ? <BugReportTriggerButton onOpen={onOpenBugReport} /> : null}
@@ -209,7 +209,7 @@ export default function GlobalTopBar({
           <button
             type="button"
             onClick={onThemeToggle}
-            className="flex h-10 w-10 items-center justify-center rounded-xl text-app-text-muted hover:bg-app-surface-2 hover:text-app-text transition-all active:scale-95"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-app-text-muted hover:bg-app-surface-2 hover:text-app-text transition-all active:scale-95"
             title={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
           >
             {themeMode === "light" ? <Moon size={20} /> : <Sun size={20} />}
@@ -219,7 +219,7 @@ export default function GlobalTopBar({
         </div>
 
         {/* User Profile Hookup */}
-        <div className="flex items-center gap-3 pl-2">
+        <div className="flex items-center gap-2 pl-1 sm:pl-2">
             {isTailscaleRemote && (
               <div 
                 className="hidden items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-indigo-500 animate-in fade-in slide-in-from-right-2 lg:flex"
@@ -229,7 +229,7 @@ export default function GlobalTopBar({
                 Remote Access
               </div>
             )}
-            <div className="text-right hidden md:block">
+            <div className="hidden text-right lg:block">
             <p className="text-xs font-bold text-app-text leading-tight">
               {staffDisplayName || (isRegisterOpen ? (cashierName || "Cashier") : "User")}
             </p>
@@ -246,7 +246,7 @@ export default function GlobalTopBar({
                type="button"
                onClick={() => setUserMenuOpen(!userMenuOpen)}
                className={cn(
-                 "flex h-11 w-11 items-center justify-center rounded-2xl border-2 overflow-hidden transition-all",
+                 "flex h-10 w-10 items-center justify-center rounded-2xl border-2 overflow-hidden transition-all",
                  isRegisterOpen ? "border-emerald-500/20" : "border-app-border hover:border-app-accent/40",
                  userMenuOpen && "border-app-accent ring-4 ring-app-accent/10"
                )}
@@ -306,7 +306,7 @@ export default function GlobalTopBar({
         </div>
 
         {/* Status Indicators */}
-        <div className="order-4 flex w-full items-center gap-2 overflow-x-auto pb-0.5 lg:order-none lg:w-auto lg:justify-end lg:overflow-visible lg:pb-0">
+        <div className="hidden flex-none items-center gap-2 overflow-visible xl:flex">
           {!isOnline && (
             <div
               className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-700 dark:text-rose-200"

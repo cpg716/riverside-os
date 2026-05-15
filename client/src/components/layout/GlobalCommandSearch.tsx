@@ -874,10 +874,10 @@ export default function GlobalCommandSearch({
     <>
       <div
         className={cn(
-          "order-3 flex min-w-0 items-center",
+          "flex min-w-0 flex-none items-center",
           isPosVariant
-            ? "w-auto justify-start lg:order-none lg:flex-none"
-            : "w-full justify-center lg:order-none lg:flex-1",
+            ? "w-auto justify-start"
+            : "w-auto justify-center",
         )}
       >
         <button
@@ -888,33 +888,33 @@ export default function GlobalCommandSearch({
           className={cn(
             "group relative flex items-center text-left shadow-sm transition-all duration-150 hover:border-app-accent/20 hover:bg-app-surface hover:shadow-md active:scale-[0.995]",
             isPosVariant
-              ? "gap-2 rounded-2xl border border-app-border/70 bg-app-surface-2/95 px-3 py-2.5"
-              : "w-full max-w-[16rem] gap-3 rounded-2xl border border-app-border/70 bg-app-surface-2/90 px-3.5 py-2.5 lg:w-auto",
+              ? "gap-2 rounded-2xl border border-app-border/70 bg-app-surface-2/95 px-2.5 py-2"
+              : "max-w-[13rem] gap-2 rounded-2xl border border-app-border/70 bg-app-surface-2/90 px-2.5 py-2 sm:max-w-[15rem]",
           )}
           aria-label="Open universal search"
         >
           <div
             className={cn(
               "flex shrink-0 items-center justify-center rounded-xl bg-app-surface text-app-text-muted shadow-sm transition-colors group-hover:text-app-text",
-              isPosVariant ? "h-9 w-9" : "h-9 w-9",
+              isPosVariant ? "h-8 w-8" : "h-8 w-8",
             )}
           >
             <Search size={17} aria-hidden />
           </div>
-          <div className={cn("min-w-0", isPosVariant ? "hidden 2xl:block" : "flex-1")}>
-            <p className="truncate text-sm font-bold text-app-text">
+          <div className={cn("min-w-0", isPosVariant ? "hidden 2xl:block" : "hidden sm:block")}>
+            <p className="truncate text-xs font-bold text-app-text">
               {isPosVariant ? "Jump Search" : "Search"}
             </p>
-            <p className="truncate text-xs text-app-text-muted">
+            <p className="truncate text-[11px] text-app-text-muted">
               {isPosVariant
                 ? "Customers, orders, SKU, weddings"
-                : "Jump to customers, orders, inventory, and more"}
+                : "Jump to customers..."}
             </p>
           </div>
           <div
             className={cn(
-              "shrink-0 items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted shadow-sm",
-              isPosVariant ? "hidden 2xl:flex" : "hidden sm:flex",
+              "shrink-0 items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted shadow-sm",
+              isPosVariant ? "hidden 2xl:flex" : "hidden xl:flex",
             )}
           >
             <Command size={12} aria-hidden />

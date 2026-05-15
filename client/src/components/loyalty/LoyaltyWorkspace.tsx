@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { LoyaltyRedeemDialog } from "./LoyaltyRedeemDialog";
 import {
   type LoyaltyEligibleCustomer,
   loyaltyEligibleDisplayName,
@@ -698,6 +697,14 @@ function LoyaltyBatchRedeemDialog({
     });
   };
 
+  const printLettersForIssuedCustomers = () => {
+    uniqueIssuedCustomers.forEach((customer) => {
+      printBatchLetterForCustomer(customer, issuedForCustomer(customer));
+    });
+  };
+
+  const currentIssuedRows = current ? issuedForCustomer(current) : [];
+
   const moveNext = () => {
     const nextIndex = customerIndex + 1;
     setCustomerIndex(nextIndex);
@@ -859,6 +866,15 @@ function LoyaltyBatchRedeemDialog({
                 </button>
                 <button
                   type="button"
+                  onClick={printLettersForIssuedCustomers}
+                  disabled={uniqueIssuedCustomers.length === 0}
+                  className="ui-btn-secondary mt-3 inline-flex items-center gap-2 px-5 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  <FileText className="h-4 w-4" aria-hidden />
+                  Reprint letters
+                </button>
+                <button
+                  type="button"
                   onClick={finish}
                   className="ui-btn-secondary mt-3 px-5 py-2 text-[10px] font-black uppercase tracking-widest"
                 >
@@ -933,10 +949,28 @@ function LoyaltyBatchRedeemDialog({
                       This card will load ${singleRewardAmount}
                     </p>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      The customer letter prints after the last available reward card for this customer is issued.
+                      Letters print when each customer is completed. Print labels after one or more customers have issued cards.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => printBatchLetterForCustomer(current, currentIssuedRows)}
+                      disabled={busy || currentIssuedRows.length === 0}
+                      className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                    >
+                      <FileText className="h-4 w-4" aria-hidden />
+                      Print letter
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => printMailingLabels(uniqueIssuedCustomers)}
+                      disabled={busy || uniqueIssuedCustomers.length === 0}
+                      className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                    >
+                      <Printer className="h-4 w-4" aria-hidden />
+                      Print labels
+                    </button>
                     <button
                       type="button"
                       onClick={moveNext}
@@ -997,7 +1031,7 @@ function EligibleList({
   const { backofficeHeaders } = useBackofficeAuth();
   const [customers, setCustomers] = useState<LoyaltyEligibleCustomer[]>([]);
   const [loading, setLoading] = useState(false);
-  const [redeemCustomer, setRedeemCustomer] = useState<LoyaltyEligibleCustomer | null>(null);
+  const [singleBatchCustomer, setSingleBatchCustomer] = useState<LoyaltyEligibleCustomer | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
 
@@ -1028,6 +1062,7 @@ function EligibleList({
     () => customers.filter((customer) => selectedIds.has(customer.id)),
     [customers, selectedIds],
   );
+  const batchCustomers = singleBatchCustomer ? [singleBatchCustomer] : selectedCustomers;
 
   const toggleSelected = (customerId: string) => {
     setSelectedIds((current) => {
@@ -1078,7 +1113,10 @@ function EligibleList({
             {selectedCustomers.length > 0 && settings && (
               <button
                 type="button"
-                onClick={() => setBatchOpen(true)}
+                onClick={() => {
+                  setSingleBatchCustomer(null);
+                  setBatchOpen(true);
+                }}
                 className="ui-btn-primary flex items-center gap-2 px-4 py-2 shadow-sm"
               >
                 <Award className="h-4 w-4" />
@@ -1194,7 +1232,10 @@ function EligibleList({
                        <div data-testid="loyalty-eligible-actions" className="flex items-center gap-2 justify-end">
                          <button
                            type="button"
-                           onClick={() => setRedeemCustomer(c)}
+                           onClick={() => {
+                             setSingleBatchCustomer(c);
+                             setBatchOpen(true);
+                           }}
                            disabled={!settings}
 	                           className="flex min-h-11 items-center gap-3 rounded-2xl border-b-4 border-emerald-800 bg-emerald-600 px-6 text-sm font-black text-white shadow-2xl shadow-emerald-500/20 transition-all hover:brightness-110 active:scale-95"
                          >
@@ -1220,26 +1261,20 @@ function EligibleList({
 
       {settings && (
         <>
-          <LoyaltyRedeemDialog
-            isOpen={redeemCustomer !== null}
-            customer={redeemCustomer}
-            rewardAmountRaw={settings.loyalty_reward_amount}
-            pointThreshold={settings.loyalty_point_threshold}
-            getAuthHeaders={backofficeHeaders}
-            onClose={() => setRedeemCustomer(null)}
-            onSuccess={() => {
-              void load();
-              void onRedeemSuccess();
-            }}
-          />
           <LoyaltyBatchRedeemDialog
             isOpen={batchOpen}
-            customers={selectedCustomers}
+            customers={batchCustomers}
             settings={settings}
             getAuthHeaders={backofficeHeaders}
-            onClose={() => setBatchOpen(false)}
+            onClose={() => {
+              setBatchOpen(false);
+              setSingleBatchCustomer(null);
+            }}
             onFinished={() => {
-              setSelectedIds(new Set());
+              if (!singleBatchCustomer) {
+                setSelectedIds(new Set());
+              }
+              setSingleBatchCustomer(null);
               void load();
               void onRedeemSuccess();
             }}

@@ -1,6 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CreditCard, Gift, RefreshCw, X, TrendingUp, Wallet, BadgeDollarSign, Megaphone } from "lucide-react";
+import { CreditCard, Gift, RefreshCw, X, TrendingUp, Wallet, BadgeDollarSign, Megaphone, ScanLine } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
@@ -311,6 +311,9 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const [showVoidConfirm, setShowVoidConfirm] = useState<string | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [scannedCard, setScannedCard] = useState<GiftCardRow | null>(null);
+  const [scanCode, setScanCode] = useState("");
+  const [scanBusy, setScanBusy] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<GiftCardEventRow[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const { toast } = useToast();
@@ -367,10 +370,11 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
 
   useEffect(() => {
     if (!selectedCardId) return;
+    if (scannedCard?.id === selectedCardId) return;
     if (!cards.some((card) => card.id === selectedCardId)) {
       setSelectedCardId(null);
     }
-  }, [cards, selectedCardId]);
+  }, [cards, scannedCard, selectedCardId]);
 
   useEffect(() => {
     if (!selectedCardId) {
@@ -423,7 +427,34 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
     }
   };
 
-  const selectedCard = cards.find((card) => card.id === selectedCardId) ?? null;
+  const lookupScannedCard = async () => {
+    const code = scanCode.trim();
+    if (!code) {
+      toast("Scan or enter a gift card code.", "error");
+      return;
+    }
+    setScanBusy(true);
+    try {
+      const res = await fetch(`${BASE}/api/gift-cards/code/${encodeURIComponent(code)}`, {
+        headers: backofficeHeaders(),
+      });
+      if (!res.ok) throw new Error("Gift card not found.");
+      const card = (await res.json()) as GiftCardRow;
+      setScannedCard(card);
+      setSelectedCardId(card.id);
+      setScanCode("");
+      toast(`Opened gift card ${card.code}.`, "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Gift card lookup failed.", "error");
+    } finally {
+      setScanBusy(false);
+    }
+  };
+
+  const selectedCard =
+    scannedCard?.id === selectedCardId
+      ? scannedCard
+      : cards.find((card) => card.id === selectedCardId) ?? null;
 
   if (activeSection === "issue-donated" || activeSection === "issue-promo") {
     return (
@@ -547,6 +578,42 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                 />
                 Open cards only
               </label>
+            </div>
+            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-app-accent/10 text-app-accent ring-1 ring-app-accent/20">
+                    <ScanLine className="h-4 w-4" aria-hidden />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Scan gift card
+                    </p>
+                    <p className="text-xs font-semibold text-app-text-muted">
+                      Scan or type a card code to open its balance and activity.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex min-w-0 flex-1 gap-2 lg:max-w-xl">
+                  <input
+                    value={scanCode}
+                    onChange={(event) => setScanCode(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void lookupScannedCard();
+                    }}
+                    className="ui-input min-w-0 flex-1 font-mono text-sm font-black uppercase tracking-[0.12em]"
+                    placeholder="Scan or type card code..."
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void lookupScannedCard()}
+                    disabled={scanBusy}
+                    className="ui-btn-secondary shrink-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                  >
+                    {scanBusy ? "Opening..." : "Open"}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
