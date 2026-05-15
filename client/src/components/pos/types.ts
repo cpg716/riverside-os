@@ -279,11 +279,16 @@ export type GiftCardLoadLineMeta = {
 
 export interface PosShipToForm {
   name: string;
+  company?: string;
   street1: string;
+  street2?: string;
   city: string;
   state: string;
   zip: string;
   country: string;
+  phone?: string;
+  email?: string;
+  is_residential?: boolean;
 }
 
 export interface PosShippingSelection {

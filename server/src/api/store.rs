@@ -40,7 +40,11 @@ pub struct StoreShippingRatesBody {
     pub to_address: shippo::ShippingAddressInput,
     #[serde(default)]
     pub parcel: Option<shippo::ParcelInput>,
-    /// When true, use demo rates only. Default **false**: live Shippo runs when Settings + `SHIPPO_API_TOKEN` allow (else server falls back to stub).
+    #[serde(default)]
+    pub parcels: Option<Vec<shippo::ParcelInput>>,
+    #[serde(default)]
+    pub customs_declaration_object_id: Option<String>,
+    /// When true, use demo rates only. Default **false**: live Shippo runs when Settings + `SHIPPO_API_TOKEN` allow.
     #[serde(default)]
     pub force_stub: bool,
 }
@@ -54,6 +58,8 @@ async fn post_store_shipping_rates(
         &state.http_client,
         &body.to_address,
         body.parcel.as_ref(),
+        body.parcels.as_deref(),
+        body.customs_declaration_object_id.as_deref(),
         body.force_stub,
     )
     .await?;

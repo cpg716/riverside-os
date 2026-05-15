@@ -31,6 +31,10 @@ pub struct RatesQuery {
 pub struct RatesBody {
     #[serde(default)]
     pub parcel: Option<ParcelInput>,
+    #[serde(default)]
+    pub parcels: Option<Vec<ParcelInput>>,
+    #[serde(default)]
+    pub customs_declaration_object_id: Option<String>,
 }
 
 async fn list_shipments_handler(
@@ -90,6 +94,8 @@ async fn post_rates(
         &state.http_client,
         id,
         body.parcel.as_ref(),
+        body.parcels.as_deref(),
+        body.customs_declaration_object_id.as_deref(),
         q.force_stub,
         staff.id,
     )
@@ -121,6 +127,22 @@ async fn post_purchase_label(
     let purchased = purchase_shipment_label(&state.db, &state.http_client, id, staff.id).await?;
     Ok(Json(
         serde_json::to_value(purchased).unwrap_or_else(|_| json!({})),
+    ))
+}
+
+async fn post_refund_label(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ShipmentsApiError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_MANAGE)
+        .await
+        .map_err(map_perm)?;
+    let refund =
+        crate::logic::shipment::refund_shipment_label(&state.db, &state.http_client, id, staff.id)
+            .await?;
+    Ok(Json(
+        serde_json::to_value(refund).unwrap_or_else(|_| json!({})),
     ))
 }
 
@@ -229,5 +251,6 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/rates", post(post_rates))
         .route("/{id}/apply-quote", post(post_apply_quote))
         .route("/{id}/purchase-label", post(post_purchase_label))
+        .route("/{id}/refund-label", post(post_refund_label))
         .route("/{id}/notes", post(post_note))
 }

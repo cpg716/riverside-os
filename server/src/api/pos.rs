@@ -174,6 +174,10 @@ pub struct PosShippingRatesBody {
     pub to_address: shippo::ShippingAddressInput,
     #[serde(default)]
     pub parcel: Option<shippo::ParcelInput>,
+    #[serde(default)]
+    pub parcels: Option<Vec<shippo::ParcelInput>>,
+    #[serde(default)]
+    pub customs_declaration_object_id: Option<String>,
     /// When false (default), live Shippo may run if configured in Settings + env.
     #[serde(default)]
     pub force_stub: bool,
@@ -200,6 +204,8 @@ async fn post_pos_shipping_rates(
         &state.http_client,
         &body.to_address,
         body.parcel.as_ref(),
+        body.parcels.as_deref(),
+        body.customs_declaration_object_id.as_deref(),
         body.force_stub,
     )
     .await?;

@@ -16,22 +16,32 @@ export interface PosShippingSelection {
 
 export interface PosShipToForm {
   name: string;
+  company?: string;
   street1: string;
+  street2?: string;
   city: string;
   state: string;
   zip: string;
   country: string;
+  phone?: string;
+  email?: string;
+  is_residential?: boolean;
 }
 
 function emptyForm(): PosShipToForm {
-  return {
-    name: "",
-    street1: "",
-    city: "",
-    state: "",
-    zip: "",
-    country: "US",
-  };
+    return {
+      name: "",
+      company: "",
+      street1: "",
+      street2: "",
+      city: "",
+      state: "",
+      zip: "",
+      country: "US",
+      phone: "",
+      email: "",
+      is_residential: false,
+    };
 }
 
 function decimalToCents(v: unknown): number {
@@ -116,18 +126,25 @@ export default function PosShippingModal({
         first_name?: string | null;
         last_name?: string | null;
         address_line1?: string | null;
+        address_line2?: string | null;
         city?: string | null;
         state?: string | null;
         postal_code?: string | null;
+        phone_primary?: string | null;
+        phone?: string | null;
+        email?: string | null;
       };
       const nm = [d.first_name, d.last_name].filter(Boolean).join(" ").trim();
       setForm((f) => ({
         ...f,
         name: nm || f.name,
         street1: (d.address_line1 ?? "").trim() || f.street1,
+        street2: (d.address_line2 ?? "").trim() || f.street2,
         city: (d.city ?? "").trim() || f.city,
         state: (d.state ?? "").trim() || f.state,
         zip: (d.postal_code ?? "").trim() || f.zip,
+        phone: (d.phone_primary ?? d.phone ?? "").trim() || f.phone,
+        email: (d.email ?? "").trim() || f.email,
       }));
       toast("Address filled from customer profile", "info");
     } catch {
@@ -150,11 +167,16 @@ export default function PosShippingModal({
         body: JSON.stringify({
           to_address: {
             name: form.name.trim(),
+            company: form.company?.trim() || undefined,
             street1: form.street1.trim(),
+            street2: form.street2?.trim() || undefined,
             city: form.city.trim(),
             state: form.state.trim(),
             zip: form.zip.trim(),
             country: form.country.trim() || "US",
+            phone: form.phone?.trim() || undefined,
+            email: form.email?.trim() || undefined,
+            is_residential: !!form.is_residential,
           },
           force_stub: false,
         }),
@@ -298,12 +320,32 @@ export default function PosShippingModal({
             </label>
             <label className="col-span-full block space-y-1">
               <span className="text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                Street
+                Company
+              </span>
+              <input
+                className="ui-input w-full text-sm"
+                value={form.company ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))}
+              />
+            </label>
+            <label className="col-span-full block space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                Street 1
               </span>
               <input
                 className="ui-input w-full text-sm"
                 value={form.street1}
                 onChange={(e) => setForm((f) => ({ ...f, street1: e.target.value }))}
+              />
+            </label>
+            <label className="col-span-full block space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                Street 2
+              </span>
+              <input
+                className="ui-input w-full text-sm"
+                value={form.street2 ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, street2: e.target.value }))}
               />
             </label>
             <label className="block space-y-1">
@@ -335,6 +377,38 @@ export default function PosShippingModal({
                 value={form.zip}
                 onChange={(e) => setForm((f) => ({ ...f, zip: e.target.value }))}
               />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                Phone
+              </span>
+              <input
+                className="ui-input w-full text-sm"
+                value={form.phone ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                Email
+              </span>
+              <input
+                type="email"
+                className="ui-input w-full text-sm"
+                value={form.email ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              />
+            </label>
+            <label className="col-span-full flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              <input
+                type="checkbox"
+                className="rounded border-app-border"
+                checked={!!form.is_residential}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, is_residential: e.target.checked }))
+                }
+              />
+              Residential destination
             </label>
           </div>
 

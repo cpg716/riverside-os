@@ -7,6 +7,7 @@ import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 interface ShippoAddressFields {
   name: string;
+  company?: string | null;
   street1: string;
   street2?: string | null;
   city: string;
@@ -14,6 +15,8 @@ interface ShippoAddressFields {
   zip: string;
   country: string;
   phone: string;
+  email?: string | null;
+  is_residential?: boolean | null;
 }
 
 interface DefaultParcel {
@@ -53,6 +56,7 @@ export default function ShippoSettingsPanel({
   const { toast } = useToast();
   const [settings, setSettings] = useState<ShippoSettingsResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -112,6 +116,36 @@ export default function ShippoSettingsPanel({
       toast("Shipping settings are unavailable right now.", "error");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const testConnection = async () => {
+    if (testBusy) return;
+    setTestBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/shippo/test-connection`, {
+        method: "POST",
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        object_id?: string | null;
+        is_complete?: boolean | null;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast(j.error ?? "Shippo connection test failed", "error");
+        return;
+      }
+      toast(
+        j.is_complete === false
+          ? "Shippo answered, but the origin address needs review."
+          : "Shippo connection verified",
+        j.is_complete === false ? "info" : "success",
+      );
+    } catch {
+      toast("Shippo connection test is unavailable right now.", "error");
+    } finally {
+      setTestBusy(false);
     }
   };
 
@@ -195,6 +229,15 @@ export default function ShippoSettingsPanel({
             >
               <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
               Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => void testConnection()}
+              disabled={testBusy}
+              className="ui-btn-secondary inline-flex min-h-11 items-center gap-2 px-4 py-2 text-sm font-bold disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {testBusy ? "Testing..." : "Test connection"}
             </button>
           </div>
         </div>
@@ -291,6 +334,7 @@ export default function ShippoSettingsPanel({
           <div className="grid gap-4 md:grid-cols-2">
             {[
               ["name", "Sender / location name"],
+              ["company", "Company"],
               ["street1", "Street 1"],
               ["street2", "Street 2"],
               ["city", "City"],
@@ -298,6 +342,7 @@ export default function ShippoSettingsPanel({
               ["zip", "ZIP"],
               ["country", "Country"],
               ["phone", "Phone"],
+              ["email", "Email"],
             ].map(([key, label]) => (
               <label key={key} className="block">
 	                <span className="mb-2 ml-1 block text-xs font-bold text-app-text-muted">
@@ -323,6 +368,25 @@ export default function ShippoSettingsPanel({
               </label>
             ))}
           </div>
+          <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3">
+            <input
+              type="checkbox"
+              className="rounded border-app-border"
+              checked={!!settings.from_address.is_residential}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  from_address: {
+                    ...settings.from_address,
+                    is_residential: e.target.checked,
+                  },
+                })
+              }
+            />
+            <span className="text-xs font-bold text-app-text-muted">
+              Origin is a residential address
+            </span>
+          </label>
         </section>
 
         <section className="space-y-4 rounded-2xl border border-app-border bg-app-surface p-6">

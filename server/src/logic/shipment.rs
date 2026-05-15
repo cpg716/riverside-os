@@ -341,6 +341,8 @@ pub async fn fetch_rates_for_shipment(
     http: &reqwest::Client,
     shipment_id: Uuid,
     parcel_override: Option<&ParcelInput>,
+    parcels_override: Option<&[ParcelInput]>,
+    customs_declaration_object_id: Option<&str>,
     force_stub: bool,
     staff_id: Uuid,
 ) -> Result<StoreShippingRatesResult, ShipmentError> {
@@ -351,7 +353,16 @@ pub async fn fetch_rates_for_shipment(
     addr.validate()?;
 
     let _ = shippo::prune_expired_rate_quotes(pool).await;
-    let res = shippo::store_shipping_rates(pool, http, &addr, parcel_override, force_stub).await?;
+    let res = shippo::store_shipping_rates(
+        pool,
+        http,
+        &addr,
+        parcel_override,
+        parcels_override,
+        customs_declaration_object_id,
+        force_stub,
+    )
+    .await?;
 
     let mut tx = pool.begin().await?;
     append_event_tx(
@@ -598,6 +609,44 @@ pub async fn purchase_shipment_label(
 
     tx.commit().await?;
     Ok(purchased)
+}
+
+pub async fn refund_shipment_label(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    shipment_id: Uuid,
+    staff_id: Uuid,
+) -> Result<shippo::ShippoRefundResult, ShipmentError> {
+    let row = get_shipment_detail(pool, shipment_id)
+        .await?
+        .ok_or(ShipmentError::NotFound)?;
+    let transaction_id = row
+        .shippo_transaction_object_id
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| {
+            ShipmentError::InvalidPayload(
+                "no Shippo label transaction is available to refund".to_string(),
+            )
+        })?;
+
+    let refund = shippo::request_label_refund(http, transaction_id).await?;
+    let mut tx = pool.begin().await?;
+    append_event_tx(
+        &mut tx,
+        shipment_id,
+        "label_refund_requested",
+        "Requested unused label refund through Shippo.",
+        json!({
+            "shippo_refund_object_id": refund.object_id,
+            "shippo_refund_status": refund.status,
+            "shippo_transaction_object_id": refund.transaction,
+        }),
+        Some(staff_id),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(refund)
 }
 
 #[derive(Debug, Deserialize)]

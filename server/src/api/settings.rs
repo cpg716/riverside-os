@@ -1237,6 +1237,22 @@ async fn patch_shippo_settings(
     Ok(Json(shippo_settings_response(&current)))
 }
 
+async fn test_shippo_connection(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<crate::logic::shippo::ShippoConnectionTestResult>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let raw: Value = sqlx::query_scalar("SELECT shippo_config FROM store_settings WHERE id = 1")
+        .fetch_one(&state.db)
+        .await?;
+    let cfg = StoreShippoConfig::load_from_json(raw);
+    let result =
+        crate::logic::shippo::test_shippo_connection(&state.http_client, &cfg.from_address)
+            .await
+            .map_err(|e| SettingsError::InvalidPayload(e.to_string()))?;
+    Ok(Json(result))
+}
+
 /// Max UTF-8 bytes for `store_settings.staff_sop_markdown` (≈128 KiB).
 const MAX_STAFF_SOP_MARKDOWN_BYTES: usize = 131_072;
 
@@ -2030,6 +2046,7 @@ pub fn router() -> Router<AppState> {
             "/shippo",
             get(get_shippo_settings).patch(patch_shippo_settings),
         )
+        .route("/shippo/test-connection", post(test_shippo_connection))
         .route(
             "/podium-sms",
             get(get_podium_sms_settings).patch(patch_podium_sms_settings),

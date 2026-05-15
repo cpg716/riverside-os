@@ -38,13 +38,14 @@ Live rates run only when the store enables them **and** the token is present (se
 
 | Prefix / route | Permission / gate | Role |
 |----------------|-------------------|------|
-| **`POST /api/store/shipping/rates`** | Public storefront | Web cart: quote shipping; body `to_address`, optional `parcel`, optional `force_stub` (default **false** = try live Shippo when Settings + token allow). **`/shop/cart`** collects the address, calls this endpoint, and lets the shopper pick a **`rate_quote_id`** (shown in the order estimate; payment binding is a later phase). |
+| **`POST /api/store/shipping/rates`** | Public storefront | Web cart: quote shipping; body `to_address`, optional `parcel`, optional `force_stub` (default **false** = use live Shippo when Settings require live rates; live-provider failures do **not** silently fall back to demo rates). **`/shop/cart`** collects the address, calls this endpoint, and lets the shopper pick a **`rate_quote_id`** (shown in the order estimate; payment binding is a later phase). |
 | **`POST /api/pos/shipping/rates`** | Staff **or** open POS register session | Register: quote before/during checkout. |
 | **`GET /api/shipments`**, **`POST /api/shipments`** | **`shipments.view`** / **`shipments.manage`** | List (optional **`customer_id`**, open-only filters); create **manual** shipment. |
 | **`GET /api/shipments/{id}`** | **`shipments.view`** | Detail + **`events`** timeline. |
 | **`PATCH /api/shipments/{id}`** | **`shipments.manage`** | Status, tracking, notes (writes **`shipment_event`**). |
-| **`POST /api/shipments/{id}/rates`** | **`shipments.manage`** | Shippo rates for that registry row (`force_stub` query optional). |
+| **`POST /api/shipments/{id}/rates`** | **`shipments.manage`** | Shippo rates for that registry row (`force_stub` query optional; demo rates only when explicitly requested or live rates are not enabled). |
 | **`POST /api/shipments/{id}/apply-quote`** | **`shipments.manage`** | Consumes a **`store_shipping_rate_quote`** row by id. |
+| **`POST /api/shipments/{id}/purchase-label`** | **`shipments.manage`** | Buys a Shippo label from the applied live rate, then persists tracking, label URL, Shippo transaction id, and event history. |
 | **`POST /api/shipments/{id}/notes`** | **`shipments.manage`** | Staff note → event. |
 
 Implementation: **`server/src/api/shipments.rs`**, **`server/src/logic/shipment.rs`**, **`server/src/api/pos.rs`**, **`server/src/api/store.rs`**.

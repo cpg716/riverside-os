@@ -26,7 +26,7 @@ Use the Shipments Hub to manage packed-but-not-delivered orders, tracking number
 ## Actions
 - **Fulfillment Queue**: View all orders waiting to be packed and shipped.
 - **Assign Tracking**: Enter tracking numbers for parcels.
-- **Print Labels**: (Future Integration) Quick links to Shippo for label printing.
+- **Buy / Open Labels**: Apply a live Shippo rate, buy the label, then open the generated label PDF from the shipment detail panel.
 - **Status Management**: Mark shipments as "Shipped" or "Delivered" to keep customers informed.
 
 ## Accessing the Hub

@@ -36,7 +36,7 @@ Shipping **requires** a linked customer profile. Use the **Customer Selector** t
 3. The **Ship this Sale** window will open.
     - **Use customer address**: Quickly pull the saved address from the CRM.
     - **Edit address**: Manually enter a one-time delivery address for this order.
-4. Tap **Get shipping rates**. The system will fetch live carrier pricing (USPS, UPS, FedEx) or demo rates if configured.
+4. Tap **Get shipping rates**. The system will fetch live carrier pricing (USPS, UPS, FedEx) when Shippo live rates are enabled. Demo rates are shown only when live rates are not enabled.
 5. Select the desired rate and tap **Apply shipping to sale**.
 
 ### Fulfillment & Payment Rules

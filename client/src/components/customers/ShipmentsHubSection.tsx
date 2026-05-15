@@ -111,6 +111,7 @@ export default function ShipmentsHubSection({
   >([]);
   const [ratesBusy, setRatesBusy] = useState(false);
   const [labelPurchaseBusy, setLabelPurchaseBusy] = useState(false);
+  const [labelRefundBusy, setLabelRefundBusy] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [statusDraft, setStatusDraft] = useState("");
   const [trackDraft, setTrackDraft] = useState("");
@@ -118,11 +119,16 @@ export default function ShipmentsHubSection({
   const [newCustomerId, setNewCustomerId] = useState("");
   const [newForm, setNewForm] = useState({
     name: "",
+    company: "",
     street1: "",
+    street2: "",
     city: "",
     state: "",
     zip: "",
     country: "US",
+    phone: "",
+    email: "",
+    is_residential: false,
   });
   const { dialogRef, titleId } = useDialogAccessibility(newOpen, {
     onEscape: () => setNewOpen(false),
@@ -331,6 +337,36 @@ export default function ShipmentsHubSection({
     }
   }, [apiAuth, baseUrl, canManage, detailId, loadList, openDetail, toast]);
 
+  const refundShippoLabel = useCallback(async () => {
+    if (!detailId || !canManage) return;
+    setLabelRefundBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/shipments/${encodeURIComponent(detailId)}/refund-label`,
+        { method: "POST", headers: { ...apiAuth() } },
+      );
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        status?: string | null;
+      };
+      if (!res.ok) {
+        toast(j.error ?? "Label refund request failed", "error");
+        return;
+      }
+      toast(
+        j.status
+          ? `Unused label refund requested: ${j.status}`
+          : "Unused label refund requested",
+        "success",
+      );
+      void openDetail(detailId);
+    } catch {
+      toast("Network error", "error");
+    } finally {
+      setLabelRefundBusy(false);
+    }
+  }, [apiAuth, baseUrl, canManage, detailId, openDetail, toast]);
+
   const saveNote = useCallback(async () => {
     if (!detailId || !canManage || !noteDraft.trim()) return;
     try {
@@ -411,11 +447,16 @@ export default function ShipmentsHubSection({
           customer_id: newCustomerId.trim() || null,
           ship_to: {
             name: newForm.name.trim(),
+            company: newForm.company.trim() || undefined,
             street1: newForm.street1.trim(),
+            street2: newForm.street2.trim() || undefined,
             city: newForm.city.trim(),
             state: newForm.state.trim(),
             zip: newForm.zip.trim(),
             country: newForm.country.trim() || "US",
+            phone: newForm.phone.trim() || undefined,
+            email: newForm.email.trim() || undefined,
+            is_residential: newForm.is_residential,
           },
         }),
       });
@@ -432,11 +473,16 @@ export default function ShipmentsHubSection({
       setNewCustomerId("");
       setNewForm({
         name: "",
+        company: "",
         street1: "",
+        street2: "",
         city: "",
         state: "",
         zip: "",
         country: "US",
+        phone: "",
+        email: "",
+        is_residential: false,
       });
       void loadList();
       if (j.shipment_id) void openDetail(j.shipment_id);
@@ -794,6 +840,9 @@ export default function ShipmentsHubSection({
                       sh.shippo_transaction_object_id ?? "",
                     ).trim();
                     const labelUrl = String(sh.shipping_label_url ?? "").trim();
+                    const refundRequested = detail.events.some(
+                      (ev) => ev.kind === "label_refund_requested",
+                    );
                     if (!rateRef && !labelUrl && !txId) return null;
                     return (
                       <div className="space-y-2 rounded-lg border border-sky-500/30 bg-sky-500/5 p-2">
@@ -829,6 +878,27 @@ export default function ShipmentsHubSection({
                               ? "Purchasing…"
                               : "Buy label"}
                           </button>
+                        ) : null}
+                        {txId ? (
+                          <div className="space-y-1.5 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2">
+                            <p className="text-[10px] leading-relaxed text-app-text-muted">
+                              {refundRequested
+                                ? "A refund request is already logged for this label."
+                                : "Use refund only for an unused label. Shippo decides whether the carrier accepts the refund."}
+                            </p>
+                            <button
+                              type="button"
+                              disabled={labelRefundBusy || refundRequested}
+                              onClick={() => void refundShippoLabel()}
+                              className="w-full rounded-xl border border-amber-500/40 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-700 hover:bg-amber-500/10 disabled:opacity-50"
+                            >
+                              {refundRequested
+                                ? "Refund request logged"
+                                : labelRefundBusy
+                                  ? "Requesting..."
+                                  : "Request unused-label refund"}
+                            </button>
+                          </div>
                         ) : null}
                         {!rateRef && !txId ? (
                           <p className="text-[10px] text-app-text-muted">
@@ -925,18 +995,37 @@ export default function ShipmentsHubSection({
                     setNewCustomerId(c.id);
                     setNewForm((f) => {
                       const cAddr = c as unknown as {
+                        company?: string | null;
                         street1?: string | null;
+                        street2?: string | null;
+                        address_line1?: string | null;
+                        address_line2?: string | null;
                         city?: string | null;
                         state?: string | null;
                         zip?: string | null;
+                        postal_code?: string | null;
+                        phone?: string | null;
+                        email?: string | null;
                       };
                       return {
                         ...f,
                         name: f.name || `${c.first_name} ${c.last_name}`.trim(),
-                        street1: f.street1 || cAddr.street1 || "",
+                        company: f.company || cAddr.company || "",
+                        street1:
+                          f.street1 ||
+                          cAddr.street1 ||
+                          cAddr.address_line1 ||
+                          "",
+                        street2:
+                          f.street2 ||
+                          cAddr.street2 ||
+                          cAddr.address_line2 ||
+                          "",
                         city: f.city || cAddr.city || "",
                         state: f.state || cAddr.state || "",
-                        zip: f.zip || cAddr.zip || "",
+                        zip: f.zip || cAddr.zip || cAddr.postal_code || "",
+                        phone: f.phone || cAddr.phone || "",
+                        email: f.email || cAddr.email || "",
                       };
                     });
                   }}
@@ -964,12 +1053,32 @@ export default function ShipmentsHubSection({
                 />
               </label>
               <label className="col-span-2 block text-[10px] font-bold uppercase text-app-text-muted">
-                Street
+                Company
+                <input
+                  className="ui-input mt-1 w-full text-xs"
+                  value={newForm.company}
+                  onChange={(e) =>
+                    setNewForm((f) => ({ ...f, company: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="col-span-2 block text-[10px] font-bold uppercase text-app-text-muted">
+                Street 1
                 <input
                   className="ui-input mt-1 w-full text-xs"
                   value={newForm.street1}
                   onChange={(e) =>
                     setNewForm((f) => ({ ...f, street1: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="col-span-2 block text-[10px] font-bold uppercase text-app-text-muted">
+                Street 2
+                <input
+                  className="ui-input mt-1 w-full text-xs"
+                  value={newForm.street2}
+                  onChange={(e) =>
+                    setNewForm((f) => ({ ...f, street2: e.target.value }))
                   }
                 />
               </label>
@@ -1012,6 +1121,41 @@ export default function ShipmentsHubSection({
                     setNewForm((f) => ({ ...f, country: e.target.value }))
                   }
                 />
+              </label>
+              <label className="block text-[10px] font-bold uppercase text-app-text-muted">
+                Phone
+                <input
+                  className="ui-input mt-1 w-full text-xs"
+                  value={newForm.phone}
+                  onChange={(e) =>
+                    setNewForm((f) => ({ ...f, phone: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="block text-[10px] font-bold uppercase text-app-text-muted">
+                Email
+                <input
+                  type="email"
+                  className="ui-input mt-1 w-full text-xs"
+                  value={newForm.email}
+                  onChange={(e) =>
+                    setNewForm((f) => ({ ...f, email: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="col-span-2 flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-bold uppercase text-app-text-muted">
+                <input
+                  type="checkbox"
+                  className="rounded border-app-border"
+                  checked={newForm.is_residential}
+                  onChange={(e) =>
+                    setNewForm((f) => ({
+                      ...f,
+                      is_residential: e.target.checked,
+                    }))
+                  }
+                />
+                Residential destination
               </label>
             </div>
             <div className="mt-4 flex justify-end gap-2">

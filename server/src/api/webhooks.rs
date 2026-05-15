@@ -2,7 +2,7 @@
 
 use axum::{
     body::Bytes,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::post,
@@ -17,7 +17,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::api::AppState;
 use crate::logic::corecard;
@@ -29,6 +29,179 @@ use crate::logic::podium_webhook::{
 };
 
 const HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES: i64 = 10;
+const SHIPPO_WEBHOOK_SIGNATURE_HEADER: &str = "shippo-auth-signature";
+
+fn verify_shippo_webhook(
+    headers: &HeaderMap,
+    body: &[u8],
+    token_param: Option<&str>,
+) -> StatusCode {
+    let Some(secret) = crate::logic::shippo::shippo_webhook_secret_from_env() else {
+        return StatusCode::SERVICE_UNAVAILABLE;
+    };
+
+    if let Some(sig_header) = headers
+        .get(SHIPPO_WEBHOOK_SIGNATURE_HEADER)
+        .and_then(|v| v.to_str().ok())
+    {
+        let mut timestamp: Option<&str> = None;
+        let mut signature: Option<&str> = None;
+        for part in sig_header.split(',') {
+            let mut pieces = part.trim().splitn(2, '=');
+            match (pieces.next(), pieces.next()) {
+                (Some("t"), Some(value)) => timestamp = Some(value),
+                (Some("v1"), Some(value)) => signature = Some(value),
+                _ => {}
+            }
+        }
+        let Some(timestamp) = timestamp else {
+            return StatusCode::BAD_REQUEST;
+        };
+        let Some(signature) = signature else {
+            return StatusCode::BAD_REQUEST;
+        };
+        let Ok(provided) = hex::decode(signature) else {
+            return StatusCode::BAD_REQUEST;
+        };
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac key");
+        mac.update(format!("{timestamp}.").as_bytes());
+        mac.update(body);
+        let expected = mac.finalize().into_bytes();
+        if expected.as_slice().ct_eq(provided.as_slice()).into() {
+            return StatusCode::OK;
+        }
+        return StatusCode::UNAUTHORIZED;
+    }
+
+    match token_param {
+        Some(token) if token.as_bytes().ct_eq(secret.as_bytes()).into() => StatusCode::OK,
+        Some(_) => StatusCode::UNAUTHORIZED,
+        None => StatusCode::BAD_REQUEST,
+    }
+}
+
+fn shippo_tracking_status_to_ros(status: Option<&str>) -> Option<&'static str> {
+    match status.unwrap_or("").trim().to_ascii_uppercase().as_str() {
+        "DELIVERED" => Some("delivered"),
+        "TRANSIT" | "PRE_TRANSIT" | "UNKNOWN" => Some("in_transit"),
+        "FAILURE" | "RETURNED" => Some("exception"),
+        _ => None,
+    }
+}
+
+async fn post_shippo_webhook(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let verify = verify_shippo_webhook(
+        &headers,
+        body.as_ref(),
+        params.get("token").map(String::as_str),
+    );
+    if verify != StatusCode::OK {
+        tracing::warn!(target = "shippo_webhook", status = %verify, "shippo webhook verification failed");
+        return verify.into_response();
+    }
+
+    let payload: Value = match serde_json::from_slice(body.as_ref()) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(target = "shippo_webhook", error = %error, "invalid shippo webhook json");
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+    };
+    let event = payload.get("event").and_then(|v| v.as_str()).unwrap_or("");
+    let data = payload.get("data").unwrap_or(&payload);
+    let transaction_id = data
+        .get("transaction")
+        .or_else(|| data.get("object_id"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let tracking_number = data
+        .get("tracking_number")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let status = data
+        .get("tracking_status")
+        .and_then(|v| v.get("status"))
+        .and_then(|v| v.as_str());
+    let ros_status = shippo_tracking_status_to_ros(status);
+
+    let row: Option<(Uuid,)> = match (transaction_id, tracking_number) {
+        (Some(tx), _) => {
+            sqlx::query_as(
+                "SELECT id FROM shipment WHERE shippo_transaction_object_id = $1 LIMIT 1",
+            )
+            .bind(tx)
+            .fetch_optional(&state.db)
+            .await
+        }
+        (None, Some(tracking)) => {
+            sqlx::query_as("SELECT id FROM shipment WHERE tracking_number = $1 LIMIT 1")
+                .bind(tracking)
+                .fetch_optional(&state.db)
+                .await
+        }
+        _ => Ok(None),
+    }
+    .unwrap_or_else(|error| {
+        tracing::error!(target = "shippo_webhook", error = %error, "shippo webhook lookup failed");
+        None
+    });
+
+    let Some((shipment_id,)) = row else {
+        tracing::info!(
+            target = "shippo_webhook",
+            event,
+            "shippo webhook had no matching ROS shipment"
+        );
+        return Json(json!({ "ok": true, "matched": false })).into_response();
+    };
+
+    let update_result = sqlx::query(
+        r#"
+        UPDATE shipment
+        SET
+            status = COALESCE($2::shipment_status, status),
+            tracking_number = COALESCE($3, tracking_number),
+            updated_at = NOW()
+        WHERE id = $1
+        "#,
+    )
+    .bind(shipment_id)
+    .bind(ros_status)
+    .bind(tracking_number)
+    .execute(&state.db)
+    .await;
+    if let Err(error) = update_result {
+        tracing::error!(target = "shippo_webhook", error = %error, "shippo webhook update failed");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    let _ = sqlx::query(
+        r#"
+        INSERT INTO shipment_event (shipment_id, kind, message, metadata)
+        VALUES ($1, 'shippo_webhook', $2, $3)
+        "#,
+    )
+    .bind(shipment_id)
+    .bind(format!("Shippo webhook received: {event}"))
+    .bind(serde_json::json!({
+        "event": event,
+        "tracking_status": status,
+        "tracking_number": tracking_number,
+        "transaction": transaction_id,
+        "payload": payload,
+    }))
+    .execute(&state.db)
+    .await;
+
+    Json(json!({ "ok": true, "matched": true, "shipment_id": shipment_id })).into_response()
+}
 
 async fn post_podium_webhook(
     State(state): State<AppState>,
@@ -972,11 +1145,14 @@ pub fn router() -> Router<AppState> {
         .route("/podium", post(post_podium_webhook))
         .route("/card-events", post(post_helcim_webhook))
         .route("/helcim", post(post_helcim_webhook))
+        .route("/shippo", post(post_shippo_webhook))
         .route("/corecard", post(post_corecard_webhook))
 }
 
 pub fn integrations_router() -> Router<AppState> {
-    Router::new().route("/corecard/webhooks", post(post_corecard_webhook))
+    Router::new()
+        .route("/corecard/webhooks", post(post_corecard_webhook))
+        .route("/shippo/webhook", post(post_shippo_webhook))
 }
 
 #[cfg(test)]
