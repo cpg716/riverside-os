@@ -183,14 +183,14 @@ export default function PodiumMessagingInboxSection({
               ? "Podium inbox could not refresh"
               : rows.length > 0
                 ? "No conversations match this view"
-                : "No Podium conversations yet"}
+                : "No ROS-synced Podium conversations yet"}
           </p>
           <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
             {loadError
               ? "Retry is safe. Do not treat the inbox as empty until refresh succeeds."
               : rows.length > 0
                 ? "Clear the search or switch channels to see the remaining synced conversations."
-              : "New inbound messages and replies will land here after the first synced customer conversation."}
+                : "This view only shows Podium messages that reached Riverside OS through webhooks or replies sent from ROS. If Podium has live conversations but this stays empty, verify Podium webhook delivery in Settings."}
           </p>
         </div>
       ) : (

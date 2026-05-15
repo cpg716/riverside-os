@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Archive,
@@ -165,6 +165,8 @@ export default function MailboxOperationsSection({
   const [showRecipientSuggestions, setShowRecipientSuggestions] = useState(false);
   const [folderFilter, setFolderFilter] = useState<FolderFilter>("ALL");
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const composeSectionRef = useRef<HTMLElement | null>(null);
+  const composeBodyRef = useRef<HTMLTextAreaElement | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -327,6 +329,7 @@ export default function MailboxOperationsSection({
     setDraftSubject(replySubject(row.subject));
     setDraftBody("");
     setReplyToMessageId(row.id);
+    focusComposer();
   };
 
   const startForward = (row: MailboxRow) => {
@@ -346,6 +349,14 @@ export default function MailboxOperationsSection({
         preview,
       ].join("\n"),
     );
+    focusComposer();
+  };
+
+  const focusComposer = () => {
+    window.setTimeout(() => {
+      composeSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      composeBodyRef.current?.focus();
+    }, 0);
   };
 
   const updateMessageState = async (
@@ -512,7 +523,7 @@ export default function MailboxOperationsSection({
         })}
       </section>
 
-      <section className="rounded-xl border border-app-border bg-app-surface p-4">
+      <section ref={composeSectionRef} className="rounded-xl border border-app-border bg-app-surface p-4">
         <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
           <Send className="h-3.5 w-3.5" aria-hidden />
           Quick email
@@ -577,6 +588,7 @@ export default function MailboxOperationsSection({
               Message
             </span>
             <textarea
+              ref={composeBodyRef}
               value={draftBody}
               onChange={(event) => setDraftBody(event.target.value)}
               className="ui-input min-h-10 w-full resize-y px-3 py-2 text-sm"
