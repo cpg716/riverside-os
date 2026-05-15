@@ -172,7 +172,7 @@ async function expectOrderLoadedInRegister(
 ) {
   await expect(page.getByText("Customer Orders", { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(order.displayId).first()).toBeVisible();
-  await page.getByRole("button", { name: /view lines/i }).first().click();
+  await page.getByRole("button", { name: /view order details|view lines/i }).first().click();
   await expect(page.getByText(order.productName).first()).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: /close customer orders/i }).click();
 }

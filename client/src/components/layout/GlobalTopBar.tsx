@@ -197,8 +197,8 @@ export default function GlobalTopBar({
         {/* Dynamic Slot Region */}
         <div
           className={cn(
-            "hidden items-center border-r border-app-border empty:hidden 2xl:flex",
-            isPosVariant ? "gap-2 px-3" : "gap-4 px-4",
+            "hidden items-center border-r border-app-border empty:hidden",
+            isPosVariant ? "gap-2 px-3 xl:flex" : "gap-4 px-4 2xl:flex",
           )}
         >
           {slotContent}
