@@ -16,7 +16,7 @@ pub struct LoyaltyReceiptData {
 }
 
 use crate::api::settings::ReceiptConfig;
-use crate::logic::receipt_shared::{order_status_label, ReceiptOrder};
+use crate::logic::receipt_shared::{order_status_label, receipt_display_ref, ReceiptOrder};
 use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
 const CPL: usize = 42;
@@ -196,14 +196,7 @@ fn kick_cash_drawer(out: &mut Vec<u8>) {
 fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: bool) {
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = d.booked_at.with_timezone(&tz);
-    let order_ref = d
-        .transaction_id
-        .simple()
-        .to_string()
-        .chars()
-        .take(8)
-        .collect::<String>()
-        .to_uppercase();
+    let order_ref = receipt_ref(d);
 
     set_align(out, 1);
     set_bold(out, true);
@@ -329,13 +322,7 @@ fn push_footer(out: &mut Vec<u8>, cfg: &ReceiptConfig) {
 }
 
 fn receipt_ref(d: &ReceiptOrder) -> String {
-    d.transaction_id
-        .simple()
-        .to_string()
-        .chars()
-        .take(8)
-        .collect::<String>()
-        .to_uppercase()
+    receipt_display_ref(d)
 }
 
 fn receipt_date(d: &ReceiptOrder, cfg: &ReceiptConfig) -> String {

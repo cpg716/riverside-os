@@ -4,20 +4,13 @@ use chrono_tz::Tz;
 use rust_decimal::Decimal;
 
 use crate::api::settings::ReceiptConfig;
-use crate::logic::receipt_shared::{order_status_label, ReceiptOrder};
+use crate::logic::receipt_shared::{order_status_label, receipt_display_ref, ReceiptOrder};
 
 /// Gift receipt body for SMS when MMS/HTML is not used: items only, no prices or payment details.
 pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig) -> String {
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
-    let order_ref: String = order
-        .transaction_id
-        .simple()
-        .to_string()
-        .chars()
-        .take(8)
-        .collect::<String>()
-        .to_uppercase();
+    let order_ref = receipt_display_ref(order);
 
     let mut lines: Vec<String> = Vec::new();
     lines.push(cfg.store_name.trim().to_string());
@@ -63,14 +56,7 @@ pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptC
 pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig) -> String {
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
-    let order_ref: String = order
-        .transaction_id
-        .simple()
-        .to_string()
-        .chars()
-        .take(8)
-        .collect::<String>()
-        .to_uppercase();
+    let order_ref = receipt_display_ref(order);
 
     let mut lines: Vec<String> = Vec::new();
     lines.push(cfg.store_name.trim().to_string());

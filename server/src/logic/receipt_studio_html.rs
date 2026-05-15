@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_privacy;
-use crate::logic::receipt_shared::{order_status_label, ReceiptOrder};
+use crate::logic::receipt_shared::{order_status_label, receipt_display_ref, ReceiptOrder};
 
 fn html_escape(s: &str) -> String {
     s.chars()
@@ -92,14 +92,7 @@ pub fn render_standard_receipt_html(
 ) -> String {
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
-    let order_ref = order
-        .transaction_id
-        .simple()
-        .to_string()
-        .chars()
-        .take(8)
-        .collect::<String>()
-        .to_uppercase();
+    let order_ref = receipt_display_ref(order);
     let customer = order
         .customer
         .as_ref()
@@ -206,14 +199,7 @@ pub fn merge_receipt_studio_html(
     let mut out = template.to_string();
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
-    let order_ref = order
-        .transaction_id
-        .simple()
-        .to_string()
-        .chars()
-        .take(8)
-        .collect::<String>()
-        .to_uppercase();
+    let order_ref = receipt_display_ref(order);
     let customer = order
         .customer
         .as_ref()
@@ -327,6 +313,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
 
     ReceiptOrder {
         transaction_id: Uuid::nil(),
+        transaction_display_id: "TXN-66736".to_string(),
         booked_at: Utc::now(),
         status: DbOrderStatus::Open,
         subtotal_price: Decimal::new(19950, 2),

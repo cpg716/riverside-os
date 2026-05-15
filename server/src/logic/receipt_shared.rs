@@ -48,6 +48,7 @@ pub struct ReceiptPaymentApplication {
 #[derive(Debug, Clone)]
 pub struct ReceiptOrder {
     pub transaction_id: Uuid,
+    pub transaction_display_id: String,
     pub booked_at: DateTime<Utc>,
     pub status: DbOrderStatus,
     pub subtotal_price: Decimal,
@@ -67,4 +68,19 @@ pub struct ReceiptOrder {
     pub cashier_name: Option<String>,
     /// Primary salesperson display name, masked as First + Last Initial.
     pub salesperson_display_name: Option<String>,
+}
+
+pub fn receipt_display_ref(order: &ReceiptOrder) -> String {
+    let display_id = order.transaction_display_id.trim();
+    if !display_id.is_empty() {
+        return display_id.to_string();
+    }
+    order
+        .transaction_id
+        .simple()
+        .to_string()
+        .chars()
+        .take(8)
+        .collect::<String>()
+        .to_uppercase()
 }

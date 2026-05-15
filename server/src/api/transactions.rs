@@ -459,6 +459,7 @@ impl TransactionDetailResponse {
 
         Ok(receipt_shared::ReceiptOrder {
             transaction_id: self.transaction_id,
+            transaction_display_id: self.transaction_display_id.clone(),
             booked_at: self.booked_at,
             status: self.status,
             subtotal_price,
