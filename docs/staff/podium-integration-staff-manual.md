@@ -43,7 +43,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 1. Sign in with a role that can open **Settings** → **Integrations**.
 2. Open **Podium (SMS + web chat)**.
 3. Check the **readiness** strip: credentials, webhook (IT), **location UID** filled in, and **Send operational SMS** / **email** toggles as your SOP requires.
-4. If the card says **credentials missing**, an admin can save or update the Podium credentials in this Settings screen. Use **Connect Podium** only after the app credentials are saved and the redirect URI is registered in Podium.
+4. If the card says **credentials missing**, an admin can save or update the Podium credentials in this Settings screen. Use **Authorize via Podium Portal** / **Connect Podium** only after both **Client ID** and **Client Secret** are saved and the redirect URI is registered in Podium.
 
 ### Admin: change pickup or alteration message wording
 
@@ -117,6 +117,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
 | **403 / no Podium card** | Sign in as admin or ask for **settings.admin** | Manager adjusts role |
+| **Podium page says "Client ID is required"** | Return to Settings, confirm **Client ID** is saved, and start authorization again from the Podium card | Manager / IT checks the saved credentials and redirect URI |
 | **No Messages tab** | Confirm **Relationship Hub** access | [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md) |
 | **Send failed / Podium unavailable** | Readiness + toggles + location UID | Manager / IT |
 | **Automated SMS never fires** | Customer **opt-in** + valid phone + template not empty | Admin + [Podium_Integration_Manual.md](Podium_Integration_Manual.md) |

@@ -54,9 +54,9 @@ POS and Back Office may use **merged staff + register** headers on some routes s
 
 Podium needs **OAuth app** credentials and a **refresh token** saved securely on the server. Routine credential setup now happens in **Back Office → Settings → Integrations → Podium**. The only credential-related environment setup admins should not manage in the UI is the root encryption key (`RIVERSIDE_CREDENTIALS_KEY`, with `QBO_TOKEN_ENC_KEY` only as a transitional fallback).
 
-1. Confirm the credentials card shows the required values as **Saved**. If missing, an admin can enter or update them in this Settings screen.
+1. Confirm the credentials card shows **Client ID** and **Client Secret** as **Saved**. If missing, an admin can enter or update them in this Settings screen.
 2. Register the **redirect URI** from the screen in Podium’s developer app. It must match **exactly** (including `http` vs `https`). For local dev, a tunnel or `VITE_PODIUM_OAUTH_REDIRECT_URI` on the client may be required if Podium only allows HTTPS.
-3. Click **Connect Podium (get refresh token)** (or connect again to refresh). Complete Podium’s login/consent flow; Riverside exchanges the code for tokens server-side.
+3. Click **Authorize via Podium Portal** / **Connect Podium (get refresh token)** (or connect again to refresh). Riverside asks the server to build the authorization URL with the saved Client ID, then Podium handles login/consent and Riverside exchanges the code for tokens server-side.
 
 If anything fails, use the **readiness** strip (credentials, webhook secret, API base, toggles) before calling Podium support.
 
@@ -195,7 +195,8 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 
 | Symptom | Things to check |
 |---------|----------------|
-| **Connect Podium** fails | Redirect URI mismatch; HTTPS vs HTTP; client override `VITE_PODIUM_OAUTH_REDIRECT_URI`; Podium app client id/secret. |
+| **Connect Podium** fails | Redirect URI mismatch; HTTPS vs HTTP; client override `VITE_PODIUM_OAUTH_REDIRECT_URI`; Podium app Client ID / Client Secret. |
+| **Podium page says "Client ID is required"** | The authorization URL did not include a Client ID. Return to Settings, confirm Client ID is saved, and start authorization again from the Podium card. |
 | **No SMS** | `sms_send_enabled`, location UID, credentials, customer phone, SMS opt-in, template not empty when required. |
 | **No email** | `email_send_enabled`, location UID, customer email, and server logs for Podium delivery errors. |
 | **502 / Podium unavailable** in UI | Server logs; Podium status; token refresh; API base override. |
