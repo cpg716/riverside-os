@@ -28,9 +28,9 @@ use crate::logic::nuorder::{NuorderClient, NuorderCredentials};
 use crate::logic::nuorder_sync;
 use crate::logic::podium::{
     build_podium_oauth_authorize_url_for_base, exchange_podium_oauth_authorization_code,
-    podium_effective_rest_api_base, validate_podium_oauth_redirect_uri,
-    validate_podium_oauth_state, PodiumEnvCredentials, PodiumOAuthAppCredentials,
-    PodiumSmsSettingsResponse, StorePodiumSmsConfig,
+    podium_effective_rest_api_base, podium_oauth_app_credential_status, podium_oauth_client_id,
+    validate_podium_oauth_redirect_uri, validate_podium_oauth_state, PodiumEnvCredentials,
+    PodiumOAuthAppCredentials, PodiumSmsSettingsResponse, StorePodiumSmsConfig,
 };
 use crate::logic::podium_reviews::{self, StoreReviewPolicy};
 use crate::logic::podium_webhook::{
@@ -1626,7 +1626,18 @@ async fn get_podium_oauth_authorize_url(
             "state must be non-empty, at most 200 chars, [A-Za-z0-9_-]".to_string(),
         ));
     }
-    let Some(app) = PodiumOAuthAppCredentials::load(&state.db).await else {
+    let status = podium_oauth_app_credential_status(&state.db).await;
+    if !status.client_id_configured {
+        return Err(SettingsError::InvalidPayload(
+            "Podium client ID is not configured".to_string(),
+        ));
+    }
+    if !status.client_secret_configured {
+        return Err(SettingsError::InvalidPayload(
+            "Podium client secret is not configured. Save it before authorizing so Riverside can finish the Podium callback.".to_string(),
+        ));
+    }
+    let Some(client_id) = podium_oauth_client_id(&state.db).await else {
         return Err(SettingsError::InvalidPayload(
             "Podium client ID is not configured".to_string(),
         ));
@@ -1635,7 +1646,7 @@ async fn get_podium_oauth_authorize_url(
     let api_base = podium_effective_rest_api_base(&state.db).await;
     let url = build_podium_oauth_authorize_url_for_base(
         api_base.as_str(),
-        app.client_id.as_str(),
+        client_id.as_str(),
         q.redirect_uri.trim(),
         q.state.trim(),
         scope,

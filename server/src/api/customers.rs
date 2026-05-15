@@ -76,6 +76,7 @@ use crate::logic::wedding_party_display::SQL_PARTY_TRACKING_LABEL_WP;
 use crate::middleware;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
+use std::collections::HashSet;
 
 const RMS_CHARGE_REPORT_TO_R2S: &str = "rms_charge.report_to_r2s";
 const RMS_ACCOUNT_LIST_PREVIEW_MAX_BYTES: usize = 10 * 1024 * 1024;
@@ -156,6 +157,8 @@ impl IntoResponse for CustomerError {
 const CUSTOMER_LIFECYCLE_ACTIVE_DAYS: i64 = 90;
 const ADDRESS_LOOKUP_MIN_QUERY_LEN: usize = 4;
 const ADDRESS_LOOKUP_MAX_RESULTS: usize = 5;
+const ADDRESS_LOOKUP_PROVIDER_LIMIT: usize = 10;
+const ADDRESS_LOOKUP_RADIUS_METERS: &str = "120000";
 const ADDRESS_LOOKUP_STORE_LAT: &str = "42.9056";
 const ADDRESS_LOOKUP_STORE_LON: &str = "-78.7048";
 const GEOAPIFY_ADDRESS_LOOKUP_URL: &str = "https://api.geoapify.com/v1/geocode/autocomplete";
@@ -180,6 +183,10 @@ struct AddressSuggestion {
     source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     shippo_validated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    postal_code_corrected: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,6 +239,24 @@ struct GeoapifyAddressResult {
     country_code: Option<String>,
     #[serde(default)]
     result_type: Option<String>,
+    #[serde(default)]
+    housenumber: Option<String>,
+    #[serde(default)]
+    street: Option<String>,
+    #[serde(default)]
+    distance: Option<f64>,
+    #[serde(default)]
+    rank: Option<GeoapifyRank>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeoapifyRank {
+    #[serde(default)]
+    confidence: Option<f64>,
+    #[serde(default)]
+    confidence_street_level: Option<f64>,
+    #[serde(default)]
+    confidence_city_level: Option<f64>,
 }
 
 fn title_case_address(value: &str) -> String {
@@ -330,7 +355,120 @@ async fn geoapify_api_key_from_settings(
         .filter(|s| !s.is_empty()))
 }
 
-fn map_geoapify_result(result: GeoapifyAddressResult, index: usize) -> Option<AddressSuggestion> {
+struct ScoredAddressSuggestion {
+    score: i32,
+    suggestion: AddressSuggestion,
+}
+
+fn leading_house_number(query: &str) -> Option<String> {
+    let digits: String = query
+        .trim_start()
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect();
+    if digits.is_empty() {
+        None
+    } else {
+        Some(digits)
+    }
+}
+
+fn postal_code_in_query(query: &str) -> Option<String> {
+    query
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .find(|part| part.len() == 5 && part.chars().all(|ch| ch.is_ascii_digit()))
+        .map(str::to_string)
+}
+
+fn geoapify_local_score(result: &GeoapifyAddressResult, query: &str) -> i32 {
+    let mut score = 0;
+    let state = result
+        .state_code
+        .as_deref()
+        .or(result.state.as_deref())
+        .map(normalize_us_state)
+        .unwrap_or_default();
+    if state == "NY" {
+        score += 40;
+    } else {
+        score -= 30;
+    }
+
+    let result_type = result.result_type.as_deref().unwrap_or_default();
+    match result_type {
+        "building" | "amenity" => score += 45,
+        "street" => score -= 25,
+        "postcode" | "city" | "county" | "state" | "country" => score -= 80,
+        _ => {}
+    }
+
+    let expected_house_number = leading_house_number(query);
+    let result_house_number = result.housenumber.as_deref().map(str::trim);
+    match (expected_house_number.as_deref(), result_house_number) {
+        (Some(expected), Some(actual)) if actual == expected => score += 80,
+        (Some(_), Some(_)) => score += 15,
+        (Some(_), None) => score -= 70,
+        (None, Some(_)) => score += 20,
+        (None, None) => {}
+    }
+    if result
+        .street
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        score += 10;
+    }
+
+    if let Some(expected_postal) = postal_code_in_query(query) {
+        if result.postcode.as_deref().map(str::trim) == Some(expected_postal.as_str()) {
+            score += 80;
+        } else {
+            score -= 60;
+        }
+    }
+
+    if let Some(county) = result
+        .county
+        .as_deref()
+        .map(|value| value.to_ascii_lowercase())
+    {
+        if ["erie", "genesee", "niagara", "wyoming", "orleans", "monroe"]
+            .iter()
+            .any(|local| county.contains(local))
+        {
+            score += 15;
+        }
+    }
+
+    if let Some(distance) = result.distance {
+        if distance <= 30_000.0 {
+            score += 20;
+        } else if distance <= 80_000.0 {
+            score += 10;
+        } else {
+            score -= 15;
+        }
+    }
+
+    if let Some(rank) = result.rank.as_ref() {
+        let confidence = rank
+            .confidence
+            .or(rank.confidence_street_level)
+            .or(rank.confidence_city_level)
+            .unwrap_or(0.0);
+        score += (confidence.clamp(0.0, 1.0) * 25.0).round() as i32;
+    }
+
+    score
+}
+
+fn map_geoapify_result(
+    result: GeoapifyAddressResult,
+    index: usize,
+    query: &str,
+) -> Option<ScoredAddressSuggestion> {
     if !matches!(result.country_code.as_deref(), Some(code) if code.eq_ignore_ascii_case("US")) {
         return None;
     }
@@ -356,9 +494,17 @@ fn map_geoapify_result(result: GeoapifyAddressResult, index: usize) -> Option<Ad
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
+    let result_type = result.result_type.as_deref().unwrap_or_default();
+    if matches!(
+        result_type,
+        "postcode" | "city" | "county" | "state" | "country"
+    ) {
+        return None;
+    }
     let address_line1 = title_case_address(address_line1);
     let city = title_case_address(city);
     let state = normalize_us_state(state);
+    let score = geoapify_local_score(&result, query);
     let label = result
         .formatted
         .as_deref()
@@ -367,22 +513,27 @@ fn map_geoapify_result(result: GeoapifyAddressResult, index: usize) -> Option<Ad
         .map(str::to_string)
         .unwrap_or_else(|| format!("{address_line1}, {city}, {state} {postal_code}"));
 
-    Some(AddressSuggestion {
-        id: result
-            .place_id
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| format!("geoapify-{index}")),
-        label,
-        address_line1,
-        city,
-        state,
-        postal_code: postal_code.to_string(),
-        country: Some("US".to_string()),
-        source: result
-            .result_type
-            .map(|value| format!("geoapify:{value}"))
-            .or_else(|| Some("geoapify".to_string())),
-        shippo_validated: None,
+    Some(ScoredAddressSuggestion {
+        score,
+        suggestion: AddressSuggestion {
+            id: result
+                .place_id
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| format!("geoapify-{index}")),
+            label,
+            address_line1,
+            city,
+            state,
+            postal_code: postal_code.to_string(),
+            country: Some("US".to_string()),
+            source: result
+                .result_type
+                .map(|value| format!("geoapify:{value}"))
+                .or_else(|| Some("geoapify".to_string())),
+            shippo_validated: None,
+            source_postal_code: None,
+            postal_code_corrected: None,
+        },
     })
 }
 
@@ -1210,8 +1361,11 @@ async fn get_address_suggestions(
                 "Geoapify address lookup is not configured.".to_string(),
             )
         })?;
-    let limit = ADDRESS_LOOKUP_MAX_RESULTS.to_string();
+    let limit = ADDRESS_LOOKUP_PROVIDER_LIMIT.to_string();
     let bias = format!("proximity:{ADDRESS_LOOKUP_STORE_LON},{ADDRESS_LOOKUP_STORE_LAT}");
+    let filter = format!(
+        "circle:{ADDRESS_LOOKUP_STORE_LON},{ADDRESS_LOOKUP_STORE_LAT},{ADDRESS_LOOKUP_RADIUS_METERS}|countrycode:us"
+    );
     let res = state
         .http_client
         .get(GEOAPIFY_ADDRESS_LOOKUP_URL)
@@ -1221,7 +1375,7 @@ async fn get_address_suggestions(
             ("limit", limit.as_str()),
             ("lang", "en"),
             ("format", "json"),
-            ("filter", "countrycode:us"),
+            ("filter", filter.as_str()),
             ("bias", bias.as_str()),
             ("apiKey", api_key.as_str()),
         ])
@@ -1252,11 +1406,27 @@ async fn get_address_suggestions(
         ));
     };
 
-    let suggestions = body
+    let mut seen = HashSet::new();
+    let mut suggestions = body
         .results
         .into_iter()
         .enumerate()
-        .filter_map(|(index, result)| map_geoapify_result(result, index))
+        .filter_map(|(index, result)| map_geoapify_result(result, index, query))
+        .filter(|scored| {
+            let key = format!(
+                "{}|{}|{}|{}",
+                scored.suggestion.address_line1.to_ascii_lowercase(),
+                scored.suggestion.city.to_ascii_lowercase(),
+                scored.suggestion.state.to_ascii_uppercase(),
+                scored.suggestion.postal_code
+            );
+            seen.insert(key)
+        })
+        .collect::<Vec<_>>();
+    suggestions.sort_by(|a, b| b.score.cmp(&a.score));
+    let suggestions = suggestions
+        .into_iter()
+        .map(|scored| scored.suggestion)
         .take(ADDRESS_LOOKUP_MAX_RESULTS)
         .collect();
 
@@ -1348,8 +1518,10 @@ async fn post_address_validation(
     let address_line1 = title_case_address(&normalized.street1);
     let city = title_case_address(&normalized.city);
     let state = normalize_us_state(&normalized.state);
-    let postal_code = normalized.zip.trim().to_string();
-    let label = format!("{address_line1}, {city}, {state} {postal_code}");
+    let source_postal_code = postal_code.to_string();
+    let normalized_postal_code = normalized.zip.trim().to_string();
+    let postal_code_corrected = !source_postal_code.eq_ignore_ascii_case(&normalized_postal_code);
+    let label = format!("{address_line1}, {city}, {state} {normalized_postal_code}");
 
     Ok(Json(AddressSuggestion {
         id: validated.object_id.unwrap_or_else(|| label.clone()),
@@ -1357,10 +1529,16 @@ async fn post_address_validation(
         address_line1,
         city,
         state,
-        postal_code,
+        postal_code: normalized_postal_code,
         country: Some(normalized.country),
-        source: Some("shippo".to_string()),
+        source: Some(if postal_code_corrected {
+            "shippo:postal_corrected".to_string()
+        } else {
+            "shippo".to_string()
+        }),
         shippo_validated: Some(true),
+        source_postal_code: Some(source_postal_code).filter(|_| postal_code_corrected),
+        postal_code_corrected: Some(postal_code_corrected).filter(|value| *value),
     }))
 }
 

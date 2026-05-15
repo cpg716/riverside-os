@@ -45,6 +45,10 @@ interface PodiumReadiness {
   email_send_enabled: boolean;
 }
 
+interface PodiumAuthorizeUrlResponse {
+  authorize_url: string;
+}
+
 interface PodiumSettingsPanelProps {
   baseUrl: string;
 }
@@ -132,15 +136,36 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
 
   const startPodiumOAuthConnect = async () => {
     if (!podiumSms) return;
+    const redirectUri = getPodiumOAuthRedirectUri();
+    if (!redirectUri) {
+      toast("Podium callback URL is unavailable in this browser session.", "error");
+      return;
+    }
     const state = crypto.randomUUID();
-    sessionStorage.setItem(PODIUM_OAUTH_STATE_STORAGE_KEY, state);
-    sessionStorage.setItem(PODIUM_OAUTH_REDIRECT_STORAGE_KEY, window.location.pathname + window.location.search);
-    
-    const url = new URL(podiumSms.oauth_authorize_url);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("state", state);
-    url.searchParams.set("redirect_uri", getPodiumOAuthRedirectUri() ?? "");
-    window.location.href = url.toString();
+    const params = new URLSearchParams({
+      redirect_uri: redirectUri,
+      state,
+    });
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/podium-oauth/authorize-url?${params}`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(j.error ?? "Podium authorization is not ready yet.", "error");
+        return;
+      }
+      const body = (await res.json()) as PodiumAuthorizeUrlResponse;
+      if (!body.authorize_url) {
+        toast("Podium authorization URL was not returned.", "error");
+        return;
+      }
+      sessionStorage.setItem(PODIUM_OAUTH_STATE_STORAGE_KEY, state);
+      sessionStorage.setItem(PODIUM_OAUTH_REDIRECT_STORAGE_KEY, window.location.pathname + window.location.search);
+      window.location.href = body.authorize_url;
+    } catch {
+      toast("Could not start Podium authorization.", "error");
+    }
   };
 
   if (!podiumSms) {

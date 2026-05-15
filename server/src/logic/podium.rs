@@ -255,6 +255,31 @@ impl PodiumOAuthAppCredentials {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PodiumOAuthAppCredentialStatus {
+    pub client_id_configured: bool,
+    pub client_secret_configured: bool,
+}
+
+pub async fn podium_oauth_app_credential_status(pool: &PgPool) -> PodiumOAuthAppCredentialStatus {
+    let values = load_podium_credential_values(pool).await;
+    PodiumOAuthAppCredentialStatus {
+        client_id_configured: credential_value(&values, "client_id", "RIVERSIDE_PODIUM_CLIENT_ID")
+            .is_some(),
+        client_secret_configured: credential_value(
+            &values,
+            "client_secret",
+            "RIVERSIDE_PODIUM_CLIENT_SECRET",
+        )
+        .is_some(),
+    }
+}
+
+pub async fn podium_oauth_client_id(pool: &PgPool) -> Option<String> {
+    let values = load_podium_credential_values(pool).await;
+    credential_value(&values, "client_id", "RIVERSIDE_PODIUM_CLIENT_ID")
+}
+
 /// OAuth client credentials from encrypted Settings credentials, falling back to env (never logged).
 #[derive(Debug, Clone)]
 pub struct PodiumEnvCredentials {

@@ -14,6 +14,8 @@ export interface AddressSuggestion {
   country?: string | null;
   source?: string | null;
   shippo_validated?: boolean | null;
+  source_postal_code?: string | null;
+  postal_code_corrected?: boolean | null;
 }
 
 interface AddressAutocompleteInputProps {
@@ -58,6 +60,7 @@ export default function AddressAutocompleteInput({
   const [open, setOpen] = useState(false);
   const [lookupFailed, setLookupFailed] = useState(false);
   const [validationFailed, setValidationFailed] = useState(false);
+  const [validationNotice, setValidationNotice] = useState("");
   const [lookupComplete, setLookupComplete] = useState(false);
   const blurTimerRef = useRef<number | null>(null);
   const trimmedValue = value.trim();
@@ -80,6 +83,7 @@ export default function AddressAutocompleteInput({
         try {
           const params = new URLSearchParams({ q: trimmedValue });
           setValidationFailed(false);
+          setValidationNotice("");
           const res = await fetch(
             `${baseUrl}/api/customers/address-suggestions?${params.toString()}`,
             {
@@ -120,6 +124,7 @@ export default function AddressAutocompleteInput({
     if (readOnly || trimmedValue.length < MIN_LOOKUP_LENGTH) return "";
     if (validating) return "Validating selected address with Shippo...";
     if (busy) return `Searching addresses near ${STORE_POSTAL_CODE}...`;
+    if (validationNotice) return validationNotice;
     if (validationFailed) return "Shippo could not validate that address. Manual entry is okay.";
     if (lookupFailed) return "Address lookup unavailable. Manual entry is okay.";
     if (lookupComplete && suggestions.length === 0) return "No suggestions found. Manual entry is okay.";
@@ -134,6 +139,7 @@ export default function AddressAutocompleteInput({
     trimmedValue.length,
     validating,
     validationFailed,
+    validationNotice,
   ]);
 
   const handleBlur = () => {
@@ -149,6 +155,7 @@ export default function AddressAutocompleteInput({
     async (suggestion: AddressSuggestion) => {
       setValidating(true);
       setValidationFailed(false);
+      setValidationNotice("");
       try {
         const res = await fetch(`${baseUrl}/api/customers/address-validation`, {
           method: "POST",
@@ -176,6 +183,11 @@ export default function AddressAutocompleteInput({
           return;
         }
         const validated = (await res.json()) as AddressSuggestion;
+        if (validated.postal_code_corrected && validated.source_postal_code) {
+          setValidationNotice(
+            `Shippo corrected ZIP ${validated.source_postal_code} to ${validated.postal_code}.`,
+          );
+        }
         onSelectAddress(validated);
         setOpen(false);
       } catch {
