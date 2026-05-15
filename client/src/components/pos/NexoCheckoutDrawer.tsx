@@ -346,6 +346,7 @@ function customerTaxExemptReason(taxId?: string | null): string {
 export interface NexoCheckoutDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  registerSessionId?: string | null;
   activeRegisterLane?: number | null;
   amountDueCents: number;
   stateTaxCents: number;
@@ -390,6 +391,7 @@ export interface NexoCheckoutDrawerProps {
 export default function NexoCheckoutDrawer({
   isOpen,
   onClose,
+  registerSessionId = null,
   activeRegisterLane = null,
   amountDueCents,
   stateTaxCents,
@@ -1147,6 +1149,7 @@ export default function NexoCheckoutDrawer({
             amount_cents: amtCents,
             card_token: cardToken,
             currency: "usd",
+            register_session_id: registerSessionId ?? undefined,
             customer_code: code || undefined,
           }),
         });
@@ -1178,6 +1181,7 @@ export default function NexoCheckoutDrawer({
       backofficeHeaders,
       baseUrl,
       customerCode,
+      registerSessionId,
       selectedHelcimCardToken,
       toast,
     ],
@@ -1302,6 +1306,7 @@ export default function NexoCheckoutDrawer({
               amount_cents: Math.abs(amtCents),
               original_transaction_id: originalTransactionId,
               currency: "usd",
+              register_session_id: registerSessionId ?? undefined,
               selected_terminal_key: selectedTerminalKey,
               terminal_override_reason: selectedTerminalNeedsOverride
                 ? `Register #${registerLane ?? "unknown"} selected ${terminalLabel(selectedTerminalKey)}`
@@ -1347,6 +1352,7 @@ export default function NexoCheckoutDrawer({
           body: JSON.stringify({
             amount_cents: amtCents,
             currency: "usd",
+            register_session_id: registerSessionId ?? undefined,
             selected_terminal_key: selectedTerminalKey,
             terminal_override_reason: selectedTerminalNeedsOverride
               ? `Register #${registerLane ?? "unknown"} selected ${terminalLabel(selectedTerminalKey)}`
@@ -1500,7 +1506,7 @@ export default function NexoCheckoutDrawer({
     setGiftCardCode("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard]);
+  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));

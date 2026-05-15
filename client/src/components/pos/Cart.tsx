@@ -2574,6 +2574,7 @@ export default function Cart({
       <NexoCheckoutDrawer
         isOpen={checkoutDrawerOpen}
         onClose={() => setCheckoutDrawerOpen(false)}
+        registerSessionId={sessionId}
         activeRegisterLane={registerLane}
         amountDueCents={totals.totalCents}
         stateTaxCents={totals.stateTaxCents}
