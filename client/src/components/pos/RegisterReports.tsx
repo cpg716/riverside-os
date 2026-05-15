@@ -124,11 +124,20 @@ interface ZReportSnapshot {
   expected_cash?: string;
   actual_cash?: string;
   discrepancy?: string;
+  closing_notes?: string | null;
+  closing_comments?: string | null;
   tenders?: Array<{ payment_method: string; total_amount: string; tx_count: number }>;
   override_summary?: Array<{ reason: string; line_count: number; total_delta: string }>;
   tenders_by_lane?: Array<{
     register_lane: number;
     tenders: Array<{ payment_method: string; total_amount: string; tx_count: number }>;
+  }>;
+  manual_drawer_opens?: Array<{
+    id: string;
+    staff_id: string;
+    staff_name: string;
+    reason: string;
+    created_at: string;
   }>;
   transactions?: Array<{
     created_at: string;
@@ -310,9 +319,12 @@ function openZReportFromSession(session: RegisterSessionRow): void {
     expectedCents: parseMoneyToCents(snapshot?.expected_cash ?? session.expected_cash ?? "0"),
     actualCents: parseMoneyToCents(snapshot?.actual_cash ?? session.actual_cash ?? "0"),
     discrepancyCents: parseMoneyToCents(snapshot?.discrepancy ?? session.discrepancy ?? "0"),
+    closingNotes: snapshot?.closing_notes ?? session.closing_notes ?? null,
+    closingComments: snapshot?.closing_comments ?? session.closing_comments ?? null,
     tenders: snapshot?.tenders ?? [],
     overrideSummary: snapshot?.override_summary ?? [],
     tendersByLane: snapshot?.tenders_by_lane ?? [],
+    manualDrawerOpens: snapshot?.manual_drawer_opens ?? [],
     transactions:
       snapshot?.transactions?.map((transaction) => ({
         created_at: transaction.created_at,

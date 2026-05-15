@@ -996,7 +996,7 @@ export default function InventoryControlBoard({
     const chosenProducts = productRows.filter((r) => selected.has(r.product_id));
     if (chosenProducts.length === 0) return;
     const chosenVariants = chosenProducts.flatMap((p) => p.variant_rows);
-    openInventoryTagsWindow(
+    const printResult = await openInventoryTagsWindow(
       chosenVariants.map((r) => ({
         sku: r.sku,
         productName: r.product_name,
@@ -1022,7 +1022,12 @@ export default function InventoryControlBoard({
       const err = (await res.json().catch(() => ({}))) as { error?: string };
       toast(err.error ?? "We couldn't mark those tags as printed. Please try again.", "error");
     } else {
-      toast("Inventory tags sent to print.", "success");
+      toast(
+        printResult === "direct"
+          ? "Inventory tags sent to the Zebra tag station."
+          : "Inventory tags opened in the browser print fallback.",
+        "success",
+      );
     }
     setSelected(new Set());
     await refreshBoard();
@@ -1044,7 +1049,10 @@ export default function InventoryControlBoard({
         toast("Choose at least one tag to print", "info");
         return;
       }
-      openInventoryTagsWindow(expandedItems, getInventoryTagPrintConfig());
+      const printResult = await openInventoryTagsWindow(
+        expandedItems,
+        getInventoryTagPrintConfig(),
+      );
       const res = await fetch(
         `${baseUrl}/api/products/variants/bulk-mark-shelf-labeled`,
         {
@@ -1064,9 +1072,13 @@ export default function InventoryControlBoard({
         return;
       }
       toast(
-        expandedItems.length === 1
-          ? "Inventory tag sent to print"
-          : `${expandedItems.length} inventory tags sent to print`,
+        printResult === "direct"
+          ? expandedItems.length === 1
+            ? "Inventory tag sent to the Zebra tag station"
+            : `${expandedItems.length} inventory tags sent to the Zebra tag station`
+          : expandedItems.length === 1
+            ? "Inventory tag opened in the browser print fallback"
+            : `${expandedItems.length} inventory tags opened in the browser print fallback`,
         "success",
       );
       setPrintTarget(null);

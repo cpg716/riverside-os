@@ -217,6 +217,15 @@ pub struct CashAdjustmentLine {
 }
 
 #[derive(Debug, Serialize, FromRow)]
+pub struct ManualDrawerOpenLine {
+    pub id: Uuid,
+    pub staff_id: Uuid,
+    pub staff_name: String,
+    pub reason: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
 pub struct OverrideSummaryRow {
     pub reason: String,
     pub line_count: i64,
@@ -236,6 +245,7 @@ pub struct ReconciliationResponse {
     /// Per-lane tender breakdown (Z: each open lane; X: one row).
     pub tenders_by_lane: Vec<TendersByLane>,
     pub cash_adjustments: Vec<CashAdjustmentLine>,
+    pub manual_drawer_opens: Vec<ManualDrawerOpenLine>,
     pub override_summary: Vec<OverrideSummaryRow>,
     pub transactions: Vec<TransactionLine>,
     pub unresolved_helcim_attempts: Vec<HelcimCloseReviewAttempt>,
@@ -298,6 +308,13 @@ pub struct CashAdjustmentRequest {
     pub amount: Decimal,
     pub reason: String,
     pub category: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ManualDrawerOpenRequest {
+    pub cashier_code: String,
+    pub pin: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -428,6 +445,7 @@ pub fn router() -> Router<AppState> {
         .route("/{session_id}/pos-api-token", post(issue_pos_api_token))
         .route("/{session_id}/reconciliation", get(get_reconciliation))
         .route("/{session_id}/adjustments", post(post_cash_adjustment))
+        .route("/{session_id}/drawer-opens", post(post_manual_drawer_open))
         .route("/{session_id}/begin-reconcile", post(begin_reconcile))
         .route("/{session_id}/close", post(close_session))
 }
@@ -1350,6 +1368,25 @@ async fn build_reconciliation(
     .fetch_all(db)
     .await?;
 
+    let manual_drawer_opens: Vec<ManualDrawerOpenLine> = sqlx::query_as(
+        r#"
+        SELECT
+            e.id,
+            e.staff_id,
+            COALESCE(NULLIF(TRIM(s.full_name), ''), s.cashier_code, 'Staff') AS staff_name,
+            e.reason,
+            e.created_at
+        FROM register_drawer_open_events e
+        INNER JOIN staff s ON s.id = e.staff_id
+        WHERE e.session_id = $1
+        ORDER BY e.created_at DESC
+        LIMIT 100
+        "#,
+    )
+    .bind(drawer_session_id)
+    .fetch_all(db)
+    .await?;
+
     let override_summary: Vec<OverrideSummaryRow> = sqlx::query_as(
         r#"
         SELECT
@@ -1495,6 +1532,7 @@ async fn build_reconciliation(
         tenders,
         tenders_by_lane,
         cash_adjustments,
+        manual_drawer_opens,
         override_summary,
         transactions,
         unresolved_helcim_attempts,
@@ -1576,6 +1614,80 @@ async fn post_cash_adjustment(
     tx.commit().await.map_err(SessionError::Database)?;
 
     Ok(Json(json!({ "status": "recorded" })))
+}
+
+async fn post_manual_drawer_open(
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<ManualDrawerOpenRequest>,
+) -> Result<Json<serde_json::Value>, SessionError> {
+    let code = body.cashier_code.trim();
+    let pin = body.pin.trim();
+    if !is_valid_staff_credential(code) || !is_valid_staff_credential(pin) {
+        return Err(SessionError::NotAuthorized(
+            "Invalid staff identity or Access PIN".to_string(),
+        ));
+    }
+
+    let reason = body.reason.trim();
+    if reason.is_empty() {
+        return Err(SessionError::InvalidPayload(
+            "reason is required".to_string(),
+        ));
+    }
+
+    let staff = pins::authenticate_pos_staff(&state.db, code, Some(pin))
+        .await
+        .map_err(|_| SessionError::NotAuthorized("Invalid Access PIN".to_string()))?;
+
+    let mut tx = state.db.begin().await.map_err(SessionError::Database)?;
+
+    let drawer_lane: i16 = sqlx::query_scalar(
+        r#"
+        SELECT register_lane
+        FROM register_sessions
+        WHERE id = $1 AND is_open = true AND lifecycle_status = 'open'
+        FOR UPDATE
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(SessionError::SessionNotFound)?;
+
+    if drawer_lane != 1 {
+        return Err(SessionError::InvalidPayload(
+            "manual drawer opens must be recorded on Register #1 (cash drawer)".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO register_drawer_open_events (session_id, staff_id, reason)
+        VALUES ($1, $2, $3)
+        "#,
+    )
+    .bind(session_id)
+    .bind(staff.id)
+    .bind(reason)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await.map_err(SessionError::Database)?;
+
+    let _ = log_staff_access(
+        &state.db,
+        staff.id,
+        "register_manual_drawer_open",
+        json!({ "session_id": session_id, "reason": reason }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "status": "recorded",
+        "staff_id": staff.id,
+        "staff_name": staff.full_name,
+    })))
 }
 
 async fn begin_reconcile(
@@ -1889,7 +2001,10 @@ async fn close_session(
         "tenders_by_lane": tenders_by_lane_val,
         "transactions": transactions_val,
         "cash_adjustments": recon.cash_adjustments,
+        "manual_drawer_opens": recon.manual_drawer_opens,
         "override_summary": recon.override_summary,
+        "closing_notes": notes_trimmed,
+        "closing_comments": payload.closing_comments.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()),
         "closed_at": Utc::now(),
     });
 

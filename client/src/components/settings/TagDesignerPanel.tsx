@@ -10,7 +10,7 @@ import {
   type InventoryTagItem,
   type InventoryTagPrintConfig,
   getInventoryTagPrintConfig,
-  openInventoryTagsWindow,
+  openInventoryTagsPreviewWindow,
   saveInventoryTagPrintConfig,
 } from "../inventory/labelPrint";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -141,7 +141,7 @@ export default function TagDesignerPanel() {
   };
 
   const handlePreview = () => {
-    openInventoryTagsWindow(SAMPLE_ITEMS, normalizedDraft);
+    openInventoryTagsPreviewWindow(SAMPLE_ITEMS, normalizedDraft);
     toast("Opened a live tag preview in a new window.", "success");
   };
 

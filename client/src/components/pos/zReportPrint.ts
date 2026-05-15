@@ -14,6 +14,12 @@ export interface ZReportOverrideRow {
   total_delta: string;
 }
 
+export interface ZReportManualDrawerOpenRow {
+  staff_name: string;
+  reason: string;
+  created_at: string;
+}
+
 type ZReportAuditItem = {
   name: string;
   sku: string;
@@ -92,10 +98,13 @@ export function openProfessionalZReportPrint(opts: {
   expectedCents: number;
   actualCents: number;
   discrepancyCents: number;
+  closingNotes?: string | null;
+  closingComments?: string | null;
   tenders: ZReportTenderRow[];
   overrideSummary: ZReportOverrideRow[];
   /** Per-lane tender breakdown when multiple registers share one till shift. */
   tendersByLane?: { register_lane: number; tenders: ZReportTenderRow[] }[];
+  manualDrawerOpens?: ZReportManualDrawerOpenRow[];
   /** Optional payment lines for audit trail. */
   transactions?: {
     created_at: string;
@@ -130,6 +139,16 @@ export function openProfessionalZReportPrint(opts: {
       (o) =>
         `<tr><td>${escapeReportHtml(reportLabel(o.reason))}</td><td class="center">${o.line_count}</td><td class="money">${formatReportMoney(o.total_delta)}</td></tr>`,
     )
+    .join("");
+
+  const manualDrawerRows = (opts.manualDrawerOpens ?? [])
+    .map((event) => {
+      const tm = new Date(event.created_at).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      return `<tr><td>${escapeReportHtml(tm)}</td><td>${escapeReportHtml(event.staff_name)}</td><td>${escapeReportHtml(event.reason)}</td></tr>`;
+    })
     .join("");
 
   const byLaneSections =
@@ -197,6 +216,8 @@ export function openProfessionalZReportPrint(opts: {
   const dc = opts.discrepancyCents;
   const statusLabel = dc === 0 ? "BALANCED" : dc < 0 ? "SHORTFALL" : "OVERAGE";
   const statusColor = dc === 0 ? "#059669" : "#dc2626";
+  const closingNotes = opts.closingNotes?.trim();
+  const closingComments = opts.closingComments?.trim();
 
   w.document.write(`<!DOCTYPE html><html><head><title>${opts.title} — ${opts.sessionId}</title>
   <style>
@@ -298,6 +319,24 @@ export function openProfessionalZReportPrint(opts: {
         <thead><tr><th>Reason for Override</th><th style="text-align:center">Occurrences</th><th style="text-align:right">Total Δ Retail</th></tr></thead>
         <tbody>${overrideRows}</tbody>
       </table>
+    </div>
+  ` : ""}
+
+  ${manualDrawerRows ? `
+    <div style="margin-top: 14px; break-inside: avoid;">
+      <h2>Manual Drawer Opens</h2>
+      <table>
+        <thead><tr><th>Time</th><th>Staff</th><th>Reason</th></tr></thead>
+        <tbody>${manualDrawerRows}</tbody>
+      </table>
+    </div>
+  ` : ""}
+
+  ${closingNotes || closingComments ? `
+    <div style="margin-top: 14px; break-inside: avoid;">
+      <h2>Closing Notes</h2>
+      ${closingNotes ? `<p class="stat-label">Internal Shift Notes</p><div style="border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;white-space:pre-wrap;">${escapeReportHtml(closingNotes)}</div>` : ""}
+      ${closingComments ? `<p class="stat-label" style="margin-top:10px;">Closing Comments</p><div style="border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;white-space:pre-wrap;">${escapeReportHtml(closingComments)}</div>` : ""}
     </div>
   ` : ""}
 

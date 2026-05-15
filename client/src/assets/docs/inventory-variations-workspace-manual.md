@@ -43,12 +43,12 @@ Use this workspace when you need to:
 
 - The print button changes meaning based on selection. Check whether it says `Print selected tags` or `Print all tags` before confirming.
 - A quantity of `0` skips a variation even if it was selected.
-- Printing from this workspace uses the same Zebra LP2844 retail price-tag path as Inventory List and Receive Stock.
+- Printing from this workspace uses the same direct Zebra 2844 / LP 2844 retail price-tag path as Inventory List and Receive Stock.
 - If a variation’s price or label looks wrong, correct the product data before printing floor tags.
 
 ## What happens next
 
-- Riverside sends the approved tag batch to the direct print station when available, or opens print preview as a fallback.
+- Riverside sends the approved ZPL tag batch to the configured Zebra station when available, or opens print preview as a fallback.
 - Printed variations are marked as shelf-labeled.
 - You remain in Product Hub so you can keep reviewing stock, pricing, or the next variation subset.
 

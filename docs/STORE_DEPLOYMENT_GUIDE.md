@@ -57,7 +57,7 @@ flowchart TB
 |------|-------------------|--------|
 | **Backoffice / Server PC** | Windows PC running services + optional Tauri | Run PostgreSQL and `riverside-server` here. If you use Shop Host, this is the one Tauri machine that should serve local-network satellite clients. This PC should stay on and be on UPS if possible. |
 | **Register #1** | **Tauri (Windows)** | Separate from the host machine. This is the primary cashier station and the preferred surface for **physical receipt print** from the post-sale flow (see section 6). |
-| **Register #2** | **iPad PWA** | Use the local satellite URL shown by the host when the iPad is in the store. Add to Home Screen and train staff that physical thermal receipts still come from a Windows Tauri station today. |
+| **Register #2** | **iPad PWA** | Use the local satellite URL shown by the host when the iPad is in the store. Add to Home Screen. Network printer dispatch can work when the API host can reach the printer IP; installed-printer dropdowns and local readiness checks require a Windows Tauri station. |
 | **Back office workstation** | Browser or optional Tauri | Same API origin and auth model; optional Tauri if you want a dedicated shell. |
 | **Other Windows PCs / laptops** | **PWA or optional Tauri** | Use a browser-installed PWA for Back Office/POS where hardware printing is not required; use Tauri where native printer/scanner reliability is required. |
 | **Off-site phones / laptops** | **PWA over Tailscale** | Use **Tailscale** (or equivalent private mesh) and **HTTPS** when the device is not on the same local network as the host. Do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
@@ -159,7 +159,7 @@ After first install, desktop station updates are handled in ROS from **Settings 
 - [ ] Confirm the installed Windows app icon is the Riverside logo mark, not the old solid red placeholder.
 - [ ] Launch app and verify **Settings → General → About this build** shows expected app version + API base.
 - [ ] Confirm station reaches API origin and can sign in with staff PIN flow.
-- [ ] Confirm station-specific Printing Hub values are set (receipt/report destinations).
+- [ ] Confirm station-specific **Printers & Scanners** values are set (receipt/tag/report destinations).
 - [ ] Confirm scanner input reaches focused fields as keyboard wedge text.
 - [ ] Execute one supervised smoke flow (open POS, search item, open checkout drawer, cancel safely).
 - [ ] Record station name, install time, artifact version, and installer owner in deployment log.
@@ -215,7 +215,7 @@ After first install, desktop station updates are handled in ROS from **Settings 
 - [ ] Verify tablet shell flow stays comfortable: menu button visible, search bar visible, and status pills readable.
 - [ ] Verify one real operator path relevant to that lane profile (for example customer search, order lookup, or assisted register handoff).
 - [ ] If the lane uses barcode scanning, verify the paired scanner/HID flow on the iPad specifically.
-- [ ] If a receipt is needed, confirm staff understand that physical thermal receipt printing still requires a Windows Tauri station today.
+- [ ] If a receipt is needed, confirm staff understand whether this iPad lane uses server-side network receipt printing or reprints from Register #1.
 
 #### 3.3.1a.1 Register #2 iPad PWA install checklist
 
@@ -225,7 +225,7 @@ After first install, desktop station updates are handled in ROS from **Settings 
 - [ ] Verify customer lookup, item lookup, cart, and checkout drawer fit comfortably on iPad.
 - [ ] Verify paired Bluetooth scanner behaves as keyboard input if this lane scans items.
 - [ ] Complete a supervised low-risk register path according to store policy.
-- [ ] Confirm staff know printed receipts must be reprinted from Register #1 or another Windows Tauri station unless future PWA receipt dispatch is added.
+- [ ] Confirm staff know printed receipts should be handled by the validated receipt path for that lane, with Register #1 reprint as the recovery path.
 
 #### 3.3.1b Local phone smoke (same-network PWA)
 
@@ -303,9 +303,9 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 
 ## 5. Per-station configuration (in-app)
 
-### Printing Hub
+### Printers & Scanners
 
-**Settings → Printing Hub** stores station-local values in the browser/WebView profile:
+**Settings → Printers & Scanners** stores station-local values in the browser/WebView profile:
 
 - Receipt printer: **`ros.hardware.printer.receipt.mode`**, **`.systemName`**, **`.ip`**, **`.port`**.
 - Tag printer: **`ros.hardware.printer.tag.mode`**, **`.systemName`**, **`.ip`**.
@@ -316,7 +316,9 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 - **Tauri:** thermal payloads are sent either to the selected **installed Windows printer** or with **native TCP** from the PC (`printerBridge` → Tauri `invoke` → `client/src-tauri/src/hardware.rs`).
 - **Browser / PWA:** the same module can call **`POST /api/hardware/print`** so the **server** opens TCP to the printer IP (printer must be reachable **from the server** on the network).
 
-Configure each **Register 1** PC with either the installed **Epson receipt printer** selected by name or the Epson printer network address. Preferred setup for Register #1 receipts is **Network address** with a static/DHCP-reserved Epson IP because it keeps ESC/POS receipts and cash drawer kick on the direct receipt-printer path. Use **Installed printer on this PC** for USB printers, report/label printers that rely on Windows driver sizing, or as a fallback if raw network printing is not available.
+Configure each **Register 1** PC with either the installed **Epson TM-m30III receipt printer** selected by name or the Epson printer network address. Preferred setup for Register #1 receipts is **Network address** with a static/DHCP-reserved Epson IP because it keeps ESC/POS receipts and cash drawer kick on the direct receipt-printer path. Use **Installed printer on this PC** for USB printers, report/label printers that rely on Windows driver sizing, or as a fallback if raw network printing is not available.
+
+Configure the **Tag Station** with the installed Zebra 2844 / LP 2844 printer name or a network IP for raw ZPL printing. Inventory tag actions send ZPL directly to this station when available and open the tag preview only as a fallback.
 
 ### 5.1 Station commissioning checklist (go-live required)
 
@@ -327,7 +329,7 @@ Run this on every station before first customer:
 - [ ] Product search and cart interactions respond with expected performance.
 - [ ] Checkout drawer opens and can be dismissed safely.
 - [ ] Help drawer opens from station header/top bar.
-- [ ] Printing Hub values verified and saved.
+- [ ] Printers & Scanners values verified and saved.
 - [ ] One supervised sample transaction (or safe dry run) completed per station class.
 - [ ] Incident/exception notes captured with station ID and owner.
 
@@ -341,7 +343,7 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 |---------|--------|----------------------|
 | Register 1 | **Zebra DS2208** | USB **keyboard wedge (HID)**. Focus the POS search / SKU field; scans appear as typed text. No scanner SDK in the app. |
 | Register 2 | **Zebra CS6080** | Pair to iPad as a **Bluetooth keyboard (HID)** so Safari receives scan data as keystrokes. Program a **suffix** (Enter/Tab) if your workflow needs automatic submit. |
-| Back office | **Zebra LP 2844** | **Shelf / inventory labels:** the app opens a **print layout** and uses the **system print dialog** (`labelPrint.ts`, `@page` **4in × 2.5in**). Install the **Zebra Windows driver**, match **label stock** and driver page size to avoid scaling issues. Tauri and Edge use the same OS print path for this feature. |
+| Back office | **Zebra LP 2844** | **Shelf / inventory tags:** ROS generates ZPL for the Zebra 2844 / LP 2844 at 203 DPI and sends it directly to the configured **Tag Station** by installed printer name or network IP. Browser print preview is a fallback only. |
 | Register 1 | **Epson TM-m30III** (receipts) | Prefer **Network address** with static/DHCP-reserved IP for receipts and cash drawer. Installed-printer mode is available for USB/driver-managed fallback. |
 | Register 2 (iPad) | Receipts | See **subsection 6.2** — current app behavior. |
 | Register lanes using card present | **Helcim Terminal reader(s)** | Used for card-present checkout flow; must be registered to correct location and validated per-lane before go-live. |
@@ -357,7 +359,9 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 #### Report / label printers
 - [ ] Correct Windows/macOS driver installed.
 - [ ] Correct page size/media profile configured.
-- [ ] Test print from report/label workflow passes with no scaling/cropping issues.
+- [ ] Zebra 2844 / LP 2844 tag station selected by installed printer name or saved with the correct network IP.
+- [ ] Test tag print from inventory workflow reaches the Zebra directly; preview fallback is documented for outages.
+- [ ] Test report print passes with no scaling/cropping issues.
 - [ ] Fallback printer routing documented for busy-day contingencies.
 
 #### Scanners
@@ -396,11 +400,9 @@ Work with your installer or Epson docs for the TM-m30III static IP/DHCP reservat
 
 ### 6.2 iPad Register 2 — physical receipt print
 
-[`ReceiptSummaryModal`](../client/src/components/pos/ReceiptSummaryModal.tsx) **requires Tauri** for the Print action: if `isTauri()` is false, it shows an error that **physical printing requires the Riverside OS desktop app**.
+[`ReceiptSummaryModal`](../client/src/components/pos/ReceiptSummaryModal.tsx) uses [`printerBridge`](../client/src/lib/printerBridge.ts) for receipt dispatch. In PWA/browser mode, the receipt can use **server-side network printing** through `POST /api/hardware/print` when the Epson printer IP is reachable from the API host. Installed-printer targets and local readiness checks still require the Riverside desktop app.
 
-So **iPad PWA cannot print a thermal receipt from that button today**, even though `printerBridge` could theoretically use **server-side** print for non-Tauri clients.
-
-**Operational workarounds:** complete the sale on iPad, then **reprint from Register 1** or another **Windows Tauri** station; or treat printed customer copy as optional on that lane until product supports PWA/server receipt dispatch.
+**Operational rule:** keep Register #1 Windows Tauri as the primary receipt and cash-drawer station. Use iPad receipt print only after validating the server can reach the Epson network address, and reprint from Register #1 if the PWA/server print path fails.
 
 ---
 
@@ -444,8 +446,9 @@ So **iPad PWA cannot print a thermal receipt from that button today**, even thou
 
 **Shelf labels (LP 2844)**
 
-1. Confirm the **LP 2844** is the selected printer in the system dialog.
-2. Driver label size vs **4in × 2.5in** layout in the app.
+1. Confirm the **LP 2844** is selected as the saved **Tag Station** installed printer or saved with the correct network IP.
+2. Retry from the inventory tag workflow. Direct ZPL dispatch should print without a system dialog.
+3. If direct dispatch is unavailable, use the preview fallback and verify the Zebra driver/media size before printing.
 
 ---
 

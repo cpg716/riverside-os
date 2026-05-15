@@ -38,7 +38,9 @@ The **Printers & Scanners** panel in the Back Office and the **Terminal Override
 In POS, the same panel opens as **Register Hardware**. It shows the active receipt endpoint, cash drawer mode, and tag station at the top, then provides lane-safe actions for **Check connection**, **Print test**, **Open drawer**, and scanner input testing.
 
 ### Cash Drawer
-Register #1 uses the cash drawer attached to the Epson TM-m30III receipt printer. ROS sends the ESC/POS drawer kick command from the desktop app when the completed sale tender summary contains **CASH** or **CHECK**. Card, gift card, account credit, and other non-cash tenders do not open the drawer. Receipt reprints do not intentionally kick the drawer again. The local toggle is stored as `ros.hardware.cashDrawer.enabled`.
+Register #1 uses the cash drawer attached to the Epson TM-m30III receipt printer. ROS sends the ESC/POS drawer kick command when the completed sale tender summary contains **CASH** or **CHECK**. Card, gift card, account credit, and other non-cash tenders do not open the drawer. Receipt reprints do not intentionally kick the drawer again. The local toggle is stored as `ros.hardware.cashDrawer.enabled`.
+
+The manual **Open drawer** action in POS Register Hardware requires a reason and the acting staff member's **Access PIN** before ROS sends the drawer kick command. The manual open is recorded against the open register session and appears in the Z-report under **Manual Drawer Opens** with the staff member, time, and reason.
 
 ---
 
@@ -51,16 +53,17 @@ The production receipt path is **Standard Epson**: ROS generates a merged Receip
 
 The previous HTML receipt designer is no longer exposed in the active Settings UI. Receipt view, email, and text delivery use the standard receipt renderer when no legacy saved HTML template exists.
 
+### Item Tags
+Inventory tag actions generate Zebra-compatible ZPL for the saved **Tag Station** and dispatch it directly through `autoRoutePrint("tag", ..., "zpl")`. The production tag printer is the Zebra 2844 / LP 2844 class printer at 203 DPI. Staff can choose an installed Zebra printer from the desktop printer dropdown, or configure a network printer IP when the Zebra is reachable over TCP 9100.
+
+If direct dispatch is not available, ROS opens the retail tag preview so staff can use the operating system print dialog as a fallback. The preview path is a recovery path; normal inventory tag printing should go directly from the app to the configured Zebra tag station.
+
 ### Document Auto-Routing
 The `printerBridge.ts` module includes an intelligent dispatcher that resolves the correct station based on document metadata:
 
 ```typescript
-// Example dispatch logic
-await autoRoutePrint({
-  type: "receipt", // Automatically targets the saved Receipt Station
-  content: "...",  // ESC/POS or ZPL payload
-  mode: "escpos_raster"
-});
+await autoRoutePrint("receipt", escposBase64, "raw_escpos_base64");
+await autoRoutePrint("tag", zplPayload, "zpl");
 ```
 
 ---
@@ -83,4 +86,6 @@ When setting up a new lane:
 4. For installed printers, choose the printer from the local Windows printer list.
 5. For network printers, enter the printer address and port.
 6. Run **Check connection** for the receipt printer from the desktop app, or confirm the saved target from browser/POS mode.
-7. In the POS, verify that **Auto-Print** toggles are set according to staff preference.
+7. In POS Register Hardware, run **Print test** for the Epson receipt station and use **Open drawer** with an Access PIN and reason to verify the audited drawer path.
+8. Print a sample inventory tag and confirm it routes directly to the Zebra 2844 tag station, with browser preview used only as fallback.
+9. In the POS, verify that **Auto-Print** toggles are set according to staff preference.

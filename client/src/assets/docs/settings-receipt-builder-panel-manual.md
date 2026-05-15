@@ -34,8 +34,9 @@ Use this panel when changing the receipt logo, store name, header lines, footer 
 
 ## Tips
 
-- Use **Printers & Scanners** to set the workstation receipt printer IP.
+- Use **Printers & Scanners** to choose the workstation Epson receipt printer by installed printer name or network IP.
 - Epson ESC/POS is the active production receipt path.
+- Register #1 cash drawer behavior is controlled in **Printers & Scanners**. The drawer opens automatically for CASH and CHECK sales only; manual drawer opens require an Access PIN and are reported on the Z-report.
 - The preview reflects the ReceiptLine template, header lines, footer lines, and section toggles before saving.
 - The receipt logo is controlled by the `{{LOGO_IMAGE}}` token and is resized for 80mm Epson thermal output.
 - The address, phone, email, barcode, and loyalty toggles affect the ReceiptLine preview and print output.
@@ -49,7 +50,7 @@ New receipt settings apply to future receipt previews, printed receipts, text re
 
 ## Related workflows
 
-- Printers & Scanners controls the workstation printer IP and scanner test.
+- Printers & Scanners controls the workstation printer target, cash drawer test, Zebra tag station, report printer, and scanner test.
 - POS sale completion uses these receipt settings after checkout.
 - Podium receipt delivery uses the same standard receipt content when no legacy HTML template exists.
 

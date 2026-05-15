@@ -9,6 +9,8 @@ Persistence lives in **`store_settings.receipt_config`** (`ReceiptConfig`), incl
 
 **Thermal Preview:** `client/src/components/settings/ReceiptBuilderPanel.tsx` using **`receiptline`**. **Standard ESC/POS:** `server/src/logic/receipt_escpos.rs`, `GET /api/transactions/{transaction_id}/receipt.escpos`. **Legacy HTML fallback / email view:** `server/src/logic/receipt_studio_html.rs`. **POS UI:** `client/src/components/pos/ReceiptSummaryModal.tsx`. Hardware management is centralized in the **Printers & Scanners** hub (`client/src/components/settings/PrintersAndScannersPanel.tsx`).
 
+Register #1 uses the Epson TM-m30III receipt station for both customer receipts and the attached cash drawer. The drawer opens automatically only when the completed sale tender summary includes **CASH** or **CHECK** and the workstation drawer setting is enabled. Reprints and gift receipts do not intentionally kick the drawer. Manual drawer opens happen from POS **Printers & Scanners / Register Hardware**, require an **Access PIN** plus reason, and are included in the Z-report.
+
 ---
 
 ## HTML receipt fallback
@@ -21,7 +23,7 @@ Persistence lives in **`store_settings.receipt_config`** (`ReceiptConfig`), incl
 
 | Value | Behavior |
 |--------|----------|
-| **`escpos`** (default) | **`GET /api/transactions/{id}/receipt.escpos`** — Standard Epson ESC/POS bytes; **Tauri** sends raw ESC/POS to the TM-m30III, browser/PWA uses the server print bridge. |
+| **`escpos`** (default) | **`GET /api/transactions/{id}/receipt.escpos`** — Standard Epson ESC/POS bytes; **Tauri** sends raw ESC/POS to the TM-m30III by installed printer or network target, browser/PWA uses the server print bridge for network targets reachable from the API host. |
 
 Email and text flows **do not** use `receipt_thermal_mode`; they use standard HTML/plain text delivery when configured (see below).
 

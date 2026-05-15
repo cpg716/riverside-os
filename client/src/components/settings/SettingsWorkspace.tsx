@@ -983,7 +983,11 @@ export default function SettingsWorkspace({
                   </p>
                 }
               >
-                <PrintersAndScannersPanel mode={mode} />
+                <PrintersAndScannersPanel
+                  mode={mode}
+                  posSessionId={posSessionId}
+                  posCashierCode={posCashierCode}
+                />
               </Suspense>
             )}
             {activeTab === "register" && (

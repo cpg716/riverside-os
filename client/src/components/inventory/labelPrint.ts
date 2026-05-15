@@ -1,3 +1,5 @@
+import { autoRoutePrint } from "../../lib/printerBridge";
+
 export interface InventoryTagItem {
   sku: string;
   productName: string;
@@ -32,12 +34,103 @@ const DEFAULT_CONFIG: InventoryTagPrintConfig = {
   footerText: "Riverside OS Inventory Tag",
 };
 
+const ZEBRA_2844_DPI = 203;
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function escapeZplField(value: string): string {
+  return value.replace(/[\^~\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function wrapText(value: string, maxChars: number, maxLines: number): string[] {
+  const words = escapeZplField(value).split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxChars) {
+      current = candidate;
+      continue;
+    }
+    if (current) lines.push(current);
+    current = word.length > maxChars ? word.slice(0, maxChars) : word;
+    if (lines.length >= maxLines) break;
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+  return lines;
+}
+
+function zplField(x: number, y: number, height: number, width: number, value: string) {
+  return `^FO${x},${y}^A0N,${height},${width}^FD${escapeZplField(value)}^FS`;
+}
+
+function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  const width = Math.round(clampDimension(config.widthInches, 2, 6, 4) * ZEBRA_2844_DPI);
+  const height = Math.round(clampDimension(config.heightInches, 1.25, 4, 2.5) * ZEBRA_2844_DPI);
+  const margin = Math.max(18, Math.round(width * 0.035));
+  const bodyWidth = width - margin * 2;
+  const textChars = Math.max(18, Math.floor(bodyWidth / 22));
+  const nameLines = config.showProductName
+    ? wrapText(item.productName || item.sku, textChars, 2)
+    : [];
+  const variation = item.variation?.trim() || "Standard";
+  const meta = [
+    config.showVariation ? variation : null,
+    config.showBrand && item.brand ? item.brand : null,
+    config.showPrice && item.price ? item.price : null,
+  ]
+    .filter(Boolean)
+    .join("  ");
+  const footer = config.footerText.trim();
+  const sku = escapeZplField(item.sku);
+
+  let y = margin;
+  const parts = [`^XA`, `^PW${width}`, `^LL${height}`, "^CI28"];
+
+  if (config.accentStyle !== "minimal") {
+    parts.push(`^FO0,0^GB${Math.max(10, Math.round(width * 0.035))},${height},0^FS`);
+  }
+
+  if (config.showSku) {
+    parts.push(zplField(margin, y, 28, 28, sku));
+    y += 42;
+  }
+
+  for (const line of nameLines) {
+    parts.push(zplField(margin, y, 38, 34, line));
+    y += 44;
+  }
+
+  if (meta) {
+    parts.push(zplField(margin, y + 4, 24, 22, meta));
+  }
+
+  const barcodeHeight = Math.min(82, Math.max(50, Math.floor(height * 0.16)));
+  const barcodeY = Math.max(y + 48, height - barcodeHeight - 86);
+  if (sku) {
+    parts.push(`^FO${margin},${barcodeY}^BY2,2,${barcodeHeight}^BCN,${barcodeHeight},Y,N,N^FD${sku}^FS`);
+  }
+
+  if (footer) {
+    parts.push(zplField(margin, height - 28, 18, 18, footer));
+  }
+
+  parts.push("^XZ");
+  return parts.join("\n");
+}
+
+function buildZplDocument(
+  items: InventoryTagItem[],
+  config: InventoryTagPrintConfig,
+): string {
+  return items.map((item) => renderZplTag(item, config)).join("\n");
 }
 
 function readStoredConfig(): Partial<InventoryTagPrintConfig> | null {
@@ -258,13 +351,17 @@ function buildDocument(
 </html>`;
 }
 
-/** Single inventory tag in a new tab; triggers the browser/system print flow. */
-export function openSingleInventoryTag(item: InventoryTagItem): void {
-  openInventoryTagsWindow([item]);
+export type InventoryTagPrintResult = "direct" | "browser";
+
+/** Single inventory tag routed to the configured tag station. */
+export async function openSingleInventoryTag(
+  item: InventoryTagItem,
+): Promise<InventoryTagPrintResult> {
+  return openInventoryTagsWindow([item]);
 }
 
-/** Multi-page inventory tag document for Zebra / system dialog printing. */
-export function openInventoryTagsWindow(
+/** Browser preview/system-dialog fallback for tag layouts. */
+export function openInventoryTagsPreviewWindow(
   items: InventoryTagItem[],
   overrideConfig?: Partial<InventoryTagPrintConfig>,
 ): void {
@@ -279,4 +376,25 @@ export function openInventoryTagsWindow(
   w.document.close();
   w.focus();
   w.print();
+}
+
+/** Multi-label Zebra/ZPL dispatch using the configured Tag Station. */
+export async function openInventoryTagsWindow(
+  items: InventoryTagItem[],
+  overrideConfig?: Partial<InventoryTagPrintConfig>,
+): Promise<InventoryTagPrintResult> {
+  if (items.length === 0) return "browser";
+  const config = {
+    ...getInventoryTagPrintConfig(),
+    ...overrideConfig,
+  };
+
+  try {
+    await autoRoutePrint("tag", buildZplDocument(items, config), "zpl");
+    return "direct";
+  } catch (error) {
+    console.warn("Direct Zebra tag print failed; opening browser print fallback", error);
+    openInventoryTagsPreviewWindow(items, config);
+    return "browser";
+  }
 }

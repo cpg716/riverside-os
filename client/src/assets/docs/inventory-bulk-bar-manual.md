@@ -41,7 +41,7 @@ Use it when you need to:
 
 ## What happens next
 
-- Riverside sends the reviewed batch to the Zebra LP2844 or opens print preview if direct print is unavailable.
+- Riverside sends the reviewed ZPL batch directly to the configured Zebra 2844 / LP 2844 tag station, or opens print preview if direct print is unavailable.
 - The selection toolbar stays tied to the current list so you can continue with another bulk action if needed.
 
 ## Related workflows

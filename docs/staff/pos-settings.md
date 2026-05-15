@@ -17,10 +17,28 @@ POS **Settings** is for **lane preferences** that should be adjustable **without
 ### Fix “receipt didn’t print” from POS
 
 1. POS → **Settings**.
-2. Confirm **printer IP/port** or **named printer** matches the physical device (desktop/Tauri).
+2. Open **Printers & Scanners** and confirm the Epson TM-m30III station uses the correct **Network address** or **Installed printer on this PC** target.
 3. Run **test print** if the UI offers it.
 4. On **Tauri**: confirm Windows/macOS printer is **online** and not paused.
-5. Retry one sale **reprint** from **Orders** if policy allows.
+5. On browser/PWA: confirm the server can reach the network printer IP.
+6. Retry one sale **reprint** from **Orders** if policy allows.
+
+### Open the cash drawer manually
+
+1. POS → **Settings** → **Printers & Scanners**.
+2. Confirm you are at the Register #1 station with the Epson-attached drawer.
+3. Select **Open drawer**.
+4. Enter the reason and the acting staff member's **Access PIN**.
+5. Confirm the drawer opens. The manual open is recorded on the Z-report with staff, time, and reason.
+
+Automatic drawer opens happen only for **CASH** and **CHECK** sales when the drawer setting is enabled. Card, gift card, account credit, and receipt reprints should not open the drawer.
+
+### Fix “tags didn’t print”
+
+1. POS or Back Office → **Settings** → **Printers & Scanners**.
+2. Confirm the Zebra 2844 tag station is selected as an installed printer or saved with the correct network IP.
+3. Retry the inventory tag action. Riverside sends ZPL directly to the configured tag station when available.
+4. If direct dispatch fails, use the tag preview fallback and report the workstation plus SKU to support.
 
 ### Reduce beeps or haptics
 
@@ -30,11 +48,11 @@ POS **Settings** is for **lane preferences** that should be adjustable **without
 
 ### Wrong receipt format (logo, footer)
 
-Receipt **template** and **timezone** live under Back Office → **Settings** → **General** — not here. Escalate to admin.
+Receipt **template**, logo, header, footer, and section controls live under **Settings → Receipt Settings**. Escalate to admin for legal text or store identity changes.
 
 ## Helping a coworker
 
-- Ask: **“Are you on browser or desktop app?”** Browser cannot reach local LAN printers the same way Tauri can.
+- Ask: **“Are you on browser or desktop app?”** Desktop can use installed printers and local hardware checks. Browser/PWA can use server-side network printing only when the API host can reach that printer.
 - If **two lanes** show different printers, each device may have **local** POS settings — align per SOP.
 
 ## Common issues and fixes

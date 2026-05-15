@@ -200,6 +200,8 @@ Use installed-printer mode for USB printers, report/label printers that need Win
 }
 ```
 
+For **Zebra 2844 / LP 2844 tags**, set the tag printer to the installed Zebra printer name or the Zebra network IP. Inventory tag actions send ZPL directly to that tag station and use browser preview only as a fallback.
+
 ## Remaining manual smoke
 
 The package gets the machines close to ready, but still verify:

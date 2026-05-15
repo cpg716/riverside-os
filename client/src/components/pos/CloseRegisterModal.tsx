@@ -28,6 +28,14 @@ interface CashAdjustmentLine {
   created_at: string;
 }
 
+interface ManualDrawerOpenLine {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  reason: string;
+  created_at: string;
+}
+
 interface OverrideSummary {
   reason: string;
   line_count: number;
@@ -43,6 +51,7 @@ interface Reconciliation {
   tenders: TenderTotal[];
   tenders_by_lane?: TendersByLaneRow[];
   cash_adjustments?: CashAdjustmentLine[];
+  manual_drawer_opens?: ManualDrawerOpenLine[];
   override_summary?: OverrideSummary[];
   transactions: TransactionLine[];
   unresolved_helcim_attempts?: HelcimCloseReviewAttempt[];
@@ -376,6 +385,13 @@ export default function CloseRegisterModal({
     closeOnEscape: !loading && !showFinalConfirm,
   });
 
+  const buildClosingNotesForReport = () => {
+    const countEditNote = countEditReason.trim()
+      ? `Count edit note: ${countEditReason.trim()}`
+      : "";
+    return [notes.trim(), countEditNote].filter(Boolean).join("\n");
+  };
+
   const handleFinalClose = async () => {
     setShowFinalConfirm(false);
     if (!reconcileCashierCode) {
@@ -385,17 +401,14 @@ export default function CloseRegisterModal({
     if (await blockForOfflineQueue()) return;
     if (blockForHelcimReview()) return;
     setLoading(true);
-    const countEditNote = countEditReason.trim()
-      ? `Count edit note: ${countEditReason.trim()}`
-      : "";
-    const closingNotesWithAudit = [notes.trim(), countEditNote].filter(Boolean).join("\n");
+    const closingNotesForReport = buildClosingNotesForReport();
     try {
       const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/close`, {
         method: "POST",
         headers: jsonAuthHeaders(),
-        body: JSON.stringify({ 
-          actual_cash: centsToFixed2(parseMoneyToCents(actualCash)), 
-          closing_notes: closingNotesWithAudit || null,
+        body: JSON.stringify({
+          actual_cash: centsToFixed2(parseMoneyToCents(actualCash)),
+          closing_notes: closingNotesForReport || null,
           closing_comments: closingComments.trim() || null
         }),
       });
@@ -752,6 +765,7 @@ export default function CloseRegisterModal({
   const cashSalesCents = expectedCents - openingCents - netAdjCents;
   const needsNote =
     Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
+  const closingNotesForReport = buildClosingNotesForReport();
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
@@ -794,9 +808,12 @@ export default function CloseRegisterModal({
                 expectedCents,
                 actualCents,
                 discrepancyCents,
+                closingNotes: closingNotesForReport || null,
+                closingComments: closingComments.trim() || null,
                 tenders: recon.tenders,
                 overrideSummary: recon.override_summary ?? [],
                 tendersByLane: recon.tenders_by_lane,
+                manualDrawerOpens: recon.manual_drawer_opens ?? [],
                 transactions: recon.transactions.map((t) => ({
                   created_at: t.created_at,
                   payment_method: t.payment_method,
@@ -944,6 +961,24 @@ export default function CloseRegisterModal({
                   </div>
                 ))}
                 {(recon.cash_adjustments?.length ?? 0) === 0 && <p className="text-[10px] text-center text-app-text-muted py-4">No adjustments recorded</p>}
+              </div>
+            </div>
+
+            <div className="space-y-4 md:col-span-2">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Manual Drawer Opens</h3>
+              <div className="ui-panel p-3 space-y-4 max-h-[160px] overflow-y-auto">
+                {recon.manual_drawer_opens?.map((event) => (
+                  <div key={event.id} className="flex justify-between items-start gap-2 border-b border-app-border/30 pb-2 last:border-0 last:pb-0">
+                    <span className="text-[10px] text-app-text uppercase font-bold leading-tight">
+                      {event.reason}
+                      <br />
+                      <span className="text-app-text-muted font-normal text-[9px] normal-case">
+                        {event.staff_name} · {new Date(event.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+                {(recon.manual_drawer_opens?.length ?? 0) === 0 && <p className="text-[10px] text-center text-app-text-muted py-4">No manual drawer opens recorded</p>}
               </div>
             </div>
           </div>

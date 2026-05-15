@@ -71,7 +71,7 @@ The Product Hub panel is a visibility surface. It uses current server-computed v
 
 ## What happens next
 
-- Direct print sends the approved retail price-tag batch to the Zebra LP2844.
+- Direct print sends the approved retail price-tag batch to the configured Zebra 2844 / LP 2844 tag station.
 - If direct print is unavailable, Riverside opens the print preview instead.
 - Product Hub stays open so you can keep reviewing the product, switch tabs, or correct the next variation batch.
 

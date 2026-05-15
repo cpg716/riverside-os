@@ -18,6 +18,13 @@ Use this log to validate each store device after install, update, or release rol
 |  |  |  | Reprint receipt | Reprint matches the selected transaction and does not print another customer's receipt. |  |  |  |  |  |
 |  |  |  | Print after printer reconnect | Printer resumes normal output without corrupted or partial receipt content. |  |  |  |  |  |
 
+## Tag Printer
+
+| Workstation | Device Model | Firmware/Software Version | Test Scenario | Expected Result | Pass/Fail | Evidence Captured | Operator Notes | Escalation Required |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+|  | Zebra 2844 / LP 2844 |  | Print inventory retail tag | Tag prints directly from Riverside through the configured Tag Station with readable SKU, barcode, and price. |  |  |  |  |  |
+|  | Zebra 2844 / LP 2844 |  | Direct dispatch unavailable | Riverside opens the tag preview fallback and staff can complete printing through the OS printer path. |  |  |  |  |  |
+
 ## Reports Printer
 
 | Workstation | Device Model | Firmware/Software Version | Test Scenario | Expected Result | Pass/Fail | Evidence Captured | Operator Notes | Escalation Required |
@@ -30,7 +37,9 @@ Use this log to validate each store device after install, update, or release rol
 | Workstation | Device Model | Firmware/Software Version | Test Scenario | Expected Result | Pass/Fail | Evidence Captured | Operator Notes | Escalation Required |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  | Open drawer from cash sale | Drawer opens once at the correct point in the cash sale workflow. |  |  |  |  |  |
-|  |  |  | No-sale or manager-approved open | Drawer opens only through the approved store workflow and action is reviewable. |  |  |  |  |  |
+|  |  |  | Check sale drawer open | Drawer opens once at the correct point in the check sale workflow. |  |  |  |  |  |
+|  |  |  | Card sale drawer suppression | Drawer stays closed for card, gift card, account credit, and other non-cash/check tenders. |  |  |  |  |  |
+|  |  |  | Manual drawer open | Drawer opens only after reason and Access PIN entry, and the event appears on the Z-report. |  |  |  |  |  |
 
 ## Barcode Scanner
 

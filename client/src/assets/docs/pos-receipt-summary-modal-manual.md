@@ -42,6 +42,8 @@ If no customer is attached, the sale complete screen explains that SMS or email 
 ## What to watch for
 
 - Confirm the receipt total, paid amount, tender, and status before handing the receipt to the customer.
+- On Register #1, CASH and CHECK sales open the Epson-attached cash drawer automatically when the drawer setting is enabled.
+- Receipt reprints and gift receipts do not intentionally open the cash drawer.
 - Use gift receipt only when the customer asks for one.
 - Do not use screenshots of receipts as customer delivery unless support asks for troubleshooting evidence.
 
@@ -49,3 +51,4 @@ If no customer is attached, the sale complete screen explains that SMS or email 
 
 - [Register Checkout](manual:pos-nexo-checkout-drawer)
 - [Receipt Settings](manual:settings-receipt-builder-panel)
+- [Printers & Scanners](manual:settings-printers-and-scanners-panel)

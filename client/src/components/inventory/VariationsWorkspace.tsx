@@ -331,7 +331,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         return;
       }
 
-      openInventoryTagsWindow(
+      const printResult = await openInventoryTagsWindow(
         variantsToPrint.map((variant) => ({
           sku: variant.sku,
           productName,
@@ -355,7 +355,12 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           },
         );
         if (!res.ok) throw new Error("Tag print status update failed");
-        toast(successLabel, "success");
+        toast(
+          printResult === "direct"
+            ? `${successLabel} Zebra tag station confirmed.`
+            : `${successLabel} Browser print fallback opened.`,
+          "success",
+        );
         onVariantUpdated();
       } catch {
         toast("Tags opened for printing, but Riverside could not mark them as printed.", "error");

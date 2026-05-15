@@ -8,6 +8,7 @@ import {
   ScanLine,
   Settings2,
 } from "lucide-react";
+import { getBaseUrl } from "../../lib/apiConfig";
 import {
   checkReceiptPrinterConnection,
   describePrinterTarget,
@@ -84,8 +85,12 @@ function escposBase64FromAscii(text: string) {
 
 export default function PrintersAndScannersPanel({
   mode = "backoffice",
+  posSessionId = null,
+  posCashierCode = null,
 }: {
   mode?: "backoffice" | "pos";
+  posSessionId?: string | null;
+  posCashierCode?: string | null;
 }) {
   const { toast } = useToast();
   const initialValues = useMemo(
@@ -112,6 +117,9 @@ export default function PrintersAndScannersPanel({
   );
   const [testing, setTesting] = useState<PrinterKey | null>(null);
   const [drawerTesting, setDrawerTesting] = useState(false);
+  const [drawerAuthOpen, setDrawerAuthOpen] = useState(false);
+  const [drawerPin, setDrawerPin] = useState("");
+  const [drawerReason, setDrawerReason] = useState("Manual drawer open");
   const [testPrinting, setTestPrinting] = useState(false);
   const [lastScan, setLastScan] = useState("");
   const [systemPrinters, setSystemPrinters] = useState<SystemPrinter[]>([]);
@@ -194,10 +202,41 @@ export default function PrintersAndScannersPanel({
   };
 
   const openCashDrawerTest = async () => {
+    if (!posSessionId || !posCashierCode) {
+      toast("Open Register #1 before using manual drawer open.", "error");
+      return;
+    }
+    const reason = drawerReason.trim();
+    if (!reason) {
+      toast("Enter a reason for the manual drawer open.", "error");
+      return;
+    }
+    if (!drawerPin.trim()) {
+      toast("Enter your Access PIN before opening the drawer.", "error");
+      return;
+    }
     setDrawerTesting(true);
     try {
+      const res = await fetch(
+        `${getBaseUrl()}/api/sessions/${encodeURIComponent(posSessionId)}/drawer-opens`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cashier_code: posCashierCode,
+            pin: drawerPin.trim(),
+            reason,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Manual drawer open was not authorized.");
+      }
       await printRawEscPosBase64("G3AAMvo=");
-      toast("Cash drawer kick sent.", "success");
+      setDrawerPin("");
+      setDrawerAuthOpen(false);
+      toast("Cash drawer opened and recorded for the Z-report.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Cash drawer test failed", "error");
     } finally {
@@ -406,7 +445,7 @@ export default function PrintersAndScannersPanel({
                   </button>
                   <button
                     type="button"
-                    onClick={() => void openCashDrawerTest()}
+                    onClick={() => setDrawerAuthOpen((open) => !open)}
                     disabled={drawerTesting || !cashDrawerEnabled}
                     className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 text-[10px] font-black uppercase tracking-widest text-emerald-700 transition-colors hover:bg-emerald-500/15 disabled:opacity-50 dark:text-emerald-300"
                   >
@@ -416,6 +455,53 @@ export default function PrintersAndScannersPanel({
                       <CircleDollarSign className="h-4 w-4" />
                     )}
                     Open drawer
+                  </button>
+                </div>
+              ) : null}
+              {mode === "pos" && printer.key === "receipt" && drawerAuthOpen ? (
+                <div className="rounded-xl border border-app-border bg-app-bg p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                    Manual drawer open
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    Requires your Access PIN and appears on the Z-report. Sales still open the drawer automatically only for cash/check.
+                  </p>
+                  <label className="mt-3 block">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Reason
+                    </span>
+                    <input
+                      value={drawerReason}
+                      onChange={(e) => setDrawerReason(e.target.value)}
+                      className="ui-input mt-2 w-full text-sm"
+                      placeholder="Cash count, change check, manager review..."
+                    />
+                  </label>
+                  <label className="mt-3 block">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Access PIN
+                    </span>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      value={drawerPin}
+                      onChange={(e) => setDrawerPin(e.target.value)}
+                      className="ui-input mt-2 w-full font-mono text-sm"
+                      placeholder="4-digit PIN"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void openCashDrawerTest()}
+                    disabled={drawerTesting || !cashDrawerEnabled}
+                    className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 text-[10px] font-black uppercase tracking-widest text-emerald-700 transition-colors hover:bg-emerald-500/15 disabled:opacity-50 dark:text-emerald-300"
+                  >
+                    {drawerTesting ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <CircleDollarSign className="h-4 w-4" />
+                    )}
+                    Authorize and open drawer
                   </button>
                 </div>
               ) : null}
