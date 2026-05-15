@@ -76,7 +76,7 @@ Attach **before** completing tax-sensitive or loyalty-linked sales if your SOP r
 4. **Load more** if the list is long; try **last name + phone** if name is common.
 5. If **duplicate profiles** appear, **do not merge** at the register unless trained — pick the profile the store uses for that person or get a manager.
 
-When adding or completing a customer profile at the register, the **Address** field may show address suggestions after you start typing. Selecting a suggestion fills **Address**, **City**, **State**, and **ZIP**. If lookup is slow, unavailable, or no match appears, type the address manually and continue; checkout and customer save must not wait on address lookup.
+When adding or completing a customer profile at the register, the **Address** field may show street-address suggestions after you start typing. Selecting a suggestion checks that address with Shippo, then fills **Address**, **City**, **State**, and **ZIP**. If Shippo corrects the ZIP, use the corrected ZIP shown in the address field status. If lookup is slow, unavailable, or no match appears, type the address manually and continue; checkout and customer save must not wait on address lookup.
 
 **Employee pricing:** If the attached customer is your **linked employee CRM profile** (set by an admin on **Staff → Team**), new lines default to **employee price** when the catalog provides it; checkout still validates prices against allowed tiers.
 

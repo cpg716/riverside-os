@@ -43,7 +43,7 @@
 1. **Customers** → **Add Customer** (sidebar or workspace button).
 2. Complete **required** fields; **customer_code** is usually **server-assigned** on create — do not invent duplicate codes.
 3. Watch the **Customer match review** area. If a matching name exists, enter a phone number first. If the phone does not match, review same-name profiles by **Name**, **Phone**, **Email**, and **Address** before creating a new record; update the existing profile when it is the same person with changed contact details.
-4. For mailing address, start typing **Address line 1**. If suggestions appear, select the correct one to fill **Address line 1**, **City**, **State**, and **Postal code**. If no suggestion appears or the lookup is unavailable, keep typing the address manually; customer save should not depend on address lookup.
+4. For mailing address, start typing **Address line 1**. If suggestions appear, select the correct street address to fill **Address line 1**, **City**, **State**, and **Postal code**. ROS checks the selected address with Shippo before filling it; if Shippo corrects the ZIP, use the corrected ZIP shown in the address field status. If no suggestion appears or the lookup is unavailable, keep typing the address manually; customer save should not depend on address lookup.
 5. **Save**; read **toast**. Fix **red** inline validation first.
 6. Closing the drawer from the sidebar shortcut returns to **All Customers**.
 

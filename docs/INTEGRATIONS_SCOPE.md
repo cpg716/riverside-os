@@ -17,7 +17,7 @@
 | 5 | **External alteration / work-order SaaS** | **Out of scope** | No sync to third-party alteration trackers. |
 | 6 | **NuORDER** | **In use** | Wholesale API client (OAuth 1.0) for catalog, media, and order sync — **`docs/NUORDER_INTEGRATION.md`**. |
 | 7 | **Shippo** | **In use** | Shipping rates and foundation in-repo (`logic/shippo.rs`, store APIs); deepen labels/tracking with checkout as needed. |
-| 8 | **Geoapify** | **In use** | Server-side staff address typeahead for customer/shipping address forms, biased near store ZIP 14043. Shippo validates selected addresses before fill. |
+| 8 | **Geoapify** | **In use** | Server-side staff address typeahead for customer/shipping address forms, limited and ranked around the store service area near ZIP 14043. Shippo validates selected addresses and owns final ZIP normalization before fill. |
 | 8 | **Loyalty** | **ROS-native** | Current program in ROS is sufficient; no third-party loyalty platform required. |
 | 9 | **E-sign** (DocuSign, etc.) | **Out of scope** | Not a near-term integration. |
 | 10 | **ADP** | **Optional / narrow** | If integrated, scope narrowly: e.g. **HR master → staff provisioning** and/or **approved time export → payroll** — not full payroll inside ROS. |

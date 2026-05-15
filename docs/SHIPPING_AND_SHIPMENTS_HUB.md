@@ -25,7 +25,7 @@ These historical objects are now consolidated into the active schema-contract ba
 
 | Mechanism | Notes |
 |-----------|--------|
-| **Settings -> Integrations -> Geoapify** | Encrypted Geoapify API key for protected staff address typeahead. Geoapify suggestions are biased near Riverside ZIP **14043**; the key is never exposed to the browser. |
+| **Settings -> Integrations -> Geoapify** | Encrypted Geoapify API key for protected staff address typeahead. Geoapify suggestions are limited to the store's local service area around Riverside ZIP **14043**, ranked toward exact street-address matches, and the key is never exposed to the browser. |
 | **Settings -> Integrations -> Shippo** | Encrypted Shippo API token and webhook secret for live rates, labels, returns, manifests, pickup scheduling, and tracking updates. |
 | **`store_settings.shippo_config`** | JSON: **`enabled`**, **`live_rates_enabled`**, **`from_address`** (name, company, address lines, phone/email, residential flag), **`default_parcel`** — loaded in **`server/src/logic/shippo.rs`** (`StoreShippoConfig`). |
 
@@ -34,7 +34,7 @@ These historical objects are now consolidated into the active schema-contract ba
 
 Live rates run only when the store enables them **and** the token is present (see effective config in code). When live rates are enabled, provider/API failures are visible failures; ROS does **not** silently fall back to demo rates. Demo rates are only for disabled-live or explicit `force_stub` testing.
 
-Staff address entry uses Geoapify for typeahead and Shippo as the selected-address validation layer. Geoapify improves nearby matching and field fill; Shippo remains the shipping truth before ROS commits a suggested address into staff workflows.
+Staff address entry uses Geoapify for typeahead and Shippo as the selected-address validation layer. Geoapify improves nearby matching and field fill; broad city/state/postcode-only suggestions are filtered out so operators see usable street-address candidates. Shippo remains the shipping truth before ROS commits a suggested address into staff workflows. If Shippo normalizes the ZIP after selection, ROS fills the Shippo ZIP and shows staff the correction.
 
 ---
 
