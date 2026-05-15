@@ -366,14 +366,10 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
   }, [loadSummary]);
 
   useEffect(() => {
-    if (!cards.length) {
+    if (!selectedCardId) return;
+    if (!cards.some((card) => card.id === selectedCardId)) {
       setSelectedCardId(null);
-      return;
     }
-    if (selectedCardId && cards.some((card) => card.id === selectedCardId)) {
-      return;
-    }
-    setSelectedCardId(cards[0]?.id ?? null);
   }, [cards, selectedCardId]);
 
   useEffect(() => {
@@ -564,19 +560,14 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             <p className="text-xs text-app-text-muted">Purchased gift cards are sold from Register. Use Issue Donated or Issue Promo for approved giveaway cards.</p>
           </div>
         ) : (
-          <div className={isSmallScreen ? "space-y-3" : "grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.9fr)]"}>
+          <div className={isSmallScreen ? "space-y-3" : "overflow-x-auto"}>
           {isSmallScreen ? (
             <div data-testid="gift-cards-card-list" className="space-y-3">
               {cards.map((c) => {
-                const selected = selectedCardId === c.id;
                 return (
                   <article
                     key={c.id}
-                    className={`rounded-[20px] border p-4 transition-colors ${
-                      selected
-                        ? "border-app-accent bg-app-accent/5"
-                        : "border-app-border bg-app-surface-2/50"
-                    }`}
+                    className="rounded-[20px] border border-app-border bg-app-surface-2/50 p-4 transition-colors hover:border-app-accent/50"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <button
@@ -634,23 +625,12 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
 	                      ) : null}
                     </div>
 
-                    {selected ? (
-                      <div className="mt-3 border-t border-app-border pt-3">
-                        <SelectedCardPanel
-                          selectedCard={c}
-                          selectedEvents={selectedEvents}
-                          eventsLoading={eventsLoading}
-                          isSmallScreen={isSmallScreen}
-                        />
-                      </div>
-                    ) : null}
                   </article>
                 );
               })}
             </div>
           ) : (
-            <>
-          <table data-testid="gift-cards-table" className="w-full text-sm">
+          <table data-testid="gift-cards-table" className="w-full min-w-[860px] text-sm">
             <thead>
               <tr className="border-b border-app-border text-left">
                 <th className="pb-3 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Code</th>
@@ -667,9 +647,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
               {cards.map(c => (
                 <tr
                   key={c.id}
-                  className={`group cursor-pointer transition-colors ${
-                    selectedCardId === c.id ? "bg-app-accent/10" : "hover:bg-app-accent/5"
-                  }`}
+                  className="group cursor-pointer transition-colors hover:bg-app-accent/5"
                   onClick={() => setSelectedCardId(c.id)}
                 >
                   <td className="py-4 pr-4 font-mono text-xs font-black text-app-accent tracking-tighter">{c.code}</td>
@@ -702,7 +680,10 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                   <td className="py-4 text-right">
                     {c.card_status === "active" && (
                       <button
-                        onClick={() => initiateVoid(c.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          initiateVoid(c.id);
+                        }}
                         disabled={voidingId === c.id}
                         className="rounded-lg p-2 text-app-text-muted hover:bg-app-danger/10 hover:text-app-danger transition-all opacity-0 group-hover:opacity-100"
                         title="Void card"
@@ -715,21 +696,49 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
               ))}
             </tbody>
           </table>
-          <aside className="rounded-[24px] border border-app-border bg-app-surface-2/70 p-4 shadow-sm">
-            <SelectedCardPanel
-              selectedCard={selectedCard}
-              selectedEvents={selectedEvents}
-              eventsLoading={eventsLoading}
-              isSmallScreen={isSmallScreen}
-            />
-          </aside>
-          </>
           )}
           </div>
         )}
       </div>
         </div>
       </div>
+
+      {selectedCard ? (
+        <div
+          className="ui-overlay-backdrop !z-[200]"
+          onClick={() => setSelectedCardId(null)}
+        >
+          <div
+            className="ui-modal max-h-[92dvh] w-full max-w-2xl overflow-y-auto p-5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Gift Card Details
+                </p>
+                <h2 className="mt-1 font-mono text-xl font-black text-app-accent">
+                  {selectedCard.code}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCardId(null)}
+                className="rounded-xl p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                aria-label="Close gift card details"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <SelectedCardPanel
+              selectedCard={selectedCard}
+              selectedEvents={selectedEvents}
+              eventsLoading={eventsLoading}
+              isSmallScreen={isSmallScreen}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {showVoidConfirm && (
         <ConfirmationModal

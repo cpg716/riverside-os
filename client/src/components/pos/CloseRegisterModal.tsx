@@ -65,7 +65,21 @@ interface TransactionLine {
   payment_method: string;
   amount: string;
   order_id: string | null;
+  transaction_display_id?: string | null;
+  transaction_status?: string | null;
+  transaction_total?: string | null;
+  transaction_paid?: string | null;
+  transaction_balance_due?: string | null;
   customer_name: string;
+  items?: {
+    name: string;
+    sku: string;
+    quantity: number;
+    unit_price: string;
+    fulfillment: string;
+    is_internal: boolean;
+    line_kind?: string | null;
+  }[];
   override_reasons: string[];
   override_details: OverrideDetail[];
   register_lane?: number;
@@ -788,6 +802,12 @@ export default function CloseRegisterModal({
                   payment_method: t.payment_method,
                   amount: t.amount,
                   customer_name: t.customer_name,
+                  transaction_display_id: t.transaction_display_id,
+                  transaction_status: t.transaction_status,
+                  transaction_total: t.transaction_total,
+                  transaction_paid: t.transaction_paid,
+                  transaction_balance_due: t.transaction_balance_due,
+                  items: t.items ?? [],
                   register_lane: t.register_lane ?? 1,
                 })),
               })

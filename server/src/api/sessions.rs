@@ -262,9 +262,26 @@ pub struct TransactionLine {
     pub payment_method: String,
     pub amount: Decimal,
     pub ledger_transaction_id: Option<Uuid>,
+    pub transaction_display_id: Option<String>,
+    pub transaction_status: Option<String>,
+    pub transaction_total: Option<Decimal>,
+    pub transaction_paid: Option<Decimal>,
+    pub transaction_balance_due: Option<Decimal>,
     pub customer_name: String,
+    pub items: Vec<TransactionAuditItem>,
     pub override_reasons: Vec<String>,
     pub override_details: Vec<OverrideDetail>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct TransactionAuditItem {
+    pub name: String,
+    pub sku: String,
+    pub quantity: i32,
+    pub unit_price: Decimal,
+    pub fulfillment: String,
+    pub is_internal: bool,
+    pub line_kind: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -329,7 +346,13 @@ struct TransactionLineRow {
     payment_method: String,
     amount: Decimal,
     ledger_transaction_id: Option<Uuid>,
+    transaction_display_id: Option<String>,
+    transaction_status: Option<String>,
+    transaction_total: Option<Decimal>,
+    transaction_paid: Option<Decimal>,
+    transaction_balance_due: Option<Decimal>,
     customer_name: String,
+    items_json: serde_json::Value,
     override_reasons: Vec<String>,
     override_details_json: serde_json::Value,
 }
@@ -1365,10 +1388,29 @@ async fn build_reconciliation(
             pt.payment_method,
             pt.amount,
             pa.target_transaction_id AS ledger_transaction_id,
+            o.display_id AS transaction_display_id,
+            o.status::text AS transaction_status,
+            o.total_price AS transaction_total,
+            o.amount_paid AS transaction_paid,
+            o.balance_due AS transaction_balance_due,
             COALESCE(
                 NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''),
                 'Walk-in'
             ) AS customer_name,
+            COALESCE(
+                jsonb_agg(
+                    DISTINCT jsonb_build_object(
+                        'name', COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Item'),
+                        'sku', COALESCE(pv.sku, ''),
+                        'quantity', oi.quantity,
+                        'unit_price', oi.unit_price::text,
+                        'fulfillment', oi.fulfillment::text,
+                        'is_internal', COALESCE(oi.is_internal, false),
+                        'line_kind', p.pos_line_kind::text
+                    )
+                ) FILTER (WHERE oi.id IS NOT NULL),
+                '[]'::jsonb
+            ) AS items_json,
             COALESCE(
                 ARRAY_REMOVE(
                     ARRAY_AGG(DISTINCT (oi.size_specs ->> 'price_override_reason'))
@@ -1403,10 +1445,13 @@ async fn build_reconciliation(
         LEFT JOIN transactions o ON o.id = pa.target_transaction_id
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+        LEFT JOIN products p ON p.id = oi.product_id
+        LEFT JOIN product_variants pv ON pv.id = oi.variant_id
         WHERE pt.session_id = ANY($1)
         GROUP BY
             pt.id, pt.session_id, rs.register_lane, pt.created_at, pt.payment_method, pt.amount,
-            pa.target_transaction_id, c.first_name, c.last_name
+            pa.target_transaction_id, o.display_id, o.status, o.total_price, o.amount_paid,
+            o.balance_due, c.first_name, c.last_name
         ORDER BY pt.created_at DESC
         LIMIT 300
         "#,
@@ -1425,7 +1470,13 @@ async fn build_reconciliation(
             payment_method: row.payment_method,
             amount: row.amount,
             ledger_transaction_id: row.ledger_transaction_id,
+            transaction_display_id: row.transaction_display_id,
+            transaction_status: row.transaction_status,
+            transaction_total: row.transaction_total,
+            transaction_paid: row.transaction_paid,
+            transaction_balance_due: row.transaction_balance_due,
             customer_name: row.customer_name,
+            items: parse_transaction_audit_items(row.items_json),
             override_reasons: row.override_reasons,
             override_details: parse_override_details(row.override_details_json),
         })
@@ -1636,6 +1687,68 @@ fn parse_override_details(value: serde_json::Value) -> Vec<OverrideDetail> {
                 original_unit_price: parse_decimal("original_unit_price"),
                 overridden_unit_price: parse_decimal("overridden_unit_price"),
                 delta_amount: parse_decimal("delta_amount"),
+            })
+        })
+        .collect()
+}
+
+fn parse_transaction_audit_items(value: serde_json::Value) -> Vec<TransactionAuditItem> {
+    let Some(items) = value.as_array() else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| {
+            let name = item
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("Item")
+                .to_string();
+            let sku = item
+                .get("sku")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string();
+            let quantity = item
+                .get("quantity")
+                .and_then(|v| v.as_i64())
+                .and_then(|v| i32::try_from(v).ok())
+                .unwrap_or(1);
+            let unit_price = item
+                .get("unit_price")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Decimal::from_str(s).ok())
+                .unwrap_or(Decimal::ZERO);
+            let fulfillment = item
+                .get("fulfillment")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("takeaway")
+                .to_string();
+            let is_internal = item
+                .get("is_internal")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let line_kind = item
+                .get("line_kind")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned);
+
+            Some(TransactionAuditItem {
+                name,
+                sku,
+                quantity,
+                unit_price,
+                fulfillment,
+                is_internal,
+                line_kind,
             })
         })
         .collect()

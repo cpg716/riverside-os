@@ -102,6 +102,10 @@ pub struct CheckoutAlterationIntake {
     pub item_description: Option<String>,
     pub work_requested: String,
     #[serde(default)]
+    pub capacity_bucket: Option<String>,
+    #[serde(default)]
+    pub capacity_units: Option<i32>,
+    #[serde(default)]
     pub source_product_id: Option<Uuid>,
     #[serde(default)]
     pub source_variant_id: Option<Uuid>,
@@ -1012,6 +1016,18 @@ fn validate_checkout_alteration_intakes(
         if trimmed_non_empty(Some(&intake.work_requested)).is_none() {
             return Err(CheckoutError::InvalidPayload(
                 "alteration intake requires work_requested".to_string(),
+            ));
+        }
+        if let Some(bucket) = intake.capacity_bucket.as_deref() {
+            if !matches!(bucket.trim(), "jacket" | "pant" | "other") {
+                return Err(CheckoutError::InvalidPayload(
+                    "alteration intake capacity_bucket is invalid".to_string(),
+                ));
+            }
+        }
+        if intake.capacity_units.is_some_and(|units| units <= 0) {
+            return Err(CheckoutError::InvalidPayload(
+                "alteration intake capacity_units must be positive".to_string(),
             ));
         }
         referenced.insert(alteration_line_client_id);
@@ -3295,6 +3311,13 @@ pub async fn execute_checkout(
             intake.source_transaction_id
         };
         let charge_amount = intake.charge_amount.unwrap_or(Decimal::ZERO).round_dp(2);
+        let capacity_bucket = intake
+            .capacity_bucket
+            .as_deref()
+            .map(str::trim)
+            .filter(|bucket| matches!(*bucket, "jacket" | "pant" | "other"))
+            .unwrap_or("other");
+        let capacity_units = intake.capacity_units.unwrap_or(1).max(1);
         let source_snapshot = json!({
             "intake_id": intake_id,
             "alteration_line_client_id": alteration_line_client_id,
@@ -3342,6 +3365,41 @@ pub async fn execute_checkout(
         .await?;
         alteration_order_ids.push(alteration_id);
 
+        sqlx::query(
+            r#"
+            INSERT INTO alteration_order_items (alteration_order_id, label, capacity_bucket, units)
+            VALUES ($1, $2, $3::alteration_bucket, $4)
+            "#,
+        )
+        .bind(alteration_id)
+        .bind(work_requested.as_str())
+        .bind(capacity_bucket)
+        .bind(capacity_units)
+        .execute(&mut *tx)
+        .await?;
+
+        match capacity_bucket {
+            "jacket" => {
+                sqlx::query(
+                    "UPDATE alteration_orders SET total_units_jacket = total_units_jacket + $1 WHERE id = $2",
+                )
+                .bind(capacity_units)
+                .bind(alteration_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            "pant" => {
+                sqlx::query(
+                    "UPDATE alteration_orders SET total_units_pant = total_units_pant + $1 WHERE id = $2",
+                )
+                .bind(capacity_units)
+                .bind(alteration_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            _ => {}
+        }
+
         let detail = json!({
             "customer_id": payload.customer_id,
             "due_at": intake.due_at.as_ref().map(|d| d.to_rfc3339()),
@@ -3350,6 +3408,8 @@ pub async fn execute_checkout(
             "source_type": source_type,
             "item_description": item_description,
             "work_requested": work_requested,
+            "capacity_bucket": capacity_bucket,
+            "capacity_units": capacity_units,
             "source_product_id": intake.source_product_id,
             "source_variant_id": intake.source_variant_id,
             "source_sku": source_sku,
@@ -4388,6 +4448,8 @@ mod tests {
             source_type: "current_cart_item".to_string(),
             item_description: Some("Suit jacket".to_string()),
             work_requested: "Hem sleeves".to_string(),
+            capacity_bucket: None,
+            capacity_units: None,
             source_product_id: Some(Uuid::new_v4()),
             source_variant_id: Some(Uuid::new_v4()),
             source_sku: Some("ALT-SUIT".to_string()),

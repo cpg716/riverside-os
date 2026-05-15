@@ -930,6 +930,57 @@ export default function ReceiptSummaryModal({
             Receipt actions are optional. Start the next guest whenever the sale handoff is done.
           </div>
 
+          {reviewInviteEligible ? (
+            <div className="shrink-0 rounded-2xl border border-app-border bg-app-surface-2 p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Review Request
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    Sends after the sale handoff unless the cashier opts out.
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label
+                  className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-widest transition-colors ${
+                    !skipReviewInvite
+                      ? "border-app-success bg-app-success/10 text-app-success"
+                      : "border-app-border bg-app-surface text-app-text-muted"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!skipReviewInvite}
+                    onChange={(event) => setSkipReviewInvite(!event.currentTarget.checked)}
+                    className="h-4 w-4 rounded border-app-border accent-[var(--app-success)]"
+                  />
+                  Send
+                </label>
+                <label
+                  className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-widest transition-colors ${
+                    skipReviewInvite
+                      ? "border-app-warning bg-app-warning/10 text-app-warning"
+                      : "border-app-border bg-app-surface text-app-text-muted"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={skipReviewInvite}
+                    onChange={(event) => setSkipReviewInvite(event.currentTarget.checked)}
+                    className="h-4 w-4 rounded border-app-border accent-[var(--app-warning)]"
+                  />
+                  Do not send
+                </label>
+              </div>
+            </div>
+          ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
+            <p className="shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
+              Review invite choice already saved for this transaction.
+            </p>
+          ) : null}
+
           <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <button
               type="button"
@@ -1039,24 +1090,6 @@ export default function ReceiptSummaryModal({
                   {savingContact ? "Saving…" : "Save"}
                 </button>
               </div>
-              {reviewInviteEligible ? (
-                <label className="flex shrink-0 cursor-pointer items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 touch-manipulation">
-                  <input
-                    type="checkbox"
-                    checked={!skipReviewInvite}
-                    onChange={(e) => setSkipReviewInvite(!e.target.checked)}
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
-                  />
-                  <span className="text-left text-[10px] font-semibold leading-snug text-app-text">
-                    Send a review request for this fulfilled sale. Riverside skips customers who
-                    received one in the last 180 days.
-                  </span>
-                </label>
-              ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
-                <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
-                  Review invite choice already saved for this transaction.
-                </p>
-              ) : null}
             </div>
           ) : (
             <p className="rounded-xl border border-amber-500/35 bg-[color-mix(in_srgb,var(--app-warning)_12%,var(--app-surface-2))] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-app-text">

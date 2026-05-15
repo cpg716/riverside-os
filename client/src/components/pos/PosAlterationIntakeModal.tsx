@@ -71,6 +71,22 @@ const SOURCE_OPTIONS: Array<{ id: SourceMode; label: string }> = [
   { id: "custom_item", label: "Custom item" },
 ];
 
+const ALTERATION_WORK_TYPES: Array<{
+  label: string;
+  bucket: "jacket" | "pant" | "other";
+  units: number;
+}> = [
+  { label: "Waist in/out", bucket: "pant", units: 2 },
+  { label: "Seat in/out", bucket: "pant", units: 2 },
+  { label: "Hem (Plain)", bucket: "pant", units: 1 },
+  { label: "Hem (Cuff)", bucket: "pant", units: 2 },
+  { label: "Shorten Sleeves", bucket: "jacket", units: 4 },
+  { label: "Sides in/out", bucket: "jacket", units: 4 },
+  { label: "Taper Legs", bucket: "pant", units: 3 },
+  { label: "Shorten Jacket", bucket: "jacket", units: 6 },
+  { label: "Other / repair", bucket: "other", units: 1 },
+];
+
 function newPendingAlterationId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
@@ -124,6 +140,8 @@ export default function PosAlterationIntakeModal({
   const [sourceMode, setSourceMode] = useState<SourceMode>("current_cart_item");
   const [selectedSource, setSelectedSource] = useState<SelectedSource | null>(null);
   const [workRequested, setWorkRequested] = useState("");
+  const [capacityBucket, setCapacityBucket] = useState<"jacket" | "pant" | "other">("other");
+  const [capacityUnits, setCapacityUnits] = useState(1);
   const [dueAt, setDueAt] = useState("");
   const [notes, setNotes] = useState("");
   const [fittingNeeded, setFittingNeeded] = useState(true);
@@ -162,6 +180,8 @@ export default function PosAlterationIntakeModal({
     setSourceMode("current_cart_item");
     setSelectedSource(null);
     setWorkRequested("");
+    setCapacityBucket("other");
+    setCapacityUnits(1);
     setDueAt("");
     setNotes("");
     setChargeEnabled(false);
@@ -194,6 +214,8 @@ export default function PosAlterationIntakeModal({
       source_transaction_line_id: editingIntake.source_transaction_line_id ?? null,
     });
     setWorkRequested(editingIntake.work_requested);
+    setCapacityBucket(editingIntake.capacity_bucket ?? "other");
+    setCapacityUnits(editingIntake.capacity_units ?? 1);
     setDueAt(editingIntake.due_at ? editingIntake.due_at.slice(0, 10) : "");
     setNotes(editingIntake.notes ?? "");
     setChargeEnabled(Boolean(editingIntake.charge_amount && editingIntake.charge_amount !== "0.00"));
@@ -345,6 +367,8 @@ export default function PosAlterationIntakeModal({
         cart_row_id: source.cart_row_id ?? null,
         item_description: source.item_description,
         work_requested: finalWork,
+        capacity_bucket: capacityBucket,
+        capacity_units: capacityUnits,
         source_product_id: source.source_product_id ?? null,
         source_variant_id: source.source_variant_id ?? null,
         source_sku: source.source_sku ?? null,
@@ -426,6 +450,73 @@ export default function PosAlterationIntakeModal({
                 <span>{warning}</span>
               </div>
             ) : null}
+
+            <div className="mb-4 rounded-xl border border-app-border bg-app-surface-2 p-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Work type and capacity units
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {ALTERATION_WORK_TYPES.map((task) => {
+                  const active =
+                    workRequested === task.label &&
+                    capacityBucket === task.bucket &&
+                    capacityUnits === task.units;
+                  return (
+                    <button
+                      key={`${task.label}-${task.bucket}-${task.units}`}
+                      type="button"
+                      onClick={() => {
+                        setWorkRequested(task.label);
+                        setCapacityBucket(task.bucket);
+                        setCapacityUnits(task.units);
+                      }}
+                      className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                        active
+                          ? "border-app-accent bg-app-accent text-white"
+                          : "border-app-border bg-app-surface text-app-text-muted hover:text-app-text"
+                      }`}
+                    >
+                      {task.label} · {task.units}u
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+                <select
+                  value={capacityBucket}
+                  onChange={(event) =>
+                    setCapacityBucket(event.target.value as "jacket" | "pant" | "other")
+                  }
+                  className="ui-input text-xs font-black uppercase tracking-widest"
+                  aria-label="Alteration capacity bucket"
+                >
+                  <option value="jacket">Jacket capacity</option>
+                  <option value="pant">Pant capacity</option>
+                  <option value="other">Other capacity</option>
+                </select>
+                <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setCapacityUnits((value) => Math.max(1, value - 1))}
+                    className="h-8 w-8 rounded-lg border border-app-border text-sm font-black text-app-text"
+                    aria-label="Decrease alteration units"
+                  >
+                    -
+                  </button>
+                  <span className="w-10 text-center text-sm font-black text-app-text">
+                    {capacityUnits}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCapacityUnits((value) => value + 1)}
+                    className="h-8 w-8 rounded-lg border border-app-border text-sm font-black text-app-text"
+                    aria-label="Increase alteration units"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
 
             {sourceMode === "current_cart_item" ? (
               <div className="space-y-2">

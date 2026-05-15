@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Package, Clock, AlertCircle, ArrowRight, CreditCard, Plus, Save, Trash2 } from "lucide-react";
+import { X, Package, Clock, AlertCircle, ArrowRight, CreditCard, Plus, Save, Trash2, ShieldCheck } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
+import ConfirmationModal from "../ui/ConfirmationModal";
 import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import VariantSearchInput, { type VariantSearchResult } from "../ui/VariantSearchInput";
 
@@ -96,6 +97,12 @@ export default function OrderLoadModal({
   const [paymentAmount, setPaymentAmount] = useState("");
   const [addSku, setAddSku] = useState("");
   const [orderMutationBusy, setOrderMutationBusy] = useState(false);
+  const [pickupBusy, setPickupBusy] = useState(false);
+  const [pickupConfirm, setPickupConfirm] = useState<{
+    order: CustomerOrder;
+    items: OrderItem[];
+    blockedItems: OrderItem[];
+  } | null>(null);
   const [lineDrafts, setLineDrafts] = useState<Record<string, {
     quantity: string;
     unit_price: string;
@@ -244,6 +251,94 @@ export default function OrderLoadModal({
         return "Picked Up";
       default:
         return "Order Review";
+    }
+  };
+
+  const submitPickup = async (
+    order: CustomerOrder,
+    items: OrderItem[],
+    overrideReadiness: boolean,
+  ) => {
+    const ids = items
+      .map((item) => item.transaction_line_id)
+      .filter((id): id is string => Boolean(id));
+    if (ids.length === 0) {
+      toast("No open order lines are available for pickup.", "error");
+      return;
+    }
+    setPickupBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/transactions/${order.id}/pickup`, {
+        method: "POST",
+        headers: { ...apiAuth(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          delivered_item_ids: ids,
+          actor: "Register Customer Orders",
+          override_readiness: overrideReadiness,
+          override_reason: overrideReadiness
+            ? "Register pickup override: customer received item before ready status; staff confirmed release."
+            : undefined,
+          register_session_id: registerSessionId ?? undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Pickup could not be completed.", "error");
+        return;
+      }
+      toast(
+        overrideReadiness
+          ? "Pickup completed with override recorded."
+          : "Pickup completed.",
+        "success",
+      );
+      setPickupConfirm(null);
+      await loadOrderItems(order.id);
+      setLoading(true);
+      const params = new URLSearchParams({
+        customer_id: customerId,
+        limit: "25",
+      });
+      if (registerSessionId) params.set("register_session_id", registerSessionId);
+      const ordersRes = await fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
+        headers: apiAuth(),
+      });
+      if (ordersRes.ok) {
+        const data = await ordersRes.json();
+        const rows = Array.isArray(data?.items) ? data.items : [];
+        setOrders(rows.map((row: CustomerOrder) => ({ ...row, id: row.id ?? row.transaction_id })));
+      }
+    } finally {
+      setLoading(false);
+      setPickupBusy(false);
+    }
+  };
+
+  const openPickupFlow = async (order: CustomerOrder, oneItem?: OrderItem) => {
+    if (parseMoneyToCents(order.balance_due) > 0) {
+      toast("Collect the Balance Due before pickup release.", "error");
+      return;
+    }
+    setPickupBusy(true);
+    try {
+      const loadedItems = oneItem ? [oneItem] : await fetchOrderItems(order.id);
+      const openItems = loadedItems.filter((item) => !item.is_fulfilled);
+      if (openItems.length === 0) {
+        toast("No open order lines are available for pickup.", "info");
+        return;
+      }
+      const blockedItems = openItems.filter(
+        (item) => item.order_lifecycle_status !== "ready_for_pickup",
+      );
+      if (blockedItems.length > 0) {
+        setPickupConfirm({ order, items: openItems, blockedItems });
+        return;
+      }
+      await submitPickup(order, openItems, false);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Pickup could not be started.", "error");
+    } finally {
+      setPickupBusy(false);
     }
   };
 
@@ -478,12 +573,22 @@ export default function OrderLoadModal({
                     ) : null}
                     <button
                       type="button"
+                      data-testid={`pos-order-pickup-${order.display_id}`}
+                      onClick={() => void openPickupFlow(order)}
+                      disabled={pickupBusy || order.status === "fulfilled"}
+                      className="flex min-h-11 items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg transition-all hover:opacity-90 disabled:opacity-50"
+                    >
+                      <ShieldCheck size={14} />
+                      Pick Up
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         if (order.id) void loadOrderItems(order.id);
                       }}
                       className="ui-btn-secondary flex min-h-11 items-center justify-center gap-2 px-3 text-[10px]"
                     >
-                      View Lines
+                      View Order Details
                       <ArrowRight size={14} />
                     </button>
                   </div>
@@ -544,6 +649,17 @@ export default function OrderLoadModal({
                         )}
                       </div>
                       <div className="flex flex-col items-end">
+                        {selectedOrder && !item.is_fulfilled ? (
+                          <button
+                            type="button"
+                            disabled={pickupBusy}
+                            onClick={() => void openPickupFlow(selectedOrder, item)}
+                            className="mb-2 flex min-h-9 items-center justify-center gap-2 rounded-lg border border-app-success/25 bg-app-success/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-success disabled:opacity-50"
+                          >
+                            <ShieldCheck size={12} />
+                            Pick Up Line
+                          </button>
+                        ) : null}
                         {onUpdateOrderItem && !item.is_fulfilled ? (
                           <div className="grid w-full gap-2 sm:w-[24rem] sm:grid-cols-[4rem_minmax(0,1fr)]">
                           <input
@@ -797,6 +913,19 @@ export default function OrderLoadModal({
             </div>
           </div>
         </div>
+      )}
+      {pickupConfirm && (
+        <ConfirmationModal
+          isOpen={true}
+          title="Pickup Readiness Override?"
+          message={`${pickupConfirm.blockedItems.length} line(s) are not marked Ready for Pickup. Continue only if staff verified the customer is receiving the item now; this records an override and moves pickup/inventory/recognition.`}
+          confirmLabel={pickupBusy ? "Releasing..." : "Release Pickup"}
+          onConfirm={() => void submitPickup(pickupConfirm.order, pickupConfirm.items, true)}
+          onClose={() => {
+            if (!pickupBusy) setPickupConfirm(null);
+          }}
+          variant="info"
+        />
       )}
     </div>,
     document.getElementById("drawer-root")!

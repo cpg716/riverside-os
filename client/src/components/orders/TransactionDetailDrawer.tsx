@@ -714,6 +714,7 @@ export default function TransactionDetailDrawer({
   const [showPickupReleaseModal, setShowPickupReleaseModal] = useState(false);
   const [pickupOverride, setPickupOverride] = useState(false);
   const [pickupOverrideReason, setPickupOverrideReason] = useState("");
+  const [pickupTargetLineIds, setPickupTargetLineIds] = useState<string[] | null>(null);
   const [pickupBusy, setPickupBusy] = useState(false);
   const [pickupError, setPickupError] = useState<string | null>(null);
   useShellBackdropLayer(Boolean(readyTarget) || showPickupReleaseModal);
@@ -833,9 +834,10 @@ export default function TransactionDetailDrawer({
     setReadyError(null);
   }, [readyBusy]);
 
-  const openPickupReleaseModal = useCallback(() => {
+  const openPickupReleaseModal = useCallback((item?: TransactionDrawerItem) => {
     setPickupOverride(false);
     setPickupOverrideReason("");
+    setPickupTargetLineIds(item?.transaction_line_id ? [item.transaction_line_id] : null);
     setPickupError(null);
     setShowPickupReleaseModal(true);
   }, []);
@@ -843,6 +845,7 @@ export default function TransactionDetailDrawer({
   const closePickupReleaseModal = useCallback(() => {
     if (pickupBusy) return;
     setShowPickupReleaseModal(false);
+    setPickupTargetLineIds(null);
     setPickupError(null);
   }, [pickupBusy]);
 
@@ -913,7 +916,14 @@ export default function TransactionDetailDrawer({
       setPickupError("Collect the Balance Due before pickup release.");
       return;
     }
-    const targetLines = pickupOverride ? pickupReleaseLines.open : pickupReleaseLines.ready;
+    const candidateLines = pickupTargetLineIds
+      ? pickupReleaseLines.open.filter((item) =>
+          item.transaction_line_id ? pickupTargetLineIds.includes(item.transaction_line_id) : false,
+        )
+      : pickupReleaseLines.open;
+    const targetLines = pickupOverride
+      ? candidateLines
+      : candidateLines.filter((item) => item.order_lifecycle_status === "ready_for_pickup");
     const deliveredItemIds = targetLines
       .map((item) => item.transaction_line_id)
       .filter((id): id is string => Boolean(id));
@@ -955,6 +965,7 @@ export default function TransactionDetailDrawer({
         "success",
       );
       setShowPickupReleaseModal(false);
+      setPickupTargetLineIds(null);
       setPickupOverride(false);
       setPickupOverrideReason("");
       await onLifecycleChanged?.();
@@ -972,7 +983,7 @@ export default function TransactionDetailDrawer({
     pickupOverride,
     pickupOverrideReason,
     pickupReleaseLines.open,
-    pickupReleaseLines.ready,
+    pickupTargetLineIds,
     summary,
     toast,
     usesControlledData,
@@ -1095,10 +1106,21 @@ export default function TransactionDetailDrawer({
 	  }, [orderActions]);
 
   const pickupBalanceDueCents = detail ? parseMoneyToCents(detail.balance_due) : 0;
+  const pickupModalOpenLines = pickupTargetLineIds
+    ? pickupReleaseLines.open.filter((item) =>
+        item.transaction_line_id ? pickupTargetLineIds.includes(item.transaction_line_id) : false,
+      )
+    : pickupReleaseLines.open;
+  const pickupModalReadyLines = pickupModalOpenLines.filter(
+    (item) => item.order_lifecycle_status === "ready_for_pickup",
+  );
+  const pickupModalBlockedLines = pickupModalOpenLines.filter(
+    (item) => item.order_lifecycle_status !== "ready_for_pickup",
+  );
   const pickupCanSubmit =
     Boolean(detail) &&
     pickupBalanceDueCents <= 0 &&
-    (pickupOverride ? pickupReleaseLines.open.length > 0 : pickupReleaseLines.ready.length > 0);
+    (pickupOverride ? pickupModalOpenLines.length > 0 : pickupModalReadyLines.length > 0);
 
   return (
     <>
@@ -1125,12 +1147,12 @@ export default function TransactionDetailDrawer({
             !["fulfilled", "cancelled"].includes(detail.status) ? (
               <button
                 type="button"
-                onClick={openPickupReleaseModal}
+                onClick={() => openPickupReleaseModal()}
                 disabled={pickupReleaseLines.open.length === 0}
                 className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:opacity-90 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ShieldCheck size={16} />
-                Release Pickup
+                Pick Up
               </button>
             ) : null}
             {detail && orderActions?.onOpenInRegister ? (
@@ -1731,6 +1753,18 @@ export default function TransactionDetailDrawer({
                                 Mark Ready
                               </button>
                             ) : null}
+                            {detail.fulfillment_method !== "ship" &&
+                            item.transaction_line_id &&
+                            !item.is_internal &&
+                            !item.is_fulfilled ? (
+                              <button
+                                type="button"
+                                onClick={() => openPickupReleaseModal(item)}
+                                className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-success transition-colors hover:bg-app-success/10"
+                              >
+                                Pick Up
+                              </button>
+                            ) : null}
                             {orderActions?.canModify &&
                             detail.status !== "cancelled" &&
                             !item.is_fulfilled &&
@@ -2050,7 +2084,7 @@ export default function TransactionDetailDrawer({
                         Ready Lines
                       </p>
                       <p className="mt-1 text-lg font-black text-app-success">
-                        {pickupReleaseLines.ready.length}
+                        {pickupModalReadyLines.length}
                       </p>
                     </div>
                     <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
@@ -2058,7 +2092,7 @@ export default function TransactionDetailDrawer({
                         Blocked Lines
                       </p>
                       <p className="mt-1 text-lg font-black text-app-warning">
-                        {pickupReleaseLines.blocked.length}
+                        {pickupModalBlockedLines.length}
                       </p>
                     </div>
                     <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
@@ -2067,19 +2101,19 @@ export default function TransactionDetailDrawer({
                       </p>
                       <p className="mt-1 text-lg font-black text-app-text">
                         {pickupOverride
-                          ? pickupReleaseLines.open.length
-                          : pickupReleaseLines.ready.length}
+                          ? pickupModalOpenLines.length
+                          : pickupModalReadyLines.length}
                       </p>
                     </div>
                   </div>
 
-                  {pickupReleaseLines.ready.length > 0 ? (
+                  {pickupModalReadyLines.length > 0 ? (
                     <div className="rounded-xl border border-app-success/20 bg-app-success/8 p-3">
                       <p className="text-[10px] font-black uppercase tracking-widest text-app-success">
                         Ready to Release
                       </p>
                       <ul className="mt-2 space-y-2 text-sm font-semibold text-app-text">
-                        {pickupReleaseLines.ready.slice(0, 5).map((item) => (
+                        {pickupModalReadyLines.slice(0, 5).map((item) => (
                           <li key={item.transaction_line_id} className="flex justify-between gap-3">
                             <span>{item.product_name}</span>
                             <span className="shrink-0 text-app-text-muted">{item.sku}</span>
@@ -2089,13 +2123,13 @@ export default function TransactionDetailDrawer({
                     </div>
                   ) : null}
 
-                  {pickupReleaseLines.blocked.length > 0 ? (
+                  {pickupModalBlockedLines.length > 0 ? (
                     <div className="rounded-xl border border-app-warning/25 bg-app-warning/10 p-3">
                       <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
                         Still Blocked
                       </p>
                       <ul className="mt-2 space-y-2 text-sm font-semibold text-app-text">
-                        {pickupReleaseLines.blocked.slice(0, 5).map((item) => (
+                        {pickupModalBlockedLines.slice(0, 5).map((item) => (
                           <li key={item.transaction_line_id} className="flex justify-between gap-3">
                             <span>{item.product_name}</span>
                             <span className="shrink-0 text-app-text-muted">
@@ -2107,7 +2141,7 @@ export default function TransactionDetailDrawer({
                     </div>
                   ) : null}
 
-                  {pickupReleaseLines.blocked.length > 0 ? (
+                  {pickupModalBlockedLines.length > 0 ? (
                     <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
                       <label className="flex items-start gap-3 text-sm font-bold text-app-text">
                         <input

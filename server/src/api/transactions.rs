@@ -1756,7 +1756,7 @@ async fn mark_transaction_pickup(
             updated AS (
                 UPDATE product_variants pv
                 SET
-                    stock_on_hand  = GREATEST(pv.stock_on_hand  - locked.qty, 0),
+                    stock_on_hand  = pv.stock_on_hand - locked.qty,
                     reserved_stock = GREATEST(pv.reserved_stock - locked.qty_reserved, 0),
                     on_layaway     = GREATEST(pv.on_layaway     - locked.qty_layaway, 0)
                 FROM locked

@@ -983,8 +983,12 @@ export default function Cart({
   }, [baseUrl, sessionId, apiAuth, staffCode, staffPin]);
 
   const resolveActorStaffId = useCallback(async () => {
-    return (backofficeHeaders() as Record<string, string>)["x-riverside-staff-id"] || null;
-  }, [backofficeHeaders]);
+    return (
+      checkoutOperator?.staffId ||
+      (backofficeHeaders() as Record<string, string>)["x-riverside-staff-id"] ||
+      null
+    );
+  }, [backofficeHeaders, checkoutOperator?.staffId]);
 
   // --- Checkout Hook ---
   const { 

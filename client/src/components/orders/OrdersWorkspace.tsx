@@ -363,35 +363,38 @@ function openBespokeOrdersPrint(opts: {
   w.document.write(`<!DOCTYPE html><html><head><title>${escapePrintHtml(opts.title)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800;900&display=swap');
-    body { font-family: Inter, system-ui, sans-serif; color: #0f172a; padding: 32px; font-size: 13px; line-height: 1.35; }
-    h1 { font-size: 28px; font-weight: 900; margin: 0; letter-spacing: 0; }
+    @page { size: letter portrait; margin: 0.35in; }
+    body { font-family: Inter, system-ui, sans-serif; color: #0f172a; padding: 0; font-size: 10px; line-height: 1.22; }
+    h1 { font-size: 20px; font-weight: 900; margin: 0; letter-spacing: 0; }
     .muted { color: #64748b; }
-    .report-head { display:flex; justify-content:space-between; gap:24px; border-bottom:4px solid #0f172a; padding-bottom:18px; margin-bottom:22px; }
+    .report-head { display:flex; justify-content:space-between; gap:18px; border-bottom:3px solid #0f172a; padding-bottom:9px; margin-bottom:8px; }
     .report-meta { text-align:right; font-weight:800; color:#475569; }
-    .subtitle { font-size: 14px; font-weight: 800; margin: 0 0 20px; }
-    .order-card { break-inside: avoid; border: 2px solid #cbd5e1; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-    .order-top { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; border-bottom:1px solid #e2e8f0; padding-bottom:12px; }
+    .subtitle { font-size: 10px; font-weight: 800; margin: 0 0 7px; }
+    .order-card { break-inside: avoid; page-break-inside: avoid; border: 1px solid #cbd5e1; border-radius: 9px; padding: 8px 10px; margin-bottom: 7px; }
+    .order-card:nth-of-type(6n + 5) { break-after: page; page-break-after: always; }
+    .order-card:last-child { break-after: auto; page-break-after: auto; }
+    .order-top { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; border-bottom:1px solid #e2e8f0; padding-bottom:6px; }
     .customer-head { min-width:0; flex:1; }
-    .customer-name { font-size: 24px; font-weight: 900; letter-spacing:0; }
-    .customer-meta, .transaction-meta { display:flex; flex-wrap:wrap; gap:10px 16px; margin-top:5px; color:#475569; font-size:12px; font-weight:800; }
-    .transaction-meta { color:#0f172a; font-size:13px; }
+    .customer-name { font-size: 15px; font-weight: 900; letter-spacing:0; }
+    .customer-meta, .transaction-meta { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:3px; color:#475569; font-size:8.5px; font-weight:800; }
+    .transaction-meta { color:#0f172a; font-size:9px; }
     .order-flags { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
-    .order-flags span, .item-status { border:1px solid #cbd5e1; border-radius:999px; padding:5px 9px; font-size:11px; font-weight:900; text-transform:uppercase; letter-spacing:.08em; white-space:nowrap; }
-    .items-title { font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:.14em; color:#475569; margin:14px 0 8px; }
-    .items-list { border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; }
-    .item-row { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:10px 12px; border-bottom:1px solid #e2e8f0; }
+    .order-flags span, .item-status { border:1px solid #cbd5e1; border-radius:999px; padding:3px 6px; font-size:7.5px; font-weight:900; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
+    .items-title { font-size:8px; font-weight:900; text-transform:uppercase; letter-spacing:.12em; color:#475569; margin:7px 0 4px; }
+    .items-list { border:1px solid #e2e8f0; border-radius:7px; overflow:hidden; }
+    .item-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 7px; border-bottom:1px solid #e2e8f0; }
     .item-row:last-child { border-bottom:0; }
-    .item-main { min-width:0; flex:1; display:flex; align-items:flex-start; gap:10px; }
-    .item-qty { flex:0 0 auto; min-width:32px; font-size:15px; font-weight:900; color:#0f172a; }
+    .item-main { min-width:0; flex:1; display:flex; align-items:flex-start; gap:6px; }
+    .item-qty { flex:0 0 auto; min-width:22px; font-size:10px; font-weight:900; color:#0f172a; }
     .item-copy { min-width:0; flex:1; }
-    .item-name { font-size:15px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .item-sku { display:block; margin-top:2px; font-size:12px; font-weight:800; color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .item-state { flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; gap:4px; max-width:190px; }
-    .order-footer { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-top:14px; }
-    .staff-line { display:flex; flex-direction:column; gap:3px; font-size:12px; font-weight:800; color:#334155; }
-    .money-grid { display:grid; grid-template-columns: repeat(3, auto); gap:14px; text-align:right; }
-    .money-grid span { display:block; font-size:10px; font-weight:900; color:#64748b; text-transform:uppercase; letter-spacing:.12em; }
-    .money-grid strong { display:block; font-size:17px; font-weight:900; margin-top:2px; }
+    .item-name { font-size:9.5px; font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .item-sku { display:block; margin-top:1px; font-size:8px; font-weight:800; color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .item-state { flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; gap:2px; max-width:128px; }
+    .order-footer { display:flex; align-items:flex-end; justify-content:space-between; gap:10px; margin-top:6px; }
+    .staff-line { display:flex; flex-direction:column; gap:1px; font-size:8px; font-weight:800; color:#334155; }
+    .money-grid { display:grid; grid-template-columns: repeat(3, auto); gap:9px; text-align:right; }
+    .money-grid span { display:block; font-size:7px; font-weight:900; color:#64748b; text-transform:uppercase; letter-spacing:.1em; }
+    .money-grid strong { display:block; font-size:11px; font-weight:900; margin-top:1px; }
     @media print {
       body { padding: 0; }
       .order-card { page-break-inside: avoid; }

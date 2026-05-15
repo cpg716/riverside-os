@@ -85,6 +85,8 @@ export interface PendingAlterationIntake {
   cart_row_id?: string | null;
   item_description: string;
   work_requested: string;
+  capacity_bucket?: "jacket" | "pant" | "other" | null;
+  capacity_units?: number | null;
   source_product_id?: string | null;
   source_variant_id?: string | null;
   source_sku?: string | null;
@@ -103,6 +105,8 @@ export interface CheckoutAlterationIntakePayload {
   source_type: AlterationSourceType;
   item_description: string;
   work_requested: string;
+  capacity_bucket?: "jacket" | "pant" | "other" | null;
+  capacity_units?: number | null;
   source_product_id?: string | null;
   source_variant_id?: string | null;
   source_sku?: string | null;

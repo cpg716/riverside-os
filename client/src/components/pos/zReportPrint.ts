@@ -14,6 +14,72 @@ export interface ZReportOverrideRow {
   total_delta: string;
 }
 
+type ZReportAuditItem = {
+  name: string;
+  sku: string;
+  quantity: number;
+  unit_price: string;
+  fulfillment: string;
+  is_internal: boolean;
+  line_kind?: string | null;
+};
+
+function escapeReportHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function formatReportMoney(value: string | number): string {
+  const cents = typeof value === "number" ? value : parseMoneyToCents(String(value));
+  const sign = cents < 0 ? "-" : "";
+  return `${sign}$${centsToFixed2(Math.abs(cents))}`;
+}
+
+function reportLabel(value: string | null | undefined): string {
+  const normalized = (value ?? "").trim().toLowerCase();
+  switch (normalized) {
+    case "pos_gift_card_load":
+      return "Gift card issued";
+    case "alteration_service":
+      return "Alteration service charge";
+    case "pos_manual_price":
+    case "manual override":
+      return "Manual price change";
+    case "custom_order_booking":
+      return "Custom order booking";
+    case "rms_charge_payment":
+      return "Counterpoint payment";
+    case "customer_profile_discount":
+      return "Customer profile discount";
+    case "":
+    case "(unset)":
+      return "Unspecified price change";
+    default:
+      return value!.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+}
+
+function fulfillmentLabel(value: string | null | undefined): string {
+  switch ((value ?? "").trim()) {
+    case "takeaway":
+      return "Takeaway";
+    case "special_order":
+      return "Special order";
+    case "wedding_order":
+      return "Wedding order";
+    case "custom":
+      return "Custom order";
+    case "layaway":
+      return "Layaway";
+    default:
+      return reportLabel(value);
+  }
+}
+
 export function openProfessionalZReportPrint(opts: {
   title: string;
   sessionId: string;
@@ -36,6 +102,12 @@ export function openProfessionalZReportPrint(opts: {
     payment_method: string;
     amount: string;
     customer_name: string;
+    transaction_display_id?: string | null;
+    transaction_status?: string | null;
+    transaction_total?: string | null;
+    transaction_paid?: string | null;
+    transaction_balance_due?: string | null;
+    items?: ZReportAuditItem[];
     register_lane: number;
   }[];
 }): void {
@@ -49,14 +121,14 @@ export function openProfessionalZReportPrint(opts: {
   const tendersRows = opts.tenders
     .map(
       (t) =>
-        `<tr style="border-bottom: 1px solid #f1f5f9"><td style="text-transform:capitalize;padding:10px 0">${t.payment_method.replace(/_/g, " ")}</td><td style="text-align:center">${t.tx_count}</td><td style="text-align:right;font-family:ui-monospace,monospace;font-weight:700">$${centsToFixed2(parseMoneyToCents(String(t.total_amount)))}</td></tr>`,
+        `<tr><td>${escapeReportHtml(reportLabel(t.payment_method))}</td><td class="center">${t.tx_count}</td><td class="money">${formatReportMoney(t.total_amount)}</td></tr>`,
     )
     .join("");
 
   const overrideRows = opts.overrideSummary
     .map(
       (o) =>
-        `<tr style="border-bottom: 1px solid #f1f5f9"><td style="padding:8px 0">${o.reason}</td><td style="text-align:center">${o.line_count}</td><td style="text-align:right;font-family:monospace">$${centsToFixed2(parseMoneyToCents(String(o.total_delta)))}</td></tr>`,
+        `<tr><td>${escapeReportHtml(reportLabel(o.reason))}</td><td class="center">${o.line_count}</td><td class="money">${formatReportMoney(o.total_delta)}</td></tr>`,
     )
     .join("");
 
@@ -67,13 +139,13 @@ export function openProfessionalZReportPrint(opts: {
             const laneTendersItems = lane.tenders
               .map(
                 (t) =>
-                  `<tr><td style="text-transform:capitalize;padding:6px 0">${t.payment_method.replace(/_/g, " ")}</td><td style="text-align:center">${t.tx_count}</td><td style="text-align:right;font-family:monospace">$${centsToFixed2(parseMoneyToCents(String(t.total_amount)))}</td></tr>`,
+                  `<tr><td>${escapeReportHtml(reportLabel(t.payment_method))}</td><td class="center">${t.tx_count}</td><td class="money">${formatReportMoney(t.total_amount)}</td></tr>`,
               )
               .join("");
             return `
-              <div style="margin-top: 20px; break-inside: avoid;">
-                <p style="font-weight: 800; font-size: 10px; color: #64748b; letter-spacing: 0.1em; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 8px;">REGISTER #${lane.register_lane}</p>
-                <table style="width:100%;font-size: 11px;border-collapse:collapse;">${laneTendersItems || "<tr><td colspan='3' class='muted'>No payments</td></tr>"}</table>
+              <div class="lane-block">
+                <p class="subhead">Register #${lane.register_lane}</p>
+                <table>${laneTendersItems || "<tr><td colspan='3' class='muted'>No payments</td></tr>"}</table>
               </div>
             `;
           })
@@ -88,8 +160,36 @@ export function openProfessionalZReportPrint(opts: {
               hour: "2-digit",
               minute: "2-digit",
             });
-            const safeCust = (t.customer_name || "—").replace(/[<>&]/g, "");
-            return `<tr style="border-bottom: 1px solid #f8fafc"><td style="padding:6px 0">${tm}</td><td style="text-align:center;font-weight:800">#${t.register_lane}</td><td style="text-transform:capitalize">${t.payment_method.replace(/_/g, " ")}</td><td style="text-align:right;font-family:monospace">$${centsToFixed2(parseMoneyToCents(String(t.amount)))}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;padding-left:10px">${safeCust}</td></tr>`;
+            const visibleItems = (t.items ?? []).filter((item) => !item.is_internal).slice(0, 4);
+            const internalItems = (t.items ?? []).filter((item) => item.is_internal);
+            const giftCardIssued = internalItems.find((item) => item.line_kind === "pos_gift_card_load");
+            const itemSummary = visibleItems
+              .map(
+                (item) =>
+                  `${item.quantity}x ${item.name}${item.sku ? ` (${item.sku})` : ""} · ${fulfillmentLabel(item.fulfillment)} · ${formatReportMoney(item.unit_price)}`,
+              )
+              .join("; ");
+            const extraCount = Math.max(0, (t.items ?? []).filter((item) => !item.is_internal).length - visibleItems.length);
+            const notes = [
+              itemSummary || null,
+              extraCount > 0 ? `+${extraCount} more line${extraCount === 1 ? "" : "s"}` : null,
+              giftCardIssued ? "Gift card issued on this sale" : null,
+            ].filter(Boolean).join(" ");
+            const totals = [
+              t.transaction_total ? `Sale ${formatReportMoney(t.transaction_total)}` : null,
+              t.transaction_paid ? `Paid ${formatReportMoney(t.transaction_paid)}` : null,
+              t.transaction_balance_due && parseMoneyToCents(t.transaction_balance_due) > 0
+                ? `Balance ${formatReportMoney(t.transaction_balance_due)}`
+                : null,
+            ].filter(Boolean).join(" · ");
+            return `<tr>
+              <td>${tm}</td>
+              <td class="center">#${t.register_lane}</td>
+              <td>${escapeReportHtml(t.transaction_display_id ?? "Sale")}</td>
+              <td>${escapeReportHtml(reportLabel(t.payment_method))}<br><span class="muted">${escapeReportHtml(totals || "Paid at register")}</span></td>
+              <td class="money">${formatReportMoney(t.amount)}</td>
+              <td><strong>${escapeReportHtml(t.customer_name || "Walk-in")}</strong><br><span class="muted">${escapeReportHtml(notes || "No item detail recorded")}</span></td>
+            </tr>`;
           })
           .join("")
       : "";
@@ -101,19 +201,25 @@ export function openProfessionalZReportPrint(opts: {
   w.document.write(`<!DOCTYPE html><html><head><title>${opts.title} — ${opts.sessionId}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
-    body { font-family: 'Inter', system-ui, sans-serif; font-size: 12px; line-height: 1.5; color: #0f172a; padding: 40px; }
-    h1 { font-size: 24px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
-    h2 { font-size: 14px; font-weight: 800; margin: 30px 0 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #475569; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
-    .header-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 40px; margin-top: 30px; }
-    .stat-card { border: 1px solid #e2e8f0; padding: 16px; rounded: 12px; border-radius: 12px; }
-    .stat-label { font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
-    .stat-value { font-size: 18px; font-weight: 800; }
-    .discrepancy-box { margin-top: 30px; border: 2px solid ${statusColor}; background: ${dc === 0 ? "#ecfdf5" : "#fef2f2"}; padding: 20px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; }
+    @page { size: letter portrait; margin: 0.38in; }
+    body { font-family: 'Inter', system-ui, sans-serif; font-size: 9.5px; line-height: 1.32; color: #0f172a; padding: 0; }
+    h1 { font-size: 19px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+    h2 { font-size: 10.5px; font-weight: 800; margin: 14px 0 5px; text-transform: uppercase; letter-spacing: 0.1em; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    .header-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 14px; }
+    .stat-label { font-size: 7.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 2px; }
+    .discrepancy-box { margin-top: 8px; border: 1.5px solid ${statusColor}; background: ${dc === 0 ? "#ecfdf5" : "#fef2f2"}; padding: 9px 11px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
     table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; font-size: 10px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; padding: 10px 0; border-bottom: 1px solid #e2e8f0; }
+    th { text-align: left; font-size: 7.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; padding: 4px 0; border-bottom: 1px solid #e2e8f0; }
+    td { border-bottom: 1px solid #f1f5f9; padding: 3.5px 0; vertical-align: top; }
     .muted { color: #64748b; }
     .mono { font-family: 'JetBrains Mono', monospace; }
-    .reconciliation-grid { display: grid; grid-template-cols: 2fr 1fr; gap: 40px; margin-top: 40px; }
+    .money { font-family: 'JetBrains Mono', monospace; font-weight: 700; text-align: right; white-space: nowrap; }
+    .center { text-align: center; }
+    .subhead { border-bottom: 1px solid #e2e8f0; color: #64748b; font-size: 8px; font-weight: 800; letter-spacing: 0.1em; margin: 0 0 4px; padding-bottom: 3px; text-transform: uppercase; }
+    .lane-block { break-inside: avoid; margin-top: 8px; }
+    .reconciliation-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-top: 16px; }
+    .cash-line { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
+    .signature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
     @media print { body { padding: 0; } .no-print { display: none; } }
   </style></head><body>
   <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -124,7 +230,7 @@ export function openProfessionalZReportPrint(opts: {
     <div style="text-align: right;">
       <p class="stat-label">Report ID</p>
       <p class="mono" style="font-weight: 700;">${opts.sessionId}</p>
-      <p class="muted" style="margin-top: 4px;">Assigned Printer: <span style="font-weight:800;color:#0f172a">${reportPrinter}</span></p>
+      <p class="muted" style="margin-top: 2px;">Printed from <span style="font-weight:800;color:#0f172a">${escapeReportHtml(reportPrinter)}</span></p>
     </div>
   </div>
 
@@ -135,7 +241,7 @@ export function openProfessionalZReportPrint(opts: {
       ${opts.openedAt ? `<p class="muted">Shift Start: ${new Date(opts.openedAt).toLocaleString()}</p>` : ""}
     </div>
     <div style="text-align: right;">
-      <p class="stat-label">Terminal Node</p>
+      <p class="stat-label">Register Group</p>
       <p style="font-size: 16px; font-weight: 700;">Register Group ${ord}</p>
     </div>
   </div>
@@ -153,43 +259,40 @@ export function openProfessionalZReportPrint(opts: {
 
     <div>
       <h2>Cash Reconciliation</h2>
-      <div style="space-y: 12px;">
-        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9;">
+      <div>
+        <div class="cash-line">
           <span class="muted">Opening Float</span>
-          <span class="mono" style="font-weight: 700;">$${centsToFixed2(opts.openingCents)}</span>
+          <span class="mono" style="font-weight: 700;">${formatReportMoney(opts.openingCents)}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9;">
+        <div class="cash-line">
           <span class="muted">Cash Sales</span>
-          <span class="mono" style="font-weight: 700;">+$${centsToFixed2(opts.cashSalesCents)}</span>
+          <span class="mono" style="font-weight: 700;">+${formatReportMoney(opts.cashSalesCents)}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9;">
+        <div class="cash-line">
           <span class="muted">Drawer Adjustments</span>
-          <span class="mono" style="font-weight: 700;">${opts.netAdjustmentsCents >= 0 ? "+" : ""}$${centsToFixed2(opts.netAdjustmentsCents)}</span>
+          <span class="mono" style="font-weight: 700;">${opts.netAdjustmentsCents >= 0 ? "+" : ""}${formatReportMoney(opts.netAdjustmentsCents)}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; padding: 12px 0; margin-top: 8px; border-top: 2px solid #e2e8f0;">
+        <div style="display: flex; justify-content: space-between; padding: 7px 0; margin-top: 3px; border-top: 1.5px solid #e2e8f0;">
           <span style="font-weight: 800; text-transform: uppercase;">Expected Cash</span>
-          <span class="mono" style="font-weight: 800; font-size: 16px;">$${centsToFixed2(opts.expectedCents)}</span>
+          <span class="mono" style="font-weight: 800; font-size: 12px;">${formatReportMoney(opts.expectedCents)}</span>
         </div>
-        <div style="display: flex; justify-content: space-between; padding: 12px 0; background: #f8fafc; border-radius: 8px; margin-top: 4px; padding: 12px;">
+        <div style="display: flex; justify-content: space-between; background: #f8fafc; border-radius: 7px; margin-top: 3px; padding: 7px;">
           <span style="font-weight: 800; text-transform: uppercase;">Actual Counted</span>
-          <span class="mono" style="font-weight: 800; font-size: 18px; color: #0f172a;">$${centsToFixed2(opts.actualCents)}</span>
+          <span class="mono" style="font-weight: 800; font-size: 12px; color: #0f172a;">${formatReportMoney(opts.actualCents)}</span>
         </div>
       </div>
 
       <div class="discrepancy-box">
         <div>
           <p style="font-size: 10px; font-weight: 800; color: ${statusColor}; letter-spacing: 0.1em; margin-bottom: 2px;">STATUS: ${statusLabel}</p>
-          <p style="font-size: 20px; font-weight: 800; color: ${statusColor}; margin: 0;">$${centsToFixed2(Math.abs(dc))}</p>
-        </div>
-        <div style="text-align: right;">
-           ${dc === 0 ? '✓' : '⚠'}
+          <p style="font-size: 14px; font-weight: 800; color: ${statusColor}; margin: 0;">${formatReportMoney(Math.abs(dc))}</p>
         </div>
       </div>
     </div>
   </div>
 
   ${overrideRows ? `
-    <div style="margin-top: 40px; break-inside: avoid;">
+    <div style="margin-top: 14px; break-inside: avoid;">
       <h2>Price Override Audit</h2>
       <table>
         <thead><tr><th>Reason for Override</th><th style="text-align:center">Occurrences</th><th style="text-align:right">Total Δ Retail</th></tr></thead>
@@ -199,23 +302,23 @@ export function openProfessionalZReportPrint(opts: {
   ` : ""}
 
   ${txAuditRows ? `
-    <div style="margin-top: 40px; page-break-before: auto;">
+    <div style="margin-top: 14px; page-break-before: auto;">
       <h2>Transaction Audit Trail</h2>
-      <table style="font-size: 10px;">
-        <thead><tr><th>Time</th><th style="text-align:center">Reg</th><th>Method</th><th style="text-align:right">Amount</th><th>Customer Context</th></tr></thead>
+      <table style="font-size: 8.2px;">
+        <thead><tr><th>Time</th><th style="text-align:center">Reg</th><th>Transaction</th><th>Payment / Order</th><th style="text-align:right">Paid</th><th>Customer / Detail</th></tr></thead>
         <tbody>${txAuditRows}</tbody>
       </table>
     </div>
   ` : ""}
 
-  <div style="margin-top: 80px; border-top: 1px solid #e2e8f0; pt: 20px; display: grid; grid-template-cols: 1fr 1fr; gap: 40px;">
+  <div class="signature-grid">
     <div>
       <p class="stat-label">Manager Signature</p>
-      <div style="border-bottom: 1px solid #0f172a; height: 40px; margin-top: 10px;"></div>
+      <div style="border-bottom: 1px solid #0f172a; height: 26px; margin-top: 5px;"></div>
     </div>
     <div>
       <p class="stat-label">Date of Verification</p>
-      <div style="border-bottom: 1px solid #0f172a; height: 40px; margin-top: 10px;"></div>
+      <div style="border-bottom: 1px solid #0f172a; height: 26px; margin-top: 5px;"></div>
     </div>
   </div>
   </body></html>`);

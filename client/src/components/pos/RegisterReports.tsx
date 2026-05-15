@@ -135,6 +135,20 @@ interface ZReportSnapshot {
     payment_method: string;
     amount: string;
     customer_name: string;
+    transaction_display_id?: string | null;
+    transaction_status?: string | null;
+    transaction_total?: string | null;
+    transaction_paid?: string | null;
+    transaction_balance_due?: string | null;
+    items?: {
+      name: string;
+      sku: string;
+      quantity: number;
+      unit_price: string;
+      fulfillment: string;
+      is_internal: boolean;
+      line_kind?: string | null;
+    }[];
     register_lane?: number | null;
   }>;
 }
@@ -305,6 +319,12 @@ function openZReportFromSession(session: RegisterSessionRow): void {
         payment_method: transaction.payment_method,
         amount: transaction.amount,
         customer_name: transaction.customer_name,
+        transaction_display_id: transaction.transaction_display_id,
+        transaction_status: transaction.transaction_status,
+        transaction_total: transaction.transaction_total,
+        transaction_paid: transaction.transaction_paid,
+        transaction_balance_due: transaction.transaction_balance_due,
+        items: transaction.items ?? [],
         register_lane: transaction.register_lane ?? session.register_lane,
       })) ?? [],
   });

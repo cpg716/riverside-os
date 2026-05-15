@@ -320,6 +320,8 @@ export function useCartCheckout({
           source_type: intake.source_type,
           item_description: intake.item_description,
           work_requested: intake.work_requested,
+          capacity_bucket: intake.capacity_bucket ?? null,
+          capacity_units: intake.capacity_units ?? null,
           source_product_id: intake.source_product_id ?? null,
           source_variant_id: intake.source_variant_id ?? null,
           source_sku: intake.source_sku ?? null,
