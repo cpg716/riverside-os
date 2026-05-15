@@ -103,7 +103,7 @@ const PartyList = ({ parties, loading, onPartyClick, currentPage, totalPages, se
                                         <span className={urgent ? 'text-red-600 font-bold' : ''}>{formatDate(party.date)}</span>
                                     </div>
                                 </div>
-                                <span className="bg-navy-50 text-app-text text-xs font-bold px-2.5 py-1 rounded border border-navy-100">
+                                <span className="bg-app-surface-2 text-app-text text-xs font-bold px-2.5 py-1 rounded border border-app-border">
                                     {party.salesperson || 'Staff'}
                                 </span>
                             </div>
@@ -137,7 +137,7 @@ const PartyList = ({ parties, loading, onPartyClick, currentPage, totalPages, se
                             </div>
 
                             {/* Footer: Members count + action */}
-                            <div className="bg-app-surface-2 px-5 py-3 text-xs text-app-text-muted border-t border-app-border/80 flex justify-between items-center group-hover:bg-navy-50 transition-colors">
+                            <div className="bg-app-surface-2 px-5 py-3 text-xs text-app-text-muted border-t border-app-border/80 flex justify-between items-center group-hover:bg-app-surface transition-colors">
                                 <span className="font-medium">{party.members ? party.members.length : 0} Members</span>
                                 {showDeleted && onRestore ? (
                                     <button type="button"

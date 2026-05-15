@@ -888,20 +888,20 @@ export default function GlobalCommandSearch({
           className={cn(
             "group relative flex items-center text-left shadow-sm transition-all duration-150 hover:border-app-accent/20 hover:bg-app-surface hover:shadow-md active:scale-[0.995]",
             isPosVariant
-              ? "gap-2 rounded-2xl border border-app-border/70 bg-app-surface-2/95 px-2.5 py-2"
-              : "max-w-[13rem] gap-2 rounded-2xl border border-app-border/70 bg-app-surface-2/90 px-2.5 py-2 sm:max-w-[15rem]",
+              ? "h-10 w-10 justify-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/95 px-0 2xl:w-auto 2xl:justify-start 2xl:px-2.5"
+              : "h-10 w-10 justify-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/90 px-0 lg:w-[15rem] lg:justify-start lg:px-2.5",
           )}
           aria-label="Open universal search"
         >
           <div
             className={cn(
               "flex shrink-0 items-center justify-center rounded-xl bg-app-surface text-app-text-muted shadow-sm transition-colors group-hover:text-app-text",
-              isPosVariant ? "h-8 w-8" : "h-8 w-8",
+              isPosVariant ? "h-7 w-7" : "h-7 w-7",
             )}
           >
-            <Search size={17} aria-hidden />
+            <Search size={16} aria-hidden />
           </div>
-          <div className={cn("min-w-0", isPosVariant ? "hidden 2xl:block" : "hidden sm:block")}>
+          <div className={cn("min-w-0", isPosVariant ? "hidden 2xl:block" : "hidden lg:block")}>
             <p className="truncate text-xs font-bold text-app-text">
               {isPosVariant ? "Jump Search" : "Search"}
             </p>

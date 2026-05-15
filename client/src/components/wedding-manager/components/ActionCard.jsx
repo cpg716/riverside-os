@@ -4,11 +4,20 @@ import Skeleton from './Skeleton';
 
 const ActionCard = ({ title, icon, colorClass, items, emptyMsg, renderItem, loading, actionAction }) => {
     const list = Array.isArray(items) ? items : [];
+    const tone = colorClass.includes('red')
+        ? { text: 'text-red-500', bg: 'bg-red-500/10' }
+        : colorClass.includes('indigo')
+            ? { text: 'text-indigo-500', bg: 'bg-indigo-500/10' }
+            : colorClass.includes('amber')
+                ? { text: 'text-amber-600', bg: 'bg-amber-500/10' }
+                : colorClass.includes('emerald') || colorClass.includes('green')
+                    ? { text: 'text-emerald-500', bg: 'bg-emerald-500/10' }
+                    : { text: 'text-app-text', bg: 'bg-app-surface-2' };
 
     if (loading) {
         return (
             <div className="flex h-72 flex-col overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)]">
-                <div className={`px-5 py-4 border-b border-app-border/80 flex justify-between items-center ${colorClass} bg-opacity-25`}>
+                <div className={`px-5 py-4 border-b border-app-border/80 flex justify-between items-center ${tone.bg}`}>
                     <div className="flex items-center gap-3">
                         <Skeleton className="w-4 h-4" />
                         <Skeleton className="w-24 h-4" />
@@ -29,11 +38,11 @@ const ActionCard = ({ title, icon, colorClass, items, emptyMsg, renderItem, load
         );
     }
 
-    const textColorClass = colorClass.replace('bg-', 'text-').replace('50', '800');
+    const textColorClass = tone.text;
 
     return (
         <div className="group/card flex h-full cursor-default animate-fade-in flex-col overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] transition-all duration-300 hover:-translate-y-px hover:shadow-[0_18px_36px_rgba(15,23,42,0.08),0_4px_10px_rgba(15,23,42,0.05)]">
-            <div className={`px-5 py-4 border-b border-app-border/80 flex justify-between items-center ${colorClass} bg-opacity-25`}>
+            <div className={`px-5 py-4 border-b border-app-border/80 flex justify-between items-center ${tone.bg}`}>
                 <div className="flex items-center gap-3">
                     <h3 className={`text-sm font-extrabold uppercase tracking-wide flex items-center gap-2 ${textColorClass}`}>
                         <Icon name={icon} size={18} />
@@ -57,7 +66,7 @@ const ActionCard = ({ title, icon, colorClass, items, emptyMsg, renderItem, load
             <div className="p-0 overflow-y-auto max-h-[24rem] custom-scrollbar flex-1 bg-app-surface">
                 {list.length === 0 ? (
                     <div className="p-8 text-center flex flex-col items-center justify-center h-48 text-app-text-muted gap-3">
-                        <div className={`rounded-full p-4 ${colorClass} bg-opacity-15`}>
+                        <div className={`rounded-full p-4 ${tone.bg}`}>
                             <Icon name="Check" size={24} className={textColorClass} />
                         </div>
                         <span className="text-base font-medium text-app-text-muted">{emptyMsg}</span>

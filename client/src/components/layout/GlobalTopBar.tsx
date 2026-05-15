@@ -121,7 +121,7 @@ export default function GlobalTopBar({
   }, []);
 
   return (
-    <header className="sticky top-0 z-50 flex h-16 shrink-0 flex-nowrap items-center gap-2 border-b border-app-border bg-[color-mix(in_srgb,var(--app-rail)_94%,transparent)] px-3 py-0 backdrop-blur-md sm:px-4 lg:gap-4 lg:px-6">
+    <header className="sticky top-0 z-50 flex h-16 shrink-0 flex-nowrap items-center gap-2 border-b border-app-border bg-[color-mix(in_srgb,var(--app-rail)_94%,transparent)] px-3 py-0 backdrop-blur-md sm:px-4 lg:gap-4 lg:px-6 relative">
       <div
         className={cn(
           "flex min-w-0 flex-none items-center gap-2 lg:h-full lg:gap-3",
@@ -175,25 +175,29 @@ export default function GlobalTopBar({
         </nav>
       </div>
 
-      <GlobalCommandSearch
-        onNavigateRegister={onNavigateRegister}
-        onSelectCustomerForPos={onSelectCustomerForPos}
-        onSearchOpenCustomerDrawer={onSearchOpenCustomerDrawer}
-        onSearchOpenProductDrawer={onSearchOpenProductDrawer}
-        onSearchOpenWeddingPartyCustomers={onSearchOpenWeddingPartyCustomers}
-        onSearchOpenOrder={onSearchOpenOrder}
-        onSearchOpenShipment={onSearchOpenShipment}
-        onSearchOpenWeddingParty={onSearchOpenWeddingParty}
-        onSearchOpenAlteration={onSearchOpenAlteration}
-        onNavigateToTab={onNavigateToTab}
-        variant={searchVariant}
-      />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 hidden -translate-x-1/2 -translate-y-1/2 justify-center min-[720px]:flex">
+        <div className="pointer-events-auto">
+          <GlobalCommandSearch
+            onNavigateRegister={onNavigateRegister}
+            onSelectCustomerForPos={onSelectCustomerForPos}
+            onSearchOpenCustomerDrawer={onSearchOpenCustomerDrawer}
+            onSearchOpenProductDrawer={onSearchOpenProductDrawer}
+            onSearchOpenWeddingPartyCustomers={onSearchOpenWeddingPartyCustomers}
+            onSearchOpenOrder={onSearchOpenOrder}
+            onSearchOpenShipment={onSearchOpenShipment}
+            onSearchOpenWeddingParty={onSearchOpenWeddingParty}
+            onSearchOpenAlteration={onSearchOpenAlteration}
+            onNavigateToTab={onNavigateToTab}
+            variant={searchVariant}
+          />
+        </div>
+      </div>
 
-      <div className="ml-auto flex flex-none items-center justify-end gap-2 sm:gap-3">
+      <div className="ml-auto flex flex-none items-center justify-end gap-2 sm:gap-3 z-20">
         {/* Dynamic Slot Region */}
         <div
           className={cn(
-            "hidden items-center border-r border-app-border empty:hidden xl:flex",
+            "hidden items-center border-r border-app-border empty:hidden 2xl:flex",
             isPosVariant ? "gap-2 px-3" : "gap-4 px-4",
           )}
         >
