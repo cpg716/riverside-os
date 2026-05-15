@@ -12,17 +12,24 @@ use crate::models::DbStaffRole;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse, Response,
+    },
     routing::{delete, get, patch, post},
     Json, Router,
 };
 use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Utc};
+use futures_core::stream::Stream;
+use futures_util::stream;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{Executor, PgPool, Postgres, Row};
 use std::collections::{BTreeMap, BTreeSet};
+use std::convert::Infallible;
+use std::time::Duration as StdDuration;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -40,6 +47,7 @@ const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
 const PAYMENTS_SYNC: &str = "payments.sync";
 const PAYMENTS_TERMINAL_OVERRIDE: &str = "payments.terminal.override";
 const HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES: i64 = 10;
+const HELCIM_ATTEMPT_STREAM_MAX_SECONDS: u16 = 600;
 
 #[derive(Debug, Error)]
 pub enum PaymentError {
@@ -406,6 +414,10 @@ pub fn router() -> Router<AppState> {
             patch(set_helcim_customer_card_default).post(set_helcim_customer_card_default),
         )
         .route("/providers/helcim/attempts/{id}", get(get_helcim_attempt))
+        .route(
+            "/providers/helcim/attempts/{id}/stream",
+            get(stream_helcim_attempt),
+        )
         .route(
             "/providers/helcim/attempts/{id}/release",
             post(release_helcim_terminal_attempt),
@@ -7805,6 +7817,64 @@ async fn get_helcim_attempt(
     load_helcim_attempt(&state, attempt_id, session_id)
         .await
         .map(Json)
+}
+
+async fn stream_helcim_attempt(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(attempt_id): Path<Uuid>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>> + Send>, PaymentError> {
+    let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_pay_session)?;
+    let session_id = match auth {
+        middleware::StaffOrPosSession::PosSession { session_id } => Some(session_id),
+        middleware::StaffOrPosSession::Staff(_) => None,
+    };
+
+    load_helcim_attempt(&state, attempt_id, session_id).await?;
+
+    let stream = stream::unfold(
+        (state, attempt_id, session_id, 0_u16),
+        |(state, attempt_id, session_id, tick)| async move {
+            if tick > HELCIM_ATTEMPT_STREAM_MAX_SECONDS {
+                return None;
+            }
+            if tick > 0 {
+                tokio::time::sleep(StdDuration::from_secs(1)).await;
+            }
+
+            let (event, next_tick) = match load_helcim_attempt(&state, attempt_id, session_id).await
+            {
+                Ok(attempt) => {
+                    let next_tick = if attempt.status == "pending" {
+                        tick.saturating_add(1)
+                    } else {
+                        HELCIM_ATTEMPT_STREAM_MAX_SECONDS.saturating_add(1)
+                    };
+                    let event = Event::default()
+                        .event("attempt")
+                        .json_data(&attempt)
+                        .unwrap_or_else(|error| {
+                            Event::default()
+                                .event("error")
+                                .data(json!({ "error": error.to_string() }).to_string())
+                        });
+                    (event, next_tick)
+                }
+                Err(error) => {
+                    let event = Event::default()
+                        .event("error")
+                        .data(json!({ "error": error.to_string() }).to_string());
+                    (event, HELCIM_ATTEMPT_STREAM_MAX_SECONDS.saturating_add(1))
+                }
+            };
+
+            Some((Ok(event), (state, attempt_id, session_id, next_tick)))
+        },
+    );
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(StdDuration::from_secs(15))))
 }
 
 fn validate_currency(currency: &str) -> Result<(), PaymentError> {

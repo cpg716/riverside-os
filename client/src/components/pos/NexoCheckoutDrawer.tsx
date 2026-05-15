@@ -39,6 +39,7 @@ interface PaymentProviderSettings {
     terminal_1_device_code_suffix?: string | null;
     terminal_2_device_code_suffix?: string | null;
     api_base_host: string;
+    webhook_secret_configured?: boolean;
     missing_config: string[];
   };
   helcim_terminal_routing?: {
@@ -136,6 +137,18 @@ function isStaleHelcimSessionError(message: string): boolean {
 
 const HELCIM_UNVERIFIED_OUTCOME_MESSAGE =
   "Card outcome is unresolved. Do not start another card attempt until Payments Health or support confirms the outcome.";
+const HELCIM_TERMINAL_ATTENTION_AFTER_MS = 2 * 60 * 1000;
+
+function helcimAttemptElapsedMs(attempt: HelcimAttempt): number {
+  const started = new Date(attempt.created_at).getTime();
+  if (!Number.isFinite(started)) return 0;
+  const ended = attempt.completed_at ? new Date(attempt.completed_at).getTime() : Date.now();
+  return Math.max(0, (Number.isFinite(ended) ? ended : Date.now()) - started);
+}
+
+function helcimAttemptNeedsAttention(attempt: HelcimAttempt): boolean {
+  return attempt.status === "pending" && helcimAttemptElapsedMs(attempt) >= HELCIM_TERMINAL_ATTENTION_AFTER_MS;
+}
 
 function helcimAttemptStatusLabel(status: HelcimAttempt["status"]): string {
   if (status === "pending") return "Waiting on Terminal";
@@ -164,7 +177,7 @@ function helcimAttemptAgeLabel(attempt: HelcimAttempt): string {
 }
 
 function helcimAttemptSafeNextAction(attempt: HelcimAttempt): string {
-  if (attempt.status === "pending") return "Wait for the terminal, then check the status.";
+  if (attempt.status === "pending") return "Let the customer finish or cancel on the terminal. ROS is auto-checking for the outcome.";
   if (attempt.status === "approved" || attempt.status === "captured") {
     return "Card approved. Finish checkout so ROS records the payment.";
   }
@@ -175,7 +188,7 @@ function helcimAttemptSafeNextAction(attempt: HelcimAttempt): string {
 
 function helcimAttemptDetail(attempt: HelcimAttempt): string {
   if (attempt.status === "pending") {
-    return `Sent to ${helcimAttemptTerminalName(attempt)}.`;
+    return `Sent to ${helcimAttemptTerminalName(attempt)}. Waiting for Helcim to report approved, declined, or canceled.`;
   }
 
   if (attempt.status === "approved" || attempt.status === "captured") {
@@ -902,6 +915,35 @@ export default function NexoCheckoutDrawer({
     [setApplied],
   );
 
+  const applyHelcimAttemptUpdate = useCallback(
+    (attempt: HelcimAttempt, options: { quietFinal?: boolean } = {}) => {
+      setHelcimAttempt(attempt);
+      setHelcimUnverifiedNotice(null);
+      if (attempt.status === "approved" || attempt.status === "captured") {
+        addApprovedHelcimAttempt(
+          attempt,
+          pendingHelcimTenderRef.current.method,
+          pendingHelcimTenderRef.current.label,
+        );
+        if (!options.quietFinal) {
+          toast("Card approved. Finish checkout so ROS records the payment.", "success");
+        }
+      } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
+        pendingHelcimCentsRef.current = 0;
+        pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+        if (!options.quietFinal) {
+          toast(
+            attempt.status === "expired"
+              ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE
+              : attempt.error_message ?? "Card attempt was not approved.",
+            attempt.status === "canceled" ? "info" : "error",
+          );
+        }
+      }
+    },
+    [addApprovedHelcimAttempt, toast],
+  );
+
   const loadHelcimCards = useCallback(async () => {
     const code = customerCode?.trim();
     if (!code) {
@@ -966,20 +1008,7 @@ export default function NexoCheckoutDrawer({
           throw new Error(body.error ?? "Could not check card status.");
         }
         const attempt = (await res.json()) as HelcimAttempt;
-        setHelcimAttempt(attempt);
-        setHelcimUnverifiedNotice(null);
-        if (attempt.status === "approved" || attempt.status === "captured") {
-          addApprovedHelcimAttempt(
-            attempt,
-            pendingHelcimTenderRef.current.method,
-            pendingHelcimTenderRef.current.label,
-          );
-          toast("Card approved. Finish checkout so ROS records the payment.", "success");
-        } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
-          pendingHelcimCentsRef.current = 0;
-          pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
-          toast(attempt.status === "expired" ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE : attempt.error_message ?? "Card attempt was not approved.", "error");
-        }
+        applyHelcimAttemptUpdate(attempt);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Could not check card status.";
@@ -995,7 +1024,7 @@ export default function NexoCheckoutDrawer({
         setHelcimAttemptLoading(false);
       }
     },
-    [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, toast],
+    [applyHelcimAttemptUpdate, backofficeHeaders, baseUrl, toast],
   );
 
   useEffect(() => {
@@ -1038,20 +1067,7 @@ export default function NexoCheckoutDrawer({
           throw new Error(body.error ?? "Could not simulate Helcim payment.");
         }
         const attempt = (await res.json()) as HelcimAttempt;
-        setHelcimAttempt(attempt);
-        setHelcimUnverifiedNotice(null);
-        if (attempt.status === "approved" || attempt.status === "captured") {
-          addApprovedHelcimAttempt(
-            attempt,
-            pendingHelcimTenderRef.current.method,
-            pendingHelcimTenderRef.current.label,
-          );
-          toast("Card approved. Finish checkout so ROS records the payment.", "success");
-        } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
-          pendingHelcimCentsRef.current = 0;
-          pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
-          toast(attempt.status === "expired" ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE : attempt.error_message ?? "Card attempt was not approved.", "info");
-        }
+        applyHelcimAttemptUpdate(attempt);
       } catch (error) {
         toast(
           error instanceof Error ? error.message : "Could not simulate Helcim payment.",
@@ -1061,7 +1077,7 @@ export default function NexoCheckoutDrawer({
         setHelcimAttemptLoading(false);
       }
     },
-    [addApprovedHelcimAttempt, backofficeHeaders, baseUrl, toast],
+    [applyHelcimAttemptUpdate, backofficeHeaders, baseUrl, toast],
   );
 
   const handlePendingTerminalCancel = useCallback(() => {
@@ -1188,17 +1204,68 @@ export default function NexoCheckoutDrawer({
   );
 
   useEffect(() => {
-    if (!isOpen || helcimAttempt?.status !== "pending" || helcimAttemptLoading) {
+    if (!isOpen || helcimAttempt?.status !== "pending") {
       return;
     }
-    const timer = window.setInterval(() => {
-      void refreshHelcimAttempt(helcimAttempt.id);
-    }, 3000);
-    return () => window.clearInterval(timer);
+    const attemptId = helcimAttempt.id;
+    const controller = new AbortController();
+    let stopped = false;
+
+    const readAttemptStream = async () => {
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/stream`,
+          {
+            headers: mergedPosStaffHeaders(backofficeHeaders),
+            signal: controller.signal,
+          },
+        );
+        if (!res.ok || !res.body) {
+          throw new Error("Could not open Helcim terminal status stream.");
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (!stopped) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const chunks = buffer.split("\n\n");
+          buffer = chunks.pop() ?? "";
+          for (const chunk of chunks) {
+            const data = chunk
+              .split("\n")
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trimStart())
+              .join("\n");
+            if (!data) continue;
+            const nextAttempt = JSON.parse(data) as HelcimAttempt | { error?: string };
+            if ("error" in nextAttempt) {
+              throw new Error(nextAttempt.error ?? "Helcim terminal status stream failed.");
+            }
+            if (!("id" in nextAttempt) || nextAttempt.id !== attemptId) continue;
+            const attemptUpdate = nextAttempt as HelcimAttempt;
+            applyHelcimAttemptUpdate(attemptUpdate);
+            if (attemptUpdate.status !== "pending") return;
+          }
+        }
+      } catch {
+        if (stopped || controller.signal.aborted) return;
+        void refreshHelcimAttempt(attemptId, { quietStaleSession: true });
+      }
+    };
+
+    void readAttemptStream();
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
   }, [
+    applyHelcimAttemptUpdate,
+    backofficeHeaders,
+    baseUrl,
     helcimAttempt?.id,
     helcimAttempt?.status,
-    helcimAttemptLoading,
     isOpen,
     refreshHelcimAttempt,
   ]);
@@ -1561,6 +1628,8 @@ export default function NexoCheckoutDrawer({
   const activeTerminalAttemptIdForRefresh =
     helcimAttempt?.id ??
     (selectedTerminalInUseByCurrentRegister ? selectedTerminalActiveAttemptId : null);
+  const pendingHelcimAttemptNeedsAttention =
+    helcimAttempt?.status === "pending" && helcimAttemptNeedsAttention(helcimAttempt);
   const terminalRecoveryState = (() => {
     if (providerSettingsError) {
       return {
@@ -1581,11 +1650,12 @@ export default function NexoCheckoutDrawer({
       };
     }
     if (helcimAttempt?.status === "pending") {
+      if (!pendingHelcimAttemptNeedsAttention) return null;
       return {
-        title: "Waiting on payment terminal",
+        title: "Terminal still waiting",
         detail: helcimAttemptDetail(helcimAttempt),
-        action: "Do not start another card attempt. Customer should finish or cancel on the terminal, then check the status.",
-        escalation: "Start another card attempt only after the card outcome is approved, declined, or canceled.",
+        action: "Ask the customer what the terminal shows. If they canceled, tap Cancel on terminal, then Refresh now.",
+        escalation: "If the terminal is back at idle but ROS still shows waiting, mark the attempt unresolved before taking another card payment.",
         tone: "warning",
       };
     }
@@ -1690,7 +1760,7 @@ export default function NexoCheckoutDrawer({
                   onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
                   className="min-h-9 rounded-lg border border-app-border bg-app-bg px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted disabled:opacity-50"
                 >
-                  {helcimAttemptLoading ? "Checking" : "Check Status"}
+                  {helcimAttemptLoading ? "Refreshing" : "Refresh now"}
                 </button>
                 <button
                   type="button"
@@ -1698,7 +1768,7 @@ export default function NexoCheckoutDrawer({
                   onClick={handlePendingTerminalCancel}
                   className="min-h-9 rounded-lg border border-app-danger/25 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
                 >
-                  Cancel
+                  Cancel on terminal
                 </button>
               </div>
             )}
@@ -2004,7 +2074,7 @@ export default function NexoCheckoutDrawer({
                   disabled={helcimAttemptLoading}
                   className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
                 >
-                  {helcimAttemptLoading ? "Checking" : activeTerminalAttemptIdForRefresh ? "Check Status" : "Review Terminal"}
+                  {helcimAttemptLoading ? "Refreshing" : activeTerminalAttemptIdForRefresh ? "Refresh now" : "Review Terminal"}
                 </button>
                 {helcimAttempt?.status === "pending" ? (
                   <button
@@ -2013,17 +2083,21 @@ export default function NexoCheckoutDrawer({
                     disabled={helcimAttemptLoading}
                     className="min-h-10 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
                   >
-                    Cancel Terminal
+                    Cancel on terminal
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => void releasePendingTerminalAttempt()}
-                  disabled={helcimAttemptLoading}
-                  className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text"
-                >
-                  Mark Unresolved
-                </button>
+                {pendingHelcimAttemptNeedsAttention ||
+                helcimUnverifiedNotice ||
+                helcimAttempt?.status === "expired" ? (
+                  <button
+                    type="button"
+                    onClick={() => void releasePendingTerminalAttempt()}
+                    disabled={helcimAttemptLoading}
+                    className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text"
+                  >
+                    Mark unresolved
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -2723,6 +2797,11 @@ export default function NexoCheckoutDrawer({
                              <p className="mt-1 text-[10px] font-bold leading-snug text-zinc-300">
                                Next: {helcimAttemptSafeNextAction(helcimAttempt)}
                              </p>
+                             {helcimAttempt.status === "pending" && (
+                               <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-sky-200">
+                                 Auto-checking Helcim updates
+                               </p>
+                             )}
                              {helcimAttempt.error_code && (
                                <p className="mt-1 truncate font-mono text-[10px] font-bold text-zinc-400">
                                  Error code: {helcimAttempt.error_code}
@@ -2738,7 +2817,7 @@ export default function NexoCheckoutDrawer({
                                onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
                                className="min-h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:bg-white/10 disabled:opacity-50"
                              >
-                               {helcimAttemptLoading ? "Checking" : "Check Status"}
+                               {helcimAttemptLoading ? "Refreshing" : "Refresh now"}
                              </button>
                              <button
                                type="button"
@@ -2746,7 +2825,7 @@ export default function NexoCheckoutDrawer({
                                onClick={handlePendingTerminalCancel}
                                className="min-h-9 rounded-lg border border-rose-400/25 bg-rose-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-rose-200 transition-colors hover:bg-rose-400/15 disabled:opacity-50"
                              >
-                               Cancel
+                               Cancel on terminal
                              </button>
                            </div>
                          )}
