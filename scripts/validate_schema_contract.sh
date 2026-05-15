@@ -54,6 +54,10 @@ expected_columns(schema_name, table_name, column_name) AS (
         ('public', 'payment_transactions', 'payment_provider'),
         ('public', 'payment_transactions', 'provider_payment_id'),
         ('public', 'payment_provider_attempts', 'provider_client_secret'),
+        ('public', 'payment_provider_attempts', 'selected_terminal_key'),
+        ('public', 'payment_provider_attempts', 'terminal_route_source'),
+        ('public', 'payment_provider_attempts', 'terminal_override_staff_id'),
+        ('public', 'payment_provider_attempts', 'terminal_override_reason'),
         ('public', 'fulfillment_orders', 'display_id')
 ),
 expected_views(schema_name, view_name) AS (

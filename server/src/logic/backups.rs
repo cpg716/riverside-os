@@ -17,6 +17,192 @@ CREATE SCHEMA public;
 GRANT ALL ON SCHEMA public TO postgres;
 GRANT USAGE ON SCHEMA public TO public;
 "#;
+const POST_RESTORE_SCHEMA_REPAIR_SQL: &[&str] = &[
+    r#"ALTER TABLE public.store_settings
+        ADD COLUMN IF NOT EXISTS environment_mode text"#,
+    r#"UPDATE public.store_settings
+        SET environment_mode = 'development'
+        WHERE environment_mode IS NULL"#,
+    r#"ALTER TABLE public.store_settings
+        ALTER COLUMN environment_mode SET DEFAULT 'development'"#,
+    r#"ALTER TABLE public.store_settings
+        ALTER COLUMN environment_mode SET NOT NULL"#,
+    r#"DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'environment_mode_check'
+                  AND conrelid = 'public.store_settings'::regclass
+            ) THEN
+                ALTER TABLE public.store_settings
+                    ADD CONSTRAINT environment_mode_check
+                    CHECK (environment_mode IN ('development', 'production', 'e2e'));
+            END IF;
+        END$$"#,
+    r#"ALTER TABLE public.store_settings
+        ADD COLUMN IF NOT EXISTS active_card_provider text NOT NULL DEFAULT 'helcim'"#,
+    r#"UPDATE public.store_settings
+        SET active_card_provider = 'helcim'
+        WHERE active_card_provider IS NULL
+           OR active_card_provider <> 'helcim'"#,
+    r#"ALTER TABLE public.store_settings
+        DROP CONSTRAINT IF EXISTS store_settings_active_card_provider_chk"#,
+    r#"ALTER TABLE public.store_settings
+        ADD CONSTRAINT store_settings_active_card_provider_chk
+        CHECK (active_card_provider = 'helcim')"#,
+    r#"ALTER TABLE public.products
+        ADD COLUMN IF NOT EXISTS tax_category_override public.tax_category DEFAULT NULL"#,
+    r#"ALTER TABLE public.payment_transactions
+        ADD COLUMN IF NOT EXISTS payment_provider varchar(50),
+        ADD COLUMN IF NOT EXISTS provider_payment_id varchar(255),
+        ADD COLUMN IF NOT EXISTS provider_status varchar(100),
+        ADD COLUMN IF NOT EXISTS provider_terminal_id varchar(255),
+        ADD COLUMN IF NOT EXISTS provider_transaction_id varchar(255),
+        ADD COLUMN IF NOT EXISTS provider_auth_code varchar(100),
+        ADD COLUMN IF NOT EXISTS provider_card_type varchar(50)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_payment_transactions_provider_payment_id
+        ON public.payment_transactions (payment_provider, provider_payment_id)
+        WHERE provider_payment_id IS NOT NULL"#,
+    r#"CREATE TABLE IF NOT EXISTS public.customer_relationship_periods (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        parent_customer_id uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
+        child_customer_id uuid NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
+        linked_at timestamptz NOT NULL DEFAULT now(),
+        unlinked_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT customer_relationship_periods_distinct_profiles
+            CHECK (parent_customer_id <> child_customer_id),
+        CONSTRAINT customer_relationship_periods_valid_range
+            CHECK (unlinked_at IS NULL OR unlinked_at >= linked_at)
+    )"#,
+    r#"CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_relationship_open_parent
+        ON public.customer_relationship_periods (parent_customer_id)
+        WHERE unlinked_at IS NULL"#,
+    r#"CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_relationship_open_child
+        ON public.customer_relationship_periods (child_customer_id)
+        WHERE unlinked_at IS NULL"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_customer_relationship_parent_range
+        ON public.customer_relationship_periods (parent_customer_id, linked_at DESC, unlinked_at)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_customer_relationship_child_range
+        ON public.customer_relationship_periods (child_customer_id, linked_at DESC, unlinked_at)"#,
+    r#"CREATE TABLE IF NOT EXISTS public.payment_provider_attempts (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        provider text NOT NULL,
+        status text NOT NULL DEFAULT 'pending',
+        amount_cents bigint NOT NULL,
+        currency text NOT NULL DEFAULT 'usd',
+        register_session_id uuid REFERENCES public.register_sessions(id) ON DELETE SET NULL,
+        staff_id uuid REFERENCES public.staff(id) ON DELETE SET NULL,
+        device_id text,
+        terminal_id text,
+        selected_terminal_key text,
+        terminal_route_source text,
+        terminal_override_staff_id uuid REFERENCES public.staff(id) ON DELETE SET NULL,
+        terminal_override_reason text,
+        idempotency_key text NOT NULL,
+        provider_payment_id text,
+        provider_transaction_id text,
+        error_code text,
+        error_message text,
+        raw_audit_reference text,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        completed_at timestamptz,
+        provider_client_secret text,
+        CONSTRAINT payment_provider_attempts_provider_chk
+            CHECK (btrim(provider) <> ''),
+        CONSTRAINT payment_provider_attempts_status_chk
+            CHECK (status IN ('pending', 'approved', 'captured', 'canceled', 'failed', 'expired')),
+        CONSTRAINT payment_provider_attempts_amount_cents_chk
+            CHECK (amount_cents >= 0),
+        CONSTRAINT payment_provider_attempts_currency_chk
+            CHECK (currency ~ '^[a-z]{3}$'),
+        CONSTRAINT payment_provider_attempts_idempotency_key_chk
+            CHECK (btrim(idempotency_key) <> '')
+    )"#,
+    r#"ALTER TABLE public.payment_provider_attempts
+        ADD COLUMN IF NOT EXISTS provider_client_secret text,
+        ADD COLUMN IF NOT EXISTS selected_terminal_key text,
+        ADD COLUMN IF NOT EXISTS terminal_route_source text,
+        ADD COLUMN IF NOT EXISTS terminal_override_staff_id uuid,
+        ADD COLUMN IF NOT EXISTS terminal_override_reason text"#,
+    r#"DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'payment_provider_attempts_selected_terminal_key_chk'
+                  AND conrelid = 'public.payment_provider_attempts'::regclass
+            ) THEN
+                ALTER TABLE public.payment_provider_attempts
+                    ADD CONSTRAINT payment_provider_attempts_selected_terminal_key_chk
+                    CHECK (
+                        selected_terminal_key IS NULL
+                        OR selected_terminal_key IN ('terminal_1', 'terminal_2')
+                    );
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'payment_provider_attempts_terminal_route_source_chk'
+                  AND conrelid = 'public.payment_provider_attempts'::regclass
+            ) THEN
+                ALTER TABLE public.payment_provider_attempts
+                    ADD CONSTRAINT payment_provider_attempts_terminal_route_source_chk
+                    CHECK (
+                        terminal_route_source IS NULL
+                        OR terminal_route_source IN ('default', 'required_choice', 'override')
+                    );
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'payment_provider_attempts_terminal_override_staff_id_fkey'
+                  AND conrelid = 'public.payment_provider_attempts'::regclass
+            ) THEN
+                ALTER TABLE public.payment_provider_attempts
+                    ADD CONSTRAINT payment_provider_attempts_terminal_override_staff_id_fkey
+                    FOREIGN KEY (terminal_override_staff_id)
+                    REFERENCES public.staff(id)
+                    ON DELETE SET NULL;
+            END IF;
+        END$$"#,
+    r#"CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_provider_attempts_provider_idempotency
+        ON public.payment_provider_attempts (provider, idempotency_key)"#,
+    r#"CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_provider_attempts_active_device
+        ON public.payment_provider_attempts (provider, COALESCE(terminal_id, device_id))
+        WHERE status = 'pending'
+          AND COALESCE(terminal_id, device_id) IS NOT NULL"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_payment_provider_attempts_provider_status_created
+        ON public.payment_provider_attempts (provider, status, created_at DESC)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_payment_provider_attempts_register_created
+        ON public.payment_provider_attempts (register_session_id, created_at DESC)
+        WHERE register_session_id IS NOT NULL"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_payment_provider_attempts_staff_created
+        ON public.payment_provider_attempts (staff_id, created_at DESC)
+        WHERE staff_id IS NOT NULL"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_payment_provider_attempts_terminal_created
+        ON public.payment_provider_attempts (provider, terminal_id, created_at DESC)
+        WHERE terminal_id IS NOT NULL"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_payment_provider_attempts_device_created
+        ON public.payment_provider_attempts (provider, device_id, created_at DESC)
+        WHERE device_id IS NOT NULL"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_payment_provider_attempts_provider_payment
+        ON public.payment_provider_attempts (provider, provider_payment_id)
+        WHERE provider_payment_id IS NOT NULL"#,
+    r#"INSERT INTO public.ros_schema_migrations (version)
+        VALUES
+            ('167_product_tax_category_override.sql'),
+            ('173_add_environment_mode_guard.sql'),
+            ('179_customer_relationship_periods.sql'),
+            ('182_payment_provider_metadata.sql'),
+            ('183_payment_provider_attempts.sql'),
+            ('184_active_card_payment_provider.sql'),
+            ('188_payment_provider_attempt_client_secret.sql')
+        ON CONFLICT (version) DO NOTHING"#,
+];
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BackupSettings {
@@ -321,6 +507,7 @@ impl BackupManager {
 
             if d_out.status.success() {
                 info!("Database restoration successful via Docker fallback");
+                self.apply_post_restore_schema_repairs().await?;
                 self.validate_schema_after_restore().await?;
                 return Ok(());
             } else {
@@ -382,6 +569,7 @@ impl BackupManager {
                 let replay_out = replay.wait_with_output().await?;
                 if replay_out.status.success() {
                     info!("Database restoration successful via Docker schema pre-clean fallback");
+                    self.apply_post_restore_schema_repairs().await?;
                     self.validate_schema_after_restore().await?;
                     return Ok(());
                 }
@@ -396,7 +584,24 @@ impl BackupManager {
         }
 
         info!("Database restoration completed successfully");
+        self.apply_post_restore_schema_repairs().await?;
         self.validate_schema_after_restore().await?;
+        Ok(())
+    }
+
+    async fn apply_post_restore_schema_repairs(&self) -> Result<()> {
+        let pool = PgPool::connect(&self.database_url)
+            .await
+            .context("Failed to connect for post-restore schema repair")?;
+
+        for sql in POST_RESTORE_SCHEMA_REPAIR_SQL {
+            sqlx::query(sql)
+                .execute(&pool)
+                .await
+                .context("Failed to apply post-restore schema repair")?;
+        }
+
+        info!("Post-restore schema compatibility repair completed");
         Ok(())
     }
 
