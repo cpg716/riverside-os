@@ -2,7 +2,7 @@
 
 **Audience:** **All staff** who message customers, complete sales, or watch notifications; **admins** who turn Podium on and edit templates.
 
-**Where in ROS:** **Settings → Integrations → Podium**; **Operations → Podium Inbox**; **POS → Podium Inbox**; Relationship Hub **Messages**; **POS** receipt summary; **Operations → Reviews**; **Notification Center** (new SMS/email).
+**Where in ROS:** **Settings → Integrations → Podium**; **Operations → Podium Inbox**; **POS → Podium Inbox**; Relationship Hub **Messages**; **POS** receipt summary; **Operations → Reviews**; **Notification Center** (new SMS).
 
 **Related permissions:** If a screen is missing, ask a manager to check **Staff → Team** (role or overrides). Detail: [STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md), [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md).
 
@@ -12,12 +12,12 @@
 
 ## What this is for
 
-**Podium** is the store’s link between Riverside OS and **customer texting, email, and optional web chat**. When IT has configured the server and an admin has enabled it in Settings, Riverside can:
+**Podium** is the store’s link between Riverside OS and **customer texting, review invites, and optional web chat**. Store email is handled by the ROS first-party IONOS mailbox. When IT has configured Podium and an admin has enabled it in Settings, Riverside can:
 
-- Send **automatic** texts/emails (e.g. pickup ready, alteration ready) using your wording.
+- Send **automatic** texts (e.g. pickup ready, alteration ready) using your wording.
 - Let staff **reply** to customers from the **customer profile** without opening Podium’s full Inbox.
-- Send **email / text receipts** from the POS using the standard receipt content.
-- Show **new customer texts/emails** as **notifications** you can open into the right profile.
+- Send **text receipts** from the POS using the standard receipt content.
+- Show **new customer texts** as **notifications** you can open into the right profile.
 
 This guide is **how to work in Riverside**. It does not replace Podium’s own help site or your store’s legal/consent policies.
 
@@ -30,9 +30,9 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 | **Settings → Integrations → Podium** | Readiness line, toggles, templates, widget box | Admins: turn channels on, edit templates, **Save**; **Connect Podium** when IT says to refresh the token. |
 | **Operations → Podium Inbox** | List of recent threads | Open a row → customer hub; **Refresh** if the list looks stale. |
 | **POS → Podium Inbox** | Same shared thread list inside the POS shell | Open a row → POS Customers with **Messages** focused. |
-| **Customer hub → Messages** | Thread + compose | Read history; send **SMS** or **email** (subject required for email); optional Podium conversation **URL** field for deep links. |
-| **POS → Receipt summary** | Email / text receipt buttons | Send receipt if the customer wants it; optional **review invite** checkbox per store defaults. |
-| **Notification Center** | “New customer SMS” / email rows | Open item → deep link toward **Customers** / **Messages** when configured. |
+| **Customer hub → Messages** | Thread + compose | Read history; send **SMS**; optional Podium conversation **URL** field for deep links. |
+| **POS → Receipt summary** | Text receipt and review controls | Send text receipt if the customer wants it; optional **review invite** checkbox per store defaults. |
+| **Notification Center** | “New customer SMS” rows | Open item → deep link toward **Customers** / **Messages** when configured. |
 
 ---
 
@@ -42,13 +42,24 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 
 1. Sign in with a role that can open **Settings** → **Integrations**.
 2. Open **Podium (SMS + web chat)**.
-3. Check the **readiness** strip: credentials, webhook (IT), **location UID** filled in, and **Send operational SMS** / **email** toggles as your SOP requires.
+3. Check the **readiness** strip: credentials, webhook (IT), **location UID** filled in, and **SMS Active** as your SOP requires.
 4. If the card says **credentials missing**, an admin can save or update the Podium credentials in this Settings screen. Use **Authorize via Podium Portal** / **Connect Podium** only after both **Client ID** and **Client Secret** are saved and the redirect URI is registered in Podium.
+
+### Admin / IT: know which Podium values to enter
+
+- **Client ID** and **Client Secret** come from the Podium developer app.
+- **Refresh Token** is normally saved automatically after **Authorize via Podium Portal** succeeds; do not ask staff to find or paste it.
+- **API Host** is normally `https://api.podium.com`.
+- **OAuth Token URL** is normally `https://api.podium.com/oauth/token`.
+- **Webhook URL** must be the public Riverside endpoint, not `localhost`. For the current store tunnel use `https://ros.riversidemens.com/api/webhooks/podium`.
+- **Webhook Signing Secret** is saved after the webhook is registered. It lets Riverside verify Podium deliveries before they enter the inbox.
+
+If the authorization page says the Client ID and redirect URI do not match, register the exact callback URL shown in Riverside on the same Podium app as the saved Client ID, then start authorization again.
 
 ### Admin: change pickup or alteration message wording
 
 1. **Settings** → **Integrations** → **Podium**.
-2. Edit the **SMS** template(s) or **email** subject/HTML blocks you need.
+2. Edit the text message template you need. Use the template tag buttons for customer/order values such as **First name** or **Transaction**.
 3. Click **Save Podium / messaging settings** and wait for the success toast.
 
 ### Staff: reply to a customer by SMS from their profile
@@ -60,13 +71,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 
 **Permission:** **`customers.hub_edit`** (and hub view). If the tab is missing, you have view-only or no hub access.
 
-### Staff: reply by email from the profile
-
-1. Same hub → **Messages**.
-2. Fill **subject** and message body (HTML where the form allows).
-3. Send. Customer must have **email** on file.
-
-### Staff: use the SMS & email inbox list
+### Staff: use the SMS inbox list
 
 1. **Operations** → **Podium Inbox**.
 2. Find the customer; click to open their profile / hub.
@@ -74,7 +79,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 
 **Permission:** **`customers.hub_view`**.
 
-### Staff: use the SMS & email inbox list from POS
+### Staff: use the SMS inbox list from POS
 
 1. **POS** → **Podium Inbox**.
 2. Review the shared thread list without leaving the register shell.
@@ -82,11 +87,11 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 
 **Permission:** **`customers.hub_view`**.
 
-### Cashier: email or text a receipt after sale
+### Cashier: text a receipt after sale
 
 1. Complete checkout until **Receipt summary** appears.
-2. Choose **email receipt** and/or **text receipt** as your SOP allows.
-3. If email fails, ask a manager to check Podium readiness, the customer email address, and server error logs.
+2. Choose **text receipt** as your SOP allows.
+3. If store email is needed, use the ROS Mailbox / IONOS email workflow instead of Podium Settings.
 
 Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
@@ -118,10 +123,13 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 |--------|-------------------|---------------|
 | **403 / no Podium card** | Sign in as admin or ask for **settings.admin** | Manager adjusts role |
 | **Podium page says "Client ID is required"** | Return to Settings, confirm **Client ID** is saved, and start authorization again from the Podium card | Manager / IT checks the saved credentials and redirect URI |
+| **Podium page says Client ID and redirect URI do not match** | Stop and check the callback URL registered in Podium | IT updates the Podium developer app to match Riverside exactly |
+| **Podium consent page says something went wrong** | Do not retry repeatedly; check whether the Podium app has message/location/review scopes enabled | IT / Podium support |
 | **No Messages tab** | Confirm **Relationship Hub** access | [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md) |
 | **Send failed / Podium unavailable** | Readiness + toggles + location UID | Manager / IT |
 | **Automated SMS never fires** | Customer **opt-in** + valid phone + template not empty | Admin + [Podium_Integration_Manual.md](Podium_Integration_Manual.md) |
-| **Receipt email fails** | Podium email enabled, location UID, customer email, server logs | Settings admin |
+| **Inbound customer texts never appear** | Confirm the public webhook URL is registered and tunnel/public host is running | IT checks webhook secret/signature and event types |
+| **Store email fails** | IONOS mailbox settings, customer email, server logs | Settings admin |
 | **Widget missing on public site** | Not a cashier task—**IT** + storefront flags | [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md) |
 
 ---

@@ -4,7 +4,7 @@
 
 **Quick SOP (step-by-step for staff):** [podium-integration-staff-manual.md](podium-integration-staff-manual.md).
 
-**What this covers:** Full reference for everything Riverside does with **Podium** (operational SMS/email, web-chat embed, customer threads, receipts, and review-invite tracking). It does **not** replace Podium’s own product documentation or legal terms.
+**What this covers:** Full reference for everything Riverside does with **Podium** (operational SMS, web-chat embed, customer text threads, text receipts, and review-invite tracking). Store email now uses the ROS first-party IONOS mailbox. This does **not** replace Podium’s own product documentation or legal terms.
 
 **Technical deep dives (engineers):** [PLAN_PODIUM_SMS_INTEGRATION.md](../PLAN_PODIUM_SMS_INTEGRATION.md), [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md), [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md), [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md). **Permissions detail:** [STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md), [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md).
 
@@ -17,10 +17,9 @@ When Podium is **configured on the server** and **enabled in Settings**, Riversi
 | Capability | Plain-language summary |
 |------------|-------------------------|
 | **Operational SMS** | Text customers for **ready for pickup**, **alteration ready**, and similar triggers using templates you edit in Settings. |
-| **Operational email** | Send **HTML email** for the same kinds of events, plus **appointment confirmation** (when that flow runs), and **loyalty redeem** notices when staff opt in on redeem. |
-| **POS receipts** | After checkout, **email** standard receipt HTML or **text** a short receipt message. |
-| **Customer CRM threads** | Show **SMS and email** history on the customer profile, **reply** from Riverside, and optionally store a **Podium conversation URL** for reference. |
-| **Inbound messages** | If Podium is allowed to call Riverside’s **webhook**, new customer texts/emails can appear as threads and **notifications** (see section 7). |
+| **POS receipts** | After checkout, **text** a short receipt message. Store email receipts use the ROS IONOS mailbox path. |
+| **Customer CRM threads** | Show **SMS** history on the customer profile, **reply** from Riverside, and optionally store a **Podium conversation URL** for reference. |
+| **Inbound messages** | If Podium is allowed to call Riverside’s **webhook**, new customer texts can appear as threads and **notifications** (see section 7). |
 | **Web chat on your site** | Paste Podium’s widget snippet so the public storefront can load it (optional build flag). |
 | **Review invites (tracking)** | Store whether the cashier chose to **send** or **skip** a post-sale review prompt; **live** Podium review API send is still a roadmap item (see section 8). |
 
@@ -37,10 +36,10 @@ Riverside does **not** recreate Podium’s full multi-user Inbox. Use Riverside 
 | **Operations → Podium Inbox** (thread list) | **`customers.hub_view`** |
 | **POS → Podium Inbox** (thread list inside POS shell) | **`customers.hub_view`** |
 | **Customer Relationship Hub → Messages** (read thread) | **`customers.hub_view`** |
-| **Hub → Messages** (send SMS or email reply, save conversation link) | **`customers.hub_edit`** |
+| **Hub → Messages** (send SMS reply, save conversation link) | **`customers.hub_edit`** |
 | **Operations → Reviews** (invite/suppress tracking table) | **`reviews.view`** |
-| **POS → Receipt summary** (email/text receipt, review skip/send) | Order/register authorization as today (see receipt docs) |
-| **Notification Center** (tap inbound SMS/email pings) | **`notifications.view`** (and related inbox behavior) |
+| **POS → Receipt summary** (text receipt, review skip/send) | Order/register authorization as today (see receipt docs) |
+| **Notification Center** (tap inbound SMS pings) | **`notifications.view`** (and related inbox behavior) |
 
 POS and Back Office may use **merged staff + register** headers on some routes so an open till can still reach customer or order APIs; if something returns **401/403**, sign in or open the register as required.
 
@@ -54,24 +53,34 @@ POS and Back Office may use **merged staff + register** headers on some routes s
 
 Podium needs **OAuth app** credentials and a **refresh token** saved securely on the server. Routine credential setup now happens in **Back Office → Settings → Integrations → Podium**. The only credential-related environment setup admins should not manage in the UI is the root encryption key (`RIVERSIDE_CREDENTIALS_KEY`, with `QBO_TOKEN_ENC_KEY` only as a transitional fallback).
 
+| Field in Riverside | Where it comes from |
+|--------------------|---------------------|
+| **Client ID** | Podium developer app / OAuth app settings. |
+| **Client Secret** | Podium developer app / OAuth app settings. Save it securely when Podium shows it. Do not post it in chat or docs. |
+| **Refresh Token** | Usually not typed manually. Riverside saves it after **Authorize via Podium Portal** completes successfully. Only paste one if IT is replacing a known token. |
+| **API Host** | Normally leave default: `https://api.podium.com`. Only change it if Podium gives a different API origin. |
+| **OAuth Token URL** | Normally leave default: `https://api.podium.com/oauth/token`. Only change it if Podium gives a different token URL. |
+| **Webhook Signing Secret** | Created/assigned when the Podium webhook is registered. Save it in Riverside so incoming deliveries can be verified. |
+
 1. Confirm the credentials card shows **Client ID** and **Client Secret** as **Saved**. If missing, an admin can enter or update them in this Settings screen.
-2. Register the **redirect URI** from the screen in Podium’s developer app. It must match **exactly** (including `http` vs `https`). For local dev, a tunnel or `VITE_PODIUM_OAUTH_REDIRECT_URI` on the client may be required if Podium only allows HTTPS.
-3. Click **Authorize via Podium Portal** / **Connect Podium (get refresh token)** (or connect again to refresh). Riverside asks the server to build the authorization URL with the saved Client ID, then Podium handles login/consent and Riverside exchanges the code for tokens server-side.
+2. Register the **redirect URI** from the screen in Podium’s developer app. It must match **exactly** (including `http` vs `https`). Production should use the public Riverside host, for example `https://ros.riversidemens.com/callback` when the store tunnel is active. Local `localhost` redirects are only usable if Podium accepts them; otherwise use Cloudflare Tunnel or another HTTPS tunnel plus `VITE_PODIUM_OAUTH_REDIRECT_URI`.
+3. Click **Authorize via Podium Portal** / **Connect Podium (get refresh token)** (or connect again to refresh). Riverside asks the server to build the authorization URL with the saved Client ID, redirect URI, state, and required scopes, then Podium handles login/consent and Riverside exchanges the code for tokens server-side.
+
+Riverside requests these Podium OAuth scopes today: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, and `write_reviews`. If Podium shows an empty consent card or a generic authorization error, confirm the app has those products/scopes enabled in Podium and that the redirect URI belongs to the same Client ID.
 
 If anything fails, use the **readiness** strip (credentials, webhook secret, API base, toggles) before calling Podium support.
 
-### 3.2 Turn channels on
+### 3.2 Turn SMS on
 
 - **Send operational SMS via Podium** — master switch for template-driven SMS (pickup, alteration, unknown-sender welcome, etc.).
-- **Send operational email via Podium** — master switch for HTML email paths (pickup, alteration, appointment confirmation email, loyalty email, hub compose, receipts).
 
-Both still require **non-empty Podium location UID** and valid credentials.
+SMS still requires **non-empty Podium location UID** and valid credentials.
 
 ### 3.3 Podium location UID
 
 Paste the **location UID** from your Podium account (API/locations). Without it, sends are skipped even if credentials exist.
 
-### 3.4 SMS templates
+### 3.4 Text message templates
 
 Editable bodies (defaults apply when a field is left empty at save time):
 
@@ -80,25 +89,16 @@ Editable bodies (defaults apply when a field is left empty at save time):
 - **Unknown-sender welcome** — optional auto-reply when Riverside creates a **stub customer** from an inbound SMS (webhook path); helps collect a name.
 - **Loyalty reward redeemed** — when staff choose to notify on redeem and email/SMS flags allow.
 
+Use the tag buttons in the Settings panel to insert supported values such as `{first_name}`, `{order_ref}`, `{alteration_ref}`, `{reward_amount}`, `{points_redeemed}`, and `{new_balance}`.
+
 **Save** the Integrations card after edits.
 
-### 3.5 Email templates (subject + HTML)
-
-Pairs for:
-
-- Ready for pickup  
-- Alteration ready  
-- Appointment confirmation  
-- Loyalty reward redeemed  
-
-Placeholders in templates are filled by the server at send time (see engineering docs for the exact token names).
-
-### 3.6 Web chat widget (storefront)
+### 3.5 Web chat widget (storefront)
 
 - **Enable widget embed** and paste the **snippet** from Podium.
 - For the snippet to load on a **public** Riverside build, operators must enable the client flag **`VITE_STOREFRONT_EMBEDS`** and follow **CSP / privacy** guidance: [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md), [ONLINE_STORE.md](../ONLINE_STORE.md).
 
-### 3.7 Review policy (Settings → General)
+### 3.6 Review policy (Settings → General)
 
 Admins set store-wide defaults:
 
@@ -147,21 +147,22 @@ When Podium is configured and toggles are on, Riverside may send without a secon
 
 | Trigger | Channel | Notes |
 |---------|---------|--------|
-| Order pickup / ready messaging | SMS (+ email if wired for that path) | Uses pickup templates. |
-| Alteration ready | SMS / email per `messaging.rs` wiring | Uses alteration templates. |
-| Appointment confirmation | Email | Triggered from wedding/appointment flows when the server calls the messaging service. |
-| Loyalty reward redeemed | SMS and/or email | Cashier checkboxes on redeem; still require customer opt-in for automated SMS where applicable. |
+| Order pickup / ready messaging | SMS | Uses the pickup text template. |
+| Alteration ready | SMS | Uses the alteration text template. |
+| Appointment confirmation | Store email (IONOS) | Managed outside Podium settings through the ROS mailbox/email path. |
+| Loyalty reward redeemed | SMS | Cashier checkboxes on redeem; still require customer opt-in for automated SMS where applicable. |
 
-If something should have sent but did not, verify: **Settings credentials**, **location UID**, **toggle**, **customer phone/email**, **opt-in**, and server logs (admins).
+If something should have sent but did not, verify: **Settings credentials**, **location UID**, **SMS toggle**, **customer phone**, **SMS opt-in**, **template content**, and server logs (admins).
 
 ---
 
-## 6. POS: receipts via Podium
+## 6. POS: text receipts via Podium
 
 After **Complete sale**, the **Receipt summary** step can:
 
-- **Email receipt** — standard receipt HTML as inline email via Podium.
 - **Text receipt** — plain SMS receipt text.
+
+Store email receipts use the ROS mailbox/email path backed by IONOS, not Podium.
 
 Details, limits, and error behavior: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
@@ -171,11 +172,23 @@ Details, limits, and error behavior: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIP
 
 **Endpoint (Podium → Riverside):** `POST /api/webhooks/podium` on your public **Riverside API base URL** (HTTPS in production).
 
+For the current store tunnel, the URL is:
+
+```text
+https://ros.riversidemens.com/api/webhooks/podium
+```
+
+Do not give Podium a `localhost` webhook URL. Podium must reach Riverside from the internet, so local desktop/dev setups need Cloudflare Tunnel or an equivalent HTTPS tunnel running to the Riverside API. The same public host should also be registered as the OAuth callback host when Podium requires HTTPS redirects.
+
 **Verification:** When **`RIVERSIDE_PODIUM_WEBHOOK_SECRET`** is set, Riverside verifies Podium’s **timestamp** and **signature** headers. **Never** enable **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`** outside local development.
 
 **CRM ingest:** Unless **`RIVERSIDE_PODIUM_INBOUND_DISABLED`** is set to a truthy value, verified deliveries are processed so messages can appear under **Customers** and fan out **notifications** (e.g. “New customer SMS”) to staff with **`notifications.view`**.
 
 **Idempotency:** Duplicate Podium retries use a ledger so the same event is not processed twice.
+
+**What the webhook is used for:** Riverside uses Podium webhooks to receive message activity, persist `podium_message` rows, update the **Podium Inbox** / customer **Messages** thread, create notifications for new inbound customer texts, and preserve a delivery ledger. Outbound sends from Riverside still use the Podium API; the webhook is the return path that lets Riverside see Podium-side activity.
+
+**Webhook setup:** IT can register the webhook through Podium’s API using the saved OAuth credentials. If a webhook already exists, keep its URL pointed at the public Riverside endpoint above and save the signing secret in the Podium credentials card. If the secret is missing or wrong, Riverside rejects signed deliveries before they enter the inbox.
 
 ---
 
@@ -196,11 +209,13 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 | Symptom | Things to check |
 |---------|----------------|
 | **Connect Podium** fails | Redirect URI mismatch; HTTPS vs HTTP; client override `VITE_PODIUM_OAUTH_REDIRECT_URI`; Podium app Client ID / Client Secret. |
+| **Podium says Client ID and redirect URI do not match** | The redirect URI used by Riverside is not registered on the same Podium app as the saved Client ID. Register the exact callback URL shown by Riverside, then restart the authorization from Settings. |
+| **Podium consent page says something went wrong** | Missing/disabled Podium app scopes or product access; verify `read_locations`, `read_messages`, `write_messages`, `read_reviews`, and `write_reviews` on the Podium app. |
 | **Podium page says "Client ID is required"** | The authorization URL did not include a Client ID. Return to Settings, confirm Client ID is saved, and start authorization again from the Podium card. |
 | **No SMS** | `sms_send_enabled`, location UID, credentials, customer phone, SMS opt-in, template not empty when required. |
-| **No email** | `email_send_enabled`, location UID, customer email, and server logs for Podium delivery errors. |
+| **Store email fails** | IONOS mailbox settings, customer email, and server logs. See [EMAIL_MAILBOX.md](../EMAIL_MAILBOX.md). |
 | **502 / Podium unavailable** in UI | Server logs; Podium status; token refresh; API base override. |
-| **Inbound never appears** | Webhook URL reachable; secret/signature; `RIVERSIDE_PODIUM_INBOUND_DISABLED` accidentally on; Podium event types. |
+| **Inbound never appears** | Public webhook URL reachable; Cloudflare/tunnel running if local; secret/signature; `RIVERSIDE_PODIUM_INBOUND_DISABLED` accidentally on; Podium event types include message activity. |
 | **Widget missing on site** | `VITE_STOREFRONT_EMBEDS`; snippet saved; CSP blocking scripts—see [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md). |
 
 ---

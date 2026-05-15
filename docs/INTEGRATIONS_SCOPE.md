@@ -12,7 +12,7 @@
 |---|------|---------|--------|
 | 1 | **Helcim** | **In use** | Primary card rail for POS and web checkout. ROS owns daily payment operations: event log, terminal health/ping, fee sync, batch/settlement sync, reconciliation, dashboard, failed webhook replay, refund provider-attempt audit, issue resolution, actual bank deposit matching, and alerts. Helcim remains the processor; ROS does not create QBO deposits or automate bank-feed matching. Canonical contract: [`HELCIM.md`](./HELCIM.md). Staff guide: [`staff/payments-operations.md`](./staff/payments-operations.md). |
 | 2 | **ROS-native online store** | **In progress** | First-party `/shop` + `/api/store`; not a separate e-commerce platform. |
-| 3 | **Podium** | **Sole customer messaging + email** | SMS, web chat/widget, and **transactional email** stay on Podium — **no parallel ESP** for that role. |
+| 3 | **Podium** | **SMS, reviews, and web chat** | Podium remains the customer texting/review/web-chat rail. Store email now uses the ROS first-party IONOS mailbox, not Podium email. ROS stores OAuth credentials in encrypted Settings, uses a public HTTPS callback/webhook URL for Podium delivery, and ingests message webhooks into the Podium Inbox/customer message thread. |
 | 4 | **Calendar federation** (e.g. Google / Microsoft) | **Out of scope** | Internal scheduler and appointments remain ROS-native. |
 | 5 | **External alteration / work-order SaaS** | **Out of scope** | No sync to third-party alteration trackers. |
 | 6 | **NuORDER** | **In use** | Wholesale API client (OAuth 1.0) for catalog, media, and order sync — **`docs/NUORDER_INTEGRATION.md`**. |
@@ -35,10 +35,10 @@
 | Helcim Payments Operations | [`HELCIM.md`](./HELCIM.md), [`staff/payments-operations.md`](./staff/payments-operations.md), [`SCHEMA_CONTRACT_AND_MIGRATIONS.md`](./SCHEMA_CONTRACT_AND_MIGRATIONS.md) |
 | NuORDER (wholesale catalog, media, and order sync) | [`NUORDER_INTEGRATION.md`](./NUORDER_INTEGRATION.md) |
 | Optional Meilisearch (reindex) | [`SEARCH_AND_PAGINATION.md`](./SEARCH_AND_PAGINATION.md), [`STORE_DEPLOYMENT_GUIDE.md`](./STORE_DEPLOYMENT_GUIDE.md) |
-| Podium SMS, widget, webhook, transactional paths | [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md) |
+| Podium SMS, widget, OAuth callback, webhook, transactional paths | [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md), [`staff/Podium_Integration_Manual.md`](./staff/Podium_Integration_Manual.md) |
 | Shippo rates, shipments hub, POS/store shipping | [`SHIPPING_AND_SHIPMENTS_HUB.md`](./SHIPPING_AND_SHIPMENTS_HUB.md) (shipped baseline), [`PLAN_SHIPPO_SHIPPING.md`](./PLAN_SHIPPO_SHIPPING.md) (roadmap) |
 | E-commerce module (catalog, checkout, phases) | [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md); shipped APIs + `/shop`: [`ONLINE_STORE.md`](./ONLINE_STORE.md) |
-| Marketing lists (historical plan; contrast with Podium-as-email above) | [`PLAN_CONSTANT_CONTACT_INTEGRATION.md`](./PLAN_CONSTANT_CONTACT_INTEGRATION.md) |
+| Marketing lists / outbound campaigns | [`PLAN_CONSTANT_CONTACT_INTEGRATION.md`](./PLAN_CONSTANT_CONTACT_INTEGRATION.md) |
 | QBO | Staff: [`docs/staff/qbo-bridge.md`](./staff/qbo-bridge.md) |
 | Counterpoint bridge | [`tools/counterpoint-bridge/README.md`](../tools/counterpoint-bridge/README.md) |
 | Visual Crossing weather | [`WEATHER_VISUAL_CROSSING.md`](./WEATHER_VISUAL_CROSSING.md) |

@@ -144,7 +144,7 @@ Per [Get Started](https://docs.podium.com/docs/getting-started):
 
 1. **Developer account** at [developer.podium.com](https://developer.podium.com) (approval required).
 2. **Create OAuth app** → note **Client ID** and **Client Secret** (secret not recoverable later).
-3. **Scopes**: least privilege for **v1** (send + locations); **later phases** need additional scopes for **reading conversations/messages** and **webhook** registration per Podium’s current API.
+3. **Scopes**: Riverside currently requests `read_locations`, `read_messages`, `write_messages`, `read_reviews`, and `write_reviews` during OAuth. Podium must enable the matching products/scopes on the app; otherwise the hosted consent page may show a generic error or no data access details.
 4. **OAuth 2.0 authorization** so the app acts on behalf of a Podium org user:
    - Auth URL: `https://api.podium.com/oauth/authorize`
    - Token URL: `https://api.podium.com/oauth/token`
@@ -152,7 +152,7 @@ Per [Get Started](https://docs.podium.com/docs/getting-started):
 
 ### Saving Podium OAuth credentials (Settings UI)
 
-1. In the Podium developer app, register a redirect URI that matches what the client will send — typically **`${staff-app-origin}/callback`** (e.g. **`http://localhost:5173/callback`** in Vite dev, or **`https://<host>/callback`** in production). Podium’s portal may require **HTTPS** for some setups; if it does, use Vite **`server.https`**, a tunnel, and optional **`VITE_PODIUM_OAUTH_REDIRECT_URI`** (see **`client/.env.example`**).
+1. In the Podium developer app, register a redirect URI that matches what the client will send — typically **`${staff-app-origin}/callback`** (e.g. **`http://localhost:5173/callback`** in Vite dev, or **`https://<host>/callback`** in production). Podium’s portal may require **HTTPS** for some setups; if it does, use Vite **`server.https`**, Cloudflare Tunnel or another HTTPS tunnel, and optional **`VITE_PODIUM_OAUTH_REDIRECT_URI`** (see **`client/.env.example`**). The current store tunnel pattern uses `https://ros.riversidemens.com/callback`.
 2. Save the Podium **Client ID** and **Client Secret** in **Back Office → Settings → Integrations → Podium**.
 3. **Back Office → Settings → Integrations → Podium → Connect Podium** (or **Connect Podium (refresh token)**). After authorization, the client route **`/callback`** exchanges the code **on the server** (client secret never in the browser) and saves the refresh token through the encrypted integration credentials endpoint.
 
@@ -161,6 +161,18 @@ The API accepts **`https://…/callback`** and loopback **`http://localhost|127.
 **API** (**`settings.admin`**): **`GET /api/settings/podium-oauth/authorize-url?redirect_uri=&state=`** (optional **`scope`**), **`POST /api/settings/podium-oauth/exchange`** with JSON **`{ "code", "redirect_uri" }`**.
 
 Store **refresh token** (and access token + expiry) securely server-side; refresh before send (and before sync reads in later phases).
+
+### Podium webhook registration
+
+Podium must call a public Riverside API URL for webhooks; `localhost` is not valid for Podium-hosted delivery. For the current store tunnel pattern, register:
+
+```text
+https://ros.riversidemens.com/api/webhooks/podium
+```
+
+The same tunnel/public host must forward `/api/webhooks/podium` to the Rust API and `/callback` to the Vite/static client. When running locally, Cloudflare Tunnel or an equivalent HTTPS tunnel must stay running while testing OAuth callbacks and webhook deliveries.
+
+Webhook registration is managed through Podium’s API using the saved OAuth credentials. Save the returned/assigned webhook signing secret in **Settings → Integrations → Podium** or `RIVERSIDE_PODIUM_WEBHOOK_SECRET`; production should reject unsigned webhook deliveries. Riverside uses the webhook for inbound message activity, Podium-side staff replies, `podium_message` persistence, inbox rows, notifications, and idempotent delivery tracking.
 
 ## ROS architecture
 
