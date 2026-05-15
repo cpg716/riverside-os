@@ -29,11 +29,17 @@ pub fn meilisearch_from_env() -> Option<Client> {
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())?;
-    let key = std::env::var("RIVERSIDE_MEILISEARCH_API_KEY")
+    let Some(key) = std::env::var("RIVERSIDE_MEILISEARCH_API_KEY")
         .ok()
         .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    match Client::new(url.trim_end_matches('/'), key.as_deref()) {
+        .filter(|s| !s.is_empty())
+    else {
+        tracing::warn!(
+            "RIVERSIDE_MEILISEARCH_URL is set but RIVERSIDE_MEILISEARCH_API_KEY is missing; search will use PostgreSQL only"
+        );
+        return None;
+    };
+    match Client::new(url.trim_end_matches('/'), Some(key.as_str())) {
         Ok(c) => {
             tracing::info!(
                 index_variant = INDEX_VARIANTS,

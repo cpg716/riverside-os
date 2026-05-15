@@ -527,7 +527,7 @@ export default function NexoCheckoutDrawer({
   const terminalStatusText = providerSettingsLoading
     ? "Checking"
     : providerSettingsError
-      ? "Unavailable"
+      ? "Check terminal"
       : !providerSettings?.helcim.enabled
         ? "Not configured"
         : !providerSettings.helcim.terminal_payments_ready
@@ -675,33 +675,38 @@ export default function NexoCheckoutDrawer({
     }
   }, [amountDueCents, isOpen, originalHelcimTransactionIdForRefund, rmsPaymentCollectionMode, customerTaxExempt, customerTaxExemptId]);
 
-  useEffect(() => {
-    if (!isOpen) return;
+  const loadProviderSettings = useCallback(async (): Promise<PaymentProviderSettings | null> => {
     setProviderSettingsLoading(true);
     setProviderSettingsError(null);
-    fetch(`${baseUrl}/api/payments/providers/active`, {
-      headers: mergedPosStaffHeaders(backofficeHeaders),
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(body.error ?? "Could not load payment provider.");
-        }
-        return res.json() as Promise<PaymentProviderSettings>;
-      })
-      .then((settings) => setProviderSettings(settings))
-      .catch((error) => {
-        setProviderSettings(null);
-        setProviderSettingsError(
-          error instanceof Error
-            ? error.message
-            : "Could not load payment provider.",
-        );
-      })
-      .finally(() => setProviderSettingsLoading(false));
-  }, [backofficeHeaders, baseUrl, isOpen]);
+    try {
+      const res = await fetch(`${baseUrl}/api/payments/providers/active`, {
+        headers: mergedPosStaffHeaders(backofficeHeaders),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(body.error ?? "Could not load payment provider.");
+      }
+      const settings = (await res.json()) as PaymentProviderSettings;
+      setProviderSettings(settings);
+      return settings;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not load payment provider.";
+      setProviderSettingsError(message);
+      return null;
+    } finally {
+      setProviderSettingsLoading(false);
+    }
+  }, [backofficeHeaders, baseUrl]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void loadProviderSettings();
+  }, [isOpen, loadProviderSettings]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1286,21 +1291,22 @@ export default function NexoCheckoutDrawer({
     if (amtCents === 0) return;
 
     if (["card_terminal", "card_manual", "card_saved", "card_credit"].includes(tab)) {
-      if (providerSettingsLoading || !providerSettings) {
-        toast("Confirm Helcim status before starting card payment.", "error");
+      if (providerSettingsLoading) {
+        toast("Checking Helcim terminal setup. Try again in a moment.", "error");
         return;
       }
-      if (providerSettingsError) {
-        toast(providerSettingsError, "error");
+      const activeProviderSettings = providerSettings ?? (await loadProviderSettings());
+      if (!activeProviderSettings) {
+        toast("Could not reach Helcim setup. Check the API connection, then try again.", "error");
         return;
       }
-      if (!providerSettings.helcim.enabled) {
+      if (!activeProviderSettings.helcim.enabled) {
         toast("Helcim is not configured in Settings.", "error");
         return;
       }
       if (
         (tab === "card_terminal" || tab === "card_manual" || tab === "card_credit") &&
-        !providerSettings.helcim.terminal_payments_ready
+        !activeProviderSettings.helcim.terminal_payments_ready
       ) {
         toast("Helcim terminal payments are not ready. Confirm Terminal 1 and Terminal 2 in Settings.", "error");
         return;
@@ -1572,7 +1578,7 @@ export default function NexoCheckoutDrawer({
     setGiftCardCode("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, providerSettingsError, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard]);
+  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -1630,15 +1636,6 @@ export default function NexoCheckoutDrawer({
   const pendingHelcimAttemptNeedsAttention =
     helcimAttempt?.status === "pending" && helcimAttemptNeedsAttention(helcimAttempt);
   const terminalRecoveryState = (() => {
-    if (providerSettingsError) {
-      return {
-        title: "Could not refresh payment terminal status",
-        detail: providerSettingsError,
-        action: "Try the status check again. Use a non-card tender only if store policy allows degraded checkout.",
-        escalation: "Requires manager review if card payments remain unavailable.",
-        tone: "danger",
-      };
-    }
     if (registerLaneUnavailable) {
       return {
         title: "Register is not ready for terminal payments",
@@ -2320,7 +2317,6 @@ export default function NexoCheckoutDrawer({
                             (!customerId || !rmsSelectedAccount)) ||
                           (tab === "card_terminal" &&
                             (providerSettingsLoading ||
-                              providerSettingsError !== null ||
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
                                   !providerSettings.helcim.terminal_payments_ready ||
@@ -2331,7 +2327,6 @@ export default function NexoCheckoutDrawer({
                                   helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_manual" &&
                             (providerSettingsLoading ||
-                              providerSettingsError !== null ||
                               helcimAttemptLoading ||
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
@@ -2343,7 +2338,6 @@ export default function NexoCheckoutDrawer({
                                   helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_credit" &&
                             (providerSettingsLoading ||
-                              providerSettingsError !== null ||
                               helcimAttemptLoading ||
                               refundOriginalTransactionId.trim().length === 0 ||
                               (providerSettings?.active_provider === "helcim" &&
@@ -2356,7 +2350,6 @@ export default function NexoCheckoutDrawer({
                                   helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_saved" &&
                             (providerSettingsLoading ||
-                              providerSettingsError !== null ||
                               helcimCardsLoading ||
                               helcimAttemptLoading ||
                               !selectedHelcimCardToken ||
