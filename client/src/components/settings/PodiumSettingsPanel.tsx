@@ -78,6 +78,14 @@ const PODIUM_EMAIL_UI_BLOCKS = [
   { label: "Loyalty reward", subjectKey: "loyalty_reward_subject", htmlKey: "loyalty_reward_html" },
 ] as const;
 
+const PODIUM_OAUTH_SCOPE = [
+  "read_locations",
+  "read_messages",
+  "write_messages",
+  "read_reviews",
+  "write_reviews",
+].join(" ");
+
 const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) => {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
@@ -145,6 +153,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
     const params = new URLSearchParams({
       redirect_uri: redirectUri,
       state,
+      scope: PODIUM_OAUTH_SCOPE,
     });
     try {
       const res = await fetch(`${baseUrl}/api/settings/podium-oauth/authorize-url?${params}`, {
