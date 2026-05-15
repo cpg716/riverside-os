@@ -67,6 +67,7 @@ export const CUSTOM_ORDER_SUBTYPES = [
   {
     sku: "100",
     itemType: "HSM Suit",
+    buttonLabel: "Suit",
     mappingKey: "hsm_suit",
     vendorFormFamily: "hart_schaffner_marx",
     garmentDescriptionLabel: "Suit description",
@@ -74,6 +75,7 @@ export const CUSTOM_ORDER_SUBTYPES = [
   {
     sku: "105",
     itemType: "HSM Sport Coat",
+    buttonLabel: "Sport Coat",
     mappingKey: "hsm_sport_coat",
     vendorFormFamily: "hart_schaffner_marx",
     garmentDescriptionLabel: "Sport coat description",
@@ -81,6 +83,7 @@ export const CUSTOM_ORDER_SUBTYPES = [
   {
     sku: "110",
     itemType: "HSM Slacks",
+    buttonLabel: "Slacks",
     mappingKey: "hsm_slacks",
     vendorFormFamily: "hart_schaffner_marx",
     garmentDescriptionLabel: "Slacks description",
@@ -88,6 +91,7 @@ export const CUSTOM_ORDER_SUBTYPES = [
   {
     sku: "200",
     itemType: "Individualized Shirt",
+    buttonLabel: "Shirt",
     mappingKey: "individualized_shirt",
     vendorFormFamily: "individualized_shirts",
     garmentDescriptionLabel: "Shirt description",
@@ -117,6 +121,21 @@ export function customOrderItemTypeForSku(
   sku: string | null | undefined,
 ): string | null {
   return customOrderSubtypeForSku(sku)?.itemType ?? null;
+}
+
+export function customOrderSubtypeForItemType(
+  itemType: string | null | undefined,
+): (typeof CUSTOM_ORDER_SUBTYPES)[number] | null {
+  const normalized = String(itemType ?? "").trim().toLowerCase();
+  return (
+    CUSTOM_ORDER_SUBTYPES.find((entry) =>
+      [
+        entry.itemType,
+        entry.buttonLabel,
+        entry.mappingKey,
+      ].some((candidate) => candidate.toLowerCase() === normalized),
+    ) ?? null
+  );
 }
 
 export function isCustomOrderSku(sku: string | null | undefined): boolean {

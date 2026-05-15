@@ -1803,6 +1803,24 @@ export default function Cart({
               </button>
               <button
                 type="button"
+                data-testid="pos-action-custom-order"
+                onClick={() => {
+                  if (!ensureSaleCashier()) return;
+                  if (!selectedCustomer) {
+                    toast("Select or create a customer before starting a custom order.", "error");
+                    return;
+                  }
+                  setPendingCustomItem(null);
+                  setCustomPromptOpen(true);
+                }}
+                title={selectedCustomer ? "Start a custom order" : "Select a customer to start a custom order"}
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-warning/40 bg-app-warning/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-warning transition-all hover:bg-app-warning hover:text-white active:scale-95"
+              >
+                <Pencil size={16} />
+                Custom
+              </button>
+              <button
+                type="button"
                 data-testid="pos-exchange-wizard-trigger"
                 onClick={() => setExchangeWizardOpen(true)}
                 className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-border bg-app-surface-2 px-3 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
@@ -3287,17 +3305,36 @@ export default function Cart({
           setCustomPromptOpen(false);
           setPendingCustomItem(null);
         }}
-        onConfirm={(data) => {
-          if (!pendingCustomItem) return;
+        onConfirm={async (data) => {
+          let customItem = pendingCustomItem;
+          if (!customItem || customItem.sku !== data.customSku) {
+            try {
+              const res = await fetch(
+                `${baseUrl}/api/inventory/scan/${encodeURIComponent(data.customSku)}`,
+                { headers: apiAuth() },
+              );
+              if (!res.ok) {
+                toast(
+                  `${data.itemType} custom catalog item is not configured. Check Custom SKU ${data.customSku}.`,
+                  "error",
+                );
+                return false;
+              }
+              customItem = scanPayloadToResolvedItem((await res.json()) as Record<string, unknown>);
+            } catch {
+              toast(`Could not load Custom SKU ${data.customSku}. Try again.`, "error");
+              return false;
+            }
+          }
           const resolvedItemType =
-            customOrderItemTypeForSku(pendingCustomItem.sku) ?? data.itemType;
+            customOrderItemTypeForSku(customItem.sku) ?? data.itemType;
           const cents = parseMoneyToCents(data.price);
           const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(data.taxCategory, cents);
           const updated: CartLineItem = {
-            ...pendingCustomItem,
+            ...customItem,
             name:
-              customOrderItemTypeForSku(pendingCustomItem.sku) != null
-                ? pendingCustomItem.name
+              customOrderItemTypeForSku(customItem.sku) != null
+                ? customItem.name
                 : `${resolvedItemType} (Custom)`,
             standard_retail_price: data.price,
             unit_cost: "0.00",
@@ -3310,7 +3347,7 @@ export default function Cart({
             quantity: 1,
             cart_row_id: newCartRowId(),
             price_override_reason: "custom_order_booking",
-            original_unit_price: String(pendingCustomItem.standard_retail_price),
+            original_unit_price: String(customItem.standard_retail_price),
             is_rush: data.isRush,
             need_by_date: data.needByDate,
             needs_gift_wrap: data.needsGiftWrap,
@@ -3318,6 +3355,7 @@ export default function Cart({
           setCustomPromptOpen(false);
           setPendingCustomItem(null);
           addItem(updated);
+          return true;
         }}
       />
 

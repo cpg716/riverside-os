@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { TaxCategory } from "../../lib/tax";
 import {
-  MANUAL_CUSTOM_ITEM_TYPES,
+  CUSTOM_ORDER_SUBTYPES,
+  customOrderSubtypeForItemType,
   normalizeCustomOrderDetails,
   customOrderSubtypeForSku,
   type CustomOrderDetails,
@@ -19,8 +20,9 @@ interface CustomItemPromptModalProps {
     isRush: boolean; 
     needsGiftWrap: boolean;
     taxCategory: TaxCategory;
+    customSku: string;
     customOrderDetails?: CustomOrderDetails | null;
-  }) => void;
+  }) => void | boolean | Promise<void | boolean>;
 }
 
 export default function CustomItemPromptModal({
@@ -31,8 +33,13 @@ export default function CustomItemPromptModal({
 }: CustomItemPromptModalProps) {
   const knownSubtype = customOrderSubtypeForSku(sku);
   const [itemType, setItemType] = useState<string>(
-    knownSubtype?.itemType ?? MANUAL_CUSTOM_ITEM_TYPES[0],
+    knownSubtype?.itemType ?? CUSTOM_ORDER_SUBTYPES[0].itemType,
   );
+  const selectedSubtype =
+    knownSubtype ??
+    customOrderSubtypeForItemType(itemType) ??
+    CUSTOM_ORDER_SUBTYPES[0];
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [price, setPrice] = useState("");
   const [needByDate, setNeedByDate] = useState("");
   const [isRush, setIsRush] = useState(false);
@@ -81,7 +88,7 @@ export default function CustomItemPromptModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    setItemType(knownSubtype?.itemType ?? MANUAL_CUSTOM_ITEM_TYPES[0]);
+    setItemType(knownSubtype?.itemType ?? CUSTOM_ORDER_SUBTYPES[0].itemType);
     setGarmentDescription("");
     setFabricReference("");
     setStyleReference("");
@@ -124,13 +131,9 @@ export default function CustomItemPromptModal({
     setShirtPocketStyle("");
   }, [isOpen, knownSubtype]);
 
-  // Sync tax category when item type changes
+  // Sync tax category when item type changes. Current supported Custom lines are clothing.
   useEffect(() => {
-    if (itemType === "Other") {
-      setTaxCategory("other");
-    } else {
-      setTaxCategory("clothing");
-    }
+    setTaxCategory("clothing");
   }, [itemType]);
 
   if (!isOpen) return null;
@@ -141,15 +144,16 @@ export default function CustomItemPromptModal({
   const parsedPrice = Number.parseFloat(price);
   const priceIsValid = Number.isFinite(parsedPrice) && parsedPrice > 0;
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!priceIsValid) return;
-    const customOrderDetails = normalizeCustomOrderDetails(sku, {
+    setIsSubmitting(true);
+    const customOrderDetails = normalizeCustomOrderDetails(selectedSubtype.sku, {
       garment_description:
-        knownSubtype?.mappingKey === "individualized_shirt"
+        selectedSubtype.mappingKey === "individualized_shirt"
           ? null
           : garmentDescription,
       shirt_description:
-        knownSubtype?.mappingKey === "individualized_shirt"
+        selectedSubtype.mappingKey === "individualized_shirt"
           ? garmentDescription
           : null,
       fabric_reference: fabricReference,
@@ -192,15 +196,23 @@ export default function CustomItemPromptModal({
       shirt_button_choice: shirtButtonChoice,
       shirt_pocket_style: shirtPocketStyle,
     });
-    onConfirm({
-      itemType,
-      price: price || "0.00",
-      needByDate: needByDate || null,
-      isRush,
-      needsGiftWrap,
-      taxCategory,
-      customOrderDetails,
-    });
+    let confirmed: void | boolean = false;
+    try {
+      confirmed = await onConfirm({
+        itemType: selectedSubtype.itemType,
+        price: price || "0.00",
+        needByDate: needByDate || null,
+        isRush,
+        needsGiftWrap,
+        taxCategory,
+        customSku: selectedSubtype.sku,
+        customOrderDetails,
+      });
+    } catch {
+      confirmed = false;
+    }
+    setIsSubmitting(false);
+    if (confirmed === false) return;
     // Reset
     setPrice("");
     setNeedByDate("");
@@ -250,9 +262,17 @@ export default function CustomItemPromptModal({
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
-      <div className="relative max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl border border-app-border bg-app-surface shadow-2xl animate-in zoom-in-95 duration-200 sm:max-h-[90vh] sm:max-w-sm sm:overflow-hidden sm:rounded-3xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="custom-order-modal-title"
+        className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl animate-in zoom-in-95 duration-200 sm:max-h-[88vh] sm:max-w-4xl sm:rounded-3xl"
+      >
         <div className="border-b border-app-border bg-app-surface-2 px-6 py-4">
-          <h3 className="text-lg font-black uppercase italic tracking-tighter text-app-text">
+          <h3
+            id="custom-order-modal-title"
+            className="text-lg font-black uppercase italic tracking-tighter text-app-text"
+          >
             Custom Order
           </h3>
           <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
@@ -260,13 +280,13 @@ export default function CustomItemPromptModal({
           </p>
         </div>
 
-        <div className="space-y-4 p-6">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 sm:p-6">
           {knownSubtype ? (
             <div className="ui-panel ui-tint-accent space-y-1.5 p-4">
               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Custom Type
               </label>
-              <p className="text-sm font-black text-app-text">{knownSubtype.itemType}</p>
+              <p className="text-sm font-black text-app-text">{selectedSubtype.itemType}</p>
               <p className="text-[11px] font-semibold text-app-text-muted">
                 This SKU always books as a Custom order.
               </p>
@@ -276,80 +296,82 @@ export default function CustomItemPromptModal({
               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Item Type
               </label>
-              <div className="grid grid-cols-2 gap-2">
-                {MANUAL_CUSTOM_ITEM_TYPES.map((t) => (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {CUSTOM_ORDER_SUBTYPES.map((subtype) => (
                   <button
-                    key={t}
+                    key={subtype.sku}
                     type="button"
-                    onClick={() => setItemType(t)}
+                    data-testid={`pos-custom-type-${subtype.mappingKey}`}
+                    onClick={() => setItemType(subtype.itemType)}
                     className={`rounded-xl border-2 px-3 py-2 text-[10px] font-black uppercase tracking-wide transition-all ${
-                      itemType === t
+                      selectedSubtype.sku === subtype.sku
                         ? "border-app-accent bg-app-accent/10 text-app-accent shadow-sm"
                         : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-input-border hover:bg-app-surface"
                     }`}
                   >
-                    {t}
+                    {subtype.buttonLabel}
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Tax Category Override */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Tax Classification
-            </label>
-            <div className="flex gap-2">
-              {(["clothing", "footwear", "other"] as TaxCategory[]).map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setTaxCategory(cat)}
-                  className={`flex-1 rounded-lg border px-2 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
-                    taxCategory === cat
-                      ? "border-app-success bg-app-success/10 text-app-success"
-                      : "border-app-border bg-app-surface-2 text-app-text-muted"
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Tax Classification
+                </label>
+                <div className="flex gap-2">
+                  {(["clothing", "footwear", "other"] as TaxCategory[]).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setTaxCategory(cat)}
+                      className={`flex-1 rounded-lg border px-2 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+                        taxCategory === cat
+                          ? "border-app-success bg-app-success/10 text-app-success"
+                          : "border-app-border bg-app-surface-2 text-app-text-muted"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Sale Price ($)
+                </label>
+                <input
+                  type="text"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="ui-input h-12 w-full text-lg font-black tabular-nums tracking-tight"
+                />
+              </div>
+
+              <div className="ui-panel ui-tint-warning p-3 text-[11px] font-semibold text-app-text">
+                Actual vendor cost is entered when the custom garment is received.
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Need By Date
+                </label>
+                <input
+                  type="date"
+                  value={needByDate}
+                  onChange={(e) => setNeedByDate(e.target.value)}
+                  className="ui-input h-12 w-full text-sm font-bold uppercase tracking-widest"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Price */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Sale Price ($)
-            </label>
-            <input
-              type="text"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              placeholder="0.00"
-              className="ui-input h-12 w-full text-lg font-black tabular-nums tracking-tight"
-            />
-          </div>
-
-          <div className="ui-panel ui-tint-warning p-3 text-[11px] font-semibold text-app-text">
-            Actual vendor cost is entered when the custom garment is received.
-          </div>
-
-          {/* Need By Date */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Need By Date
-            </label>
-            <input
-              type="date"
-              value={needByDate}
-              onChange={(e) => setNeedByDate(e.target.value)}
-              className="ui-input h-12 w-full text-sm font-bold uppercase tracking-widest"
-            />
-          </div>
-
-          {knownSubtype?.vendorFormFamily === "hart_schaffner_marx" && (
+            <div className="min-w-0">
+          {selectedSubtype.vendorFormFamily === "hart_schaffner_marx" && (
             <div className="ui-panel ui-tint-neutral space-y-3 p-4">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -363,9 +385,10 @@ export default function CustomItemPromptModal({
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  {knownSubtype.garmentDescriptionLabel}
+                  {selectedSubtype.garmentDescriptionLabel}
                 </label>
                 <input
+                  data-testid="pos-custom-garment-description"
                   type="text"
                   value={garmentDescription}
                   onChange={(e) => setGarmentDescription(e.target.value)}
@@ -640,7 +663,7 @@ export default function CustomItemPromptModal({
             </div>
           )}
 
-          {knownSubtype?.vendorFormFamily === "individualized_shirts" && (
+          {selectedSubtype.vendorFormFamily === "individualized_shirts" && (
             <div className="space-y-3 rounded-2xl border border-app-border bg-app-surface-2 p-4">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -657,6 +680,7 @@ export default function CustomItemPromptModal({
                   Shirt Description
                 </label>
                 <input
+                  data-testid="pos-custom-garment-description"
                   type="text"
                   value={garmentDescription}
                   onChange={(e) => setGarmentDescription(e.target.value)}
@@ -969,6 +993,8 @@ export default function CustomItemPromptModal({
               </div>
             </div>
           )}
+            </div>
+          </div>
 
           <div className="grid grid-cols-2 gap-2">
             {/* Rush Order */}
@@ -1032,10 +1058,10 @@ export default function CustomItemPromptModal({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={!priceIsValid}
+            disabled={!priceIsValid || isSubmitting}
             className="flex-1 rounded-xl bg-app-accent py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/30 transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100"
           >
-            Add to Cart
+            {isSubmitting ? "Adding..." : "Add to Cart"}
           </button>
         </div>
       </div>

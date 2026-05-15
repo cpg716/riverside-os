@@ -4,6 +4,7 @@ import {
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
 import {
+  attachNewCustomerToSale,
   ensurePosRegisterSessionOpen,
   ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
@@ -87,3 +88,31 @@ for (const viewport of MODAL_VIEWPORTS) {
     });
   });
 }
+
+test("POS Custom button opens canonical custom-order families", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1024, height: 768 });
+
+  await openPosRegisterSurface(page);
+  await attachNewCustomerToSale(page, {
+    firstName: "Custom",
+    lastName: "Order",
+    email: `e2e-custom-${Date.now()}@example.com`,
+  });
+
+  await page.getByTestId("pos-action-custom-order").click();
+  const customDialog = page.getByRole("dialog", { name: /custom order/i });
+  await expect(customDialog).toBeVisible({ timeout: 10_000 });
+
+  await expect(customDialog.getByTestId("pos-custom-type-hsm_suit")).toBeVisible();
+  await expect(customDialog.getByTestId("pos-custom-type-hsm_sport_coat")).toBeVisible();
+  await expect(customDialog.getByTestId("pos-custom-type-hsm_slacks")).toBeVisible();
+  await expect(customDialog.getByTestId("pos-custom-type-individualized_shirt")).toBeVisible();
+
+  await customDialog.getByTestId("pos-custom-type-individualized_shirt").click();
+  await expect(customDialog.getByText(/shirt form details/i)).toBeVisible();
+  await expect(customDialog.getByTestId("pos-custom-garment-description")).toBeVisible();
+  await customDialog.getByTestId("pos-custom-type-hsm_sport_coat").click();
+  await expect(customDialog.getByText(/hsm form details/i)).toBeVisible();
+  await expect(customDialog.getByText(/sport coat description/i)).toBeVisible();
+});
