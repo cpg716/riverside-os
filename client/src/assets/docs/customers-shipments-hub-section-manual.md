@@ -32,6 +32,7 @@ Use the Shipments Hub to manage packed-but-not-delivered orders, tracking number
 - **Unused Label Refund**: If a purchased label will not be used, request an unused-label refund from the label panel. The request is logged; Shippo and the carrier decide whether it is accepted.
 - **Return Labels**: From a purchased outbound label, create a return-label workflow, fetch a return rate, buy the return label, and keep the return shipment separate from the outbound shipment.
 - **Carrier Handoff**: Select purchased labels for the same carrier account, then create a manifest/SCAN form or schedule pickup from the hub.
+- **Address Lookup**: Manual shipments use Geoapify suggestions biased near the store area, then Shippo validates the selected address before ROS fills the form.
 - **Status Management**: Mark shipments as "Shipped" or "Delivered" to keep customers informed.
 
 ## Accessing the Hub

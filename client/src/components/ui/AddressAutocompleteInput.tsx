@@ -2,7 +2,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { Loader2, MapPin, Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface AddressSuggestion {
   id: string;
@@ -11,12 +11,24 @@ export interface AddressSuggestion {
   city: string;
   state: string;
   postal_code: string;
+  country?: string | null;
+  source?: string | null;
+  shippo_validated?: boolean | null;
 }
 
 interface AddressAutocompleteInputProps {
   value: string;
   onChange: (value: string) => void;
   onSelectAddress: (suggestion: AddressSuggestion) => void;
+  validationContext?: {
+    name?: string;
+    company?: string;
+    address_line2?: string;
+    country?: string;
+    phone?: string;
+    email?: string;
+    is_residential?: boolean;
+  };
   label?: string;
   placeholder?: string;
   className?: string;
@@ -31,6 +43,7 @@ export default function AddressAutocompleteInput({
   value,
   onChange,
   onSelectAddress,
+  validationContext,
   label = "Address line 1",
   placeholder = "123 Main St",
   className = "",
@@ -41,8 +54,10 @@ export default function AddressAutocompleteInput({
   const baseUrl = getBaseUrl();
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [busy, setBusy] = useState(false);
+  const [validating, setValidating] = useState(false);
   const [open, setOpen] = useState(false);
   const [lookupFailed, setLookupFailed] = useState(false);
+  const [validationFailed, setValidationFailed] = useState(false);
   const [lookupComplete, setLookupComplete] = useState(false);
   const blurTimerRef = useRef<number | null>(null);
   const trimmedValue = value.trim();
@@ -64,6 +79,7 @@ export default function AddressAutocompleteInput({
         setLookupComplete(false);
         try {
           const params = new URLSearchParams({ q: trimmedValue });
+          setValidationFailed(false);
           const res = await fetch(
             `${baseUrl}/api/customers/address-suggestions?${params.toString()}`,
             {
@@ -102,12 +118,23 @@ export default function AddressAutocompleteInput({
 
   const statusText = useMemo(() => {
     if (readOnly || trimmedValue.length < MIN_LOOKUP_LENGTH) return "";
+    if (validating) return "Validating selected address with Shippo...";
     if (busy) return `Searching addresses near ${STORE_POSTAL_CODE}...`;
+    if (validationFailed) return "Shippo could not validate that address. Manual entry is okay.";
     if (lookupFailed) return "Address lookup unavailable. Manual entry is okay.";
     if (lookupComplete && suggestions.length === 0) return "No suggestions found. Manual entry is okay.";
-    if (suggestions.length > 0) return `Showing closest matches near ${STORE_POSTAL_CODE}.`;
+    if (suggestions.length > 0) return `Geoapify matches near ${STORE_POSTAL_CODE}. Shippo validates selection.`;
     return "";
-  }, [busy, lookupComplete, lookupFailed, readOnly, suggestions.length, trimmedValue.length]);
+  }, [
+    busy,
+    lookupComplete,
+    lookupFailed,
+    readOnly,
+    suggestions.length,
+    trimmedValue.length,
+    validating,
+    validationFailed,
+  ]);
 
   const handleBlur = () => {
     blurTimerRef.current = window.setTimeout(() => setOpen(false), 120);
@@ -117,6 +144,49 @@ export default function AddressAutocompleteInput({
     if (blurTimerRef.current) window.clearTimeout(blurTimerRef.current);
     if (suggestions.length > 0) setOpen(true);
   };
+
+  const selectSuggestion = useCallback(
+    async (suggestion: AddressSuggestion) => {
+      setValidating(true);
+      setValidationFailed(false);
+      try {
+        const res = await fetch(`${baseUrl}/api/customers/address-validation`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...mergedPosStaffHeaders(backofficeHeaders),
+          },
+          body: JSON.stringify({
+            address_line1: suggestion.address_line1,
+            city: suggestion.city,
+            state: suggestion.state,
+            postal_code: suggestion.postal_code,
+            country: suggestion.country || validationContext?.country || "US",
+            name: validationContext?.name,
+            company: validationContext?.company,
+            address_line2: validationContext?.address_line2,
+            phone: validationContext?.phone,
+            email: validationContext?.email,
+            is_residential: validationContext?.is_residential,
+          }),
+        });
+        if (!res.ok) {
+          setValidationFailed(true);
+          setOpen(false);
+          return;
+        }
+        const validated = (await res.json()) as AddressSuggestion;
+        onSelectAddress(validated);
+        setOpen(false);
+      } catch {
+        setValidationFailed(true);
+        setOpen(false);
+      } finally {
+        setValidating(false);
+      }
+    },
+    [backofficeHeaders, baseUrl, onSelectAddress, validationContext],
+  );
 
   return (
     <label className={`relative block text-[10px] font-black uppercase tracking-widest text-app-text-muted ${className}`}>
@@ -139,7 +209,7 @@ export default function AddressAutocompleteInput({
           placeholder={placeholder}
           autoComplete="street-address"
         />
-        {busy ? (
+        {busy || validating ? (
           <Loader2
             size={15}
             className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-app-accent"
@@ -150,11 +220,17 @@ export default function AddressAutocompleteInput({
       {statusText ? (
         <span
           className={`mt-1 flex items-center gap-1 text-[10px] font-semibold normal-case tracking-normal ${
-            busy ? "text-app-accent" : lookupFailed ? "text-app-warning" : "text-app-text-muted"
+            busy || validating
+              ? "text-app-accent"
+              : lookupFailed || validationFailed
+                ? "text-app-warning"
+                : "text-app-text-muted"
           }`}
           aria-live="polite"
         >
-          {busy ? <Loader2 size={11} className="animate-spin" aria-hidden /> : null}
+          {busy || validating ? (
+            <Loader2 size={11} className="animate-spin" aria-hidden />
+          ) : null}
           {statusText}
         </span>
       ) : null}
@@ -167,8 +243,7 @@ export default function AddressAutocompleteInput({
               className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs font-semibold normal-case tracking-normal text-app-text transition hover:bg-app-surface-2"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
-                onSelectAddress(suggestion);
-                setOpen(false);
+                void selectSuggestion(suggestion);
               }}
             >
               <MapPin size={14} className="mt-0.5 shrink-0 text-app-accent" />

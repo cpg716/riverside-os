@@ -16,6 +16,7 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { CheckCircle2 } from "lucide-react";
+import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 
 const defaultBase = getBaseUrl();
 
@@ -1568,16 +1569,34 @@ export default function ShipmentsHubSection({
                   }
                 />
               </label>
-              <label className="col-span-2 block text-[10px] font-bold uppercase text-app-text-muted">
-                Street 1
-                <input
-                  className="ui-input mt-1 w-full text-xs"
-                  value={newForm.street1}
-                  onChange={(e) =>
-                    setNewForm((f) => ({ ...f, street1: e.target.value }))
-                  }
-                />
-              </label>
+              <AddressAutocompleteInput
+                className="col-span-2"
+                label="Street 1"
+                value={newForm.street1}
+                inputClassName="ui-input mt-1 w-full text-xs"
+                validationContext={{
+                  name: newForm.name,
+                  company: newForm.company,
+                  address_line2: newForm.street2,
+                  country: newForm.country,
+                  phone: newForm.phone,
+                  email: newForm.email,
+                  is_residential: newForm.is_residential,
+                }}
+                onChange={(value) =>
+                  setNewForm((f) => ({ ...f, street1: value }))
+                }
+                onSelectAddress={(suggestion) =>
+                  setNewForm((f) => ({
+                    ...f,
+                    street1: suggestion.address_line1,
+                    city: suggestion.city,
+                    state: suggestion.state,
+                    zip: suggestion.postal_code,
+                    country: suggestion.country || f.country || "US",
+                  }))
+                }
+              />
               <label className="col-span-2 block text-[10px] font-bold uppercase text-app-text-muted">
                 Street 2
                 <input

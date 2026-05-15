@@ -607,23 +607,43 @@ pub struct ShippoConnectionTestResult {
     pub validation_results: Value,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ShippoAddressValidationResult {
+    pub object_id: Option<String>,
+    pub is_complete: Option<bool>,
+    pub validation_results: Value,
+    pub normalized: ShippoAddressFields,
+}
+
 pub async fn test_shippo_connection(
     http: &reqwest::Client,
     from: &ShippoAddressFields,
 ) -> Result<ShippoConnectionTestResult, ShippoError> {
+    let validated = validate_address(http, from).await?;
+    Ok(ShippoConnectionTestResult {
+        object_id: validated.object_id,
+        is_complete: validated.is_complete,
+        validation_results: validated.validation_results,
+    })
+}
+
+pub async fn validate_address(
+    http: &reqwest::Client,
+    address: &ShippoAddressFields,
+) -> Result<ShippoAddressValidationResult, ShippoError> {
     let token = shippo_api_token_from_env()
         .ok_or_else(|| ShippoError::Api("Shippo API token is not configured".into()))?;
-    if from.street1.trim().is_empty()
-        || from.city.trim().is_empty()
-        || from.state.trim().is_empty()
-        || from.zip.trim().is_empty()
+    if address.street1.trim().is_empty()
+        || address.city.trim().is_empty()
+        || address.state.trim().is_empty()
+        || address.zip.trim().is_empty()
     {
         return Err(ShippoError::InvalidAddress(
-            "Configure ship-from address before testing Shippo.".into(),
+            "street1, city, state, and ZIP are required before Shippo address validation.".into(),
         ));
     }
 
-    let mut body = address_to_shippo_json(from);
+    let mut body = address_to_shippo_json(address);
     if let Some(obj) = body.as_object_mut() {
         obj.insert("validate".to_string(), json!(true));
     }
@@ -647,7 +667,7 @@ pub async fn test_shippo_connection(
         .json::<Value>()
         .await
         .map_err(|e| ShippoError::Api(e.to_string()))?;
-    Ok(ShippoConnectionTestResult {
+    Ok(ShippoAddressValidationResult {
         object_id: v
             .get("object_id")
             .and_then(|x| x.as_str())
@@ -657,7 +677,35 @@ pub async fn test_shippo_connection(
             .get("validation_results")
             .cloned()
             .unwrap_or_else(|| json!({})),
+        normalized: ShippoAddressFields {
+            name: string_field_or(&v, "name", &address.name),
+            company: optional_string_field(&v, "company").or_else(|| address.company.clone()),
+            street1: string_field_or(&v, "street1", &address.street1),
+            street2: optional_string_field(&v, "street2").or_else(|| address.street2.clone()),
+            city: string_field_or(&v, "city", &address.city),
+            state: string_field_or(&v, "state", &address.state),
+            zip: string_field_or(&v, "zip", &address.zip),
+            country: string_field_or(&v, "country", &address.country),
+            phone: string_field_or(&v, "phone", &address.phone),
+            email: optional_string_field(&v, "email").or_else(|| address.email.clone()),
+            is_residential: v
+                .get("is_residential")
+                .and_then(|x| x.as_bool())
+                .or(address.is_residential),
+        },
     })
+}
+
+fn string_field_or(v: &Value, field: &str, fallback: &str) -> String {
+    optional_string_field(v, field).unwrap_or_else(|| fallback.to_string())
+}
+
+fn optional_string_field(v: &Value, field: &str) -> Option<String> {
+    v.get(field)
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 #[derive(Debug, Clone, Serialize)]

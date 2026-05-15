@@ -50,6 +50,7 @@ use crate::logic::lightspeed_customers::{
 };
 use crate::logic::podium;
 use crate::logic::podium_messaging;
+use crate::logic::shippo::{self, ShippoAddressFields};
 
 pub(crate) async fn rosie_customer_hub_snapshot(
     state: &AppState,
@@ -101,6 +102,8 @@ pub enum CustomerError {
     #[error("{0}")]
     PodiumUnavailable(String),
     #[error("{0}")]
+    ExternalUnavailable(String),
+    #[error("{0}")]
     Unauthorized(String),
     #[error("{0}")]
     Forbidden(String),
@@ -123,6 +126,7 @@ impl IntoResponse for CustomerError {
             CustomerError::Conflict(m) => (StatusCode::CONFLICT, m),
             CustomerError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             CustomerError::PodiumUnavailable(m) => (StatusCode::BAD_GATEWAY, m),
+            CustomerError::ExternalUnavailable(m) => (StatusCode::BAD_GATEWAY, m),
             CustomerError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
             CustomerError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             CustomerError::Logic(m) => (StatusCode::BAD_REQUEST, m),
@@ -153,10 +157,7 @@ const ADDRESS_LOOKUP_MIN_QUERY_LEN: usize = 4;
 const ADDRESS_LOOKUP_MAX_RESULTS: usize = 5;
 const ADDRESS_LOOKUP_STORE_LAT: &str = "42.9056";
 const ADDRESS_LOOKUP_STORE_LON: &str = "-78.7048";
-const ADDRESS_LOOKUP_STORE_POSTAL: &str = "14043";
-const CENSUS_ADDRESS_LOOKUP_URL: &str =
-    "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress";
-const PHOTON_ADDRESS_LOOKUP_URL: &str = "https://photon.komoot.io/api/";
+const GEOAPIFY_ADDRESS_LOOKUP_URL: &str = "https://api.geoapify.com/v1/geocode/autocomplete";
 const ADDRESS_LOOKUP_USER_AGENT: &str = "RiversideOS/0.2.1 customer-address-autocomplete";
 
 #[derive(Debug, Deserialize)]
@@ -172,69 +173,64 @@ struct AddressSuggestion {
     city: String,
     state: String,
     postal_code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    country: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shippo_validated: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
-struct CensusAddressLookupResponse {
-    result: Option<CensusAddressLookupResult>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CensusAddressLookupResult {
-    #[serde(rename = "addressMatches")]
-    address_matches: Option<Vec<CensusAddressMatch>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CensusAddressMatch {
-    #[serde(rename = "addressComponents")]
-    address_components: Option<CensusAddressComponents>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CensusAddressComponents {
-    #[serde(rename = "fromAddress")]
-    from_address: Option<String>,
-    #[serde(rename = "preDirection")]
-    pre_direction: Option<String>,
-    #[serde(rename = "preType")]
-    pre_type: Option<String>,
-    #[serde(rename = "streetName")]
-    street_name: Option<String>,
-    #[serde(rename = "suffixType")]
-    suffix_type: Option<String>,
-    #[serde(rename = "suffixDirection")]
-    suffix_direction: Option<String>,
-    city: Option<String>,
-    state: Option<String>,
-    zip: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PhotonLookupResponse {
-    features: Vec<PhotonFeature>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PhotonFeature {
-    properties: PhotonProperties,
-}
-
-#[derive(Debug, Deserialize)]
-struct PhotonProperties {
-    #[serde(rename = "osm_type")]
-    osm_type: Option<String>,
-    #[serde(rename = "osm_id")]
-    osm_id: Option<i64>,
-    housenumber: Option<String>,
-    street: Option<String>,
+struct AddressValidationBody {
+    address_line1: String,
+    #[serde(default)]
+    address_line2: Option<String>,
+    city: String,
+    state: String,
+    postal_code: String,
+    #[serde(default)]
+    country: Option<String>,
+    #[serde(default)]
     name: Option<String>,
+    #[serde(default)]
+    company: Option<String>,
+    #[serde(default)]
+    phone: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    is_residential: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeoapifyAutocompleteResponse {
+    #[serde(default)]
+    results: Vec<GeoapifyAddressResult>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeoapifyAddressResult {
+    #[serde(default)]
+    place_id: Option<String>,
+    #[serde(default)]
+    formatted: Option<String>,
+    #[serde(default)]
+    address_line1: Option<String>,
+    #[serde(default)]
     city: Option<String>,
-    locality: Option<String>,
+    #[serde(default)]
     county: Option<String>,
+    #[serde(default)]
     state: Option<String>,
+    #[serde(default)]
+    state_code: Option<String>,
+    #[serde(default)]
     postcode: Option<String>,
-    countrycode: Option<String>,
+    #[serde(default)]
+    country_code: Option<String>,
+    #[serde(default)]
+    result_type: Option<String>,
 }
 
 fn title_case_address(value: &str) -> String {
@@ -315,97 +311,66 @@ fn normalize_us_state(value: &str) -> String {
     .to_string()
 }
 
-fn build_census_street_line(parts: &CensusAddressComponents) -> String {
-    [
-        parts.from_address.as_deref(),
-        parts.pre_direction.as_deref(),
-        parts.pre_type.as_deref(),
-        parts.street_name.as_deref(),
-        parts.suffix_type.as_deref(),
-        parts.suffix_direction.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .map(str::trim)
-    .filter(|part| !part.is_empty())
-    .collect::<Vec<_>>()
-    .join(" ")
+fn geoapify_api_key_from_env() -> Option<String> {
+    std::env::var("GEOAPIFY_API_KEY")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
-fn map_census_address_match(
-    address_match: CensusAddressMatch,
-    index: usize,
-) -> Option<AddressSuggestion> {
-    let parts = address_match.address_components?;
-    let address_line1 = build_census_street_line(&parts);
-    let city = parts.city?.trim().to_string();
-    let state = normalize_us_state(parts.state?.trim());
-    let postal_code = parts.zip?.trim().to_string();
-    if address_line1.is_empty() || city.is_empty() || state.is_empty() || postal_code.is_empty() {
+fn map_geoapify_result(result: GeoapifyAddressResult, index: usize) -> Option<AddressSuggestion> {
+    if !matches!(result.country_code.as_deref(), Some(code) if code.eq_ignore_ascii_case("US")) {
         return None;
     }
-    let address_line1 = title_case_address(&address_line1);
-    let city = title_case_address(&city);
-    let label = format!("{address_line1}, {city}, {state} {postal_code}");
-    Some(AddressSuggestion {
-        id: format!("{label}-{index}"),
-        label,
-        address_line1,
-        city,
-        state,
-        postal_code,
-    })
-}
-
-fn map_photon_feature(feature: PhotonFeature, index: usize) -> Option<AddressSuggestion> {
-    let p = feature.properties;
-    if !matches!(p.countrycode.as_deref(), Some(code) if code.eq_ignore_ascii_case("US")) {
-        return None;
-    }
-    let street = p
-        .street
+    let address_line1 = result
+        .address_line1
         .as_deref()
-        .or(p.name.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
-    let address_line1 = [p.housenumber.as_deref(), Some(street)]
-        .into_iter()
-        .flatten()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
-    if address_line1.is_empty() {
-        return None;
-    }
-    let city = p
+    let city = result
         .city
         .as_deref()
-        .or(p.locality.as_deref())
-        .or(p.county.as_deref())
+        .or(result.county.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
-    let state = p.state.as_deref()?.trim();
-    let postal_code = p.postcode.as_deref()?.trim();
-    if state.is_empty() || postal_code.is_empty() {
-        return None;
-    }
-
-    let address_line1 = title_case_address(&address_line1);
+    let state = result
+        .state_code
+        .as_deref()
+        .or(result.state.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let postal_code = result
+        .postcode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let address_line1 = title_case_address(address_line1);
     let city = title_case_address(city);
     let state = normalize_us_state(state);
-    let label = format!("{address_line1}, {city}, {state} {postal_code}");
+    let label = result
+        .formatted
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{address_line1}, {city}, {state} {postal_code}"));
+
     Some(AddressSuggestion {
-        id: format!(
-            "photon-{}-{}-{index}",
-            p.osm_type.unwrap_or_default(),
-            p.osm_id.unwrap_or_default()
-        ),
+        id: result
+            .place_id
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!("geoapify-{index}")),
         label,
         address_line1,
         city,
         state,
         postal_code: postal_code.to_string(),
+        country: Some("US".to_string()),
+        source: result
+            .result_type
+            .map(|value| format!("geoapify:{value}"))
+            .or_else(|| Some("geoapify".to_string())),
+        shippo_validated: None,
     })
 }
 
@@ -1226,97 +1191,161 @@ async fn get_address_suggestions(
         return Ok(Json(Vec::new()));
     }
 
-    let photon_query = if query.chars().any(|c| c.is_ascii_digit()) {
-        query.to_string()
-    } else {
-        format!("{query} {ADDRESS_LOOKUP_STORE_POSTAL}")
-    };
-    let photon_limit = ADDRESS_LOOKUP_MAX_RESULTS.to_string();
-    let photon_res = state
-        .http_client
-        .get(PHOTON_ADDRESS_LOOKUP_URL)
-        .header(reqwest::header::USER_AGENT, ADDRESS_LOOKUP_USER_AGENT)
-        .query(&[
-            ("q", photon_query.as_str()),
-            ("limit", photon_limit.as_str()),
-            ("lang", "en"),
-            ("lat", ADDRESS_LOOKUP_STORE_LAT),
-            ("lon", ADDRESS_LOOKUP_STORE_LON),
-        ])
-        .send()
-        .await;
-
-    match photon_res {
-        Ok(res) if res.status().is_success() => match res.json::<PhotonLookupResponse>().await {
-            Ok(body) => {
-                let suggestions: Vec<AddressSuggestion> = body
-                    .features
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(index, feature)| map_photon_feature(feature, index))
-                    .take(ADDRESS_LOOKUP_MAX_RESULTS)
-                    .collect();
-                if !suggestions.is_empty() {
-                    return Ok(Json(suggestions));
-                }
-            }
-            Err(error) => {
-                tracing::warn!(error = %error, "customer Photon address lookup response was not valid JSON");
-            }
-        },
-        Ok(res) => {
-            tracing::warn!(
-                status = %res.status(),
-                "customer Photon address lookup returned non-success status"
-            );
-        }
-        Err(error) => {
-            tracing::warn!(error = %error, "customer Photon address lookup request failed");
-        }
-    }
-
-    let census_query = format!("{query} {ADDRESS_LOOKUP_STORE_POSTAL}");
+    let api_key = geoapify_api_key_from_env().ok_or_else(|| {
+        CustomerError::ExternalUnavailable("Geoapify address lookup is not configured.".to_string())
+    })?;
+    let limit = ADDRESS_LOOKUP_MAX_RESULTS.to_string();
+    let bias = format!("proximity:{ADDRESS_LOOKUP_STORE_LON},{ADDRESS_LOOKUP_STORE_LAT}");
     let res = state
         .http_client
-        .get(CENSUS_ADDRESS_LOOKUP_URL)
+        .get(GEOAPIFY_ADDRESS_LOOKUP_URL)
         .header(reqwest::header::USER_AGENT, ADDRESS_LOOKUP_USER_AGENT)
         .query(&[
-            ("address", census_query.as_str()),
-            ("benchmark", "Public_AR_Current"),
+            ("text", query),
+            ("limit", limit.as_str()),
+            ("lang", "en"),
             ("format", "json"),
+            ("filter", "countrycode:us"),
+            ("bias", bias.as_str()),
+            ("apiKey", api_key.as_str()),
         ])
         .send()
         .await;
 
     let Ok(res) = res else {
-        tracing::warn!("customer address lookup request failed");
-        return Ok(Json(Vec::new()));
+        tracing::warn!("customer Geoapify address lookup request failed");
+        return Err(CustomerError::ExternalUnavailable(
+            "Address lookup is temporarily unavailable.".to_string(),
+        ));
     };
     if !res.status().is_success() {
         tracing::warn!(
             status = %res.status(),
-            "customer address lookup returned non-success status"
+            "customer Geoapify address lookup returned non-success status"
         );
-        return Ok(Json(Vec::new()));
+        return Err(CustomerError::ExternalUnavailable(
+            "Address lookup is temporarily unavailable.".to_string(),
+        ));
     }
 
-    let body = res.json::<CensusAddressLookupResponse>().await;
+    let body = res.json::<GeoapifyAutocompleteResponse>().await;
     let Ok(body) = body else {
-        tracing::warn!("customer address lookup response was not valid JSON");
-        return Ok(Json(Vec::new()));
+        tracing::warn!("customer Geoapify address lookup response was not valid JSON");
+        return Err(CustomerError::ExternalUnavailable(
+            "Address lookup returned an unreadable response.".to_string(),
+        ));
     };
 
     let suggestions = body
-        .result
-        .and_then(|result| result.address_matches)
-        .unwrap_or_default()
+        .results
         .into_iter()
         .enumerate()
-        .filter_map(|(index, address_match)| map_census_address_match(address_match, index))
+        .filter_map(|(index, result)| map_geoapify_result(result, index))
         .take(ADDRESS_LOOKUP_MAX_RESULTS)
         .collect();
 
     Ok(Json(suggestions))
+}
+
+async fn post_address_validation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AddressValidationBody>,
+) -> Result<Json<AddressSuggestion>, CustomerError> {
+    require_customer_access(&state, &headers).await?;
+    let address_line1 = body.address_line1.trim();
+    let city = body.city.trim();
+    let state_code = body.state.trim();
+    let postal_code = body.postal_code.trim();
+    if address_line1.is_empty()
+        || city.is_empty()
+        || state_code.is_empty()
+        || postal_code.is_empty()
+    {
+        return Err(CustomerError::BadRequest(
+            "Street, city, state, and ZIP are required.".to_string(),
+        ));
+    }
+
+    let input = ShippoAddressFields {
+        name: body
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Riverside customer")
+            .to_string(),
+        company: body
+            .company
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        street1: address_line1.to_string(),
+        street2: body
+            .address_line2
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        city: city.to_string(),
+        state: normalize_us_state(state_code),
+        zip: postal_code.to_string(),
+        country: body
+            .country
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("US")
+            .to_uppercase(),
+        phone: body
+            .phone
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("")
+            .to_string(),
+        email: body
+            .email
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        is_residential: body.is_residential,
+    };
+
+    let validated = shippo::validate_address(&state.http_client, &input)
+        .await
+        .map_err(|error| {
+            tracing::warn!(error = %error, "Shippo address validation failed");
+            CustomerError::ExternalUnavailable(
+                "Shippo could not validate that address.".to_string(),
+            )
+        })?;
+    if validated.is_complete == Some(false) {
+        return Err(CustomerError::BadRequest(
+            "Shippo could not confirm that address is complete.".to_string(),
+        ));
+    }
+
+    let normalized = validated.normalized;
+    let address_line1 = title_case_address(&normalized.street1);
+    let city = title_case_address(&normalized.city);
+    let state = normalize_us_state(&normalized.state);
+    let postal_code = normalized.zip.trim().to_string();
+    let label = format!("{address_line1}, {city}, {state} {postal_code}");
+
+    Ok(Json(AddressSuggestion {
+        id: validated.object_id.unwrap_or_else(|| label.clone()),
+        label,
+        address_line1,
+        city,
+        state,
+        postal_code,
+        country: Some(normalized.country),
+        source: Some("shippo".to_string()),
+        shippo_validated: Some(true),
+    }))
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -2690,6 +2719,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", post(create_customer))
         .route("/address-suggestions", get(get_address_suggestions))
+        .route("/address-validation", post(post_address_validation))
         .route("/duplicate-candidates", get(get_duplicate_candidates))
         .route("/duplicate-review-queue", get(list_duplicate_review_queue))
         .route(

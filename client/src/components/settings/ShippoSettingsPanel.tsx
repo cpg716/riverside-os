@@ -4,6 +4,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 
 interface ShippoAddressFields {
   name: string;
@@ -332,10 +333,46 @@ export default function ShippoSettingsPanel({
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
+            <AddressAutocompleteInput
+              className="md:col-span-2"
+              label="Street 1"
+              value={settings.from_address.street1}
+              inputClassName="ui-input w-full bg-app-bg px-4 py-3 text-sm font-medium"
+              validationContext={{
+                name: settings.from_address.name,
+                company: settings.from_address.company ?? undefined,
+                address_line2: settings.from_address.street2 ?? undefined,
+                country: settings.from_address.country,
+                phone: settings.from_address.phone,
+                email: settings.from_address.email ?? undefined,
+                is_residential: !!settings.from_address.is_residential,
+              }}
+              onChange={(value) =>
+                setSettings({
+                  ...settings,
+                  from_address: {
+                    ...settings.from_address,
+                    street1: value,
+                  },
+                })
+              }
+              onSelectAddress={(suggestion) =>
+                setSettings({
+                  ...settings,
+                  from_address: {
+                    ...settings.from_address,
+                    street1: suggestion.address_line1,
+                    city: suggestion.city,
+                    state: suggestion.state,
+                    zip: suggestion.postal_code,
+                    country: suggestion.country || settings.from_address.country || "US",
+                  },
+                })
+              }
+            />
             {[
               ["name", "Sender / location name"],
               ["company", "Company"],
-              ["street1", "Street 1"],
               ["street2", "Street 2"],
               ["city", "City"],
               ["state", "State"],

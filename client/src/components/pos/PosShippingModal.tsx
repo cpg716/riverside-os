@@ -5,6 +5,7 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useToast } from "../ui/ToastProviderLogic";
 import type { Customer } from "./CustomerSelector";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 
 export interface PosShippingSelection {
   rate_quote_id: string;
@@ -328,16 +329,32 @@ export default function PosShippingModal({
                 onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))}
               />
             </label>
-            <label className="col-span-full block space-y-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                Street 1
-              </span>
-              <input
-                className="ui-input w-full text-sm"
-                value={form.street1}
-                onChange={(e) => setForm((f) => ({ ...f, street1: e.target.value }))}
-              />
-            </label>
+            <AddressAutocompleteInput
+              className="col-span-full"
+              label="Street 1"
+              value={form.street1}
+              inputClassName="ui-input w-full text-sm"
+              validationContext={{
+                name: form.name,
+                company: form.company,
+                address_line2: form.street2,
+                country: form.country,
+                phone: form.phone,
+                email: form.email,
+                is_residential: form.is_residential,
+              }}
+              onChange={(value) => setForm((f) => ({ ...f, street1: value }))}
+              onSelectAddress={(suggestion) =>
+                setForm((f) => ({
+                  ...f,
+                  street1: suggestion.address_line1,
+                  city: suggestion.city,
+                  state: suggestion.state,
+                  zip: suggestion.postal_code,
+                  country: suggestion.country || f.country || "US",
+                }))
+              }
+            />
             <label className="col-span-full block space-y-1">
               <span className="text-[9px] font-black uppercase tracking-wider text-app-text-muted">
                 Street 2

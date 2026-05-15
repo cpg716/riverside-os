@@ -25,6 +25,7 @@ These historical objects are now consolidated into the active schema-contract ba
 
 | Mechanism | Notes |
 |-----------|--------|
+| **`GEOAPIFY_API_KEY`** | Server env for protected staff address typeahead. Geoapify suggestions are biased near Riverside ZIP **14043**; the key is never exposed to the browser. |
 | **`SHIPPO_API_TOKEN`** | Server env; **never log**. Required for live Shippo API calls when enabled. |
 | **`SHIPPO_WEBHOOK_SECRET`** | Required before ROS will acknowledge Shippo tracking webhooks. Use the same value as the Shippo webhook URL `?token=` parameter, or the Shippo HMAC secret if HMAC is enabled on the account. |
 | **`store_settings.shippo_config`** | JSON: **`enabled`**, **`live_rates_enabled`**, **`from_address`** (name, company, address lines, phone/email, residential flag), **`default_parcel`** — loaded in **`server/src/logic/shippo.rs`** (`StoreShippoConfig`). |
@@ -33,6 +34,8 @@ These historical objects are now consolidated into the active schema-contract ba
 | **`POST /api/settings/shippo/test-connection`** | **`settings.admin`** | Sends the configured origin address to Shippo address validation using the configured token. Use this after saving credentials or origin details. |
 
 Live rates run only when the store enables them **and** the token is present (see effective config in code). When live rates are enabled, provider/API failures are visible failures; ROS does **not** silently fall back to demo rates. Demo rates are only for disabled-live or explicit `force_stub` testing.
+
+Staff address entry uses Geoapify for typeahead and Shippo as the selected-address validation layer. Geoapify improves nearby matching and field fill; Shippo remains the shipping truth before ROS commits a suggested address into staff workflows.
 
 ---
 
