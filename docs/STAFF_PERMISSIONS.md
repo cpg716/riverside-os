@@ -153,7 +153,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `staff.view` | View staff roster / hub. |
 | `staff.edit` | Create new staff and edit existing profile fields (name, code, role, active, contacts). |
 | `staff.manage_pins` | Set or change staff PINs. |
-| `staff.manage_commission` | Commission Manager: fixed SPIFF and combo incentive setup. |
+| `staff.manage_commission` | Commission Manager: fixed SPIFF setup, combo incentive setup, and manual adjustments. |
 | `staff.view_audit` | Staff access log. |
 | `staff.manage_access` | Edit **per-person** permission checklists on staff profiles; use **Settings → Staff access defaults** for role **template** matrix and template discount caps (**`settings.admin`** may also open Settings; templates are policy-sensitive). |
 | `qbo.view` | QBO workspace read-oriented actions. |
@@ -166,7 +166,6 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `payments.deposit.link` | Link actual bank deposits to expected Helcim batches. |
 | `payments.deposit.adjust` | Create manual actual deposits and accept noted variances. |
 | `insights.view` | **Insights** tab (Metabase in **`InsightsShell`**) and **Staff → Commissions → Reports**. |
-| `insights.commission_finalize` | Legacy commission finalize API permission. The visible Staff commission workflow is now reporting-only. |
 | `physical_inventory.view` | List/read physical inventory sessions. |
 | `physical_inventory.mutate` | Create, count, review, publish sessions. |
 | `orders.view` | List/read orders, audit, receipt ZPL (Back Office headers; or `register_session_id` when tied to that session). |

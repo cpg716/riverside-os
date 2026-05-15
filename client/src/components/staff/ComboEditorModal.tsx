@@ -65,21 +65,34 @@ export default function ComboEditorModal({
   }, [backofficeHeaders]);
 
   const save = async () => {
-    if (!formData.label) return toast("Bundle label required", "error");
+    if (!formData.label.trim()) return toast("Bundle label required", "error");
+    if ((Number.parseFloat(formData.reward_amount) || 0) <= 0)
+      return toast("Reward amount must be greater than zero", "error");
     if (formData.items.length === 0)
       return toast("At least one item required", "error");
     if (formData.items.some((it) => !it.match_id))
       return toast("All items must have a target", "error");
+    if (formData.items.some((it) => it.qty_required <= 0))
+      return toast("Requirement quantity must be greater than zero", "error");
 
     setLoading(true);
     try {
+      const payload = {
+        ...formData,
+        label: formData.label.trim(),
+        reward_amount: Number.parseFloat(formData.reward_amount),
+        items: formData.items.map((item) => ({
+          ...item,
+          qty_required: Math.trunc(item.qty_required),
+        })),
+      };
       const res = await fetch(`${baseUrl}/api/staff/commissions/combos`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...backofficeHeaders(),
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) throw new Error("Save failed");

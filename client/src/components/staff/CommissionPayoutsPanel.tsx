@@ -18,7 +18,6 @@ interface CommissionLedgerRow {
   staff_name: string;
   unpaid_commission: string;
   realized_pending_payout: string;
-  paid_out_commission: string;
 }
 
 function money(s: string | number) {
@@ -276,7 +275,7 @@ export default function CommissionPayoutsPanel() {
               <em>Booked not fulfilled</em> is pipeline on open lines sold in range.{" "}
               <em>Earned in period</em> uses the <strong>recognition</strong> window: pickup / takeaway when
               fulfilled, shipped orders when the label ships or shipment moves to in transit / delivered (see Shipments
-              hub). This screen is reporting-only; manual payout adjustments move to the Phase 2 ledger.
+              hub). This screen is tracking and reporting only; manual adjustments create an auditable commission event.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -399,9 +398,7 @@ export default function CommissionPayoutsPanel() {
               const k = commissionRowKey(r);
               const isExpanded = expandedStaffId === k;
               const earnedInPeriod =
-                (parseMoneyToCents(r.realized_pending_payout || "0") +
-                  parseMoneyToCents(r.paid_out_commission || "0")) /
-                100;
+                parseMoneyToCents(r.realized_pending_payout || "0") / 100;
               return (
                 <Fragment key={k}>
                   <tr

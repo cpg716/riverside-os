@@ -20,7 +20,6 @@ pub const QBO_STAGING_APPROVE: &str = "qbo.staging_approve";
 pub const QBO_SYNC: &str = "qbo.sync";
 
 pub const INSIGHTS_VIEW: &str = "insights.view";
-pub const INSIGHTS_COMMISSION_FINALIZE: &str = "insights.commission_finalize";
 
 pub const PHYSICAL_INVENTORY_VIEW: &str = "physical_inventory.view";
 pub const PHYSICAL_INVENTORY_MUTATE: &str = "physical_inventory.mutate";
@@ -153,7 +152,6 @@ pub static ALL_PERMISSION_KEYS: &[&str] = &[
     QBO_STAGING_APPROVE,
     QBO_SYNC,
     INSIGHTS_VIEW,
-    INSIGHTS_COMMISSION_FINALIZE,
     PHYSICAL_INVENTORY_VIEW,
     PHYSICAL_INVENTORY_MUTATE,
     ORDERS_EDIT_ATTRIBUTION,

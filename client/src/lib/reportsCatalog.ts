@@ -230,10 +230,10 @@ export const REPORTS_CATALOG: ReportDef[] = [
   {
     id: "commission_ledger",
     title: "Commission Snapshot",
-    description: "Read-only commission amounts by staff for unpaid, pending, and paid-out work.",
+    description: "Read-only commission amounts by staff for pipeline and earned work.",
     category: "Staff",
     keywords: ["commission", "staff", "salesperson", "payout", "payroll", "earned", "pending"],
-    questions: ["What commissions are pending?", "What has been paid out?", "Which staff have unpaid commission?"],
+    questions: ["What commissions are pending?", "What commission was earned?", "Which staff have unpaid pipeline commission?"],
     audience: "Manager",
     sensitivity: "Manager",
     adminOnly: false,

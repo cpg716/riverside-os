@@ -46,7 +46,11 @@ pub async fn recalc_staff_commissions_from(
         INNER JOIN transactions o ON o.id = oi.transaction_id
         WHERE oi.salesperson_id = $1
           AND o.status::text <> 'cancelled'
-          AND oi.commission_payout_finalized_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM commission_events ce
+              WHERE ce.transaction_line_id = oi.id
+          )
           AND (
                 (
                     oi.is_fulfilled = TRUE
@@ -126,7 +130,11 @@ pub async fn recalc_transaction_line_commission(
         WHERE oi.id = $1
           AND oi.transaction_id = $2
           AND o.status::text <> 'cancelled'
-          AND oi.commission_payout_finalized_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM commission_events ce
+              WHERE ce.transaction_line_id = oi.id
+          )
         "#,
     );
 
@@ -196,7 +204,11 @@ pub async fn recalc_transaction_commissions_after_fulfillment(
         INNER JOIN transactions o ON o.id = oi.transaction_id
         WHERE oi.transaction_id = $1
           AND o.status::text <> 'cancelled'
-          AND oi.commission_payout_finalized_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM commission_events ce
+              WHERE ce.transaction_line_id = oi.id
+          )
           AND oi.is_fulfilled = TRUE
           {filter_sql}
         ORDER BY oi.id ASC

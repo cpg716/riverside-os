@@ -7,8 +7,8 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::auth::permissions::{
-    self, staff_has_permission, CATALOG_EDIT, CUSTOMERS_MERGE, INSIGHTS_COMMISSION_FINALIZE,
-    NUORDER_SYNC, ORDERS_VIEW, QBO_VIEW, REGISTER_REPORTS,
+    self, staff_has_permission, CATALOG_EDIT, CUSTOMERS_MERGE, NUORDER_SYNC, ORDERS_VIEW, QBO_VIEW,
+    REGISTER_REPORTS,
 };
 use crate::models::DbStaffRole;
 
@@ -104,7 +104,6 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "backup_admin_local_failed",
     "backup_admin_past_due",
     "catalog_import_rows_skipped",
-    "commission_finalize_failed",
     "counterpoint_alerts",
     "customer_merge_completed",
     "gift_card_direct_pos_load",
@@ -217,7 +216,6 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
         | "backup_admin_cloud_failed"
         | "backup_admin_local_failed"
         | "backup_admin_past_due"
-        | "commission_finalize_failed"
         | "counterpoint_alerts"
         | "integration_health_failed"
         | "nuorder_sync_failed"
@@ -1767,50 +1765,6 @@ pub async fn emit_order_item_ready_for_pickup(
         return Ok(());
     };
     fan_out_notification_to_staff_ids(pool, nid, &staff).await
-}
-
-pub async fn emit_commission_finalize_failed(
-    pool: &PgPool,
-    detail: &str,
-) -> Result<(), sqlx::Error> {
-    let d = if detail.len() > 400 {
-        format!("{}…", &detail[..397])
-    } else {
-        detail.to_string()
-    };
-    let dedupe = format!(
-        "commission_finalize_failed:{}",
-        Utc::now().format("%Y-%m-%d-%H")
-    );
-    let title = "Commission finalize failed";
-    let body = format!("Insights commission finalize encountered an error: {d}");
-    let deep = json!({ "type": "dashboard", "subsection": "payouts" });
-    let mut admins = admin_staff_ids(pool).await?;
-    let mut fin = staff_ids_with_permission(pool, INSIGHTS_COMMISSION_FINALIZE).await?;
-    admins.append(&mut fin);
-    let targets = dedupe_sorted(admins);
-    if targets.is_empty() {
-        return Ok(());
-    }
-    let aud = json!({
-        "mode": "staff_ids",
-        "staff_ids": targets.iter().map(|u| u.to_string()).collect::<Vec<_>>()
-    });
-    let Some(nid) = insert_app_notification_deduped(
-        pool,
-        "commission_finalize_failed",
-        title,
-        &body,
-        deep,
-        "system",
-        aud,
-        Some(&dedupe),
-    )
-    .await?
-    else {
-        return Ok(());
-    };
-    fan_out_notification_to_staff_ids(pool, nid, &targets).await
 }
 
 pub async fn emit_nuorder_sync_finished(

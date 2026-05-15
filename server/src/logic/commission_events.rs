@@ -121,15 +121,7 @@ pub async fn upsert_fulfilled_transaction_events(
         FROM prepared
         ON CONFLICT (source_event_id, event_type)
         WHERE source_event_id IS NOT NULL
-        DO UPDATE SET
-            event_at = EXCLUDED.event_at,
-            reporting_date = EXCLUDED.reporting_date,
-            commissionable_amount = EXCLUDED.commissionable_amount,
-            base_rate_used = EXCLUDED.base_rate_used,
-            base_commission_amount = EXCLUDED.base_commission_amount,
-            incentive_amount = EXCLUDED.incentive_amount,
-            total_commission_amount = EXCLUDED.total_commission_amount,
-            snapshot_json = EXCLUDED.snapshot_json
+        DO NOTHING
         "#,
     );
 

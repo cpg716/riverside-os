@@ -20,12 +20,9 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::api::AppState;
-use crate::auth::permissions::{
-    INSIGHTS_COMMISSION_FINALIZE, INSIGHTS_VIEW, REGISTER_REPORTS, STAFF_MANAGE_COMMISSION,
-};
+use crate::auth::permissions::{INSIGHTS_VIEW, REGISTER_REPORTS, STAFF_MANAGE_COMMISSION};
 use crate::auth::pins::log_staff_access;
 use crate::logic::commission_events::ManualCommissionAdjustment;
-use crate::logic::commission_payout::finalize_realized_commissions;
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::inventory_velocity;
 use crate::logic::margin_pivot as margin_reporting;
@@ -561,10 +558,8 @@ pub struct CommissionLedgerRow {
     pub staff_name: String,
     /// Open lines attributed to sales booked in range (pipeline — not recognition).
     pub unpaid_commission: Decimal,
-    /// Line fulfilled with **recognition** instant in range; not yet marked paid out.
+    /// Commission events recognized in range for tracking and reporting.
     pub realized_pending_payout: Decimal,
-    /// Same recognition window, already finalized paid out.
-    pub paid_out_commission: Decimal,
 }
 
 async fn commission_ledger(
@@ -599,8 +594,7 @@ async fn commission_ledger(
                   AND o.booked_at < $2
               ), 0
             )::numeric(14, 2) AS unpaid_commission,
-            0::numeric(14, 2) AS realized_pending_payout,
-            0::numeric(14, 2) AS paid_out_commission
+            0::numeric(14, 2) AS realized_pending_payout
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
           LEFT JOIN staff st ON st.id = oi.salesperson_id
@@ -612,8 +606,7 @@ async fn commission_ledger(
             st.id AS staff_id,
             COALESCE(st.full_name, 'Unassigned') AS staff_name,
             0::numeric(14, 2) AS unpaid_commission,
-            COALESCE(SUM(ce.total_commission_amount), 0)::numeric(14, 2) AS realized_pending_payout,
-            0::numeric(14, 2) AS paid_out_commission
+            COALESCE(SUM(ce.total_commission_amount), 0)::numeric(14, 2) AS realized_pending_payout
           FROM commission_events ce
           LEFT JOIN staff st ON st.id = ce.staff_id
           WHERE ce.event_at >= $1 AND ce.event_at < $2
@@ -623,8 +616,7 @@ async fn commission_ledger(
           staff_id,
           staff_name,
           SUM(unpaid_commission)::numeric(14, 2) AS unpaid_commission,
-          SUM(realized_pending_payout)::numeric(14, 2) AS realized_pending_payout,
-          SUM(paid_out_commission)::numeric(14, 2) AS paid_out_commission
+          SUM(realized_pending_payout)::numeric(14, 2) AS realized_pending_payout
         FROM (
           SELECT * FROM pipeline
           UNION ALL
@@ -731,7 +723,7 @@ async fn commission_lines(
             oi.calculated_commission::numeric(14, 2) AS calculated_commission,
             oi.is_fulfilled,
             oi.fulfilled_at,
-            oi.commission_payout_finalized_at IS NOT NULL AS is_finalized
+            FALSE AS is_finalized
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
           INNER JOIN products p ON p.id = oi.product_id
@@ -757,16 +749,6 @@ async fn commission_lines(
     .await?;
 
     Ok(Json(rows))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CommissionFinalizeRequest {
-    #[serde(default)]
-    pub staff_ids: Vec<Uuid>,
-    #[serde(default)]
-    pub include_unassigned: bool,
-    #[serde(flatten)]
-    pub range: DateRangeQuery,
 }
 
 #[derive(Debug, Deserialize)]
@@ -836,74 +818,6 @@ async fn commission_adjustment(
     .await;
 
     Ok(Json(json!({ "event_id": event_id })))
-}
-
-async fn commission_finalize(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<CommissionFinalizeRequest>,
-) -> Result<Json<serde_json::Value>, InsightsError> {
-    let admin = require_staff_with_permission(&state, &headers, INSIGHTS_COMMISSION_FINALIZE)
-        .await
-        .map_err(|(s, _)| {
-            if s == StatusCode::FORBIDDEN {
-                InsightsError::Forbidden(
-                    "insights.commission_finalize permission required".to_string(),
-                )
-            } else {
-                InsightsError::Unauthorized(
-                    "staff credentials required (x-riverside-staff-code and PIN if set)"
-                        .to_string(),
-                )
-            }
-        })?;
-
-    if body.staff_ids.is_empty() && !body.include_unassigned {
-        return Err(InsightsError::BadRequest(
-            "select at least one staff member or include unassigned lines".to_string(),
-        ));
-    }
-    let (start, end) = range_bounds(&body.range);
-    let n = match finalize_realized_commissions(
-        &state.db,
-        start,
-        end,
-        &body.staff_ids,
-        body.include_unassigned,
-    )
-    .await
-    {
-        Ok(n) => n,
-        Err(e) => {
-            let pool = state.db.clone();
-            let msg = e.to_string();
-            tokio::spawn(async move {
-                if let Err(err) =
-                    crate::logic::notifications::emit_commission_finalize_failed(&pool, &msg).await
-                {
-                    tracing::error!(error = %err, "emit_commission_finalize_failed");
-                }
-            });
-            return Err(InsightsError::Database(e));
-        }
-    };
-
-    let _ = log_staff_access(
-        &state.db,
-        admin.id,
-        "commission_finalize",
-        json!({
-            "lines_finalized": n,
-            "period_utc": { "start": start, "end": end },
-            "from": body.range.from,
-            "to": body.range.to,
-            "staff_ids": body.staff_ids,
-            "include_unassigned": body.include_unassigned,
-        }),
-    )
-    .await;
-
-    Ok(Json(json!({ "lines_finalized": n })))
 }
 
 #[derive(Debug, Serialize)]
@@ -2868,7 +2782,6 @@ pub fn router() -> Router<AppState> {
         .route("/margin-pivot", get(margin_pivot))
         .route("/commission-ledger", get(commission_ledger))
         .route("/commission-adjustments", post(commission_adjustment))
-        .route("/commission-finalize", post(commission_finalize))
         .route("/commission-lines", get(commission_lines))
         .route("/commission-trace/{line_id}", get(commission_trace))
         .route("/rms-charges", get(rms_charges_report))

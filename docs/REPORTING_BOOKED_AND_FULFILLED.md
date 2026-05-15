@@ -5,7 +5,7 @@ Riverside OS uses two time axes for revenue-style analytics:
 | Axis | Meaning | Typical use |
 |------|---------|-------------|
 | **Booked** | **`transactions.booked_at`** (sale / register day). Includes deposits on **open** transactions. | Register activity, “what we rang,” pipeline. |
-| **Fulfilled** | **Pickup / takeaway:** **`transaction_lines.fulfilled_at`**. **Ship:** first qualifying **`shipment_event`** on the order’s **`shipment`** — `label_purchased`, or staff patch to **in_transit** / **delivered** (message patterns match `server/src/logic/shipment.rs` updates). | Sales tax audit, commission **realized** / finalize windows, **fulfilled** sales pivots, Metabase “fulfilled revenue” cuts. |
+| **Fulfilled** | **Pickup / takeaway:** **`transaction_lines.fulfilled_at`**. **Ship:** first qualifying **`shipment_event`** on the order’s **`shipment`** — `label_purchased`, or staff patch to **in_transit** / **delivered** (message patterns match `server/src/logic/shipment.rs` updates). | Sales tax audit, commission **earned** windows, **fulfilled** sales pivots, Metabase “fulfilled revenue” cuts. |
 
 **Single source in SQL:** `reporting.transaction_recognition_at(transaction_id, ...)` (updated in migration **142**). Server-side dynamic SQL must stay aligned with **`server/src/logic/report_basis.rs`** (`TRANSACTION_RECOGNITION_TS_SQL`, `transaction_date_filter_sql`, `transaction_recognition_tax_filter_sql`).
 
@@ -17,8 +17,7 @@ Back Office -> Reports exposes these curated report tiles through staff-facing n
 - **`register-day-activity`** — Query **`basis`**: `booked` (default) vs `fulfilled`. Fulfilled timeline uses fulfillment timestamp. Z-close EOD snapshots remain **booked** only.
 - **`register-override-mix`** — Optional **`basis`** + `from` / `to` (flattened): fulfilled = fulfillment window.
 - **`nys-tax-audit`** — **Fulfillment only** (no `basis`): lines are included when the order’s fulfillment instant falls in `from` / `to`.
-- **`commission-ledger`** — **Unpaid** = open lines with **booked** date in range (pipeline). **Realized** / **paid out** = fulfilled lines with **fulfillment** instant in range.
-- **`commission-finalize`** (POST) — Finalizes lines whose **fulfillment** instant falls in the posted range (same rule as ledger realized).
+- **`commission-ledger`** — **Unpaid** = open lines with **booked** date in range (pipeline). **Earned in period** = append-only commission events with **fulfillment/recognition** instant in range.
 - **`staff-performance`** — Optional **`basis`** for 7-day **revenue_momentum** (booked vs fulfilled).
 - **`loyalty-velocity`** — Time-series of loyalty points earned vs. burned (Earn vs Burn).
 

@@ -160,7 +160,7 @@ The POS golden path, tender UI smoke, tax-exempt checkout UI, and one exchange U
 - `payment_tx_id` naming avoids the historic transaction/payment ID shadowing bug.
 - Server recalculates and validates line tax instead of trusting display totals.
 - Takeaway stock decrements at checkout; special/custom/wedding stock waits for fulfillment.
-- Commission payout finalization blocks silent salesperson rewrites.
+- Recognized commission events block silent salesperson rewrites; corrections use manual adjustments.
 - QBO proposal warnings and balanced totals are generated.
 - Register close requires notes when cash discrepancy exceeds `$5`.
 - Migration reconciliation compares full filenames, which handles duplicate numeric prefixes.

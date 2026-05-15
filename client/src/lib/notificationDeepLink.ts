@@ -193,7 +193,6 @@ export function notificationSeverity(
     case "backup_admin_cloud_failed":
     case "backup_admin_local_failed":
     case "backup_admin_past_due":
-    case "commission_finalize_failed":
     case "counterpoint_alerts":
     case "integration_health_failed":
     case "nuorder_sync_failed":

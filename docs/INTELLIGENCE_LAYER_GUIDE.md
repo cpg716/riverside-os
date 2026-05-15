@@ -25,16 +25,15 @@ Moves the catalog from static "min/max" levels to dynamic sales-velocity repleni
 - **Trust Factor**: Every recommendation includes a "Confidence Score" and "Justification String" to explain the math to the user.
 
 ## 3. Commission Trust Center (Truth Trace)
-Automates the audit path for complex commission splits and SPIFF overrides.
+Automates the audit path for staff base rates, fixed SPIFFs, combo incentives, returns, and manual adjustments.
 
-- **Logic**: `server/src/logic/sales_commission.rs` (Calculation) & `server/src/logic/commission_trace.rs` (Audit).
+- **Logic**: `server/src/logic/sales_commission.rs` (Calculation) & `server/src/logic/commission_events.rs` plus `GET /api/insights/commission-trace/{event_id}` (Audit).
 - **The "Truth Trace"**: A human-readable logic explainer that answers: *"Why did I earn exactly this amount on this line?"*
-- **Precedence Logic**:
+- **Fixed SPIFF Precedence**:
   1. **Variant-specific Rule** (Highest)
   2. **Product-specific Rule**
   3. **Category-specific Rule**
-  4. **Legacy Category Override**
-  5. **Staff Base Rate** (Fallback)
+  4. **Staff Base Rate** (always applied when eligible)
 - **UI Integration**: `CommissionTraceModal.tsx` accessible via the Drill-down Audit in the Commission Payouts panel.
 
 ## Implementation Standard for Intelligence Features

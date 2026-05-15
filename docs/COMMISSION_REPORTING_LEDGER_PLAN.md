@@ -4,7 +4,7 @@ Riverside OS commissions use an immutable reporting ledger for earned commission
 
 ## Goal
 
-Replace mutable line-level payout behavior with a clear commission event ledger.
+Use a clear commission event ledger for tracking and reporting. Riverside OS does not finalize or pay commissions.
 
 The reporting model should answer:
 
@@ -17,6 +17,7 @@ The reporting model should answer:
 
 - No payroll provider integration.
 - No pay-date automation.
+- No payout finalization workflow.
 - No category commission percentage overrides.
 - No product or variant percentage override hierarchy.
 - No customer-facing receipt changes for internal incentive lines.
@@ -71,12 +72,14 @@ Each event should store the values needed to explain the report without recalcul
 - `staff_commission_rate_history` remains the effective-dated source for rate lookup.
 - A sale event snapshots the effective staff rate at recognition time.
 - Changing a staff rate never rewrites existing commission events.
+- Changing attribution after recognition is blocked; use a manual adjustment to preserve the audit trail.
 
 ## SPIFF and Combo Rules
 
 - SPIFFs and combo incentives add fixed-dollar amounts.
 - They do not replace the staff base rate.
-- Percentage overrides in `commission_rules.override_rate` should be ignored or migrated out.
+- Percentage overrides in `commission_rules.override_rate` are rejected by the active API and should be migrated out.
+- Combo reward amounts and requirement quantities must be greater than zero.
 - Existing fixed SPIFF rules can be migrated into event generation.
 
 ## Returns and Exchanges
@@ -130,8 +133,8 @@ It should show:
 4. Generate negative events for future returns/exchanges instead of mutating prior earned commission.
 5. Add manual adjustment endpoint and UI.
 6. Point commission reports and trace modal at `commission_events`.
-7. Retire visible payout finalization and percentage override behavior.
+7. Retire payout finalization and percentage override behavior.
 
 ## Compatibility Notes
 
-The legacy line-level `calculated_commission` column remains for checkout compatibility and backfill support, but reporting and trace are backed by `commission_events`.
+The legacy line-level `calculated_commission` column remains for checkout compatibility and backfill support, but reporting and trace are backed by append-only `commission_events`.

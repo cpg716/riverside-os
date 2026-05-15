@@ -38,7 +38,7 @@ This document lists **data sources** a **staff-facing, RBAC-gated** **natural la
 
 ### Rules
 
-0. **Read-only operational data** — Catalogued routes used by NL executors are **GET** / read-shaped for a reason: the AI layer **must not** widen them into writes. If a feature needs a **POST** (e.g. commission finalize), it stays **outside** autonomous AI execution—staff use normal UI/API with explicit confirmation.
+0. **Read-only operational data** — Catalogued routes used by NL executors are **GET** / read-shaped for a reason: the AI layer **must not** widen them into writes. Explicit POST actions, such as commission manual adjustments, stay **outside** autonomous AI execution—staff use normal UI/API with explicit confirmation.
 1. **Explicit permission keys** — When a handler uses `require_staff_with_permission`, document the **exact** key string from [`server/src/auth/permissions.rs`](../server/src/auth/permissions.rs) (e.g. **`insights.view`**, **`catalog.view`**). Use inline **`backticks`** in tables for machine-stable names.
 2. **Composite auth** — When a route uses **staff headers only**, **staff or open POS register session**, **per-order read auth**, or custom logic, say so explicitly (e.g. **“staff or POS session”**, **“same as order detail”**) so the AI executor reuses the **same middleware/helpers**, not a looser internal path.
 3. **Admin-only, unauthenticated, M2M** — Mark **Admin role only** (e.g. legacy cost/margin-only surfaces), **no staff auth in handler today**, or **machine token (`COUNTERPOINT_SYNC_TOKEN`)** so implementers do not accidentally expose aggregates.
@@ -49,7 +49,7 @@ This document lists **data sources** a **staff-facing, RBAC-gated** **natural la
 
 | Data domain | Typical permission / pattern | Where detailed |
 |-------------|------------------------------|----------------|
-| Insights / pivots | **`insights.view`**; finalize = **`insights.commission_finalize`** (POST) | §0 `/api/insights/*`, §1 |
+| Insights / pivots | **`insights.view`** | §0 `/api/insights/*`, §1 |
 | Orders / refunds | **`orders.view`**, **`orders.refund_process`**; some reads need register session | §0 `/api/orders/*`, §2 |
 | Register / sessions | **`register.reports`** + session rules | §0 `/api/sessions/*`, §2 |
 | Customers (browse, hub, …) | Authenticated **staff** or **open POS session** (`require_customer_access`) for many reads/creates; sensitive writes use **`customers.merge`**, **`customers_duplicate_review`**, **`customer_groups.manage`**, **`store_credit.manage`** | §0 `/api/customers/*`, §5–7 |
@@ -128,11 +128,10 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | POST | `/api/insights/metabase-launch` | Same — JSON body **`{ "return_to": "..." }`**. |
 | GET | `/api/insights/sales-pivot` | **`insights.view`**. Query: **`basis`** (`booked`/`sale`/… vs `fulfilled`/`pickup`/… — fulfillment uses pickup **`fulfilled_at`** or ship **`shipment_event`**; see [**`docs/REPORTING_BOOKED_AND_FULFILLED.md`**](REPORTING_BOOKED_AND_FULFILLED.md)), **`group_by`**, **`from`**, **`to`**. |
 | GET | `/api/insights/margin-pivot` | **Admin role only** (staff headers + PIN). Same **`group_by`**, **`basis`**, **`from`**, **`to`** as sales-pivot. Rows add **`cost_of_goods`** (`SUM(unit_cost × qty)` frozen at checkout), **`gross_margin`** (pre-tax revenue − COGS), **`margin_percent`** (margin ÷ pre-tax revenue × 100). |
-| GET | `/api/insights/commission-ledger` | **`insights.view`**. **Unpaid** = booked window on open lines; **fulfilled/paid** = **fulfillment** window on fulfilled lines (`from`/`to`). |
+| GET | `/api/insights/commission-ledger` | **`insights.view`**. **Unpaid** = booked window on open lines; **earned** = append-only commission events in the recognition window (`from`/`to`). |
 | GET | `/api/insights/commission-lines` | **`insights.view`**. Line-level commission rows for staff payout review; use for drilldown, not as a general sales export. |
 | GET | `/api/insights/commission-trace/{line_id}` | **`insights.view`**. One commission-line trace explaining rate/source math for payout audit. |
 | POST | `/api/insights/commission-adjustments` | **Commission adjustment write**. Explicit UI action only; exclude from passive NL/report execution. |
-| POST | `/api/insights/commission-finalize` | **`insights.commission_finalize`**. Payroll/finalize write; exclude from passive NL/report execution. |
 | GET | `/api/insights/nys-tax-audit` | **`insights.view`**. **`from`**, **`to`** only — always **fulfillment** date (fulfilled revenue), not booked. |
 | GET | `/api/insights/staff-performance` | **`insights.view`**. Optional **`basis`** for 7-day revenue momentum (booked vs fulfilled). |
 | GET | `/api/insights/register-sessions` | **`insights.view`** |
@@ -155,7 +154,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 
 **Audit gaps — Reports vs Metabase access:** The five operational Reports endpoints above (`appointments-no-show`, `wedding-event-readiness`, `staff-schedule-coverage-sales`, `customer-follow-up`, `exception-risk`) are **API-backed now** for Back Office → Reports and NL allowlisting. They should not be promised as fully sliceable Metabase datasets until equivalent **`reporting.*`** views are added and modeled. Recommended future view names: **`reporting.appointments_no_show`**, **`reporting.wedding_event_readiness`**, **`reporting.staff_schedule_coverage_vs_sales`**, **`reporting.customer_follow_up`**, and **`reporting.exception_risk`**. **`register-day-activity`** is also API-shaped JSON; create a tabular **`reporting.register_day_activity`** view before building broad Metabase dashboards from it.
 
-**Existing Insights API not surfaced as Reports tiles:** **`loyalty-velocity`** is the main read-only candidate for a future curated Reports tile. **`commission-lines`** and **`commission-trace/{line_id}`** intentionally belong under **Staff → Commissions** drilldown. **`metabase-launch`**, **`commission-adjustments`**, **`commission-finalize`**, and saved-view create/delete routes are shell or write actions, not passive reports.
+**Existing Insights API not surfaced as Reports tiles:** **`loyalty-velocity`** is the main read-only candidate for a future curated Reports tile. **`commission-lines`** and **`commission-trace/{line_id}`** intentionally belong under **Staff → Commissions** drilldown. **`metabase-launch`**, **`commission-adjustments`**, and saved-view create/delete routes are shell or write actions, not passive reports.
 
 ### `/api/orders/*`
 
@@ -189,7 +188,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | GET | `/api/staff/store-sop` | Store **staff playbook** markdown (`store_settings.staff_sop_markdown`); any authenticated staff. |
 | GET | `/api/staff/admin/access-log` | **`staff.view_audit`** |
 | GET | `/api/staff/admin/roster` | **`staff.view`** — roster + MTD sales snippet per row. |
-| GET | `/api/staff/admin/category-commissions` | Category default commission rates. |
+| GET | `/api/staff/admin/category-commissions` | Category list for fixed SPIFF targeting; legacy percentage rates are retired. |
 | GET | `/api/staff/admin/role-permissions` | Matrix of role → permission keys. |
 | GET | `/api/staff/admin/pricing-limits` | Role pricing caps. |
 | GET | `/api/staff/admin/{staff_id}/permission-overrides` | Per-staff allow/deny overrides. |
@@ -413,8 +412,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 | | | **`from` / `to`**: UTC dates; default ~90-day window | | |
 | `/api/insights/margin-pivot` | GET | **Admin role only** — same auth pattern as **cost** surfaces; not **`insights.view`** alone | Same buckets as sales-pivot plus **cost_of_goods**, **gross_margin**, **margin_percent** (pre-tax); **truncated** cap | “Gross margin by brand”, “Margin % by category (fulfilled sales)” |
 | | | Query: same **`group_by`**, **`basis`**, **`from`/`to`** as **`/sales-pivot`** | | |
-| `/api/insights/commission-ledger` | GET | **`insights.view`** | Per staff: **unpaid_commission** (booked window, open lines), **fulfilled_pending_payout** / **paid_out_commission** (**fulfillment** window on fulfilled lines) | “Who is owed commission?”, “Pending payout this quarter” |
-| `/api/insights/commission-finalize` | POST | **`insights.commission_finalize`** | **Mutating** — finalize payout lines (not passive reporting) | “Finalize commissions” (must stay **explicit** UX) |
+| `/api/insights/commission-ledger` | GET | **`insights.view`** | Per staff: **unpaid_commission** (booked window, open lines), **earned in period** from append-only commission events | “Who earned commission?”, “Commission report this quarter” |
 | `/api/insights/nys-tax-audit` | GET | **`insights.view`** | Clothing/footwear vs standard path tax buckets on lines whose order **fulfillment** falls in range (no `basis` param) | “NYS tax audit summary”, “Exempt vs standard lines” |
 | `/api/insights/staff-performance` | GET | **`insights.view`** | Per staff: **high_value_line_units**, **high_value_net_revenue** (lines over $500 net), **revenue_momentum** (7 daily UTC buckets; **`basis`** = booked vs fulfilled) | “High-ticket sellers”, “Last 7 days momentum by rep” |
 | `/api/insights/register-sessions` | GET | **`insights.view`** | Closed sessions: **ordinal**, **opened_at**, **closed_at**, **cashier**, **opening_float**, **expected/actual cash**, **discrepancy** | “Drawer over/short trends”, “Who closed last week” |

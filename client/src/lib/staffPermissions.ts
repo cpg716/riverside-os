@@ -7,7 +7,7 @@ export const STAFF_PERMISSION_CATALOG: {
   { key: "staff.view", label: "View roster", group: "Staff" },
   { key: "staff.edit", label: "Edit staff profiles", group: "Staff" },
   { key: "staff.manage_pins", label: "Set staff PINs", group: "Staff" },
-  { key: "staff.manage_commission", label: "Commission & category rates", group: "Staff" },
+  { key: "staff.manage_commission", label: "Manage commission incentives", group: "Staff" },
   { key: "staff.view_audit", label: "View access audit log", group: "Staff" },
   { key: "staff.manage_access", label: "Manage staff access", group: "Staff" },
   { key: "qbo.view", label: "View QuickBooks data", group: "QuickBooks" },
@@ -15,11 +15,6 @@ export const STAFF_PERMISSION_CATALOG: {
   { key: "qbo.staging_approve", label: "Approve QuickBooks entries", group: "QuickBooks" },
   { key: "qbo.sync", label: "Send updates to QuickBooks", group: "QuickBooks" },
   { key: "insights.view", label: "View insights & reports", group: "Insights" },
-  {
-    key: "insights.commission_finalize",
-    label: "Finalize commission payouts",
-    group: "Insights",
-  },
   { key: "physical_inventory.view", label: "View physical inventory", group: "Inventory" },
   {
     key: "physical_inventory.mutate",

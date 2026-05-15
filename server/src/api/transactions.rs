@@ -4355,13 +4355,19 @@ async fn patch_transaction_attribution(
     #[derive(FromRow)]
     struct LineAttribRow {
         salesperson_id: Option<Uuid>,
-        commission_payout_finalized_at: Option<DateTime<Utc>>,
+        has_commission_event: bool,
     }
 
     for line in &body.line_attribution {
         let row: Option<LineAttribRow> = sqlx::query_as(
             r#"
-            SELECT oi.salesperson_id, oi.commission_payout_finalized_at
+            SELECT
+                oi.salesperson_id,
+                EXISTS (
+                    SELECT 1
+                    FROM commission_events ce
+                    WHERE ce.transaction_line_id = oi.id
+                ) AS has_commission_event
             FROM transaction_lines oi
             WHERE oi.id = $1 AND oi.transaction_id = $2
             "#,
@@ -4374,7 +4380,7 @@ async fn patch_transaction_attribution(
 
         let Some(LineAttribRow {
             salesperson_id: prior_sp,
-            commission_payout_finalized_at,
+            has_commission_event,
         }) = row
         else {
             return Err(TransactionError::InvalidPayload(format!(
@@ -4387,9 +4393,9 @@ async fn patch_transaction_attribution(
             continue;
         }
 
-        if commission_payout_finalized_at.is_some() {
+        if has_commission_event {
             return Err(TransactionError::InvalidPayload(
-                "cannot change salesperson on lines with a finalized commission payout — use accounting adjustments"
+                "cannot change salesperson on lines with recognized commission events - use a manual commission adjustment"
                     .to_string(),
             ));
         }

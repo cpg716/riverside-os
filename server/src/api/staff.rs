@@ -294,7 +294,7 @@ pub fn router() -> Router<AppState> {
         .route("/admin/{staff_id}/set-pin", post(admin_set_pin))
         .route("/admin/{staff_id}", patch(admin_patch_staff))
         .route("/admin", post(admin_create_staff))
-        // New Commission Rules API (SPIFFs and Overrides)
+        // Commission incentive rules (fixed SPIFFs and combos)
         .route(
             "/commissions/rules",
             get(list_commission_rules).post(upsert_commission_rule),
@@ -1405,9 +1405,8 @@ async fn admin_list_category_commissions(
     let rows = sqlx::query_as::<_, CategoryCommissionRow>(
         r#"
         SELECT c.id AS category_id, c.name AS category_name,
-               COALESCE(o.commission_rate, 0)::numeric(5, 4) AS commission_rate
+               0::numeric(5, 4) AS commission_rate
         FROM categories c
-        LEFT JOIN category_commission_overrides o ON o.category_id = c.id
         ORDER BY c.name ASC
         "#,
     )
@@ -1427,45 +1426,22 @@ async fn admin_put_category_commission(
         .await
         .map_err(|_| StaffApiError::Forbidden)?;
 
-    if body.commission_rate < Decimal::ZERO || body.commission_rate > Decimal::ONE {
-        return Err(StaffApiError::InvalidPayload(
-            "commission_rate must be between 0 and 1".to_string(),
-        ));
-    }
-
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)")
-        .bind(category_id)
-        .fetch_one(&state.db)
-        .await?;
-    if !exists {
-        return Err(StaffApiError::InvalidPayload(
-            "category not found".to_string(),
-        ));
-    }
-
-    sqlx::query(
-        r#"
-        INSERT INTO category_commission_overrides (category_id, commission_rate)
-        VALUES ($1, $2)
-        ON CONFLICT (category_id) DO UPDATE SET
-            commission_rate = EXCLUDED.commission_rate,
-            updated_at = CURRENT_TIMESTAMP
-        "#,
-    )
-    .bind(category_id)
-    .bind(body.commission_rate)
-    .execute(&state.db)
-    .await?;
-
     let _ = log_staff_access(
         &state.db,
         admin.id,
-        "admin_category_commission",
-        json!({ "category_id": category_id, "rate": body.commission_rate }),
+        "admin_category_commission_rejected",
+        json!({
+            "category_id": category_id,
+            "attempted_rate": body.commission_rate,
+            "reason": "legacy category percentage overrides are retired"
+        }),
     )
     .await;
 
-    Ok(Json(json!({ "status": "updated" })))
+    Err(StaffApiError::InvalidPayload(
+        "category commission percentage overrides are retired; use Staff Profile base rates and fixed SPIFFs"
+            .to_string(),
+    ))
 }
 
 async fn admin_get_role_permissions(
@@ -1795,7 +1771,7 @@ async fn admin_apply_role_defaults(
     Ok(Json(json!({ "status": "updated" })))
 }
 
-// --- Commission Rules (SPIFFs and Overrides) Handlers ---
+// --- Commission Rules (fixed SPIFFs and combos) Handlers ---
 
 #[derive(Debug, Deserialize)]
 pub struct UpsertCommissionRuleBody {
@@ -1814,7 +1790,7 @@ async fn list_commission_rules(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<crate::models::CommissionRule>>, StaffApiError> {
-    let _ = require_authenticated_staff_headers(&state, &headers)
+    let _ = require_staff_with_permission(&state, &headers, STAFF_MANAGE_COMMISSION)
         .await
         .map_err(|_| StaffApiError::Forbidden)?;
 
@@ -1836,6 +1812,55 @@ async fn upsert_commission_rule(
         .await
         .map_err(|_| StaffApiError::Forbidden)?;
 
+    let match_type = body.match_type.trim().to_ascii_lowercase();
+    if !matches!(match_type.as_str(), "category" | "product" | "variant") {
+        return Err(StaffApiError::InvalidPayload(
+            "commission rule target must be category, product, or variant".to_string(),
+        ));
+    }
+    if body.override_rate.is_some() {
+        return Err(StaffApiError::InvalidPayload(
+            "commission percentage overrides are retired; use Staff Profile base rates and fixed SPIFFs"
+                .to_string(),
+        ));
+    }
+    let fixed_spiff_amount = body.fixed_spiff_amount.unwrap_or(Decimal::ZERO);
+    if fixed_spiff_amount <= Decimal::ZERO {
+        return Err(StaffApiError::InvalidPayload(
+            "fixed SPIFF amount must be greater than zero".to_string(),
+        ));
+    }
+    let label = body
+        .label
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| StaffApiError::InvalidPayload("rule label is required".to_string()))?
+        .to_string();
+    if let (Some(start), Some(end)) = (body.start_date, body.end_date) {
+        if end <= start {
+            return Err(StaffApiError::InvalidPayload(
+                "rule end date must be after start date".to_string(),
+            ));
+        }
+    }
+    let target_exists: bool = match match_type.as_str() {
+        "category" => sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)"),
+        "product" => sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)"),
+        "variant" => {
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM product_variants WHERE id = $1)")
+        }
+        _ => unreachable!(),
+    }
+    .bind(body.match_id)
+    .fetch_one(&state.db)
+    .await?;
+    if !target_exists {
+        return Err(StaffApiError::InvalidPayload(format!(
+            "commission rule {match_type} target not found"
+        )));
+    }
+
     let rule = if let Some(id) = body.id {
         sqlx::query_as::<_, crate::models::CommissionRule>(
             r#"
@@ -1847,11 +1872,11 @@ async fn upsert_commission_rule(
             RETURNING *
             "#,
         )
-        .bind(body.match_type)
+        .bind(&match_type)
         .bind(body.match_id)
-        .bind(body.override_rate)
-        .bind(body.fixed_spiff_amount.unwrap_or(Decimal::ZERO))
-        .bind(body.label)
+        .bind(Option::<Decimal>::None)
+        .bind(fixed_spiff_amount)
+        .bind(&label)
         .bind(body.start_date)
         .bind(body.end_date)
         .bind(body.is_active)
@@ -1869,11 +1894,11 @@ async fn upsert_commission_rule(
             RETURNING *
             "#,
         )
-        .bind(body.match_type)
+        .bind(&match_type)
         .bind(body.match_id)
-        .bind(body.override_rate)
-        .bind(body.fixed_spiff_amount.unwrap_or(Decimal::ZERO))
-        .bind(body.label)
+        .bind(Option::<Decimal>::None)
+        .bind(fixed_spiff_amount)
+        .bind(&label)
         .bind(body.start_date)
         .bind(body.end_date)
         .bind(body.is_active)
@@ -1937,7 +1962,7 @@ async fn list_commission_combos(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StaffApiError> {
-    let _ = require_authenticated_staff_headers(&state, &headers)
+    let _ = require_staff_with_permission(&state, &headers, STAFF_MANAGE_COMMISSION)
         .await
         .map_err(|_| StaffApiError::Forbidden)?;
 
@@ -1978,11 +2003,56 @@ async fn upsert_commission_combo(
         .await
         .map_err(|_| StaffApiError::Forbidden)?;
 
+    let label = body.label.trim();
+    if label.is_empty() {
+        return Err(StaffApiError::InvalidPayload(
+            "combo label is required".to_string(),
+        ));
+    }
+    if body.reward_amount <= Decimal::ZERO {
+        return Err(StaffApiError::InvalidPayload(
+            "combo reward amount must be greater than zero".to_string(),
+        ));
+    }
+    if body.items.is_empty() {
+        return Err(StaffApiError::InvalidPayload(
+            "combo requires at least one item requirement".to_string(),
+        ));
+    }
+    for item in &body.items {
+        let match_type = item.match_type.trim().to_ascii_lowercase();
+        if !matches!(match_type.as_str(), "category" | "product") {
+            return Err(StaffApiError::InvalidPayload(
+                "combo requirement target must be category or product".to_string(),
+            ));
+        }
+        if item.qty_required <= 0 {
+            return Err(StaffApiError::InvalidPayload(
+                "combo requirement quantity must be greater than zero".to_string(),
+            ));
+        }
+        let target_exists: bool = match match_type.as_str() {
+            "category" => {
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)")
+            }
+            "product" => sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)"),
+            _ => unreachable!(),
+        }
+        .bind(item.match_id)
+        .fetch_one(&state.db)
+        .await?;
+        if !target_exists {
+            return Err(StaffApiError::InvalidPayload(format!(
+                "combo {match_type} target not found"
+            )));
+        }
+    }
+
     let mut tx = state.db.begin().await?;
 
     let rule_id = if let Some(id) = body.id {
         sqlx::query_scalar::<_, Uuid>("UPDATE commission_combo_rules SET label = $1, reward_amount = $2, is_active = $3 WHERE id = $4 RETURNING id")
-            .bind(&body.label)
+            .bind(label)
             .bind(body.reward_amount)
             .bind(body.is_active)
             .bind(id)
@@ -1990,7 +2060,7 @@ async fn upsert_commission_combo(
             .await?
     } else {
         sqlx::query_scalar::<_, Uuid>("INSERT INTO commission_combo_rules (label, reward_amount, is_active) VALUES ($1, $2, $3) RETURNING id")
-            .bind(&body.label)
+            .bind(label)
             .bind(body.reward_amount)
             .bind(body.is_active)
             .fetch_one(&mut *tx)
@@ -2003,9 +2073,10 @@ async fn upsert_commission_combo(
         .await?;
 
     for item in body.items {
+        let match_type = item.match_type.trim().to_ascii_lowercase();
         sqlx::query("INSERT INTO commission_combo_rule_items (rule_id, match_type, match_id, qty_required) VALUES ($1, $2, $3, $4)")
             .bind(rule_id)
-            .bind(item.match_type)
+            .bind(match_type)
             .bind(item.match_id)
             .bind(item.qty_required)
             .execute(&mut *tx)
@@ -2018,7 +2089,7 @@ async fn upsert_commission_combo(
         &state.db,
         admin.id,
         "upsert_commission_combo",
-        json!({ "rule_id": rule_id, "label": body.label }),
+        json!({ "rule_id": rule_id, "label": label }),
     )
     .await;
 

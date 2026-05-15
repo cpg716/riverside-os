@@ -4238,17 +4238,43 @@ pub async fn evaluate_combo_incentives(
     // 3) Evaluate rules (repeatedly to catch multiple combos if per-bundle is allowed)
     for rule_json in rules {
         let reward_amount = parse_combo_reward_amount(&rule_json)?;
+        if reward_amount <= Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "combo incentive reward_amount must be greater than zero".to_string(),
+            ));
+        }
         let label = rule_json["label"].as_str().unwrap_or("SPIFF").to_string();
         let requirements = rule_json["items"].as_array();
 
         if let Some(reqs) = requirements {
+            if reqs.is_empty() {
+                return Err(CheckoutError::InvalidPayload(
+                    "combo incentive requires at least one requirement".to_string(),
+                ));
+            }
             loop {
                 let mut satisfied = true;
                 for req in reqs {
                     let m_type = req["match_type"].as_str().unwrap_or("");
+                    if !matches!(m_type, "category" | "product") {
+                        return Err(CheckoutError::InvalidPayload(
+                            "combo incentive requirement target must be category or product"
+                                .to_string(),
+                        ));
+                    }
                     let m_id =
-                        Uuid::parse_str(req["match_id"].as_str().unwrap_or("")).unwrap_or_default();
+                        Uuid::parse_str(req["match_id"].as_str().unwrap_or("")).map_err(|_| {
+                            CheckoutError::InvalidPayload(
+                                "combo incentive requirement target is invalid".to_string(),
+                            )
+                        })?;
                     let qty_req = req["qty_required"].as_i64().unwrap_or(1) as i32;
+                    if qty_req <= 0 {
+                        return Err(CheckoutError::InvalidPayload(
+                            "combo incentive requirement quantity must be greater than zero"
+                                .to_string(),
+                        ));
+                    }
 
                     let available = if m_type == "product" {
                         prod_counts.get(&m_id).copied().unwrap_or(0)
@@ -4267,8 +4293,11 @@ pub async fn evaluate_combo_incentives(
                         .iter()
                         .find_map(|req| {
                             let m_type = req["match_type"].as_str().unwrap_or("");
-                            let m_id = Uuid::parse_str(req["match_id"].as_str().unwrap_or(""))
-                                .unwrap_or_default();
+                            let m_id = match Uuid::parse_str(req["match_id"].as_str().unwrap_or(""))
+                            {
+                                Ok(id) => id,
+                                Err(_) => return None,
+                            };
                             if m_type == "product" {
                                 items
                                     .iter()
@@ -4287,7 +4316,11 @@ pub async fn evaluate_combo_incentives(
                     for req in reqs {
                         let m_type = req["match_type"].as_str().unwrap_or("");
                         let m_id = Uuid::parse_str(req["match_id"].as_str().unwrap_or(""))
-                            .unwrap_or_default();
+                            .map_err(|_| {
+                                CheckoutError::InvalidPayload(
+                                    "combo incentive requirement target is invalid".to_string(),
+                                )
+                            })?;
                         let qty_req = req["qty_required"].as_i64().unwrap_or(1) as i32;
 
                         if m_type == "product" {
@@ -4309,6 +4342,10 @@ pub async fn evaluate_combo_incentives(
                     break;
                 }
             }
+        } else {
+            return Err(CheckoutError::InvalidPayload(
+                "combo incentive requires at least one requirement".to_string(),
+            ));
         }
     }
 

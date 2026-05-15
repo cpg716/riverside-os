@@ -48,7 +48,6 @@ type CommissionLedgerRow = {
   staff_id?: string | null;
   unpaid_commission: string;
   realized_pending_payout: string;
-  paid_out_commission: string;
 };
 
 function uniqueSuffix(label: string): string {
@@ -221,7 +220,7 @@ async function upsertCommissionRule(
   request: APIRequestContext,
   matchType: "category" | "product" | "variant",
   matchId: string,
-  overrideRate: string,
+  fixedSpiffAmount: string,
   label: string,
 ) {
   const res = await request.post(`${apiBase()}/api/staff/commissions/rules`, {
@@ -232,8 +231,8 @@ async function upsertCommissionRule(
     data: {
       match_type: matchType,
       match_id: matchId,
-      override_rate: overrideRate,
-      fixed_spiff_amount: "0.00",
+      override_rate: null,
+      fixed_spiff_amount: fixedSpiffAmount,
       label,
       is_active: true,
     },
@@ -242,7 +241,7 @@ async function upsertCommissionRule(
   expect(res.status()).toBe(200);
 }
 
-async function setCategoryDefaultCommission(
+async function expectLegacyCategoryCommissionRejected(
   request: APIRequestContext,
   categoryId: string,
   rate: string,
@@ -257,7 +256,7 @@ async function setCategoryDefaultCommission(
     },
     failOnStatusCode: false,
   });
-  expect(res.status()).toBe(200);
+  expect(res.status()).toBe(400);
 }
 
 async function checkoutProducts(
@@ -529,17 +528,17 @@ test.describe("commission audit contract", () => {
       categoryId: staffBaseCategory,
     });
 
-    await setCategoryDefaultCommission(request, variantCategory, "0.0300");
-    await setCategoryDefaultCommission(request, productCategory, "0.0300");
-    await setCategoryDefaultCommission(request, ruleCategory, "0.0300");
-    await setCategoryDefaultCommission(request, defaultCategory, "0.0300");
+    await expectLegacyCategoryCommissionRejected(request, variantCategory, "0.0300");
+    await expectLegacyCategoryCommissionRejected(request, productCategory, "0.0300");
+    await expectLegacyCategoryCommissionRejected(request, ruleCategory, "0.0300");
+    await expectLegacyCategoryCommissionRejected(request, defaultCategory, "0.0300");
 
-    await upsertCommissionRule(request, "category", variantCategory, "0.0400", "E2E category under variant");
-    await upsertCommissionRule(request, "product", variantProduct.productId, "0.0500", "E2E product under variant");
-    await upsertCommissionRule(request, "variant", variantProduct.variantId, "0.0600", "E2E variant wins");
-    await upsertCommissionRule(request, "category", productCategory, "0.0400", "E2E category under product");
-    await upsertCommissionRule(request, "product", productProduct.productId, "0.0500", "E2E product wins");
-    await upsertCommissionRule(request, "category", ruleCategory, "0.0400", "E2E category wins");
+    await upsertCommissionRule(request, "category", variantCategory, "4.00", "E2E category under variant");
+    await upsertCommissionRule(request, "product", variantProduct.productId, "5.00", "E2E product under variant");
+    await upsertCommissionRule(request, "variant", variantProduct.variantId, "6.00", "E2E variant wins");
+    await upsertCommissionRule(request, "category", productCategory, "4.00", "E2E category under product");
+    await upsertCommissionRule(request, "product", productProduct.productId, "5.00", "E2E product wins");
+    await upsertCommissionRule(request, "category", ruleCategory, "4.00", "E2E category wins");
 
     const checkoutRes = await checkoutProducts(request, {
       sessionId,
@@ -560,9 +559,9 @@ test.describe("commission audit contract", () => {
     const detail = await fetchTransactionDetail(request, checkout.transaction_id);
 
     const expectedBySku = new Map([
-      [variantProduct.sku, "1.00"],
-      [productProduct.sku, "1.00"],
-      [categoryProduct.sku, "1.00"],
+      [variantProduct.sku, "7.00"],
+      [productProduct.sku, "6.00"],
+      [categoryProduct.sku, "5.00"],
       [defaultProduct.sku, "1.00"],
       [staffBaseProduct.sku, "1.00"],
     ]);
@@ -612,6 +611,27 @@ test.describe("commission audit contract", () => {
       failOnStatusCode: false,
     });
     expect(comboRes.status()).toBe(200);
+
+    const invalidComboRes = await request.post(`${apiBase()}/api/staff/commissions/combos`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        label: `E2E Invalid Combo ${uniqueSuffix("combo")}`,
+        reward_amount: "0.00",
+        is_active: true,
+        items: [
+          {
+            match_type: "product",
+            match_id: product.productId,
+            qty_required: 0,
+          },
+        ],
+      },
+      failOnStatusCode: false,
+    });
+    expect(invalidComboRes.status()).toBe(400);
 
     const checkoutRes = await checkoutProducts(request, {
       sessionId,

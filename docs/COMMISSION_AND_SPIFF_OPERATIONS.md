@@ -12,6 +12,7 @@ The intended store rule is:
 - The normal payroll review is the prior calendar month, reviewed on the first payday of the new month.
 - Returns and exchanges affect the period in which the return/exchange happens.
 - Manual commission adjustments are allowed only with full note and audit tracking.
+- Riverside OS does not finalize or pay commissions; it tracks and reports commission events for payroll review.
 
 ## Workspace
 
@@ -45,7 +46,7 @@ When a rate changes, the start date matters:
 
 - activity before the start date uses the prior effective rate;
 - activity on or after the start date uses the new rate;
-- visible payout finalization is retired in favor of immutable event reporting.
+- existing recognized commission events are never rewritten; corrections use manual adjustment events.
 
 ## SPIFFs
 
@@ -66,6 +67,7 @@ Combo incentives are fixed-dollar rewards for qualifying bundles.
 Current behavior:
 
 - Each requirement has a quantity threshold.
+- Reward amounts and requirement quantities must be greater than zero.
 - The qualifying items must be attributed to the same salesperson.
 - Rewards are internal commission/reporting lines and remain off customer-facing receipts.
 

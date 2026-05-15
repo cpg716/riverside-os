@@ -40,7 +40,7 @@ The system utilizes a canonical SQL expression (`ORDER_RECOGNITION_TS_SQL`) acro
 ## 5. Security & RBAC
 - **`insights.view`**: Standard permission for non-sensitive analytics.
 - **Admin Required**: Hard-coded gate for `margin-pivot` and cost-sensitive data.
-- **`insights.commission_finalize`**: Separate key for the mutating commission payout workflow.
+- Commission reporting is gated by **`insights.view`**. Riverside OS tracks commission events for reporting; payout finalization is retired.
 
 ## 6. Recommendations
 1. **Dynamic Visualizations**: While CSV download is supported, the curated reports UI is primarily tabular. Adding lightweight charts (sparklines/bars) for pivot summaries would improve immediate visibility.

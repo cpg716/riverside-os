@@ -5,7 +5,6 @@ pub mod backups;
 pub mod bug_reports;
 pub mod checkout_validate;
 pub mod commission_events;
-pub mod commission_payout;
 pub mod commission_recalc;
 pub mod corecard;
 pub mod counterpoint_staging;
@@ -101,6 +100,5 @@ pub mod wedding_push;
 pub mod wedding_queries;
 pub mod weddings;
 
-pub mod commission_trace;
 pub mod inventory_brain;
 pub mod wedding_health;

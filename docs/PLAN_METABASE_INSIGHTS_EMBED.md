@@ -140,13 +140,13 @@ sequenceDiagram
 
 **Staff → Commission (existing)**
 
-- Subsection **`commission`**: category commission rates, permission **`staff.manage_commission`**. Unchanged semantics.
+- Subsection **`commission`**: fixed SPIFFs and combo incentives, permission **`staff.manage_commission`**.
 
-**Staff → Commission payouts (new)**
+**Staff → Commission reports (new)**
 
-- Subsection id: **`commission-payouts`**, label: **Commission payouts**.
-- **Visibility:** Subsection visible only when the staff member has **`insights.view`** (ledger) and **`insights.commission_finalize`** (finalize). Implement via two permission checks or a dedicated helper; avoid mapping a single key in `SIDEBAR_SUB_SECTION_PERMISSION` unless it is documented as insufficient alone.
-- **API:** Continue using [server/src/api/insights.rs](../server/src/api/insights.rs): **commission ledger** today requires **`insights.view`**; **commission finalize** requires **`insights.commission_finalize`**. The payout UI needs both unless a follow-up relaxes ledger access for finalize-capable roles. Gate **Commission payouts** in the client on **both** permissions, or document role seeds that grant both to payout operators.
+- Subsection id: **`commission-payouts`**, label: **Commission reports**.
+- **Visibility:** Subsection visible when the staff member has **`insights.view`**.
+- **API:** Continue using [server/src/api/insights.rs](../server/src/api/insights.rs): **commission ledger** requires **`insights.view`**. Riverside OS tracks and reports commissions; it does not finalize payouts.
 - **UI (shipped):** [CommissionPayoutsPanel.tsx](../client/src/components/staff/CommissionPayoutsPanel.tsx) in **Staff → Commission payouts** (`activeSection === "commission-payouts"`).
 - Remove **`dashboard:payouts`** from [BackofficeAuthContext.tsx](../client/src/context/BackofficeAuthContext.tsx) once Insights no longer exposes Payouts.
 
@@ -230,9 +230,9 @@ Add optional services to [docker-compose.yml](../docker-compose.yml):
 | Staff with `insights.view`, proxy + Metabase up | InsightsShell opens; iframe loads `/metabase/` |
 | Metabase login | Store user can log in; session persists on reload |
 | Staff without `insights.view` | Cannot open Insights (or sees no access) |
-| Staff with `insights.view` + `insights.commission_finalize` | Staff → **Commission payouts** visible; ledger + finalize work |
-| Staff missing either permission | Subsection hidden or API denied |
-| **Commission** vs **Commission payouts** | Rates UI only under Commission; payout finalization only under Commission payouts |
+| Staff with `insights.view` | Staff → **Commission reports** visible; ledger loads |
+| Staff without `insights.view` | Subsection hidden or API denied |
+| **Commission** vs **Commission reports** | Incentive setup under Commission; tracking/reporting under Commission reports |
 | `npm run check:server` | Clean after any Rust changes |
 
 **Optional E2E:** Guard with `E2E_METABASE=1` if CI lacks Metabase; navigate Insights shell + Staff commission payouts.
