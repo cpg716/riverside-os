@@ -40,7 +40,7 @@ use crate::logic::shippo::{
     shippo_api_token_from_env, shippo_webhook_secret_from_env, DefaultParcel, ShippoAddressFields,
     StoreShippoConfig,
 };
-use crate::logic::weather::{merge_weather_env_overrides, StoreWeatherSettings};
+use crate::logic::weather::{apply_weather_runtime_settings, StoreWeatherSettings};
 use crate::middleware;
 use uuid::Uuid;
 
@@ -1097,10 +1097,6 @@ fn weather_settings_public(s: &StoreWeatherSettings) -> WeatherSettingsResponse 
     }
 }
 
-fn weather_settings_response_from_db(cfg: StoreWeatherSettings) -> WeatherSettingsResponse {
-    weather_settings_public(&merge_weather_env_overrides(cfg))
-}
-
 async fn get_weather_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1110,7 +1106,8 @@ async fn get_weather_settings(
         .fetch_one(&state.db)
         .await?;
     let cfg: StoreWeatherSettings = serde_json::from_value(raw).unwrap_or_default();
-    Ok(Json(weather_settings_response_from_db(cfg)))
+    let effective = apply_weather_runtime_settings(&state.db, cfg).await;
+    Ok(Json(weather_settings_public(&effective)))
 }
 
 async fn patch_weather_settings(
@@ -1160,7 +1157,8 @@ async fn patch_weather_settings(
         .execute(&state.db)
         .await?;
 
-    Ok(Json(weather_settings_response_from_db(current)))
+    let effective = apply_weather_runtime_settings(&state.db, current).await;
+    Ok(Json(weather_settings_public(&effective)))
 }
 
 #[derive(Debug, Serialize)]

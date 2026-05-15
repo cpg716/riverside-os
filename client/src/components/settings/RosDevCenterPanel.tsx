@@ -19,6 +19,7 @@ import { CLIENT_SEMVER } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import BugReportsSettingsPanel from "./BugReportsSettingsPanel";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 type IntegrationHealthItem = {
   key: string;
@@ -788,6 +789,31 @@ export default function RosDevCenterPanel({
           Live lane status with commands and guidance for blocking, nightly,
           responsive, readability, and runtime-cleanliness checks.
         </p>
+
+        <div className="mt-4">
+          <IntegrationCredentialsCard
+            baseUrl={baseUrl}
+            integrationKey="ops_github"
+            title="GitHub E2E Telemetry"
+            description="Save the GitHub repository and read-only Actions token here. ROS Dev Center reads these encrypted Settings values for E2E health."
+            fields={[
+              {
+                key: "repo",
+                label: "Repository",
+                type: "text",
+                placeholder: "owner/riverside-os",
+                help: "Required for Playwright lane status.",
+              },
+              {
+                key: "token",
+                label: "GitHub Token",
+                type: "password",
+                help: "Read-only token with Actions workflow-run/job/log access.",
+              },
+            ]}
+            onSaved={loadE2eHealth}
+          />
+        </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span

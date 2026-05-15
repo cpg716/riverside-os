@@ -27,6 +27,7 @@ import {
   Cloud,
   Info,
   Mail,
+  MapPin,
   Monitor,
   Plug,
   Printer,
@@ -54,6 +55,7 @@ import StaffDiscountCapsPanel from "../staff/StaffDiscountCapsPanel";
 import InsightsSettingsPanel from "./InsightsSettingsPanel";
 import BugReportsSettingsPanel from "./BugReportsSettingsPanel";
 import NuorderSettingsPanel from "./NuorderSettingsPanel";
+import GeoapifySettingsPanel from "./GeoapifySettingsPanel";
 import WeatherSettingsPanel from "./WeatherSettingsPanel";
 import PodiumSettingsPanel from "./PodiumSettingsPanel";
 import EmailSettingsPanel from "./EmailSettingsPanel";
@@ -178,6 +180,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   quickbooks: "QuickBooks connection settings and accounting bridge controls.",
   counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
   nuorder: "NuORDER catalog and vendor sync configuration.",
+  geoapify: "Address lookup setup for customer, vendor, and shipping entry.",
   weather: "Weather provider settings for store planning signals.",
   insights: "Reporting and Metabase launch configuration.",
   meilisearch: "Search index health, reindex controls, and diagnostics.",
@@ -229,6 +232,7 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   quickbooks: Plug,
   counterpoint: Server,
   nuorder: Plug,
+  geoapify: MapPin,
   weather: Plug,
   insights: Plug,
   meilisearch: Plug,
@@ -1053,6 +1057,13 @@ export default function SettingsWorkspace({
                       brandKind: "icon" as const,
                     },
                     {
+                      id: "geoapify",
+                      label: "Geoapify",
+                      desc: "Address lookup",
+                      color: "bg-white",
+                      icon: MapPin,
+                    },
+                    {
                       id: "quickbooks",
                       label: "QuickBooks Online",
                       desc: "Launch QBO Data Bridge",
@@ -1210,6 +1221,10 @@ export default function SettingsWorkspace({
 
             {activeTab === "nuorder" && hasPermission("settings.admin") && (
               <NuorderSettingsPanel />
+            )}
+
+            {activeTab === "geoapify" && hasPermission("settings.admin") && (
+              <GeoapifySettingsPanel baseUrl={baseUrl} />
             )}
 
             {activeTab === "insights" && hasPermission("settings.admin") && (

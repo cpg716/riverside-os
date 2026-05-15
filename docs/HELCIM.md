@@ -125,7 +125,7 @@ Webhook intake:
 ## Webhook behavior
 
 - Inbound Helcim webhooks require signature verification and timestamp freshness before processing.
-- Local terminal readiness does not require a public webhook URL. `HELCIM_WEBHOOK_SECRET` is optional only when Helcim cannot reach this ROS server. If a public webhook endpoint is configured, the signing secret is required and unsigned deliveries fail closed.
+- Local terminal readiness does not require a public webhook URL. The Helcim webhook signing secret is optional only when Helcim cannot reach this ROS server. If a public webhook endpoint is configured, the signing secret is required and unsigned deliveries fail closed.
 - Local POS terminals can check the status of a known terminal attempt when webhook delivery is not available. That status check is a recovery aid, not a general replay system, settlement check, or proof that ROS recorded the payment.
 - Accepted events are stored in `helcim_event_log` before mutation.
 - Stored payloads are redacted for card-sensitive fields.
@@ -141,7 +141,7 @@ Configure Helcim webhooks only when ROS has a public HTTPS API URL that Helcim c
 2. Turn webhooks on.
 3. Set the delivery URL to `https://<public-ros-api-host>/api/webhooks/helcim`.
 4. Enable the Helcim events ROS handles: `cardTransaction` and `terminalCancel`.
-5. Copy the Helcim webhook verifier/signing token into Settings -> Helcim -> Optional webhook signing secret, or configure it as `HELCIM_WEBHOOK_SECRET`.
+5. Copy the Helcim webhook verifier/signing token into Settings -> Helcim -> Optional webhook signing secret.
 6. Send a test or live terminal event and verify it in Payments -> Health under Payment Updates and Helcim Terminal Review.
 
 Do not use `localhost`, `127.0.0.1`, a register workstation URL, or any non-HTTPS URL as the Helcim delivery URL.

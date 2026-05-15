@@ -44,6 +44,7 @@ use crate::logic::customers::{
     insert_customer, is_profile_complete, InsertCustomerParams, ProfileFields,
 };
 use crate::logic::email as store_email;
+use crate::logic::integration_credentials;
 use crate::logic::lightspeed_customers::{
     execute_lightspeed_customer_import, LightspeedCustomerImportPayload,
     LightspeedCustomerImportSummary,
@@ -311,11 +312,22 @@ fn normalize_us_state(value: &str) -> String {
     .to_string()
 }
 
-fn geoapify_api_key_from_env() -> Option<String> {
-    std::env::var("GEOAPIFY_API_KEY")
-        .ok()
+async fn geoapify_api_key_from_settings(
+    pool: &sqlx::PgPool,
+) -> Result<Option<String>, CustomerError> {
+    let values =
+        integration_credentials::load_integration_credentials(pool, "geoapify", &["api_key"])
+            .await
+            .map_err(|error| {
+                tracing::error!(error = %error, "Geoapify credential lookup failed");
+                CustomerError::ExternalUnavailable(
+                    "Geoapify address lookup settings could not be read.".to_string(),
+                )
+            })?;
+    Ok(values
+        .get("api_key")
         .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.is_empty()))
 }
 
 fn map_geoapify_result(result: GeoapifyAddressResult, index: usize) -> Option<AddressSuggestion> {
@@ -1191,9 +1203,13 @@ async fn get_address_suggestions(
         return Ok(Json(Vec::new()));
     }
 
-    let api_key = geoapify_api_key_from_env().ok_or_else(|| {
-        CustomerError::ExternalUnavailable("Geoapify address lookup is not configured.".to_string())
-    })?;
+    let api_key = geoapify_api_key_from_settings(&state.db)
+        .await?
+        .ok_or_else(|| {
+            CustomerError::ExternalUnavailable(
+                "Geoapify address lookup is not configured.".to_string(),
+            )
+        })?;
     let limit = ADDRESS_LOOKUP_MAX_RESULTS.to_string();
     let bias = format!("proximity:{ADDRESS_LOOKUP_STORE_LON},{ADDRESS_LOOKUP_STORE_LAT}");
     let res = state

@@ -180,7 +180,7 @@ Sample linked-data expectations:
 
 ## Secret handling
 
-Routine live/sandbox credentials belong in **Settings → Integrations → CoreCard**, which stores them in encrypted integration credentials. Deployment/runtime secret stores are acceptable for controlled technical validation, but do not use environment files as the routine staff/admin setup path.
+Routine live/sandbox credentials belong in **Settings → Integrations → CoreCard**, which stores them in encrypted integration credentials. Do not use environment files as the routine staff/admin setup path.
 
 Credentials may only appear in:
 

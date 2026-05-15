@@ -5,18 +5,17 @@ Riverside OS uses the [Visual Crossing Timeline Weather API](https://www.visualc
 ## Configuration
 
 - **Storage:** `store_settings.weather_config` (JSONB), migration **`46_weather_config.sql`**. If the column is missing (migration not applied), `load_store_weather_settings` falls back to defaults and logs at **debug** only (no noisy startup warning for SQLSTATE `42703`).
-- **Admin UI:** **Settings → Integrations → Visual Crossing**; **`GET`/`PATCH`** **`/api/settings/weather`** (settings admin) for `enabled`, `location`, `unit_group` (`us` | `metric`), `timezone` (IANA), and `api_key` (leave blank to keep an existing DB-stored key).
+- **Admin UI:** **Settings → Integrations → Weather**; **`GET`/`PATCH`** **`/api/settings/weather`** (settings admin) for `enabled`, `location`, `unit_group` (`us` | `metric`), and `timezone` (IANA). Save the Visual Crossing API key in the credentials card on the same page.
 
-### Environment overrides (optional)
+### Runtime flag
 
-These are read in **`server/src/logic/weather.rs`** via **`merge_weather_env_overrides`** and apply **on top of** the JSON loaded from Postgres. **`GET`/`PATCH` `/api/settings/weather`** returns **effective** `enabled` and **`api_key_configured`** after env merges so the UI matches runtime behavior.
+The Visual Crossing API key is Settings-managed. The only environment override left here is the non-secret enable/disable flag.
 
 | Env var | Notes |
 |---------|--------|
-| **`RIVERSIDE_VISUAL_CROSSING_API_KEY`** | Deployment fallback only. Routine Visual Crossing API key setup should be managed in **Settings → Integrations → Weather**, where the key is stored through encrypted integration credentials. Never log this value or commit real keys. |
 | **`RIVERSIDE_VISUAL_CROSSING_ENABLED`** | When set to **`1`**, **`true`**, **`yes`**, or **`on`** (case-insensitive), forces **`enabled: true`** for weather logic regardless of DB. **`0`**, **`false`**, **`no`**, **`off`** force **`enabled: false`**. |
 
-**Precedence:** For API calls, effective settings = Settings values + env overrides (env wins for `api_key` and `enabled` when those vars are set). The database row is still updated by **`PATCH /api/settings/weather`**; env does not write back to SQL.
+**Precedence:** For API calls, effective settings = Settings values + the optional runtime enabled override. Credentials do not belong in environment files.
 
 **`search_path`:** Weather quota and EOD-finalize SQL use the **`public.`** schema qualifier so tables resolve even when the DB role’s `search_path` omits `public` (which otherwise yields “relation does not exist” despite migrations being applied). Startup logs **`search_path`** in **`PostgreSQL startup context`** (`db_startup_diag`).
 
@@ -56,7 +55,7 @@ Migration **`48_weather_vc_daily_usage.sql`** adds **`weather_vc_daily_usage`** 
 | `RIVERSIDE_WEATHER_VC_MAX_PULLS_PER_DAY` | `850` | Hard cap **1–900** |
 | `RIVERSIDE_WEATHER_VC_CACHE_SECONDS` | `900` | In-process dedupe of identical Timeline requests (no DB increment, no HTTP) |
 
-See [Environment overrides](#environment-overrides-optional) for **`RIVERSIDE_VISUAL_CROSSING_API_KEY`** and **`RIVERSIDE_VISUAL_CROSSING_ENABLED`**.
+See [Runtime flag](#runtime-flag) for **`RIVERSIDE_VISUAL_CROSSING_ENABLED`**.
 
 **Other cost controls:** Session weather **backfill** groups sessions by **`opened_at` date** so each distinct date costs one Timeline call, not one per session. Identical `history`/`forecast`/checkout ranges hit the in-memory cache within the TTL.
 

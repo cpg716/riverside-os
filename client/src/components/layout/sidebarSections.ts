@@ -143,6 +143,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "quickbooks", label: "QuickBooks" },
     { id: "counterpoint", label: "Counterpoint" },
     { id: "nuorder", label: "NuORDER" },
+    { id: "geoapify", label: "Geoapify" },
     { id: "weather", label: "Weather" },
     { id: "insights", label: "Insights" },
     { id: "meilisearch", label: "Meilisearch" },

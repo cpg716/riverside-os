@@ -17,6 +17,7 @@ use crate::auth::permissions::OPS_DEV_CENTER_VIEW;
 use crate::logic::backups::BackupManager;
 use crate::logic::help_corpus;
 use crate::logic::insights_config::StoreInsightsConfig;
+use crate::logic::integration_credentials;
 use crate::logic::notifications::{insert_app_notification_deduped, staff_ids_with_permission};
 use crate::logic::shippo::load_effective_shippo_config;
 use crate::logic::weather::load_store_weather_settings;
@@ -567,12 +568,29 @@ fn parse_failed_specs_from_job_logs(logs: &str) -> Vec<String> {
     found.into_iter().collect()
 }
 
-fn github_repo_from_env() -> Option<String> {
-    nonempty_env("RIVERSIDE_OPS_E2E_GITHUB_REPO")
-}
-
-fn github_token_from_env() -> Option<String> {
-    nonempty_env("RIVERSIDE_OPS_E2E_GITHUB_TOKEN")
+async fn github_telemetry_settings(pool: &PgPool) -> (Option<String>, Option<String>) {
+    let values = integration_credentials::load_integration_credentials(
+        pool,
+        "ops_github",
+        &["repo", "token"],
+    )
+    .await;
+    match values {
+        Ok(values) => (
+            values
+                .get("repo")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            values
+                .get("token")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+        ),
+        Err(error) => {
+            tracing::warn!(error = %error, "GitHub telemetry settings could not be read");
+            (None, None)
+        }
+    }
 }
 
 fn github_failure_issue_url(repo: &str) -> String {
@@ -718,13 +736,15 @@ async fn build_lane_from_github(
     Ok(lane_status)
 }
 
-pub async fn e2e_health_snapshot(http_client: &reqwest::Client) -> E2eHealthSnapshot {
+pub async fn e2e_health_snapshot(
+    pool: &PgPool,
+    http_client: &reqwest::Client,
+) -> E2eHealthSnapshot {
     let generated_at = Utc::now();
     let playbook = e2e_failure_playbook();
     let mut notes: Vec<String> = Vec::new();
     let mut mode = "live".to_string();
-    let repo = github_repo_from_env();
-    let token = github_token_from_env();
+    let (repo, token) = github_telemetry_settings(pool).await;
     let failure_issue_url = match (&repo, &token) {
         (Some(repo_value), Some(_)) => Some(github_failure_issue_url(repo_value)),
         _ => None,
@@ -736,7 +756,7 @@ pub async fn e2e_health_snapshot(http_client: &reqwest::Client) -> E2eHealthSnap
     if repo.is_none() || token.is_none() {
         mode = "degraded".to_string();
         notes.push(
-            "GitHub telemetry is not configured. Set RIVERSIDE_OPS_E2E_GITHUB_REPO and RIVERSIDE_OPS_E2E_GITHUB_TOKEN."
+            "GitHub telemetry is not configured. Save the repository and token in Settings -> ROS Dev Center."
                 .to_string(),
         );
     } else if let (Some(repo), Some(token)) = (repo, token) {

@@ -6,7 +6,7 @@ Canonical reference for **large-directory behavior**: how ROS queries customers 
 
 ## Meilisearch (lexical search & sync health)
 
-When **`RIVERSIDE_MEILISEARCH_URL`** is set (and **`RIVERSIDE_MEILISEARCH_API_KEY`** when the instance requires auth), the server resolves **text** queries via **Meilisearch** and then **hydrates** rows in PostgreSQL.
+When Meilisearch is configured in **Settings → Integrations → Meilisearch**, the server resolves **text** queries via **Meilisearch** and then **hydrates** rows in PostgreSQL.
 
 ### Meilisearch Administrative Mandate
 As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch architecture**. All manual UUID or SKU entry fields (e.g., Task assignments, Gift Card issuance, Loyalty adjustments, Physical Inventory) have been replaced with Meilisearch-powered components (`CustomerSearchInput`, `VariantSearchInput`). This eliminates human error associated with raw ID handling.

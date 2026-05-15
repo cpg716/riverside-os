@@ -275,7 +275,7 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 |----------|---------|
 | **`DATABASE_URL`** | PostgreSQL connection string (server only). |
 | **`RIVERSIDE_MEILISEARCH_URL`** | Optional; e.g. `http://127.0.0.1:7700` (host) or `http://meilisearch:7700` (same Docker network as the API). When unset, all search paths use SQL **ILIKE** only. |
-| **`RIVERSIDE_MEILISEARCH_API_KEY`** | Optional; Meilisearch **master** or **API key** with index access. Store in secrets; never log. |
+| **Meilisearch API key** | Configure in **Settings → Integrations → Meilisearch**. |
 | **`RIVERSIDE_CORS_ORIGINS`** | Required for browser-facing production when paired with **`RIVERSIDE_STRICT_PRODUCTION=true`**. Comma-separated **browser** origins (e.g. `https://app.example.com,http://192.168.1.50:3000`). |
 | **`RIVERSIDE_STRICT_PRODUCTION`** | Recommended production hardening switch. Refuses startup without **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, and a valid **`FRONTEND_DIST`**. |
 | **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** | Required if the online store/customer-account routes are reachable. Use a long random secret; never rely on the development fallback in production. |
@@ -283,10 +283,10 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 | **`RIVERSIDE_HTTP_BIND`** | Optional bind address (e.g. `127.0.0.1:3000` behind a reverse proxy). |
 | **`RIVERSIDE_MAX_BODY_BYTES`** | Optional; raise if large catalog imports fail. |
 | **`OTEL_EXPORTER_OTLP_ENDPOINT`**, **`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`**, **`RIVERSIDE_OTEL_ENABLED`**, **`OTEL_SERVICE_NAME`**, **`OTEL_EXPORTER_OTLP_PROTOCOL`** | Optional; **OpenTelemetry OTLP** trace export from the API — full matrix in [`OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md) and [`server/.env.example`](../server/.env.example). |
-| **`RIVERSIDE_VISUAL_CROSSING_API_KEY`** | Optional deployment fallback; routine Visual Crossing key setup belongs in Backoffice Settings. See [`WEATHER_VISUAL_CROSSING.md`](WEATHER_VISUAL_CROSSING.md). Never expose to the client. |
+| **Visual Crossing API key** | Configure in **Settings → Integrations → Weather**. See [`WEATHER_VISUAL_CROSSING.md`](WEATHER_VISUAL_CROSSING.md). |
 | **`RIVERSIDE_VISUAL_CROSSING_ENABLED`** | Optional; force live weather on/off. See [`WEATHER_VISUAL_CROSSING.md`](WEATHER_VISUAL_CROSSING.md). |
 
-**Secrets** (Helcim, QBO, sync tokens, Visual Crossing key, storefront JWT secret) stay **server-side**. Routine integration credentials are saved in Backoffice Settings through encrypted integration credentials; deployment still owns the root encryption key (`RIVERSIDE_CREDENTIALS_KEY`) and non-UI runtime flags. The client bundle only exposes **`VITE_*`**: **`VITE_API_BASE`**. If the UI and API are on the same origin you may intentionally leave `VITE_API_BASE` unset for browser/PWA builds; otherwise set it explicitly per build. Optional: **`VITE_STOREFRONT_EMBEDS`** (Podium widget on public builds — [`PLAN_PODIUM_SMS_INTEGRATION.md`](PLAN_PODIUM_SMS_INTEGRATION.md)), **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** (GrapesJS Studio in **Settings → Online store** on non-localhost — [`ONLINE_STORE.md`](ONLINE_STORE.md)).
+**Secrets** (Helcim, QBO, sync tokens, Visual Crossing, Geoapify, Shippo, Podium, CoreCard, Meilisearch) are saved in Backoffice Settings through encrypted integration credentials; deployment still owns the root encryption key (`RIVERSIDE_CREDENTIALS_KEY`) and non-UI runtime flags. The client bundle only exposes **`VITE_*`**: **`VITE_API_BASE`**. If the UI and API are on the same origin you may intentionally leave `VITE_API_BASE` unset for browser/PWA builds; otherwise set it explicitly per build. Optional: **`VITE_STOREFRONT_EMBEDS`** (Podium widget on public builds — [`PLAN_PODIUM_SMS_INTEGRATION.md`](PLAN_PODIUM_SMS_INTEGRATION.md)), **`VITE_GRAPESJS_STUDIO_LICENSE_KEY`** (GrapesJS Studio in **Settings → Online store** on non-localhost — [`ONLINE_STORE.md`](ONLINE_STORE.md)).
 
 **Release posture:** for production browser deployments, pair **`RIVERSIDE_STRICT_PRODUCTION=true`** with an explicit **`FRONTEND_DIST`** and exact **`RIVERSIDE_CORS_ORIGINS`** values before opening the store.
 
@@ -374,7 +374,7 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 - [ ] Terminal 2 device code saved in **Settings → Helcim** or `HELCIM_TERMINAL_2_DEVICE_CODE`.
 - [ ] Optional: Helcim webhook delivery URL configured only if ROS has a public HTTPS API URL: `https://<public-ros-api-host>/api/webhooks/helcim`.
 - [ ] Optional: Helcim webhook events enabled: `cardTransaction` and `terminalCancel`.
-- [ ] Optional: Helcim webhook signing secret saved in **Settings → Helcim** or `HELCIM_WEBHOOK_SECRET`.
+- [ ] Optional: Helcim webhook signing secret saved in **Settings → Helcim**.
 - [ ] Optional: First signed webhook received by ROS verified in **Payments → Health**. Confirm separately whether the provider event attached to a ROS checkout; webhook receipt alone does not prove ROS recorded a payment.
 - [ ] Card Reader path validated: ROS sends the amount to the selected terminal and records the approved Helcim attempt.
 - [ ] Manual Card / phone-order path validated: ROS sends the amount to the selected terminal and staff key the card on the terminal, not in ROS.

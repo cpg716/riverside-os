@@ -37,7 +37,7 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 2. **Carrier accounts**: Shippo-managed vs bring-your-own — follow Shippo dashboard setup.
 3. Read current **rate limits** and **webhook** signing in [Shippo docs](https://goshippo.com/docs/).
 
-**Secrets:** `SHIPPO_API_TOKEN` in env (never log). Optional `SHIPPO_WEBHOOK_SECRET` for tracking events.
+**Secrets:** Save the Shippo API token and optional webhook secret in **Settings → Integrations → Shippo**. Never place live Shippo credentials in server environment files.
 
 ---
 

@@ -60,6 +60,11 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "SHIPPO_WEBHOOK_SECRET",
     },
     IntegrationCredentialMapping {
+        integration_key: "geoapify",
+        credential_key: "api_key",
+        env_key: "GEOAPIFY_API_KEY",
+    },
+    IntegrationCredentialMapping {
         integration_key: "podium",
         credential_key: "client_id",
         env_key: "RIVERSIDE_PODIUM_CLIENT_ID",
@@ -148,6 +153,16 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         integration_key: "counterpoint",
         credential_key: "sync_token",
         env_key: "COUNTERPOINT_SYNC_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "ops_github",
+        credential_key: "repo",
+        env_key: "RIVERSIDE_OPS_E2E_GITHUB_REPO",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "ops_github",
+        credential_key: "token",
+        env_key: "RIVERSIDE_OPS_E2E_GITHUB_TOKEN",
     },
     IntegrationCredentialMapping {
         integration_key: "corecard",
@@ -643,5 +658,14 @@ mod tests {
             env_key_for("helcim", "terminal_2_device_code"),
             Some("HELCIM_TERMINAL_2_DEVICE_CODE")
         );
+    }
+
+    #[test]
+    fn geoapify_api_key_credential_is_supported() {
+        let keys = credential_keys_for_integration("geoapify");
+
+        assert!(keys.contains(&"api_key"));
+        assert!(is_supported_integration_credential("geoapify", "api_key"));
+        assert_eq!(env_key_for("geoapify", "api_key"), Some("GEOAPIFY_API_KEY"));
     }
 }

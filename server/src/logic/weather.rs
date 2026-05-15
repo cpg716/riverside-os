@@ -4,8 +4,8 @@
 //! [Timeline Weather API](https://www.visualcrossing.com/resources/documentation/weather-api/timeline-weather-api/).
 //! Otherwise falls back to deterministic Buffalo-style mock data.
 //!
-//! **Env overrides** (optional): `RIVERSIDE_VISUAL_CROSSING_API_KEY` replaces the DB key; `RIVERSIDE_VISUAL_CROSSING_ENABLED`
-//! (`1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`) forces live weather on or off regardless of `weather_config.enabled`.
+//! `RIVERSIDE_VISUAL_CROSSING_ENABLED` (`1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off`) can
+//! force live weather on or off regardless of `weather_config.enabled`. The API key is Settings-managed.
 //!
 //! ## API usage cap
 //! Each successful outbound Timeline request increments `weather_vc_daily_usage.pull_count` for the
@@ -23,6 +23,8 @@ use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration as StdDuration, Instant};
 use tracing::{debug, info, warn};
+
+use crate::logic::integration_credentials;
 
 /// Persisted in `store_settings.weather_config` (JSONB).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,14 +71,6 @@ impl Default for StoreWeatherSettings {
     }
 }
 
-/// Optional Visual Crossing key from the environment (overrides DB `weather_config.api_key`). Never log this value.
-pub fn weather_api_key_from_env() -> Option<String> {
-    std::env::var("RIVERSIDE_VISUAL_CROSSING_API_KEY")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
 fn weather_enabled_override_from_env() -> Option<bool> {
     match std::env::var("RIVERSIDE_VISUAL_CROSSING_ENABLED").ok() {
         Some(s) => match s.trim().to_ascii_lowercase().as_str() {
@@ -95,10 +89,25 @@ fn is_undefined_table_err(e: &sqlx::Error) -> bool {
     )
 }
 
-/// Applies `RIVERSIDE_VISUAL_CROSSING_*` env overrides for runtime and Settings UI hints.
-pub fn merge_weather_env_overrides(mut s: StoreWeatherSettings) -> StoreWeatherSettings {
-    if let Some(k) = weather_api_key_from_env() {
-        s.api_key = k;
+/// Applies Settings-managed credentials plus non-secret runtime flags.
+pub async fn apply_weather_runtime_settings(
+    pool: &PgPool,
+    mut s: StoreWeatherSettings,
+) -> StoreWeatherSettings {
+    match integration_credentials::load_integration_credentials(pool, "weather", &["api_key"]).await
+    {
+        Ok(values) => {
+            if let Some(api_key) = values
+                .get("api_key")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+            {
+                s.api_key = api_key;
+            }
+        }
+        Err(error) => {
+            warn!(error = %error, "weather API credential lookup failed");
+        }
     }
     if let Some(en) = weather_enabled_override_from_env() {
         s.enabled = en;
@@ -264,13 +273,13 @@ pub async fn load_store_weather_settings(pool: &PgPool) -> StoreWeatherSettings 
                 sqlx::Error::Database(db) if db.code().as_deref() == Some("42703")
             ) {
                 debug!("store_settings.weather_config missing; apply migration 46_weather_config.sql — using defaults");
-                return merge_weather_env_overrides(StoreWeatherSettings::default());
+                return apply_weather_runtime_settings(pool, StoreWeatherSettings::default()).await;
             }
             warn!(error = %e, "load weather_config failed; using defaults");
-            return merge_weather_env_overrides(StoreWeatherSettings::default());
+            return apply_weather_runtime_settings(pool, StoreWeatherSettings::default()).await;
         }
     };
-    merge_weather_env_overrides(serde_json::from_value(raw).unwrap_or_default())
+    apply_weather_runtime_settings(pool, serde_json::from_value(raw).unwrap_or_default()).await
 }
 
 /// Today and tomorrow in the configured store timezone (for short forecast).

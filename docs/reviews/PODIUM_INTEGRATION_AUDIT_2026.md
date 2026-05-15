@@ -9,7 +9,7 @@ The Podium integration in Riverside OS is a comprehensive, multi-channel communi
 
 ### 2.1 Multichannel Engine (`podium.rs`)
 - **Transport**: Supports `SMS` (text), `MMS` (PNG attachments via multipart/form-data), and `Email` (HTML bodies).
-- **Auth Strategy**: OAuth 2.0 with automatic token refresh logic. The server uses a background-refreshed `refresh_token` from environment variables to maintain a long-lived `PodiumTokenCache`.
+- **Auth Strategy**: OAuth 2.0 with automatic token refresh logic. The server uses the Settings-managed encrypted refresh token to maintain a long-lived `PodiumTokenCache`.
 
 ### 2.2 Inbound Webhook Ecosystem (`podium_webhook.rs`)
 - **Security**: Mandatory HMAC-SHA256 signature verification and timestamp skew checks (<5 minutes).
@@ -38,7 +38,7 @@ The Podium integration in Riverside OS is a comprehensive, multi-channel communi
 
 ## 5. Security & RBAC
 - **`NOTIFICATIONS_VIEW`**: Required for inbound message alerts.
-- **Environment Variables**: Sensitive credentials (`CLIENT_SECRET`, `REFRESH_TOKEN`) are restricted to the server environment.
+- **Settings Credentials**: Sensitive credentials (`CLIENT_SECRET`, `REFRESH_TOKEN`) are stored through Backoffice Settings encrypted integration credentials.
 
 ## 6. Implementation Gaps & Recommendations
 1. **Review API Wiring**: The actual outbound review invite API call needs to be wired once Podium provides the production endpoint (currently ROS ledger stubs).

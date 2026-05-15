@@ -114,7 +114,7 @@ async fn get_e2e_health(
 ) -> Result<Json<ops_dev_center::E2eHealthSnapshot>, Response> {
     let _ = require_view(&state, &headers).await?;
     Ok(Json(
-        ops_dev_center::e2e_health_snapshot(&state.http_client).await,
+        ops_dev_center::e2e_health_snapshot(&state.db, &state.http_client).await,
     ))
 }
 
