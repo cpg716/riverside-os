@@ -41,9 +41,11 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
         expected_columns(schema_name, table_name, column_name) AS (
             VALUES
                 ('public', 'staff', 'pin_hash'),
+                ('public', 'staff', 'email_signature'),
                 ('public', 'staff', 'max_discount_percent'),
                 ('public', 'store_settings', 'environment_mode'),
                 ('public', 'store_settings', 'active_card_provider'),
+                ('public', 'store_settings', 'email_config'),
                 ('public', 'integration_credentials', 'encrypted_value'),
                 ('public', 'products', 'tax_category'),
                 ('public', 'products', 'tax_category_override'),
