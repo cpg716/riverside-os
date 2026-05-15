@@ -654,25 +654,27 @@ export default function ReceiptSummaryModal({
     opts?: { gift?: boolean; transactionLineIds?: string[] },
   ) => {
     if (!transactionId) throw new Error("Missing transaction.");
-    if (transactionDetail?.receipt_thermal_mode !== "escpos") {
-      return fetchReceiptHtml(opts);
-    }
     const q = buildReceiptQuery(opts);
-    const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.escpos${q}`, {
-      headers: getAuthHeaders(),
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error("Receipt preview could not load.");
-    const payload = (await res.json()) as { receiptline_markdown?: string };
-    if (!payload.receiptline_markdown) {
-      return fetchReceiptHtml(opts);
+    try {
+      const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.escpos${q}`, {
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const payload = (await res.json()) as { receiptline_markdown?: string };
+        if (payload.receiptline_markdown?.trim()) {
+          return String(
+            transform(payload.receiptline_markdown, {
+              cpl: 42,
+              encoding: "cp437",
+            }),
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("ReceiptLine preview unavailable; falling back to HTML receipt", e);
     }
-    return String(
-      transform(payload.receiptline_markdown, {
-        cpl: 42,
-        encoding: "cp437",
-      }),
-    );
+    return fetchReceiptHtml(opts);
   };
 
   const openReceiptPreview = async () => {

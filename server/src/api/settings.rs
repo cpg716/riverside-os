@@ -309,6 +309,15 @@ impl Default for ReceiptConfig {
     }
 }
 
+impl ReceiptConfig {
+    pub fn normalize_runtime(mut self) -> Self {
+        if self.receipt_thermal_mode.trim() != "escpos" {
+            self.receipt_thermal_mode = default_receipt_thermal_mode();
+        }
+        self
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RosieVerbosity {
@@ -374,7 +383,9 @@ async fn get_receipt_config(
         .fetch_one(&state.db)
         .await?;
 
-    let cfg: ReceiptConfig = serde_json::from_value(raw).unwrap_or_default();
+    let cfg: ReceiptConfig = serde_json::from_value::<ReceiptConfig>(raw)
+        .unwrap_or_default()
+        .normalize_runtime();
     Ok(Json(cfg))
 }
 
@@ -398,9 +409,11 @@ async fn patch_receipt_config(
     }
 
     // Validate the merged payload against the ReceiptConfig schema before persisting.
-    let normalized: ReceiptConfig = serde_json::from_value(existing).map_err(|e| {
-        SettingsError::InvalidPayload(format!("invalid receipt settings payload: {e}"))
-    })?;
+    let normalized: ReceiptConfig = serde_json::from_value::<ReceiptConfig>(existing)
+        .map_err(|e| {
+            SettingsError::InvalidPayload(format!("invalid receipt settings payload: {e}"))
+        })?
+        .normalize_runtime();
     let normalized_value = serde_json::to_value(&normalized)
         .map_err(|e| SettingsError::InvalidPayload(format!("serialize failed: {e}")))?;
 
@@ -430,7 +443,9 @@ async fn get_receipt_preview_html(
         })
         .unwrap_or(false);
 
-    let cfg: ReceiptConfig = serde_json::from_value(raw).unwrap_or_default();
+    let cfg: ReceiptConfig = serde_json::from_value::<ReceiptConfig>(raw)
+        .unwrap_or_default()
+        .normalize_runtime();
     let tpl = cfg
         .receipt_studio_exported_html
         .as_deref()

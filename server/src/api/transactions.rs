@@ -2566,8 +2566,9 @@ async fn get_transaction_receipt_escpos(
         .await
         .ok()
         .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
+        .and_then(|v| serde_json::from_value::<crate::api::settings::ReceiptConfig>(v).ok())
+        .unwrap_or_default()
+        .normalize_runtime();
 
     // Best-effort loyalty data for receipt tokens.
     let loyalty = {
@@ -2640,8 +2641,9 @@ async fn get_transaction_receipt_html(
         .await
         .ok()
         .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
+        .and_then(|v| serde_json::from_value::<crate::api::settings::ReceiptConfig>(v).ok())
+        .unwrap_or_default()
+        .normalize_runtime();
 
     let tpl = receipt_cfg
         .receipt_studio_exported_html
@@ -2752,8 +2754,9 @@ async fn post_transaction_receipt_send_email(
         .await
         .ok()
         .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
+        .and_then(|v| serde_json::from_value::<crate::api::settings::ReceiptConfig>(v).ok())
+        .unwrap_or_default()
+        .normalize_runtime();
 
     let item_ids = if body.transaction_line_ids.is_empty() {
         None
@@ -2778,13 +2781,7 @@ async fn post_transaction_receipt_send_email(
         receipt_studio_html::wrap_receipt_fragment_for_podium_email_inline(&merged)
     };
 
-    let order_ref: String = transaction_id
-        .simple()
-        .to_string()
-        .chars()
-        .take(8)
-        .collect::<String>()
-        .to_uppercase();
+    let order_ref = receipt_shared::receipt_display_ref(&receipt_order);
     let subject = if body.gift {
         format!("Gift receipt — {order_ref}")
     } else {
@@ -2846,8 +2843,9 @@ async fn post_transaction_receipt_send_sms(
         .await
         .ok()
         .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
+        .and_then(|v| serde_json::from_value::<crate::api::settings::ReceiptConfig>(v).ok())
+        .unwrap_or_default()
+        .normalize_runtime();
 
     let item_ids = if body.transaction_line_ids.is_empty() {
         None
@@ -3278,13 +3276,16 @@ pub(crate) async fn load_transaction_detail(
             .flatten();
     let (receipt_studio_layout_available, receipt_thermal_mode) = if let Some(v) = receipt_cfg_raw {
         match serde_json::from_value::<crate::api::settings::ReceiptConfig>(v) {
-            Ok(c) => (
-                c.receipt_studio_exported_html
-                    .as_ref()
-                    .map(|s| !s.trim().is_empty())
-                    .unwrap_or(false),
-                c.receipt_thermal_mode,
-            ),
+            Ok(c) => {
+                let c = c.normalize_runtime();
+                (
+                    c.receipt_studio_exported_html
+                        .as_ref()
+                        .map(|s| !s.trim().is_empty())
+                        .unwrap_or(false),
+                    c.receipt_thermal_mode,
+                )
+            }
             Err(_) => (false, "escpos".to_string()),
         }
     } else {
