@@ -1,7 +1,7 @@
 //! First-party store email via IMAP/SMTP (IONOS-compatible).
 
 use chrono::{DateTime, Utc};
-use lettre::message::{header::ContentType, Mailbox, MultiPart, SinglePart};
+use lettre::message::{header::ContentType, Attachment, Mailbox, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
 use mail_parser::{Address, GetHeader, HeaderName, HeaderValue, MessageParser};
@@ -493,6 +493,37 @@ pub async fn send_email(
     .await
 }
 
+#[derive(Debug, Clone)]
+pub struct EmailAttachmentPayload {
+    pub filename: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
+pub async fn send_email_with_attachments(
+    pool: &PgPool,
+    to_email: &str,
+    subject: &str,
+    html_body: &str,
+    staff_id: Option<Uuid>,
+    signature_html: Option<&str>,
+    direction: &str,
+    attachments: Vec<EmailAttachmentPayload>,
+) -> Result<Uuid, EmailError> {
+    send_email_with_reply_context_and_attachments(
+        pool,
+        to_email,
+        subject,
+        html_body,
+        staff_id,
+        signature_html,
+        direction,
+        None,
+        attachments,
+    )
+    .await
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn send_email_with_reply_context(
     pool: &PgPool,
@@ -503,6 +534,32 @@ pub async fn send_email_with_reply_context(
     signature_html: Option<&str>,
     direction: &str,
     reply_to_mailbox_message_id: Option<Uuid>,
+) -> Result<Uuid, EmailError> {
+    send_email_with_reply_context_and_attachments(
+        pool,
+        to_email,
+        subject,
+        html_body,
+        staff_id,
+        signature_html,
+        direction,
+        reply_to_mailbox_message_id,
+        Vec::new(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_email_with_reply_context_and_attachments(
+    pool: &PgPool,
+    to_email: &str,
+    subject: &str,
+    html_body: &str,
+    staff_id: Option<Uuid>,
+    signature_html: Option<&str>,
+    direction: &str,
+    reply_to_mailbox_message_id: Option<Uuid>,
+    attachments: Vec<EmailAttachmentPayload>,
 ) -> Result<Uuid, EmailError> {
     let cfg = load_store_email_config(pool).await?;
     if !cfg.enabled {
@@ -579,21 +636,35 @@ pub async fn send_email_with_reply_context(
     if !references.is_empty() {
         builder = builder.references(references.join(" "));
     }
-    let message = builder
-        .multipart(
-            MultiPart::alternative()
-                .singlepart(
-                    SinglePart::builder()
-                        .header(ContentType::TEXT_PLAIN)
-                        .body(mail_parser::decoders::html::html_to_text(&html)),
-                )
-                .singlepart(
-                    SinglePart::builder()
-                        .header(ContentType::TEXT_HTML)
-                        .body(html.clone()),
-                ),
+    let body_part = MultiPart::alternative()
+        .singlepart(
+            SinglePart::builder()
+                .header(ContentType::TEXT_PLAIN)
+                .body(mail_parser::decoders::html::html_to_text(&html)),
         )
-        .map_err(|e| EmailError::Smtp(e.to_string()))?;
+        .singlepart(
+            SinglePart::builder()
+                .header(ContentType::TEXT_HTML)
+                .body(html.clone()),
+        );
+    let message = if attachments.is_empty() {
+        builder.multipart(body_part)
+    } else {
+        let mut mixed = MultiPart::mixed().multipart(body_part);
+        for attachment in attachments {
+            let filename = attachment.filename.trim();
+            if filename.is_empty() || attachment.bytes.is_empty() {
+                continue;
+            }
+            let content_type = ContentType::parse(&attachment.content_type)
+                .unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
+            mixed = mixed.singlepart(
+                Attachment::new(filename.to_string()).body(attachment.bytes, content_type),
+            );
+        }
+        builder.multipart(mixed)
+    }
+    .map_err(|e| EmailError::Smtp(e.to_string()))?;
 
     let cfg_for_send = cfg.clone();
     tokio::task::spawn_blocking(move || {

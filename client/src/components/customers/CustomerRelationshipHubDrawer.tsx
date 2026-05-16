@@ -5,12 +5,15 @@ import {
   CalendarDays,
   Gift,
   Heart,
+  Image as ImageIcon,
   Mail,
   MessageSquarePlus,
+  Paperclip,
   Printer,
   Receipt,
   Scissors,
   Search,
+  SmilePlus,
   ShoppingBag,
   Sparkles,
   UserPlus,
@@ -312,6 +315,40 @@ function podiumThreadSentByLabel(m: {
   return d;
 }
 
+const messageEmojiChoices = ["🙂", "👍", "🙏", "👔", "📸"];
+const messageAttachmentMaxBytes = 5 * 1024 * 1024;
+
+function latestInboundAfterOutbound<T>(
+  rows: T[],
+  getDirection: (row: T) => string,
+  getTime: (row: T) => string,
+): boolean {
+  const latestInbound = rows
+    .filter((row) => getDirection(row) === "inbound")
+    .map((row) => Date.parse(getTime(row)))
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)[0];
+  if (!latestInbound) return false;
+  const latestOutbound = rows
+    .filter((row) => ["outbound", "automated"].includes(getDirection(row)))
+    .map((row) => Date.parse(getTime(row)))
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)[0];
+  return latestOutbound == null || latestInbound > latestOutbound;
+}
+
+function fileToBase64Payload(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("file-read"));
+    reader.onload = () => {
+      const value = String(reader.result ?? "");
+      resolve(value.includes(",") ? value.split(",").pop() ?? "" : value);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export type HubTab =
   | "weddings"
   | "messages"
@@ -595,7 +632,22 @@ export function CustomerRelationshipHubDrawer({
   const [podiumComposeSubject, setPodiumComposeSubject] = useState("");
   const [podiumComposeHtml, setPodiumComposeHtml] = useState("");
   const [podiumComposeBusy, setPodiumComposeBusy] = useState(false);
-  const [messageComposeMode, setMessageComposeMode] = useState<"sms" | "email">("sms");
+  const [messageViewMode, setMessageViewMode] = useState<"podium" | "email">("podium");
+  const [emailSignatureHtml, setEmailSignatureHtml] = useState("");
+  const [smsAttachment, setSmsAttachment] = useState<{
+    name: string;
+    dataBase64: string;
+  } | null>(null);
+  const [emailAttachments, setEmailAttachments] = useState<
+    {
+      name: string;
+      type: string;
+      size: number;
+      dataBase64: string;
+    }[]
+  >([]);
+  const smsAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const emailAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const [podiumThread, setPodiumThread] = useState<
     {
       id: string;
@@ -1237,6 +1289,58 @@ export function CustomerRelationshipHubDrawer({
   }, [open, tab, loadCommunicationTimeline, loadPodiumThread]);
 
   useEffect(() => {
+    if (!open || tab !== "messages" || messageViewMode !== "email" || !canHubEdit) {
+      return;
+    }
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/mailbox/signature`, {
+          headers: apiAuth(),
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          setEmailSignatureHtml("");
+          return;
+        }
+        const data = (await res.json()) as { signature_html?: string };
+        setEmailSignatureHtml(data.signature_html ?? "");
+      } catch {
+        setEmailSignatureHtml("");
+      }
+    })();
+  }, [open, tab, messageViewMode, canHubEdit, baseUrl, apiAuth]);
+
+  const podiumSmsThread = useMemo(
+    () => podiumThread.filter((message) => message.channel !== "email"),
+    [podiumThread],
+  );
+  const emailThread = useMemo(
+    () =>
+      communicationTimeline.filter(
+        (item) => item.channel === "email" || item.source === "mailbox",
+      ),
+    [communicationTimeline],
+  );
+  const podiumNeedsReply = useMemo(
+    () =>
+      latestInboundAfterOutbound(
+        podiumSmsThread,
+        (message) => message.direction,
+        (message) => message.created_at,
+      ),
+    [podiumSmsThread],
+  );
+  const emailNeedsReply = useMemo(
+    () =>
+      latestInboundAfterOutbound(
+        emailThread,
+        (message) => message.direction,
+        (message) => message.occurred_at,
+      ),
+    [emailThread],
+  );
+
+  useEffect(() => {
     if (!open || tab !== "loyalty" || !permissionsLoaded || !canHubView || !hub) {
       return;
     }
@@ -1402,7 +1506,15 @@ export function CustomerRelationshipHubDrawer({
         {
           method: "POST",
           headers: { "Content-Type": "application/json", ...apiAuth() },
-          body: JSON.stringify({ subject: sub, html_body: html }),
+          body: JSON.stringify({
+            subject: sub,
+            html_body: html,
+            attachments: emailAttachments.map((attachment) => ({
+              filename: attachment.name,
+              content_type: attachment.type || "application/octet-stream",
+              data_base64: attachment.dataBase64,
+            })),
+          }),
         },
       );
       if (!res.ok) {
@@ -1413,6 +1525,7 @@ export function CustomerRelationshipHubDrawer({
       toast("Email sent", "success");
       setPodiumComposeSubject("");
       setPodiumComposeHtml("");
+      setEmailAttachments([]);
       void loadPodiumThread();
       void loadCommunicationTimeline();
     } finally {
@@ -1434,7 +1547,11 @@ export function CustomerRelationshipHubDrawer({
         {
           method: "POST",
           headers: { "Content-Type": "application/json", ...apiAuth() },
-          body: JSON.stringify({ channel: "sms", body: t }),
+          body: JSON.stringify({
+            channel: "sms",
+            body: t,
+            attachment_png_base64: smsAttachment?.dataBase64,
+          }),
         },
       );
       if (!res.ok) {
@@ -1444,11 +1561,62 @@ export function CustomerRelationshipHubDrawer({
       }
       toast("SMS sent via Podium", "success");
       setSmsReplyDraft("");
+      setSmsAttachment(null);
       void loadPodiumThread();
       void loadCommunicationTimeline();
     } finally {
       setSmsReplyBusy(false);
     }
+  };
+
+  const appendComposeEmoji = (emoji: string) => {
+    if (messageViewMode === "email") {
+      setPodiumComposeHtml((current) => `${current}${emoji}`);
+    } else {
+      setSmsReplyDraft((current) => `${current}${emoji}`);
+    }
+  };
+
+  const handleSmsAttachment = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.type !== "image/png") {
+      toast("SMS image upload currently supports PNG files.", "error");
+      return;
+    }
+    if (file.size > messageAttachmentMaxBytes) {
+      toast("Image is too large to send.", "error");
+      return;
+    }
+    try {
+      const dataBase64 = await fileToBase64Payload(file);
+      setSmsAttachment({ name: file.name, dataBase64 });
+    } catch {
+      toast("Could not read the selected image.", "error");
+    }
+  };
+
+  const handleEmailAttachments = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const next = [...emailAttachments];
+    let total = next.reduce((sum, file) => sum + file.size, 0);
+    for (const file of Array.from(files)) {
+      total += file.size;
+      if (total > messageAttachmentMaxBytes) {
+        toast("Email attachments are too large.", "error");
+        break;
+      }
+      try {
+        next.push({
+          name: file.name,
+          type: file.type || "application/octet-stream",
+          size: file.size,
+          dataBase64: await fileToBase64Payload(file),
+        });
+      } catch {
+        toast(`Could not read ${file.name}.`, "error");
+      }
+    }
+    setEmailAttachments(next);
   };
 
   const patchCustomer = async (
@@ -3143,22 +3311,48 @@ export function CustomerRelationshipHubDrawer({
                   </button>
                 </div>
 
-                <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_22rem]">
-                  <div className="min-h-[26rem] bg-app-surface px-4 py-4">
-                    {podiumThreadLoading ? (
-                      <p className="text-xs text-app-text-muted">Loading messages…</p>
+                <div className="border-b border-app-border bg-app-surface-2/60 px-4 py-3">
+                  <div className="grid max-w-xl grid-cols-2 rounded-xl border border-app-border bg-app-surface p-1">
+                    {(["podium", "email"] as const).map((mode) => {
+                      const needsReply =
+                        mode === "podium" ? podiumNeedsReply : emailNeedsReply;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setMessageViewMode(mode)}
+                          className={`relative rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                            messageViewMode === mode
+                              ? "bg-app-accent text-white"
+                              : "text-app-text-muted hover:bg-app-surface-3"
+                          }`}
+                        >
+                          {mode === "podium" ? "Podium" : "Email"}
+                          {needsReply ? (
+                            <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-red-500 align-middle" />
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-4 bg-app-surface px-4 py-4">
+                  {messageViewMode === "podium" ? (
+                    podiumThreadLoading ? (
+                      <p className="text-xs text-app-text-muted">Loading messages...</p>
                     ) : podiumThreadLoadError ? (
                       <InlineDegradedState
                         message={podiumThreadLoadError}
                         onRetry={() => void loadPodiumThread()}
                       />
-                    ) : podiumThread.length === 0 ? (
+                    ) : podiumSmsThread.length === 0 ? (
                       <div className="flex min-h-[18rem] items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface-2/50 px-4 text-center text-xs font-semibold text-app-text-muted">
-                        No messages yet. New SMS and email activity for this customer appears here.
+                        No Podium SMS activity has been recorded for this customer yet.
                       </div>
                     ) : (
                       <ul className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
-                        {podiumThread.map((m) => {
+                        {podiumSmsThread.map((m) => {
                           const inbound = m.direction === "inbound";
                           const auto = m.direction === "automated";
                           const preview = formatMessagePreview(m.body, m.channel);
@@ -3178,7 +3372,7 @@ export function CustomerRelationshipHubDrawer({
                                 }`}
                               >
                                 <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                                  <span>{m.channel}</span>
+                                  <span>SMS</span>
                                   <span className="text-app-text/90 normal-case tracking-normal">
                                     {sentBy}
                                   </span>
@@ -3194,40 +3388,115 @@ export function CustomerRelationshipHubDrawer({
                           );
                         })}
                       </ul>
-                    )}
-                  </div>
-
-                  <div className="border-t border-app-border bg-app-surface-2/60 p-4 lg:border-l lg:border-t-0">
-                    <div className="mb-3 grid grid-cols-2 rounded-xl border border-app-border bg-app-surface p-1">
-                      {(["sms", "email"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setMessageComposeMode(mode)}
-                          className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                            messageComposeMode === mode
-                              ? "bg-app-accent text-white"
-                              : "text-app-text-muted hover:bg-app-surface-3"
-                          }`}
-                        >
-                          {mode === "sms" ? "SMS" : "Email"}
-                        </button>
-                      ))}
+                    )
+                  ) : communicationTimelineLoading ? (
+                    <p className="text-xs text-app-text-muted">Loading email history...</p>
+                  ) : emailThread.length === 0 ? (
+                    <div className="flex min-h-[18rem] items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface-2/50 px-4 text-center text-xs font-semibold text-app-text-muted">
+                      No email activity has been recorded for this customer yet.
                     </div>
+                  ) : (
+                    <ul className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+                      {emailThread.map((item) => {
+                        const inbound = item.direction === "inbound";
+                        return (
+                          <li
+                            key={`${item.source}-${item.id}`}
+                            className={`flex ${inbound ? "justify-start" : "justify-end"}`}
+                          >
+                            <div
+                              className={`max-w-[84%] rounded-2xl border px-3 py-2 text-sm shadow-sm ${
+                                inbound
+                                  ? "rounded-bl-md border-app-border bg-app-surface-2 text-app-text"
+                                  : "rounded-br-md border-app-success/25 bg-app-success/10 text-app-text"
+                              }`}
+                            >
+                              <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                <span>Email</span>
+                                <span>{item.direction}</span>
+                                <span className="font-normal normal-case tracking-normal">
+                                  {new Date(item.occurred_at).toLocaleString()}
+                                </span>
+                              </div>
+                              <p className="font-black">{item.title}</p>
+                              {item.body ? (
+                                <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">
+                                  {formatMessagePreview(item.body, item.channel)}
+                                </p>
+                              ) : null}
+                              {item.actor ? (
+                                <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                                  {item.actor}
+                                </p>
+                              ) : null}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
 
-                    {messageComposeMode === "sms" ? (
+                  <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
+                    {messageViewMode === "podium" ? (
                       <>
                         {!hub.phone ? (
                           <p className="mb-3 rounded-xl border border-app-warning/25 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
                             Add a phone number on the Profile tab to send SMS.
                           </p>
                         ) : null}
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => smsAttachmentInputRef.current?.click()}
+                            disabled={!canHubEdit || !hub.phone}
+                            className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                          >
+                            <ImageIcon size={14} aria-hidden />
+                            Image
+                          </button>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            <SmilePlus size={14} aria-hidden />
+                            Emoji
+                          </span>
+                          {messageEmojiChoices.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => appendComposeEmoji(emoji)}
+                              className="rounded-full border border-app-border bg-app-surface px-2 py-1 text-sm"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          ref={smsAttachmentInputRef}
+                          type="file"
+                          accept="image/png"
+                          className="hidden"
+                          onChange={(event) => {
+                            void handleSmsAttachment(event.target.files?.[0]);
+                            event.target.value = "";
+                          }}
+                        />
+                        {smsAttachment ? (
+                          <div className="mb-3 flex items-center justify-between rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
+                            <span>{smsAttachment.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => setSmsAttachment(null)}
+                              className="text-[10px] font-black uppercase tracking-widest"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ) : null}
                         <textarea
                           className="ui-input mb-3 min-h-[9rem] w-full resize-y p-3 text-sm"
                           value={smsReplyDraft}
                           onChange={(e) => setSmsReplyDraft(e.target.value)}
                           disabled={!canHubEdit || !hub.phone}
-                          placeholder="Type a text message…"
+                          placeholder="Type a text message..."
                         />
                         <button
                           type="button"
@@ -3240,7 +3509,7 @@ export function CustomerRelationshipHubDrawer({
                           onClick={() => void sendPodiumSmsReply()}
                           className="w-full rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
                         >
-                          {smsReplyBusy ? "Sending…" : "Send SMS"}
+                          {smsReplyBusy ? "Sending..." : smsAttachment ? "Send MMS" : "Send SMS"}
                         </button>
                       </>
                     ) : (
@@ -3258,8 +3527,66 @@ export function CustomerRelationshipHubDrawer({
                           value={podiumComposeSubject}
                           onChange={(e) => setPodiumComposeSubject(e.target.value)}
                           disabled={!canHubEdit || !hub.email}
-                          placeholder="Regarding your recent visit…"
+                          placeholder="Regarding your recent visit..."
                         />
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => emailAttachmentInputRef.current?.click()}
+                            disabled={!canHubEdit || !hub.email}
+                            className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                          >
+                            <Paperclip size={14} aria-hidden />
+                            Files
+                          </button>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            <SmilePlus size={14} aria-hidden />
+                            Emoji
+                          </span>
+                          {messageEmojiChoices.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => appendComposeEmoji(emoji)}
+                              className="rounded-full border border-app-border bg-app-surface px-2 py-1 text-sm"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          ref={emailAttachmentInputRef}
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={(event) => {
+                            void handleEmailAttachments(event.target.files);
+                            event.target.value = "";
+                          }}
+                        />
+                        {emailAttachments.length > 0 ? (
+                          <ul className="mb-3 space-y-2">
+                            {emailAttachments.map((attachment, index) => (
+                              <li
+                                key={`${attachment.name}-${index}`}
+                                className="flex items-center justify-between rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted"
+                              >
+                                <span>{attachment.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEmailAttachments((current) =>
+                                      current.filter((_, i) => i !== index),
+                                    )
+                                  }
+                                  className="text-[10px] font-black uppercase tracking-widest"
+                                >
+                                  Remove
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
                         <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                           Message
                         </label>
@@ -3268,8 +3595,19 @@ export function CustomerRelationshipHubDrawer({
                           value={podiumComposeHtml}
                           onChange={(e) => setPodiumComposeHtml(e.target.value)}
                           disabled={!canHubEdit || !hub.email}
-                          placeholder="Write an email message…"
+                          placeholder="Write an email message..."
                         />
+                        {emailSignatureHtml ? (
+                          <div className="mb-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs text-app-text-muted">
+                            <p className="mb-1 text-[10px] font-black uppercase tracking-widest">
+                              Signature
+                            </p>
+                            <div
+                              className="prose prose-sm max-w-none text-app-text-muted"
+                              dangerouslySetInnerHTML={{ __html: emailSignatureHtml }}
+                            />
+                          </div>
+                        ) : null}
                         <button
                           type="button"
                           disabled={
@@ -3282,7 +3620,7 @@ export function CustomerRelationshipHubDrawer({
                           onClick={() => void sendPodiumEmail()}
                           className="w-full rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
                         >
-                          {podiumComposeBusy ? "Sending…" : "Send email"}
+                          {podiumComposeBusy ? "Sending..." : "Send email"}
                         </button>
                       </>
                     )}

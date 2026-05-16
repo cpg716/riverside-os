@@ -137,8 +137,9 @@ Viewing requires **`customers.hub_view`**. Sending and new-contact creation requ
 
 **Where:** Open a customer → **Relationship Hub** → **Messages**.
 
-- View the **thread** (inbound webhooks + outbound from Riverside where recorded).
-- **Reply** via **SMS** (uses on-file phone) or **email** (subject + body; HTML in compose where provided).
+- Use **Podium** to view and reply to SMS threads (inbound webhooks + outbound from Riverside where recorded). The reply box sits below the thread. Staff can add emoji and a PNG image attachment when sending SMS/MMS.
+- Use **Email** to view customer email activity and send email replies. Email compose supports file attachments and automatically uses the logged-in staff member's saved email signature when available.
+- Podium and Email tabs show an alert dot when the latest customer message in that channel still needs a reply.
 - Optionally save a **Podium conversation URL** on the profile for deep-linking to Podium’s UI.
 
 **View** needs **`customers.hub_view`**; **send/save** needs **`customers.hub_edit`**.

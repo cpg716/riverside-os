@@ -8,6 +8,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
@@ -77,6 +78,8 @@ use crate::middleware;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use std::collections::HashSet;
+
+const CUSTOMER_MESSAGE_ATTACHMENT_MAX_BYTES: usize = 5 * 1024 * 1024;
 
 const RMS_CHARGE_REPORT_TO_R2S: &str = "rms_charge.report_to_r2s";
 const RMS_ACCOUNT_LIST_PREVIEW_MAX_BYTES: usize = 10 * 1024 * 1024;
@@ -814,6 +817,20 @@ async fn customer_message_actor_from_perm_or_pos(
             })
         }
     }
+}
+
+async fn staff_email_signature(
+    pool: &sqlx::PgPool,
+    staff_id: Option<Uuid>,
+) -> Result<Option<String>, sqlx::Error> {
+    let Some(staff_id) = staff_id else {
+        return Ok(None);
+    };
+    sqlx::query_scalar("SELECT email_signature FROM staff WHERE id = $1")
+        .bind(staff_id)
+        .fetch_optional(pool)
+        .await
+        .map(|value: Option<Option<String>>| value.flatten())
 }
 
 #[derive(Debug, Deserialize)]
@@ -4349,9 +4366,71 @@ async fn update_customer(
 }
 
 #[derive(Debug, Deserialize)]
+struct CustomerEmailAttachmentBody {
+    filename: String,
+    content_type: String,
+    data_base64: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct PostCustomerPodiumEmailBody {
     subject: String,
     html_body: String,
+    #[serde(default)]
+    attachments: Vec<CustomerEmailAttachmentBody>,
+}
+
+fn decode_customer_email_attachments(
+    attachments: Vec<CustomerEmailAttachmentBody>,
+) -> Result<Vec<store_email::EmailAttachmentPayload>, CustomerError> {
+    let mut decoded = Vec::new();
+    let mut total_bytes = 0usize;
+    for attachment in attachments {
+        let filename = attachment.filename.trim();
+        if filename.is_empty() {
+            return Err(CustomerError::BadRequest(
+                "attachment filename is required".to_string(),
+            ));
+        }
+        let bytes = general_purpose::STANDARD
+            .decode(attachment.data_base64.trim())
+            .map_err(|_| CustomerError::BadRequest("attachment data is invalid".to_string()))?;
+        if bytes.is_empty() {
+            return Err(CustomerError::BadRequest(
+                "attachment file was empty".to_string(),
+            ));
+        }
+        total_bytes += bytes.len();
+        if total_bytes > CUSTOMER_MESSAGE_ATTACHMENT_MAX_BYTES {
+            return Err(CustomerError::BadRequest(
+                "attachments are too large".to_string(),
+            ));
+        }
+        decoded.push(store_email::EmailAttachmentPayload {
+            filename: filename.to_string(),
+            content_type: attachment
+                .content_type
+                .trim()
+                .to_string()
+                .if_empty("application/octet-stream"),
+            bytes,
+        });
+    }
+    Ok(decoded)
+}
+
+trait EmptyStringDefault {
+    fn if_empty(self, fallback: &str) -> String;
+}
+
+impl EmptyStringDefault for String {
+    fn if_empty(self, fallback: &str) -> String {
+        if self.is_empty() {
+            fallback.to_string()
+        } else {
+            self
+        }
+    }
 }
 
 async fn post_customer_podium_email(
@@ -4362,8 +4441,8 @@ async fn post_customer_podium_email(
 ) -> Result<Json<serde_json::Value>, CustomerError> {
     let actor =
         customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
-    let sub = body.subject.trim();
-    let html = body.html_body.trim();
+    let sub = body.subject.trim().to_string();
+    let html = body.html_body.trim().to_string();
     if sub.is_empty() || html.is_empty() {
         return Err(CustomerError::BadRequest(
             "subject and html_body are required".to_string(),
@@ -4380,14 +4459,17 @@ async fn post_customer_podium_email(
             "Customer email is missing or invalid".to_string(),
         ));
     }
-    match store_email::send_email(
+    let signature = staff_email_signature(&state.db, actor.staff_id).await?;
+    let attachments = decode_customer_email_attachments(body.attachments)?;
+    match store_email::send_email_with_attachments(
         &state.db,
         em,
-        sub,
-        html,
+        &sub,
+        &html,
         actor.staff_id,
-        actor.sender_name.as_deref(),
+        signature.as_deref(),
         "outbound",
+        attachments,
     )
     .await
     {
@@ -4722,6 +4804,8 @@ struct PostCustomerPodiumReplyBody {
     body: String,
     #[serde(default)]
     subject: Option<String>,
+    #[serde(default)]
+    attachment_png_base64: Option<String>,
 }
 
 async fn post_customer_podium_reply(
@@ -4745,20 +4829,56 @@ async fn post_customer_podium_reply(
                     "Customer has no phone on file".to_string(),
                 ));
             };
-            podium::send_podium_sms_message_with_sender(
-                &state.db,
-                &state.http_client,
-                &state.podium_token_cache,
-                ph,
-                text,
-                actor.sender_name.as_deref(),
-            )
-            .await
-            .map_err(|e| {
-                CustomerError::PodiumUnavailable(format!(
-                    "Could not send SMS via Podium ({e}). Check Integrations and env credentials."
-                ))
-            })?;
+            if let Some(b64_raw) = body.attachment_png_base64.as_deref() {
+                let b64 = b64_raw.trim();
+                if b64.is_empty() {
+                    return Err(CustomerError::BadRequest(
+                        "attachment image was empty".to_string(),
+                    ));
+                }
+                let png = general_purpose::STANDARD.decode(b64).map_err(|_| {
+                    CustomerError::BadRequest("attachment image is invalid".to_string())
+                })?;
+                if png.is_empty() {
+                    return Err(CustomerError::BadRequest(
+                        "attachment image was empty".to_string(),
+                    ));
+                }
+                if png.len() > CUSTOMER_MESSAGE_ATTACHMENT_MAX_BYTES {
+                    return Err(CustomerError::BadRequest(
+                        "attachment image is too large".to_string(),
+                    ));
+                }
+                podium::send_podium_phone_message_with_png_attachment(
+                    &state.db,
+                    &state.http_client,
+                    &state.podium_token_cache,
+                    ph,
+                    text,
+                    png,
+                )
+                .await
+                .map_err(|e| {
+                    CustomerError::PodiumUnavailable(format!(
+                        "Could not send SMS attachment via Podium ({e}). Check Integrations and env credentials."
+                    ))
+                })?;
+            } else {
+                podium::send_podium_sms_message_with_sender(
+                    &state.db,
+                    &state.http_client,
+                    &state.podium_token_cache,
+                    ph,
+                    text,
+                    actor.sender_name.as_deref(),
+                )
+                .await
+                .map_err(|e| {
+                    CustomerError::PodiumUnavailable(format!(
+                        "Could not send SMS via Podium ({e}). Check Integrations and env credentials."
+                    ))
+                })?;
+            }
             let e164 = podium::normalize_phone_e164(ph.as_str());
             podium_messaging::record_outbound_message(
                 &state.db,
@@ -4790,13 +4910,14 @@ async fn post_customer_podium_reply(
                     "Customer email is invalid".to_string(),
                 ));
             }
+            let signature = staff_email_signature(&state.db, actor.staff_id).await?;
             store_email::send_email(
                 &state.db,
                 em,
                 sub,
                 text,
                 actor.staff_id,
-                actor.sender_name.as_deref(),
+                signature.as_deref(),
                 "outbound",
             )
             .await
