@@ -28,6 +28,7 @@ Use this panel when inventory, customer, wedding, order, transaction, alteration
 - You need Settings admin access.
 - PostgreSQL is still the source of truth. Meilisearch only accelerates fuzzy search.
 - Search-capable screens fall back to SQL search when Meilisearch is unavailable.
+- The saved Meilisearch API key in this panel is an encrypted server credential. It must match the live Meilisearch master/API key; `server/.env` is only a fallback for deployments without a saved value.
 
 ## Steps
 
@@ -41,6 +42,7 @@ Use this panel when inventory, customer, wedding, order, transaction, alteration
 - Meilisearch does not update itself directly from PostgreSQL. ROS updates search through server write hooks after records are saved.
 - Refresh only reloads this dashboard. It does not push new data into Meilisearch.
 - Rebuild all indices pushes PostgreSQL records into Meilisearch and refreshes row counts.
+- If the panel says the saved API key was rejected, enter the current Meilisearch API key and save credentials. Restart the API if the rejection remains after saving.
 - A stale warning means the dashboard has not recorded a successful rebuild or incremental update for that index in more than 24 hours.
 - Stale can be normal for a quiet module with no recent writes. It needs follow-up when search results look wrong, the store just restored/imported data, or staff changed records in that module and the timestamp did not move.
 - Back Office Orders are indexed as `ros_orders`; financial Transactions are indexed as `ros_transactions`. Orders should roughly match the order-style records in the Orders workspace, while Transactions includes all checkout records.

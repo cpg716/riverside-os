@@ -294,7 +294,7 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 |----------|---------|
 | **`DATABASE_URL`** | PostgreSQL connection string (server only). |
 | **`RIVERSIDE_MEILISEARCH_URL`** | Optional; e.g. `http://127.0.0.1:7700` (host) or `http://meilisearch:7700` (same Docker network as the API). When unset, all search paths use SQL **ILIKE** only. |
-| **Meilisearch API key** | Configure in **Settings → Integrations → Meilisearch**. |
+| **Meilisearch API key** | Configure in **Settings → Integrations → Meilisearch**. The saved encrypted key must match the running Meilisearch `MEILI_MASTER_KEY`; `RIVERSIDE_MEILISEARCH_API_KEY` is a deployment fallback when no saved value exists. |
 | **`RIVERSIDE_CORS_ORIGINS`** | Required for browser-facing production when paired with **`RIVERSIDE_STRICT_PRODUCTION=true`**. Comma-separated **browser** origins (e.g. `https://app.example.com,http://192.168.1.50:3000`). |
 | **`RIVERSIDE_STRICT_PRODUCTION`** | Recommended production hardening switch. Refuses startup without **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, and a valid **`FRONTEND_DIST`**. |
 | **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** | Required if the online store/customer-account routes are reachable. Use a long random secret; never rely on the development fallback in production. |

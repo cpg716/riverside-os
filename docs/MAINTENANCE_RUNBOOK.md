@@ -52,9 +52,11 @@ If the Counterpoint sync fails:
 
 ### "Meilisearch Search is Blank"
 1. Confirm the API host has `RIVERSIDE_MEILISEARCH_URL` set and Meilisearch is reachable.
-2. Perform **Rebuild all indices** from the Meilisearch Settings panel.
-3. Use **Refresh** after the rebuild response returns to reload the health view.
-4. If search is still blank, confirm the relevant card has rows and no error message. SQL fallback should still keep core lookup usable while Meilisearch is unavailable.
+2. If the panel says `invalid_api_key` or "Meilisearch rejected the saved API key", re-enter the current Meilisearch key in **Settings → Integrations → Meilisearch**. The saved encrypted key must match the running Meilisearch `MEILI_MASTER_KEY`; `server/.env` is only the fallback.
+3. Restart the API if the key was corrected but the panel still reports `invalid_api_key`, then use **Refresh**.
+4. Perform **Rebuild all indices** from the Meilisearch Settings panel.
+5. Use **Refresh** after the rebuild response returns to reload the health view.
+6. If search is still blank, confirm the relevant card has rows and no error message. SQL fallback should still keep core lookup usable while Meilisearch is unavailable.
 
 ---
 *Version: 0.1.8 - April 2026*
