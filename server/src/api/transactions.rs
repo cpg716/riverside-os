@@ -32,6 +32,7 @@ use crate::logic::helcim;
 use crate::logic::loyalty as loyalty_logic;
 use crate::logic::order_lifecycle;
 use crate::logic::podium::{self, looks_like_email};
+use crate::logic::podium_messaging;
 use crate::logic::podium_reviews;
 use crate::logic::pos_rms_charge;
 use crate::logic::receipt_escpos;
@@ -2900,7 +2901,23 @@ async fn post_transaction_receipt_send_sms(
             )
             .await
             {
-                Ok(()) => Ok(Json(json!({ "status": "sent", "mode": "mms_attachment" }))),
+                Ok(()) => {
+                    if let Some(customer) = detail.customer.as_ref() {
+                        let e164 = podium::normalize_phone_e164(&phone_raw);
+                        let _ = podium_messaging::record_outbound_message(
+                            &state.db,
+                            customer.id,
+                            "sms",
+                            &caption,
+                            None,
+                            e164.as_deref(),
+                            None,
+                            "automated",
+                        )
+                        .await;
+                    }
+                    Ok(Json(json!({ "status": "sent", "mode": "mms_attachment" })))
+                }
                 Err(e) => Err(map_podium_order_err(e)),
             };
         }
@@ -2922,7 +2939,23 @@ async fn post_transaction_receipt_send_sms(
     )
     .await
     {
-        Ok(()) => Ok(Json(json!({ "status": "sent", "mode": "sms_text" }))),
+        Ok(()) => {
+            if let Some(customer) = detail.customer.as_ref() {
+                let e164 = podium::normalize_phone_e164(&phone_raw);
+                let _ = podium_messaging::record_outbound_message(
+                    &state.db,
+                    customer.id,
+                    "sms",
+                    &sms_body,
+                    None,
+                    e164.as_deref(),
+                    None,
+                    "automated",
+                )
+                .await;
+            }
+            Ok(Json(json!({ "status": "sent", "mode": "sms_text" })))
+        }
         Err(e) => Err(map_podium_order_err(e)),
     }
 }

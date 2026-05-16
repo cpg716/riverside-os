@@ -19,6 +19,7 @@ When Podium is **configured on the server** and **enabled in Settings**, Riversi
 | **Operational SMS** | Text customers for **ready for pickup**, **alteration ready**, and similar triggers using templates you edit in Settings. |
 | **POS receipts** | After checkout, **text** a short receipt message. Store email receipts use the ROS IONOS mailbox path. |
 | **Customer CRM threads** | Show **SMS** history on the customer profile, **reply** from Riverside, and optionally store a **Podium conversation URL** for reference. |
+| **Direct staff texts** | From **Podium Inbox**, send a text to an existing customer or enter a new phone number; new numbers require first and last name and create a Podium-sourced customer contact. |
 | **Inbound messages** | If Podium is allowed to call Riverside’s **webhook**, new customer texts can appear as threads and **notifications** (see section 7). |
 | **Web chat on your site** | Paste Podium’s widget snippet so the public storefront can load it (optional build flag). |
 | **Review invites (tracking)** | Store whether the cashier chose to **send** or **skip** a post-sale review prompt; **live** Podium review API send is still a roadmap item (see section 8). |
@@ -33,8 +34,8 @@ Riverside does **not** recreate Podium’s full multi-user Inbox. Use Riverside 
 |------|---------------------|
 | **Settings → Integrations → Podium** (toggles, templates, widget, OAuth connect, readiness) | **`settings.admin`** |
 | **Settings → General → Review policy** (enable invites, default send/skip) | **`settings.admin`** |
-| **Operations → Podium Inbox** (thread list) | **`customers.hub_view`** |
-| **POS → Podium Inbox** (thread list inside POS shell) | **`customers.hub_view`** |
+| **Operations → Podium Inbox** (thread list, unmatched queue, direct text composer) | **`customers.hub_view`** to view; **`customers.hub_edit`** to send or create a new contact |
+| **POS → Podium Inbox** (same shared inbox inside POS shell) | **`customers.hub_view`** to view; **`customers.hub_edit`** to send or create a new contact |
 | **Customer Relationship Hub → Messages** (read thread) | **`customers.hub_view`** |
 | **Hub → Messages** (send SMS reply, save conversation link) | **`customers.hub_edit`** |
 | **Operations → Reviews** (invite/suppress tracking table) | **`reviews.view`** |
@@ -121,9 +122,14 @@ Staff **manual** replies from the hub still go through Podium when configured; f
 
 **Where:** Back Office → **Operations** (home) → **Podium Inbox**.
 
-Shows recent **Podium conversations** with snippets. **Open** a row to jump into that customer’s hub and continue in **Messages**.
+The top **Send Text** composer supports two staff workflows:
 
-Requires **`customers.hub_view`**.
+- Search and select a current customer, then send SMS to the phone on their profile.
+- Enter any phone number. If it is not already matched to a customer phone, Riverside requires **first name** and **last name**, creates a new customer with **Podium** as the source, sends the SMS, and records the outbound message on the new contact.
+
+The inbox also shows recent **Podium conversations** with snippets, unread/needs-reply state, and synced provider threads that need customer matching. **Open** a row to jump into that customer’s hub and continue in **Messages**.
+
+Viewing requires **`customers.hub_view`**. Sending and new-contact creation require **`customers.hub_edit`**.
 
 ### 4.3 Relationship Hub → Messages tab
 
@@ -138,6 +144,8 @@ Requires **`customers.hub_view`**.
 ### 4.4 Created from Podium
 
 Inbound SMS from an unknown number may **create a minimal customer** with provenance indicating Podium so staff know to merge or complete the profile if a duplicate exists later.
+
+Staff-initiated **Send Text** from Podium Inbox follows a stricter rule: a phone-only send is allowed only when the number already matches a customer. If it does not match, staff must enter first and last name before Riverside creates the contact and sends the message.
 
 ---
 
@@ -213,6 +221,7 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 | **Podium consent page says something went wrong** | Missing/disabled Podium app scopes or product access; verify `read_locations`, `read_messages`, `write_messages`, `read_reviews`, and `write_reviews` on the Podium app. |
 | **Podium page says "Client ID is required"** | The authorization URL did not include a Client ID. Return to Settings, confirm Client ID is saved, and start authorization again from the Podium card. |
 | **No SMS** | `sms_send_enabled`, location UID, credentials, customer phone, SMS opt-in, template not empty when required. |
+| **Send Text cannot send to a new number** | Enter phone, first name, last name, and message body; confirm the staff member has `customers.hub_edit`. |
 | **Store email fails** | IONOS mailbox settings, customer email, and server logs. See [EMAIL_MAILBOX.md](../EMAIL_MAILBOX.md). |
 | **502 / Podium unavailable** in UI | Server logs; Podium status; token refresh; API base override. |
 | **Inbound never appears** | Public webhook URL reachable; Cloudflare/tunnel running if local; secret/signature; `RIVERSIDE_PODIUM_INBOUND_DISABLED` accidentally on; Podium event types include message activity. |

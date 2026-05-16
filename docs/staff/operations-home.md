@@ -45,7 +45,9 @@ Use the full **Alterations Hub** when you need search, source filters, or status
 
 1. **Operations** → **Podium Inbox**.
 2. Requires **customers.hub_view**. This is the shared Podium SMS thread list, not a generic task inbox.
-3. Open a row to jump into the full customer conversation in the Customer Hub.
+3. Use **Send Text** to message a current customer or a new phone number. Sending and new-contact creation require **customers.hub_edit**.
+4. For a phone number that is not already a customer, enter first and last name before sending. ROS creates the contact and records the text.
+5. Open a row to jump into the full customer conversation in the Customer Hub.
 
 ## Mailbox
 

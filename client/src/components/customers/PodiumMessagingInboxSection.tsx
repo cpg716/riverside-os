@@ -1,10 +1,11 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, MessageSquare, Search } from "lucide-react";
+import { AlertTriangle, MessageSquare, RefreshCw, Search, Send, UserPlus } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import type { Customer } from "../pos/CustomerSelector";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
 
@@ -16,7 +17,48 @@ type InboxRow = {
   last_name: string;
   channel: string;
   last_message_at: string;
+  last_inbound_at: string | null;
+  last_outbound_at: string | null;
+  last_viewed_at: string | null;
+  needs_reply: boolean;
+  unread: boolean;
   snippet: string | null;
+};
+
+type PodiumHealth = {
+  credentials_configured: boolean;
+  sms_send_enabled: boolean;
+  location_uid_configured: boolean;
+  webhook_secret_configured: boolean;
+  inbound_ingest_enabled: boolean;
+  local_conversation_count: number;
+  unmatched_conversation_count: number;
+  last_webhook_received_at: string | null;
+  last_webhook_failure_at: string | null;
+  last_webhook_failure_reason: string | null;
+  last_message_at: string | null;
+  last_outbound_at: string | null;
+  last_sync_at: string | null;
+};
+
+type UnmatchedConversation = {
+  id: string;
+  provider_conversation_uid: string;
+  channel: string;
+  identifier: string | null;
+  last_message_at: string | null;
+  snippet: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+type DirectSmsCustomerResult = {
+  id: string;
+  customer_code: string;
+  first_name: string;
+  last_name: string;
+  phone: string | null;
+  email: string | null;
 };
 
 export default function PodiumMessagingInboxSection({
@@ -25,6 +67,7 @@ export default function PodiumMessagingInboxSection({
   onOpenCustomerHub: (customer: Customer) => void;
 }) {
   const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
@@ -35,6 +78,50 @@ export default function PodiumMessagingInboxSection({
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [channelFilter, setChannelFilter] = useState("all");
+  const [triageFilter, setTriageFilter] = useState<"all" | "needs_reply" | "unread">("all");
+  const [health, setHealth] = useState<PodiumHealth | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [selectedRow, setSelectedRow] = useState<InboxRow | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [replySubject, setReplySubject] = useState("");
+  const [replyBusy, setReplyBusy] = useState(false);
+  const [unmatchedRows, setUnmatchedRows] = useState<UnmatchedConversation[]>([]);
+  const [directCustomerSearch, setDirectCustomerSearch] = useState("");
+  const [directCustomerResults, setDirectCustomerResults] = useState<DirectSmsCustomerResult[]>([]);
+  const [directCustomer, setDirectCustomer] = useState<DirectSmsCustomerResult | null>(null);
+  const [directPhone, setDirectPhone] = useState("");
+  const [directFirstName, setDirectFirstName] = useState("");
+  const [directLastName, setDirectLastName] = useState("");
+  const [directBody, setDirectBody] = useState("");
+  const [directSearchBusy, setDirectSearchBusy] = useState(false);
+  const [directSendBusy, setDirectSendBusy] = useState(false);
+
+  const loadHealth = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/podium/messaging-health`, {
+        headers: apiAuth(),
+        cache: "no-store",
+      });
+      if (res.ok) setHealth((await res.json()) as PodiumHealth);
+    } catch {
+      setHealth(null);
+    }
+  }, [apiAuth]);
+
+  const loadUnmatched = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/podium/messaging-unmatched?limit=10`, {
+        headers: apiAuth(),
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = (await res.json()) as UnmatchedConversation[];
+        setUnmatchedRows(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      setUnmatchedRows([]);
+    }
+  }, [apiAuth]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -50,16 +137,20 @@ export default function PodiumMessagingInboxSection({
       setRows(Array.isArray(data) ? data : []);
       setLoadError(null);
       setLastLoadedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+      void loadHealth();
+      void loadUnmatched();
     } catch {
       setLoadError("Could not refresh Podium inbox.");
     } finally {
       setLoading(false);
     }
-  }, [apiAuth]);
+  }, [apiAuth, loadHealth, loadUnmatched]);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void loadHealth();
+    void loadUnmatched();
+  }, [loadHealth, loadUnmatched, refresh]);
 
   const channelOptions = useMemo(
     () => Array.from(new Set(rows.map((row) => row.channel).filter(Boolean))).sort(),
@@ -70,6 +161,8 @@ export default function PodiumMessagingInboxSection({
     const needle = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (channelFilter !== "all" && row.channel !== channelFilter) return false;
+      if (triageFilter === "needs_reply" && !row.needs_reply) return false;
+      if (triageFilter === "unread" && !row.unread) return false;
       if (!needle) return true;
       return [
         row.first_name,
@@ -82,7 +175,174 @@ export default function PodiumMessagingInboxSection({
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle));
     });
-  }, [channelFilter, rows, search]);
+  }, [channelFilter, rows, search, triageFilter]);
+
+  const runSync = async () => {
+    setSyncBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/podium/messaging-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({ limit: 25 }),
+      });
+      if (!res.ok) {
+        toast("Podium sync could not run. Check credentials and scopes.", "error");
+        return;
+      }
+      const result = (await res.json()) as {
+        conversations_matched: number;
+        conversations_unmatched: number;
+        messages_inserted: number;
+        errors?: string[];
+      };
+      toast(
+        `Podium sync added ${result.messages_inserted} messages across ${result.conversations_matched} conversations. ${result.conversations_unmatched} need customer matching.`,
+        "success",
+      );
+      await refresh();
+    } finally {
+      setSyncBusy(false);
+    }
+  };
+
+  const markRead = async (row: InboxRow) => {
+    await fetch(`${baseUrl}/api/customers/podium/conversations/${row.conversation_id}/read`, {
+      method: "POST",
+      headers: apiAuth(),
+    }).catch(() => {});
+  };
+
+  const openCustomer = async (row: InboxRow) => {
+    await markRead(row);
+    onOpenCustomerHub({
+      id: row.customer_id,
+      customer_code: row.customer_code,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      company_name: null,
+      email: null,
+      phone: null,
+    });
+    void refresh();
+  };
+
+  const sendReply = async () => {
+    if (!selectedRow) return;
+    const body = replyDraft.trim();
+    if (!body) return;
+    setReplyBusy(true);
+    try {
+      const channel = selectedRow.channel === "email" ? "email" : "sms";
+      const subject = replySubject.trim();
+      if (channel === "email" && !subject) {
+        toast("Subject is required for email replies.", "error");
+        return;
+      }
+      const res = await fetch(`${baseUrl}/api/customers/${selectedRow.customer_id}/podium/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({ channel, subject, body }),
+      });
+      if (!res.ok) {
+        toast("Could not send Podium reply.", "error");
+        return;
+      }
+      toast(channel === "email" ? "Email sent" : "Podium SMS sent", "success");
+      setReplyDraft("");
+      setReplySubject("");
+      await markRead(selectedRow);
+      await refresh();
+    } finally {
+      setReplyBusy(false);
+    }
+  };
+
+  const searchDirectCustomers = async () => {
+    const q = directCustomerSearch.trim();
+    if (q.length < 2) {
+      toast("Enter at least two characters to search customers.", "error");
+      return;
+    }
+    setDirectSearchBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/search?q=${encodeURIComponent(q)}&limit=8`,
+        { headers: apiAuth(), cache: "no-store" },
+      );
+      if (!res.ok) {
+        toast("Could not search customers.", "error");
+        return;
+      }
+      const data = (await res.json()) as DirectSmsCustomerResult[];
+      setDirectCustomerResults(Array.isArray(data) ? data : []);
+    } finally {
+      setDirectSearchBusy(false);
+    }
+  };
+
+  const chooseDirectCustomer = (customer: DirectSmsCustomerResult) => {
+    setDirectCustomer(customer);
+    setDirectPhone(customer.phone ?? "");
+    setDirectFirstName("");
+    setDirectLastName("");
+    setDirectCustomerResults([]);
+  };
+
+  const clearDirectCustomer = () => {
+    setDirectCustomer(null);
+    setDirectCustomerSearch("");
+    setDirectCustomerResults([]);
+  };
+
+  const sendDirectSms = async () => {
+    const body = directBody.trim();
+    if (!body) {
+      toast("Message text is required.", "error");
+      return;
+    }
+    if (directCustomer && !directCustomer.phone) {
+      toast("Selected customer has no phone on file.", "error");
+      return;
+    }
+    if (!directCustomer && !directPhone.trim()) {
+      toast("Phone number is required.", "error");
+      return;
+    }
+    if (!directCustomer && (!directFirstName.trim() || !directLastName.trim())) {
+      toast("First and last name are required for a new Podium contact.", "error");
+      return;
+    }
+    setDirectSendBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/podium/direct-sms`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({
+          customer_id: directCustomer?.id,
+          phone: directPhone,
+          first_name: directFirstName,
+          last_name: directLastName,
+          body,
+        }),
+      });
+      if (!res.ok) {
+        const error = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(error.error ?? "Could not send Podium SMS.", "error");
+        return;
+      }
+      const result = (await res.json()) as { customer_created?: boolean };
+      toast(result.customer_created ? "Contact created and SMS sent" : "Podium SMS sent", "success");
+      setDirectBody("");
+      if (!directCustomer) {
+        setDirectPhone("");
+        setDirectFirstName("");
+        setDirectLastName("");
+      }
+      await refresh();
+    } finally {
+      setDirectSendBusy(false);
+    }
+  };
 
   return (
     <div className="ui-page flex flex-1 flex-col gap-4 p-4">
@@ -103,13 +363,235 @@ export default function PodiumMessagingInboxSection({
             thread in the customer hub.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
-        >
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void runSync()}
+            disabled={syncBusy}
+            className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={syncBusy ? "animate-spin" : ""} aria-hidden />
+            Sync Podium
+          </button>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {health ? (
+        <div className="grid gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["Credentials", health.credentials_configured ? "Configured" : "Missing"],
+            ["Webhook", health.last_webhook_received_at ? new Date(health.last_webhook_received_at).toLocaleString() : "No delivery"],
+            ["Last message", health.last_message_at ? new Date(health.last_message_at).toLocaleString() : "None"],
+            ["Unmatched", `${health.unmatched_conversation_count} provider threads`],
+            ["Last failure", health.last_webhook_failure_at ? health.last_webhook_failure_reason ?? "Webhook rejected" : "None recorded"],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-app-surface-2 px-3 py-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                {label}
+              </p>
+              <p className="mt-1 font-bold text-app-text">{value}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {unmatchedRows.length > 0 ? (
+        <div className="rounded-xl border border-app-warning/30 bg-app-warning/10 px-4 py-3">
+          <div className="mb-2 flex items-start gap-2 text-sm text-app-text">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-app-warning" aria-hidden />
+            <div>
+              <p className="font-black">Podium conversations need customer matching</p>
+              <p className="text-xs font-semibold text-app-text-muted">
+                These provider threads were synced but could not be matched to a ROS customer by phone or email.
+              </p>
+            </div>
+          </div>
+          <ul className="grid gap-2 lg:grid-cols-2">
+            {unmatchedRows.map((row) => (
+              <li key={row.id} className="rounded-lg border border-app-warning/30 bg-app-surface px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-black uppercase tracking-widest text-app-text-muted">
+                    {row.channel}
+                  </span>
+                  <span className="font-mono text-app-text">{row.identifier ?? "No identifier"}</span>
+                  <span className="ml-auto text-app-text-muted">
+                    {new Date(row.last_seen_at).toLocaleString()}
+                  </span>
+                </div>
+                {row.snippet ? (
+                  <p className="mt-1 line-clamp-1 text-app-text-muted">{row.snippet}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="rounded-xl border border-app-border bg-app-surface px-4 py-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <UserPlus size={16} className="text-app-accent" aria-hidden />
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Send Text
+              </h2>
+              <p className="text-xs font-semibold text-app-text-muted">
+                Select a current customer or enter any phone number.
+              </p>
+            </div>
+          </div>
+          {directCustomer ? (
+            <button
+              type="button"
+              onClick={clearDirectCustomer}
+              className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+            >
+              Use New Number
+            </button>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="space-y-2">
+            <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Current customer
+            </label>
+            {directCustomer ? (
+              <div className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-sm">
+                <p className="font-black text-app-text">
+                  {directCustomer.first_name} {directCustomer.last_name}
+                </p>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  {directCustomer.customer_code} · {directCustomer.phone ?? "No phone on file"}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-2">
+                  <input
+                    type="search"
+                    value={directCustomerSearch}
+                    onChange={(event) => setDirectCustomerSearch(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void searchDirectCustomers();
+                    }}
+                    className="ui-input h-10 min-w-0 flex-1 rounded-xl px-3 text-sm"
+                    placeholder="Name, code, phone, or email"
+                    aria-label="Search customers for Podium SMS"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void searchDirectCustomers()}
+                    disabled={directSearchBusy}
+                    className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                  >
+                    <Search size={13} aria-hidden />
+                    Find
+                  </button>
+                </div>
+                {directCustomerResults.length > 0 ? (
+                  <ul className="max-h-40 overflow-y-auto rounded-lg border border-app-border bg-app-surface">
+                    {directCustomerResults.map((customer) => (
+                      <li key={customer.id} className="border-b border-app-border last:border-b-0">
+                        <button
+                          type="button"
+                          onClick={() => chooseDirectCustomer(customer)}
+                          className="w-full px-3 py-2 text-left text-xs hover:bg-app-surface-2"
+                        >
+                          <span className="font-black text-app-text">
+                            {customer.first_name} {customer.last_name}
+                          </span>
+                          <span className="ml-2 font-mono text-app-text-muted">
+                            {customer.customer_code}
+                          </span>
+                          <span className="block font-semibold text-app-text-muted">
+                            {customer.phone ?? "No phone on file"}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            )}
+
+            <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Phone number
+            </label>
+            <input
+              value={directPhone}
+              onChange={(event) => setDirectPhone(event.target.value)}
+              disabled={!!directCustomer}
+              className="ui-input h-10 w-full rounded-xl px-3 text-sm disabled:opacity-70"
+              placeholder="+1 (555) 555-5555"
+              aria-label="Phone number for Podium SMS"
+            />
+
+            {!directCustomer ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    First name
+                  </label>
+                  <input
+                    value={directFirstName}
+                    onChange={(event) => setDirectFirstName(event.target.value)}
+                    className="ui-input h-10 w-full rounded-xl px-3 text-sm"
+                    placeholder="First"
+                    aria-label="First name for new Podium contact"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Last name
+                  </label>
+                  <input
+                    value={directLastName}
+                    onChange={(event) => setDirectLastName(event.target.value)}
+                    className="ui-input h-10 w-full rounded-xl px-3 text-sm"
+                    placeholder="Last"
+                    aria-label="Last name for new Podium contact"
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Message
+            </label>
+            <textarea
+              value={directBody}
+              onChange={(event) => setDirectBody(event.target.value)}
+              className="ui-input min-h-36 w-full resize-y rounded-xl p-3 text-sm"
+              placeholder="Type a text message..."
+              aria-label="Text message body"
+            />
+            <button
+              type="button"
+              onClick={() => void sendDirectSms()}
+              disabled={
+                directSendBusy ||
+                !directBody.trim() ||
+                (!!directCustomer && !directCustomer.phone) ||
+                (!directCustomer &&
+                  (!directPhone.trim() || !directFirstName.trim() || !directLastName.trim()))
+              }
+              className="ui-btn-primary inline-flex w-full items-center justify-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+            >
+              <Send size={13} aria-hidden />
+              {directSendBusy ? "Sending..." : "Send Text"}
+            </button>
+          </div>
+        </div>
       </div>
 
       {rows.length > 0 ? (
@@ -141,6 +623,16 @@ export default function PodiumMessagingInboxSection({
                 {channel}
               </option>
             ))}
+          </select>
+          <select
+            value={triageFilter}
+            onChange={(event) => setTriageFilter(event.target.value as typeof triageFilter)}
+            className="ui-input h-10 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest"
+            aria-label="Filter Podium inbox by triage state"
+          >
+            <option value="all">All states</option>
+            <option value="needs_reply">Needs reply</option>
+            <option value="unread">Unread</option>
           </select>
           <span className="whitespace-nowrap text-xs font-bold text-app-text-muted">
             {visibleRows.length} / {rows.length} threads
@@ -194,27 +686,26 @@ export default function PodiumMessagingInboxSection({
           </p>
         </div>
       ) : (
-        <div className="flex-1 rounded-xl border border-app-border bg-app-surface">
+        <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="rounded-xl border border-app-border bg-app-surface">
           <ul className="divide-y divide-app-border">
             {visibleRows.map((r) => (
               <li key={r.conversation_id}>
                 <button
                   type="button"
-                  onClick={() =>
-                    onOpenCustomerHub({
-                      id: r.customer_id,
-                      customer_code: r.customer_code,
-                      first_name: r.first_name,
-                      last_name: r.last_name,
-                      company_name: null,
-                      email: null,
-                      phone: null,
-                    })
-                  }
+                  onClick={() => {
+                    setSelectedRow(r);
+                    setReplySubject("");
+                    setReplyDraft("");
+                  }}
+                  onDoubleClick={() => void openCustomer(r)}
                   className="flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-app-surface-2/80"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <MessageSquare size={14} className="shrink-0 text-app-accent" aria-hidden />
+                    {r.unread ? (
+                      <span className="h-2 w-2 rounded-full bg-app-accent" aria-label="Unread" />
+                    ) : null}
                     <span className="font-bold text-app-text">
                       {r.first_name} {r.last_name}
                     </span>
@@ -224,6 +715,11 @@ export default function PodiumMessagingInboxSection({
                     <span className="rounded border border-app-border bg-app-surface-2 px-1.5 py-0.5 text-[9px] font-black uppercase text-app-text-muted">
                       {r.channel}
                     </span>
+                    {r.needs_reply ? (
+                      <span className="rounded border border-app-warning/40 bg-app-warning/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-app-warning">
+                        Needs reply
+                      </span>
+                    ) : null}
                     <span className="ml-auto text-[10px] text-app-text-muted">
                       {new Date(r.last_message_at).toLocaleString()}
                     </span>
@@ -237,6 +733,65 @@ export default function PodiumMessagingInboxSection({
               </li>
             ))}
           </ul>
+          </div>
+          <aside className="rounded-xl border border-app-border bg-app-surface p-4">
+            {selectedRow ? (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Quick {selectedRow.channel === "email" ? "email" : "SMS"} reply
+                  </p>
+                  <h2 className="mt-1 text-sm font-black text-app-text">
+                    {selectedRow.first_name} {selectedRow.last_name}
+                  </h2>
+                  <p className="mt-1 text-xs text-app-text-muted">
+                    Last customer:{" "}
+                    {selectedRow.last_inbound_at
+                      ? new Date(selectedRow.last_inbound_at).toLocaleString()
+                      : "No inbound message"}
+                  </p>
+                </div>
+                {selectedRow.channel === "email" ? (
+                  <input
+                    value={replySubject}
+                    onChange={(event) => setReplySubject(event.target.value)}
+                    className="ui-input w-full px-3 py-2 text-sm"
+                    placeholder="Email subject"
+                  />
+                ) : null}
+                <textarea
+                  value={replyDraft}
+                  onChange={(event) => setReplyDraft(event.target.value)}
+                  className="ui-input min-h-32 w-full resize-y p-3 text-sm"
+                  placeholder={selectedRow.channel === "email" ? "Type an email reply..." : "Type an SMS reply..."}
+                />
+                <button
+                  type="button"
+                  onClick={() => void sendReply()}
+                  disabled={
+                    replyBusy ||
+                    !replyDraft.trim() ||
+                    (selectedRow.channel === "email" && !replySubject.trim())
+                  }
+                  className="ui-btn-primary inline-flex w-full items-center justify-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  <Send size={13} aria-hidden />
+                  {replyBusy ? "Sending..." : selectedRow.channel === "email" ? "Send Email" : "Send SMS"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openCustomer(selectedRow)}
+                  className="ui-btn-secondary w-full px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+                >
+                  Open Customer Hub
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-app-text-muted">
+                Select a conversation to reply or open the full customer thread.
+              </p>
+            )}
+          </aside>
         </div>
       )}
     </div>

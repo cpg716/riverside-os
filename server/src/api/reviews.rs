@@ -4,7 +4,7 @@ use axum::{
     extract::{Query, State},
     http::HeaderMap,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
@@ -26,7 +26,9 @@ fn default_limit() -> i64 {
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/invite-rows", get(list_review_invite_rows))
+    Router::new()
+        .route("/invite-rows", get(list_review_invite_rows))
+        .route("/sync", post(post_sync_review_invites))
 }
 
 async fn list_review_invite_rows(
@@ -48,4 +50,29 @@ async fn list_review_invite_rows(
                 .into_response()
         })?;
     Ok(Json(rows))
+}
+
+async fn post_sync_review_invites(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<podium_reviews::ReviewInviteSyncResult>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, REVIEWS_VIEW)
+        .await
+        .map_err(|e| e.into_response())?;
+    let result = podium_reviews::sync_review_invites_from_podium(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        100,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "sync_review_invites_from_podium");
+        (
+            axum::http::StatusCode::BAD_GATEWAY,
+            axum::Json(json!({ "error": e.to_string() })),
+        )
+            .into_response()
+    })?;
+    Ok(Json(result))
 }

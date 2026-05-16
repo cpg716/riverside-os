@@ -2928,6 +2928,17 @@ pub fn router() -> Router<AppState> {
         .route("/browse", get(browse_customers))
         .route("/pipeline-stats", get(browse_customer_pipeline_stats))
         .route("/podium/messaging-inbox", get(list_podium_messaging_inbox))
+        .route("/podium/messaging-health", get(get_podium_messaging_health))
+        .route(
+            "/podium/messaging-unmatched",
+            get(list_podium_unmatched_conversations),
+        )
+        .route("/podium/direct-sms", post(post_podium_direct_sms))
+        .route("/podium/messaging-sync", post(post_podium_messaging_sync))
+        .route(
+            "/podium/conversations/{conversation_id}/read",
+            post(post_podium_conversation_read),
+        )
         .route(
             "/rms-charge/link-account",
             post(link_customer_rms_charge_account),
@@ -3003,6 +3014,10 @@ pub fn router() -> Router<AppState> {
         .route("/import/lightspeed", post(import_lightspeed_customers))
         .route("/{customer_id}/hub", get(get_customer_hub))
         .route("/{customer_id}/timeline", get(get_customer_timeline))
+        .route(
+            "/{customer_id}/communication-timeline",
+            get(get_customer_communication_timeline),
+        )
         .route(
             "/{customer_id}/transaction-history",
             get(get_customer_transaction_history),
@@ -4395,6 +4410,249 @@ async fn list_podium_messaging_inbox(
 ) -> Result<Json<Vec<podium_messaging::PodiumInboxRow>>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
     let rows = podium_messaging::list_messaging_inbox(&state.db, q.limit.unwrap_or(50)).await?;
+    Ok(Json(rows))
+}
+
+async fn get_podium_messaging_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<podium_messaging::PodiumMessagingHealth>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let health = podium_messaging::health(&state.db).await?;
+    Ok(Json(health))
+}
+
+async fn list_podium_unmatched_conversations(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ListPodiumInboxQuery>,
+) -> Result<Json<Vec<podium_messaging::PodiumUnmatchedConversationRow>>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let rows =
+        podium_messaging::list_unmatched_conversations(&state.db, q.limit.unwrap_or(20)).await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize)]
+struct PostPodiumDirectSmsBody {
+    #[serde(default)]
+    customer_id: Option<Uuid>,
+    #[serde(default)]
+    phone: Option<String>,
+    #[serde(default)]
+    first_name: Option<String>,
+    #[serde(default)]
+    last_name: Option<String>,
+    body: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PostPodiumDirectSmsResponse {
+    ok: bool,
+    customer_id: Uuid,
+    customer_created: bool,
+}
+
+async fn find_customer_id_by_phone_tail(
+    pool: &sqlx::PgPool,
+    phone: &str,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
+    let tail = digits
+        .chars()
+        .rev()
+        .take(10)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    if tail.len() < 10 {
+        return Ok(None);
+    }
+    sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM customers
+        WHERE phone IS NOT NULL
+          AND regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(tail)
+    .fetch_optional(pool)
+    .await
+}
+
+async fn post_podium_direct_sms(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PostPodiumDirectSmsBody>,
+) -> Result<Json<PostPodiumDirectSmsResponse>, CustomerError> {
+    let actor =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let text = body.body.trim();
+    if text.is_empty() {
+        return Err(CustomerError::BadRequest("body is required".to_string()));
+    }
+
+    let mut customer_created = false;
+    let customer_id = if let Some(customer_id) = body.customer_id {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
+                .bind(customer_id)
+                .fetch_one(&state.db)
+                .await?;
+        if !exists {
+            return Err(CustomerError::NotFound);
+        }
+        customer_id
+    } else {
+        let phone = body
+            .phone
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| CustomerError::BadRequest("phone is required".to_string()))?;
+        let Some(normalized_phone) = podium::normalize_phone_e164(phone) else {
+            return Err(CustomerError::BadRequest(
+                "Enter a valid phone number before sending.".to_string(),
+            ));
+        };
+        if let Some(existing_id) =
+            find_customer_id_by_phone_tail(&state.db, &normalized_phone).await?
+        {
+            existing_id
+        } else {
+            let first = body.first_name.as_deref().unwrap_or("").trim();
+            let last = body.last_name.as_deref().unwrap_or("").trim();
+            if first.is_empty() || last.is_empty() {
+                return Err(CustomerError::BadRequest(
+                    "First and last name are required for a new Podium contact.".to_string(),
+                ));
+            }
+            let id = insert_customer(
+                &state.db,
+                InsertCustomerParams {
+                    customer_code: None,
+                    first_name: first.to_string(),
+                    last_name: last.to_string(),
+                    company_name: None,
+                    email: None,
+                    phone: Some(normalized_phone),
+                    address_line1: None,
+                    address_line2: None,
+                    city: None,
+                    state: None,
+                    postal_code: None,
+                    date_of_birth: None,
+                    anniversary_date: None,
+                    custom_field_1: None,
+                    custom_field_2: None,
+                    custom_field_3: None,
+                    custom_field_4: None,
+                    marketing_email_opt_in: false,
+                    marketing_sms_opt_in: false,
+                    transactional_sms_opt_in: true,
+                    transactional_email_opt_in: false,
+                    customer_created_source: crate::logic::customers::CustomerCreatedSource::Podium,
+                },
+            )
+            .await?;
+            customer_created = true;
+            spawn_meilisearch_customer_hooks(&state, id);
+            id
+        }
+    };
+
+    let row = load_customer_profile_row(&state.db, customer_id).await?;
+    let Some(ref phone) = row.phone else {
+        return Err(CustomerError::BadRequest(
+            "Customer has no phone on file".to_string(),
+        ));
+    };
+    podium::send_podium_sms_message_with_sender(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        phone,
+        text,
+        actor.sender_name.as_deref(),
+    )
+    .await
+    .map_err(|e| {
+        CustomerError::PodiumUnavailable(format!(
+            "Could not send SMS via Podium ({e}). Check Integrations and env credentials."
+        ))
+    })?;
+    let e164 = podium::normalize_phone_e164(phone.as_str());
+    podium_messaging::record_outbound_message(
+        &state.db,
+        customer_id,
+        "sms",
+        text,
+        actor.staff_id,
+        e164.as_deref(),
+        None,
+        "outbound",
+    )
+    .await
+    .map_err(CustomerError::Database)?;
+
+    Ok(Json(PostPodiumDirectSmsResponse {
+        ok: true,
+        customer_id,
+        customer_created,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct PodiumMessagingSyncBody {
+    limit: Option<i64>,
+}
+
+async fn post_podium_messaging_sync(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PodiumMessagingSyncBody>,
+) -> Result<Json<podium_messaging::PodiumSyncResult>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let result = podium_messaging::sync_recent_from_podium(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        body.limit.unwrap_or(25),
+    )
+    .await
+    .map_err(|err| CustomerError::PodiumUnavailable(err.to_string()))?;
+    Ok(Json(result))
+}
+
+async fn post_podium_conversation_read(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    podium_messaging::mark_conversation_viewed(&state.db, conversation_id).await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Debug, Deserialize)]
+struct CommunicationTimelineQuery {
+    limit: Option<i64>,
+}
+
+async fn get_customer_communication_timeline(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+    Query(q): Query<CommunicationTimelineQuery>,
+) -> Result<Json<Vec<podium_messaging::CommunicationTimelineRow>>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let rows =
+        podium_messaging::communication_timeline(&state.db, customer_id, q.limit.unwrap_or(40))
+            .await?;
     Ok(Json(rows))
 }
 

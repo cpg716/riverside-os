@@ -110,6 +110,17 @@ export interface CustomerHubData extends CustomerProfile {
   snapshot_items: CustomerSnapshotItem[];
 }
 
+type CommunicationTimelineRow = {
+  id: string;
+  source: string;
+  direction: string;
+  channel: string;
+  title: string;
+  body: string | null;
+  actor: string | null;
+  occurred_at: string;
+};
+
 function normalizeCustomerHubData(data: CustomerHubData): CustomerHubData {
   return {
     ...data,
@@ -602,6 +613,11 @@ export function CustomerRelationshipHubDrawer({
   const [podiumThreadLoadError, setPodiumThreadLoadError] = useState<
     string | null
   >(null);
+  const [communicationTimeline, setCommunicationTimeline] = useState<
+    CommunicationTimelineRow[]
+  >([]);
+  const [communicationTimelineLoading, setCommunicationTimelineLoading] =
+    useState(false);
   const [smsReplyDraft, setSmsReplyDraft] = useState("");
   const [smsReplyBusy, setSmsReplyBusy] = useState(false);
   const appliedInitialHubTab = useRef<string | null>(null);
@@ -1187,10 +1203,31 @@ export function CustomerRelationshipHubDrawer({
     }
   }, [baseUrl, customer.id, apiAuth]);
 
+  const loadCommunicationTimeline = useCallback(async () => {
+    setCommunicationTimelineLoading(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/communication-timeline?limit=30`,
+        { headers: apiAuth(), cache: "no-store" },
+      );
+      if (!res.ok) {
+        setCommunicationTimeline([]);
+        return;
+      }
+      const data = (await res.json()) as CommunicationTimelineRow[];
+      setCommunicationTimeline(Array.isArray(data) ? data : []);
+    } catch {
+      setCommunicationTimeline([]);
+    } finally {
+      setCommunicationTimelineLoading(false);
+    }
+  }, [baseUrl, customer.id, apiAuth]);
+
   useEffect(() => {
     if (!open || tab !== "messages") return;
     void loadPodiumThread();
-  }, [open, tab, loadPodiumThread]);
+    void loadCommunicationTimeline();
+  }, [open, tab, loadCommunicationTimeline, loadPodiumThread]);
 
   useEffect(() => {
     if (!open || tab !== "loyalty" || !permissionsLoaded || !canHubView || !hub) {
@@ -1370,6 +1407,7 @@ export function CustomerRelationshipHubDrawer({
       setPodiumComposeSubject("");
       setPodiumComposeHtml("");
       void loadPodiumThread();
+      void loadCommunicationTimeline();
     } finally {
       setPodiumComposeBusy(false);
     }
@@ -1400,6 +1438,7 @@ export function CustomerRelationshipHubDrawer({
       toast("SMS sent via Podium", "success");
       setSmsReplyDraft("");
       void loadPodiumThread();
+      void loadCommunicationTimeline();
     } finally {
       setSmsReplyBusy(false);
     }
@@ -2965,6 +3004,63 @@ export function CustomerRelationshipHubDrawer({
 
           {tab === "messages" && (
             <div className="space-y-6">
+              <section className="rounded-2xl border border-app-border bg-app-surface p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                      <Mail size={14} aria-hidden />
+                      Communication timeline
+                    </h3>
+                    <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                      Podium SMS, mailbox email, receipt follow-up, and review invite activity.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadCommunicationTimeline()}
+                    className="ui-btn-secondary px-2 py-1 text-[9px] font-black uppercase tracking-widest"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                {communicationTimelineLoading ? (
+                  <p className="text-xs text-app-text-muted">Loading communication history...</p>
+                ) : communicationTimeline.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-app-border bg-app-surface-2/50 px-4 py-5 text-center text-xs font-semibold text-app-text-muted">
+                    No communication activity has been recorded for this customer yet.
+                  </p>
+                ) : (
+                  <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {communicationTimeline.map((item) => (
+                      <li
+                        key={`${item.source}-${item.id}`}
+                        className="rounded-xl border border-app-border bg-app-surface-2/60 px-3 py-2"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          <span>{item.source}</span>
+                          <span>{item.channel}</span>
+                          <span>{item.direction}</span>
+                          <span className="ml-auto font-normal normal-case tracking-normal">
+                            {new Date(item.occurred_at).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm font-black text-app-text">{item.title}</p>
+                        {item.body ? (
+                          <p className="mt-1 line-clamp-2 text-xs text-app-text-muted">
+                            {formatMessagePreview(item.body, item.channel)}
+                          </p>
+                        ) : null}
+                        {item.actor ? (
+                          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                            {item.actor}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
               <section className="overflow-hidden rounded-2xl border border-app-border bg-app-surface">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-app-border bg-app-surface-2/70 px-4 py-3">
                   <div>

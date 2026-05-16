@@ -4,6 +4,7 @@ import { RefreshCw } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
 
@@ -16,6 +17,8 @@ export interface ReviewInviteRow {
   review_invite_sent_at: string | null;
   review_invite_suppressed_at: string | null;
   podium_review_invite_id: string | null;
+  podium_review_url: string | null;
+  podium_review_invite_status: string | null;
 }
 
 export interface ReviewsOperationsSectionProps {
@@ -32,12 +35,14 @@ export default function ReviewsOperationsSection({
   onDeepLinkConsumed,
 }: ReviewsOperationsSectionProps) {
   const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
   const auth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
   const [rows, setRows] = useState<ReviewInviteRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncBusy, setSyncBusy] = useState(false);
   const [txDetailFullId, setTxDetailFullId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -59,6 +64,31 @@ export default function ReviewsOperationsSection({
       setLoading(false);
     }
   }, [auth]);
+
+  const syncProviderStatus = useCallback(async () => {
+    setSyncBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/reviews/sync`, {
+        method: "POST",
+        headers: auth(),
+      });
+      if (!res.ok) {
+        toast("Could not sync Podium review status.", "error");
+        return;
+      }
+      const result = (await res.json()) as {
+        provider_rows_seen: number;
+        rows_updated: number;
+      };
+      toast(
+        `Podium reviews synced: ${result.rows_updated} ROS rows updated from ${result.provider_rows_seen} provider rows.`,
+        "success",
+      );
+      await load();
+    } finally {
+      setSyncBusy(false);
+    }
+  }, [auth, load, toast]);
 
   useEffect(() => {
     void load();
@@ -83,22 +113,35 @@ export default function ReviewsOperationsSection({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs font-medium text-app-text-muted max-w-2xl leading-relaxed">
-          Post-sale review invite decisions from the receipt summary (POS).
-          Podium review delivery is stubbed until the review API is configured;
-          this list still shows suppressed vs recorded invites.
+          Post-sale review invite decisions from the receipt summary (POS), including
+          provider ids and review links returned by Podium when available.
         </p>
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest disabled:opacity-50"
-        >
-          <RefreshCw
-            className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            aria-hidden
-          />
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void syncProviderStatus()}
+            disabled={syncBusy}
+            className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${syncBusy ? "animate-spin" : ""}`}
+              aria-hidden
+            />
+            Sync Podium
+          </button>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-xs font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              aria-hidden
+            />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -116,6 +159,7 @@ export default function ReviewsOperationsSection({
                   <th className="px-3 py-2.5">Order</th>
                   <th className="px-3 py-2.5">Customer</th>
                   <th className="px-3 py-2.5">Status</th>
+                  <th className="px-3 py-2.5">Provider</th>
                   <th className="px-3 py-2.5">When</th>
                   <th className="px-3 py-2.5 text-right">Action</th>
                 </tr>
@@ -146,16 +190,30 @@ export default function ReviewsOperationsSection({
                       <td className="px-3 py-2.5">
                         {sent ? (
                           <span className="ui-pill bg-app-success/10 text-app-success">
-                            Invite recorded
+                            {r.podium_review_invite_status ?? "Sent"}
                           </span>
                         ) : suppressed ? (
                           <span className="ui-pill bg-app-surface-2 text-app-text-muted">
-                            Suppressed
+                            {r.podium_review_invite_status ?? "Suppressed"}
                           </span>
                         ) : (
                           <span className="ui-pill bg-app-surface-2 text-app-text-muted">
                             —
                           </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-app-text-muted">
+                        {r.podium_review_url ? (
+                          <a
+                            href={r.podium_review_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-bold text-app-accent underline underline-offset-4"
+                          >
+                            Review link
+                          </a>
+                        ) : (
+                          r.podium_review_invite_id ?? "—"
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-xs text-app-text-muted">

@@ -16,6 +16,7 @@
 
 - Send **automatic** texts (e.g. pickup ready, alteration ready) using your wording.
 - Let staff **reply** to customers from the **customer profile** without opening Podium’s full Inbox.
+- Send a **manual text** from **Podium Inbox** to an existing customer or a new phone number.
 - Send **text receipts** from the POS using the standard receipt content.
 - Show **new customer texts** as **notifications** you can open into the right profile.
 
@@ -28,8 +29,8 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 | Surface | What you should see | Main actions |
 |---------|---------------------|--------------|
 | **Settings → Integrations → Podium** | Readiness line, toggles, templates, widget box | Admins: turn channels on, edit templates, **Save**; **Connect Podium** when IT says to refresh the token. |
-| **Operations → Podium Inbox** | List of recent threads | Open a row → customer hub; **Refresh** if the list looks stale. |
-| **POS → Podium Inbox** | Same shared thread list inside the POS shell | Open a row → POS Customers with **Messages** focused. |
+| **Operations → Podium Inbox** | Send Text composer, unmatched Podium queue, recent threads | Send a text to a current customer or a new phone number; open a row → customer hub; **Refresh** if the list looks stale. |
+| **POS → Podium Inbox** | Same shared inbox inside the POS shell | Send a text without leaving POS; open a row → POS Customers with **Messages** focused. |
 | **Customer hub → Messages** | Thread + compose | Read history; send **SMS**; optional Podium conversation **URL** field for deep links. |
 | **POS → Receipt summary** | Text receipt and review controls | Send text receipt if the customer wants it; optional **review invite** checkbox per store defaults. |
 | **Notification Center** | “New customer SMS” rows | Open item → deep link toward **Customers** / **Messages** when configured. |
@@ -74,16 +75,19 @@ If the authorization page says the Client ID and redirect URI do not match, regi
 ### Staff: use the SMS inbox list
 
 1. **Operations** → **Podium Inbox**.
-2. Find the customer; click to open their profile / hub.
-3. Use **Refresh** after you know a new message arrived if the row does not update.
+2. Use **Send Text** to search/select a current customer or enter a phone number.
+3. If the phone number is not already a customer, enter the customer’s **first** and **last** name before sending. Riverside creates the new contact and records the outbound message.
+4. Find an existing thread; click to open their profile / hub.
+5. Use **Refresh** after you know a new message arrived if the row does not update.
 
-**Permission:** **`customers.hub_view`**.
+**Permission:** Viewing requires **`customers.hub_view`**. Sending or creating the new contact requires **`customers.hub_edit`**.
 
 ### Staff: use the SMS inbox list from POS
 
 1. **POS** → **Podium Inbox**.
-2. Review the shared thread list without leaving the register shell.
-3. Open a row to switch into **POS → Customers** with the customer **Messages** tab focused.
+2. Use **Send Text** for a current customer or a new phone number. New phone numbers require first and last name before sending.
+3. Review the shared thread list without leaving the register shell.
+4. Open a row to switch into **POS → Customers** with the customer **Messages** tab focused.
 
 **Permission:** **`customers.hub_view`**.
 
@@ -112,6 +116,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 ## Helping a coworker or customer
 
 - **“Customer says they never got the text.”** Check **profile**: phone number, **operational** / **marketing** SMS flags per store policy; confirm the order actually hit **pickup ready** (or the right trigger). Escalate if templates or Podium toggles are wrong—do not spam resends without manager approval.
+- **“This person is not in ROS yet.”** Use **Podium Inbox → Send Text**, enter the phone number plus first and last name, and send once. Riverside creates the contact with Podium as the source so staff can complete or merge it later.
 - **“Notification won’t open the right person.”** Ask them to use **Podium Inbox** or search the customer by name/code, then open **Messages** manually; IT verifies **webhook** configuration if links are consistently wrong.
 - **Never** paste Podium **secrets**, **refresh tokens**, or **webhook signing keys** into chat or bug reports—only managers/IT handle those on the server.
 
@@ -126,6 +131,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **Podium page says Client ID and redirect URI do not match** | Stop and check the callback URL registered in Podium | IT updates the Podium developer app to match Riverside exactly |
 | **Podium consent page says something went wrong** | Do not retry repeatedly; check whether the Podium app has message/location/review scopes enabled | IT / Podium support |
 | **No Messages tab** | Confirm **Relationship Hub** access | [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md) |
+| **Send Text button stays disabled** | Add message text; for new numbers add phone, first name, and last name | Manager checks **customers.hub_edit** |
 | **Send failed / Podium unavailable** | Readiness + toggles + location UID | Manager / IT |
 | **Automated SMS never fires** | Customer **opt-in** + valid phone + template not empty | Admin + [Podium_Integration_Manual.md](Podium_Integration_Manual.md) |
 | **Inbound customer texts never appear** | Confirm the public webhook URL is registered and tunnel/public host is running | IT checks webhook secret/signature and event types |
@@ -152,4 +158,4 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 - [pos-register-cart.md](pos-register-cart.md) — Register and receipt flow.
 - [operations-home.md](operations-home.md) — Operations home and Reviews.
 
-**Last reviewed:** 2026-04-08
+**Last reviewed:** 2026-05-15

@@ -1,7 +1,7 @@
 //! Podium post-sale review invite tracking.
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
 use thiserror::Error;
@@ -153,11 +153,12 @@ pub async fn apply_post_sale_review_choice(
         if suppressed_at.is_none() {
             sqlx::query(
                 r#"
-                UPDATE transactions
-                SET review_invite_suppressed_at = NOW(),
-                    podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_staff_skipped')
-                WHERE id = $1
-                "#,
+            UPDATE transactions
+            SET review_invite_suppressed_at = NOW(),
+                podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_staff_skipped'),
+                podium_review_invite_status = 'suppressed'
+            WHERE id = $1
+            "#,
             )
             .bind(transaction_id)
             .execute(&mut *tx)
@@ -191,7 +192,8 @@ pub async fn apply_post_sale_review_choice(
             r#"
             UPDATE transactions
             SET review_invite_suppressed_at = NOW(),
-                podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_skipped_recent_180d')
+                podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_skipped_recent_180d'),
+                podium_review_invite_status = 'skipped_recent_180d'
             WHERE id = $1
             "#,
         )
@@ -215,7 +217,8 @@ pub async fn apply_post_sale_review_choice(
             r#"
             UPDATE transactions
             SET review_invite_suppressed_at = NOW(),
-                podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_skipped_no_contact')
+                podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_skipped_no_contact'),
+                podium_review_invite_status = 'skipped_no_contact'
             WHERE id = $1
             "#,
         )
@@ -247,7 +250,9 @@ pub async fn apply_post_sale_review_choice(
         r#"
         UPDATE transactions
         SET review_invite_sent_at = NOW(),
-            podium_review_invite_id = $2
+            podium_review_invite_id = $2,
+            podium_review_url = $3,
+            podium_review_invite_status = 'sent'
         WHERE id = $1
           AND review_invite_sent_at IS NULL
           AND review_invite_suppressed_at IS NULL
@@ -255,6 +260,7 @@ pub async fn apply_post_sale_review_choice(
     )
     .bind(transaction_id)
     .bind(final_provider_id)
+    .bind(invite.review_url.as_deref())
     .execute(pool)
     .await?;
 
@@ -304,6 +310,82 @@ pub struct ReviewInviteListRow {
     pub review_invite_sent_at: Option<chrono::DateTime<chrono::Utc>>,
     pub review_invite_suppressed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub podium_review_invite_id: Option<String>,
+    pub podium_review_url: Option<String>,
+    pub podium_review_invite_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewInviteSyncResult {
+    pub provider_rows_seen: usize,
+    pub rows_updated: u64,
+}
+
+fn text_at(value: &Value, paths: &[&str]) -> Option<String> {
+    paths.iter().find_map(|path| {
+        value
+            .pointer(path)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+    })
+}
+
+pub async fn sync_review_invites_from_podium(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+    limit: i64,
+) -> Result<ReviewInviteSyncResult, ReviewInviteError> {
+    let rows = podium::fetch_podium_review_invites(pool, http, podium_cache, limit).await?;
+    let mut updated = 0;
+    for row in &rows {
+        let Some(provider_id) = text_at(
+            row,
+            &[
+                "/id",
+                "/uid",
+                "/inviteId",
+                "/data/id",
+                "/data/uid",
+                "/data/inviteId",
+            ],
+        ) else {
+            continue;
+        };
+        let status = text_at(row, &["/status", "/state", "/data/status", "/data/state"]);
+        let url = text_at(
+            row,
+            &[
+                "/url",
+                "/link",
+                "/reviewUrl",
+                "/shortUrl",
+                "/data/url",
+                "/data/link",
+                "/data/reviewUrl",
+                "/data/shortUrl",
+            ],
+        );
+        let result = sqlx::query(
+            r#"
+            UPDATE transactions
+            SET podium_review_invite_status = COALESCE($2, podium_review_invite_status),
+                podium_review_url = COALESCE($3, podium_review_url)
+            WHERE podium_review_invite_id = $1
+            "#,
+        )
+        .bind(provider_id)
+        .bind(status.as_deref())
+        .bind(url.as_deref())
+        .execute(pool)
+        .await?;
+        updated += result.rows_affected();
+    }
+    Ok(ReviewInviteSyncResult {
+        provider_rows_seen: rows.len(),
+        rows_updated: updated,
+    })
 }
 
 pub async fn list_review_invite_rows(
@@ -321,7 +403,9 @@ pub async fn list_review_invite_rows(
             c.last_name,
             o.review_invite_sent_at,
             o.review_invite_suppressed_at,
-            o.podium_review_invite_id
+            o.podium_review_invite_id,
+            o.podium_review_url,
+            o.podium_review_invite_status
         FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
         WHERE o.review_invite_sent_at IS NOT NULL

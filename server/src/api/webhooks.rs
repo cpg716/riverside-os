@@ -25,7 +25,8 @@ use crate::logic::helcim;
 use crate::logic::podium_inbound;
 use crate::logic::podium_webhook::{
     podium_inbound_crm_ingest_enabled, record_podium_webhook_delivery,
-    verify_podium_webhook_headers, PodiumWebhookDisposition, PodiumWebhookVerifyError,
+    record_podium_webhook_failure, verify_podium_webhook_headers, PodiumWebhookDisposition,
+    PodiumWebhookVerifyError,
 };
 
 const HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES: i64 = 10;
@@ -220,6 +221,15 @@ async fn post_podium_webhook(
             | PodiumWebhookVerifyError::StaleTimestamp => StatusCode::BAD_REQUEST,
         };
         tracing::warn!(target = "podium_webhook", event = "verify_failed", reason = %e);
+        if let Err(record_error) =
+            record_podium_webhook_failure(&state.db, raw, &e.to_string(), status.as_u16()).await
+        {
+            tracing::warn!(
+                target = "podium_webhook",
+                event = "failure_record_failed",
+                error = %record_error
+            );
+        }
         return status.into_response();
     }
 
@@ -227,6 +237,20 @@ async fn post_podium_webhook(
         Ok(v) => v,
         Err(e) => {
             tracing::warn!(target = "podium_webhook", event = "invalid_json", error = %e);
+            if let Err(record_error) = record_podium_webhook_failure(
+                &state.db,
+                raw,
+                "invalid json",
+                StatusCode::BAD_REQUEST.as_u16(),
+            )
+            .await
+            {
+                tracing::warn!(
+                    target = "podium_webhook",
+                    event = "failure_record_failed",
+                    error = %record_error
+                );
+            }
             return StatusCode::BAD_REQUEST.into_response();
         }
     };

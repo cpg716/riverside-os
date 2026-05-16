@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Windows desktop app recovery for the Backoffice / Server PC: when the local API is unreachable on sign-in, the app can start the installed `Riverside OS Server` scheduled task and retry the staff roster check.
 - Added a single-release version contract: `/api/version` exposes the server release, `npm run check:version` verifies root/client/server/Tauri metadata parity, and Windows release workflows fail when release metadata disagrees.
 - Added the POS Wedding Register workflow documentation covering customer wedding detection, checklist-driven item add, measurement gating, and Wedding Manager source-of-truth rules.
+- Added Podium Inbox direct texting: staff can send SMS to an existing customer or enter a new phone number with first/last name to create a Podium-sourced contact before sending.
+- Added Podium communications hardening for inbox health, provider sync, unmatched conversation review, webhook failure logging, mailbox/customer communication timeline visibility, and review invite provider status sync.
 
 ### Changed
 - Updated v0.50 GOLD release-certification documentation to reflect the 2026-05-14 Playwright evidence: the standard release gate passed with 310 passed / 31 skipped / 0 failed, and the previously skipped environment/visual-gated lanes were certified separately with 31 passed / 0 skipped / 0 failed.

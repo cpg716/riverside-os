@@ -550,6 +550,18 @@ fn podium_review_invites_url(base_url: &str) -> String {
     format!("{}/v4/reviews/invites", base_url.trim_end_matches('/'))
 }
 
+fn podium_conversations_url(base_url: &str) -> String {
+    format!("{}/v4/conversations", base_url.trim_end_matches('/'))
+}
+
+fn podium_conversation_messages_url(base_url: &str, conversation_uid: &str) -> String {
+    format!(
+        "{}/v4/conversations/{}/messages",
+        base_url.trim_end_matches('/'),
+        conversation_uid
+    )
+}
+
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: String,
@@ -878,6 +890,111 @@ pub async fn create_podium_review_invite(
         review_url,
         raw_response,
     })
+}
+
+fn values_from_collection(value: Value) -> Vec<Value> {
+    if let Some(items) = value.get("data").and_then(Value::as_array) {
+        return items.clone();
+    }
+    if let Some(items) = value.get("items").and_then(Value::as_array) {
+        return items.clone();
+    }
+    if let Some(items) = value.get("conversations").and_then(Value::as_array) {
+        return items.clone();
+    }
+    if let Some(items) = value.get("messages").and_then(Value::as_array) {
+        return items.clone();
+    }
+    if let Some(items) = value.as_array() {
+        return items.clone();
+    }
+    Vec::new()
+}
+
+pub async fn fetch_podium_conversations(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    limit: i64,
+) -> Result<Vec<Value>, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let cfg = load_store_podium_config(pool).await.map_err(|e| {
+        tracing::error!(error = %e, "podium load_store_podium_config failed (conversation sync)");
+        PodiumError::NotConfigured
+    })?;
+    let token = get_valid_access_token(http, token_cache, &creds).await?;
+    let mut req = add_podium_headers(
+        http.get(podium_conversations_url(&creds.api_base_url)),
+        Some(&token),
+    )
+    .query(&[("limit", limit.clamp(1, 100))]);
+    let loc = cfg.location_uid.trim();
+    if !loc.is_empty() {
+        req = req.query(&[("locationUid", loc)]);
+    }
+    let res = req.send().await?;
+    let status = res.status();
+    if !status.is_success() {
+        return Err(PodiumError::SendHttp(status.as_u16()));
+    }
+    let value = res.json::<Value>().await.unwrap_or_else(|_| json!({}));
+    Ok(values_from_collection(value))
+}
+
+pub async fn fetch_podium_conversation_messages(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    conversation_uid: &str,
+    limit: i64,
+) -> Result<Vec<Value>, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let token = get_valid_access_token(http, token_cache, &creds).await?;
+    let res = add_podium_headers(
+        http.get(podium_conversation_messages_url(
+            &creds.api_base_url,
+            conversation_uid,
+        )),
+        Some(&token),
+    )
+    .query(&[("limit", limit.clamp(1, 100))])
+    .send()
+    .await?;
+    let status = res.status();
+    if !status.is_success() {
+        return Err(PodiumError::SendHttp(status.as_u16()));
+    }
+    let value = res.json::<Value>().await.unwrap_or_else(|_| json!({}));
+    Ok(values_from_collection(value))
+}
+
+pub async fn fetch_podium_review_invites(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    limit: i64,
+) -> Result<Vec<Value>, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let token = get_valid_access_token(http, token_cache, &creds).await?;
+    let res = add_podium_headers(
+        http.get(podium_review_invites_url(&creds.api_base_url)),
+        Some(&token),
+    )
+    .query(&[("limit", limit.clamp(1, 100))])
+    .send()
+    .await?;
+    let status = res.status();
+    if !status.is_success() {
+        return Err(PodiumError::ReviewInviteHttp(status.as_u16()));
+    }
+    let value = res.json::<Value>().await.unwrap_or_else(|_| json!({}));
+    Ok(values_from_collection(value))
 }
 
 /// Send one SMS via Podium (`channel.type`: `phone`); returns error for API callers (e.g. POS receipt).

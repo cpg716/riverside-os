@@ -21,8 +21,8 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 
 | Key | Routes (representative) |
 |-----|---------------------------|
-| **`customers.hub_view`** | `GET /api/customers/{id}/hub`, `GET …/profile`, `GET …/weddings`, `GET /api/customers/{id}` (profile row), `GET …/store-credit` (summary), `GET …/open-deposit` (party-deposit balance + ledger preview) |
-| **`customers.hub_edit`** | `PATCH /api/customers/{id}` (includes **`marketing_*_opt_in`**, **`transactional_sms_opt_in`** for operational pickup/alteration texts — migration **71**) |
+| **`customers.hub_view`** | `GET /api/customers/{id}/hub`, `GET …/profile`, `GET …/weddings`, `GET /api/customers/{id}` (profile row), `GET …/store-credit` (summary), `GET …/open-deposit` (party-deposit balance + ledger preview), `GET /api/customers/podium/messaging-inbox`, `GET /api/customers/podium/messaging-health`, `GET /api/customers/podium/messaging-unmatched` |
+| **`customers.hub_edit`** | `PATCH /api/customers/{id}` (includes **`marketing_*_opt_in`**, **`transactional_sms_opt_in`** for operational pickup/alteration texts — migration **71**), `POST /api/customers/{id}/podium/messages`, `POST /api/customers/podium/direct-sms`, `POST /api/customers/podium/messaging-sync` |
 | **`customers.timeline`** | `GET …/timeline` (includes **shipping** activity from **`shipment_event`** for this customer), `POST …/notes` |
 | **`customers.measurements`** | `GET …/measurements`, `PATCH …/measurements` |
 | **`orders.view`** | `GET …/order-history` (hub **Transactions** tab - includes joint partner history if linked) |
@@ -101,4 +101,4 @@ Missing permission returns **403** with `{ "error": "missing permission", "permi
 - [`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md) — browse / order-history paging  
 - [`AGENTS.md`](../AGENTS.md) — migrations **63**–**64** summary (hub keys + cashier duplicate/merge defaults)  
 
-**Last reviewed:** 2026-04-09 (migration **110** — **Joint Couple Accounts**, **`customers.couple_manage`**)
+**Last reviewed:** 2026-05-15 (Podium Inbox direct SMS + active baseline migration **028** communications hardening)

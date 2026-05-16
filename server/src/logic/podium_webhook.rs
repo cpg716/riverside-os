@@ -184,6 +184,32 @@ pub async fn record_podium_webhook_delivery(
     Ok(PodiumWebhookDisposition::Accepted)
 }
 
+pub async fn record_podium_webhook_failure(
+    pool: &PgPool,
+    raw_body: &[u8],
+    reason: &str,
+    http_status: u16,
+) -> Result<(), sqlx::Error> {
+    let sha_hex = payload_sha256_hex(raw_body);
+    let raw_excerpt = String::from_utf8_lossy(raw_body)
+        .chars()
+        .take(512)
+        .collect::<String>();
+    sqlx::query(
+        r#"
+        INSERT INTO podium_webhook_failure (reason, http_status, payload_sha256_hex, raw_excerpt)
+        VALUES ($1, $2, $3, $4)
+        "#,
+    )
+    .bind(reason)
+    .bind(i32::from(http_status))
+    .bind(sha_hex)
+    .bind(raw_excerpt)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
