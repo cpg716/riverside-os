@@ -538,6 +538,8 @@ export default function StaffWorkspace({
                 sales_mtd: 0,
                 avatar_key: "ros_default",
                 max_discount_percent: 0,
+                podium_user_uid: null,
+                podium_display_name: null,
               } as HubRow);
             }}
             className="ui-btn-primary px-4 py-2 flex items-center gap-2"

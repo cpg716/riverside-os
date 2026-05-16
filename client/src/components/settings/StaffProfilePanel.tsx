@@ -45,6 +45,8 @@ interface StaffProfile {
   max_discount_percent: string;
   employee_customer_code: string | null;
   notification_preferences: NotificationPreferences;
+  podium_user_uid: string | null;
+  podium_display_name: string | null;
 }
 
 type NotificationPreferences = {
@@ -134,6 +136,8 @@ export default function StaffProfilePanel() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [avatarKey, setAvatarKey] = useState("");
+  const [podiumUserUid, setPodiumUserUid] = useState("");
+  const [podiumDisplayName, setPodiumDisplayName] = useState("");
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(
     DEFAULT_NOTIFICATION_PREFERENCES,
   );
@@ -153,6 +157,8 @@ export default function StaffProfilePanel() {
       setEmail(data.email || "");
       setPhone(data.phone || "");
       setAvatarKey(data.avatar_key);
+      setPodiumUserUid(data.podium_user_uid || "");
+      setPodiumDisplayName(data.podium_display_name || "");
       setNotificationPreferences(
         normalizeNotificationPreferences(data.notification_preferences),
       );
@@ -181,6 +187,8 @@ export default function StaffProfilePanel() {
           email: email.trim() || null,
           phone: phone.trim() || null,
           avatar_key: avatarKey,
+          podium_user_uid: podiumUserUid.trim(),
+          podium_display_name: podiumDisplayName.trim(),
           notification_preferences: notificationPreferences,
         }),
       });
@@ -418,6 +426,34 @@ export default function StaffProfilePanel() {
                   onChange={(e) => setPhone(e.target.value)}
                   className="ui-input w-full px-6 h-16 font-black text-lg bg-app-surface-2"
                   placeholder="(555) 000-0000"
+                />
+              </label>
+
+              <label className="block space-y-3">
+                <span className="text-[11px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-2">
+                  <User size={12} className="text-app-accent" />
+                  Podium User ID
+                </span>
+                <input
+                  type="text"
+                  value={podiumUserUid}
+                  onChange={(e) => setPodiumUserUid(e.target.value)}
+                  className="ui-input w-full px-6 h-16 font-black text-sm bg-app-surface-2"
+                  placeholder="senderUid from Podium"
+                />
+              </label>
+
+              <label className="block space-y-3">
+                <span className="text-[11px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-2">
+                  <Mail size={12} className="text-app-accent" />
+                  Podium Display Name
+                </span>
+                <input
+                  type="text"
+                  value={podiumDisplayName}
+                  onChange={(e) => setPodiumDisplayName(e.target.value)}
+                  className="ui-input w-full px-6 h-16 font-black text-sm bg-app-surface-2"
+                  placeholder="Optional"
                 />
               </label>
 

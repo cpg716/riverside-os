@@ -38,6 +38,8 @@ export interface HubRow {
   employment_end_date?: string | null;
   employee_customer_id?: string | null;
   employee_customer_code?: string | null;
+  podium_user_uid?: string | null;
+  podium_display_name?: string | null;
 }
 
 interface WeeklyAvailabilityEntry {
@@ -123,6 +125,8 @@ export default function StaffEditDrawer({
   );
   const [employeeCustomerCode, setEmployeeCustomerCode] = useState("");
   const [detachEmployeeCustomer, setDetachEmployeeCustomer] = useState(false);
+  const [podiumUserUid, setPodiumUserUid] = useState("");
+  const [podiumDisplayName, setPodiumDisplayName] = useState("");
 
   // Attendance State
   const [weeklyAvailability, setWeeklyAvailability] = useState<WeeklyAvailabilityEntry[]>([]);
@@ -188,6 +192,8 @@ export default function StaffEditDrawer({
     setEmployeeCustomerId(staff.employee_customer_id ?? null);
     setEmployeeCustomerCode(staff.employee_customer_code ?? "");
     setDetachEmployeeCustomer(false);
+    setPodiumUserUid(staff.podium_user_uid ?? "");
+    setPodiumDisplayName(staff.podium_display_name ?? "");
     setNewPin("");
 
     if (staff.role !== "admin") {
@@ -226,6 +232,8 @@ export default function StaffEditDrawer({
         max_discount_percent: disc,
         employment_start_date: employmentStart.trim() || null,
         employment_end_date: employmentEnd.trim() || null,
+        podium_user_uid: podiumUserUid.trim() || "",
+        podium_display_name: podiumDisplayName.trim() || "",
       };
 
       const baseChanged =
@@ -567,6 +575,28 @@ export default function StaffEditDrawer({
                       onChange={(e) => setEmail(e.target.value)}
                       className="ui-input w-full text-xs"
                       placeholder="Optional"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[9px] font-black uppercase text-app-text-muted mb-1 block">
+                      Podium User ID
+                    </span>
+                    <input
+                      value={podiumUserUid}
+                      onChange={(e) => setPodiumUserUid(e.target.value)}
+                      className="ui-input w-full text-xs"
+                      placeholder="From Podium senderUid"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[9px] font-black uppercase text-app-text-muted mb-1 block">
+                      Podium Name
+                    </span>
+                    <input
+                      value={podiumDisplayName}
+                      onChange={(e) => setPodiumDisplayName(e.target.value)}
+                      className="ui-input w-full text-xs"
+                      placeholder="Optional display match"
                     />
                   </label>
                 </div>

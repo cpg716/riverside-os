@@ -175,6 +175,20 @@ fn extract_podium_outbound_sender_name(value: &Value) -> Option<String> {
     None
 }
 
+fn extract_podium_sender_uid(value: &Value) -> Option<String> {
+    extract_text(
+        value,
+        &[
+            "/data/senderUid",
+            "/senderUid",
+            "/data/sender/uid",
+            "/sender/uid",
+            "/data/message/senderUid",
+            "/data/message/sender/uid",
+        ],
+    )
+}
+
 async fn find_customer_by_phone(pool: &PgPool, e164: &str) -> Result<Option<Uuid>, sqlx::Error> {
     let digits: String = e164.chars().filter(|c| c.is_ascii_digit()).collect();
     let tail_rev: String = digits
@@ -334,6 +348,11 @@ pub async fn ingest_from_webhook(
     let is_outbound = podium_webhook_is_outbound(value);
     let podium_sender_name = if is_outbound {
         extract_podium_outbound_sender_name(value)
+    } else {
+        None
+    };
+    let podium_sender_uid = if is_outbound {
+        extract_podium_sender_uid(value)
     } else {
         None
     };
@@ -572,13 +591,31 @@ pub async fn ingest_from_webhook(
     };
 
     let msg_direction = if is_outbound { "outbound" } else { "inbound" };
+    let mapped_staff_id: Option<Uuid> = if let Some(uid) = podium_sender_uid.as_deref() {
+        match sqlx::query_scalar(
+            "SELECT id FROM staff WHERE podium_user_uid = $1 AND is_active = TRUE LIMIT 1",
+        )
+        .bind(uid)
+        .fetch_optional(&mut *tx)
+        .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::warn!(error = %e, podium_sender_uid = %uid, "podium sender staff lookup failed");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     if let Err(e) = sqlx::query(
         r#"
         INSERT INTO podium_message (
-            conversation_id, direction, channel, body, podium_message_uid, raw_payload, podium_sender_name
+            conversation_id, direction, channel, body, podium_message_uid, raw_payload,
+            podium_sender_name, podium_sender_uid, staff_id
         )
-        VALUES ($1, $6, $2, $3, $4, $5, $7)
+        VALUES ($1, $6, $2, $3, $4, $5, $7, $8, $9)
         "#,
     )
     .bind(conv_id)
@@ -588,6 +625,8 @@ pub async fn ingest_from_webhook(
     .bind(value)
     .bind(msg_direction)
     .bind(podium_sender_name.as_deref())
+    .bind(podium_sender_uid.as_deref())
+    .bind(mapped_staff_id)
     .execute(&mut *tx)
     .await
     {

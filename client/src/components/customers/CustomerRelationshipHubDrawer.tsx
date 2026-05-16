@@ -300,6 +300,7 @@ function customerTimelineKindLabel(kind: string): string {
 function podiumThreadSentByLabel(m: {
   direction: string;
   staff_full_name?: string | null;
+  podium_sender_uid?: string | null;
   podium_sender_name?: string | null;
 }): string {
   const d = m.direction;
@@ -308,9 +309,9 @@ function podiumThreadSentByLabel(m: {
   if (d === "outbound") {
     const ros = m.staff_full_name?.trim();
     if (ros) return ros;
-    const podium = m.podium_sender_name?.trim();
+    const podium = m.podium_sender_uid ? m.podium_sender_name?.trim() : "";
     if (podium) return podium;
-    return "Riverside";
+    return "Podium";
   }
   return d;
 }
@@ -628,7 +629,6 @@ export function CustomerRelationshipHubDrawer({
     useState("");
   const ordersFilterRef = useRef({ from: "", to: "" });
   ordersFilterRef.current = { from: ordersDateFrom, to: ordersDateTo };
-  const [podiumUrlDraft, setPodiumUrlDraft] = useState("");
   const [podiumComposeSubject, setPodiumComposeSubject] = useState("");
   const [podiumComposeHtml, setPodiumComposeHtml] = useState("");
   const [podiumComposeBusy, setPodiumComposeBusy] = useState(false);
@@ -652,11 +652,13 @@ export function CustomerRelationshipHubDrawer({
     {
       id: string;
       conversation_id: string;
+      podium_conversation_uid: string | null;
       direction: string;
       channel: string;
       body: string;
       staff_id: string | null;
       staff_full_name: string | null;
+      podium_sender_uid: string | null;
       podium_sender_name: string | null;
       created_at: string;
     }[]
@@ -673,7 +675,6 @@ export function CustomerRelationshipHubDrawer({
   const [smsReplyDraft, setSmsReplyDraft] = useState("");
   const [smsReplyBusy, setSmsReplyBusy] = useState(false);
   const appliedInitialHubTab = useRef<string | null>(null);
-  const [podiumUrlSaving, setPodiumUrlSaving] = useState(false);
   const [coupleLinkingBusy, setCoupleLinkingBusy] = useState(false);
   /** When true, shows the couple partner selection popover/modal. */
   const [showCouplePicker, setShowCouplePicker] = useState(false);
@@ -685,11 +686,6 @@ export function CustomerRelationshipHubDrawer({
     phone: "",
   });
   const [duplicateEnqueueBusy, setDuplicateEnqueueBusy] = useState(false);
-
-  useEffect(() => {
-    if (!hub) return;
-    setPodiumUrlDraft(hub.podium_conversation_url ?? "");
-  }, [hub]);
 
   useEffect(() => {
     if (!open) profileDraftInit.current = false;
@@ -1339,6 +1335,17 @@ export function CustomerRelationshipHubDrawer({
       ),
     [emailThread],
   );
+  const podiumConversationUid = useMemo(
+    () =>
+      [...podiumThread]
+        .reverse()
+        .map((message) => message.podium_conversation_uid?.trim())
+        .find((uid): uid is string => Boolean(uid)) ?? null,
+    [podiumThread],
+  );
+  const podiumConversationHref = podiumConversationUid
+    ? `https://app.podium.com/inbox/redirect-messages/${encodeURIComponent(podiumConversationUid)}`
+    : null;
 
   useEffect(() => {
     if (!open || tab !== "loyalty" || !permissionsLoaded || !canHubView || !hub) {
@@ -1475,20 +1482,6 @@ export function CustomerRelationshipHubDrawer({
     }
     setHighlightMissingProfileFields(false);
     setTab(target);
-  };
-
-  const savePodiumConversationUrl = async () => {
-    if (!canHubEdit) return;
-    setPodiumUrlSaving(true);
-    try {
-      const trimmed = podiumUrlDraft.trim();
-      const ok = await patchCustomer({
-        podium_conversation_url: trimmed.length > 0 ? trimmed : null,
-      });
-      if (ok) toast("Podium conversation link saved", "success");
-    } finally {
-      setPodiumUrlSaving(false);
-    }
   };
 
   const sendPodiumEmail = async () => {
@@ -3639,38 +3632,22 @@ export function CustomerRelationshipHubDrawer({
                   Open in Podium
                 </h3>
                 <p className="mb-3 text-xs text-app-text-muted leading-relaxed">
-                  Optional shortcut to this customer&apos;s thread in Podium.
+                  Opens the linked Podium conversation when Podium has provided a conversation ID.
                 </p>
-                <input
-                  type="url"
-                  value={podiumUrlDraft}
-                  onChange={(e) => setPodiumUrlDraft(e.target.value)}
-                  disabled={!canHubEdit}
-                  placeholder="https://…"
-                  className="ui-input mb-3 w-full px-3 py-2 text-sm"
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  {canHubEdit ? (
-                    <button
-                      type="button"
-                      disabled={podiumUrlSaving}
-                      onClick={() => void savePodiumConversationUrl()}
-                      className="rounded-xl bg-app-accent px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
-                    >
-                      {podiumUrlSaving ? "Saving…" : "Save link"}
-                    </button>
-                  ) : null}
-                  {hub.podium_conversation_url ? (
-                    <a
-                      href={hub.podium_conversation_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[10px] font-black uppercase tracking-widest text-app-accent underline"
-                    >
-                      Open saved link
-                    </a>
-                  ) : null}
-                </div>
+                {podiumConversationHref ? (
+                  <a
+                    href={podiumConversationHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex rounded-xl bg-app-accent px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white"
+                  >
+                    Open conversation
+                  </a>
+                ) : (
+                  <p className="rounded-xl border border-dashed border-app-border bg-app-surface px-3 py-2 text-xs text-app-text-muted">
+                    No linked Podium conversation is available yet.
+                  </p>
+                )}
               </section>
             </div>
           )}

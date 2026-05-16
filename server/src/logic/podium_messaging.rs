@@ -14,12 +14,14 @@ use crate::logic::podium::{self, PodiumTokenCache};
 pub struct PodiumMessageApiRow {
     pub id: Uuid,
     pub conversation_id: Uuid,
+    pub podium_conversation_uid: Option<String>,
     pub direction: String,
     pub channel: String,
     pub body: String,
     pub staff_id: Option<Uuid>,
     /// `staff.full_name` when `staff_id` is set (staff-sent outbound from ROS).
     pub staff_full_name: Option<String>,
+    pub podium_sender_uid: Option<String>,
     /// Display name from Podium (webhook) when staff replied in Podium, not via ROS.
     pub podium_sender_name: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -102,16 +104,23 @@ pub async fn list_messages_for_customer(
         SELECT
             m.id,
             m.conversation_id,
+            c.podium_conversation_uid,
             m.direction,
             m.channel,
             m.body,
-            m.staff_id,
-            s.full_name AS staff_full_name,
+            COALESCE(m.staff_id, podium_staff.id) AS staff_id,
+            COALESCE(s.full_name, podium_staff.full_name) AS staff_full_name,
+            m.podium_sender_uid,
             m.podium_sender_name,
             m.created_at
         FROM podium_message m
         JOIN podium_conversation c ON c.id = m.conversation_id
         LEFT JOIN staff s ON s.id = m.staff_id
+        LEFT JOIN staff podium_staff
+          ON m.staff_id IS NULL
+         AND m.podium_sender_uid IS NOT NULL
+         AND podium_staff.podium_user_uid = m.podium_sender_uid
+         AND podium_staff.is_active = TRUE
         WHERE c.customer_id = $1
         ORDER BY m.created_at ASC
         "#,
@@ -479,6 +488,20 @@ fn text_at(value: &Value, paths: &[&str]) -> Option<String> {
             .filter(|s| !s.is_empty())
             .map(ToOwned::to_owned)
     })
+}
+
+fn sender_uid(value: &Value) -> Option<String> {
+    text_at(
+        value,
+        &[
+            "/senderUid",
+            "/sender/uid",
+            "/data/senderUid",
+            "/data/sender/uid",
+            "/data/message/senderUid",
+            "/data/message/sender/uid",
+        ],
+    )
 }
 
 fn timestamp_at(value: &Value, paths: &[&str]) -> Option<DateTime<Utc>> {
@@ -852,14 +875,10 @@ async fn upsert_synced_message(
     let last_at = timestamp_at(conversation, &["/lastItemAt", "/updatedAt", "/createdAt"])
         .unwrap_or(created_at);
     let direction = message_direction(message);
+    let podium_sender_uid = sender_uid(message);
     let sender = text_at(
         message,
-        &[
-            "/sender/name",
-            "/sender/displayName",
-            "/contactName",
-            "/data/sender/name",
-        ],
+        &["/sender/name", "/sender/displayName", "/data/sender/name"],
     );
     let provider_status = provider_status(conversation);
     let provider_assignee_name = provider_assignee_name(conversation);
@@ -892,14 +911,24 @@ async fn upsert_synced_message(
     .bind(provider_assignee_name.as_deref())
     .fetch_one(&mut *tx)
     .await?;
+    let mapped_staff_id: Option<Uuid> = if let Some(uid) = podium_sender_uid.as_deref() {
+        sqlx::query_scalar(
+            "SELECT id FROM staff WHERE podium_user_uid = $1 AND is_active = TRUE LIMIT 1",
+        )
+        .bind(uid)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        None
+    };
 
     let inserted = sqlx::query_scalar::<_, Option<Uuid>>(
         r#"
         INSERT INTO podium_message (
             conversation_id, direction, channel, body, podium_message_uid, raw_payload,
-            podium_sender_name, created_at
+            podium_sender_name, podium_sender_uid, staff_id, created_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (podium_message_uid)
         WHERE podium_message_uid IS NOT NULL AND trim(podium_message_uid) <> ''
         DO NOTHING
@@ -913,6 +942,8 @@ async fn upsert_synced_message(
     .bind(msg_uid.as_ref())
     .bind(message)
     .bind(sender.as_deref())
+    .bind(podium_sender_uid.as_deref())
+    .bind(mapped_staff_id)
     .bind(created_at)
     .fetch_optional(&mut *tx)
     .await?;
@@ -1025,11 +1056,16 @@ pub async fn communication_timeline(
                     ELSE 'Podium reply'
                 END AS title,
                 pm.body AS body,
-                COALESCE(s.full_name, pm.podium_sender_name) AS actor,
+                COALESCE(s.full_name, podium_staff.full_name, pm.podium_sender_name) AS actor,
                 pm.created_at AS occurred_at
             FROM podium_message pm
             JOIN podium_conversation pc ON pc.id = pm.conversation_id
             LEFT JOIN staff s ON s.id = pm.staff_id
+            LEFT JOIN staff podium_staff
+              ON pm.staff_id IS NULL
+             AND pm.podium_sender_uid IS NOT NULL
+             AND podium_staff.podium_user_uid = pm.podium_sender_uid
+             AND podium_staff.is_active = TRUE
             WHERE pc.customer_id = $1
 
             UNION ALL

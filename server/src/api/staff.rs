@@ -92,6 +92,8 @@ pub struct StaffHubRow {
     pub employee_customer_id: Option<Uuid>,
     pub employee_customer_code: Option<String>,
     pub notification_preferences: serde_json::Value,
+    pub podium_user_uid: Option<String>,
+    pub podium_display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,6 +148,10 @@ pub struct PatchStaffRequest {
     pub detach_employee_customer: bool,
     #[serde(default)]
     pub cashier_code: Option<String>,
+    #[serde(default)]
+    pub podium_user_uid: Option<String>,
+    #[serde(default)]
+    pub podium_display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -500,7 +506,9 @@ async fn self_get_profile(
             s.employment_end_date,
             s.employee_customer_id,
             NULLIF(trim(c.customer_code), '') AS employee_customer_code,
-            COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences
+            COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences,
+            NULLIF(trim(s.podium_user_uid), '') AS podium_user_uid,
+            NULLIF(trim(s.podium_display_name), '') AS podium_display_name
         FROM staff s
         LEFT JOIN customers c ON c.id = s.employee_customer_id
         WHERE s.id = $1
@@ -521,6 +529,10 @@ pub struct PatchSelfRequest {
     pub avatar_key: Option<String>,
     pub notification_preferences: Option<notifications::StaffNotificationPreferences>,
     pub employee_customer_id: Option<Uuid>,
+    #[serde(default)]
+    pub podium_user_uid: Option<String>,
+    #[serde(default)]
+    pub podium_display_name: Option<String>,
     #[serde(default)]
     pub detach_employee_customer: bool,
 }
@@ -589,6 +601,32 @@ async fn self_patch_profile(
     if let Some(ref prefs) = body.notification_preferences {
         sqlx::query("UPDATE staff SET notification_preferences = $1 WHERE id = $2")
             .bind(serde_json::to_value(prefs).unwrap_or_else(|_| json!({})))
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if let Some(ref uid) = body.podium_user_uid {
+        let trimmed = uid.trim();
+        sqlx::query("UPDATE staff SET podium_user_uid = $1 WHERE id = $2")
+            .bind(if trimmed.is_empty() {
+                None::<String>
+            } else {
+                Some(trimmed.to_string())
+            })
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if let Some(ref name) = body.podium_display_name {
+        let trimmed = name.trim();
+        sqlx::query("UPDATE staff SET podium_display_name = $1 WHERE id = $2")
+            .bind(if trimmed.is_empty() {
+                None::<String>
+            } else {
+                Some(trimmed.to_string())
+            })
             .bind(staff.id)
             .execute(&mut *tx)
             .await?;
@@ -861,7 +899,9 @@ async fn admin_roster(
             s.employment_end_date,
             s.employee_customer_id,
             NULLIF(trim(c.customer_code), '') AS employee_customer_code,
-            COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences
+            COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences,
+            NULLIF(trim(s.podium_user_uid), '') AS podium_user_uid,
+            NULLIF(trim(s.podium_display_name), '') AS podium_display_name
         FROM staff s
         LEFT JOIN customers c ON c.id = s.employee_customer_id
         ORDER BY s.full_name ASC
@@ -1130,6 +1170,22 @@ async fn admin_patch_staff(
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+    let podium_uid_bind = body.podium_user_uid.as_ref().map(|s| {
+        let t = s.trim();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
+    });
+    let podium_name_bind = body.podium_display_name.as_ref().map(|s| {
+        let t = s.trim();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
+    });
 
     let mut tx = state.db.begin().await?;
 
@@ -1147,7 +1203,9 @@ async fn admin_patch_staff(
             max_discount_percent = COALESCE($10, max_discount_percent),
             employment_start_date = COALESCE($11, employment_start_date),
             employment_end_date = COALESCE($12, employment_end_date),
-            employee_customer_id = CASE WHEN $13 THEN $14 ELSE employee_customer_id END
+            employee_customer_id = CASE WHEN $13 THEN $14 ELSE employee_customer_id END,
+            podium_user_uid = CASE WHEN $15 THEN $16 ELSE podium_user_uid END,
+            podium_display_name = CASE WHEN $17 THEN $18 ELSE podium_display_name END
         WHERE id = $1
         "#,
     )
@@ -1165,6 +1223,10 @@ async fn admin_patch_staff(
     .bind(body.employment_end_date)
     .bind(ec_apply)
     .bind(ec_value)
+    .bind(body.podium_user_uid.is_some())
+    .bind(podium_uid_bind.flatten())
+    .bind(body.podium_display_name.is_some())
+    .bind(podium_name_bind.flatten())
     .execute(&mut *tx)
     .await?;
 
@@ -2195,9 +2257,10 @@ async fn admin_create_staff(
         INSERT INTO staff (
             full_name, cashier_code, pin_hash, role, is_active, 
             base_commission_rate, phone, email, avatar_key, max_discount_percent,
-            employment_start_date, employment_end_date, employee_customer_id
+            employment_start_date, employment_end_date, employee_customer_id,
+            podium_user_uid, podium_display_name
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         RETURNING id
         "#,
     )
@@ -2230,6 +2293,18 @@ async fn admin_create_staff(
     .bind(body.employment_start_date)
     .bind(body.employment_end_date)
     .bind(body.employee_customer_id)
+    .bind(
+        body.podium_user_uid
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty()),
+    )
+    .bind(
+        body.podium_display_name
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty()),
+    )
     .fetch_one(&mut *tx)
     .await?;
 
