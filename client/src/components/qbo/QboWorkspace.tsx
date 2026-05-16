@@ -231,6 +231,7 @@ interface QboWorkspaceProps {
 }
 
 export default function QboWorkspace({
+  activeSection = "staging",
   deepLinkSyncLogId,
   onDeepLinkSyncLogConsumed,
 }: QboWorkspaceProps) {
@@ -506,6 +507,28 @@ export default function QboWorkspace({
     ].join("\n");
   };
 
+  const currentSection = ["connection", "mappings", "staging", "history"].includes(activeSection)
+    ? activeSection
+    : "staging";
+  const sectionTitle =
+    currentSection === "connection"
+      ? "Connection"
+      : currentSection === "mappings"
+        ? "Account Mapping"
+        : currentSection === "history"
+          ? "Sent History"
+          : "Review & Send";
+  const sectionDescription =
+    currentSection === "connection"
+      ? "Confirm QuickBooks is connected before sending daily journals. Setup changes are managed in Settings."
+      : currentSection === "mappings"
+        ? "Confirm Riverside accounts have QuickBooks accounts assigned before review and send."
+        : currentSection === "history"
+          ? "Review what was sent to QuickBooks, who approved it, and any posting problem details."
+          : "Pick a business date, review the daily totals, then send the approved journal to QuickBooks.";
+  const mappedLedgerCount = ledger.filter((row) => !!row.qbo_account_id?.trim()).length;
+  const unmappedLedgerCount = Math.max(ledger.length - mappedLedgerCount, 0);
+
   return (
     <div className="ui-page overflow-auto">
       <div className="flex items-center justify-between px-1 pb-2">
@@ -521,7 +544,7 @@ export default function QboWorkspace({
               QuickBooks closeout
             </p>
             <h2 className="text-2xl font-black tracking-tight text-app-text">
-              Review & Send
+              {sectionTitle}
             </h2>
           </div>
         </div>
@@ -557,15 +580,92 @@ export default function QboWorkspace({
       </div>
       <div className="ui-card bg-[linear-gradient(145deg,color-mix(in_srgb,var(--app-accent)_14%,var(--app-surface-2)),color-mix(in_srgb,var(--app-accent-2)_12%,var(--app-surface-2)))] px-5 py-4">
         <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
-          What this screen does
+          What this view does
         </p>
         <p className="mt-1 text-sm font-semibold text-app-text">
-          Pick a business date, review the daily totals, then send the approved journal to
-          QuickBooks. Setup and account mapping stay in Settings → Integrations →
+          {sectionDescription} Setup and account mapping stay in Settings → Integrations →
           QuickBooks Online.
         </p>
       </div>
 
+      {currentSection === "connection" ? (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <div className="ui-card bg-app-surface-2 px-5 py-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Connection status
+            </p>
+            <p className={`mt-3 text-3xl font-black ${connectionReady ? "text-emerald-700" : "text-amber-700"}`}>
+              {connectionReady ? "Ready" : "Needs setup"}
+            </p>
+            <p className="mt-2 text-xs font-semibold text-app-text-muted">
+              Riverside can only send approved journals after the QuickBooks company, client ID, and client secret are configured.
+            </p>
+          </div>
+          <div className="ui-card bg-app-surface-2 px-5 py-4 xl:col-span-2">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              What to check
+            </p>
+            <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text sm:grid-cols-2">
+              <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                Company ID: <span className="font-black">{creds?.company_id || "Not loaded"}</span>
+              </p>
+              <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                Realm ID: <span className="font-black">{creds?.realm_id || "Missing"}</span>
+              </p>
+              <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                Client ID: <span className="font-black">{creds?.client_id_set ? "Saved" : "Missing"}</span>
+              </p>
+              <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                Client secret: <span className="font-black">{creds?.has_client_secret ? "Saved" : "Missing"}</span>
+              </p>
+            </div>
+            <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
+              To fix this, open Settings → Integrations → QuickBooks Online, save the connection details, then return here and reload.
+            </p>
+            <button type="button" disabled={busy} onClick={() => void refreshCore()} className="mt-3 ui-btn-secondary px-5 py-2.5">
+              Reload connection
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {currentSection === "mappings" ? (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <div className="ui-card bg-app-surface-2 px-5 py-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Mapping status
+            </p>
+            <p className={`mt-3 text-3xl font-black ${mappingsReady ? "text-emerald-700" : "text-amber-700"}`}>
+              {mappingsReady ? "Ready" : "Needs mapping"}
+            </p>
+            <p className="mt-2 text-xs font-semibold text-app-text-muted">
+              Account mapping tells Riverside where revenue, tax, tenders, deposits, refunds, and gift cards belong in QuickBooks.
+            </p>
+          </div>
+          <div className="ui-card bg-app-surface-2 px-5 py-4 xl:col-span-2">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Mapping counts
+            </p>
+            <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text sm:grid-cols-3">
+              <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                Product/category rules <span className="block text-2xl font-black">{granular.length}</span>
+              </p>
+              <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                Ledger accounts mapped <span className="block text-2xl font-black">{mappedLedgerCount}</span>
+              </p>
+              <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                Ledger accounts missing <span className="block text-2xl font-black text-amber-700">{unmappedLedgerCount}</span>
+              </p>
+            </div>
+            <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
+              To edit mappings, open Settings → Integrations → QuickBooks Online. Return here afterward and reload the queue before sending.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {currentSection === "staging" ? (
+        <>
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="ui-card bg-app-surface-2 px-5 py-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -918,7 +1018,20 @@ export default function QboWorkspace({
               </p>
             ) : null}
           </div>
+        </div>
+        </>
+      ) : null}
 
+      {currentSection === "history" ? (
+        <div className="flex flex-col gap-4">
+          <div className="ui-card bg-app-surface-2 px-5 py-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              History summary
+            </p>
+            <p className="mt-2 text-sm font-semibold text-app-text">
+              Sent journals, approval staff, and QuickBooks posting problems are listed below.
+            </p>
+          </div>
           <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
             <div className="border-b border-app-border bg-app-surface-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               Sent history
@@ -962,6 +1075,7 @@ export default function QboWorkspace({
             </table>
           </div>
         </div>
+      ) : null}
 
       {drilldown && (
         <div className="ui-overlay-backdrop justify-end">
