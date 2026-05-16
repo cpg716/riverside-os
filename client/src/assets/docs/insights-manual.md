@@ -107,7 +107,9 @@ Commission reporting is **not** inside the Metabase iframe. It uses Riverside AP
 2. Open **Staff** → **Commissions** → **Reports**.
 3. Set the **date range** (or use presets), then **Refresh** to load the report.
 4. Pick a staff member for individual drilldown, or leave staff blank for all-staff reporting.
-5. Expand a staff row and use **Trace** when you need line-level calculation context.
+5. Review the earned-only payroll columns: **Rate**, **Rate since**, **Sales**, **By rate**, **SPIFF $**, and final **Earned commission**.
+6. Use **Print report** for payroll review.
+7. Expand a staff row and use **Trace** when you need line-level calculation context.
 
 Fixed SPIFF and combo incentives are managed under **Staff** → **Commissions** → **SPIFFs & Combos**. Staff base commission rates are set on each Staff Profile.
 

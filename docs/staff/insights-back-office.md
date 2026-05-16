@@ -73,14 +73,16 @@ Use **Reports** for those until the matching Metabase views are added. Merchant 
 
 1. **Staff** → **Commissions** → **Reports** (unlock **Staff** with your code if prompted).
 2. Set **From** / **To** (or use **Last 14 days**, **Prior 14 days**, or **Prior month payroll**), then **Refresh**.
-3. Optional: pick a **Staff** member to run a staff-level report even if the summary ledger is empty.
-4. Review **Booked not fulfilled** for pipeline and **Earned in period** for commission earned in the selected recognition window. Riverside uses **fulfillment / pickup / shipping recognition**, not booking, for earned commission timing.
+3. Optional: pick a **Staff** member to run a staff-level report.
+4. Review the earned-only payroll columns: **Rate**, **Rate since**, **Sales**, **By rate**, **SPIFF $**, and final **Earned commission**. Riverside uses **fulfillment / pickup / shipping recognition**, not booking, for earned commission timing.
+5. Use **Print report** when the owner/accounting team needs the payroll review copy.
+6. Use the bottom **Total commissions paid for period** row as the payroll-facing period total.
 
 ### Effective-dated commission changes
 
-- Staff base commission changes now require a **start date**.
-- Riverside uses the effective staff rate from that date forward.
-- Phase 2 will snapshot this rate into immutable commission events.
+- Staff base commission changes require a **start date**.
+- Riverside shows the current rate and **Rate since** date in the commission report.
+- Recognized commission events snapshot the rate context used when the commission was earned; corrections use manual adjustments.
 
 **Category commission rate overrides are retired from the staff-facing workflow.** Base rates live on Staff Profile. Fixed SPIFF and combo incentives are managed under **Staff** → **Commissions** → **SPIFFs & Combos**.
 

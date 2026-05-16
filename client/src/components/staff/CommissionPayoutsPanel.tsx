@@ -1,6 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
-import { Receipt, Info, ChevronDown, ChevronRight } from "lucide-react";
+import { Receipt, Info, ChevronDown, ChevronRight, Printer } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
@@ -18,10 +18,30 @@ interface CommissionLedgerRow {
   staff_name: string;
   unpaid_commission: string;
   realized_pending_payout: string;
+  base_commission_amount: string;
+  spiff_commission_amount: string;
+  earned_sale_count: number;
+  current_commission_rate: string;
+  current_commission_rate_since: string | null;
 }
 
 function money(s: string | number) {
   return formatUsdFromCents(parseMoneyToCents(s));
+}
+
+function percent(s: string | number) {
+  const rate = typeof s === "number" ? s : Number.parseFloat(s || "0");
+  if (!Number.isFinite(rate)) return "0.0%";
+  return `${(rate * 100).toFixed(1)}%`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 interface CommissionLineRow {
@@ -110,7 +130,8 @@ export default function CommissionPayoutsPanel() {
         { headers: backofficeHeaders() },
       );
       if (!res.ok) throw new Error("Ledger failed");
-      setCommissionRows((await res.json()) as CommissionLedgerRow[]);
+      const rows = (await res.json()) as CommissionLedgerRow[];
+      setCommissionRows(rows);
     } catch (e) {
       setErr(
         e instanceof Error ? e.message : "Could not load commission ledger.",
@@ -178,12 +199,154 @@ export default function CommissionPayoutsPanel() {
   }, []);
 
   const filteredRows = useMemo(() => {
-    if (!selectedStaffId.trim()) return commissionRows;
-    return commissionRows.filter((row) => row.staff_id === selectedStaffId);
+    const earnedRows = commissionRows.filter(
+      (row) => parseMoneyToCents(row.realized_pending_payout || "0") !== 0,
+    );
+    if (!selectedStaffId.trim()) return earnedRows;
+    return earnedRows.filter((row) => row.staff_id === selectedStaffId);
   }, [commissionRows, selectedStaffId]);
 
   const selectedStaffName =
     staffRoster.find((row) => row.id === selectedStaffId)?.full_name ?? "Selected staff";
+  const roleByStaffId = useMemo(() => {
+    return new Map(staffRoster.map((row) => [row.id, row.role ?? "staff"]));
+  }, [staffRoster]);
+  const reportRangeLabel = `${commissionFrom || "Start"} to ${commissionTo || "Today"}`;
+  const visibleTotals = useMemo(() => {
+    return filteredRows.reduce(
+      (totals, row) => {
+        const earned = parseMoneyToCents(row.realized_pending_payout || "0");
+        const baseEarned = parseMoneyToCents(row.base_commission_amount || "0");
+        const spiffEarned = parseMoneyToCents(row.spiff_commission_amount || "0");
+        return {
+          earned: totals.earned + earned,
+          baseEarned: totals.baseEarned + baseEarned,
+          spiffEarned: totals.spiffEarned + spiffEarned,
+          saleCount: totals.saleCount + (row.earned_sale_count ?? 0),
+        };
+      },
+      { earned: 0, baseEarned: 0, spiffEarned: 0, saleCount: 0 },
+    );
+  }, [filteredRows]);
+
+  const staffReportStatus = useCallback((row: CommissionLedgerRow, saleCount: number) => {
+    const earned = parseMoneyToCents(row.realized_pending_payout || "0");
+    if (earned !== 0 && saleCount > 0) return "Earned commission";
+    if (earned !== 0) return "Adjustment only";
+    return "No earned commission";
+  }, []);
+
+  const printCommissionReport = useCallback(() => {
+    if (filteredRows.length === 0) {
+      toast("There are no commission rows to print for this range.", "error");
+      return;
+    }
+
+    const printedAt = new Date().toLocaleString();
+    const staffScope = selectedStaffId ? selectedStaffName : "All staff";
+    const rows = filteredRows
+      .map((row) => {
+        const earned = parseMoneyToCents(row.realized_pending_payout || "0");
+        const baseEarned = parseMoneyToCents(row.base_commission_amount || "0");
+        const spiffEarned = parseMoneyToCents(row.spiff_commission_amount || "0");
+        const saleCount = row.earned_sale_count ?? 0;
+        const role = row.staff_id ? roleByStaffId.get(row.staff_id) ?? "staff" : "unassigned";
+        return `
+          <tr>
+            <td>
+              <strong>${escapeHtml(row.staff_name)}</strong>
+              <span>${escapeHtml(role)}</span>
+            </td>
+            <td>${escapeHtml(percent(row.current_commission_rate))}</td>
+            <td>${escapeHtml(row.current_commission_rate_since || "Unknown")}</td>
+            <td class="num">${saleCount}</td>
+            <td class="num">${escapeHtml(formatUsdFromCents(baseEarned))}</td>
+            <td class="num">${escapeHtml(formatUsdFromCents(spiffEarned))}</td>
+            <td class="num total">${escapeHtml(formatUsdFromCents(earned))}</td>
+          </tr>
+        `;
+      })
+      .join("");
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <title>Commission Report</title>
+          <style>
+            body { font-family: Inter, Arial, sans-serif; color: #111827; margin: 28px; }
+            header { border-bottom: 2px solid #111827; padding-bottom: 14px; margin-bottom: 18px; }
+            h1 { margin: 0; font-size: 24px; letter-spacing: 0.03em; }
+            .meta { color: #4b5563; font-size: 12px; margin-top: 6px; }
+            .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+            .tile { border: 1px solid #d1d5db; border-radius: 10px; padding: 10px; }
+            .tile span { display: block; color: #6b7280; font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+            .tile strong { display: block; margin-top: 4px; font-size: 18px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th { background: #f3f4f6; color: #374151; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; text-align: left; }
+            th, td { border-bottom: 1px solid #e5e7eb; padding: 9px; vertical-align: top; }
+            td span { display: block; color: #6b7280; font-size: 10px; margin-top: 3px; text-transform: capitalize; }
+            .num { text-align: right; font-variant-numeric: tabular-nums; }
+            .total { font-size: 16px; font-weight: 900; color: #065f46; }
+            tfoot td { border-top: 2px solid #111827; font-weight: 900; }
+            footer { margin-top: 18px; color: #6b7280; font-size: 11px; }
+            @media print { body { margin: 0.35in; } }
+          </style>
+        </head>
+        <body>
+          <header>
+            <h1>Commission Report</h1>
+            <div class="meta">Staff: ${escapeHtml(staffScope)} | Range: ${escapeHtml(reportRangeLabel)} | Printed: ${escapeHtml(printedAt)}</div>
+          </header>
+          <section class="summary">
+            <div class="tile"><span>Total commissions paid</span><strong>${escapeHtml(formatUsdFromCents(visibleTotals.earned))}</strong></div>
+            <div class="tile"><span>Earned sale count</span><strong>${visibleTotals.saleCount}</strong></div>
+            <div class="tile"><span>Staff included</span><strong>${filteredRows.length}</strong></div>
+          </section>
+          <table>
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>Rate</th>
+                <th>Rate since</th>
+                <th class="num">Sales</th>
+                <th class="num">By rate</th>
+                <th class="num">SPIFF</th>
+                <th class="num">Earned commission</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3">Total commissions paid for period</td>
+                <td class="num">${visibleTotals.saleCount}</td>
+                <td class="num">${escapeHtml(formatUsdFromCents(visibleTotals.baseEarned))}</td>
+                <td class="num">${escapeHtml(formatUsdFromCents(visibleTotals.spiffEarned))}</td>
+                <td class="num total">${escapeHtml(formatUsdFromCents(visibleTotals.earned))}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <footer>Commission report: earned commission follows the recognition window for fulfilled/picked up/shipped work plus approved manual adjustments.</footer>
+          <script>window.onload=function(){window.print();}</script>
+        </body>
+      </html>
+    `;
+    const printWindow = window.open("", "_blank", "width=1100,height=800");
+    if (!printWindow) {
+      toast("Allow pop-ups to print the commission report.", "error");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }, [
+    filteredRows,
+    reportRangeLabel,
+    roleByStaffId,
+    selectedStaffId,
+    selectedStaffName,
+    toast,
+    visibleTotals,
+  ]);
 
   const submitManualAdjustment = useCallback(async () => {
     if (!hasPermission("staff.manage_commission")) {
@@ -271,11 +434,12 @@ export default function CommissionPayoutsPanel() {
           <div className="flex items-start gap-2">
             <Receipt className="mt-0.5 shrink-0 text-app-accent" size={18} />
             <p>
-              <span className="font-bold text-app-text">Split-date model:</span>{" "}
-              <em>Booked not fulfilled</em> is pipeline on open lines sold in range.{" "}
-              <em>Earned in period</em> uses the <strong>recognition</strong> window: pickup / takeaway when
-              fulfilled, shipped orders when the label ships or shipment moves to in transit / delivered (see Shipments
-              hub). This screen is tracking and reporting only; manual adjustments create an auditable commission event.
+              <span className="font-bold text-app-text">Commission report:</span>{" "}
+              earned commission uses the <strong>recognition</strong> window:
+              pickup / takeaway when fulfilled, shipped orders when the label
+              ships or shipment moves to in transit / delivered, plus approved
+              manual adjustments. Open booked pipeline is intentionally not
+              included in this commission report.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -321,6 +485,15 @@ export default function CommissionPayoutsPanel() {
               className="rounded-xl bg-app-accent px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white"
             >
               Refresh
+            </button>
+            <button
+              type="button"
+              onClick={printCommissionReport}
+              disabled={filteredRows.length === 0}
+              className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-input-border disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Printer size={14} />
+              Print report
             </button>
           </div>
         </div>
@@ -387,9 +560,13 @@ export default function CommissionPayoutsPanel() {
           <thead className="sticky top-0 bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             <tr>
               <th className="px-4 py-3">Staff</th>
-              <th className="px-4 py-3 text-right">Booked not fulfilled</th>
+              <th className="px-4 py-3">Rate</th>
+              <th className="px-4 py-3">Rate since</th>
+              <th className="px-4 py-3 text-right">Sales</th>
+              <th className="px-4 py-3 text-right">By rate</th>
+              <th className="px-4 py-3 text-right">SPIFF $</th>
               <th className="px-4 py-3 text-right text-emerald-900/80">
-                Earned in period
+                Earned commission
               </th>
             </tr>
           </thead>
@@ -399,6 +576,11 @@ export default function CommissionPayoutsPanel() {
               const isExpanded = expandedStaffId === k;
               const earnedInPeriod =
                 parseMoneyToCents(r.realized_pending_payout || "0") / 100;
+              const baseEarned = parseMoneyToCents(r.base_commission_amount || "0") / 100;
+              const spiffEarned = parseMoneyToCents(r.spiff_commission_amount || "0") / 100;
+              const saleCount = r.earned_sale_count ?? 0;
+              const staffRole = r.staff_id ? roleByStaffId.get(r.staff_id) ?? "staff" : "unassigned";
+              const reportStatus = staffReportStatus(r, saleCount);
               return (
                 <Fragment key={k}>
                   <tr
@@ -419,19 +601,43 @@ export default function CommissionPayoutsPanel() {
                         ) : (
                           <ChevronRight size={14} className="text-app-text-muted" />
                         )}
-                        {r.staff_name}
+                        <span>
+                          <span className="block">{r.staff_name}</span>
+                          <span className="mt-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            {staffRole} · {reportRangeLabel}
+                          </span>
+                        </span>
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-amber-800 tabular-nums">
-                      {money(r.unpaid_commission)}
+                    <td className="px-4 py-3">
+                      <span className="block text-sm font-black text-app-text">
+                        {percent(r.current_commission_rate)}
+                      </span>
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-emerald-800 tabular-nums">
+                    <td className="px-4 py-3">
+                      <span className="block text-[11px] font-black uppercase tracking-widest text-app-text-muted">
+                        {r.current_commission_rate_since || "Unknown"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-black text-app-text tabular-nums">
+                      {saleCount}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-app-text tabular-nums">
+                      {money(baseEarned)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-app-text-muted tabular-nums">
+                      {money(spiffEarned)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-2xl font-black text-emerald-800 tabular-nums">
                       {money(earnedInPeriod)}
+                      <span className="mt-1 block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        {reportStatus}
+                      </span>
                     </td>
                   </tr>
                   {isExpanded && (
                     <tr>
-                      <td colSpan={3} className="bg-app-surface-2/30 p-0">
+                      <td colSpan={7} className="bg-app-surface-2/30 p-0">
                         <div className="border-t border-app-border/30 animate-in fade-in slide-in-from-top-1 duration-200">
                           <CommissionDrillDown
                             staffId={r.staff_id}
@@ -449,12 +655,31 @@ export default function CommissionPayoutsPanel() {
             {!loading && filteredRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={3}
+                  colSpan={7}
                   className="px-4 py-8 text-center text-app-text-muted"
                 >
                   {selectedStaffId
-                    ? "No commission movement for this staff member in range."
-                    : "No commission movement in range."}
+                    ? "No earned commission for this staff member in range. If completed sales exist, confirm this staff member has a commission rate or active SPIFF/Combo rule."
+                    : "No earned commission in range. If completed sales exist, confirm salesperson assignments plus commission rates or active SPIFF/Combo rules."}
+                </td>
+              </tr>
+            ) : null}
+            {!loading && filteredRows.length > 0 ? (
+              <tr className="border-t-2 border-app-text/20 bg-app-surface-2">
+                <td colSpan={3} className="px-4 py-4 text-[11px] font-black uppercase tracking-widest text-app-text">
+                  Total commissions paid for period
+                </td>
+                <td className="px-4 py-4 text-right font-mono font-black tabular-nums">
+                  {visibleTotals.saleCount}
+                </td>
+                <td className="px-4 py-4 text-right font-mono font-black tabular-nums">
+                  {formatUsdFromCents(visibleTotals.baseEarned)}
+                </td>
+                <td className="px-4 py-4 text-right font-mono font-black tabular-nums">
+                  {formatUsdFromCents(visibleTotals.spiffEarned)}
+                </td>
+                <td className="px-4 py-4 text-right font-mono text-3xl font-black text-emerald-800 tabular-nums">
+                  {formatUsdFromCents(visibleTotals.earned)}
                 </td>
               </tr>
             ) : null}
@@ -537,7 +762,12 @@ function CommissionDrillDown({
   }
 
   if (lines.length === 0) {
-    return <div className="p-8 text-center text-[10px] uppercase font-black tracking-widest text-app-text-muted opacity-40 italic">No individual trace records found for this window.</div>;
+    return (
+      <div className="p-8 text-center text-[10px] uppercase font-black tracking-widest text-app-text-muted opacity-60 italic">
+        No individual trace records found for this window. Check the date
+        range, salesperson assignment, and commission rate setup.
+      </div>
+    );
   }
 
   return (
@@ -555,47 +785,58 @@ function CommissionDrillDown({
           </tr>
         </thead>
         <tbody className="divide-y divide-app-border/10">
-          {lines.map((ln, index) => (
-            <tr
-              key={ln.event_id ?? ln.transaction_line_id ?? `${ln.event_type}-${index}`}
-              className="hover:bg-app-accent/5 transaction-colors group"
-            >
-              <td className="px-3 py-2 text-app-text-muted whitespace-nowrap">
-                {new Date(ln.booked_at).toLocaleDateString()}
-              </td>
-              <td className="px-3 py-2 font-mono font-bold text-app-text">
-                {ln.order_short_id}
-              </td>
-              <td className="px-3 py-2 font-bold text-app-text truncate max-w-[150px]" title={ln.product_name}>
-                {ln.product_name}
-              </td>
-              <td className="px-3 py-2 text-right font-mono text-app-text-muted">
-                {ln.quantity}
-              </td>
-              <td className="px-3 py-2 text-right font-mono text-app-text">
-                {money(ln.line_gross)}
-              </td>
-              <td className="px-3 py-2 text-right font-mono font-black text-emerald-700">
-                {money(ln.calculated_commission)}
-              </td>
-              <td className="px-3 py-2 text-center">
-                {ln.event_id ? (
-                  <button
-                    type="button"
-                    onClick={() => onTrace(ln.event_id!)}
-                    title="View Truth Trace explainer"
-                    className="p-1.5 rounded-lg text-app-accent hover:bg-app-accent hover:text-white transition-all scale-90 group-hover:scale-100"
-                  >
-                    <Info size={14} />
-                  </button>
-                ) : (
-                  <span className="text-[9px] font-bold uppercase tracking-widest text-app-text-muted/50">
-                    Pending
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
+          {lines.map((ln, index) => {
+            const hasPayableCommission =
+              parseMoneyToCents(ln.calculated_commission) !== 0;
+            return (
+              <tr
+                key={ln.event_id ?? ln.transaction_line_id ?? `${ln.event_type}-${index}`}
+                className="hover:bg-app-accent/5 transaction-colors group"
+              >
+                <td className="px-3 py-2 text-app-text-muted whitespace-nowrap">
+                  {new Date(ln.booked_at).toLocaleDateString()}
+                </td>
+                <td className="px-3 py-2 font-mono font-bold text-app-text">
+                  {ln.order_short_id}
+                </td>
+                <td className="px-3 py-2 font-bold text-app-text truncate max-w-[150px]" title={ln.product_name}>
+                  {ln.product_name}
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-app-text-muted">
+                  {ln.quantity}
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-app-text">
+                  {money(ln.line_gross)}
+                </td>
+                <td className="px-3 py-2 text-right font-mono font-black text-emerald-700">
+                  {money(ln.calculated_commission)}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {ln.event_id ? (
+                    <button
+                      type="button"
+                      onClick={() => onTrace(ln.event_id!)}
+                      title="View Truth Trace explainer"
+                      className="p-1.5 rounded-lg text-app-accent hover:bg-app-accent hover:text-white transition-all scale-90 group-hover:scale-100"
+                    >
+                      <Info size={14} />
+                    </button>
+                  ) : (
+                    <span
+                      className="text-[9px] font-bold uppercase tracking-widest text-app-text-muted/50"
+                      title={
+                        hasPayableCommission
+                          ? "Fulfilled line has payable commission but no event row yet."
+                          : "Fulfilled line has no payable commission because no rate or active rule applied."
+                      }
+                    >
+                      {hasPayableCommission ? "Pending" : "No rate"}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

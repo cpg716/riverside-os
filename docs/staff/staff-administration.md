@@ -61,7 +61,7 @@ Floor staff complete items in **POS → Tasks** or Operations widgets — see [p
 **Purpose:** One hub for commission reporting and fixed incentives.
 
 1. **Staff** → **Commissions**.
-2. **Reports** (**insights.view**): review fulfillment-based earned commission and prior-month windows.
+2. **Reports** (**insights.view**): review and print earned-only payroll commission reports by period, including rate, rate-since date, sales count, by-rate dollars, SPIFF dollars, final earned commission, and period total.
 3. **SPIFFs & Combos** (**staff.manage_commission**): configure fixed-dollar SPIFF incentives and combo rewards.
 4. Staff base commission rates are edited on the Staff Profile with an effective start date.
 5. SPIFF and combo reward lines remain filtered from customer receipts for privacy.

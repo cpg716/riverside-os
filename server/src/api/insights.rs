@@ -560,6 +560,16 @@ pub struct CommissionLedgerRow {
     pub unpaid_commission: Decimal,
     /// Commission events recognized in range for tracking and reporting.
     pub realized_pending_payout: Decimal,
+    /// Earned by staff base commission rate in the selected recognition period.
+    pub base_commission_amount: Decimal,
+    /// Fixed SPIFF/combo incentive dollars in the selected recognition period.
+    pub spiff_commission_amount: Decimal,
+    /// Earned sale count in the selected recognition period.
+    pub earned_sale_count: i64,
+    /// Current staff commission rate for payroll review context.
+    pub current_commission_rate: Decimal,
+    /// Effective start date for the current staff commission rate when known.
+    pub current_commission_rate_since: Option<NaiveDate>,
 }
 
 async fn commission_ledger(
@@ -581,7 +591,8 @@ async fn commission_ledger(
         })?;
 
     let (start, end) = range_bounds(&q);
-    let rows = sqlx::query_as::<_, CommissionLedgerRow>(
+    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let sql = format!(
         r#"
         WITH pipeline AS (
           SELECT
@@ -594,7 +605,10 @@ async fn commission_ledger(
                   AND o.booked_at < $2
               ), 0
             )::numeric(14, 2) AS unpaid_commission,
-            0::numeric(14, 2) AS realized_pending_payout
+            0::numeric(14, 2) AS realized_pending_payout,
+            0::numeric(14, 2) AS base_commission_amount,
+            0::numeric(14, 2) AS spiff_commission_amount,
+            0::bigint AS earned_sale_count
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
           LEFT JOIN staff st ON st.id = oi.salesperson_id
@@ -606,31 +620,116 @@ async fn commission_ledger(
             st.id AS staff_id,
             COALESCE(st.full_name, 'Unassigned') AS staff_name,
             0::numeric(14, 2) AS unpaid_commission,
-            COALESCE(SUM(ce.total_commission_amount), 0)::numeric(14, 2) AS realized_pending_payout
+            COALESCE(SUM(ce.total_commission_amount), 0)::numeric(14, 2) AS realized_pending_payout,
+            COALESCE(SUM(ce.base_commission_amount), 0)::numeric(14, 2) AS base_commission_amount,
+            COALESCE(SUM(ce.incentive_amount), 0)::numeric(14, 2) AS spiff_commission_amount,
+            COUNT(DISTINCT ce.transaction_id) FILTER (
+              WHERE ce.transaction_id IS NOT NULL
+                AND ce.total_commission_amount <> 0
+                AND ce.event_type IN ('sale_commission', 'spiff', 'combo_incentive')
+            )::bigint AS earned_sale_count
           FROM commission_events ce
           LEFT JOIN staff st ON st.id = ce.staff_id
           WHERE ce.event_at >= $1 AND ce.event_at < $2
           GROUP BY st.id, COALESCE(st.full_name, 'Unassigned')
-        )
+        ),
+        fulfilled_line_fallback AS (
+          SELECT
+            st.id AS staff_id,
+            COALESCE(st.full_name, 'Unassigned') AS staff_name,
+            0::numeric(14, 2) AS unpaid_commission,
+            COALESCE(SUM(oi.calculated_commission), 0)::numeric(14, 2) AS realized_pending_payout,
+            COALESCE(SUM(
+              CASE
+                WHEN COALESCE(oi.is_internal, FALSE) THEN 0
+                ELSE ROUND((oi.unit_price * oi.quantity) * COALESCE((
+                  SELECT h.base_commission_rate
+                  FROM staff_commission_rate_history h
+                  WHERE h.staff_id = oi.salesperson_id
+                    AND h.effective_start_date <= COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at)::date
+                  ORDER BY h.effective_start_date DESC, h.created_at DESC
+                  LIMIT 1
+                ), st.base_commission_rate, 0), 2)
+              END
+            ), 0)::numeric(14, 2) AS base_commission_amount,
+            COALESCE(SUM(
+              CASE
+                WHEN COALESCE(oi.is_internal, FALSE) THEN oi.calculated_commission
+                ELSE oi.calculated_commission - ROUND((oi.unit_price * oi.quantity) * COALESCE((
+                  SELECT h.base_commission_rate
+                  FROM staff_commission_rate_history h
+                  WHERE h.staff_id = oi.salesperson_id
+                    AND h.effective_start_date <= COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at)::date
+                  ORDER BY h.effective_start_date DESC, h.created_at DESC
+                  LIMIT 1
+                ), st.base_commission_rate, 0), 2)
+              END
+            ), 0)::numeric(14, 2) AS spiff_commission_amount,
+            COUNT(DISTINCT o.id)::bigint AS earned_sale_count
+          FROM transaction_lines oi
+          INNER JOIN transactions o ON o.id = oi.transaction_id
+          LEFT JOIN staff st ON st.id = oi.salesperson_id
+          WHERE o.status::text NOT IN ('cancelled')
+            AND oi.is_fulfilled = TRUE
+            AND oi.salesperson_id IS NOT NULL
+            AND oi.calculated_commission <> 0
+            AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) >= $1
+            AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) < $2
+            AND NOT EXISTS (
+              SELECT 1
+              FROM commission_events ce
+              WHERE ce.source_event_id = oi.id
+                AND ce.event_type IN ('sale_commission', 'combo_incentive')
+            )
+          GROUP BY st.id, COALESCE(st.full_name, 'Unassigned')
+        ),
+        grouped AS (
         SELECT
           staff_id,
           staff_name,
           SUM(unpaid_commission)::numeric(14, 2) AS unpaid_commission,
-          SUM(realized_pending_payout)::numeric(14, 2) AS realized_pending_payout
+          SUM(realized_pending_payout)::numeric(14, 2) AS realized_pending_payout,
+          SUM(base_commission_amount)::numeric(14, 2) AS base_commission_amount,
+          SUM(spiff_commission_amount)::numeric(14, 2) AS spiff_commission_amount,
+          SUM(earned_sale_count)::bigint AS earned_sale_count
         FROM (
           SELECT * FROM pipeline
           UNION ALL
           SELECT * FROM earned
+          UNION ALL
+          SELECT * FROM fulfilled_line_fallback
         ) x
         GROUP BY staff_id, staff_name
         HAVING SUM(unpaid_commission) <> 0 OR SUM(realized_pending_payout) <> 0
+        )
+        SELECT
+          g.staff_id,
+          g.staff_name,
+          g.unpaid_commission,
+          g.realized_pending_payout,
+          g.base_commission_amount,
+          g.spiff_commission_amount,
+          g.earned_sale_count,
+          COALESCE(current_rate.base_commission_rate, st.base_commission_rate, 0)::numeric(8, 4) AS current_commission_rate,
+          COALESCE(current_rate.effective_start_date, st.employment_start_date) AS current_commission_rate_since
+        FROM grouped g
+        LEFT JOIN staff st ON st.id = g.staff_id
+        LEFT JOIN LATERAL (
+          SELECT h.base_commission_rate, h.effective_start_date
+          FROM staff_commission_rate_history h
+          WHERE h.staff_id = g.staff_id
+          ORDER BY h.effective_start_date DESC, h.created_at DESC
+          LIMIT 1
+        ) current_rate ON TRUE
         ORDER BY realized_pending_payout DESC, unpaid_commission DESC
         "#,
-    )
-    .bind(start)
-    .bind(end)
-    .fetch_all(&state.db)
-    .await?;
+        rec = rec,
+    );
+    let rows = sqlx::query_as::<_, CommissionLedgerRow>(&sql)
+        .bind(start)
+        .bind(end)
+        .fetch_all(&state.db)
+        .await?;
 
     Ok(Json(rows))
 }
@@ -679,7 +778,8 @@ async fn commission_lines(
         })?;
 
     let (start, end) = range_bounds(&q.range);
-    let rows = sqlx::query_as::<_, CommissionLineRow>(
+    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let sql = format!(
         r#"
         WITH event_rows AS (
           SELECT
@@ -701,12 +801,41 @@ async fn commission_lines(
           LEFT JOIN transaction_lines oi ON oi.id = ce.transaction_line_id
           LEFT JOIN transactions o ON o.id = ce.transaction_id
           LEFT JOIN products p ON p.id = oi.product_id
-          WHERE (
-              (ce.staff_id = $1)
-              OR ($1 IS NULL AND ce.staff_id IS NULL)
-          )
+          WHERE ($1 IS NULL OR ce.staff_id = $1)
             AND ce.event_at >= $2
             AND ce.event_at < $3
+        ),
+        fulfilled_line_fallback AS (
+          SELECT
+            NULL::uuid AS event_id,
+            'fulfilled_pending_event'::text AS event_type,
+            oi.id AS transaction_line_id,
+            o.id AS transaction_id,
+            COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS order_short_id,
+            COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) AS booked_at,
+            COALESCE(p.name, 'Transaction line') AS product_name,
+            oi.unit_price,
+            oi.quantity::numeric(14, 2) AS quantity,
+            (oi.unit_price * oi.quantity)::numeric(14, 2) AS line_gross,
+            oi.calculated_commission::numeric(14, 2) AS calculated_commission,
+            TRUE AS is_fulfilled,
+            COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) AS fulfilled_at,
+            FALSE AS is_finalized
+          FROM transaction_lines oi
+          INNER JOIN transactions o ON o.id = oi.transaction_id
+          LEFT JOIN products p ON p.id = oi.product_id
+          WHERE o.status::text NOT IN ('cancelled')
+            AND oi.is_fulfilled = TRUE
+            AND oi.salesperson_id IS NOT NULL
+            AND ($1 IS NULL OR oi.salesperson_id = $1)
+            AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) >= $2
+            AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) < $3
+            AND NOT EXISTS (
+              SELECT 1
+              FROM commission_events ce
+              WHERE ce.source_event_id = oi.id
+                AND ce.event_type IN ('sale_commission', 'combo_incentive')
+            )
         ),
         pipeline_rows AS (
           SELECT
@@ -738,15 +867,19 @@ async fn commission_lines(
         )
         SELECT * FROM event_rows
         UNION ALL
+        SELECT * FROM fulfilled_line_fallback
+        UNION ALL
         SELECT * FROM pipeline_rows
         ORDER BY booked_at DESC
         "#,
-    )
-    .bind(q.staff_id)
-    .bind(start)
-    .bind(end)
-    .fetch_all(&state.db)
-    .await?;
+        rec = rec,
+    );
+    let rows = sqlx::query_as::<_, CommissionLineRow>(&sql)
+        .bind(q.staff_id)
+        .bind(start)
+        .bind(end)
+        .fetch_all(&state.db)
+        .await?;
 
     Ok(Json(rows))
 }

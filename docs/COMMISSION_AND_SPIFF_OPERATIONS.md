@@ -33,10 +33,17 @@ Commissions follow the fulfillment / recognition clock:
 - Shipped lines count when the shipment recognition event occurs.
 - Booked-but-unfulfilled lines are visible as pipeline only; they are not earned commission.
 
+The commission report is earned-only for payroll review. It intentionally excludes booked-but-unfulfilled pipeline from the main report.
+
 The report screen shows:
 
-- **Booked not fulfilled** — pipeline commission from sold lines that have not reached fulfillment.
-- **Earned in period** — commission earned in the selected recognition period.
+- **Rate** — the staff member's current base commission rate.
+- **Rate since** — the effective start date for the current rate when known.
+- **Sales** — count of earned sales in the selected recognition period.
+- **By rate** — commission earned from the staff member's base rate.
+- **SPIFF $** — fixed SPIFF and combo incentive dollars earned in the period.
+- **Earned commission** — the final payroll-facing earned commission amount.
+- **Total commissions paid for period** — the all-visible-row total used for payroll review.
 
 ## Staff Rate Changes
 
