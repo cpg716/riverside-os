@@ -566,6 +566,18 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           <h2 className="text-2xl font-black tracking-tight text-app-text">Physical Inventory</h2>
         </div>
 
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-900">
+          <p className="text-[11px] font-black uppercase tracking-widest">
+            Pilot count rule
+          </p>
+          <p className="mt-1 font-bold leading-relaxed">
+            Sales can continue during a physical inventory count. Receiving is paused store-wide until the session is published or canceled.
+          </p>
+          <p className="mt-1 text-xs font-semibold">
+            Publish only after the manager confirms count sheets, uncounted items, and any receiving hold are resolved.
+          </p>
+        </div>
+
         {publishOutcome ? (
           <div
             className={`flex items-start gap-3 rounded-2xl border px-5 py-4 ${
@@ -628,7 +640,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                   Session in Review: {activeSession.session_number}
                 </p>
                 <p className="text-[11px] text-amber-700">
-                  Review and publish to apply stock changes.
+                  Review and publish to apply stock changes. Pilot watch: this count remains unresolved until published or canceled.
                 </p>
               </div>
             </div>
@@ -646,7 +658,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         {/* Start new session */}
         {!activeSession && (
           <DashboardGridCard 
-            title="Registry Initialization"
+            title="Count Setup"
             subtitle="Start a new physical inventory session"
             icon={Plus}
           >
@@ -671,7 +683,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               <div className="space-y-8 max-w-2xl mx-auto">
                 <div className="grid gap-8 md:grid-cols-2">
                   <div className="space-y-4">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Session Logic</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Count area</label>
                     <div className="flex gap-3">
                       {(["full", "category"] as const).map((s) => (
                         <button
@@ -684,14 +696,14 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                               : "border-app-border/70 bg-app-surface text-app-text-muted shadow-sm hover:border-app-text/30 hover:bg-app-surface-2"
                           }`}
                         >
-                          {s === "full" ? "Full Catalog" : "Taxonomy Filter"}
+                          {s === "full" ? "Full store" : "Category"}
                         </button>
                       ))}
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Exclusion Logic</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Leave out from count</label>
                     <div className="grid grid-cols-2 gap-3">
                        <button
                          type="button"
@@ -740,7 +752,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 )}
 
                 <div className="space-y-4">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Internal Notes</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Notes</label>
                   <textarea
                     value={newNotes}
                     onChange={(e) => setNewNotes(e.target.value)}
@@ -758,7 +770,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                     className="flex-1 h-14 flex items-center justify-center gap-3 rounded-2xl bg-app-accent text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
                   >
                     {working ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
-                    Initialize Count Session
+                    Start Count
                   </button>
                   <button
                     type="button"
@@ -776,7 +788,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         {/* Session History */}
         <DashboardGridCard 
           title="Session Manager"
-          subtitle="Manage active and historical takes"
+          subtitle="Resume, review, or cancel inventory counts"
           icon={Settings}
         >
           <div className="overflow-hidden rounded-[2.5rem] border border-app-border/50 bg-app-surface shadow-sm">
@@ -834,10 +846,10 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               <table className="w-full text-left text-xs" data-testid="physical-session-table">
                 <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                   <tr>
-                    <th className="px-6 py-4">Internal Serial</th>
+                    <th className="px-6 py-4">Count #</th>
                     <th className="px-6 py-4">Area</th>
                     <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4">Initialization</th>
+                    <th className="px-6 py-4">Started</th>
                     <th className="px-6 py-4">Items</th>
                     <th className="px-6 py-4 text-right">Action</th>
                   </tr>
@@ -871,9 +883,9 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               </table>
             )}
           </div>
-        </DashboardGridCard>
+	        </DashboardGridCard>
 
-        <ConfirmationModal
+	        <ConfirmationModal
           isOpen={showCancelConfirm}
           title="Cancel Session?"
           message={`Are you sure you want to cancel session ${activeSession?.session_number}? This action cannot be undone and no stock changes will be made.`}
@@ -895,7 +907,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-6 duration-700">
         <div className="flex flex-wrap items-center justify-between gap-6 px-1">
           <div>
-            <h2 className="text-2xl font-black tracking-tight text-app-text">Counting Phase · <span className="text-app-accent">#{activeSession.session_number}</span></h2>
+            <h2 className="text-2xl font-black tracking-tight text-app-text">Active Count · <span className="text-app-accent">#{activeSession.session_number}</span></h2>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex h-12 overflow-hidden rounded-[20px] border border-app-border/60 bg-app-surface shadow-xl shadow-black/5 p-1">
@@ -930,7 +942,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 disabled={counts.length === 0 || working}
                 className="flex items-center gap-2 h-full px-8 rounded-[20px] bg-amber-500 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-amber-500/20 hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
               >
-                <ClipboardList size={14} /> Finish & Audit
+	                <ClipboardList size={14} /> Review Count
               </button>
               <button
                 type="button"
@@ -946,8 +958,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         <div className="grid gap-8 lg:grid-cols-[400px_1fr]">
           <div className="space-y-8">
             <DashboardGridCard 
-              title="Scanner Console"
-              subtitle={scanMode === 'laser' ? 'Point & Shoot Interface' : 'Mobile Vision Active'}
+              title="Scanner"
+              subtitle={scanMode === 'laser' ? 'Laser scanner ready' : 'Camera scanner ready'}
               icon={ScanLine}
             >
               <div className="space-y-6">
@@ -969,17 +981,17 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                    }`}>
                      {feedback.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
                      <div className="flex flex-col">
-                        <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Session Feedback</p>
+	                        <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Scan result</p>
                         <p className="text-xs font-black tracking-tight">{feedback.message}</p>
                      </div>
                    </div>
                  )}
 
                  <div className="space-y-4">
-                   <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Manual Resource Injection</label>
+	                   <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Add item by lookup</label>
                    <VariantSearchInput
                      onSelect={(v) => void handleScan(v.sku)}
-                     placeholder="Search SKU or Product..."
+	                     placeholder="Search SKU or product..."
                    />
                  </div>
 
@@ -994,8 +1006,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           </div>
 
           <DashboardGridCard 
-            title="Registry Feed"
-            subtitle={`${counts.length} unique resources captured`}
+	            title="Count Feed"
+	            subtitle={`${counts.length} item${counts.length === 1 ? "" : "s"} scanned`}
             icon={ListFilter}
           >
             <div className="absolute top-4 right-6 w-64 z-10">
@@ -1012,7 +1024,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               <div className="space-y-2 p-3" data-testid="physical-count-cards">
                 {filteredCounts.length === 0 ? (
                   <p className="px-3 py-10 text-center text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40">
-                    No resources captured in active filter
+	                    No items in active filter
                   </p>
                 ) : (
                   filteredCounts.map((c) => (
@@ -1048,10 +1060,10 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 <table className="w-full text-left text-xs" data-testid="physical-count-table">
                   <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                     <tr>
-                      <th className="px-6 py-4">Resource</th>
+	                      <th className="px-6 py-4">Item</th>
                       <th className="px-6 py-4">SKU/Serial</th>
-                      <th className="px-6 py-4 text-center">Volume</th>
-                      <th className="px-6 py-4 text-right">Last Sync</th>
+	                      <th className="px-6 py-4 text-center">Count</th>
+	                      <th className="px-6 py-4 text-right">Last scanned</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-app-border/40">
@@ -1074,7 +1086,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                     ))}
                     {filteredCounts.length === 0 && (
                       <tr className="opacity-40">
-                        <td colSpan={4} className="px-6 py-20 text-center font-black uppercase tracking-[0.3em] text-[10px]">No resources captured in active filter</td>
+	                        <td colSpan={4} className="px-6 py-20 text-center font-black uppercase tracking-[0.3em] text-[10px]">No items in active filter</td>
                       </tr>
                     )}
                   </tbody>
@@ -1087,9 +1099,9 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
 
         <ConfirmationModal
           isOpen={showMoveConfirm}
-          title="Move to Audit?"
-          message={`Are you sure you want to finish counting session ${activeSession.session_number}? You will transition to the review phase to reconcile discrepancies.`}
-          confirmLabel="Procede to Audit"
+	          title="Review this count?"
+	          message={`Are you sure you want to finish counting session ${activeSession.session_number}? You will move to review before any stock changes are applied.`}
+	          confirmLabel="Review Count"
           onConfirm={() => void handleConfirmMove()}
           onClose={() => setShowMoveConfirm(false)}
         />
@@ -1117,9 +1129,9 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         <div className="flex flex-wrap items-center justify-between gap-6 px-2">
           <div>
             <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Count Review</h3>
-            <h2 className="text-2xl font-black tracking-tight text-app-text">Review Phase · <span className="text-app-accent">#{activeSession.session_number}</span></h2>
+	            <h2 className="text-2xl font-black tracking-tight text-app-text">Review Phase · Review Count <span className="text-app-accent">#{activeSession.session_number}</span></h2>
             <p className="mt-2 max-w-2xl text-sm font-semibold text-app-text-muted">
-              Review differences before publish. Publish updates live stock from reviewed counts; it does not replay receiving, sales, or other inventory activity.
+              Review differences before publish. Sales during the count are deducted in review; receiving must stay paused until publish or cancel.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -1209,6 +1221,14 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 "Safe recovery",
                 "Resume counting or edit review rows before publish. Retrying refresh is safe and does not update live stock.",
               ],
+              [
+                "Receiving hold",
+                "Do not receive purchase orders until this session is published or canceled.",
+              ],
+              [
+                "Pilot follow-up",
+                "Unpublished review sessions are pending operational work until a manager publishes or cancels them.",
+              ],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl border border-app-border bg-app-surface px-4 py-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">{label}</p>
@@ -1227,7 +1247,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               trend={{ value: "In review", label: "catalog" }}
             />
             <DashboardStatsCard
-              title="Counted Resources"
+              title="Counted Items"
               value={reviewSummary.total_counted}
               icon={ClipboardList}
               trend={{ value: "Aggregated", label: "volume" }}
@@ -1271,8 +1291,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         )}
 
         <DashboardGridCard 
-          title="Discrepancy Audit"
-          subtitle="Review variance between expected and counted levels"
+	          title="Count Differences"
+	          subtitle="Review expected stock against counted stock"
           icon={ListFilter}
         >
           <div className="absolute top-4 right-6 w-64 z-10">
@@ -1339,8 +1359,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs" data-testid="physical-review-table">
                 <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                  <tr>
-                    <th className="px-6 py-4">Resource Identity</th>
+	                  <tr>
+	                    <th className="px-6 py-4">Item</th>
                     <th className="px-6 py-4 text-center">Expected</th>
                     <th className="px-6 py-4 text-center text-app-accent">Counted</th>
                     <th className="px-6 py-4 text-center">Sales Since</th>
@@ -1406,13 +1426,39 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           </div>
         </DashboardGridCard>
 
+        <div className="sticky bottom-4 z-20 rounded-2xl border border-app-border bg-app-surface/95 p-3 shadow-2xl shadow-black/15 backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-semibold text-app-text-muted">
+              {unresolvedReviewCount > 0
+                ? `${unresolvedReviewCount.toLocaleString()} count difference${unresolvedReviewCount === 1 ? "" : "s"} still need attention before publishing.`
+                : "No unresolved count differences are loaded. Publish when the review matches the count sheets; until then, this remains pending work."}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setPhase("counting"); warmUpAudio(); }}
+                className="ui-btn-secondary min-h-11 px-4 text-[10px] font-black uppercase tracking-widest"
+              >
+                Resume Counting
+              </button>
+              <button
+                type="button"
+                onClick={() => setPublishConfirm(true)}
+                className="ui-btn-primary min-h-11 px-4 text-[10px] font-black uppercase tracking-widest"
+              >
+                Publish Counts
+              </button>
+            </div>
+          </div>
+        </div>
+
         <ConfirmationModal
           isOpen={publishConfirm}
           title="Apply Reviewed Counts?"
           message={
             reviewSummary 
-              ? `Publishing session ${activeSession.session_number} updates live inventory from the reviewed count levels. ${reviewSummary.total_variants_in_scope} items are in scope, ${reviewSummary.total_counted} were counted, ${reviewSummary.missing_variants} are missing from count, and the net change is ${reviewSummary.total_surplus - reviewSummary.total_shrinkage}. Review first: publish does not rerun receiving or sales activity.`
-              : `Publishing session ${activeSession.session_number} updates live inventory from the reviewed count levels. Review first: publish does not rerun receiving or sales activity.`
+              ? `Publishing session ${activeSession.session_number} updates live inventory from the reviewed count levels. ${reviewSummary.total_variants_in_scope} items are in scope, ${reviewSummary.total_counted} were counted, ${reviewSummary.missing_variants} are missing from count, and the net change is ${reviewSummary.total_surplus - reviewSummary.total_shrinkage}. Sales during the count are accounted for in review, but receiving must have stayed paused.`
+              : `Publishing session ${activeSession.session_number} updates live inventory from the reviewed count levels. Sales during the count are accounted for in review, but receiving must have stayed paused.`
           }
           confirmLabel="Publish Reviewed Counts"
           variant="info"
@@ -1425,13 +1471,13 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-md bg-black/20 animate-in fade-in duration-300">
             <div className="w-full max-w-lg rounded-[3rem] border border-white/20 bg-app-surface p-10 shadow-2xl animate-in zoom-in duration-300">
               <div className="mb-8">
-                <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Discrepancy Correction</h3>
-                <h2 className="text-2xl font-black tracking-tight text-app-text">Adjust Counted Resource</h2>
+	                <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Count correction</h3>
+	                <h2 className="text-2xl font-black tracking-tight text-app-text">Correct Count</h2>
               </div>
               
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Manually Overridden Qty</label>
+	                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Corrected quantity</label>
                   <input
                     type="number"
                     value={editQty}
@@ -1441,7 +1487,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Audit Exception Note</label>
+	                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Reason</label>
                   <textarea
                     value={editNote}
                     onChange={(e) => setEditNote(e.target.value)}
@@ -1463,7 +1509,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                     onClick={() => setEditingCountId(null)}
                     className="h-14 px-8 rounded-2xl border border-app-border bg-app-surface-2 text-[11px] font-black uppercase tracking-[0.2em] text-app-text-muted hover:bg-app-surface transition-all"
                   >
-                    Abort
+	                    Cancel
                   </button>
                 </div>
               </div>

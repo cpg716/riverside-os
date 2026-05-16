@@ -749,6 +749,38 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
         </div>
       </header>
 
+      {!receivingClosed ? (
+        <div className="shrink-0 border-b border-app-border bg-app-surface px-4 py-2 sm:px-6">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            <span
+              className={`rounded-lg border px-2.5 py-1 ${
+                canPost
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-app-border bg-app-surface-2 text-app-text"
+              }`}
+            >
+              {canPost ? "Ready to post" : "Receiving draft open"}
+            </span>
+            <span className="rounded-lg border border-app-accent/25 bg-app-accent/10 px-2.5 py-1 text-app-accent">
+              {detail.vendor_name}
+            </span>
+            <span className="rounded-lg bg-app-surface-2 px-2.5 py-1">
+              {receivingLineCount} line{receivingLineCount === 1 ? "" : "s"} staged
+            </span>
+            <span className="text-[11px] normal-case tracking-normal text-app-text-muted">
+              {canPost
+                ? "Review invoice number and costs, then Post Receipt when the paperwork matches."
+                : "Leave this screen open to resume; inventory is not updated until Post Receipt."}
+            </span>
+            {!canPost ? (
+              <span className="text-[11px] normal-case tracking-normal text-amber-700">
+                Pilot watch: open drafts should be resumed or closed before the receiver leaves the task.
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {/* Camera scanner overlay */}
       {scanMode === "camera" && !receivingClosed && (
         <CameraScanner
@@ -1018,27 +1050,56 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <button
-              type="button"
-              onClick={onClose}
-              className="ui-btn-secondary px-8 py-4 text-xs"
+          <div className="flex flex-col gap-3">
+            <div
+              className={`rounded-2xl border px-4 py-3 text-xs font-bold ${
+                receivingClosed
+                  ? "border-app-border bg-app-surface-2 text-app-text-muted"
+                  : canPost
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                    : "border-amber-200 bg-amber-50 text-amber-900"
+              }`}
             >
-              Cancel & Close
-            </button>
-            <button
-              type="button"
-              disabled={!canPost}
-              onClick={() => setShowPostConfirm(true)}
-              className="flex items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-10 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-500/20 transition-all hover:bg-emerald-500 hover:shadow-emerald-500/40 active:scale-95 disabled:opacity-30"
-            >
-              {loading ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              ) : (
-                <ShieldCheck size={18} />
-              )}
-              Post Receipt to Inventory
-            </button>
+              <p className="text-[10px] font-black uppercase tracking-widest">
+                {receivingClosed ? "Receiving closed" : canPost ? "Ready to post" : "Not ready to post"}
+              </p>
+              <p className="mt-1">
+                {receivingClosed
+                  ? "This document is no longer accepting inventory updates."
+                  : canPost
+                    ? `${receivingLineCount} line${receivingLineCount === 1 ? "" : "s"} will update inventory when posted.`
+                    : "Enter at least one receiving quantity before posting inventory."}
+              </p>
+              {!receivingClosed ? (
+                <p className="mt-2 text-[11px] font-bold">
+                  {canPost
+                    ? "Pilot watch: posting completes the receiving handoff and creates the accounting trail."
+                    : "Pilot watch: this is an unresolved receiving draft until quantities are posted or the work is intentionally stopped."}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={onClose}
+                className="ui-btn-secondary px-8 py-4 text-xs"
+              >
+                Cancel & Close
+              </button>
+              <button
+                type="button"
+                disabled={!canPost}
+                onClick={() => setShowPostConfirm(true)}
+                className="flex items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-10 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-500/20 transition-all hover:bg-emerald-500 hover:shadow-emerald-500/40 active:scale-95 disabled:opacity-30"
+              >
+                {loading ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                ) : (
+                  <ShieldCheck size={18} />
+                )}
+                Post Receipt to Inventory
+              </button>
+            </div>
           </div>
         </div>
       </footer>

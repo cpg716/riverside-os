@@ -106,6 +106,11 @@ interface RegisterSessionRow {
   register_ordinal: number;
   opened_at: string;
   closed_at: string | null;
+  qbo_sync_date?: string | null;
+  qbo_status?: string | null;
+  qbo_journal_entry_id?: string | null;
+  qbo_error_message?: string | null;
+  qbo_updated_at?: string | null;
   cashier_name: string;
   opening_float: string;
   expected_cash: string | null;
@@ -296,6 +301,35 @@ function registerLifecycleTone(status: string) {
   }
 }
 
+function qboStatusLabel(status?: string | null) {
+  switch ((status ?? "").toLowerCase()) {
+    case "pending":
+      return "QBO pending review";
+    case "approved":
+      return "QBO approved";
+    case "synced":
+      return "QBO posted";
+    case "failed":
+      return "QBO failed";
+    default:
+      return "QBO not staged";
+  }
+}
+
+function qboStatusTone(status?: string | null) {
+  switch ((status ?? "").toLowerCase()) {
+    case "synced":
+      return "border-app-success/25 bg-app-success/10 text-app-success";
+    case "approved":
+    case "pending":
+      return "border-app-warning/25 bg-app-warning/10 text-app-warning";
+    case "failed":
+      return "border-app-danger/25 bg-app-danger/10 text-app-danger";
+    default:
+      return "border-app-border bg-app-surface-3 text-app-text-muted";
+  }
+}
+
 function primaryRegisterSession(
   sessions: OpenRegisterSessionRow[],
 ): OpenRegisterSessionRow | null {
@@ -375,6 +409,7 @@ export default function RegisterReports({
 
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
+  const selectedSummary = reportBasis === "booked" ? summaryBooked : summary;
 
   const buildActivityParams = useCallback((basis: "booked" | "fulfilled" = reportBasis) => {
     const params = new URLSearchParams();
@@ -493,10 +528,10 @@ export default function RegisterReports({
   }, [view, zPreset, customFromZ, customToZ, fetchZLogs, fetchOpenSessions]);
 
   const rangeLabel = useMemo(() => {
-    if (!summary) return "";
-    if (summary.from_local === summary.to_local) return summary.from_local;
-    return `${summary.from_local} → ${summary.to_local}`;
-  }, [summary]);
+    if (!selectedSummary) return "";
+    if (selectedSummary.from_local === selectedSummary.to_local) return selectedSummary.from_local;
+    return `${selectedSummary.from_local} → ${selectedSummary.to_local}`;
+  }, [selectedSummary]);
 
   useEffect(() => {
     if (deepLinkTransactionId) {
@@ -557,7 +592,7 @@ export default function RegisterReports({
   }, [openSessions, coordinationGroups]);
 
   const handlePrint = () => {
-    const printSummary = reportBasis === "booked" ? summaryBooked : summary;
+    const printSummary = selectedSummary;
     if (!printSummary) return;
     openProfessionalDailySalesPrint({
       title: `Daily Sales - ${rangeLabel}`,
@@ -592,8 +627,8 @@ export default function RegisterReports({
   };
 
   const handleExportCSV = () => {
-    if (!summary?.activities.length) return;
-    const rows = summary.activities.flatMap(a => {
+    if (!selectedSummary?.activities.length) return;
+    const rows = selectedSummary.activities.flatMap(a => {
       const itemRows = (a.items || []).map((item, idx) => ({
         "Date": new Date(a.occurred_at).toLocaleDateString(),
         "Time": new Date(a.occurred_at).toLocaleTimeString(),
@@ -647,11 +682,11 @@ export default function RegisterReports({
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Register</p>
             <h2 className="text-2xl font-black tracking-tight text-app-text">Daily Sales</h2>
-            {summary && (
+            {selectedSummary && (
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
                 {rangeLabel}
                 <span className="mx-1.5 opacity-40">·</span>
-                <span className="font-mono">{summary.timezone}</span>
+                <span className="font-mono">{selectedSummary.timezone}</span>
               </p>
             )}
           </div>
@@ -675,12 +710,17 @@ export default function RegisterReports({
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">View Mode</span>
             <div className="flex gap-1 rounded-2xl border border-app-border bg-app-surface-2 p-1">
-              <button type="button" onClick={() => { setReportBasis("fulfilled"); setSummary(summaryBooked); setSummaryBooked(summary); }} className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${reportBasis === "fulfilled" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
+              <button type="button" onClick={() => setReportBasis("fulfilled")} className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${reportBasis === "fulfilled" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
                 Fulfilled (Pickup)
               </button>
-              <button type="button" onClick={() => { setReportBasis("booked"); const temp = summary; setSummary(summaryBooked); setSummaryBooked(temp); }} className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${reportBasis === "booked" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
+              <button type="button" onClick={() => setReportBasis("booked")} className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${reportBasis === "booked" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
                 Booked (Sale)
               </button>
+            </div>
+            <div className="rounded-xl border border-app-info/20 bg-app-info/10 px-3 py-2 text-xs font-semibold text-app-text-muted">
+              {reportBasis === "booked"
+                ? "Booked shows sales by checkout date. Use this for register activity and Z-close comparison."
+                : "Fulfilled shows pickup/release activity. Use this for revenue recognition review, not drawer close totals."}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1146,6 +1186,14 @@ export default function RegisterReports({
                     Each till group has one physical drawer. Satellite lanes stay visible here, but final Z-close still runs once from Register #1 for the whole group.
                   </p>
                 </div>
+                <div className="mt-3 rounded-xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-sm text-app-text-muted">
+                  <p className="text-xs font-bold text-app-text">
+                    Accounting handoff after close
+                  </p>
+                  <p className="mt-1 leading-relaxed">
+                    A saved Z-report confirms the register close. QBO staging is reviewed separately in the QBO workspace; accounting should confirm the journal is pending, failed, or posted before clearing the day.
+                  </p>
+                </div>
                 {openSessionsError ? (
                   <p className="mt-3 text-xs font-semibold text-app-text-muted">
                     {openSessionsError}
@@ -1265,6 +1313,26 @@ export default function RegisterReports({
                         </p>
                         <p className="text-xl font-black tabular-nums text-app-accent">${centsToFixed2(parseMoneyToCents(session.total_sales))}</p>
                         <p className="text-xs text-app-text-muted">Exp. cash ${centsToFixed2(parseMoneyToCents(session.expected_cash ?? "0"))}</p>
+                        <div className="mt-2 flex flex-col items-end gap-1">
+                          <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${qboStatusTone(session.qbo_status)}`}>
+                            {qboStatusLabel(session.qbo_status)}
+                          </span>
+                          {session.qbo_sync_date ? (
+                            <span className="text-[10px] font-semibold text-app-text-muted">
+                              Business date {session.qbo_sync_date}
+                            </span>
+                          ) : null}
+                          {session.qbo_journal_entry_id ? (
+                            <span className="text-[10px] font-mono text-app-text-muted">
+                              JE {session.qbo_journal_entry_id}
+                            </span>
+                          ) : null}
+                          {session.qbo_error_message ? (
+                            <span className="max-w-48 text-right text-[10px] font-semibold text-app-danger">
+                              {session.qbo_error_message}
+                            </span>
+                          ) : null}
+                        </div>
                         {session.discrepancy &&
                         Math.abs(parseMoneyToCents(session.discrepancy)) > 0 ? (
                           <p className="text-xs font-black text-app-warning">

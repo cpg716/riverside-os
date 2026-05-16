@@ -1238,8 +1238,10 @@ export default function InventoryControlBoard({
     const focused = tableFocus && cursor === idx;
 
     const totalSoh = row.stock_on_hand || 0;
+    const totalAvailable = row.available_stock_total ?? totalSoh;
     const oos = totalSoh <= 0;
-    const low = totalSoh > 0 && totalSoh <= 2;
+    const unavailable = totalAvailable <= 0;
+    const low = totalAvailable > 0 && totalAvailable <= 2;
     const highValue = row.cost_extended >= HIGH_VALUE_MIN_USD;
 
     const primaryVariant = row.variant_rows?.[0];
@@ -1291,6 +1293,17 @@ export default function InventoryControlBoard({
                   <Gem size={7} /> High current-cost value
                 </span>
               )}
+              <span
+                className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${
+                  unavailable
+                    ? "bg-app-danger/10 text-app-danger"
+                    : low
+                      ? "bg-app-warning/10 text-app-warning"
+                      : "bg-app-success/10 text-app-success"
+                }`}
+              >
+                {unavailable ? "Not available" : low ? "Low available" : "Available"}
+              </span>
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-mono text-[12px] font-black text-app-text-muted">
@@ -1321,13 +1334,13 @@ export default function InventoryControlBoard({
           </div>
           <div className="flex-1 max-w-[80px]">
             <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-[0.1em] text-app-text-muted mb-1 opacity-50">
-               <span>AVAIL</span>
-               <span>{row.variant_count}x</span>
+               <span>Available</span>
+               <span>{totalAvailable}</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-app-border/20">
               <div 
-                className={`h-full transition-all duration-700 ${oos ? 'bg-app-danger/60' : low ? 'bg-app-warning/60' : 'bg-app-success/60'}`}
-                style={{ width: `${Math.min(100, (totalSoh / 10) * 100)}%` }}
+                className={`h-full transition-all duration-700 ${unavailable ? 'bg-app-danger/60' : low ? 'bg-app-warning/60' : 'bg-app-success/60'}`}
+                style={{ width: `${Math.min(100, (Math.max(0, totalAvailable) / 10) * 100)}%` }}
               />
             </div>
           </div>
@@ -1892,6 +1905,9 @@ export default function InventoryControlBoard({
                 placeholder="Short reason (e.g. count was off by one)"
                 className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm font-medium text-app-text outline-none ring-app-accent focus:ring-2"
               />
+              <p className="text-[10px] font-bold leading-relaxed text-amber-700">
+                Pilot audit: note the real store reason, such as count correction, damage, receiving correction, or customer-service recovery.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -2051,7 +2067,7 @@ export default function InventoryControlBoard({
                 onClick={handleMaintenanceSubmit}
                 className={`flex-1 rounded-xl border-b-4 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg transition-all active:translate-y-1 active:border-b-0 ${maintenanceTarget.type === 'damaged' ? "bg-red-600 border-red-800" : "bg-app-accent border-app-accent/80"}`}
               >
-                Execute Adjustment
+	                Save stock change
               </button>
             </div>
           </div>

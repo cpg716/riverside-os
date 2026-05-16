@@ -610,6 +610,9 @@ export default function QboWorkspace({
             A balanced journal can still require accounting review when tax, refunds,
             deposits, merchant clearing, imported activity, or timing corrections are present.
           </p>
+          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+            Pilot watch: {accountingSummary.pendingCount + accountingSummary.approvedCount + accountingSummary.failedCount} unresolved journal row{accountingSummary.pendingCount + accountingSummary.approvedCount + accountingSummary.failedCount === 1 ? "" : "s"} need review, posting, or failure follow-up before the day is considered reconciled.
+          </p>
         </div>
 
         <div className="ui-card bg-app-surface-2 px-5 py-4">
@@ -678,6 +681,9 @@ export default function QboWorkspace({
           can change liability, tender clearing, and QBO staging on different dates. Review any
           warning-bearing journal before posting, especially when refund payout and return activity
           do not happen on the same business date.
+        </p>
+        <p className="mt-2 text-xs font-bold text-amber-900">
+          Pilot diagnostic: repeated warning-bearing journals usually point to a workflow needing manager observation, not a posting shortcut.
         </p>
       </div>
 

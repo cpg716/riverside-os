@@ -212,7 +212,7 @@ for (const viewport of PHYSICAL_VIEWPORTS) {
     }
 
     await page.getByRole("button", { name: /resume scanners/i }).click();
-    await expect(page.getByRole("heading", { name: /counting phase/i })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: /active count/i })).toBeVisible({ timeout: 20_000 });
 
     if (viewport.width <= 1023) {
       await expect(page.getByTestId("physical-count-cards")).toBeVisible({ timeout: 20_000 });
@@ -221,10 +221,10 @@ for (const viewport of PHYSICAL_VIEWPORTS) {
       await expect(page.getByTestId("physical-count-table")).toBeVisible({ timeout: 20_000 });
     }
 
-    await page.getByRole("button", { name: /finish & audit/i }).click();
-    await page.getByRole("button", { name: /procede to audit|proceed to audit/i }).click();
+    await page.getByRole("button", { name: /review count/i }).click();
+    await page.getByRole("dialog").getByRole("button", { name: /review count/i }).click();
 
-    await expect(page.getByRole("heading", { name: /review phase/i })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: /review count/i })).toBeVisible({ timeout: 20_000 });
     if (viewport.width <= 1023) {
       await expect(page.getByTestId("physical-review-cards")).toBeVisible({ timeout: 20_000 });
       await expect(page.getByTestId("physical-review-table")).toHaveCount(0);

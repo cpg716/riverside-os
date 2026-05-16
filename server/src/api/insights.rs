@@ -1243,6 +1243,11 @@ pub struct RegisterSessionHistoryRow {
     pub register_ordinal: i64,
     pub opened_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
+    pub qbo_sync_date: Option<NaiveDate>,
+    pub qbo_status: Option<String>,
+    pub qbo_journal_entry_id: Option<String>,
+    pub qbo_error_message: Option<String>,
+    pub qbo_updated_at: Option<DateTime<Utc>>,
     pub cashier_name: String,
     pub opening_float: Decimal,
     pub expected_cash: Option<Decimal>,
@@ -1390,6 +1395,11 @@ async fn register_session_history(
             rs.session_ordinal AS register_ordinal,
             rs.opened_at,
             rs.closed_at,
+            qbo.sync_date AS qbo_sync_date,
+            qbo.status AS qbo_status,
+            qbo.journal_entry_id AS qbo_journal_entry_id,
+            qbo.error_message AS qbo_error_message,
+            qbo.updated_at AS qbo_updated_at,
             s.full_name AS cashier_name,
             rs.opening_float,
             rs.expected_cash,
@@ -1413,6 +1423,13 @@ async fn register_session_history(
             ) AS total_sales
         FROM register_sessions rs
         JOIN staff s ON s.id = rs.opened_by
+        LEFT JOIN LATERAL (
+            SELECT q.sync_date, q.status, q.journal_entry_id, q.error_message, q.updated_at
+            FROM qbo_sync_logs q
+            WHERE q.sync_date = (rs.closed_at AT TIME ZONE reporting.effective_store_timezone())::date
+            ORDER BY q.updated_at DESC, q.created_at DESC
+            LIMIT 1
+        ) qbo ON TRUE
         WHERE rs.closed_at IS NOT NULL
           AND rs.register_lane = 1
           AND rs.closed_at >= $1

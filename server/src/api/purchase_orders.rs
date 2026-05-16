@@ -895,6 +895,24 @@ async fn receive_po(
         }));
     }
 
+    let active_count_session: Option<(String, String)> = sqlx::query_as(
+        r#"
+        SELECT session_number, status
+        FROM physical_inventory_sessions
+        WHERE status IN ('open', 'reviewing')
+        ORDER BY started_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some((session_number, status)) = active_count_session {
+        return Err(PurchaseOrderError::InvalidPayload(format!(
+            "Receiving is paused while physical inventory session {session_number} is {status}. Publish or cancel the count before posting received stock."
+        )));
+    }
+
     if po_lock.status == "cancelled" {
         return Err(PurchaseOrderError::InvalidPayload(
             "purchase order is cancelled".to_string(),

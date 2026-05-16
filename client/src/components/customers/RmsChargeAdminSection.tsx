@@ -31,7 +31,7 @@ function fmtDateOnly(value?: string | null) {
 }
 
 function sourceLabel(source?: string | null) {
-  if (source === "corecard_live") return "Live RMS read";
+  if (source === "corecard_live") return "Manual RMS Charge";
   if (source === "manual" || source === "local_fallback") return "Manual RMS Charge";
   if (source === "unavailable") return "Unavailable";
   return source || "Manual RMS Charge";
@@ -40,15 +40,15 @@ function sourceLabel(source?: string | null) {
 function manualWorkflowCopy(warningCode?: string | null) {
   switch (warningCode) {
     case "corecard_config_missing":
-      return "Manual RMS Charge account details are ready for staff review.";
+      return "Use the current manual RMS process. Riverside stores the account snapshot, reference, R2S follow-up, and audit notes only.";
     case "corecard_live_empty_response":
-      return "Manual RMS Charge account details are ready for staff review.";
+      return "Use the current manual RMS process. Confirm the RMS details outside Riverside before marking follow-up complete.";
     case "corecard_live_request_failed":
-      return "Manual RMS Charge account details are ready for staff review.";
+      return "Use the current manual RMS process. Do not treat this as automatic RMS account confirmation.";
     case "program_catalog_from_riverside_history":
-      return "Program options are managed in Riverside for manual RMS Charge work.";
+      return "Program options are managed in Riverside for manual RMS Charge work and still require manual RMS/R2S handling.";
     default:
-      return "Manual RMS Charge account details are ready for staff review.";
+      return "Manual RMS Charge account details are ready for staff review; this does not update the RMS account automatically.";
   }
 }
 
@@ -98,24 +98,24 @@ function reconciliationItemGuidance(item: RmsReconciliationItem) {
   switch (item.mismatch_type) {
     case "posting_failed":
       return {
-        changed: "An RMS Charge post did not complete.",
+        changed: "An RMS Charge record did not complete cleanly.",
         matters: "The customer payment or charge may not be visible as finished in every operational view.",
-        downstream: "May affect pickup/payment visibility until the failed post is reviewed.",
-        next: "Review the linked RMS issue, correct the host or record problem, then safe-rerun reconciliation.",
+        downstream: "May affect pickup/payment visibility until the record is reviewed.",
+        next: "Review the linked RMS issue, correct the manual RMS record or Riverside record, then safe-rerun reconciliation.",
       };
     case "posting_pending":
       return {
-        changed: "An RMS Charge post is still pending.",
-        matters: "The sale may be waiting on host confirmation rather than truly finished.",
-        downstream: "May affect payment visibility while the host result is still unresolved.",
-        next: "If this is recent, monitor it. If it persists, rerun reconciliation and escalate to support.",
+        changed: "An RMS Charge record is still pending.",
+        matters: "The sale or payment still needs manual RMS/R2S follow-up before it is trusted as finished.",
+        downstream: "May affect payment visibility while the manual follow-up remains unresolved.",
+        next: "If this is recent, assign the follow-up. If it persists, rerun reconciliation and escalate to support.",
       };
     case "missing_host_reference":
       return {
-        changed: "A posted RMS Charge record is missing a host reference.",
-        matters: "Support may not be able to match Riverside activity to the RMS host record quickly.",
+        changed: "An RMS Charge record is missing a reference number.",
+        matters: "Support may not be able to match Riverside activity to the manual RMS/R2S record quickly.",
         downstream: "Usually not blocking for store work, but it weakens support traceability.",
-        next: "Check the host reference and add support notes before closing the issue.",
+        next: "Check the RMS/R2S reference and add support notes before closing the issue.",
       };
     case "legacy_record_review":
       return {
@@ -541,9 +541,7 @@ export default function RmsChargeAdminSection({
     () => accounts.find((account) => account.corecredit_account_id === activeAccountId) ?? null,
     [accounts, activeAccountId],
   );
-  const liveReadConfirmed =
-    accountSummary?.source === "corecard_live" ||
-    programs.some((program) => program.source === "corecard_live");
+  const liveReadConfirmed = false;
   const manualInfoCodes = [
     accountSummary?.source !== "corecard_live" ? accountSummary?.warning_code : null,
     ...programs.map((program) => (program.source !== "corecard_live" ? program.warning_code : null)),
@@ -1451,6 +1449,18 @@ export default function RmsChargeAdminSection({
               </div>
             </div>
           ) : null}
+
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900">
+            <div className="text-[10px] font-black uppercase tracking-widest">
+              Manual RMS Charge governance
+            </div>
+            <div className="mt-2 grid gap-2 text-xs font-semibold leading-relaxed sm:grid-cols-2">
+              <div>1. Confirm the RMS account and program in the current manual RMS workflow.</div>
+              <div>2. Enter the approval or reference number before treating the sale as complete.</div>
+              <div>3. Report required RMS Charge sales/payments to R2S the same day.</div>
+              <div>4. Resolve overdue, missing-reference, or mismatch rows before accounting clears the day.</div>
+            </div>
+          </div>
 
           {surface === "backoffice" && activeWorkspaceTab === "accounts" ? (
             <div className="mt-4 space-y-3">
@@ -2576,7 +2586,7 @@ export default function RmsChargeAdminSection({
                       <span className="font-mono text-app-text">{recordDetail.host_reference || "—"}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">RMS posting id</span>
+                      <span className="text-app-text-muted">External reference</span>
                       <span className="font-mono text-app-text">{recordDetail.external_transaction_id || "—"}</span>
                     </div>
                     <div className="flex items-center justify-between">
