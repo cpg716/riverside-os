@@ -33,6 +33,8 @@ type MeilisearchSyncRow = {
 
 type MeilisearchStatusResponse = {
   configured: boolean;
+  connection_ok?: boolean;
+  connection_error?: string | null;
   indices: MeilisearchSyncRow[];
   is_indexing: boolean;
 };
@@ -52,6 +54,12 @@ export default function MeilisearchSettingsPanel() {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
   const [meiliConfigured, setMeiliConfigured] = useState<boolean | null>(null);
+  const [meiliConnectionOk, setMeiliConnectionOk] = useState<boolean | null>(
+    null,
+  );
+  const [meiliConnectionError, setMeiliConnectionError] = useState<
+    string | null
+  >(null);
   const [meiliIndices, setMeiliIndices] = useState<MeilisearchSyncRow[]>([]);
   const [isIndexing, setIsIndexing] = useState(false);
   const [meiliReindexBusy, setMeiliReindexBusy] = useState(false);
@@ -67,13 +75,23 @@ export default function MeilisearchSettingsPanel() {
       if (res.ok) {
         const j = (await res.json()) as MeilisearchStatusResponse;
         setMeiliConfigured(j.configured === true);
+        setMeiliConnectionOk(
+          j.configured === true &&
+            j.connection_ok !== false &&
+            !j.connection_error,
+        );
+        setMeiliConnectionError(j.connection_error ?? null);
         setMeiliIndices(j.indices || []);
         setIsIndexing(j.is_indexing);
       } else {
         setMeiliConfigured(null);
+        setMeiliConnectionOk(null);
+        setMeiliConnectionError(null);
       }
     } catch {
       setMeiliConfigured(null);
+      setMeiliConnectionOk(null);
+      setMeiliConnectionError(null);
       setMeiliIndices([]);
     } finally {
       setLoading(false);
@@ -104,8 +122,13 @@ export default function MeilisearchSettingsPanel() {
         headers: backofficeHeaders() as Record<string, string>,
       });
       if (!res.ok) {
-        await res.json().catch(() => ({}));
-        toast("Search rebuild failed. Check Support details and try again.", "error");
+        const j = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        toast(
+          j.error || "Search rebuild failed. Check Support details and try again.",
+          "error",
+        );
         setMeiliReindexBusy(false);
       } else {
         toast("Search rebuild completed.", "success");
@@ -127,6 +150,9 @@ export default function MeilisearchSettingsPanel() {
       </div>
     );
   }
+
+  const meiliConnectionReady =
+    meiliConfigured === true && meiliConnectionOk === true;
 
   return (
     <div className="space-y-10">
@@ -184,8 +210,10 @@ export default function MeilisearchSettingsPanel() {
                 </span>
               ) : meiliConfigured === null ? (
                 "Status unknown"
-              ) : meiliConfigured ? (
+              ) : meiliConnectionReady ? (
                 "Connected"
+              ) : meiliConfigured ? (
+                "Connection failed"
               ) : (
                 "Not connected"
               )}
@@ -212,6 +240,15 @@ export default function MeilisearchSettingsPanel() {
             </p>
             Search rebuild is disabled until the search host and API key are
             saved below.
+          </div>
+        )}
+
+        {meiliConfigured === true && meiliConnectionError && (
+          <div className="ui-panel ui-tint-danger mb-8 px-4 py-3 text-xs text-app-text-muted leading-relaxed">
+            <p className="font-bold text-app-danger uppercase tracking-widest text-[10px] mb-1">
+              Search connection failed
+            </p>
+            {meiliConnectionError}
           </div>
         )}
 
@@ -246,12 +283,12 @@ export default function MeilisearchSettingsPanel() {
                 </p>
                 <div className="flex items-center gap-2">
                   <div
-                    className={`h-2 w-2 rounded-full ${isIndexing ? "bg-app-success animate-pulse" : meiliIndices.every((i) => i.is_success) ? "bg-app-success" : "bg-app-danger"} shadow-[0_0_8px_color-mix(in_srgb,var(--app-success)_60%,transparent)]`}
+                    className={`h-2 w-2 rounded-full ${isIndexing ? "bg-app-success animate-pulse" : meiliConnectionReady && meiliIndices.every((i) => i.is_success) ? "bg-app-success" : "bg-app-danger"} shadow-[0_0_8px_color-mix(in_srgb,var(--app-success)_60%,transparent)]`}
                   />
                   <span className="text-sm font-black text-app-text">
                     {isIndexing
                       ? "Updating..."
-                      : meiliIndices.every((i) => i.is_success)
+                      : meiliConnectionReady && meiliIndices.every((i) => i.is_success)
                         ? "All Healthy"
                         : "Action Required"}
                   </span>
@@ -483,7 +520,7 @@ export default function MeilisearchSettingsPanel() {
           <button
             type="button"
             disabled={
-              meiliReindexBusy || isIndexing || meiliConfigured !== true
+              meiliReindexBusy || isIndexing || !meiliConnectionReady
             }
             onClick={() => setMeiliReindexConfirmOpen(true)}
             className="ui-btn-primary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest bg-emerald-600 border-emerald-700 shadow-emerald-900/10 hover:bg-emerald-700 disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:border-app-border"

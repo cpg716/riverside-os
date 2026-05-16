@@ -1711,8 +1711,20 @@ pub struct MeilisearchSyncRow {
 #[derive(Debug, Serialize)]
 pub struct MeilisearchStatusResponse {
     pub configured: bool,
+    pub connection_ok: bool,
+    pub connection_error: Option<String>,
     pub indices: Vec<MeilisearchSyncRow>,
     pub is_indexing: bool,
+}
+
+fn meili_connection_error_message(e: &meilisearch_sdk::errors::Error) -> String {
+    let detail = e.to_string();
+    if detail.contains("invalid_api_key") {
+        "Meilisearch rejected the saved API key. Save the current Meilisearch API key and refresh."
+            .to_string()
+    } else {
+        format!("Meilisearch connection check failed: {detail}")
+    }
 }
 
 fn meili_task_summary(task: &meilisearch_sdk::tasks::Task) -> MeilisearchTaskSummary {
@@ -1823,6 +1835,7 @@ async fn get_meilisearch_status(
     let mut doc_counts: HashMap<String, usize> = HashMap::new();
     let mut latest_by_index: HashMap<String, MeilisearchTaskSummary> = HashMap::new();
     let mut latest_failed_by_index: HashMap<String, MeilisearchTaskSummary> = HashMap::new();
+    let mut connection_error: Option<String> = None;
 
     let meilisearch_client = state
         .meilisearch
@@ -1830,23 +1843,34 @@ async fn get_meilisearch_status(
         .or_else(crate::logic::meilisearch_client::meilisearch_from_env);
 
     let is_indexing = if let Some(client) = &meilisearch_client {
-        doc_counts = meili_document_counts_from_env().await;
-
-        if let Ok(tasks) = client.get_tasks().await {
-            for task in tasks.results {
-                let summary = meili_task_summary(&task);
-                if let Some(index_uid) = summary.index_uid.clone() {
-                    latest_by_index
-                        .entry(index_uid.clone())
-                        .or_insert_with(|| summary.clone());
-                    if summary.status == "failed" {
-                        latest_failed_by_index.entry(index_uid).or_insert(summary);
+        match client.get_tasks().await {
+            Ok(tasks) => {
+                doc_counts = meili_document_counts_from_env().await;
+                let is_indexing = tasks.results.iter().any(|t| {
+                    matches!(
+                        t,
+                        meilisearch_sdk::tasks::Task::Enqueued { .. }
+                            | meilisearch_sdk::tasks::Task::Processing { .. }
+                    )
+                });
+                for task in tasks.results {
+                    let summary = meili_task_summary(&task);
+                    if let Some(index_uid) = summary.index_uid.clone() {
+                        latest_by_index
+                            .entry(index_uid.clone())
+                            .or_insert_with(|| summary.clone());
+                        if summary.status == "failed" {
+                            latest_failed_by_index.entry(index_uid).or_insert(summary);
+                        }
                     }
                 }
+                is_indexing
+            }
+            Err(e) => {
+                connection_error = Some(meili_connection_error_message(&e));
+                false
             }
         }
-
-        crate::logic::meilisearch_client::is_indexing(client).await
     } else {
         false
     };
@@ -1871,6 +1895,8 @@ async fn get_meilisearch_status(
 
     Ok(Json(MeilisearchStatusResponse {
         configured: meilisearch_client.is_some(),
+        connection_ok: meilisearch_client.is_some() && connection_error.is_none(),
+        connection_error,
         indices,
         is_indexing,
     }))
@@ -1892,6 +1918,11 @@ async fn post_meilisearch_reindex(
             "Meilisearch is not configured. Save the search host first.".to_string(),
         ));
     };
+    if let Err(e) = c.get_tasks().await {
+        return Err(SettingsError::InvalidPayload(
+            meili_connection_error_message(&e),
+        ));
+    }
     crate::logic::meilisearch_sync::reindex_all_meilisearch(&c, &state.db)
         .await
         .map_err(|e| {

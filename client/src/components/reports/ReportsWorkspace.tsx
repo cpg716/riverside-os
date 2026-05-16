@@ -37,6 +37,115 @@ function toCellString(v: unknown): string {
   return String(v);
 }
 
+const MONEY_FIELD_PATTERN =
+  /(^|_)(amount|balance|cash|commission|cost|deposit|discount|fee|fees|gross|margin|net|paid|price|revenue|sale|sales|subtotal|tax|total|variance|volume)($|_)/i;
+const DATE_FIELD_PATTERN = /(^|_)(date|day)$|_at$|time$/i;
+const ENUM_FIELD_PATTERN =
+  /(^|_)(basis|category|fulfillment|kind|method|reason|source|status|type|area)($|_)/i;
+
+const HIDDEN_REPORT_FIELDS = new Set([
+  "id",
+  "customer_id",
+  "event_id",
+  "fulfillment_order_id",
+  "line_id",
+  "operator_staff_id",
+  "order_id",
+  "payment_transaction_id",
+  "product_id",
+  "register_session_id",
+  "session_id",
+  "staff_id",
+  "transaction_id",
+  "transaction_line_id",
+  "variant_id",
+  "wedding_party_id",
+  "snapshot_json",
+  "weather_snapshot",
+  "z_report_json",
+]);
+
+function looksTechnicalField(key: string): boolean {
+  const k = key.toLocaleLowerCase();
+  if (HIDDEN_REPORT_FIELDS.has(k)) return true;
+  if (k.endsWith("_json") || k.endsWith("_metadata") || k === "metadata") return true;
+  if (k.endsWith("_uuid")) return true;
+  if (k.endsWith("_id") && !k.endsWith("_display_id")) return true;
+  return false;
+}
+
+function hasDisplayValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+function keysFromRowsForDisplay(rows: Record<string, unknown>[]): string[] {
+  return keysFromRows(rows).filter((key) => {
+    if (looksTechnicalField(key)) return false;
+    return rows.some((row) => hasDisplayValue(row[key]));
+  });
+}
+
+function titleizeValue(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toLocaleUpperCase());
+}
+
+function formatPhone(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return value;
+}
+
+function formatMoney(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  }
+  if (typeof value === "string" && value.trim() && /^-?\d+(\.\d+)?$/.test(value.trim())) {
+    return Number(value).toLocaleString(undefined, { style: "currency", currency: "USD" });
+  }
+  return null;
+}
+
+function formatDateValue(value: unknown, includeTime: boolean): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return includeTime ? parsed.toLocaleString() : parsed.toLocaleDateString();
+}
+
+function formatCellValue(value: unknown, key: string): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (MONEY_FIELD_PATTERN.test(key) ? formatMoney(item) || toCellString(item) : toCellString(item)))
+      .join(", ");
+  }
+  if (MONEY_FIELD_PATTERN.test(key)) {
+    const money = formatMoney(value);
+    if (money) return money;
+  }
+  if (DATE_FIELD_PATTERN.test(key)) {
+    const date = formatDateValue(value, key.endsWith("_at") || key.endsWith("time"));
+    if (date) return date;
+  }
+  if (typeof value === "string") {
+    if (key === "phone" || key.endsWith("_phone")) return formatPhone(value);
+    if (ENUM_FIELD_PATTERN.test(key)) return titleizeValue(value);
+    return value;
+  }
+  if (typeof value === "object") return "";
+  return String(value);
+}
+
 function rowsFromUnknown(data: unknown): Record<string, unknown>[] {
   if (!data || typeof data !== "object") return [];
   if (Array.isArray(data)) return data as Record<string, unknown>[];
@@ -62,6 +171,7 @@ const FIELD_LABELS: Record<string, string> = {
   cashier_name: "Cashier",
   category: "Category",
   completed_count: "Completed",
+  customer_display: "Customer",
   customer_display_name: "Customer",
   customer_name: "Customer",
   cancellation_count: "Cancellations",
@@ -70,23 +180,33 @@ const FIELD_LABELS: Record<string, string> = {
   exempt_sales: "Exempt Sales",
   expected_cash: "Expected Cash",
   follow_up_reason: "Follow-Up Reason",
+  from_eod_snapshot: "Closed-Day Snapshot",
   fees: "Processing Fees",
   from: "From",
+  from_local: "From",
   gross: "Gross",
   gross_margin: "Gross Margin",
   gross_sales: "Gross Sales",
   last_transaction_at: "Last Transaction",
   item_name: "Item",
+  is_historical: "Historical Window",
+  includes_today: "Includes Today",
   line_count: "Line Count",
+  line_units: "Units",
   member_count: "Members",
+  merchant_fees_total: "Merchant Fees",
   missing_measurements_count: "Missing Measurements",
   net: "Net",
   net_sales: "Net Sales",
+  new_wedding_parties_count: "New Wedding Parties",
   no_show_count: "No-Shows",
   open_balance: "Open Balance",
   open_balance_total: "Open Balance Total",
   order_count: "Transactions",
+  order_short_ref: "Transaction #",
   owner_area: "Owner Area",
+  payment_method: "Payment Method",
+  payment_provider: "Processor",
   pending_alteration_count: "Pending Alterations",
   pending_pickup_count: "Pending Pickups",
   payments_total: "Payments",
@@ -95,6 +215,7 @@ const FIELD_LABELS: Record<string, string> = {
   product_name: "Product",
   quantity: "Quantity",
   reason: "Reason",
+  record_kind: "Record Type",
   recent_transaction_count: "Recent Transactions",
   recommended_action: "Recommended Action",
   recognized_at: "Completed At",
@@ -102,10 +223,13 @@ const FIELD_LABELS: Record<string, string> = {
   register_number: "Register #",
   report_date: "Report Date",
   reporting_basis: "Basis",
+  revenue_momentum: "Last 7 Days",
   risk_count: "Risk Count",
   risk_type: "Risk Type",
   oldest_at: "Oldest Item",
   sales_count: "Sales Count",
+  sales_subtotal_no_tax: "Sales Before Tax",
+  sales_tax_total: "Sales Tax",
   sales_volume: "Sales Volume",
   salesperson: "Salesperson",
   session_id: "Session",
@@ -117,13 +241,16 @@ const FIELD_LABELS: Record<string, string> = {
   tax_collected: "Tax Collected",
   taxable_sales: "Taxable Sales",
   to: "To",
+  to_local: "To",
   total: "Total",
   total_cost: "Total Cost",
   total_discount: "Total Discount",
   total_fees: "Processing Fees",
   total_net: "Net Total",
   total_sales: "Sales Total",
+  total_amount: "Total Amount",
   transaction_count: "Transactions",
+  transaction_total: "Transaction Total",
   unit_cost: "Unit Cost",
   units_sold: "Units Sold",
   unpaid_balance_count: "Unpaid Members",
@@ -149,7 +276,7 @@ function rowsWithDisplayLabels(
 ): Record<string, unknown>[] {
   return rows.map((row) => {
     const out: Record<string, unknown> = {};
-    for (const column of columns) out[fieldLabel(column)] = row[column];
+    for (const column of columns) out[fieldLabel(column)] = formatCellValue(row[column], column);
     return out;
   });
 }
@@ -167,6 +294,30 @@ function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+const REGISTER_DAY_SUMMARY_FIELDS = [
+  "from_local",
+  "to_local",
+  "reporting_basis",
+  "sales_count",
+  "sales_subtotal_no_tax",
+  "sales_tax_total",
+  "net_sales",
+  "cash_collected",
+  "deposits_collected",
+  "merchant_fees_total",
+  "pickup_count",
+  "appointment_count",
+  "new_wedding_parties_count",
+  "includes_today",
+  "from_eod_snapshot",
+];
+
+function registerDayActivityRows(payload: unknown): Record<string, unknown>[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const activities = (payload as { activities?: unknown }).activities;
+  return Array.isArray(activities) ? (activities as Record<string, unknown>[]) : [];
 }
 
 type Props = {
@@ -286,7 +437,7 @@ export default function ReportsWorkspace({
     return [];
   }, [payload, selectedAvailable]);
 
-  const tableColumns = useMemo(() => keysFromRows(tableRows), [tableRows]);
+  const tableColumns = useMemo(() => keysFromRowsForDisplay(tableRows), [tableRows]);
   const displayRows = useMemo(
     () => rowsWithDisplayLabels(tableRows, tableColumns),
     [tableColumns, tableRows],
@@ -644,12 +795,59 @@ export default function ReportsWorkspace({
                 : null}
 
               {selectedAvailable.responseKind === "register_day_summary" ? (
-                <pre
-                  data-testid="reports-detail-register-day"
-                  className="max-h-[60vh] overflow-auto rounded-xl border border-app-border bg-app-surface p-4 text-xs font-mono text-app-text"
-                >
-                  {JSON.stringify(payload, null, 2)}
-                </pre>
+                <div data-testid="reports-detail-register-day" className="space-y-4">
+                  <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {REGISTER_DAY_SUMMARY_FIELDS.map((key) => {
+                      const value = (payload as Record<string, unknown>)[key];
+                      if (!hasDisplayValue(value)) return null;
+                      return (
+                        <div
+                          key={key}
+                          className="rounded-xl border border-app-border bg-app-surface px-3 py-2"
+                        >
+                          <dt className="text-xs font-bold text-app-text-muted">
+                            {fieldLabel(key)}
+                          </dt>
+                          <dd className="mt-1 text-sm font-black text-app-text">
+                            {formatCellValue(value, key)}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                  {registerDayActivityRows(payload).length > 0 ? (
+                    <div className="overflow-auto rounded-xl border border-app-border">
+                      <table className="w-full min-w-[640px] border-collapse text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-app-border bg-app-surface-2">
+                            {keysFromRowsForDisplay(registerDayActivityRows(payload)).map((key) => (
+                              <th
+                                key={key}
+                                className="whitespace-nowrap px-3 py-2 font-black text-app-text"
+                              >
+                                {fieldLabel(key)}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {registerDayActivityRows(payload).map((row, index) => (
+                            <tr key={index} className="border-b border-app-border/70">
+                              {keysFromRowsForDisplay(registerDayActivityRows(payload)).map((key) => (
+                                <td
+                                  key={key}
+                                  className="px-3 py-2 font-semibold text-app-text-muted"
+                                >
+                                  {formatCellValue(row[key], key)}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
 
               {tableRows.length > 0 ? (
@@ -698,7 +896,7 @@ export default function ReportsWorkspace({
                                 {fieldLabel(k)}
                               </dt>
                               <dd className="break-all font-semibold text-app-text">
-                                {toCellString(row[k])}
+                                {formatCellValue(row[k], k)}
                               </dd>
                             </div>
                           ))}
@@ -726,7 +924,7 @@ export default function ReportsWorkspace({
                           <tr key={i} className="border-b border-app-border/70">
                             {tableColumns.map((k) => (
                               <td key={k} className="px-3 py-2 font-semibold text-app-text-muted">
-                                {toCellString(row[k])}
+                                {formatCellValue(row[k], k)}
                               </td>
                             ))}
                           </tr>
@@ -743,7 +941,26 @@ export default function ReportsWorkspace({
               tableRows.length > 0
                 ? null
                 : (
-                  <p className="text-sm font-semibold text-app-text-muted">No rows in this window.</p>
+                  <div className="rounded-xl border border-app-border bg-app-surface px-4 py-3">
+                    <p className="text-sm font-black text-app-text">No report rows for this window.</p>
+                    <p className="mt-1 text-sm font-semibold text-app-text-muted">
+                      This report is connected, but the selected dates did not return matching activity.
+                    </p>
+                    {showRange ? (
+                      <button
+                        type="button"
+                        className="ui-btn-secondary mt-3 min-h-10 rounded-xl px-3 py-2 text-xs font-black"
+                        onClick={() => {
+                          const end = new Date();
+                          const start = new Date();
+                          start.setFullYear(start.getFullYear() - 1);
+                          setRange({ from: ymd(start), to: ymd(end) });
+                        }}
+                      >
+                        Show last 12 months
+                      </button>
+                    ) : null}
+                  </div>
                 )}
             </>
           ) : null}

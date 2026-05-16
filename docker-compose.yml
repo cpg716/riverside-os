@@ -39,7 +39,7 @@ services:
     container_name: riverside-os-meilisearch
     restart: unless-stopped
     environment:
-      MEILI_MASTER_KEY: dev_master_key_temple_OO
+      MEILI_MASTER_KEY: dev_master_key_change_me
     ports:
       - "7700:7700"
     volumes:
