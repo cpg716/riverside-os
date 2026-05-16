@@ -7,7 +7,6 @@ import { centsToFixed2, parseMoney, parseMoneyToCents, formatMoney } from "../..
 import type { Customer } from "../pos/CustomerSelector";
 import TransactionSearchInput from "../ui/TransactionSearchInput";
 import ManagerApprovalModal from "./ManagerApprovalModal";
-import PosRefundModal from "./PosRefundModal";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
@@ -64,10 +63,14 @@ type WorkflowStep = {
 
 type ReturnedLineSummary = {
   transaction_line_id: string;
+  product_id: string;
+  variant_id: string;
   sku: string;
   product_name: string;
+  variation_label?: string | null;
   quantity: number;
   unit_price_cents: number;
+  unit_cost: string | number;
   tax_cents: number;
 };
 
@@ -109,10 +112,14 @@ function returnedLineSummaries(detail: TransactionDetailLite): ReturnedLineSumma
     .filter((item) => (item.quantity_returned ?? 0) > 0)
     .map((item) => ({
       transaction_line_id: item.transaction_line_id,
+      product_id: item.product_id,
+      variant_id: item.variant_id,
       sku: item.sku,
       product_name: item.product_name,
+      variation_label: item.variation_label,
       quantity: item.quantity_returned,
       unit_price_cents: parseMoneyToCents(item.unit_price),
+      unit_cost: item.unit_cost,
       tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
     }));
 }
@@ -137,6 +144,10 @@ export default function PosExchangeWizard({
   onContinueToReplacement: (args: {
     originalTransactionId: string;
     customer: Customer | null;
+    receiptLabel?: string;
+    returnedLines?: ReturnedLineSummary[];
+    refundAmountCents?: number;
+    action?: "refund" | "exchange";
   }) => void;
 }) {
   const { toast } = useToast();
@@ -150,11 +161,7 @@ export default function PosExchangeWizard({
   const [pendingManagerApproval, setPendingManagerApproval] = useState<TransactionDetailLite | null>(null);
   const [managerApproval, setManagerApproval] = useState<{ staffId: string; pin: string } | null>(null);
   const [returnedLines, setReturnedLines] = useState<ReturnedLineSummary[]>([]);
-  const [refundModalOpen, setRefundModalOpen] = useState(false);
-  const [refundBusy, setRefundBusy] = useState(false);
   const [refundAmount, setRefundAmount] = useState("");
-  const [refundMethod, setRefundMethod] = useState("card_present");
-  const [refundGiftCode, setRefundGiftCode] = useState("");
   const workflowIndex = EXCHANGE_WORKFLOW_STEPS.findIndex((item) => item.id === step);
   const receiptLabel =
     detail?.transaction_display_id ?? detail?.transaction_id.slice(0, 8).toUpperCase() ?? "";
@@ -168,10 +175,7 @@ export default function PosExchangeWizard({
     setPendingManagerApproval(null);
     setManagerApproval(null);
     setReturnedLines([]);
-    setRefundModalOpen(false);
-    setRefundBusy(false);
     setRefundAmount("");
-    setRefundGiftCode("");
   }, []);
 
   const loadTransaction = useCallback(async (id: string) => {
@@ -295,10 +299,14 @@ export default function PosExchangeWizard({
       }
       const refundLines = lines.map(({ item, quantity }) => ({
         transaction_line_id: item.transaction_line_id,
+        product_id: item.product_id,
+        variant_id: item.variant_id,
         sku: item.sku,
         product_name: item.product_name,
+        variation_label: item.variation_label,
         quantity,
         unit_price_cents: parseMoneyToCents(item.unit_price),
+        unit_cost: item.unit_cost,
         tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
       }));
       setReturnedLines(refundLines);
@@ -308,16 +316,25 @@ export default function PosExchangeWizard({
       );
       const refundCents = projectedRefundableCents(detail, returnedValueCents);
       setRefundAmount(centsToFixed2(refundCents));
+      if (refundCents > 0) {
+        onContinueToReplacement({
+          originalTransactionId: detail.transaction_id,
+          customer: applyCustomer(),
+          receiptLabel,
+          returnedLines: refundLines,
+          refundAmountCents: refundCents,
+          action: nextAction,
+        });
+        onClose();
+        return;
+      }
       toast(
-        nextAction === "refund" && refundCents > 0
-          ? "Return recorded. Refund-only is ready for tender selection."
-          : nextAction === "refund"
+        nextAction === "refund"
             ? "Return recorded. No paid credit is available to refund yet."
           : "Return recorded. Continue with replacement items, then refund any remaining credit if needed.",
         "success",
       );
       setStep("done");
-      if (nextAction === "refund" && refundCents > 0) setRefundModalOpen(true);
     } catch {
       toast("Return failed", "error");
     } finally {
@@ -344,45 +361,12 @@ export default function PosExchangeWizard({
     onContinueToReplacement({
       originalTransactionId: detail.transaction_id,
       customer: applyCustomer(),
+      receiptLabel,
+      returnedLines,
+      refundAmountCents: parseMoneyToCents(refundAmount),
+      action: "exchange",
     });
     onClose();
-  };
-
-  const submitRefund = async () => {
-    if (!detail) return;
-    const amountCents = parseMoneyToCents(refundAmount);
-    if (amountCents <= 0) {
-      toast("Enter a refund amount.", "error");
-      return;
-    }
-    setRefundBusy(true);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/transactions/${encodeURIComponent(detail.transaction_id)}/refunds/process`,
-        {
-          method: "POST",
-          headers: jsonHeaders(apiAuth()),
-          body: JSON.stringify({
-            session_id: sessionId,
-            payment_method: refundMethod,
-            amount: centsToFixed2(amountCents),
-            gift_card_code: refundMethod.toLowerCase().includes("gift") ? refundGiftCode.trim() : undefined,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(body.error ?? "Refund failed. Check tender and approval.", "error");
-        return;
-      }
-      toast("Refund completed and recorded on the original transaction.", "success");
-      setRefundModalOpen(false);
-      onClose();
-    } catch {
-      toast("Refund failed.", "error");
-    } finally {
-      setRefundBusy(false);
-    }
   };
 
   if (!open) return null;
@@ -731,7 +715,23 @@ export default function PosExchangeWizard({
               <div className="sticky bottom-0 -mx-6 grid gap-3 border-t border-app-border bg-app-surface/95 px-6 py-4 backdrop-blur sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => setRefundModalOpen(true)}
+                  onClick={() => {
+                    if (!detail) return;
+                    const amountCents = parseMoneyToCents(refundAmount);
+                    if (amountCents <= 0) {
+                      toast("No paid credit is available to refund.", "error");
+                      return;
+                    }
+                    onContinueToReplacement({
+                      originalTransactionId: detail.transaction_id,
+                      customer: applyCustomer(),
+                      receiptLabel,
+                      returnedLines,
+                      refundAmountCents: amountCents,
+                      action: "refund",
+                    });
+                    onClose();
+                  }}
                   className="ui-btn-secondary w-full py-3 font-black uppercase tracking-widest"
                 >
                   Refund customer now
@@ -782,18 +782,6 @@ export default function PosExchangeWizard({
           }}
         />
       ) : null}
-      <PosRefundModal
-        isOpen={refundModalOpen}
-        onClose={() => setRefundModalOpen(false)}
-        onSubmit={() => void submitRefund()}
-        busy={refundBusy}
-        amount={refundAmount}
-        setAmount={setRefundAmount}
-        method={refundMethod}
-        setMethod={setRefundMethod}
-        giftCode={refundGiftCode}
-        setGiftCode={setRefundGiftCode}
-      />
     </div>,
     document.getElementById("drawer-root")!
   );

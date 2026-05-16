@@ -2941,7 +2941,8 @@ pub async fn execute_checkout(
             fulfillment_method, ship_to, shipping_amount_usd,
             is_employee_purchase, is_rush, need_by_date,
             is_tax_exempt, tax_exempt_reason, register_session_id,
-            rounding_adjustment, final_cash_due, metadata
+            rounding_adjustment, final_cash_due, metadata,
+            status, fulfilled_at
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7,
@@ -2950,7 +2951,9 @@ pub async fn execute_checkout(
             $10, $11,
             $12, $13, $14,
             $15, $16, $17, $18, $19, $20,
-            $21, $22, $23
+            $21, $22, $23,
+            $24::order_status,
+            CASE WHEN $24::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END
         )
         RETURNING id, display_id
         "#,
@@ -2978,6 +2981,7 @@ pub async fn execute_checkout(
     .bind(payload.rounding_adjustment.unwrap_or(Decimal::ZERO))
     .bind(payload.final_cash_due)
     .bind(&transaction_financing_metadata)
+    .bind(order_status)
     .fetch_one(&mut *tx)
     .await;
 
@@ -4574,6 +4578,7 @@ mod tests {
             fulfillment_mode: None,
             ship_to: None,
             target_transaction_id: None,
+            booked_at_local: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: false,
@@ -5451,6 +5456,7 @@ mod tests {
             fulfillment_mode: None,
             ship_to: None,
             target_transaction_id: None,
+            booked_at_local: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,

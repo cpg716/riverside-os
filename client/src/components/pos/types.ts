@@ -68,6 +68,10 @@ export interface CartLineItem extends ResolvedSkuItem {
   nominal_state_tax_rate?: number;
   nominal_local_tax_rate?: number;
   order_lifecycle_status?: OrderLifecycleStatus;
+  /** Display-only return credit handed off from the Exchange / Return wizard for tendering. */
+  return_tender_original_transaction_id?: string | null;
+  return_tender_receipt_label?: string | null;
+  return_tender_refund_cents?: number | null;
 }
 
 export type AlterationSourceType =

@@ -675,6 +675,59 @@ mod tests {
         assert_eq!(receipt.total_price, Decimal::new(1000, 2));
         assert_eq!(receipt.payment_methods_summary, "Card");
     }
+
+    #[test]
+    fn cash_refund_tender_allows_exact_cash_without_rounding() {
+        let (tender, rounding) =
+            cash_refund_tender_amount("cash", Decimal::new(5000, 2), None, None)
+                .expect("exact cash refund should pass");
+
+        assert_eq!(tender, Decimal::new(5000, 2));
+        assert_eq!(rounding, Decimal::ZERO);
+    }
+
+    #[test]
+    fn cash_refund_tender_allows_zero_payout_when_refund_rounds_down() {
+        let (tender, rounding) = cash_refund_tender_amount(
+            "cash",
+            Decimal::new(2, 2),
+            Some(Decimal::ZERO),
+            Some(Decimal::new(2, 2)),
+        )
+        .expect("cash rounding can settle tiny refunds without cash leaving");
+
+        assert_eq!(tender, Decimal::ZERO);
+        assert_eq!(rounding, Decimal::new(2, 2));
+    }
+
+    #[test]
+    fn cash_refund_tender_allows_over_payout_when_refund_rounds_up() {
+        let (tender, rounding) = cash_refund_tender_amount(
+            "cash",
+            Decimal::new(3, 2),
+            Some(Decimal::new(5, 2)),
+            Some(Decimal::new(-2, 2)),
+        )
+        .expect("cash rounding can round refund payout up to the nickel");
+
+        assert_eq!(tender, Decimal::new(5, 2));
+        assert_eq!(rounding, Decimal::new(-2, 2));
+    }
+
+    #[test]
+    fn non_cash_refund_tender_rejects_rounding() {
+        let err = cash_refund_tender_amount(
+            "check",
+            Decimal::new(3, 2),
+            Some(Decimal::new(5, 2)),
+            Some(Decimal::new(-2, 2)),
+        )
+        .expect_err("non-cash refund tenders cannot use cash rounding");
+
+        assert!(err
+            .to_string()
+            .contains("cash rounding is only allowed for cash refunds"));
+    }
 }
 
 fn receipt_query_gift_flag(params: &std::collections::HashMap<String, String>) -> bool {
@@ -899,6 +952,12 @@ pub struct ProcessRefundRequest {
     pub session_id: Uuid,
     pub payment_method: String,
     pub amount: Decimal,
+    #[serde(default)]
+    pub tender_amount: Option<Decimal>,
+    #[serde(default)]
+    pub rounding_adjustment: Option<Decimal>,
+    #[serde(default)]
+    pub final_cash_due: Option<Decimal>,
     /// Required when `payment_method` is a gift-card tender (e.g. `gift_card`).
     #[serde(default)]
     pub gift_card_code: Option<String>,
@@ -911,6 +970,29 @@ pub struct ProcessRefundRequest {
     /// Optional: Reason for the legacy manual refund override.
     #[serde(default)]
     pub manager_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExchangeRefundRemainderBody {
+    pub payment_method: String,
+    pub amount: Decimal,
+    #[serde(default)]
+    pub tender_amount: Option<Decimal>,
+    #[serde(default)]
+    pub rounding_adjustment: Option<Decimal>,
+    #[serde(default)]
+    pub final_cash_due: Option<Decimal>,
+    #[serde(default)]
+    pub gift_card_code: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExchangeSettlementRequest {
+    pub session_id: Uuid,
+    pub replacement_transaction_id: Uuid,
+    pub exchange_credit_amount: Decimal,
+    #[serde(default)]
+    pub refund_remainder: Option<ExchangeRefundRemainderBody>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -982,6 +1064,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/{transaction_id}/audit", get(get_transaction_audit))
         .route("/{transaction_id}/refunds/process", post(process_refund))
+        .route(
+            "/{transaction_id}/exchange-settlement",
+            post(process_exchange_settlement),
+        )
         .route("/{transaction_id}/returns", post(post_transaction_returns))
         .route(
             "/{transaction_id}/exchange-link",
@@ -1071,6 +1157,40 @@ fn cents_to_decimal_string(amount_cents: i64) -> String {
     let sign = if amount_cents < 0 { "-" } else { "" };
     let abs = amount_cents.unsigned_abs();
     format!("{sign}{}.{:02}", abs / 100, abs % 100)
+}
+
+fn cash_refund_tender_amount(
+    method: &str,
+    exact_amount: Decimal,
+    tender_amount: Option<Decimal>,
+    rounding_adjustment: Option<Decimal>,
+) -> Result<(Decimal, Decimal), TransactionError> {
+    let tender = tender_amount.unwrap_or(exact_amount).round_dp(2);
+    let rounding = rounding_adjustment.unwrap_or(Decimal::ZERO).round_dp(2);
+    if tender < Decimal::ZERO {
+        return Err(TransactionError::InvalidPayload(
+            "cash refund tender amount must be positive".to_string(),
+        ));
+    }
+    if tender.is_zero() && method.trim().to_lowercase() != "cash" {
+        return Err(TransactionError::InvalidPayload(
+            "zero refund tender is only allowed when cash rounding settles the refund".to_string(),
+        ));
+    }
+    if tender != exact_amount || !rounding.is_zero() {
+        if method.trim().to_lowercase() != "cash" {
+            return Err(TransactionError::InvalidPayload(
+                "cash rounding is only allowed for cash refunds".to_string(),
+            ));
+        }
+        if (tender + rounding).round_dp(2) != exact_amount {
+            return Err(TransactionError::InvalidPayload(
+                "cash refund tender plus rounding adjustment must equal the exact refund amount"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok((tender, rounding))
 }
 
 async fn transaction_has_positive_payment_in_session(
@@ -1317,6 +1437,12 @@ async fn patch_transaction(
     Json(body): Json<PatchTransactionRequest>,
 ) -> Result<Json<TransactionDetailResponse>, TransactionError> {
     if let Some(status) = body.status {
+        if status == DbOrderStatus::Fulfilled {
+            return Err(TransactionError::InvalidPayload(
+                "Use the pickup or shipment workflow to fulfill a transaction so line status, timestamps, loyalty, commissions, and reporting stay in sync.".to_string(),
+            ));
+        }
+
         if status == DbOrderStatus::Cancelled {
             let refundable_pre: Decimal = sqlx::query_scalar(
                 r#"
@@ -1938,6 +2064,13 @@ async fn process_refund(
     }
 
     let method_l = body.payment_method.to_lowercase();
+    let exact_refund_amount = body.amount.round_dp(2);
+    let (cash_tender_amount, cash_rounding_adjustment) = cash_refund_tender_amount(
+        &body.payment_method,
+        exact_refund_amount,
+        body.tender_amount,
+        body.rounding_adjustment,
+    )?;
 
     let mut tx = state.db.begin().await?;
     let session_open: Option<bool> = sqlx::query_scalar(
@@ -2012,12 +2145,12 @@ async fn process_refund(
         .execute(&mut *tx)
         .await?;
     }
-    if body.amount > remaining {
+    if exact_refund_amount > remaining {
         return Err(TransactionError::InvalidPayload(format!(
             "refund exceeds refundable paid credit of ${remaining}"
         )));
     }
-    if body.amount > current_paid {
+    if exact_refund_amount > current_paid {
         return Err(TransactionError::InvalidPayload(
             "refund amount exceeds total amount paid on this order".to_string(),
         ));
@@ -2042,7 +2175,7 @@ async fn process_refund(
         let refund_plan = gift_card_ops::credit_gift_card_in_tx(
             &mut tx,
             code,
-            body.amount,
+            exact_refund_amount,
             transaction_id,
             body.session_id,
         )
@@ -2177,7 +2310,7 @@ async fn process_refund(
                     json!({
                         "transaction_id": transaction_id,
                         "refund_queue_id": refund.id,
-                        "amount_cents": (body.amount * Decimal::from(100)).to_i64(),
+                        "amount_cents": (exact_refund_amount * Decimal::from(100)).to_i64(),
                         "authorizing_manager_id": manager.id,
                         "reason": reason,
                     }),
@@ -2198,7 +2331,7 @@ async fn process_refund(
                 .bind(pt_id)
                 .bind(body.session_id)
                 .bind(refund.customer_id)
-                .bind(-body.amount)
+                .bind(-cash_tender_amount)
                 .bind(json!({
                     "kind": "legacy_migration_refund",
                     "manual_terminal_confirmation": true,
@@ -2207,6 +2340,9 @@ async fn process_refund(
                     "reason": reason,
                     "original_provider_transaction_id": "MANUAL_MIGRATION",
                     "transaction_id": transaction_id,
+                    "exact_refund_amount": exact_refund_amount,
+                    "cash_tender_amount": cash_tender_amount,
+                    "cash_rounding_adjustment": cash_rounding_adjustment,
                 }))
                 .execute(&mut *tx)
                 .await?;
@@ -2221,28 +2357,36 @@ async fn process_refund(
                 .bind(Uuid::new_v4())
                 .bind(pt_id)
                 .bind(transaction_id)
-                .bind(-body.amount)
+                .bind(-cash_tender_amount)
                 .execute(&mut *tx)
                 .await?;
 
                 // Update the refund queue.
                 sqlx::query(
-                    "UPDATE transaction_refund_queue SET amount_refunded = amount_refunded + $1 WHERE id = $2"
+                "UPDATE transaction_refund_queue SET amount_refunded = amount_refunded + $1 WHERE id = $2"
                 )
-                .bind(body.amount)
+                .bind(exact_refund_amount)
                 .bind(refund.id)
                 .execute(&mut *tx)
                 .await?;
 
                 // Update the transaction amount paid.
-                sqlx::query("UPDATE transactions SET amount_paid = amount_paid - $1 WHERE id = $2")
-                    .bind(body.amount)
-                    .bind(transaction_id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    r#"
+                    UPDATE transactions
+                    SET amount_paid = amount_paid - $1,
+                        rounding_adjustment = COALESCE(rounding_adjustment, 0) + $2
+                    WHERE id = $3
+                    "#,
+                )
+                .bind(cash_tender_amount)
+                .bind(cash_rounding_adjustment)
+                .bind(transaction_id)
+                .execute(&mut *tx)
+                .await?;
 
                 // If fully refunded, close the queue.
-                if (refund.amount_refunded + body.amount) >= corrected_amount_due {
+                if (refund.amount_refunded + exact_refund_amount) >= corrected_amount_due {
                     sqlx::query(
                         "UPDATE transaction_refund_queue SET is_open = FALSE WHERE id = $1",
                     )
@@ -2263,7 +2407,9 @@ async fn process_refund(
                         "kind": "legacy_migration_refund",
                         "payment_transaction_id": pt_id,
                         "refund_queue_id": refund.id,
-                        "amount": body.amount,
+                        "amount": exact_refund_amount,
+                        "cash_tender_amount": cash_tender_amount,
+                        "cash_rounding_adjustment": cash_rounding_adjustment,
                         "authorizing_manager_id": manager.id,
                         "reason": reason,
                     }),
@@ -2282,7 +2428,7 @@ async fn process_refund(
             ));
         }
 
-        let amount_cents = (body.amount.round_dp(2) * Decimal::from(100))
+        let amount_cents = (exact_refund_amount * Decimal::from(100))
             .to_i64()
             .ok_or_else(|| {
                 TransactionError::InvalidPayload("refund amount is not valid".to_string())
@@ -2491,8 +2637,25 @@ async fn process_refund(
     .bind(refund.customer_id)
     .bind(DbTransactionCategory::RetailSale)
     .bind(body.payment_method.trim())
-    .bind(-body.amount)
-    .bind(refund_metadata)
+    .bind(-cash_tender_amount)
+    .bind({
+        let mut metadata = refund_metadata;
+        if let Some(object) = metadata.as_object_mut() {
+            object.insert(
+                "exact_refund_amount".to_string(),
+                json!(exact_refund_amount),
+            );
+            object.insert("cash_tender_amount".to_string(), json!(cash_tender_amount));
+            object.insert(
+                "cash_rounding_adjustment".to_string(),
+                json!(cash_rounding_adjustment),
+            );
+            if let Some(final_cash_due) = body.final_cash_due {
+                object.insert("final_cash_due".to_string(), json!(final_cash_due));
+            }
+        }
+        metadata
+    })
     .bind(if provider_payment_id.is_some() {
         Some("helcim")
     } else {
@@ -2516,12 +2679,12 @@ async fn process_refund(
     )
     .bind(payment_tx_id)
     .bind(transaction_id)
-    .bind(-body.amount)
+    .bind(-cash_tender_amount)
     .bind(json!({ "kind": "order_refund" }))
     .execute(&mut *tx)
     .await?;
 
-    let new_refunded = refund.amount_refunded + body.amount;
+    let new_refunded = refund.amount_refunded + exact_refund_amount;
     let close = new_refunded >= corrected_amount_due;
     sqlx::query(
         r#"
@@ -2539,11 +2702,13 @@ async fn process_refund(
     sqlx::query(
         r#"
         UPDATE transactions
-        SET amount_paid = GREATEST(amount_paid - $1, 0)
-        WHERE id = $2
+        SET amount_paid = amount_paid - $1,
+            rounding_adjustment = COALESCE(rounding_adjustment, 0) + $2
+        WHERE id = $3
         "#,
     )
-    .bind(body.amount)
+    .bind(cash_tender_amount)
+    .bind(cash_rounding_adjustment)
     .bind(transaction_id)
     .execute(&mut *tx)
     .await?;
@@ -2577,14 +2742,487 @@ async fn process_refund(
         "refund_processed",
         &format!(
             "Refunded ${} in Register via {}",
-            body.amount,
+            exact_refund_amount,
             body.payment_method.trim()
         ),
-        json!({ "amount": body.amount, "payment_method": body.payment_method }),
+        json!({
+            "amount": exact_refund_amount,
+            "payment_method": body.payment_method,
+            "cash_tender_amount": cash_tender_amount,
+            "cash_rounding_adjustment": cash_rounding_adjustment,
+        }),
     )
     .await?;
 
     Ok(Json(json!({ "status": "ok" })))
+}
+
+async fn process_exchange_settlement(
+    State(state): State<AppState>,
+    Path(transaction_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<ExchangeSettlementRequest>,
+) -> Result<Json<serde_json::Value>, TransactionError> {
+    middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
+        .await
+        .map_err(map_perm_err)?;
+
+    if body.replacement_transaction_id == transaction_id {
+        return Err(TransactionError::InvalidPayload(
+            "replacement transaction must differ from the return transaction".to_string(),
+        ));
+    }
+    if body.exchange_credit_amount < Decimal::ZERO {
+        return Err(TransactionError::InvalidPayload(
+            "exchange credit amount cannot be negative".to_string(),
+        ));
+    }
+    if let Some(remainder) = &body.refund_remainder {
+        if remainder.amount <= Decimal::ZERO {
+            return Err(TransactionError::InvalidPayload(
+                "refund remainder amount must be positive".to_string(),
+            ));
+        }
+        let method_l = remainder.payment_method.to_lowercase();
+        if method_l.contains("card") || method_l.contains("helcim") {
+            return Err(TransactionError::InvalidPayload(
+                "card refund remainders must use the original provider refund flow".to_string(),
+            ));
+        }
+    }
+
+    let refund_remainder_amount = body
+        .refund_remainder
+        .as_ref()
+        .map(|remainder| remainder.amount.round_dp(2))
+        .unwrap_or(Decimal::ZERO);
+    let (refund_remainder_tender_amount, refund_remainder_rounding_adjustment) =
+        if let Some(remainder) = &body.refund_remainder {
+            cash_refund_tender_amount(
+                &remainder.payment_method,
+                refund_remainder_amount,
+                remainder.tender_amount,
+                remainder.rounding_adjustment,
+            )?
+        } else {
+            (Decimal::ZERO, Decimal::ZERO)
+        };
+    let total_relief = body.exchange_credit_amount + refund_remainder_amount;
+    if total_relief <= Decimal::ZERO {
+        return Err(TransactionError::InvalidPayload(
+            "exchange settlement must apply credit or refund a remainder".to_string(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+    let session_open: Option<bool> = sqlx::query_scalar(
+        r#"
+        SELECT lifecycle_status = 'open'
+        FROM register_sessions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(body.session_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if session_open != Some(true) {
+        return Err(TransactionError::InvalidPayload(
+            "register session is not open".to_string(),
+        ));
+    }
+
+    let row: Option<RefundQueueRow> = sqlx::query_as(
+        r#"
+        SELECT id, transaction_id, customer_id, amount_due, amount_refunded, is_open, reason, created_at
+        FROM transaction_refund_queue
+        WHERE transaction_id = $1 AND is_open = TRUE
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(refund) = row else {
+        return Err(TransactionError::InvalidPayload(
+            "no open refund for this transaction".to_string(),
+        ));
+    };
+
+    let (original_customer_id, current_paid, current_balance_due, original_exchange_group_id): (
+        Option<Uuid>,
+        Decimal,
+        Decimal,
+        Option<Uuid>,
+    ) = sqlx::query_as(
+        r#"
+        SELECT
+            customer_id,
+            COALESCE(amount_paid, 0)::numeric(14,2),
+            COALESCE(balance_due, 0)::numeric(14,2),
+            exchange_group_id
+        FROM transactions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let replacement_row: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        r#"
+        SELECT
+            customer_id,
+            exchange_group_id
+        FROM transactions
+        WHERE id = $1 AND status <> 'cancelled'::order_status
+        FOR UPDATE
+        "#,
+    )
+    .bind(body.replacement_transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((replacement_customer_id, replacement_exchange_group_id)) = replacement_row else {
+        return Err(TransactionError::InvalidPayload(
+            "replacement transaction was not found or is cancelled".to_string(),
+        ));
+    };
+
+    if let (Some(original_customer), Some(replacement_customer)) =
+        (original_customer_id, replacement_customer_id)
+    {
+        if original_customer != replacement_customer {
+            return Err(TransactionError::InvalidPayload(
+                "exchange transactions must belong to the same customer".to_string(),
+            ));
+        }
+    }
+
+    if body.exchange_credit_amount > Decimal::ZERO {
+        let applied_exchange_credit: Decimal = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(SUM(pa.amount_allocated), 0)::numeric(14,2)
+            FROM payment_allocations pa
+            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            WHERE pa.target_transaction_id = $1
+              AND pt.session_id = $2
+              AND LOWER(pt.payment_method) = 'exchange_credit'
+              AND pa.amount_allocated > 0
+            "#,
+        )
+        .bind(body.replacement_transaction_id)
+        .bind(body.session_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if applied_exchange_credit < body.exchange_credit_amount {
+            return Err(TransactionError::InvalidPayload(format!(
+                "replacement transaction is missing ${} of exchange credit tender",
+                body.exchange_credit_amount
+            )));
+        }
+    }
+
+    let refundable_credit = if current_balance_due < Decimal::ZERO {
+        -current_balance_due
+    } else {
+        Decimal::ZERO
+    };
+    let remaining = if refundable_credit < current_paid {
+        refundable_credit
+    } else {
+        current_paid
+    };
+    let corrected_amount_due = refund.amount_refunded + remaining;
+    if corrected_amount_due != refund.amount_due {
+        sqlx::query(
+            r#"
+            UPDATE transaction_refund_queue
+            SET amount_due = $1
+            WHERE id = $2
+            "#,
+        )
+        .bind(corrected_amount_due)
+        .bind(refund.id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    if total_relief > remaining {
+        return Err(TransactionError::InvalidPayload(format!(
+            "exchange settlement exceeds refundable paid credit of ${remaining}"
+        )));
+    }
+
+    if body.exchange_credit_amount > Decimal::ZERO {
+        let relief_payment_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO payment_transactions (
+                session_id, payer_id, category, payment_method, amount, effective_date, metadata
+            )
+            VALUES (
+                $1, $2, $3, 'exchange_credit', $4,
+                (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
+                $5
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(body.session_id)
+        .bind(refund.customer_id)
+        .bind(DbTransactionCategory::RetailSale)
+        .bind(-body.exchange_credit_amount)
+        .bind(json!({
+            "kind": "exchange_credit_relief",
+            "original_transaction_id": transaction_id,
+            "replacement_transaction_id": body.replacement_transaction_id,
+            "refund_queue_id": refund.id,
+        }))
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated, metadata)
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(relief_payment_id)
+        .bind(transaction_id)
+        .bind(-body.exchange_credit_amount)
+        .bind(json!({
+            "kind": "exchange_credit_relief",
+            "replacement_transaction_id": body.replacement_transaction_id,
+        }))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(remainder) = &body.refund_remainder {
+        let method_l = remainder.payment_method.to_lowercase();
+        let mut refund_metadata = json!({
+            "kind": "exchange_refund_remainder",
+            "original_transaction_id": transaction_id,
+            "replacement_transaction_id": body.replacement_transaction_id,
+            "refund_queue_id": refund.id,
+        });
+
+        if method_l.contains("gift") {
+            let code = remainder
+                .gift_card_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    TransactionError::InvalidPayload(
+                        "gift_card_code is required when refunding to a gift card".to_string(),
+                    )
+                })?;
+            let refund_plan = gift_card_ops::credit_gift_card_in_tx(
+                &mut tx,
+                code,
+                refund_remainder_amount,
+                transaction_id,
+                body.session_id,
+            )
+            .await
+            .map_err(|e| match e {
+                gift_card_ops::GiftCardOpError::Db(d) => TransactionError::Database(d),
+                gift_card_ops::GiftCardOpError::BadRequest(m) => {
+                    TransactionError::InvalidPayload(m)
+                }
+            })?;
+            if let Some(object) = refund_metadata.as_object_mut() {
+                let canonical_sub_type =
+                    gift_card_ops::canonical_gift_card_sub_type_for_kind(&refund_plan.card_kind)
+                        .map_err(|e| TransactionError::InvalidPayload(e.to_string()))?;
+                object.insert(
+                    "gift_card_code".to_string(),
+                    json!(refund_plan.normalized_code),
+                );
+                object.insert(
+                    "gift_card_card_kind".to_string(),
+                    json!(refund_plan.card_kind.clone()),
+                );
+                object.insert("sub_type".to_string(), json!(canonical_sub_type));
+                object.insert("balance_after".to_string(), json!(refund_plan.new_balance));
+            }
+        }
+        if let Some(object) = refund_metadata.as_object_mut() {
+            object.insert(
+                "exact_refund_amount".to_string(),
+                json!(refund_remainder_amount),
+            );
+            object.insert(
+                "cash_tender_amount".to_string(),
+                json!(refund_remainder_tender_amount),
+            );
+            object.insert(
+                "cash_rounding_adjustment".to_string(),
+                json!(refund_remainder_rounding_adjustment),
+            );
+            if let Some(final_cash_due) = remainder.final_cash_due {
+                object.insert("final_cash_due".to_string(), json!(final_cash_due));
+            }
+        }
+
+        let refund_payment_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO payment_transactions (
+                session_id, payer_id, category, payment_method, amount, effective_date, metadata
+            )
+            VALUES (
+                $1, $2, $3, $4, $5,
+                (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
+                $6
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(body.session_id)
+        .bind(refund.customer_id)
+        .bind(DbTransactionCategory::RetailSale)
+        .bind(remainder.payment_method.trim())
+        .bind(-refund_remainder_tender_amount)
+        .bind(refund_metadata)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated, metadata)
+            VALUES ($1, $2, $3, $4)
+            "#,
+        )
+        .bind(refund_payment_id)
+        .bind(transaction_id)
+        .bind(-refund_remainder_tender_amount)
+        .bind(json!({
+            "kind": "exchange_refund_remainder",
+            "replacement_transaction_id": body.replacement_transaction_id,
+        }))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    let new_refunded = refund.amount_refunded + total_relief;
+    let close = new_refunded >= corrected_amount_due;
+    sqlx::query(
+        r#"
+        UPDATE transaction_refund_queue
+        SET amount_refunded = $1, is_open = $2, closed_at = CASE WHEN $2 = FALSE THEN CURRENT_TIMESTAMP ELSE NULL END
+        WHERE id = $3
+        "#,
+    )
+    .bind(new_refunded)
+    .bind(!close)
+    .bind(refund.id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE transactions
+        SET amount_paid = amount_paid - $1,
+            rounding_adjustment = COALESCE(rounding_adjustment, 0) + $2
+        WHERE id = $3
+        "#,
+    )
+    .bind(body.exchange_credit_amount + refund_remainder_tender_amount)
+    .bind(refund_remainder_rounding_adjustment)
+    .bind(transaction_id)
+    .execute(&mut *tx)
+    .await?;
+
+    let exchange_group_id = match (original_exchange_group_id, replacement_exchange_group_id) {
+        (Some(left), Some(right)) if left != right => {
+            return Err(TransactionError::InvalidPayload(
+                "exchange transactions are already linked to different exchange groups".to_string(),
+            ));
+        }
+        (Some(id), _) | (_, Some(id)) => id,
+        (None, None) => Uuid::new_v4(),
+    };
+    sqlx::query("UPDATE transactions SET exchange_group_id = $1 WHERE id = $2 OR id = $3")
+        .bind(exchange_group_id)
+        .bind(transaction_id)
+        .bind(body.replacement_transaction_id)
+        .execute(&mut *tx)
+        .await?;
+
+    transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
+        .await
+        .map_err(TransactionError::Database)?;
+    transaction_recalc::recalc_transaction_totals(&mut tx, body.replacement_transaction_id)
+        .await
+        .map_err(TransactionError::Database)?;
+
+    let new_paid: Decimal =
+        sqlx::query_scalar("SELECT amount_paid FROM transactions WHERE id = $1")
+            .bind(transaction_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if new_paid.is_zero() {
+        loyalty_logic::reverse_order_accrual_in_tx(&mut tx, transaction_id)
+            .await
+            .map_err(TransactionError::Database)?;
+    }
+
+    tx.commit().await?;
+
+    tracing::info!(
+        original_transaction_id = %transaction_id,
+        replacement_transaction_id = %body.replacement_transaction_id,
+        exchange_credit_amount = %body.exchange_credit_amount,
+        refund_remainder_amount = %refund_remainder_amount,
+        "Exchange settlement recorded for QBO staging"
+    );
+
+    log_order_activity(
+        &state.db,
+        transaction_id,
+        refund.customer_id,
+        "exchange_settled",
+        &format!(
+            "Exchange settled with ${} credit applied to replacement transaction",
+            body.exchange_credit_amount
+        ),
+        json!({
+            "exchange_group_id": exchange_group_id,
+            "replacement_transaction_id": body.replacement_transaction_id,
+            "exchange_credit_amount": body.exchange_credit_amount,
+            "refund_remainder_amount": refund_remainder_amount,
+            "refund_queue_id": refund.id,
+        }),
+    )
+    .await?;
+
+    log_order_activity(
+        &state.db,
+        body.replacement_transaction_id,
+        replacement_customer_id.or(original_customer_id),
+        "exchange_settled",
+        &format!(
+            "Exchange credit ${} applied from original transaction",
+            body.exchange_credit_amount
+        ),
+        json!({
+            "exchange_group_id": exchange_group_id,
+            "original_transaction_id": transaction_id,
+            "exchange_credit_amount": body.exchange_credit_amount,
+            "refund_remainder_amount": refund_remainder_amount,
+            "refund_queue_id": refund.id,
+        }),
+    )
+    .await?;
+
+    Ok(Json(json!({
+        "status": "ok",
+        "exchange_group_id": exchange_group_id,
+        "exchange_credit_amount": body.exchange_credit_amount,
+        "refund_remainder_amount": refund_remainder_amount,
+    })))
 }
 
 async fn get_transaction_receipt_escpos(

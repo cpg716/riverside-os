@@ -33,6 +33,10 @@ expected=(
   "026_counterpoint_go_live_hardening.sql"
   "027_repair_promo_gift_card_schema.sql"
   "028_podium_communications_hardening.sql"
+  "029_metabase_ro_reporting_only.sql"
+  "030_podium_staff_identity_mapping.sql"
+  "031_checkout_takeaway_loyalty_backfill.sql"
+  "032_transaction_status_integrity.sql"
 )
 
 active=()
@@ -86,4 +90,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-028 only."
+echo "Migration layout OK: active baseline 001-032 only."

@@ -1,4 +1,4 @@
-//! Recompute `orders.total_price`, `balance_due`, and `status` from line items and returns.
+//! Recompute `orders.total_price`, `balance_due`, and status from line items and returns.
 
 use rust_decimal::Decimal;
 use sqlx::{Postgres, Transaction};
@@ -51,6 +51,56 @@ pub async fn recalc_transaction_totals(
     )
     .bind(total_price)
     .bind(balance_due)
+    .bind(transaction_id)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        WITH line_state AS (
+            SELECT
+                COUNT(oi.id) FILTER (
+                    WHERE GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
+                )::bigint AS active_line_count,
+                COUNT(oi.id) FILTER (
+                    WHERE oi.is_fulfilled = FALSE
+                      AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
+                )::bigint AS open_active_line_count,
+                MAX(oi.fulfilled_at) FILTER (WHERE oi.is_fulfilled = TRUE) AS max_line_fulfilled_at
+            FROM transaction_lines oi
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE oi.transaction_id = $1
+        )
+        UPDATE transactions t
+        SET
+            status = CASE
+                WHEN t.status IN ('cancelled'::order_status, 'pending_measurement'::order_status) THEN t.status
+                WHEN t.status = 'fulfilled'::order_status
+                  AND line_state.open_active_line_count > 0 THEN 'open'::order_status
+                WHEN t.status = 'open'::order_status
+                  AND line_state.active_line_count > 0
+                  AND line_state.open_active_line_count = 0
+                  AND t.balance_due = 0 THEN 'fulfilled'::order_status
+                ELSE t.status
+            END,
+            fulfilled_at = CASE
+                WHEN t.status = 'fulfilled'::order_status
+                  AND line_state.open_active_line_count > 0 THEN NULL
+                WHEN t.status = 'open'::order_status
+                  AND line_state.active_line_count > 0
+                  AND line_state.open_active_line_count = 0
+                  AND t.balance_due = 0
+                    THEN COALESCE(t.fulfilled_at, line_state.max_line_fulfilled_at, CURRENT_TIMESTAMP)
+                ELSE t.fulfilled_at
+            END
+        FROM line_state
+        WHERE t.id = $1
+        "#,
+    )
     .bind(transaction_id)
     .execute(&mut **tx)
     .await?;

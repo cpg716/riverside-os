@@ -40,6 +40,14 @@ interface UseCartCheckoutProps {
   ensurePosTokenForSession: () => Promise<string | null>;
 }
 
+interface CheckoutExecutionOverrides {
+  linesOverride?: CartLineItem[];
+  totalsOverride?: CartTotals;
+  clearAfterCheckout?: boolean;
+  emitSaleCompleted?: boolean;
+  showSuccessToast?: boolean;
+}
+
 export function buildCheckoutPaymentSplits(
   applied: AppliedPaymentLine[],
   depositCents: number,
@@ -120,29 +128,32 @@ export function useCartCheckout({
       roundingAdjustmentCents?: number;
       finalCashDueCents?: number;
     },
-    options?: PosOrderOptions
+    options?: PosOrderOptions,
+    execution?: CheckoutExecutionOverrides,
   ) => {
+    const checkoutLines = execution?.linesOverride ?? lines;
+    const checkoutTotals = execution?.totalsOverride ?? totals;
     if (!op?.staffId?.trim()) {
       toast("Sign in as cashier on the register sign-in screen before completing payment.", "error");
-      return;
+      return null;
     }
-    if (lines.length === 0 && disbursementMembers.length === 0 && orderPaymentLines.length === 0) {
+    if (checkoutLines.length === 0 && disbursementMembers.length === 0 && orderPaymentLines.length === 0) {
       toast("Add at least one item or order payment before checking out.", "error");
-      return;
+      return null;
     }
     if (!navigator.onLine && posShipping) {
       toast("Shipping requires an online connection. Clear shipping or try again when online.", "error");
-      return;
+      return null;
     }
     if (!navigator.onLine && orderPaymentLines.length > 0) {
       toast("Order payments require an online connection. Remove the order payment or try again when online.", "error");
-      return;
+      return null;
     }
 
     const gotToken = await ensurePosTokenForSession();
     if (!gotToken) {
       toast("This device is missing the till session token. From POS, open or join the till.", "error");
-      return;
+      return null;
     }
 
     setCheckoutBusy(true);
@@ -153,7 +164,13 @@ export function useCartCheckout({
 
       const tenderPaidCents = applied.reduce((s, p) => s + p.amountCents, 0);
       const ledgerCents = Math.max(0, ledgerSignals.appliedDepositAmountCents);
-      const maxPaidAgainstSaleCents = totals.collectTotalCents + (ledgerSignals.roundingAdjustmentCents ?? 0);
+      const maxPaidAgainstSaleCents = checkoutTotals.collectTotalCents + (ledgerSignals.roundingAdjustmentCents ?? 0);
+
+      if (checkoutTotals.totalCents < 0 && orderPaymentLines.length > 0) {
+        toast("Clear transaction payments before recording a refund or exchange credit.", "error");
+        setCheckoutBusy(false);
+        return null;
+      }
 
       // Deposit is a protocol on collected tender, not extra money on top of it.
       if (tenderPaidCents > maxPaidAgainstSaleCents) {
@@ -162,7 +179,7 @@ export function useCartCheckout({
           "error",
         );
         setCheckoutBusy(false);
-        return;
+        return null;
       }
       if (ledgerCents > 0 && unallocatedDepositCents > 0) {
         toast(
@@ -170,7 +187,7 @@ export function useCartCheckout({
           "error",
         );
         setCheckoutBusy(false);
-        return;
+        return null;
       }
 
       const checkoutClientId = newCheckoutClientId();
@@ -179,7 +196,7 @@ export function useCartCheckout({
         if (!selectedCustomer?.id) {
           toast("Select a customer before checking out with an order payment.", "error");
           setCheckoutBusy(false);
-          return;
+          return null;
         }
         const targetIds = new Set<string>();
         const clientLineIds = new Set<string>();
@@ -189,46 +206,46 @@ export function useCartCheckout({
           if (amountCents <= 0 || amountCents > balanceCents) {
             toast("Review the order payment amount before checkout.", "error");
             setCheckoutBusy(false);
-            return;
+            return null;
           }
           if (line.customer_id !== selectedCustomer.id) {
             toast("Order payments must belong to the selected customer.", "error");
             setCheckoutBusy(false);
-            return;
+            return null;
           }
           if (targetIds.has(line.target_transaction_id) || clientLineIds.has(line.cart_row_id)) {
             toast("Only one payment line per existing order is allowed.", "error");
             setCheckoutBusy(false);
-            return;
+            return null;
           }
           targetIds.add(line.target_transaction_id);
           clientLineIds.add(line.cart_row_id);
         }
       }
-      const alterationLines = lines.filter((line) => line.line_type === "alteration_service");
+      const alterationLines = checkoutLines.filter((line) => line.line_type === "alteration_service");
       if (pendingAlterationIntakes.length > 0 || alterationLines.length > 0) {
         if (!selectedCustomer?.id) {
           toast("Select a customer before checking out with alteration intake.", "error");
           setCheckoutBusy(false);
-          return;
+          return null;
         }
-        const activeLineIds = new Set(lines.map((line) => line.cart_row_id));
+        const activeLineIds = new Set(checkoutLines.map((line) => line.cart_row_id));
         const alterationLinesByIntake = new Map(
           alterationLines
             .filter((line) => line.alteration_intake_id)
             .map((line) => [line.alteration_intake_id!, line]),
         );
         if (alterationLinesByIntake.size !== alterationLines.length) {
-          toast("Every alteration cart line must be linked to an alteration intake.", "error");
-          setCheckoutBusy(false);
-          return;
-        }
+            toast("Every alteration cart line must be linked to an alteration intake.", "error");
+            setCheckoutBusy(false);
+            return null;
+          }
         for (const intake of pendingAlterationIntakes) {
           const alterationLine = alterationLinesByIntake.get(intake.id);
           if (!alterationLine || alterationLine.cart_row_id !== intake.alteration_cart_row_id) {
             toast("Every alteration intake must have a matching alteration cart line.", "error");
             setCheckoutBusy(false);
-            return;
+            return null;
           }
           if (
             intake.source_type === "current_cart_item" &&
@@ -236,7 +253,7 @@ export function useCartCheckout({
           ) {
             toast("An alteration intake references an item that is no longer in the cart.", "error");
             setCheckoutBusy(false);
-            return;
+            return null;
           }
           const chargeCents =
             intake.charge_amount && intake.charge_amount.trim()
@@ -246,7 +263,7 @@ export function useCartCheckout({
           if (lineCents !== chargeCents) {
             toast("Alteration cart line amount must match the intake charge.", "error");
             setCheckoutBusy(false);
-            return;
+            return null;
           }
         }
         const intakeIds = new Set(pendingAlterationIntakes.map((intake) => intake.id));
@@ -254,7 +271,7 @@ export function useCartCheckout({
           if (!line.alteration_intake_id || !intakeIds.has(line.alteration_intake_id)) {
             toast("Remove or edit the orphan alteration line before checkout.", "error");
             setCheckoutBusy(false);
-            return;
+            return null;
           }
         }
       }
@@ -266,14 +283,14 @@ export function useCartCheckout({
         customer_id: selectedCustomer?.id ?? null,
         wedding_member_id: activeWeddingMember?.id ?? null,
         payment_method: payment_splits.length === 1 ? payment_splits[0]!.payment_method : "split",
-        total_price: centsToFixed2(ledgerSignals.isTaxExempt ? totals.orderTotalCents - (totals.stateTaxCents + totals.localTaxCents) : totals.orderTotalCents),
+        total_price: centsToFixed2(ledgerSignals.isTaxExempt ? checkoutTotals.orderTotalCents - (checkoutTotals.stateTaxCents + checkoutTotals.localTaxCents) : checkoutTotals.orderTotalCents),
         amount_paid: centsToFixed2(tenderPaidCents),
         checkout_client_id: checkoutClientId,
         booked_at_local: saleDateTimeLocal?.trim() || undefined,
-        is_rush: options?.is_rush ?? lines.some((l) => l.is_rush),
+        is_rush: options?.is_rush ?? checkoutLines.some((l) => l.is_rush),
         need_by_date:
           options?.need_by_date ??
-          (lines.find((l) => l.need_by_date)?.need_by_date || null),
+          (checkoutLines.find((l) => l.need_by_date)?.need_by_date || null),
         fulfillment_mode:
           options?.fulfillment_mode ?? (posShipping ? "ship" : "pickup"),
         ship_to: options?.ship_to ?? (posShipping?.to_address || null),
@@ -283,7 +300,7 @@ export function useCartCheckout({
         tax_exempt_reason: ledgerSignals.isTaxExempt ? (ledgerSignals.taxExemptReason ?? "Other") : undefined,
         rounding_adjustment: ledgerSignals.roundingAdjustmentCents ? centsToFixed2(ledgerSignals.roundingAdjustmentCents) : undefined,
         final_cash_due: ledgerSignals.finalCashDueCents ? centsToFixed2(ledgerSignals.finalCashDueCents) : undefined,
-        items: lines.map((l) => {
+        items: checkoutLines.map((l) => {
           const unitCents = parseMoneyToCents(l.standard_retail_price);
           const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
           const fulfillment = pickupConfirmed ? "takeaway" : (l.fulfillment ?? "takeaway");
@@ -353,9 +370,13 @@ export function useCartCheckout({
       if (!navigator.onLine) {
         await enqueueCheckout(payload, apiAuth());
         toast("Sale queued offline.", "info");
-        clearCart();
-        onSaleCompleted?.();
-        return;
+        if (execution?.clearAfterCheckout !== false) {
+          clearCart();
+        }
+        if (execution?.emitSaleCompleted !== false) {
+          onSaleCompleted?.();
+        }
+        return null;
       }
 
       const res = await fetch(`${baseUrl}/api/transactions/checkout`, {
@@ -372,12 +393,20 @@ export function useCartCheckout({
       const data = await res.json() as { transaction_id: string };
       setLastCashChangeDueCents(cashChangeDueCents(applied));
       setLastTransactionId(data.transaction_id);
-      toast("Checkout complete", "success");
-      clearCart();
-      onSaleCompleted?.();
+      if (execution?.showSuccessToast !== false) {
+        toast("Checkout complete", "success");
+      }
+      if (execution?.clearAfterCheckout !== false) {
+        clearCart();
+      }
+      if (execution?.emitSaleCompleted !== false) {
+        onSaleCompleted?.();
+      }
+      return data.transaction_id;
     } catch (e) {
       playPosScanError();
       toast(e instanceof Error ? e.message : "Checkout failed", "error");
+      return null;
     } finally {
       setCheckoutBusy(false);
     }

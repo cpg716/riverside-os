@@ -77,7 +77,8 @@ import {
   type CheckoutOperatorContext,
   type PosOrderOptions,
   type PendingAlterationIntake,
-  type OrderPaymentCartLine
+  type OrderPaymentCartLine,
+  type CartTotals
 } from "./types";
 import { PosRegisterLiveClock } from "./cart/PosRegisterLiveClock";
 import { PosSearchResultList, type SearchResult } from "./cart/PosSearchResultList";
@@ -103,6 +104,71 @@ interface OpenDepositPrompt {
   cents: number;
   payerName: string | null;
   customerId: string;
+}
+
+interface ExchangeReturnHandoffLine {
+  transaction_line_id: string;
+  product_id: string;
+  variant_id: string;
+  sku: string;
+  product_name: string;
+  variation_label?: string | null;
+  quantity: number;
+  unit_price_cents: number;
+  unit_cost: string | number;
+  tax_cents: number;
+}
+
+function calculateStandaloneLineTotals(lines: CartLineItem[]): CartTotals {
+  const res = lines.reduce(
+    (acc, line) => {
+      const quantity = line.quantity;
+      const priceCents = parseMoneyToCents(line.standard_retail_price);
+      const stateTaxCents = parseMoneyToCents(line.state_tax);
+      const localTaxCents = parseMoneyToCents(line.local_tax);
+      acc.subtotalCents += priceCents * quantity;
+      acc.stateTaxCents += stateTaxCents * quantity;
+      acc.localTaxCents += localTaxCents * quantity;
+      if (line.line_type !== "alteration_service") {
+        acc.totalPieces += quantity;
+      }
+      if (line.fulfillment === "takeaway") {
+        acc.takeawayDueCents += (priceCents + stateTaxCents + localTaxCents) * quantity;
+      }
+      return acc;
+    },
+    {
+      subtotalCents: 0,
+      stateTaxCents: 0,
+      localTaxCents: 0,
+      totalPieces: 0,
+      takeawayDueCents: 0,
+    },
+  );
+  const taxCents = res.stateTaxCents + res.localTaxCents;
+  const orderTotalCents = res.subtotalCents + taxCents;
+  return {
+    subtotalCents: res.subtotalCents,
+    stateTaxCents: res.stateTaxCents,
+    localTaxCents: res.localTaxCents,
+    totalPieces: res.totalPieces,
+    taxCents,
+    orderTotalCents,
+    orderPaymentCents: 0,
+    collectTotalCents: orderTotalCents,
+    shippingCents: 0,
+    takeawayDueCents: res.takeawayDueCents,
+    totalCents: orderTotalCents,
+  };
+}
+
+interface ExchangeReturnHandoff {
+  originalTransactionId: string;
+  customer: Customer | null;
+  receiptLabel?: string;
+  returnedLines?: ExchangeReturnHandoffLine[];
+  refundAmountCents?: number;
+  action?: "refund" | "exchange";
 }
 
 interface HandoffOrderDetail {
@@ -410,6 +476,73 @@ export default function Cart({
     }
     previousSelectedCustomerId.current = selectedCustomerId;
   }, [resetSaleDateTime, selectedCustomerId]);
+
+  const handleExchangeReturnHandoff = useCallback((args: ExchangeReturnHandoff) => {
+    onExchangeContinue({
+      originalTransactionId: args.originalTransactionId,
+      customer: args.customer,
+    });
+
+    const refundAmountCents = Math.round(args.refundAmountCents ?? 0);
+    const firstReturnLine = args.returnedLines?.[0];
+    if (!firstReturnLine || refundAmountCents <= 0) return;
+
+    const receiptLabel = args.receiptLabel ?? args.originalTransactionId.slice(0, 8).toUpperCase();
+    const rowId = newCartRowId();
+    const lineLabel =
+      firstReturnLine.product_name +
+      (args.returnedLines && args.returnedLines.length > 1
+        ? ` + ${args.returnedLines.length - 1} more`
+        : "");
+
+    const returnCreditLine: CartLineItem = {
+      product_id: firstReturnLine.product_id,
+      variant_id: firstReturnLine.variant_id,
+      sku: `RETURN-${receiptLabel}`,
+      name: args.action === "exchange" ? `Exchange credit ${receiptLabel}` : `Refund credit ${receiptLabel}`,
+      variation_label: lineLabel,
+      standard_retail_price: centsToFixed2(refundAmountCents),
+      unit_cost: firstReturnLine.unit_cost ?? "0.00",
+      state_tax: "0.00",
+      local_tax: "0.00",
+      tax_category: "other",
+      quantity: -1,
+      fulfillment: "takeaway",
+      cart_row_id: rowId,
+      price_override_reason: "pending_return_refund",
+      original_unit_price: centsToFixed2(refundAmountCents),
+      return_tender_original_transaction_id: args.originalTransactionId,
+      return_tender_receipt_label: receiptLabel,
+      return_tender_refund_cents: refundAmountCents,
+    };
+
+    setLines((prev) => [
+      ...prev.filter((line) => line.return_tender_original_transaction_id !== args.originalTransactionId),
+      returnCreditLine,
+    ]);
+    setSelectedLineKey(rowId);
+    setCheckoutAppliedPayments([]);
+    setCheckoutDepositLedger("");
+    setOrderPaymentLines([]);
+    setEditingOrderPaymentLine(null);
+    setEditingOrderPaymentAmount("");
+    setPosShipping(null);
+    if (args.action === "refund") {
+      setCheckoutDrawerOpen(true);
+      toast(`Refund credit for ${receiptLabel} moved to Pay. Select the refund tender to finish.`, "success");
+    } else {
+      toast(`Return credit for ${receiptLabel} is in the cart. Add replacement items, then Pay to settle the exchange.`, "success");
+    }
+  }, [
+    onExchangeContinue,
+    setLines,
+    setSelectedLineKey,
+    setCheckoutAppliedPayments,
+    setCheckoutDepositLedger,
+    setPosShipping,
+    setCheckoutDrawerOpen,
+    toast,
+  ]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id ?? null;
@@ -981,6 +1114,34 @@ export default function Cart({
 
   const isGiftCardOnlyCart = useMemo(() => lines.length > 0 && lines.every(l => !!l.gift_card_load_code), [lines]);
   const hasCheckoutWork = lines.length > 0 || orderPaymentLines.length > 0;
+  const pendingReturnTender = useMemo(() => {
+    const returnLines = lines.filter((line) => line.return_tender_original_transaction_id);
+    if (returnLines.length === 0) return null;
+    const originalTransactionId = returnLines[0].return_tender_original_transaction_id ?? "";
+    if (!originalTransactionId) return null;
+    const refundAmountCents = returnLines.reduce((sum, line) => {
+      if (typeof line.return_tender_refund_cents === "number" && line.return_tender_refund_cents > 0) {
+        return sum + line.return_tender_refund_cents;
+      }
+      const lineCents =
+        parseMoneyToCents(line.standard_retail_price) * line.quantity +
+        parseMoneyToCents(line.state_tax) * line.quantity +
+        parseMoneyToCents(line.local_tax) * line.quantity;
+      return sum + Math.abs(lineCents);
+    }, 0);
+    return {
+      originalTransactionId,
+      receiptLabel: returnLines[0].return_tender_receipt_label ?? originalTransactionId.slice(0, 8).toUpperCase(),
+      refundAmountCents,
+      returnOnly: returnLines.length === lines.length && orderPaymentLines.length === 0,
+    };
+  }, [lines, orderPaymentLines.length]);
+  useEffect(() => {
+    if (!pendingReturnTender || orderPaymentLines.length === 0) return;
+    setOrderPaymentLines([]);
+    setEditingOrderPaymentLine(null);
+    setEditingOrderPaymentAmount("");
+  }, [orderPaymentLines.length, pendingReturnTender]);
   const hasSalespersonAttribution = useCallback(() => {
     return (
       primarySalespersonId.trim() !== "" ||
@@ -2524,6 +2685,10 @@ export default function Cart({
              onClick={() => {
                if (!hasCheckoutWork) return toast("Add at least one item or transaction payment before checking out.", "error");
                 if (!ensureSaleCashier()) return;
+               if (pendingReturnTender?.returnOnly) {
+                 setCheckoutDrawerOpen(true);
+                 return;
+               }
                if (isRmsPaymentCart) {
                  if (!selectedCustomer) {
                    toast(
@@ -2559,6 +2724,10 @@ export default function Cart({
                    );
                    return;
                  }
+               }
+               if (pendingReturnTender && !selectedCustomer) {
+                 toast("Keep the original customer selected before settling an exchange.", "error");
+                 return;
                }
                if (!selectedCustomer) {
                  setShowWalkinConfirm(true);
@@ -2691,6 +2860,232 @@ export default function Cart({
         onOpenProfileGate={() => {}}
         busy={checkoutBusy}
         onFinalize={async (applied, op, ledger) => {
+          if (pendingReturnTender) {
+            if (!pendingReturnTender.returnOnly) {
+              if (posShipping || orderPaymentLines.length > 0 || disbursementMembers.length > 0 || pendingAlterationIntakes.length > 0) {
+                toast("Clear shipping, order payments, wedding disbursements, and alteration intake before settling an exchange.", "error");
+                return;
+              }
+              if (!selectedCustomer) {
+                toast("Keep the original customer selected before settling an exchange.", "error");
+                return;
+              }
+              if (ledger.appliedDepositAmountCents > 0) {
+                toast("Deposit collection cannot be mixed with exchange-credit settlement.", "error");
+                return;
+              }
+              const replacementLines = lines.filter((line) => !line.return_tender_original_transaction_id);
+              if (replacementLines.length === 0) {
+                toast("Add replacement items before continuing an exchange, or refund the customer only.", "error");
+                return;
+              }
+              if (!hasSalespersonAttribution()) {
+                toast(
+                  "Select a salesperson for the replacement sale, or assign one on a line, so commissions can be calculated.",
+                  "error",
+                );
+                return;
+              }
+              const replacementTotals = calculateStandaloneLineTotals(replacementLines);
+              if (replacementTotals.orderTotalCents <= 0) {
+                toast("Replacement sale total must be positive before settling an exchange.", "error");
+                return;
+              }
+              const exchangeCreditAppliedCents = Math.min(
+                pendingReturnTender.refundAmountCents,
+                replacementTotals.orderTotalCents,
+              );
+              const roundingAdjustmentCents = ledger.roundingAdjustmentCents ?? 0;
+              const totalAppliedCents = applied.reduce((sum, payment) => sum + payment.amountCents, 0);
+              if (totalAppliedCents !== totals.totalCents + roundingAdjustmentCents) {
+                toast("Payment amount must match the net exchange balance before finishing.", "error");
+                return;
+              }
+              const refundTenders = applied.filter((payment) => payment.amountCents < 0);
+              if (totals.totalCents < 0) {
+                const cashRoundsToZero =
+                  ledger.tenderMethod === "cash" &&
+                  ledger.finalCashDueCents === 0 &&
+                  roundingAdjustmentCents !== 0;
+                if (!cashRoundsToZero && (refundTenders.length !== 1 || applied.length !== 1)) {
+                  toast("Use one refund tender for the remaining exchange credit.", "error");
+                  return;
+                }
+                if (cashRoundsToZero && applied.length > 0) {
+                  toast("Clear payment lines when the cash refund rounds to $0.00.", "error");
+                  return;
+                }
+                if (refundTenders[0]?.method.toLowerCase().includes("card")) {
+                  toast("Card refund remainders must use the original provider refund flow.", "error");
+                  return;
+                }
+              } else if (refundTenders.length > 0) {
+                toast("Refund tender is only allowed when the exchange leaves money owed to the customer.", "error");
+                return;
+              }
+
+              const exchangeCreditPayment: AppliedPaymentLine = {
+                id: `exchange-credit-${pendingReturnTender.originalTransactionId}`,
+                method: "exchange_credit",
+                amountCents: exchangeCreditAppliedCents,
+                label: "Exchange credit",
+                metadata: {
+                  original_transaction_id: pendingReturnTender.originalTransactionId,
+                  receipt_label: pendingReturnTender.receiptLabel,
+                  kind: "exchange_credit_applied",
+                },
+              };
+              const checkoutApplied = [
+                exchangeCreditPayment,
+                ...(totals.totalCents > 0 ? applied.filter((payment) => payment.amountCents > 0) : []),
+              ];
+              const replacementTransactionId = await executeCheckout(
+                checkoutApplied,
+                op,
+                {
+                  ...ledger,
+                  appliedDepositAmountCents: 0,
+                },
+                checkoutOrderOptions || undefined,
+                {
+                  linesOverride: replacementLines,
+                  totalsOverride: replacementTotals,
+                  clearAfterCheckout: false,
+                  emitSaleCompleted: false,
+                  showSuccessToast: false,
+                },
+              );
+              if (!replacementTransactionId) return;
+
+              const zeroCashRefundTender: AppliedPaymentLine | null =
+                ledger.tenderMethod === "cash" &&
+                ledger.finalCashDueCents === 0 &&
+                roundingAdjustmentCents !== 0
+                  ? {
+                      id: `cash-rounding-refund-${pendingReturnTender.originalTransactionId}`,
+                      method: "cash",
+                      amountCents: 0,
+                      label: "Cash refund",
+                    }
+                  : null;
+              const refundTender = refundTenders[0] ?? zeroCashRefundTender;
+              const refundRemainderCents = pendingReturnTender.refundAmountCents - exchangeCreditAppliedCents;
+              try {
+                const settlementRes = await fetch(
+                  `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/exchange-settlement`,
+                  {
+                    method: "POST",
+                    headers: {
+                      ...apiAuth(),
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      session_id: sessionId,
+                      replacement_transaction_id: replacementTransactionId,
+                      exchange_credit_amount: centsToFixed2(exchangeCreditAppliedCents),
+                      refund_remainder: refundTender
+                        ? {
+                            payment_method: refundTender.method,
+                            amount: centsToFixed2(refundRemainderCents),
+                            tender_amount: centsToFixed2(Math.abs(refundTender.amountCents)),
+                            rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
+                            final_cash_due: ledger.finalCashDueCents != null ? centsToFixed2(ledger.finalCashDueCents) : undefined,
+                            gift_card_code: refundTender.gift_card_code,
+                          }
+                        : undefined,
+                    }),
+                  },
+                );
+                if (!settlementRes.ok) {
+                  const payload = (await settlementRes.json().catch(() => ({}))) as { error?: string };
+                  toast(payload.error ?? "Exchange settlement failed after recording the replacement sale.", "error");
+                  return;
+                }
+                setLastReceiptOrderPaymentLines([]);
+                clearCartAndAlterations();
+                setCheckoutDrawerOpen(false);
+                toast(`Exchange settled for ${pendingReturnTender.receiptLabel}.`, "success");
+              } catch {
+                toast("Exchange settlement failed. Check the API connection before retrying.", "error");
+              }
+              return;
+            }
+            const totalAppliedCents = applied.reduce((sum, payment) => sum + payment.amountCents, 0);
+            const roundingAdjustmentCents = ledger.roundingAdjustmentCents ?? 0;
+            if (totalAppliedCents !== -pendingReturnTender.refundAmountCents + roundingAdjustmentCents) {
+              toast(
+                `Refund tender must equal -$${centsToFixed2(pendingReturnTender.refundAmountCents)} before finishing.`,
+                "error",
+              );
+              return;
+            }
+            const cashRoundsToZero =
+              ledger.tenderMethod === "cash" &&
+              ledger.finalCashDueCents === 0 &&
+              roundingAdjustmentCents !== 0;
+            if (!cashRoundsToZero && applied.length !== 1) {
+              toast("Use one refund tender for this return so the original Transaction Record stays clear.", "error");
+              return;
+            }
+            if (cashRoundsToZero && applied.length > 0) {
+              toast("Clear payment lines when the cash refund rounds to $0.00.", "error");
+              return;
+            }
+            if (applied.some((payment) => payment.method.toLowerCase().includes("card"))) {
+              toast(
+                "Card refund tender still needs the original provider flow. Use cash, check, gift card, or store credit here.",
+                "error",
+              );
+              return;
+            }
+            const primaryTender =
+              applied[0] ??
+              (cashRoundsToZero
+                ? ({
+                    id: `cash-rounding-refund-${pendingReturnTender.originalTransactionId}`,
+                    method: "cash",
+                    amountCents: 0,
+                    label: "Cash refund",
+                  } satisfies AppliedPaymentLine)
+                : undefined);
+            if (!primaryTender) {
+              toast("Select a refund tender before finishing.", "error");
+              return;
+            }
+            try {
+              const refundRes = await fetch(
+                `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/process`,
+                {
+                  method: "POST",
+                  headers: {
+                    ...apiAuth(),
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    session_id: sessionId,
+                    payment_method: primaryTender.method,
+                    amount: centsToFixed2(pendingReturnTender.refundAmountCents),
+                    tender_amount: centsToFixed2(Math.abs(totalAppliedCents)),
+                    rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
+                    final_cash_due: ledger.finalCashDueCents != null ? centsToFixed2(ledger.finalCashDueCents) : undefined,
+                    gift_card_code: primaryTender.gift_card_code,
+                  }),
+                },
+              );
+              if (!refundRes.ok) {
+                const payload = (await refundRes.json().catch(() => ({}))) as { error?: string };
+                toast(payload.error ?? "Refund failed. Check tender and try again.", "error");
+                return;
+              }
+              setLastReceiptOrderPaymentLines([]);
+              clearCartAndAlterations();
+              setCheckoutDrawerOpen(false);
+              toast(`Refund completed for ${pendingReturnTender.receiptLabel}.`, "success");
+            } catch {
+              toast("Refund failed. Check the API connection and try again.", "error");
+            }
+            return;
+          }
           if (lines.length > 0 && !isRmsPaymentCart && !isGiftCardOnlyCart && !hasSalespersonAttribution()) {
             toast(
               "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
@@ -3203,7 +3598,7 @@ export default function Cart({
         sessionId={sessionId}
         baseUrl={baseUrl}
         apiAuth={() => ({ ...apiAuth() })}
-        onContinueToReplacement={onExchangeContinue}
+        onContinueToReplacement={handleExchangeReturnHandoff}
       />
 
       <PosSuitSwapWizard

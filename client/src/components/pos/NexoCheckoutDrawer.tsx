@@ -385,6 +385,7 @@ export interface NexoCheckoutDrawerProps {
       taxExemptReason?: string;
       roundingAdjustmentCents?: number;
       finalCashDueCents?: number;
+      tenderMethod?: string;
     },
   ) => Promise<void>;
   allowStoreCredit?: boolean;
@@ -1603,6 +1604,7 @@ export default function NexoCheckoutDrawer({
       taxExemptReason: taxExemptLedgerReason,
       roundingAdjustmentCents: finalRoundingCents,
       finalCashDueCents: finalCashDue,
+      tenderMethod: tab,
     });
   };
 
