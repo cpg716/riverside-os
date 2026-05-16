@@ -755,6 +755,30 @@ fn creates_fulfillment_order(fulfillment: DbFulfillmentType) -> bool {
     )
 }
 
+fn validate_checkout_item_quantity(item: &CheckoutItem) -> Result<(), CheckoutError> {
+    if item.quantity == 0 {
+        return Err(CheckoutError::InvalidPayload(format!(
+            "Invalid quantity for variant {}",
+            item.variant_id
+        )));
+    }
+
+    if item.quantity < 0 {
+        if item.fulfillment != DbFulfillmentType::Takeaway {
+            return Err(CheckoutError::InvalidPayload(
+                "Negative quantity is only allowed for take-away retail lines".to_string(),
+            ));
+        }
+        if is_alteration_service_item(item) {
+            return Err(CheckoutError::InvalidPayload(
+                "Alteration service lines cannot use negative quantity".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn initial_order_lifecycle_status(
     fulfillment: DbFulfillmentType,
     line_fulfilled: bool,
@@ -1258,6 +1282,8 @@ fn resolve_payment_splits(
     payload: &CheckoutRequest,
 ) -> Result<(Vec<ResolvedPaymentSplit>, String), CheckoutError> {
     let amount_paid = payload.amount_paid.round_dp(2);
+    let refund_checkout =
+        payload.total_price.round_dp(2) < Decimal::ZERO && amount_paid < Decimal::ZERO;
 
     if let Some(ref splits) = payload.payment_splits {
         if !splits.is_empty() {
@@ -1300,10 +1326,20 @@ fn resolve_payment_splits(
                     ));
                 }
                 let a = line.amount.round_dp(2);
-                if a <= Decimal::ZERO {
+                if a.is_zero() {
                     return Err(CheckoutError::InvalidPayload(
                         "split amounts must be positive".to_string(),
                     ));
+                }
+                if a < Decimal::ZERO {
+                    let refund_tender_allowed =
+                        m.eq_ignore_ascii_case("cash") || m.eq_ignore_ascii_case("card_credit");
+                    if !refund_checkout || !refund_tender_allowed {
+                        return Err(CheckoutError::InvalidPayload(
+                            "negative split amounts are only allowed for customer refunds"
+                                .to_string(),
+                        ));
+                    }
                 }
                 sum += a;
                 let applied_deposit_amount = line
@@ -1315,7 +1351,7 @@ fn resolve_payment_splits(
                         "applied_deposit_amount cannot be negative".to_string(),
                     ));
                 }
-                if applied_deposit_amount > a {
+                if !refund_checkout && applied_deposit_amount > a {
                     return Err(CheckoutError::InvalidPayload(
                         "applied_deposit_amount cannot exceed split amount".to_string(),
                     ));
@@ -1462,7 +1498,12 @@ fn resolve_payment_splits(
                     "payment_splits must sum to amount_paid".to_string(),
                 ));
             }
-            if deposit_sum > amount_paid {
+            if refund_checkout && deposit_sum > Decimal::ZERO {
+                return Err(CheckoutError::InvalidPayload(
+                    "refund splits cannot apply deposit amounts".to_string(),
+                ));
+            }
+            if !refund_checkout && deposit_sum > amount_paid {
                 return Err(CheckoutError::InvalidPayload(
                     "sum(applied_deposit_amount) cannot exceed amount_paid".to_string(),
                 ));
@@ -1489,6 +1530,11 @@ fn resolve_payment_splits(
     if m.eq_ignore_ascii_case("check") {
         return Err(CheckoutError::InvalidPayload(
             "check payment requires check_number".to_string(),
+        ));
+    }
+    if amount_paid < Decimal::ZERO {
+        return Err(CheckoutError::InvalidPayload(
+            "customer refunds require explicit payment_splits".to_string(),
         ));
     }
     Ok((
@@ -1926,12 +1972,7 @@ pub async fn execute_checkout(
     )?;
 
     for item in &payload.items {
-        if item.quantity <= 0 {
-            return Err(CheckoutError::InvalidPayload(format!(
-                "Invalid quantity for variant {}",
-                item.variant_id
-            )));
-        }
+        validate_checkout_item_quantity(item)?;
     }
     let alteration_client_line_ids = validate_checkout_alteration_intakes(
         payload.customer_id,
@@ -2537,34 +2578,60 @@ pub async fn execute_checkout(
         .sum::<Decimal>()
         .round_dp(2);
 
-    if d_total > payload.amount_paid + tol {
-        return Err(CheckoutError::InvalidPayload(
-            "party disbursements cannot exceed amount collected".to_string(),
-        ));
-    }
-    if d_total + order_payment_total > payload.amount_paid + tol {
-        return Err(CheckoutError::InvalidPayload(
-            "party disbursements and order payments cannot exceed amount collected".to_string(),
-        ));
+    let rounding_adj = payload.rounding_adjustment.unwrap_or(Decimal::ZERO);
+    let refund_checkout = payload.total_price.round_dp(2) < Decimal::ZERO
+        || payload.amount_paid.round_dp(2) < Decimal::ZERO;
+    if refund_checkout {
+        if payload.total_price.round_dp(2) >= Decimal::ZERO
+            || payload.amount_paid.round_dp(2) >= Decimal::ZERO
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "refund checkout requires a negative total and negative refund tender".to_string(),
+            ));
+        }
+        if d_total > Decimal::ZERO || order_payment_total > Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "refund checkout cannot include party disbursements or order payments".to_string(),
+            ));
+        }
+    } else {
+        if d_total > payload.amount_paid + tol {
+            return Err(CheckoutError::InvalidPayload(
+                "party disbursements cannot exceed amount collected".to_string(),
+            ));
+        }
+        if d_total + order_payment_total > payload.amount_paid + tol {
+            return Err(CheckoutError::InvalidPayload(
+                "party disbursements and order payments cannot exceed amount collected".to_string(),
+            ));
+        }
     }
 
-    let amount_toward_order = (payload.amount_paid - d_total - order_payment_total).round_dp(2);
-    if amount_toward_order < Decimal::ZERO {
+    let amount_toward_order = if refund_checkout {
+        payload.amount_paid.round_dp(2)
+    } else {
+        (payload.amount_paid - d_total - order_payment_total).round_dp(2)
+    };
+    if !refund_checkout && amount_toward_order < Decimal::ZERO {
         return Err(CheckoutError::InvalidPayload(
             "amount collected is less than party disbursements and order payments".to_string(),
         ));
     }
 
-    if amount_toward_order > payload.total_price + tol {
+    if !refund_checkout && amount_toward_order > payload.total_price + tol {
         return Err(CheckoutError::InvalidPayload(
             "amount applied to this order exceeds total_price — reduce tenders or adjust party disbursements"
                 .to_string(),
         ));
     }
 
-    let rounding_adj = payload.rounding_adjustment.unwrap_or(Decimal::ZERO);
     let balance_due = (payload.total_price + rounding_adj - amount_toward_order).round_dp(2);
-    if balance_due < Decimal::ZERO {
+    if refund_checkout && balance_due.abs() > tol {
+        return Err(CheckoutError::InvalidPayload(
+            "refund checkout must be fully tendered before recording".to_string(),
+        ));
+    }
+    if !refund_checkout && balance_due < Decimal::ZERO {
         return Err(CheckoutError::InvalidPayload(
             "order balance due cannot be negative".to_string(),
         ));
@@ -3547,7 +3614,7 @@ pub async fn execute_checkout(
     )?;
     let mut order_payment_targets_to_recalc: HashSet<Uuid> = HashSet::new();
 
-    if payload.amount_paid > Decimal::ZERO {
+    if !payload.amount_paid.is_zero() {
         if has_rms_charge || is_rms_payment_collection {
             if let Some(cid) = payload.customer_id {
                 let nm: Option<String> = sqlx::query_scalar(
@@ -3574,7 +3641,7 @@ pub async fn execute_checkout(
         let mut main_tx_ids = Vec::new();
 
         for split in &mut payment_splits {
-            if split.amount <= Decimal::ZERO {
+            if split.amount.is_zero() {
                 continue;
             }
             let method = split.method.trim();
@@ -4379,10 +4446,11 @@ mod tests {
         apply_corecard_result_to_metadata, build_payment_allocation_plan,
         corecard_error_to_checkout, evaluate_combo_incentives, execute_checkout,
         fetch_variant_pos_line_kind, helcim_attempt_comparison_cents, parse_combo_reward_amount,
-        validate_checkout_alteration_intakes, validate_order_payment_against_target,
+        resolve_payment_splits, validate_checkout_alteration_intakes,
+        validate_checkout_item_quantity, validate_order_payment_against_target,
         validate_order_payment_shape, CheckoutAlterationIntake, CheckoutDone, CheckoutItem,
-        CheckoutOrderPayment, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
-        ResolvedPaymentSplit,
+        CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget,
+        ResolvedOrderPayment, ResolvedPaymentSplit,
     };
     use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
     use crate::logic::corecard::{CoreCardFailureCode, CoreCardHostMutationResult};
@@ -4419,6 +4487,124 @@ mod tests {
             needs_gift_wrap: false,
             order_lifecycle_status: None,
         }
+    }
+
+    fn checkout_request_for_split_validation(
+        total_price: Decimal,
+        amount_paid: Decimal,
+        splits: Vec<CheckoutPaymentSplit>,
+    ) -> CheckoutRequest {
+        CheckoutRequest {
+            session_id: Uuid::new_v4(),
+            operator_staff_id: Uuid::new_v4(),
+            primary_salesperson_id: None,
+            customer_id: None,
+            wedding_member_id: None,
+            payment_method: "split".to_string(),
+            total_price,
+            amount_paid,
+            items: vec![checkout_item_with_client_line(None)],
+            alteration_intakes: vec![],
+            actor_name: None,
+            payment_splits: Some(splits),
+            wedding_disbursements: None,
+            order_payments: vec![],
+            checkout_client_id: None,
+            shipping_rate_quote_id: None,
+            fulfillment_mode: None,
+            ship_to: None,
+            target_transaction_id: None,
+            is_rush: false,
+            need_by_date: None,
+            is_tax_exempt: false,
+            tax_exempt_reason: None,
+            rounding_adjustment: None,
+            final_cash_due: None,
+        }
+    }
+
+    fn cash_split(amount: Decimal) -> CheckoutPaymentSplit {
+        CheckoutPaymentSplit {
+            payment_method: "cash".to_string(),
+            amount,
+            sub_type: None,
+            applied_deposit_amount: None,
+            gift_card_code: None,
+            check_number: None,
+            metadata: None,
+        }
+    }
+
+    #[test]
+    fn checkout_quantity_allows_negative_takeaway_retail_line() {
+        let mut item = checkout_item_with_client_line(None);
+        item.quantity = -1;
+
+        validate_checkout_item_quantity(&item).unwrap();
+    }
+
+    #[test]
+    fn checkout_splits_allow_negative_cash_for_refund_checkout() {
+        let payload = checkout_request_for_split_validation(
+            Decimal::new(-7125, 2),
+            Decimal::new(-7125, 2),
+            vec![cash_split(Decimal::new(-7125, 2))],
+        );
+
+        let (splits, label) = resolve_payment_splits(&payload).unwrap();
+
+        assert_eq!(splits[0].amount, Decimal::new(-7125, 2));
+        assert_eq!(label, "cash");
+    }
+
+    #[test]
+    fn checkout_splits_reject_negative_cash_on_positive_sale() {
+        let payload = checkout_request_for_split_validation(
+            Decimal::new(7125, 2),
+            Decimal::new(-7125, 2),
+            vec![cash_split(Decimal::new(-7125, 2))],
+        );
+
+        let err = resolve_payment_splits(&payload).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("negative split amounts are only allowed for customer refunds"));
+    }
+
+    #[test]
+    fn checkout_quantity_rejects_zero_quantity() {
+        let mut item = checkout_item_with_client_line(None);
+        item.quantity = 0;
+
+        let err = validate_checkout_item_quantity(&item).unwrap_err();
+
+        assert!(err.to_string().contains("Invalid quantity for variant"));
+    }
+
+    #[test]
+    fn checkout_quantity_rejects_negative_non_takeaway_line() {
+        let mut item = checkout_item_with_client_line(None);
+        item.fulfillment = DbFulfillmentType::Layaway;
+        item.quantity = -1;
+
+        let err = validate_checkout_item_quantity(&item).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("Negative quantity is only allowed for take-away retail lines"));
+    }
+
+    #[test]
+    fn checkout_quantity_rejects_negative_alteration_service_line() {
+        let mut item = alteration_service_item("line-1", "intake-1", Decimal::new(2500, 2));
+        item.quantity = -1;
+
+        let err = validate_checkout_item_quantity(&item).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("Alteration service lines cannot use negative quantity"));
     }
 
     #[test]

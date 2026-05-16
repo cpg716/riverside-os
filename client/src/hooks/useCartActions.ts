@@ -516,7 +516,7 @@ export function useCartActions({
 
       if (keypadMode === "qty") {
         const nextQty = parseInt(keypadBuffer || "1", 10);
-        if (isNaN(nextQty) || nextQty <= 0) {
+        if (isNaN(nextQty) || nextQty === 0) {
           toast("Invalid quantity", "error");
           return;
         }
@@ -545,6 +545,12 @@ export function useCartActions({
         }));
       }
       setKeypadBuffer("");
+      return;
+    }
+
+    if (key === "-") {
+      if (keypadMode !== "qty") return;
+      setKeypadBuffer(prev => (prev.startsWith("-") ? prev.slice(1) : `-${prev}`));
       return;
     }
 

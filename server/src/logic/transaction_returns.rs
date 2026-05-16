@@ -233,14 +233,17 @@ pub async fn apply_transaction_returns(
         .map_err(TransactionReturnError::Db)?;
 
     if refund_add > Decimal::ZERO {
-        upsert_refund_queue_row(
-            &mut tx,
-            transaction_id,
-            customer_id,
-            refund_add,
-            "Line return",
-        )
-        .await?;
+        let refundable_credit = refundable_credit_due(&mut tx, transaction_id).await?;
+        if refundable_credit > Decimal::ZERO {
+            sync_refund_queue_row(
+                &mut tx,
+                transaction_id,
+                customer_id,
+                refundable_credit,
+                "Line return",
+            )
+            .await?;
+        }
     }
 
     if loyalty_subtotal > Decimal::ZERO {
@@ -280,11 +283,33 @@ pub struct ReturnLineInput {
     pub restock: Option<bool>,
 }
 
-async fn upsert_refund_queue_row(
+async fn refundable_credit_due(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+) -> Result<Decimal, sqlx::Error> {
+    let balance_due: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(balance_due, 0)::numeric(14,2)
+        FROM transactions
+        WHERE id = $1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    if balance_due < Decimal::ZERO {
+        Ok(-balance_due)
+    } else {
+        Ok(Decimal::ZERO)
+    }
+}
+
+async fn sync_refund_queue_row(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,
     customer_id: Option<Uuid>,
-    add_amount: Decimal,
+    refundable_remaining: Decimal,
     reason: &str,
 ) -> Result<(), sqlx::Error> {
     let reason_full = format!("{reason}; refund due after return");
@@ -294,13 +319,13 @@ async fn upsert_refund_queue_row(
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (transaction_id) WHERE (is_open = true)
         DO UPDATE SET
-            amount_due = transaction_refund_queue.amount_due + EXCLUDED.amount_due,
+            amount_due = transaction_refund_queue.amount_refunded + EXCLUDED.amount_due,
             reason = transaction_refund_queue.reason || '; ' || EXCLUDED.reason
         "#,
     )
     .bind(transaction_id)
     .bind(customer_id)
-    .bind(add_amount)
+    .bind(refundable_remaining)
     .bind(reason_full)
     .execute(&mut **tx)
     .await?;

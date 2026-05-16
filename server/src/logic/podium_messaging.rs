@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -119,6 +119,86 @@ pub async fn list_messages_for_customer(
     .bind(customer_id)
     .fetch_all(pool)
     .await
+}
+
+pub async fn hydrate_missing_messages_for_customer(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    customer_id: Uuid,
+) -> Result<usize, String> {
+    #[derive(sqlx::FromRow)]
+    struct ConversationShell {
+        podium_conversation_uid: String,
+        channel: String,
+        contact_phone_e164: Option<String>,
+        contact_email: Option<String>,
+        last_message_at: DateTime<Utc>,
+    }
+
+    let shells = sqlx::query_as::<_, ConversationShell>(
+        r#"
+        SELECT
+            podium_conversation_uid,
+            channel,
+            contact_phone_e164,
+            contact_email,
+            last_message_at
+        FROM podium_conversation pc
+        WHERE pc.customer_id = $1
+          AND pc.podium_conversation_uid IS NOT NULL
+          AND trim(pc.podium_conversation_uid) <> ''
+          AND NOT EXISTS (
+              SELECT 1
+              FROM podium_message pm
+              WHERE pm.conversation_id = pc.id
+          )
+        ORDER BY pc.last_message_at DESC
+        LIMIT 5
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|err| err.to_string())?;
+
+    let mut inserted = 0usize;
+    for shell in shells {
+        let messages = podium::fetch_podium_conversation_messages(
+            pool,
+            http,
+            token_cache,
+            &shell.podium_conversation_uid,
+            50,
+        )
+        .await
+        .map_err(|err| err.to_string())?;
+        let identifier = if shell.channel == "email" {
+            shell.contact_email.as_deref()
+        } else {
+            shell.contact_phone_e164.as_deref()
+        };
+        let conversation = json!({
+            "uid": shell.podium_conversation_uid,
+            "channel": {
+                "type": shell.channel,
+                "identifier": identifier,
+            },
+            "lastItemAt": shell.last_message_at.to_rfc3339(),
+        });
+        for message in messages {
+            if matches!(
+                upsert_synced_message(pool, &conversation, &message)
+                    .await
+                    .map_err(|err| err.to_string())?,
+                SyncMessageOutcome::Inserted
+            ) {
+                inserted += 1;
+            }
+        }
+    }
+
+    Ok(inserted)
 }
 
 pub async fn list_messaging_inbox(
@@ -850,7 +930,33 @@ pub async fn sync_recent_from_podium(
         let messages = embedded_messages(&conversation);
         if messages.is_empty() {
             match upsert_synced_conversation_shell(pool, &conversation).await {
-                Ok(SyncConversationOutcome::Matched) => result.conversations_matched += 1,
+                Ok(SyncConversationOutcome::Matched) => {
+                    result.conversations_matched += 1;
+                    match podium::fetch_podium_conversation_messages(
+                        pool,
+                        http,
+                        token_cache,
+                        &uid,
+                        50,
+                    )
+                    .await
+                    {
+                        Ok(provider_messages) => {
+                            for message in provider_messages {
+                                result.messages_seen += 1;
+                                match upsert_synced_message(pool, &conversation, &message).await {
+                                    Ok(SyncMessageOutcome::Inserted) => {
+                                        result.messages_inserted += 1;
+                                    }
+                                    Ok(SyncMessageOutcome::Matched) => {}
+                                    Ok(SyncMessageOutcome::Unmatched) => {}
+                                    Err(err) => result.errors.push(format!("{uid}: {err}")),
+                                }
+                            }
+                        }
+                        Err(err) => result.errors.push(format!("{uid}: {err}")),
+                    }
+                }
                 Ok(SyncConversationOutcome::Unmatched) => result.conversations_unmatched += 1,
                 Err(err) => result.errors.push(format!("{uid}: {err}")),
             }

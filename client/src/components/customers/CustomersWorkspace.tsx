@@ -1479,13 +1479,14 @@ export default function CustomersWorkspace({
                         <td className="px-5 py-4 align-middle">
                           <div className="flex flex-col">
                             <span className="flex items-center gap-1.5 text-xs font-bold text-app-text">
-                              {r.phone || (
+                              {r.phone ? (
+                                r.phone
+                              ) : (
                                 <CheckCircle2
                                   size={12}
                                   className="text-app-text-disabled"
                                 />
                               )}
-                              {r.phone}
                             </span>
                             <span className="text-[10px] font-medium lowercase tracking-tight text-app-text-muted">
                               {r.email || "No email"}

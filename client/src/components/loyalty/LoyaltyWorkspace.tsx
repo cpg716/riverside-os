@@ -39,6 +39,12 @@ interface LoyaltyPipelineStats {
 
 const BASE = getBaseUrl();
 
+function summaryValueSize(value: string): string {
+  if (value.length >= 10) return "text-[1.25rem] sm:text-[1.45rem] xl:text-[1.65rem]";
+  if (value.length >= 7) return "text-[1.55rem] sm:text-[1.75rem] xl:text-[1.95rem]";
+  return "text-[2rem]";
+}
+
 interface RewardFulfillmentRow {
   reward_id: string;
   customer_id: string;
@@ -1483,7 +1489,7 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
         ].map((s, idx) => (
           <div
             key={idx}
-            className={`group relative flex ${isCompactLayout ? "min-w-[210px]" : "min-w-[240px]"} flex-1 items-center gap-5 overflow-hidden rounded-[28px] border ${s.border} bg-app-surface p-5 shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] transition-transform duration-500 hover:scale-[1.02]`}
+            className={`group relative flex ${isCompactLayout ? "min-w-[210px]" : "min-w-[240px]"} flex-1 items-center gap-4 overflow-hidden rounded-[28px] border ${s.border} bg-app-surface p-5 shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] transition-transform duration-500 hover:scale-[1.02]`}
           >
             <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-700">
                <s.icon size={80} />
@@ -1491,12 +1497,12 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
             <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-app-surface-2 shadow-sm border border-app-border`}>
               <s.icon size={26} className={s.color} />
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-bold text-app-text-muted opacity-80">{s.label}</p>
-                <span className="rounded-full bg-app-surface-2 px-1.5 py-0.5 text-xs font-bold tabular-nums text-app-text-muted">{s.trend}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-start gap-2">
+                <p className="min-w-0 flex-1 text-xs font-bold leading-tight text-app-text-muted opacity-80">{s.label}</p>
+                <span className="max-w-20 shrink-0 rounded-full bg-app-surface-2 px-1.5 py-0.5 text-center text-[10px] font-bold leading-tight tabular-nums text-app-text-muted">{s.trend}</span>
               </div>
-              <p className="text-3xl font-black tabular-nums text-app-text tracking-tight">{s.val}</p>
+              <p className={`max-w-full whitespace-nowrap font-black leading-none tabular-nums tracking-tight text-app-text ${summaryValueSize(s.val)}`}>{s.val}</p>
             </div>
           </div>
         ))}

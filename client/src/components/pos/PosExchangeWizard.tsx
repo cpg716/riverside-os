@@ -62,6 +62,15 @@ type WorkflowStep = {
   hint: string;
 };
 
+type ReturnedLineSummary = {
+  transaction_line_id: string;
+  sku: string;
+  product_name: string;
+  quantity: number;
+  unit_price_cents: number;
+  tax_cents: number;
+};
+
 const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
   {
     id: "load",
@@ -81,6 +90,32 @@ const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
 ];
 
 const RETURN_MANAGER_APPROVAL_WINDOW_DAYS = 60;
+
+function refundableCreditCents(detail: TransactionDetailLite): number {
+  const paidCents = parseMoneyToCents(detail.amount_paid);
+  const creditCents = Math.max(0, -parseMoneyToCents(detail.balance_due));
+  return Math.min(paidCents, creditCents);
+}
+
+function projectedRefundableCents(detail: TransactionDetailLite, selectedReturnCents: number): number {
+  const paidCents = parseMoneyToCents(detail.amount_paid);
+  const projectedBalanceCents = parseMoneyToCents(detail.balance_due) - selectedReturnCents;
+  const projectedCreditCents = Math.max(0, -projectedBalanceCents);
+  return Math.min(selectedReturnCents, paidCents, projectedCreditCents);
+}
+
+function returnedLineSummaries(detail: TransactionDetailLite): ReturnedLineSummary[] {
+  return detail.items
+    .filter((item) => (item.quantity_returned ?? 0) > 0)
+    .map((item) => ({
+      transaction_line_id: item.transaction_line_id,
+      sku: item.sku,
+      product_name: item.product_name,
+      quantity: item.quantity_returned,
+      unit_price_cents: parseMoneyToCents(item.unit_price),
+      tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
+    }));
+}
 
 export default function PosExchangeWizard({
   open,
@@ -114,9 +149,7 @@ export default function PosExchangeWizard({
   const [submitting, setSubmitting] = useState(false);
   const [pendingManagerApproval, setPendingManagerApproval] = useState<TransactionDetailLite | null>(null);
   const [managerApproval, setManagerApproval] = useState<{ staffId: string; pin: string } | null>(null);
-  const [returnedLines, setReturnedLines] = useState<
-    { transaction_line_id: string; sku: string; product_name: string; quantity: number; unit_price_cents: number; tax_cents: number }[]
-  >([]);
+  const [returnedLines, setReturnedLines] = useState<ReturnedLineSummary[]>([]);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
   const [refundBusy, setRefundBusy] = useState(false);
   const [refundAmount, setRefundAmount] = useState("");
@@ -163,6 +196,17 @@ export default function PosExchangeWizard({
       }
       
       const daysOld = (Date.now() - new Date(d.booked_at).getTime()) / (1000 * 60 * 60 * 24);
+      const hasReturnableLines = d.items.some((item) => item.quantity - (item.quantity_returned ?? 0) > 0);
+      const existingRefundableCents = refundableCreditCents(d);
+      if (!hasReturnableLines && existingRefundableCents > 0) {
+        setDetail(d);
+        setReturnedLines(returnedLineSummaries(d));
+        setRefundAmount(centsToFixed2(existingRefundableCents));
+        setStep("done");
+        toast("Return is already recorded. Finish the remaining refund credit.", "info");
+        return;
+      }
+
       if (daysOld > RETURN_MANAGER_APPROVAL_WINDOW_DAYS) {
         setPendingManagerApproval(d);
       } else {
@@ -258,19 +302,22 @@ export default function PosExchangeWizard({
         tax_cents: parseMoneyToCents(item.state_tax) + parseMoneyToCents(item.local_tax),
       }));
       setReturnedLines(refundLines);
-      const refundCents = refundLines.reduce(
+      const returnedValueCents = refundLines.reduce(
         (sum, line) => sum + (line.unit_price_cents + line.tax_cents) * line.quantity,
         0,
       );
+      const refundCents = projectedRefundableCents(detail, returnedValueCents);
       setRefundAmount(centsToFixed2(refundCents));
       toast(
-        nextAction === "refund"
+        nextAction === "refund" && refundCents > 0
           ? "Return recorded. Refund-only is ready for tender selection."
+          : nextAction === "refund"
+            ? "Return recorded. No paid credit is available to refund yet."
           : "Return recorded. Continue with replacement items, then refund any remaining credit if needed.",
         "success",
       );
       setStep("done");
-      if (nextAction === "refund") setRefundModalOpen(true);
+      if (nextAction === "refund" && refundCents > 0) setRefundModalOpen(true);
     } catch {
       toast("Return failed", "error");
     } finally {

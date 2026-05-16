@@ -447,7 +447,7 @@ pub async fn try_load_party_ledger(
                 FROM transactions o
                 JOIN wedding_members wm ON wm.id = o.wedding_member_id
                 WHERE wm.wedding_party_id = $1
-            ), 0) AS total_order_value,
+            ), 0) AS total_transaction_value,
             COALESCE((
                 SELECT SUM(pt.amount)
                 FROM payment_transactions pt
@@ -570,9 +570,9 @@ pub async fn try_load_party_financial_context(
         SELECT
             wm.id AS wedding_member_id,
             COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Unknown') AS customer_name,
-            COALESCE((SELECT COUNT(*) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS order_count,
+            COALESCE((SELECT COUNT(*) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS transaction_count,
             COALESCE((SELECT COUNT(*) FROM payment_transactions pt WHERE pt.wedding_member_id = wm.id), 0) AS payment_count,
-            COALESCE((SELECT SUM(o.total_price) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS order_total,
+            COALESCE((SELECT SUM(o.total_price) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS transaction_total,
             COALESCE((SELECT SUM(pt.amount) FROM payment_transactions pt WHERE pt.wedding_member_id = wm.id), 0) AS paid_total,
             COALESCE((SELECT SUM(o.balance_due) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS balance_due,
             wm.is_free_suit_promo

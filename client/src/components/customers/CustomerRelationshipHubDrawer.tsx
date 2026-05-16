@@ -1174,7 +1174,7 @@ export function CustomerRelationshipHubDrawer({
         initialHubTab === "relationship"
           ? "profile"
           : initialHubTab === "messages"
-            ? "transactions"
+            ? "messages"
             : initialHubTab,
       );
       appliedInitialHubTab.current = marker;

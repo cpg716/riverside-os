@@ -1803,9 +1803,12 @@ export default function Cart({
           </div>
 
           {/* Sale tools row */}
-          <div className="grid gap-2 border-t border-app-border/50 pt-2 xl:grid-cols-[1.35fr_1fr_auto]">
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/60 bg-app-surface-2/50 p-2">
-              <span className="w-full text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 border-t border-app-border/50 pt-2">
+            <span className="mr-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              Sale tools
+            </span>
+            <div className="contents">
+              <span className="sr-only">
                 Customer work
               </span>
               <button
@@ -1814,13 +1817,13 @@ export default function Cart({
                   setWeddingDrawerPreferGroupPay(false);
                   setWeddingDrawerOpen(true);
                 }}
-                className={`ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 px-3 transition-all active:scale-95 ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent"}`}
+                className={`ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border px-2.5 transition-all active:scale-95 ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent"}`}
               >
                 <WEDDINGS_ICON size={16} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
                   {activeWeddingMember ? "Switch" : "Wedding"}
-                  </span>
-                </button>
+                </span>
+              </button>
               <button
                 type="button"
                 data-testid="pos-alteration-intake-trigger"
@@ -1833,7 +1836,7 @@ export default function Cart({
                   setAlterationIntakeOpen(true);
                 }}
                 title={selectedCustomer ? "Start alteration intake" : "Select a customer to start alteration intake"}
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-accent/40 bg-app-accent/5 px-3 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white active:scale-95"
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-accent/40 bg-app-accent/5 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white active:scale-95"
               >
                 <Scissors size={16} />
                 Alteration
@@ -1851,7 +1854,7 @@ export default function Cart({
                   setCustomPromptOpen(true);
                 }}
                 title={selectedCustomer ? "Start a custom order" : "Select a customer to start a custom order"}
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-warning/40 bg-app-warning/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-warning transition-all hover:bg-app-warning hover:text-white active:scale-95"
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-warning/40 bg-app-warning/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-warning transition-all hover:bg-app-warning hover:text-white active:scale-95"
               >
                 <Pencil size={16} />
                 Custom
@@ -1860,7 +1863,7 @@ export default function Cart({
                 type="button"
                 data-testid="pos-exchange-wizard-trigger"
                 onClick={() => setExchangeWizardOpen(true)}
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-border bg-app-surface-2 px-3 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-border bg-app-surface-2 px-2.5 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
               >
                 <ArrowLeftRight size={16} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
@@ -1868,8 +1871,8 @@ export default function Cart({
                 </span>
               </button>
             </div>
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/60 bg-app-surface-2/50 p-2">
-              <span className="w-full text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:w-auto">
+            <div className="contents">
+              <span className="sr-only">
                 Sale options
               </span>
               <button
@@ -1880,7 +1883,7 @@ export default function Cart({
                     fulfillment: l.fulfillment === 'layaway' ? 'takeaway' : 'layaway'
                   })));
                 }}
-                className={`ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 px-3 transition-all active:scale-95 ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-warning/35 hover:bg-app-surface hover:text-app-warning"}`}
+                className={`ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border px-2.5 transition-all active:scale-95 ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-warning/35 hover:bg-app-surface hover:text-app-warning"}`}
               >
                 <Clock size={16} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
@@ -1892,7 +1895,7 @@ export default function Cart({
                 data-testid="pos-action-gift-card"
                 onClick={() => setGiftCardLoadOpen(true)}
                 title="Enter load amount, then scan or type the card code"
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-success/35 bg-app-success/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white"
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-success/35 bg-app-success/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white"
               >
                 <GIFT_CARDS_ICON size={16} className="shrink-0" aria-hidden />
                 Gift Card
@@ -1902,7 +1905,7 @@ export default function Cart({
                 onClick={() => setOrderReviewOpen(true)}
                 disabled={lines.length === 0}
                 title="Set rush and pickup/order details. Use Shipping to ship this current sale."
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-success/35 bg-app-success/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-20"
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-success/35 bg-app-success/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-20"
               >
                 <Zap size={16} className="shrink-0" aria-hidden />
                 Options
@@ -1912,14 +1915,14 @@ export default function Cart({
                 disabled={!selectedCustomer}
                 onClick={() => setOrderLoadOpen(true)}
                 title={selectedCustomer ? "View customer open orders" : "Select a customer to view open orders"}
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-info/35 bg-app-info/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-info transition-all hover:bg-app-info hover:text-white disabled:opacity-20"
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-info/35 bg-app-info/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-info transition-all hover:bg-app-info hover:text-white disabled:opacity-20"
               >
                 <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
                 Orders
               </button>
             </div>
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/60 bg-app-surface-2/50 p-2">
-              <span className="w-full text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:w-auto xl:w-full">
+            <div className="contents">
+              <span className="sr-only">
                 Hold / reset
               </span>
               <button
@@ -1930,7 +1933,7 @@ export default function Cart({
                    setParkSaleDraftLabel(label);
                    setParkSalePromptOpen(true);
                 }}
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-accent/40 bg-app-accent/5 px-3 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-20"
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-accent/40 bg-app-accent/5 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-20"
               >
                 <Clock size={16} />
                 Park Sale
@@ -1939,7 +1942,7 @@ export default function Cart({
                 type="button"
                 disabled={lines.length === 0 && !selectedCustomer}
                 onClick={() => setShowClearConfirm(true)}
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-danger/35 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger transition-all hover:bg-app-danger hover:text-white disabled:opacity-20"
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-danger/35 bg-app-danger/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-danger transition-all hover:bg-app-danger hover:text-white disabled:opacity-20"
               >
                 <RotateCcw size={16} />
                 Clear Sale
@@ -2428,12 +2431,14 @@ export default function Cart({
             <p className="text-[9px] font-black uppercase leading-snug tracking-widest text-app-text-muted">
               {selectedLineKey
                 ? keypadMode === "qty"
-                  ? "Quantity — type amount, Apply"
+                  ? "Quantity — use - for negative, Apply"
                   : "Sale price — % off reg price, $ or Apply for dollars"
                 : "Select a line, then tap Qty or Sale price"}
             </p>
             <p
-              className="mt-0.5 text-right text-lg font-black tabular-nums text-app-text sm:text-xl"
+              className={`mt-0.5 text-right text-lg font-black tabular-nums sm:text-xl ${
+                keypadMode === "qty" && keypadBuffer.startsWith("-") ? "text-app-danger" : "text-app-text"
+              }`}
               aria-live="polite"
             >
               {selectedLineKey ? (keypadBuffer || "0") : "—"}
@@ -2448,19 +2453,23 @@ export default function Cart({
                   type="button"
                   disabled={!selectedLineKey}
                   onClick={() => handleNumpadKey(key)}
-                className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl ${key === "CLEAR" ? "border-app-danger/35 bg-app-danger/10 text-app-danger hover:bg-app-danger/18 focus-visible:ring-app-danger/20" : "border-app-border/40 bg-app-surface text-app-text hover:bg-app-surface-3"}`}
-              >
-                {key}
-              </button>
+                  className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl ${key === "CLEAR" ? "border-app-danger/35 bg-app-danger/10 text-app-danger hover:bg-app-danger/18 focus-visible:ring-app-danger/20" : "border-app-border/40 bg-app-surface text-app-text hover:bg-app-surface-3"}`}
+                >
+                  {key}
+                </button>
               ))}
               {/* Row 5: %, $, Apply */}
               <button
                 type="button"
                 disabled={!selectedLineKey}
-                onClick={() => handleNumpadKey("%")}
-                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-lg font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl"
+                onClick={() => handleNumpadKey(keypadMode === "qty" ? "-" : "%")}
+                className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black text-white shadow-xl transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl ${
+                  keypadMode === "qty"
+                    ? "border-app-danger bg-app-danger shadow-app-danger/20 focus-visible:ring-app-danger/25"
+                    : "border-app-info bg-app-info shadow-app-info/20 focus-visible:ring-app-info/25"
+                }`}
               >
-                %
+                {keypadMode === "qty" ? "-" : "%"}
               </button>
               <button
                 type="button"

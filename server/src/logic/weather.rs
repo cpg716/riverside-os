@@ -82,6 +82,16 @@ fn weather_enabled_override_from_env() -> Option<bool> {
     }
 }
 
+fn live_unavailable_reason(settings: &StoreWeatherSettings) -> Option<&'static str> {
+    if !settings.enabled {
+        Some("disabled")
+    } else if settings.api_key.trim().is_empty() {
+        Some("missing_api_key")
+    } else {
+        None
+    }
+}
+
 fn is_undefined_table_err(e: &sqlx::Error) -> bool {
     matches!(
         e,
@@ -304,13 +314,25 @@ pub async fn fetch_weather_range(
         (end, start)
     };
 
-    if !settings.enabled || settings.api_key.trim().is_empty() {
+    if let Some(reason) = live_unavailable_reason(&settings) {
+        info!(
+            reason,
+            location = %settings.location,
+            "weather using mock data; Visual Crossing live weather is not available"
+        );
         return mock_range(start, end);
     }
 
     match fetch_visual_crossing(http, pool, &settings, start, end, VcInclude::Days).await {
         Ok((mut rows, _)) => {
             rows.sort_by_key(|r| r.date);
+            info!(
+                location = %settings.location,
+                start = %start,
+                end = %end,
+                days = rows.len(),
+                "weather loaded from Visual Crossing"
+            );
             rows
         }
         Err(e) => {
@@ -328,8 +350,8 @@ pub async fn fetch_weather_range_vc_only(
     end: NaiveDate,
 ) -> Result<Vec<DailyWeatherContext>, String> {
     let settings = load_store_weather_settings(pool).await;
-    if !settings.enabled || settings.api_key.trim().is_empty() {
-        return Err("visual crossing is disabled or API key is missing".to_string());
+    if let Some(reason) = live_unavailable_reason(&settings) {
+        return Err(format!("visual crossing is not available: {reason}"));
     }
     let (start, end) = if start <= end {
         (start, end)
@@ -478,7 +500,12 @@ pub async fn fetch_weather_forecast(
     let settings = load_store_weather_settings(pool).await;
     let (today, tomorrow) = local_today_plus_one_day(&settings.timezone);
 
-    if !settings.enabled || settings.api_key.trim().is_empty() {
+    if let Some(reason) = live_unavailable_reason(&settings) {
+        info!(
+            reason,
+            location = %settings.location,
+            "weather forecast using mock data; Visual Crossing live weather is not available"
+        );
         let days = mock_range(today, tomorrow);
         let current = days.first().map(mock_current_from_daily);
         return WeatherForecastResponse {
@@ -511,6 +538,14 @@ pub async fn fetch_weather_forecast(
             }
             days.sort_by_key(|r| r.date);
             let current = current.or_else(|| days.first().map(mock_current_from_daily));
+            info!(
+                location = %settings.location,
+                today = %today,
+                tomorrow = %tomorrow,
+                days = days.len(),
+                current = current.is_some(),
+                "weather forecast loaded from Visual Crossing"
+            );
             WeatherForecastResponse {
                 days,
                 current,
@@ -631,6 +666,14 @@ async fn fetch_visual_crossing(
         unit,
         include.as_param(),
         urlencoding::encode(settings.api_key.trim())
+    );
+
+    info!(
+        location = %settings.location,
+        start = %start,
+        end = %end,
+        include = include.as_param(),
+        "weather requesting Visual Crossing timeline"
     );
 
     let resp = match http.get(&url).send().await {

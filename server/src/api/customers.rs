@@ -4650,6 +4650,20 @@ async fn get_customer_communication_timeline(
     Query(q): Query<CommunicationTimelineQuery>,
 ) -> Result<Json<Vec<podium_messaging::CommunicationTimelineRow>>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    if let Err(error) = podium_messaging::hydrate_missing_messages_for_customer(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        customer_id,
+    )
+    .await
+    {
+        tracing::warn!(
+            error = %error,
+            customer_id = %customer_id,
+            "podium customer timeline hydrate failed"
+        );
+    }
     let rows =
         podium_messaging::communication_timeline(&state.db, customer_id, q.limit.unwrap_or(40))
             .await?;
@@ -4669,7 +4683,24 @@ async fn get_customer_podium_messages(
     if !exists {
         return Err(CustomerError::NotFound);
     }
-    let rows = podium_messaging::list_messages_for_customer(&state.db, customer_id).await?;
+    let mut rows = podium_messaging::list_messages_for_customer(&state.db, customer_id).await?;
+    if rows.is_empty() {
+        if let Err(error) = podium_messaging::hydrate_missing_messages_for_customer(
+            &state.db,
+            &state.http_client,
+            &state.podium_token_cache,
+            customer_id,
+        )
+        .await
+        {
+            tracing::warn!(
+                error = %error,
+                customer_id = %customer_id,
+                "podium customer thread hydrate failed"
+            );
+        }
+        rows = podium_messaging::list_messages_for_customer(&state.db, customer_id).await?;
+    }
     Ok(Json(rows))
 }
 

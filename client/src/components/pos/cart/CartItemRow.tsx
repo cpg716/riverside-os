@@ -200,8 +200,12 @@ export function CartItemRow({
           }}
           className={`flex h-11 w-14 flex-col items-center justify-center rounded-xl border-2 transition-all ${
             keypadMode === "qty" && isSelected
-              ? "border-app-accent bg-app-accent text-white shadow-lg"
-              : "border-app-border bg-app-surface-2 text-app-text"
+              ? line.quantity < 0
+                ? "border-app-danger bg-app-danger text-white shadow-lg shadow-app-danger/20"
+                : "border-app-accent bg-app-accent text-white shadow-lg"
+              : line.quantity < 0
+                ? "border-app-danger/40 bg-app-danger/10 text-app-danger"
+                : "border-app-border bg-app-surface-2 text-app-text"
           }`}
         >
           <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "qty" && isSelected ? "text-white/80" : "text-app-text-muted"}`}>

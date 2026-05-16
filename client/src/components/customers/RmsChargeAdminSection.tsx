@@ -1450,11 +1450,11 @@ export default function RmsChargeAdminSection({
             </div>
           ) : null}
 
-          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900">
-            <div className="text-[10px] font-black uppercase tracking-widest">
+          <div className="mt-4 rounded-xl border border-app-warning/40 bg-app-warning/10 p-4 text-sm text-app-text">
+            <div className="text-[10px] font-black uppercase tracking-widest text-app-warning">
               Manual RMS Charge governance
             </div>
-            <div className="mt-2 grid gap-2 text-xs font-semibold leading-relaxed sm:grid-cols-2">
+            <div className="mt-2 grid gap-2 text-xs font-semibold leading-relaxed text-app-text sm:grid-cols-2">
               <div>1. Confirm the RMS account and program in the current manual RMS workflow.</div>
               <div>2. Enter the approval or reference number before treating the sale as complete.</div>
               <div>3. Report required RMS Charge sales/payments to R2S the same day.</div>

@@ -10,6 +10,12 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 const BASE = getBaseUrl();
 
+function summaryValueSize(value: string): string {
+  if (value.length >= 10) return "text-[1.2rem] sm:text-[1.4rem] xl:text-[1.6rem]";
+  if (value.length >= 7) return "text-[1.5rem] sm:text-[1.7rem] xl:text-[1.9rem]";
+  return "text-[2rem]";
+}
+
 interface GiftCardRow {
   id: string;
   code: string;
@@ -514,19 +520,19 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             trend: "events",
           },
         ].map((s, idx) => (
-          <div key={idx} className={`group relative flex min-w-[210px] flex-1 items-center gap-5 overflow-hidden rounded-[28px] border ${s.border} ${s.bg} p-5 shadow-sm backdrop-blur-3xl transition-transform duration-500 hover:scale-[1.02] sm:min-w-[240px]`}>
+          <div key={idx} className={`group relative flex min-w-[210px] flex-1 items-center gap-4 overflow-hidden rounded-[28px] border ${s.border} ${s.bg} p-5 shadow-sm backdrop-blur-3xl transition-transform duration-500 hover:scale-[1.02] sm:min-w-[240px]`}>
             <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-700">
                <s.icon size={80} />
             </div>
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/40 shadow-xl dark:bg-black/20 border border-white/20">
               <s.icon size={26} className={s.color} />
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted opacity-80">{s.label}</p>
-                <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-black/5 dark:bg-white/5 text-app-text-muted tabular-nums">{s.trend}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-start gap-2">
+                <p className="min-w-0 flex-1 text-[10px] font-black uppercase leading-tight tracking-[0.12em] text-app-text-muted opacity-80">{s.label}</p>
+                <span className="max-w-20 shrink-0 rounded-full bg-black/5 px-1.5 py-0.5 text-center text-[8px] font-black leading-tight tabular-nums text-app-text-muted dark:bg-white/5">{s.trend}</span>
               </div>
-              <p className="text-3xl font-black tabular-nums text-app-text tracking-tight">{s.val}</p>
+              <p className={`max-w-full whitespace-nowrap font-black leading-none tabular-nums tracking-tight text-app-text ${summaryValueSize(s.val)}`}>{s.val}</p>
             </div>
           </div>
         ))}
