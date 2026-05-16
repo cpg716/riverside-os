@@ -89,6 +89,19 @@ Revenue recognition is strictly tied to the `fulfilled_at` timestamp on individu
 - Sales tax is captured.
 - Staff commissions trigger based on completion, rather than initial booking.
 
+### Transaction Status Contract
+
+`transactions.status` is not a free-form workflow label. It is the aggregate financial / operational state of the Transaction:
+
+- `open` — active Transaction with unpaid balance, unfulfilled active lines, or both.
+- `pending_measurement` — active Transaction waiting on measurements or exact item details.
+- `fulfilled` — active lines are fulfilled and the Transaction has no customer balance due.
+- `cancelled` — cancelled Transaction that should stay out of active recognition flows.
+
+`fulfilled` status must be produced by the checkout, pickup / release, or shipment recognition workflow that also updates `transaction_lines.is_fulfilled`, `transaction_lines.fulfilled_at`, loyalty accrual, commission evidence, reporting views, and QBO staging inputs. Do not use a generic status edit to force a Transaction to `fulfilled`.
+
+Admin / IT can use `reporting.transaction_status_integrity` to find Transactions whose aggregate status, line fulfillment evidence, or recognition timestamps disagree.
+
 ## Wedding Orders
 
 Wedding transactions follow the exact same architecture but enforce group-level constraints:

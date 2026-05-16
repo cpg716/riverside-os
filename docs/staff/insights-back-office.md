@@ -49,6 +49,8 @@ Current Reports-first topics:
 
 Use **Reports** for those until the matching Metabase views are added. Merchant Activity should use payment/merchant reconciliation views in Metabase; loyalty dashboards should use the loyalty reporting views.
 
+**Status integrity check:** If fulfilled reports, receipt loyalty, commissions, QBO staging, or tax totals disagree, Admin / IT should inspect `reporting.transaction_status_integrity`. ROS register rows should be zero before relying on the affected reporting window; historical / imported rows need a reconciliation policy before bulk repair.
+
 ---
 
 ## How to use Insights (Metabase)
@@ -118,4 +120,4 @@ Operational **RMS charge** and **RMS payment** lines are listed under **Customer
 - [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)
 - [../PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md](../PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md)
 
-**Last reviewed:** 2026-04-21
+**Last reviewed:** 2026-05-16

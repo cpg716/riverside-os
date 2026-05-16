@@ -40,9 +40,10 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
 3. After **Z-Close**, ROS stages the daily journal for that business date. If the pending row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.
 4. Open a row → **drilldown** to lines; fix **unmapped** SKUs, shipping income, liability, clearing, or fallback accounts **before** approve.
-5. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
-6. **Approve** only when totals match **ROS** expectations for that close.
-7. **Sync** after approve; watch **History** for success/fail.
+5. Before approving a day with disputed fulfillment, loyalty, commission, tax, or receipt totals, confirm `reporting.transaction_status_integrity` has no ROS register issues for that window. Do not approve around a status mismatch until pickup / shipment workflow or IT repair resolves it.
+6. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
+7. **Approve** only when totals match **ROS** expectations for that close.
+8. **Sync** after approve; watch **History** for success/fail.
 
 Backdated corrections are governed. The **business date** controls the sales/reporting day and the **payment effective date** controls tender, deposit, and payment movement evidence. Do not use QBO staging to move a payment to a different day unless the payment effective date was corrected in ROS with a documented reason.
 
@@ -99,4 +100,4 @@ Pilot rule: only the accounting owner or store owner approves warning-bearing jo
 - [../QBO_JOURNAL_TEST_MATRIX.md](../QBO_JOURNAL_TEST_MATRIX.md)
 - [../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md](../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md)
 
-**Last reviewed:** 2026-05-15
+**Last reviewed:** 2026-05-16

@@ -118,7 +118,7 @@ function qboStageLabel(payload: Record<string, unknown>): string {
   const stage = qboStageMetadata(payload);
   return stage.entry_type === "daily_general_journal_revision"
     ? "Revision"
-    : "Daily JE";
+    : "Daily journal";
 }
 
 function classifyQboWarning(message: string, row?: SyncLogRow): QboWarningTone {
@@ -192,11 +192,11 @@ function warningSummaryLabel(items: QboWarningItem[]): string {
 function statusLabel(row: SyncLogRow): string {
   switch (row.status) {
     case "pending":
-      return "Pending review";
+      return "Needs review";
     case "approved":
-      return "Approved, not posted";
+      return "Ready to send";
     case "synced":
-      return "Posted to QuickBooks";
+      return "Sent to QuickBooks";
     case "failed":
       return "Posting failed";
     default:
@@ -518,10 +518,10 @@ export default function QboWorkspace({
           />
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
-              Accounting Bridge
+              QuickBooks closeout
             </p>
             <h2 className="text-2xl font-black tracking-tight text-app-text">
-              Staging & History
+              Review & Send
             </h2>
           </div>
         </div>
@@ -529,7 +529,7 @@ export default function QboWorkspace({
 
       <div className="ui-card bg-app-surface-2 px-5 py-4">
         <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Workspace scope
+          Daily workflow
         </p>
         <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-widest">
           <span
@@ -539,7 +539,7 @@ export default function QboWorkspace({
                 : "bg-amber-100 text-amber-800"
             }`}
           >
-            1 Connection {connectionReady ? "ready" : "pending"}
+            1 Connect {connectionReady ? "ready" : "needed"}
           </span>
           <span
             className={`rounded-full px-2 py-1 ${
@@ -548,34 +548,33 @@ export default function QboWorkspace({
                 : "bg-amber-100 text-amber-800"
             }`}
           >
-            2 Mappings {mappingsReady ? "ready" : "pending"}
+            2 Map accounts {mappingsReady ? "ready" : "needed"}
           </span>
             <span className="rounded-full bg-app-surface px-2 py-1 text-app-text-muted">
-            3 Stage + approve + post
+            3 Review + send
           </span>
         </div>
       </div>
       <div className="ui-card bg-[linear-gradient(145deg,color-mix(in_srgb,var(--app-accent)_14%,var(--app-surface-2)),color-mix(in_srgb,var(--app-accent-2)_12%,var(--app-surface-2)))] px-5 py-4">
         <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
-          Financial bridge panel
+          What this screen does
         </p>
         <p className="mt-1 text-sm font-semibold text-app-text">
-          Stage Daily General Journal entries by business date, review source
-          lines, review warning-bearing entries, approve balanced entries, and post
-          current or historical dates to QuickBooks. Manage connection and mappings in Settings →
-          Integrations → QuickBooks Online.
+          Pick a business date, review the daily totals, then send the approved journal to
+          QuickBooks. Setup and account mapping stay in Settings → Integrations →
+          QuickBooks Online.
         </p>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="ui-card bg-app-surface-2 px-5 py-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Accounting review state
+            Needs attention
           </p>
           <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Blocking
+                Cannot send
               </p>
               <p className="mt-1 text-2xl font-black text-red-700">
                 {accountingSummary.blockingRows.length}
@@ -583,7 +582,7 @@ export default function QboWorkspace({
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Requires review
+                Check first
               </p>
               <p className="mt-1 text-2xl font-black text-amber-700">
                 {accountingSummary.warningRows.length}
@@ -591,7 +590,7 @@ export default function QboWorkspace({
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Approved, not posted
+                Ready to send
               </p>
               <p className="mt-1 text-lg font-black text-blue-700">
                 {accountingSummary.approvedCount}
@@ -599,7 +598,7 @@ export default function QboWorkspace({
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Posted to QuickBooks
+                Sent
               </p>
               <p className="mt-1 text-lg font-black text-emerald-700">
                 {accountingSummary.postedCount}
@@ -607,59 +606,56 @@ export default function QboWorkspace({
             </div>
           </div>
           <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
-            A balanced journal can still require accounting review when tax, refunds,
-            deposits, merchant clearing, imported activity, or timing corrections are present.
+            Balanced means the debits and credits match. It can still need review when
+            refunds, deposits, card clearing, imported sales, or date corrections are involved.
           </p>
           <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
-            Pilot watch: {accountingSummary.pendingCount + accountingSummary.approvedCount + accountingSummary.failedCount} unresolved journal row{accountingSummary.pendingCount + accountingSummary.approvedCount + accountingSummary.failedCount === 1 ? "" : "s"} need review, posting, or failure follow-up before the day is considered reconciled.
+            Still open: {accountingSummary.pendingCount + accountingSummary.approvedCount + accountingSummary.failedCount} journal row{accountingSummary.pendingCount + accountingSummary.approvedCount + accountingSummary.failedCount === 1 ? "" : "s"} need review, sending, or failure follow-up.
           </p>
         </div>
 
         <div className="ui-card bg-app-surface-2 px-5 py-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Reconciliation confidence
+            Recent QuickBooks activity
           </p>
           <div className="mt-3 space-y-3 text-xs font-semibold text-app-text">
             <p>
-              Latest posted:{" "}
+              Last sent:{" "}
               <span className="font-black">
                 {accountingSummary.latestPosted
                   ? `${accountingSummary.latestPosted.sync_date} / ${accountingSummary.latestPosted.journal_entry_id ?? "JE pending"}`
-                  : "No posted journal in current queue"}
+                  : "Nothing sent in this queue"}
               </span>
             </p>
             <p>
-              Latest failure:{" "}
+              Last problem:{" "}
               <span className="font-black text-red-700">
                 {accountingSummary.latestFailed
                   ? `${accountingSummary.latestFailed.sync_date}: ${accountingSummary.latestFailed.error_message ?? "review failure detail"}`
-                  : "No failed posting in current queue"}
+                  : "No failed sending in this queue"}
               </span>
             </p>
             <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-app-text-muted">
-              Safe rerun guidance: refresh a pending business date to rebuild local staging;
-              approved or posted dates create reviewable revision proposals instead of silently replacing history.
+              Refreshing a date rebuilds an unsent journal. Dates already approved or sent create
+              a revision for review, so history is not silently replaced.
             </p>
           </div>
         </div>
 
         <div className="ui-card bg-app-surface-2 px-5 py-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Financial timing guide
+            Dates, in plain English
           </p>
           <div className="mt-3 space-y-2 text-xs font-semibold text-app-text-muted">
             <p>
-              Booked date explains when the sale was created. Completed date explains when
-              pickup/shipping recognized revenue, tax, and commission.
+              Sale date is when the register created the sale.
             </p>
             <p>
-              Payment effective date can differ from created time after a correction; tender
-              evidence follows the effective date while journal proposals stay tied to the
-              reviewed business date.
+              Completed date is when pickup or shipping recognized revenue, tax, and commission.
             </p>
             <p>
-              Merchant reconciliation can lag reporting when card fees settle later. Treat that
-              as reviewable timing, not proof that the journal is unsafe by itself.
+              Payment date can differ after a correction. Card fees can settle later; that is a
+              review item, not automatically a bad journal.
             </p>
           </div>
           <button
@@ -674,16 +670,15 @@ export default function QboWorkspace({
 
       <div className="ui-card bg-[color-mix(in_srgb,var(--app-warning)_10%,var(--app-surface-2))] px-5 py-4">
         <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Refund, exchange, and liability review
+          Refunds, exchanges, deposits, and gift cards
         </p>
         <p className="mt-2 text-sm font-semibold text-app-text">
-          Normal refunds, manual refunds, exchanges, store credit, open deposits, and gift cards
-          can change liability, tender clearing, and QBO staging on different dates. Review any
-          warning-bearing journal before posting, especially when refund payout and return activity
-          do not happen on the same business date.
+          These items can affect different accounts on different dates. Review any journal with a
+          warning before sending it, especially when a refund payout and the return activity happen
+          on different business dates.
         </p>
         <p className="mt-2 text-xs font-bold text-amber-900">
-          Pilot diagnostic: repeated warning-bearing journals usually point to a workflow needing manager observation, not a posting shortcut.
+          Repeated warnings usually mean the workflow needs manager review, not a posting shortcut.
         </p>
       </div>
 
@@ -734,9 +729,9 @@ export default function QboWorkspace({
                   <th className="px-4 py-3">Entry</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Balance</th>
-                  <th className="px-4 py-3">Accounting review</th>
-                  <th className="px-4 py-3">QBO JE</th>
-                  <th className="px-4 py-3">Fault</th>
+                  <th className="px-4 py-3">Review</th>
+                  <th className="px-4 py-3">QuickBooks ID</th>
+                  <th className="px-4 py-3">Problem</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -926,7 +921,7 @@ export default function QboWorkspace({
 
           <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
             <div className="border-b border-app-border bg-app-surface-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Posting history
+              Sent history
             </div>
             <table className="w-full text-left text-xs">
               <thead className="bg-app-surface-2/60 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
@@ -935,9 +930,9 @@ export default function QboWorkspace({
                   <th className="px-4 py-2">Date</th>
                   <th className="px-4 py-2">Status</th>
                   <th className="px-4 py-2">Review</th>
-                  <th className="px-4 py-2">QBO ID</th>
+                  <th className="px-4 py-2">QuickBooks ID</th>
                   <th className="px-4 py-2">Approved by</th>
-                  <th className="px-4 py-2">Fault detail</th>
+                  <th className="px-4 py-2">Problem detail</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-border">

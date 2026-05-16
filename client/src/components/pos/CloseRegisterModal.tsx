@@ -318,7 +318,7 @@ export default function CloseRegisterModal({
     if (approved > 0) parts.push(`${approved} card approval${approved === 1 ? "" : "s"} not recorded in ROS`);
     if (pending > 0) parts.push(`${pending} card outcome${pending === 1 ? "" : "s"} still waiting on the terminal`);
     if (review > 0) parts.push(`${review} card outcome${review === 1 ? "" : "s"} unresolved`);
-    return `Card payment review required before Z-close: ${parts.join(", ")}. Resolve in checkout or Payments Health so the Z report includes every card outcome.`;
+    return `Card payment review required before Z-close: ${parts.join(", ")}. Review the terminal result, then record or void the attempt before closing.`;
   }, [unresolvedHelcimAttempts]);
 
   const blockForHelcimReview = useCallback(() => {
@@ -487,7 +487,7 @@ export default function CloseRegisterModal({
       <div className="ui-panel ui-tint-danger p-4 text-xs text-app-text-muted">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-            Offline recovery blocker
+            Checkout recovery required
           </p>
           <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">
             Owner: manager
@@ -500,11 +500,16 @@ export default function CloseRegisterModal({
           {offlineQueueSummary.pendingCount > 0
             ? ` ${offlineQueueSummary.pendingCount} completed checkout${offlineQueueSummary.pendingCount === 1 ? "" : "s"} still need to sync.`
             : null}
-          {" "}Resolve checkout recovery before closing the shared drawer so the Z report includes every completed sale.
+          {" "}Resolve these before closing so the Z report includes every completed sale.
         </p>
-        <p className="mt-2 rounded-xl border border-app-danger/20 bg-app-surface/80 px-3 py-2 font-bold text-app-text">
-          Action: open checkout recovery, resolve blocked sales, then return here to close.
-        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {["Open the checkout recovery item", "Resolve or sync each sale", "Return here and retry close"].map((step, index) => (
+            <div key={step} className="rounded-xl border border-app-danger/20 bg-app-surface/80 px-3 py-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-danger">Step {index + 1}</p>
+              <p className="mt-1 font-bold text-app-text">{step}</p>
+            </div>
+          ))}
+        </div>
       </div>
     );
   };
@@ -515,14 +520,14 @@ export default function CloseRegisterModal({
       <div className="ui-panel ui-tint-danger p-4 text-xs text-app-text-muted">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-            Card payment review blocker
+            Card payment needs review
           </p>
           <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">
             Owner: manager
           </span>
         </div>
         <p className="mt-1 leading-relaxed">{helcimReviewMessage}</p>
-        <div className="mt-3 space-y-1.5">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {unresolvedHelcimAttempts.slice(0, 4).map((attempt) => (
             <p key={attempt.id} className="rounded-xl border border-app-border bg-app-surface/70 px-3 py-2 font-semibold text-app-text">
               Register #{attempt.register_lane} · ${centsToFixed2(Math.abs(attempt.amount_cents))} · {
@@ -535,9 +540,14 @@ export default function CloseRegisterModal({
             </p>
           ))}
         </div>
-        <p className="mt-3 rounded-xl border border-app-danger/20 bg-app-surface/80 px-3 py-2 font-bold text-app-text">
-          Action: review terminal outcome, record or void the attempt, then rerun close.
-        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {["Go to Payments > Health", "Record, void, or release the attempt", "Return here and retry close"].map((step, index) => (
+            <div key={step} className="rounded-xl border border-app-danger/20 bg-app-surface/80 px-3 py-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-danger">Step {index + 1}</p>
+              <p className="mt-1 font-bold text-app-text">{step}</p>
+            </div>
+          ))}
+        </div>
       </div>
     );
   };
@@ -650,7 +660,7 @@ export default function CloseRegisterModal({
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal relative max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-lg sm:rounded-3xl"
+          className="ui-modal relative max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-5xl sm:rounded-3xl"
         >
           <div className="ui-modal-header flex items-center justify-between">
             <div className="flex gap-2">
@@ -661,43 +671,46 @@ export default function CloseRegisterModal({
               End of Shift
             </h2>
           </div>
-          <div className="ui-modal-body space-y-4">
-            {registerLane != null ? (
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Register #{registerLane}
-                {registerOrdinal != null ? ` · Session #${registerOrdinal}` : ""}
+          <div className="ui-modal-body grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+            <div className="space-y-4">
+              {registerLane != null ? (
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Register #{registerLane}
+                  {registerOrdinal != null ? ` · Session #${registerOrdinal}` : ""}
+                </p>
+              ) : null}
+              {renderWorkflowSummary("count")}
+              {renderOfflineQueueBlocker()}
+              {renderHelcimReviewBlocker()}
+              <p className="rounded-2xl border border-app-border bg-app-surface/70 px-4 py-3 text-xs font-semibold text-app-text-muted">
+                Count the drawer without looking at the expected cash. Use the bill helper, or enter one full drawer total.
               </p>
-            ) : null}
-            {renderWorkflowSummary("count")}
-            {renderOfflineQueueBlocker()}
-            {renderHelcimReviewBlocker()}
-            <p className="text-xs text-app-text-muted">
-              Blind count: use the denomination helper (recommended) or enter a total. System expected cash is hidden until next step.
-            </p>
-
-            <div className="ui-panel ui-tint-neutral p-4">
-              <p className="mb-3 text-[10px] font-black uppercase text-app-text-muted tracking-widest">Denomination counter</p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {DENOMS.map((d) => (
-                  <label key={d.key} className="flex flex-col gap-1 text-[10px] font-bold text-app-text-muted">
-                    {d.label}
-                    <input type="number" min={0} value={denomCounts[d.key]} onChange={e => setDenomCounts(prev => ({ ...prev, [d.key]: e.target.value }))} className="ui-input w-full p-2 text-center font-mono" />
-                  </label>
-                ))}
-              </div>
-              <p className="mt-4 text-right font-mono text-lg font-black text-app-text border-t border-app-border pt-2">
-                Bills:{" "}
-                <span className="text-app-success">
-                  ${centsToFixed2(Math.round(denominationTotal * 100))}
-                </span>
-              </p>
-              <label className="mt-4 block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Coins & Rolled ($)</label>
-              <input type="number" step="0.01" min={0} value={coinSupplement} onChange={e => setCoinSupplement(e.target.value)} className="ui-input w-full p-3 font-mono text-center mt-1" placeholder="0.00" />
             </div>
 
             <form onSubmit={handleBlindCountSubmit} className="space-y-4">
               <div className="ui-panel ui-tint-neutral p-4">
-                <label className="mb-2 block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Or Full Drawer Total ($)</label>
+                <p className="mb-3 text-[10px] font-black uppercase text-app-text-muted tracking-widest">Bill count</p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {DENOMS.map((d) => (
+                    <label key={d.key} className="flex flex-col gap-1 text-[10px] font-bold text-app-text-muted">
+                      {d.label}
+                      <input type="number" min={0} value={denomCounts[d.key]} onChange={e => setDenomCounts(prev => ({ ...prev, [d.key]: e.target.value }))} className="ui-input w-full p-2 text-center font-mono" />
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                  <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">
+                    Coins & rolled coin
+                    <input type="number" step="0.01" min={0} value={coinSupplement} onChange={e => setCoinSupplement(e.target.value)} className="ui-input mt-1 w-full p-3 font-mono text-center" placeholder="0.00" />
+                  </label>
+                  <p className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-right font-mono text-lg font-black text-app-text">
+                    Bills <span className="text-app-success">${centsToFixed2(Math.round(denominationTotal * 100))}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="ui-panel ui-tint-neutral p-4">
+                <label className="mb-2 block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Or enter full drawer total</label>
                 <input type="number" step="0.01" value={fullDrawerTotal} onChange={e => setFullDrawerTotal(e.target.value)} className="ui-input w-full p-4 text-center font-mono text-2xl" placeholder="---" />
               </div>
               <div className="sticky bottom-0 -mx-4 flex gap-3 border-t border-app-border bg-app-surface/95 px-4 py-3 backdrop-blur">
@@ -876,15 +889,15 @@ export default function CloseRegisterModal({
             </div>
             <p className="mt-1 text-sm font-semibold">
               {closeReady
-                ? "Cash count, recovery, and payment review are clear. Finalize when notes are correct."
-                : `Resolve: ${closeBlockers.join(", ")}.`}
+                ? "Cash count, checkout recovery, and card review are clear. Finalize when notes are correct."
+                : `Before closing: ${closeBlockers.join(", ")}.`}
             </p>
             <p className="mt-2 text-xs font-bold opacity-85">
               {closeReady
-                ? "Pilot watch: review any late refunds or recovery notes before final close so the manager can trust the shift handoff."
-                : "Pilot watch: repeated close blockers should be tracked by owner before retrying so training and recovery gaps are visible."}
+                ? "Review any late refunds or recovery notes before final close so the shift handoff stays clear."
+                : "Use the action cards below to clear each item, then retry close."}
               {closeReady
-                ? " After close, accounting should confirm the QBO journal state from the QBO workspace before the day is treated as fully cleared."
+                ? " After close, accounting can confirm the QuickBooks status from the QBO workspace."
                 : ""}
             </p>
           </div>

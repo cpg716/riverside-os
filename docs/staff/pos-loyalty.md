@@ -33,8 +33,9 @@
 
 1. Read **balance** on screen.
 2. Read the **Recent loyalty activity** list in POS. It will show whether points were earned, a reward card was issued, or points were removed after a return or refund.
-3. If dispute, **do not** adjust at POS unless trained — send to **Back Office → Loyalty → Adjust Points** with manager.
-4. Check **recent returns**; points may have **clawed back**.
+3. Confirm the sale has reached fulfillment recognition. Takeaway sales earn at completed checkout; ordered, custom, wedding, shipped, and layaway lines earn after pickup / fulfillment.
+4. If dispute, **do not** adjust at POS unless trained — send to **Back Office → Loyalty → Adjust Points** with manager.
+5. Check **recent returns**; points may have **clawed back**.
 
 ## Helping a coworker
 
@@ -46,7 +47,7 @@
 
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
-| No earn on sale | Category excluded | Manager reads **Program Settings** |
+| No earn on sale | Confirm Transaction is fulfilled and category is not excluded | Manager reads **Program Settings**; IT can check `reporting.transaction_status_integrity` |
 | Wrong customer points | Detach / reattach profile | Privacy — verify ID |
 | Redeem + return loop | See **transactions** return policy | [TRANSACTION_RETURNS_EXCHANGES.md](../TRANSACTION_RETURNS_EXCHANGES.md) |
 | Balance API error | Retry once | IT if repeated |
@@ -63,4 +64,4 @@
 - [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md)
 - [customers-back-office.md](customers-back-office.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-05-16

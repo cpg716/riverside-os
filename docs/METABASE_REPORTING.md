@@ -2,7 +2,7 @@
 
 This note ties **Back Office Insights** (Metabase in an iframe) to **data governance** work. It pairs with **Back Office → Reports** (curated API tiles): Riverside **Admin role** gates **Margin pivot** in Reports; **Metabase staff vs admin logins** gate margin and private exploration in Insights.
 
-**Booked vs fulfilled:** See **[`docs/REPORTING_BOOKED_AND_FULFILLED.md`](REPORTING_BOOKED_AND_FULFILLED.md)** — migration **`106_reporting_order_recognition.sql`**, **`reporting.order_recognition_at`**, **`daily_order_totals_fulfilled`**.
+**Booked vs fulfilled:** See **[`docs/REPORTING_BOOKED_AND_FULFILLED.md`](REPORTING_BOOKED_AND_FULFILLED.md)** — **`reporting.order_recognition_at`**, **`daily_order_totals_fulfilled`**, and **`reporting.transaction_status_integrity`** for status / line evidence mismatches.
 
 **Field modeling checklist:** See [**`docs/METABASE_FIELD_MODELING_CHECKLIST.md`**](./METABASE_FIELD_MODELING_CHECKLIST.md) for the Riverside-specific Metabase admin playbook: which fields to show, hide, rename, and use as dashboard anchors.
 **Dashboard starter plan:** See [**`docs/METABASE_DASHBOARD_STARTER_PLAN.md`**](./METABASE_DASHBOARD_STARTER_PLAN.md) for the first Riverside dashboards to build.
@@ -26,6 +26,7 @@ This note ties **Back Office Insights** (Metabase in an iframe) to **data govern
   - **`loyalty_point_ledger`**, **`order_loyalty_accrual`**, **`loyalty_reward_issuances`** — loyalty movement, per-order earn, and reward issuance with customer geo for “sales / loyalty by area.”
 - **Metabase connection:** database **`riverside_os`**, user **`metabase_ro`**, browse schema **`reporting`** only (no **`SELECT`** on **`public.*`** by default).
 - **Readability contract (migrations `156` + `157`):** reporting views should expose both machine keys and human labels. Standard staff-facing fields now include **`transaction_display_id`**, **`fulfillment_order_display_id`**, **`customer_display_name`**, **`operator_display_name`**, **`primary_salesperson_display_name`**, and party/customer labels on ops views like shipments, alterations, loyalty, payments, and wedding economics. Metabase should hide raw UUID fields by default and present the display/name fields first.
+- **Migration `032_transaction_status_integrity.sql`:** adds **`reporting.transaction_status_integrity`**, an exception view for Transaction status vs line fulfillment / timestamp mismatches. Model this as an Admin / IT operational exception table, not a staff KPI dashboard.
 - **Settings → Integrations → Insights (Metabase):** **`store_settings.insights_config`** via **`GET`/`PATCH /api/settings/insights`** (`settings.admin`): data-access policy note, optional **JWT SSO** toggle, synthetic email domain for JWT claims, free-text notes for collections / Metabase groups.
 - **JWT handoff:** When **`RIVERSIDE_METABASE_JWT_SECRET`** (≥16 chars) is set and Settings enable SSO, **`POST /api/insights/metabase-launch`** returns an **`iframe_src`** pointing at **`/metabase/auth/sso?jwt=…`**. Metabase must have **Authentication → JWT** configured with the **same signing string**; this capability is **only on Metabase Pro / Enterprise**. **Store policy:** remain **OSS-only** and **do not** rely on JWT SSO — see **Future plan (OSS access model)** below.
 
