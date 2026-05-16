@@ -4685,6 +4685,8 @@ async fn get_customer_podium_messages(
     }
     let mut rows = podium_messaging::list_messages_for_customer(&state.db, customer_id).await?;
     if rows.is_empty() {
+        let has_podium_conversation =
+            podium_messaging::has_conversations_for_customer(&state.db, customer_id).await?;
         if let Err(error) = podium_messaging::hydrate_missing_messages_for_customer(
             &state.db,
             &state.http_client,
@@ -4698,8 +4700,18 @@ async fn get_customer_podium_messages(
                 customer_id = %customer_id,
                 "podium customer thread hydrate failed"
             );
+            if has_podium_conversation {
+                return Err(CustomerError::PodiumUnavailable(
+                    "Podium conversation is linked, but message history could not refresh. Check Podium webhooks, credentials, and message scopes, then refresh this customer.".to_string(),
+                ));
+            }
         }
         rows = podium_messaging::list_messages_for_customer(&state.db, customer_id).await?;
+        if rows.is_empty() && has_podium_conversation {
+            return Err(CustomerError::PodiumUnavailable(
+                "Podium conversation is linked, but no message bodies are available in Riverside yet. Re-enable Podium message webhooks and run Podium sync.".to_string(),
+            ));
+        }
     }
     Ok(Json(rows))
 }

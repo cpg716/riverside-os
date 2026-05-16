@@ -105,6 +105,7 @@ Environment variables:
 | `RIVERSIDE_PODIUM_REFRESH_TOKEN` | _(unset)_ | Deployment fallback for Podium OAuth refresh token; routine OAuth callback saves it through Backoffice Settings. Never log. |
 | `RIVERSIDE_PODIUM_OAUTH_TOKEN_URL` | _(unset)_ | Optional; defaults to **`{RIVERSIDE_PODIUM_API_BASE or https://api.podium.com}/oauth/token`** — **`DEVELOPER.md`**, **`server/.env.example`** |
 | `RIVERSIDE_PODIUM_API_BASE` | _(unset)_ | Optional REST API origin (no trailing slash); default **`https://api.podium.com`** — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
+| `RIVERSIDE_PODIUM_API_VERSION` | _(unset)_ | Optional Podium `podium-version` header override; default **`2021.04.01`**. Keep pinned unless Podium requires a reviewed upgrade. |
 | `RIVERSIDE_PODIUM_WEBHOOK_SECRET` | _(unset)_ | Deployment fallback for **`POST /api/webhooks/podium`** HMAC secret; routine setup belongs in Backoffice Settings. |
 | `RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED` | _(unset)_ | Dev only: accept unsigned webhooks when secret unset — **`server/.env.example`** |
 | `RIVERSIDE_PODIUM_INBOUND_DISABLED` | _(unset)_ | When truthy, **`POST /api/webhooks/podium`** skips CRM ingest (threads + notifications); idempotent webhook ledger still accepts deliveries — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |

@@ -21,7 +21,7 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 
 | Key | Routes (representative) |
 |-----|---------------------------|
-| **`customers.hub_view`** | `GET /api/customers/{id}/hub`, `GET …/profile`, `GET …/weddings`, `GET /api/customers/{id}` (profile row), `GET …/store-credit` (summary), `GET …/open-deposit` (party-deposit balance + ledger preview), `GET /api/customers/podium/messaging-inbox`, `GET /api/customers/podium/messaging-health`, `GET /api/customers/podium/messaging-unmatched` |
+| **`customers.hub_view`** | `GET /api/customers/{id}/hub`, `GET …/profile`, `GET …/weddings`, `GET /api/customers/{id}` (profile row), `GET …/store-credit` (summary), `GET …/open-deposit` (party-deposit balance + ledger preview), `GET /api/customers/{id}/podium/messages`, `GET /api/customers/podium/messaging-inbox`, `GET /api/customers/podium/messaging-health`, `GET /api/customers/podium/messaging-unmatched` |
 | **`customers.hub_edit`** | `PATCH /api/customers/{id}` (includes **`marketing_*_opt_in`**, **`transactional_sms_opt_in`** for operational pickup/alteration texts — migration **71**), `POST /api/customers/{id}/podium/messages`, `POST /api/customers/podium/direct-sms`, `POST /api/customers/podium/messaging-sync` |
 | **`customers.timeline`** | `GET …/timeline` (includes **shipping** activity from **`shipment_event`** for this customer), `POST …/notes` |
 | **`customers.measurements`** | `GET …/measurements`, `PATCH …/measurements` |
@@ -67,6 +67,7 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 
 - **`CustomerRelationshipHubDrawer`**: Modernized tabbed interface utilizing the "WowDash" system.
   - **Profile Tab**: Core CRM data, VIP status, and opt-in management.
+  - **Messages Tab**: Customer-scoped Podium thread. The tab reads stored `podium_message` rows and may hydrate empty matched conversations through Podium's conversation-message API. If a matched `podium_conversation` exists but no message rows are available, the API returns a Podium availability error instead of a false empty state so staff know to fix webhooks/scopes and rerun sync.
   - **Transactions Tab**: Financial historical sales list (TXN-XXXX).
   - **Fulfillment Tab**: Logistical fulfillment orders (ORD-XXXX) including special and wedding orders.
   - **Measurements**: Visual fitting data and individual notes.

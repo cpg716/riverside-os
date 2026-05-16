@@ -1189,14 +1189,21 @@ export function CustomerRelationshipHubDrawer({
         `${baseUrl}/api/customers/${customer.id}/podium/messages`,
         { headers: apiAuth() },
       );
-      if (!res.ok) throw new Error("podium-thread");
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(payload?.error ?? "podium-thread");
+      }
       const data = (await res.json()) as typeof podiumThread;
       setPodiumThread(Array.isArray(data) ? data : []);
       setPodiumThreadLoadError(null);
-    } catch {
+    } catch (error) {
       setPodiumThread([]);
       setPodiumThreadLoadError(
-        "Customer messages could not load right now. Try again in a moment.",
+        error instanceof Error && error.message !== "podium-thread"
+          ? error.message
+          : "Customer messages could not load right now. Try again in a moment.",
       );
     } finally {
       setPodiumThreadLoading(false);

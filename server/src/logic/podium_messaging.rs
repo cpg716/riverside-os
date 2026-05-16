@@ -121,6 +121,24 @@ pub async fn list_messages_for_customer(
     .await
 }
 
+pub async fn has_conversations_for_customer(
+    pool: &PgPool,
+    customer_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM podium_conversation
+            WHERE customer_id = $1
+        )
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_one(pool)
+    .await
+}
+
 pub async fn hydrate_missing_messages_for_customer(
     pool: &PgPool,
     http: &reqwest::Client,

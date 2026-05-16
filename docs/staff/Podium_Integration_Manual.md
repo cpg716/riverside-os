@@ -131,6 +131,8 @@ The inbox also shows recent **Podium conversations** with snippets, unread/needs
 
 Viewing requires **`customers.hub_view`**. Sending and new-contact creation require **`customers.hub_edit`**.
 
+**Important:** A customer can appear in **Podium Inbox** before Riverside has the full message body history for that thread. The inbox row is backed by a matched **conversation**. The customer **Messages** tab is backed by stored **message** rows. If webhooks were disabled, rejected, or the Podium OAuth grant is missing **`read_messages`**, the profile may show a Podium sync error until IT fixes the webhook/scope issue and runs sync again.
+
 ### 4.3 Relationship Hub → Messages tab
 
 **Where:** Open a customer → **Relationship Hub** → **Messages**.
@@ -225,6 +227,7 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 | **Store email fails** | IONOS mailbox settings, customer email, and server logs. See [EMAIL_MAILBOX.md](../EMAIL_MAILBOX.md). |
 | **502 / Podium unavailable** in UI | Server logs; Podium status; token refresh; API base override. |
 | **Inbound never appears** | Public webhook URL reachable; Cloudflare/tunnel running if local; secret/signature; `RIVERSIDE_PODIUM_INBOUND_DISABLED` accidentally on; Podium event types include message activity. |
+| **Customer profile has no messages but Podium Inbox has the customer** | The customer likely has a matched Podium conversation shell but no stored `podium_message` rows. Re-enable/fix Podium webhooks, verify OAuth includes `read_messages`, then run Podium sync. |
 | **Widget missing on site** | `VITE_STOREFRONT_EMBEDS`; snippet saved; CSP blocking scripts—see [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md). |
 
 ---

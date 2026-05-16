@@ -896,6 +896,21 @@ fn values_from_collection(value: Value) -> Vec<Value> {
     if let Some(items) = value.get("data").and_then(Value::as_array) {
         return items.clone();
     }
+    if let Some(items) = value.pointer("/data/items").and_then(Value::as_array) {
+        return items.clone();
+    }
+    if let Some(items) = value.pointer("/data/messages").and_then(Value::as_array) {
+        return items.clone();
+    }
+    if let Some(items) = value
+        .pointer("/data/conversations")
+        .and_then(Value::as_array)
+    {
+        return items.clone();
+    }
+    if let Some(items) = value.get("results").and_then(Value::as_array) {
+        return items.clone();
+    }
     if let Some(items) = value.get("items").and_then(Value::as_array) {
         return items.clone();
     }
@@ -948,7 +963,7 @@ pub async fn fetch_podium_conversation_messages(
     http: &reqwest::Client,
     token_cache: &Arc<Mutex<PodiumTokenCache>>,
     conversation_uid: &str,
-    limit: i64,
+    _limit: i64,
 ) -> Result<Vec<Value>, PodiumError> {
     let creds = PodiumEnvCredentials::load(pool)
         .await
@@ -961,7 +976,6 @@ pub async fn fetch_podium_conversation_messages(
         )),
         Some(&token),
     )
-    .query(&[("limit", limit.clamp(1, 100))])
     .send()
     .await?;
     let status = res.status();
