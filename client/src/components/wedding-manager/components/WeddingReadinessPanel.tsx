@@ -114,12 +114,39 @@ export default function WeddingReadinessPanel({ partyId }: { partyId: string }) 
         { label: 'Ready', value: data.lifecycle.ready_for_pickup + data.lifecycle.picked_up, total: lineTotal(data.lifecycle) },
         { label: 'Pickup', value: data.lifecycle.picked_up, total: lineTotal(data.lifecycle) },
     ];
+    const blockedPickupCount = data.pickup.blocked_members + data.pickup.balance_blocked_members;
+    const pickupAnswerCards = [
+        {
+            label: 'Answer now',
+            value: data.pickup.ready_members > 0 ? `${data.pickup.ready_members} ready` : 'Not ready yet',
+            helper: data.pickup.ready_members > 0 ? 'Can start pickup conversation.' : 'Use next action before promising pickup.',
+            tone: data.pickup.ready_members > 0 ? 'emerald' : 'slate',
+        },
+        {
+            label: 'Blocked',
+            value: blockedPickupCount,
+            helper: blockedPickupCount > 0 ? 'Resolve before pickup.' : 'No pickup blockers.',
+            tone: blockedPickupCount > 0 ? 'rose' : 'emerald',
+        },
+        {
+            label: 'Balance due',
+            value: data.pickup.balance_blocked_members,
+            helper: data.pickup.balance_blocked_members > 0 ? 'Collect balance before release.' : 'No balance holds.',
+            tone: data.pickup.balance_blocked_members > 0 ? 'amber' : 'slate',
+        },
+        {
+            label: 'Completed',
+            value: `${data.member_counts.pickup_complete}/${data.member_counts.total}`,
+            helper: data.status === 'complete' ? 'Pickup is complete.' : 'Still open.',
+            tone: data.status === 'complete' ? 'emerald' : 'slate',
+        },
+    ] as const;
 
     return (
         <section className="rounded-xl border border-app-border bg-app-surface p-5 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Party readiness intelligence</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Party readiness</p>
                     <div className="mt-2 flex flex-wrap items-center gap-3">
                         <h3 className="text-xl font-black text-app-text">{config.title}</h3>
                         <span className={`rounded-lg px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${config.badge}`}>
@@ -140,6 +167,12 @@ export default function WeddingReadinessPanel({ partyId }: { partyId: string }) 
             <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-5">
                 {timeline.map((step) => (
                     <TimelineStep key={step.label} {...step} />
+                ))}
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-4">
+                {pickupAnswerCards.map((card) => (
+                    <QuickAnswerCard key={card.label} {...card} />
                 ))}
             </div>
 
@@ -176,16 +209,37 @@ export default function WeddingReadinessPanel({ partyId }: { partyId: string }) 
                             <p className="text-sm font-bold text-emerald-700">No active readiness blockers.</p>
                         )}
                     </div>
+                    {data.blockers.length ? (
+                        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+                            Pilot watch: repeated blockers on this party need manager follow-up before promising pickup.
+                        </p>
+                    ) : null}
                 </div>
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-4">
+                <MemberGroup title="Blocked" members={grouped.blocked} tone="rose" />
                 <MemberGroup title="Ready" members={grouped.ready} tone="emerald" />
                 <MemberGroup title="Partial" members={grouped.partial} tone="blue" />
-                <MemberGroup title="Blocked" members={grouped.blocked} tone="rose" />
                 <MemberGroup title="Complete" members={grouped.complete} tone="slate" />
             </div>
         </section>
+    );
+}
+
+function QuickAnswerCard({ label, value, helper, tone }: { label: string; value: string | number; helper: string; tone: 'emerald' | 'rose' | 'amber' | 'slate' }) {
+    const color = {
+        emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+        rose: 'border-rose-200 bg-rose-50 text-rose-800',
+        amber: 'border-amber-200 bg-amber-50 text-amber-900',
+        slate: 'border-app-border bg-app-surface-2 text-app-text',
+    }[tone];
+    return (
+        <div className={`rounded-xl border px-4 py-3 ${color}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">{label}</p>
+            <p className="mt-1 text-lg font-black tabular-nums">{value}</p>
+            <p className="mt-1 text-[11px] font-semibold opacity-75">{helper}</p>
+        </div>
     );
 }
 
@@ -250,8 +304,15 @@ function MemberGroup({ title, members, tone }: { title: string; members: Readine
             <div className="mt-3 space-y-2">
                 {members.length ? members.slice(0, 5).map((member) => (
                     <div key={member.wedding_member_id} className="rounded-lg bg-white/70 px-3 py-2">
-                        <p className="text-sm font-black text-app-text">{member.customer_name}</p>
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">{member.next_safe_action}</p>
+                        <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm font-black text-app-text">{member.customer_name}</p>
+                            {parseFloat(member.balance_due || '0') > 0 ? (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800">
+                                    Due ${member.balance_due}
+                                </span>
+                            ) : null}
+                        </div>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">{member.next_safe_action}</p>
                     </div>
                 )) : (
                     <p className="text-xs font-bold opacity-70">None</p>
@@ -264,11 +325,11 @@ function MemberGroup({ title, members, tone }: { title: string; members: Readine
 function statusConfig(status: WmReadinessStatus) {
     switch (status) {
         case 'critical':
-            return { title: 'Wedding readiness is unsafe', label: 'Critical', badge: 'bg-rose-600 text-white' };
+            return { title: 'Pickup is blocked', label: 'Blocked', badge: 'bg-rose-600 text-white' };
         case 'at_risk':
-            return { title: 'Wedding requires attention', label: 'At risk', badge: 'bg-amber-500 text-white' };
+            return { title: 'Action needed before pickup', label: 'Action needed', badge: 'bg-amber-500 text-white' };
         case 'watch':
-            return { title: 'Wedding needs review', label: 'Watch', badge: 'bg-blue-100 text-blue-700' };
+            return { title: 'Review before promising pickup', label: 'Review', badge: 'bg-blue-100 text-blue-700' };
         case 'complete':
             return { title: 'Wedding pickup is complete', label: 'Complete', badge: 'bg-slate-100 text-slate-700' };
         default:

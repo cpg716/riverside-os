@@ -38,6 +38,12 @@ const PickupModal = ({ isOpen, onClose, onSave, memberName }) => {
                     <p className="text-app-text">
                         Marking pickup for <span className="font-bold text-app-text">{memberName}</span>.
                     </p>
+                    <div className="rounded-lg border border-gold-200 bg-gold-50 p-3 text-xs font-semibold text-amber-900">
+                        Confirm the wedding member, balance, and garment pieces before saving pickup. Partial pickups require a note so the next staff member knows what remains.
+                    </div>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-900">
+                        Pilot watch: if pickup is reopened or changed, add a clear note so the handoff remains traceable.
+                    </div>
 
                     <div className="space-y-3">
                         <label className="flex items-center gap-3 p-3 border border-app-border rounded-lg cursor-pointer hover:bg-app-surface-2 transition-colors">

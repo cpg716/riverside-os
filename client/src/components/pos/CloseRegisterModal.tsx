@@ -485,9 +485,14 @@ export default function CloseRegisterModal({
     if (offlineQueueSummary.totalCount === 0) return null;
     return (
       <div className="ui-panel ui-tint-danger p-4 text-xs text-app-text-muted">
-        <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-          Checkout recovery required
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
+            Offline recovery blocker
+          </p>
+          <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">
+            Owner: manager
+          </span>
+        </div>
         <p className="mt-1 leading-relaxed">
           {offlineQueueSummary.blockedCount > 0
             ? `${offlineQueueSummary.blockedCount} completed checkout${offlineQueueSummary.blockedCount === 1 ? "" : "s"} need manager recovery.`
@@ -497,6 +502,9 @@ export default function CloseRegisterModal({
             : null}
           {" "}Resolve checkout recovery before closing the shared drawer so the Z report includes every completed sale.
         </p>
+        <p className="mt-2 rounded-xl border border-app-danger/20 bg-app-surface/80 px-3 py-2 font-bold text-app-text">
+          Action: open checkout recovery, resolve blocked sales, then return here to close.
+        </p>
       </div>
     );
   };
@@ -505,9 +513,14 @@ export default function CloseRegisterModal({
     if (!helcimReviewMessage) return null;
     return (
       <div className="ui-panel ui-tint-danger p-4 text-xs text-app-text-muted">
-        <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-          Card payment review required
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
+            Card payment review blocker
+          </p>
+          <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">
+            Owner: manager
+          </span>
+        </div>
         <p className="mt-1 leading-relaxed">{helcimReviewMessage}</p>
         <div className="mt-3 space-y-1.5">
           {unresolvedHelcimAttempts.slice(0, 4).map((attempt) => (
@@ -522,6 +535,9 @@ export default function CloseRegisterModal({
             </p>
           ))}
         </div>
+        <p className="mt-3 rounded-xl border border-app-danger/20 bg-app-surface/80 px-3 py-2 font-bold text-app-text">
+          Action: review terminal outcome, record or void the attempt, then rerun close.
+        </p>
       </div>
     );
   };
@@ -684,7 +700,7 @@ export default function CloseRegisterModal({
                 <label className="mb-2 block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Or Full Drawer Total ($)</label>
                 <input type="number" step="0.01" value={fullDrawerTotal} onChange={e => setFullDrawerTotal(e.target.value)} className="ui-input w-full p-4 text-center font-mono text-2xl" placeholder="---" />
               </div>
-              <div className="flex gap-3 pt-2">
+              <div className="sticky bottom-0 -mx-4 flex gap-3 border-t border-app-border bg-app-surface/95 px-4 py-3 backdrop-blur">
                 <button type="button" onClick={internalCancel} className="ui-btn-secondary flex-1 py-3">Cancel</button>
                 <button type="submit" disabled={!canSubmitDenom} className="ui-btn-primary flex-1 py-3 text-sm font-black">Verify Count</button>
               </div>
@@ -766,6 +782,12 @@ export default function CloseRegisterModal({
   const needsNote =
     Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
   const closingNotesForReport = buildClosingNotesForReport();
+  const closeBlockers = [
+    offlineQueueSummary.totalCount > 0 ? "Checkout recovery" : null,
+    helcimReviewMessage ? "Card payment review" : null,
+    needsNote && notes.trim() === "" ? "Cash discrepancy note" : null,
+  ].filter(Boolean);
+  const closeReady = closeBlockers.length === 0;
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
@@ -837,6 +859,35 @@ export default function CloseRegisterModal({
 
         <div className="ui-modal-body flex-1 overflow-y-auto space-y-6">
           {renderWorkflowSummary("report")}
+          <div
+            className={`rounded-2xl border px-4 py-3 ${
+              closeReady
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-rose-200 bg-rose-50 text-rose-900"
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[10px] font-black uppercase tracking-widest">
+                {closeReady ? "Ready to close" : "Close blocked"}
+              </p>
+              <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest">
+                {closeReady ? "All checks clear" : `${closeBlockers.length} action${closeBlockers.length === 1 ? "" : "s"}`}
+              </span>
+            </div>
+            <p className="mt-1 text-sm font-semibold">
+              {closeReady
+                ? "Cash count, recovery, and payment review are clear. Finalize when notes are correct."
+                : `Resolve: ${closeBlockers.join(", ")}.`}
+            </p>
+            <p className="mt-2 text-xs font-bold opacity-85">
+              {closeReady
+                ? "Pilot watch: review any late refunds or recovery notes before final close so the manager can trust the shift handoff."
+                : "Pilot watch: repeated close blockers should be tracked by owner before retrying so training and recovery gaps are visible."}
+              {closeReady
+                ? " After close, accounting should confirm the QBO journal state from the QBO workspace before the day is treated as fully cleared."
+                : ""}
+            </p>
+          </div>
           {renderOfflineQueueBlocker()}
           {renderHelcimReviewBlocker()}
           {(recon.tenders_by_lane?.length ?? 0) > 1 ? (
@@ -851,7 +902,7 @@ export default function CloseRegisterModal({
             </div>
           ) : null}
           <div className={`ui-panel p-5 ${isOff ? "ui-tint-danger" : "ui-tint-success"}`}>
-            <h3 className="mb-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border pb-2">Cash Drawer Audit</h3>
+            <h3 className="mb-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border pb-2">Cash drawer count</h3>
             <div className="space-y-2.5 text-sm">
               <div className="flex justify-between text-app-text-muted font-medium"><span>Opening Float:</span><span className="font-mono">${centsToFixed2(openingCents)}</span></div>
               <div className="flex justify-between text-app-text-muted font-medium"><span>Cash Sales:</span><span className="font-mono text-app-success">+ ${centsToFixed2(cashSalesCents)}</span></div>
@@ -898,7 +949,7 @@ export default function CloseRegisterModal({
                 </div>
                 {needsNote ? (
                   <p className="text-[10px] font-bold mt-2 text-app-danger/80 leading-relaxed">
-                    Closing notes are required because cash is over or short by more than $5.00. Explain the likely cause before you finalize the shift.
+                    Cash discrepancy blocker: closing notes are required because cash is over or short by more than $5.00. Explain the likely cause before you finalize the shift.
                   </p>
                 ) : (
                   <p className="text-[10px] font-semibold mt-2 text-app-danger/75 leading-relaxed">
@@ -1025,7 +1076,7 @@ export default function CloseRegisterModal({
             <textarea value={closingComments} onChange={e => setClosingComments(e.target.value)} className="ui-input w-full p-4 text-xs min-h-[60px]" placeholder="Add comments for the Z report..." />
           </div>
 
-          <div className="flex gap-3 pt-6 border-t border-app-border">
+          <div className="sticky bottom-0 -mx-1 flex gap-3 border-t border-app-border bg-app-surface/95 px-1 py-4 backdrop-blur">
             <button type="button" onClick={() => void internalCancel()} disabled={loading} className="ui-btn-secondary flex-1 py-4 text-sm font-bold">Cancel</button>
             <button type="button" onClick={() => setShowFinalConfirm(true)} disabled={loading || (needsNote && notes.trim() === '')} className="ui-btn-primary flex-1 py-4 text-sm font-black shadow-lg shadow-app-accent/20">Finalize & Close Shift</button>
           </div>

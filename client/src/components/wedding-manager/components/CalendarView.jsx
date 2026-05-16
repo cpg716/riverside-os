@@ -20,6 +20,24 @@ const STATUS_STYLES = {
     'Cancelled': 'opacity-30 line-through',
 };
 
+const localDateKey = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
+
+const appointmentLocalDateKey = (iso) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return String(iso || '').slice(0, 10);
+    return localDateKey(date);
+};
+
+const appointmentTimeValue = (iso) => {
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+};
+
 const CalendarView = ({ parties, onEditAppt }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [appointments, setAppointments] = useState([]);
@@ -42,8 +60,8 @@ const CalendarView = ({ parties, onEditAppt }) => {
                 const end = new Date(lastDay);
                 end.setDate(end.getDate() + (6 - lastDay.getDay()));
 
-                const startStr = start.toISOString().split('T')[0];
-                const endStr = end.toISOString().split('T')[0] + 'T23:59:59';
+                const startStr = localDateKey(start) + 'T00:00:00';
+                const endStr = localDateKey(end) + 'T23:59:59';
 
                 const data = await api.getAppointments(startStr, endStr);
                 setAppointments(data);
@@ -66,8 +84,8 @@ const CalendarView = ({ parties, onEditAppt }) => {
             const end = new Date(lastDay);
             end.setDate(end.getDate() + (6 - lastDay.getDay()));
             api.getAppointments(
-                start.toISOString().split('T')[0],
-                end.toISOString().split('T')[0] + 'T23:59:59'
+                localDateKey(start) + 'T00:00:00',
+                localDateKey(end) + 'T23:59:59'
             ).then(setAppointments).catch(console.error);
         };
         socket.on('appointments_updated', handler);
@@ -108,12 +126,12 @@ const CalendarView = ({ parties, onEditAppt }) => {
     const apptsByDay = useMemo(() => {
         const map = {};
         appointments.forEach(appt => {
-            const dayKey = appt.datetime.split('T')[0];
+            const dayKey = appointmentLocalDateKey(appt.datetime);
             if (!map[dayKey]) map[dayKey] = [];
             map[dayKey].push(appt);
         });
         // Sort each day's appointments by time
-        Object.values(map).forEach(arr => arr.sort((a, b) => a.datetime.localeCompare(b.datetime)));
+        Object.values(map).forEach(arr => arr.sort((a, b) => appointmentTimeValue(a.datetime) - appointmentTimeValue(b.datetime)));
         return map;
     }, [appointments]);
 
@@ -124,11 +142,9 @@ const CalendarView = ({ parties, onEditAppt }) => {
     }, [parties]);
 
     const today = new Date();
-    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const todayKey = localDateKey(today);
 
-    const getDayKey = (date) => {
-        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    };
+    const getDayKey = localDateKey;
 
     const goToday = () => {
         setCurrentDate(new Date());
@@ -149,10 +165,14 @@ const CalendarView = ({ parties, onEditAppt }) => {
 
     const formatTime = (dt) => {
         if (!dt) return '';
-        const timePart = dt.split('T')[1];
+        const date = new Date(dt);
+        if (!Number.isNaN(date.getTime())) {
+            return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        }
+        const timePart = String(dt).split('T')[1];
         if (!timePart) return '';
         const [h, m] = timePart.split(':');
-        const hour = parseInt(h);
+        const hour = parseInt(h, 10);
         const ampm = hour >= 12 ? 'PM' : 'AM';
         const hour12 = hour % 12 || 12;
         return `${hour12}:${m} ${ampm}`;

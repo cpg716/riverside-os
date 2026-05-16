@@ -581,8 +581,8 @@ export const api = {
     return json || [];
   },
   getConflicts: async (date, salesperson, excludeId) => {
-    const from = `${date}T00:00:00.000Z`;
-    const to = `${date}T23:59:59.999Z`;
+    const from = `${date}T00:00:00`;
+    const to = `${date}T23:59:59.999`;
     const appts = await api.getAppointments(from, to);
     return appts.filter(
       (a) => a.salesperson === salesperson && (!excludeId || a.id !== excludeId),
@@ -610,6 +610,8 @@ export const api = {
   },
   updateAppointment: async (id, updates) => {
     const payload = {
+      wedding_member_id: updates.memberId?.trim?.() || undefined,
+      customer_id: updates.customerId?.trim?.() || undefined,
       customer_display_name: updates.customerName,
       phone: updates.phone,
       appointment_type: updates.type,

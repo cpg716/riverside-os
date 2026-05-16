@@ -6,13 +6,21 @@ import { useModal } from '../hooks/useModal';
 
 const APPT_CUSTOMER_SEARCH_PAGE = 40;
 
-const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _parties = [] }) => {
-    if (!isOpen) return null;
+const localDateKey = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
 
+const localTimeKey = (date) =>
+    `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
+const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _parties = [] }) => {
     const { showAlert, showConfirm, selectSalesperson } = useModal();
     const [formData, setFormData] = useState({
         type: 'Measurement',
-        date: new Date().toISOString().split('T')[0],
+        date: localDateKey(new Date()),
         time: '10:00',
         customerName: '',
         phone: '',
@@ -32,6 +40,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
     const [conflicts, setConflicts] = useState([]);
 
     useEffect(() => {
+        if (!isOpen) return;
         const fetchSalespeople = async () => {
             try {
                 const data = await api.getSalespeopleForAppointments();
@@ -40,20 +49,21 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                 console.error("Failed to fetch salespeople:", err);
             }
         };
-        fetchSalespeople();
-    }, []);
+        void fetchSalespeople();
+    }, [isOpen]);
 
     useEffect(() => {
+        if (!isOpen) return;
         if (initialData) {
             // If datetime is provided, use it. Otherwise default to today/now.
-            let dateStr = new Date().toISOString().split('T')[0];
+            let dateStr = localDateKey(new Date());
             let timeStr = '10:00';
 
             if (initialData.datetime) {
                 const dt = new Date(initialData.datetime);
                 if (!isNaN(dt.getTime())) {
-                    dateStr = dt.toISOString().split('T')[0];
-                    timeStr = dt.toTimeString().slice(0, 5);
+                    dateStr = localDateKey(dt);
+                    timeStr = localTimeKey(dt);
                 }
             }
 
@@ -73,7 +83,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             // Reset
             setFormData({
                 type: 'Measurement',
-                date: new Date().toISOString().split('T')[0],
+                date: localDateKey(new Date()),
                 time: '10:00',
                 customerName: '',
                 phone: '',
@@ -111,6 +121,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
 
     // Align stored value with ROS display name when it matches (case / whitespace).
     useEffect(() => {
+        if (!isOpen) return;
         if (!salespeople.length) return;
         setFormData((prev) => {
             const t = (prev.salesperson || '').trim();
@@ -121,7 +132,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             }
             return prev;
         });
-    }, [salespeople]);
+    }, [isOpen, salespeople]);
 
     const rosCustomerLabel = (c) => {
         const n = `${c.first_name || ''} ${c.last_name || ''}`.trim();
@@ -132,6 +143,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
 
     // Search ROS customers (same directory as POS / CRM)
     useEffect(() => {
+        if (!isOpen) return;
         if (searchTerm.length < 2 || formData.memberId) {
             setSearchResults([]);
             setSearchHasMore(false);
@@ -157,10 +169,11 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             }
         }, 300);
         return () => clearTimeout(t);
-    }, [searchTerm, formData.memberId]);
+    }, [formData.memberId, isOpen, searchTerm]);
 
     // Check for conflicts in real-time
     useEffect(() => {
+        if (!isOpen) return;
         const checkConflicts = async () => {
             if (!formData.date || !formData.salesperson || !formData.time) {
                 setConflicts([]);
@@ -177,7 +190,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
         };
         const timer = setTimeout(checkConflicts, 500);
         return () => clearTimeout(timer);
-    }, [formData.date, formData.time, formData.salesperson, initialData]);
+    }, [formData.date, formData.time, formData.salesperson, initialData, isOpen]);
 
     const handleSelectRosCustomer = (c) => {
         const label = rosCustomerLabel(c);
@@ -382,7 +395,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                 try {
                     const member = await api.getMember(initialData.memberId);
                     if (member) {
-                        const historyEntry = { date: new Date().toISOString().split('T')[0], note: newNote, id: Date.now() };
+                        const historyEntry = { date: localDateKey(new Date()), note: newNote, id: Date.now() };
                         const updatedHistory = [...(member.contactHistory || []), historyEntry];
                         await api.updateMember(initialData.memberId, { contactHistory: updatedHistory });
                     }
@@ -398,6 +411,8 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             showAlert("Failed to delete appointment.", "Error", { variant: 'danger' });
         }
     };
+
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in" >

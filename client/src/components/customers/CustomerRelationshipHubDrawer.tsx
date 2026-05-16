@@ -2559,6 +2559,61 @@ export function CustomerRelationshipHubDrawer({
           ) : null}
 
           {showHubSummary ? (
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                {
+                  label: "Balance answer",
+                  value: balanceDue ? fmtMoney(hub.stats.balance_due_usd) : "Clear",
+                  helper: balanceDue ? "Collect before pickup or release." : "No balance due visible.",
+                  tone: balanceDue ? "warn" : "ok",
+                },
+                {
+                  label: "Open service",
+                  value: `${openSummary.orders ?? 0}/${openSummary.alterations ?? 0}`,
+                  helper: "Orders / alterations open.",
+                  tone:
+                    (openSummary.orders ?? 0) > 0 || (openSummary.alterations ?? 0) > 0
+                      ? "info"
+                      : "calm",
+                },
+                {
+                  label: "Wedding",
+                  value: activeWedding ? "Active" : "None",
+                  helper: activeWedding ? activeWedding.party_name : "No active wedding link.",
+                  tone: activeWedding ? "info" : "calm",
+                },
+                {
+                  label: "Contact",
+                  value: hub.profile_complete ? "Complete" : "Needs info",
+                  helper: hub.profile_complete ? "Phone and email are present." : profileMissingHint,
+                  tone: hub.profile_complete ? "ok" : "warn",
+                },
+              ].map((card) => (
+                <div
+                  key={card.label}
+                  className={`rounded-2xl border px-4 py-3 ${
+                    card.tone === "ok"
+                      ? "border-app-success/20 bg-app-success/10 text-app-success"
+                      : card.tone === "warn"
+                        ? "border-app-warning/25 bg-app-warning/10 text-app-warning"
+                        : card.tone === "info"
+                          ? "border-app-accent/25 bg-app-accent/10 text-app-accent"
+                          : "border-app-border bg-app-surface-2 text-app-text"
+                  }`}
+                >
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70">
+                    {card.label}
+                  </p>
+                  <p className="mt-1 truncate text-base font-black">{card.value}</p>
+                  <p className="mt-1 truncate text-[11px] font-semibold opacity-75">
+                    {card.helper}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {showHubSummary ? (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
               {[
                 {
@@ -3950,20 +4005,27 @@ export function CustomerRelationshipHubDrawer({
                   </div>
                 </section>
               ) : null}
-              {canHubEdit ? (
-                <button
-                  type="button"
-                  disabled={profileSaving}
-                  onClick={() => void saveProfileDetails()}
-                  className="rounded-xl bg-app-accent px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
-                >
-                  {profileSaving ? "Saving…" : "Save profile"}
-                </button>
-              ) : (
-                <p className="text-xs text-app-text-muted">
-                  Manager access is needed to edit this customer profile.
-                </p>
-              )}
+              <div className="sticky bottom-0 z-20 -mx-2 rounded-2xl border border-app-border bg-app-surface/95 p-3 shadow-2xl shadow-black/10 backdrop-blur">
+                {canHubEdit ? (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs font-semibold text-app-text-muted">
+                      Save contact, address, and checkout settings before leaving this profile.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={profileSaving}
+                      onClick={() => void saveProfileDetails()}
+                      className="ui-btn-primary min-h-11 px-5 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                    >
+                      {profileSaving ? "Saving…" : "Save profile"}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-app-text-muted">
+                    Manager access is needed to edit this customer profile.
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>

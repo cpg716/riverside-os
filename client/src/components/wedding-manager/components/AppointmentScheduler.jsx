@@ -6,8 +6,31 @@ import { formatDate } from '../lib/utils';
 
 import { useModal } from '../hooks/useModal';
 
+const localDateKey = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
+
+const appointmentLocalDateKey = (iso) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return String(iso || '').slice(0, 10);
+    return localDateKey(date);
+};
+
+const appointmentLocalTimeKey = (iso) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return String(iso || '').slice(11, 16);
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+};
+
+const isAppointmentInSlot = (appt, dateStr, time) =>
+    appointmentLocalDateKey(appt.datetime) === dateStr &&
+    appointmentLocalTimeKey(appt.datetime) === time;
+
 const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave }) => {
-    const { showConfirm, selectSalesperson } = useModal();
+    const { showAlert, showConfirm, selectSalesperson } = useModal();
     const [appointments, setAppointments] = useState([]);
 
     const [selectedDate, setSelectedDate] = useState(initialDate ? new Date(initialDate) : new Date());
@@ -35,18 +58,19 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
             const start = new Date(selectedDate);
 
             if (viewMode === 'day') {
-                startStr = start.toISOString().split('T')[0] + 'T00:00:00';
-                endStr = start.toISOString().split('T')[0] + 'T23:59:59';
+                const dateStr = localDateKey(start);
+                startStr = `${dateStr}T00:00:00`;
+                endStr = `${dateStr}T23:59:59`;
             } else {
                 // Week view logic
                 const day = start.getDay();
                 const diff = start.getDate() - day + (day === 0 ? -6 : 1);
                 start.setDate(diff);
-                startStr = start.toISOString().split('T')[0] + 'T00:00:00';
+                startStr = localDateKey(start) + 'T00:00:00';
 
                 const end = new Date(start);
                 end.setDate(start.getDate() + 6);
-                endStr = end.toISOString().split('T')[0] + 'T23:59:59';
+                endStr = localDateKey(end) + 'T23:59:59';
             }
 
             const data = await api.getAppointments(startStr, endStr);
@@ -78,7 +102,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
 
     const handleAddAppt = (timeSlot) => {
         setSelectedAppt({
-            datetime: `${selectedDate.toISOString().split('T')[0]}T${timeSlot || '10:00'}:00`,
+            datetime: `${localDateKey(selectedDate)}T${timeSlot || '10:00'}:00`,
             ...(prefilledMember || {})
         });
         setIsModalOpen(true);
@@ -116,7 +140,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                         // Fetch member to get current history
                         const member = await api.getMember(apptToDelete.memberId);
                         if (member) {
-                            const historyEntry = { date: new Date().toISOString().split('T')[0], note: newNote, id: Date.now() };
+                            const historyEntry = { date: localDateKey(new Date()), note: newNote, id: Date.now() };
                             const updatedHistory = [...(member.contactHistory || []), historyEntry];
                             await api.updateMember(apptToDelete.memberId, { contactHistory: updatedHistory });
                         }
@@ -136,14 +160,11 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
     // Filter appointments for display
     const filteredAppointments = useMemo(() => {
         // Construct YYYY-MM-DD in local time to match the selectedDate display
-        const year = selectedDate.getFullYear();
-        const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
-        const day = String(selectedDate.getDate()).padStart(2, '0');
-        const dateStr = `${year}-${month}-${day}`;
+        const dateStr = localDateKey(selectedDate);
 
         return appointments
-            .filter(a => a.datetime.startsWith(dateStr) && a.status !== 'Attended' && a.status !== 'Missed')
-            .sort((a, b) => a.datetime.localeCompare(b.datetime));
+            .filter(a => appointmentLocalDateKey(a.datetime) === dateStr && a.status !== 'Attended' && a.status !== 'Missed')
+            .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
     }, [appointments, selectedDate]);
 
     // Generate time slots for Day View
@@ -166,7 +187,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                         <input
                             type="date"
                             className="outline-none text-sm font-bold text-app-text px-2 bg-transparent"
-                            value={selectedDate.toISOString().split('T')[0]}
+                            value={localDateKey(selectedDate)}
                             onChange={(e) => {
                                 if (e.target.value) {
                                     const [y, m, d] = e.target.value.split('-').map(Number);
@@ -221,8 +242,8 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                     <div className="max-w-4xl mx-auto bg-app-surface border border-app-border shadow-sm rounded-lg overflow-hidden print:shadow-none print:border-0 print:w-full">
                         <div className="grid grid-cols-[80px_1fr] divide-y divide-app-border/80">
                             {timeSlots.map(time => {
-                                const dateStr = selectedDate.toISOString().split('T')[0];
-                                const slotAppts = appointments.filter(a => a.datetime === `${dateStr}T${time}:00`);
+                                const dateStr = localDateKey(selectedDate);
+                                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time));
 
                                 return (
                                     <div key={time} className="contents group">
@@ -287,7 +308,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                 const day = columnDate.getDay();
                                 const diff = columnDate.getDate() - day + (day === 0 ? -6 : 1) + colIdx;
                                 columnDate.setDate(diff);
-                                const dateStr = columnDate.toISOString().split('T')[0];
+                                const dateStr = localDateKey(columnDate);
 
                                 return (
                                     <div key={colIdx} className="flex flex-col relative group">
@@ -297,10 +318,17 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                                 className="h-20 border-b border-app-border/80 hover:bg-app-surface-2 transition-colors cursor-pointer p-1 space-y-1"
                                                 onClick={() => {
                                                     setSelectedDate(columnDate);
-                                                    handleAddAppt(time);
+                                                    setSelectedAppt({
+                                                        datetime: `${dateStr}T${time}:00`,
+                                                        ...(prefilledMember || {})
+                                                    });
+                                                    setIsModalOpen(true);
                                                 }}
                                             >
-                                                {appointments.filter(a => a.datetime.startsWith(`${dateStr}T${time.slice(0, 2)}`))
+                                                {appointments.filter(a =>
+                                                    appointmentLocalDateKey(a.datetime) === dateStr &&
+                                                    appointmentLocalTimeKey(a.datetime).startsWith(time.slice(0, 2))
+                                                )
                                                     .map(appt => (
                                                         <div
                                                             key={appt.id}
@@ -312,7 +340,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                                                             'bg-app-surface-2 border-app-text-muted text-app-text'}`}
                                                             title={`${appt.customerName} - ${appt.type}`}
                                                         >
-                                                            {appt.customerName.split(' ')[0]} - {appt.type.charAt(0)}
+                                                            {(appt.customerName || 'Customer').split(' ')[0]} - {(appt.type || 'A').charAt(0)}
                                                         </div>
                                                     ))}
                                             </div>

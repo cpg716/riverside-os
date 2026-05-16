@@ -141,6 +141,8 @@ export const weddingApi = {
     data: {
       customerName?: string | null;
       phone?: string | null;
+      memberId?: string | null;
+      customerId?: string | null;
       type?: string;
       datetime?: string;
       notes?: string | null;
@@ -152,6 +154,8 @@ export const weddingApi = {
     const payload: Record<string, unknown> = {
       customer_display_name: data.customerName?.trim() ?? undefined,
       phone: data.phone?.trim() ?? undefined,
+      wedding_member_id: data.memberId?.trim() || undefined,
+      customer_id: data.customerId?.trim() || undefined,
       appointment_type: data.type,
       notes: data.notes?.trim() ?? undefined,
       status: data.status,

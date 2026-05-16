@@ -337,12 +337,12 @@ export default function PosAlterationIntakeModal({
 
     const work = workRequested.trim();
     if (!work && !fittingNeeded) {
-      toast("Enter the work requested before saving for Off-the-Rack items.", "error");
+      toast("Enter the work requested before saving an alteration that does not need a fitting.", "error");
       return;
     }
 
     if (!fittingNeeded && !dueAt) {
-      toast("Off-the-Rack alterations require a Due Date for scheduling.", "error");
+      toast("Choose a due date before sending this alteration straight to the tailor queue.", "error");
       return;
     }
 
@@ -422,7 +422,22 @@ export default function PosAlterationIntakeModal({
           <div className="m-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-800">
             Select or create a customer on the Register before starting alteration intake.
           </div>
-        ) : null}
+        ) : (
+            <div className="mx-5 mt-4 rounded-2xl border border-app-accent/25 bg-app-accent/10 p-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
+                Working on
+              </p>
+              <p className="mt-1 text-sm font-black text-app-text">
+                {customerName(customer)}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                This intake stays attached to the current cart until checkout creates the tailor queue work.
+              </p>
+              <p className="mt-1 text-xs font-bold text-amber-700">
+                Pilot watch: saved intake is still pending until checkout, ticket print, or tailor handoff is completed.
+              </p>
+            </div>
+          )}
 
         <div className="grid min-h-0 flex-1 gap-0 overflow-y-auto lg:overflow-hidden lg:grid-cols-[1.15fr_0.85fr]">
           <div className="min-h-0 overflow-visible p-4 sm:p-5 lg:overflow-y-auto">
@@ -453,7 +468,7 @@ export default function PosAlterationIntakeModal({
 
             <div className="mb-4 rounded-xl border border-app-border bg-app-surface-2 p-3">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Work type and capacity units
+                Tailor workload
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {ALTERATION_WORK_TYPES.map((task) => {
@@ -476,7 +491,7 @@ export default function PosAlterationIntakeModal({
                           : "border-app-border bg-app-surface text-app-text-muted hover:text-app-text"
                       }`}
                     >
-                      {task.label} · {task.units}u
+                      {task.label} · {task.units} slot{task.units === 1 ? "" : "s"}
                     </button>
                   );
                 })}
@@ -748,7 +763,7 @@ export default function PosAlterationIntakeModal({
 
               <div className="space-y-2">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Workflow Type
+                  Fitting plan
                 </span>
                 <div className="flex gap-2 p-1 rounded-xl bg-app-surface border border-app-border">
                   <button
@@ -771,13 +786,13 @@ export default function PosAlterationIntakeModal({
                         : "text-app-text-muted hover:text-app-text"
                     }`}
                   >
-                    Off-the-Rack
+                    No fitting needed
                   </button>
                 </div>
                 <p className="px-1 text-[9px] font-bold text-app-text-muted/60">
-                  {fittingNeeded 
-                    ? "Work will be defined later during the fitting session." 
-                    : "Schedule work immediately. Due date is mandatory."}
+                  {fittingNeeded
+                    ? "Save the intake now; the tailor can define final work after the fitting."
+                    : "Due date is required so this can move straight into the tailor queue."}
                 </p>
               </div>
 
@@ -838,6 +853,21 @@ export default function PosAlterationIntakeModal({
                   onChange={(event) => setDueAt(event.target.value)}
                   className={`ui-input h-11 w-full text-sm font-bold ${!fittingNeeded && !dueAt ? "border-red-500/50 bg-red-500/5" : ""}`}
                 />
+                <p
+                  className={`rounded-xl border px-3 py-2 text-[11px] font-bold ${
+                    !fittingNeeded && !dueAt
+                      ? "border-rose-200 bg-rose-50 text-rose-800"
+                      : dueAt
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : "border-app-border bg-app-surface text-app-text-muted"
+                  }`}
+                >
+                  {!fittingNeeded && !dueAt
+                    ? "Action required: choose a due date before this can go straight to the tailor queue."
+                    : dueAt
+                      ? "Due date set. After checkout, this can be scheduled or printed from Alterations."
+                      : "Fitting first. Save the intake now; final work can be confirmed during the fitting."}
+                </p>
               </label>
 
               <label className="block space-y-2">
@@ -852,16 +882,21 @@ export default function PosAlterationIntakeModal({
                 />
               </label>
 
-              <button
-                type="button"
-                disabled={!customer}
+              <div className="sticky bottom-0 -mx-4 -mb-4 border-t border-app-border bg-app-surface-2/95 p-4 backdrop-blur sm:-mx-5 sm:-mb-5 sm:p-5">
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                  Next: save intake, finish checkout, then schedule or print from Alterations.
+                </p>
+                <button
+                  type="button"
+                  disabled={!customer}
                   onClick={() => void save()}
-                data-testid="pos-alteration-save"
-                className="ui-btn-primary flex h-12 w-full items-center justify-center gap-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50"
-              >
-                <Scissors className="h-4 w-4" />
-                Save alteration intake
-              </button>
+                  data-testid="pos-alteration-save"
+                  className="ui-btn-primary flex h-12 w-full items-center justify-center gap-2 text-[11px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  <Scissors className="h-4 w-4" />
+                  Save intake
+                </button>
+              </div>
             </div>
           </div>
         </div>

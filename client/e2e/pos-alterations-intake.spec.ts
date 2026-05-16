@@ -244,7 +244,7 @@ test.describe("POS alteration intake", () => {
       /1 alteration intake/i,
     );
     await expect(page.getByTestId("pos-pending-alterations-summary")).toContainText(
-      /will link to checkout/i,
+      /finish checkout to create tailor queue work/i,
     );
     expect(alterationCreateCalls).toBe(0);
   });
@@ -284,7 +284,7 @@ test.describe("POS alteration intake", () => {
     await page.getByTestId("pos-alteration-intake-trigger").click();
     const dialog = page.getByTestId("pos-alteration-intake-dialog");
     await dialog.getByTestId("pos-alteration-cart-source-option").click();
-    await dialog.getByRole("button", { name: /Shorten Sleeves · 4u/i }).click();
+    await dialog.getByRole("button", { name: /Shorten Sleeves · 4 slots/i }).click();
     await dialog.getByTestId("pos-alteration-save").click();
 
     let checkoutBody: Record<string, unknown> | null = null;

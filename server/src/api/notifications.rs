@@ -12,7 +12,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::api::AppState;
-use crate::auth::permissions::NOTIFICATIONS_BROADCAST;
+use crate::auth::permissions::{NOTIFICATIONS_BROADCAST, OPS_DEV_CENTER_VIEW};
 use crate::logic::notifications::{
     self, fan_out_notification_to_staff_ids, insert_app_notification_deduped,
     mark_read_for_notification_recipients, resolve_broadcast_audience, BroadcastAudience,
@@ -224,9 +224,14 @@ async fn notification_health(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<notifications::NotificationHealthResponse>, Response> {
-    middleware::require_staff_with_permission(&state, &headers, NOTIFICATIONS_BROADCAST)
+    if middleware::require_staff_with_permission(&state, &headers, NOTIFICATIONS_BROADCAST)
         .await
-        .map_err(|e| e.into_response())?;
+        .is_err()
+    {
+        middleware::require_staff_with_permission(&state, &headers, OPS_DEV_CENTER_VIEW)
+            .await
+            .map_err(|e| e.into_response())?;
+    }
     let health = notifications::notification_health(&state.db)
         .await
         .map_err(|e| {

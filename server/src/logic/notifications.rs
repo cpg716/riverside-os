@@ -504,11 +504,14 @@ pub async fn upsert_bundle_item(
         vec![]
     };
 
-    items.push(json!({
+    let next_item = json!({
         "title": item_title,
         "subtitle": item_subtitle,
         "deep_link": item_deep_link,
-    }));
+    });
+    if !items.iter().any(|item| item == &next_item) {
+        items.push(next_item);
+    }
 
     let n = items.len();
     let title = if n == 1 {

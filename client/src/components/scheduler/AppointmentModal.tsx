@@ -12,6 +12,16 @@ import ConfirmationModal from '../ui/ConfirmationModal';
 
 const apiBase = getBaseUrl();
 
+const localDateKey = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const localTimeKey = (date: Date) =>
+  `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+
 interface AppointmentModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -22,7 +32,7 @@ interface AppointmentModalProps {
 const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, onSave, initialData }) => {
   const [formData, setFormData] = useState({
     type: 'Measurement',
-    date: new Date().toISOString().split('T')[0],
+    date: localDateKey(new Date()),
     time: '10:00',
     customerName: '',
     phone: '',
@@ -95,22 +105,22 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
 
   useEffect(() => {
     if (isOpen && initialData) {
-      let dateStr = new Date().toISOString().split('T')[0];
+      let dateStr = localDateKey(new Date());
       let timeStr = '10:00';
 
       if (initialData.datetime) {
         const dt = new Date(initialData.datetime);
         if (!isNaN(dt.getTime())) {
-          dateStr = dt.toISOString().split('T')[0];
-          timeStr = dt.toTimeString().slice(0, 5);
+          dateStr = localDateKey(dt);
+          timeStr = localTimeKey(dt);
         }
       }
 
       setFormData({
-        type: initialData.type || 'Measurement',
+        type: initialData.type || initialData.appointment_type || 'Measurement',
         date: dateStr,
         time: timeStr,
-        customerName: initialData.customerName || '',
+        customerName: initialData.customerName || initialData.customer_display_name || '',
         phone: initialData.phone || '',
         notes: initialData.notes || '',
         partyId: initialData.partyId || '',
@@ -119,13 +129,13 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
         salesperson: initialData.salesperson || '',
         status: initialData.status || 'Scheduled'
       });
-      setSearchTerm(initialData.customerName || '');
+      setSearchTerm(initialData.customerName || initialData.customer_display_name || '');
       setWeddingLinkOffer(null);
     } else if (isOpen) {
       setWeddingLinkOffer(null);
       setFormData({
         type: 'Measurement',
-        date: new Date().toISOString().split('T')[0],
+        date: localDateKey(new Date()),
         time: '10:00',
         customerName: '',
         phone: '',
@@ -151,6 +161,8 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
           {
             customerName: searchTerm,
             phone: formData.phone,
+            memberId: formData.memberId || null,
+            customerId: formData.customerId || null,
             type: formData.type,
             datetime,
             notes: formData.notes,
@@ -223,6 +235,8 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
         {
           customerName: searchTerm,
           phone: formData.phone,
+          memberId: formData.memberId || null,
+          customerId: formData.customerId || null,
           type: formData.type,
           datetime: `${formData.date}T${formData.time}:00`,
           notes: formData.notes,

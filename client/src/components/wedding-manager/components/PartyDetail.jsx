@@ -48,6 +48,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
     const [paymentStatusByMemberId, setPaymentStatusByMemberId] = useState({});
     const [readinessByMemberId, setReadinessByMemberId] = useState({});
     const [financialContext, setFinancialContext] = useState(null);
+    const [showManagerFinancials, setShowManagerFinancials] = useState(false);
 
     useEffect(() => {
         if (!party?.id) {
@@ -693,6 +694,76 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
         };
     }, [party.members]);
 
+    const nextPartyAction = useMemo(() => {
+        if (stats.needsAppointment > 0) {
+            return {
+                label: "Schedule measurements",
+                detail: `${stats.needsAppointment} member${stats.needsAppointment === 1 ? "" : "s"} still need a measurement appointment.`
+            };
+        }
+        if (stats.needsOrdering > 0) {
+            return {
+                label: "Place missing orders",
+                detail: `${stats.needsOrdering} measured member${stats.needsOrdering === 1 ? "" : "s"} still need an order.`
+            };
+        }
+        if (stats.needsReceiving > 0) {
+            return {
+                label: "Check receiving",
+                detail: `${stats.needsReceiving} order${stats.needsReceiving === 1 ? "" : "s"} are waiting on stock.`
+            };
+        }
+        if (stats.needsFitting > 0) {
+            return {
+                label: "Schedule fittings",
+                detail: `${stats.needsFitting} member${stats.needsFitting === 1 ? "" : "s"} are ready for fitting.`
+            };
+        }
+        if (stats.needsPickup > 0) {
+            return {
+                label: "Prepare pickups",
+                detail: `${stats.needsPickup} member${stats.needsPickup === 1 ? "" : "s"} are ready for pickup.`
+            };
+        }
+        return {
+            label: stats.total > 0 ? "Review completion" : "Add members",
+            detail: stats.total > 0
+                ? "All member milestones look complete. Review balances and close out the party when pickup is finished."
+                : "Add wedding members before scheduling measurements or orders."
+        };
+    }, [stats]);
+
+    const quickAnswerCards = useMemo(() => {
+        const readinessRows = Object.values(readinessByMemberId || {});
+        const balanceBlocked = readinessRows.filter(row => row?.status === 'balance_blocked').length;
+        return [
+            {
+                label: "Ready for pickup",
+                value: stats.needsPickup,
+                helper: stats.needsPickup > 0 ? "Confirm balance and garment pieces." : "No members waiting for pickup.",
+                tone: stats.needsPickup > 0 ? "emerald" : "slate",
+            },
+            {
+                label: "Appointments needed",
+                value: stats.needsAppointment,
+                helper: stats.needsAppointment > 0 ? "Schedule measurements before ordering." : "Measurement appointments are covered.",
+                tone: stats.needsAppointment > 0 ? "amber" : "slate",
+            },
+            {
+                label: "Balance holds",
+                value: balanceBlocked,
+                helper: balanceBlocked > 0 ? "Collect balance before release." : "No balance holds visible.",
+                tone: balanceBlocked > 0 ? "rose" : "slate",
+            },
+            {
+                label: "Picked up",
+                value: `${stats.pickedUpCount}/${stats.total || 0}`,
+                helper: stats.total > 0 && stats.pickedUpCount === stats.total ? "Party pickup is complete." : "Pickup still open.",
+                tone: stats.total > 0 && stats.pickedUpCount === stats.total ? "emerald" : "slate",
+            },
+        ];
+    }, [readinessByMemberId, stats]);
+
     // Compact date formatter for print
     const formatPrintDate = (dateString) => {
         if (!dateString) return '-';
@@ -997,6 +1068,43 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
 
                     <WeddingReadinessPanel partyId={party.id} />
 
+                    <div className="rounded-lg border border-app-accent/25 bg-app-accent/10 p-4 shadow-sm">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">Next action</p>
+                                <h3 className="mt-1 text-lg font-black text-app-text">{nextPartyAction.label}</h3>
+                                <p className="mt-1 text-sm font-semibold text-app-text-muted">{nextPartyAction.detail}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('list')}
+                                className="min-h-11 rounded-xl bg-app-accent px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-sm"
+                            >
+                                Open member list
+                            </button>
+                        </div>
+                        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                            {quickAnswerCards.map(card => (
+                                <div
+                                    key={card.label}
+                                    className={`rounded-xl border px-3 py-2 ${
+                                        card.tone === "emerald"
+                                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                            : card.tone === "amber"
+                                                ? "border-amber-200 bg-amber-50 text-amber-900"
+                                                : card.tone === "rose"
+                                                    ? "border-rose-200 bg-rose-50 text-rose-800"
+                                                    : "border-app-border bg-app-surface text-app-text"
+                                    }`}
+                                >
+                                    <p className="text-[9px] font-black uppercase tracking-widest opacity-70">{card.label}</p>
+                                    <p className="mt-1 text-lg font-black tabular-nums">{card.value}</p>
+                                    <p className="mt-1 text-[11px] font-semibold opacity-75">{card.helper}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Row 1: Key Information */}
                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                         {/* Contact Info */}
@@ -1181,14 +1289,25 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                         </div>
                     </div>
  
-                    {/* Economics & Analytics */}
-                    {financialContext?.analytics && (
-                        <div className="bg-app-surface rounded-lg shadow-sm border border-app-border overflow-hidden transition-colors">
-                            <div className="bg-app-surface-2 px-4 py-2 border-b border-app-border flex justify-between items-center">
-                                <h3 className="text-xs font-bold text-app-text uppercase tracking-wide">Economics & Analytics</h3>
-                            </div>
-                            <div className="p-4 grid grid-cols-1 lg:grid-cols-4 gap-6">
-                                <div className="lg:col-span-3">
+	                    {/* Manager financials */}
+	                    {financialContext?.analytics && (
+	                        <div className="bg-app-surface rounded-lg shadow-sm border border-app-border overflow-hidden transition-colors">
+	                            <div className="bg-app-surface-2 px-4 py-2 border-b border-app-border flex justify-between items-center">
+	                                <div>
+	                                    <h3 className="text-xs font-bold text-app-text uppercase tracking-wide">Manager Financials</h3>
+	                                    <p className="mt-0.5 text-[10px] font-semibold text-app-text-muted">Collapsed during daily member work.</p>
+	                                </div>
+	                                <button
+	                                    type="button"
+	                                    onClick={() => setShowManagerFinancials((value) => !value)}
+	                                    className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+	                                >
+	                                    {showManagerFinancials ? "Hide" : "Show"}
+	                                </button>
+	                            </div>
+	                            {showManagerFinancials && (
+	                            <div className="p-4 grid grid-cols-1 lg:grid-cols-4 gap-6">
+	                                <div className="lg:col-span-3">
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                         <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100">
                                             <div className="text-[10px] font-bold text-emerald-800 uppercase">Total Profit</div>
@@ -1260,9 +1379,10 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                                         )}
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-                    )}
+	                            </div>
+	                            )}
+	                        </div>
+	                    )}
 
                     {/* Members Table */}
                     <div className="bg-app-surface shadow-md border border-app-border rounded-lg overflow-hidden transition-colors">

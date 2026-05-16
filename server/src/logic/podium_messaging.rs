@@ -207,7 +207,19 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
     .fetch_one(pool)
     .await
     .unwrap_or(false);
-    let (
+    #[derive(sqlx::FromRow)]
+    struct PodiumMessagingHealthRow {
+        local_conversation_count: i64,
+        unmatched_conversation_count: i64,
+        last_webhook_received_at: Option<DateTime<Utc>>,
+        last_webhook_failure_at: Option<DateTime<Utc>>,
+        last_webhook_failure_reason: Option<String>,
+        last_message_at: Option<DateTime<Utc>>,
+        last_outbound_at: Option<DateTime<Utc>>,
+        last_sync_at: Option<DateTime<Utc>>,
+    }
+
+    let PodiumMessagingHealthRow {
         local_conversation_count,
         unmatched_conversation_count,
         last_webhook_received_at,
@@ -216,16 +228,7 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
         last_message_at,
         last_outbound_at,
         last_sync_at,
-    ): (
-        i64,
-        i64,
-        Option<DateTime<Utc>>,
-        Option<DateTime<Utc>>,
-        Option<String>,
-        Option<DateTime<Utc>>,
-        Option<DateTime<Utc>>,
-        Option<DateTime<Utc>>,
-    ) = sqlx::query_as(
+    } = sqlx::query_as(
         r#"
         SELECT
             (SELECT COUNT(*) FROM podium_conversation) AS local_conversation_count,

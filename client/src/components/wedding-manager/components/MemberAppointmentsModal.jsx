@@ -5,26 +5,33 @@ import SchedulerModal from './SchedulerModal';
 
 import { useModal } from '../hooks/useModal';
 
-const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }) => {
-    if (!isOpen || !member) return null;
+const localDateKey = (date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+};
 
+const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }) => {
     const { showConfirm, selectSalesperson } = useModal();
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isSchedulerOpen, setIsSchedulerOpen] = useState(false);
     const [apptType, setApptType] = useState('Measurement');
+    const [jumpDate, setJumpDate] = useState(null);
 
     // Find Party and Salesperson
-    const party = parties ? parties.find(p => p.id === member.partyId) : null;
+    const party = parties && member ? parties.find(p => p.id === member.partyId) : null;
     const partySalesperson = party ? party.salesperson : '';
 
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && member) {
             fetchAppointments();
         }
     }, [isOpen, member]);
 
     const fetchAppointments = async () => {
+        if (!member) return;
         setLoading(true);
         try {
             const allAppts = await api.getAppointments();
@@ -57,7 +64,7 @@ const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }
             // Log to Contact History
             const apptDate = new Date(apptToDelete.datetime).toLocaleDateString();
             const newNote = `Deleted appointment on ${apptDate} - ${deletedBy}`;
-            const historyEntry = { date: new Date().toISOString().split('T')[0], note: newNote, id: Date.now() };
+            const historyEntry = { date: localDateKey(new Date()), note: newNote, id: Date.now() };
 
             const updatedHistory = [...(member.contactHistory || []), historyEntry];
             await api.updateMember(member.id, { contactHistory: updatedHistory });
@@ -79,15 +86,21 @@ const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }
         setIsSchedulerOpen(true);
         setJumpDate(appt.datetime);
     };
-    const [jumpDate, setJumpDate] = useState(null);
+
+    if (!isOpen || !member) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-900/60 backdrop-blur-sm animate-fade-in">
             <div className="bg-app-surface dark:bg-navy-800 rounded-lg shadow-2xl w-full max-w-lg border border-app-border dark:border-navy-700 flex flex-col max-h-[80vh] transition-colors">
                 <div className="bg-navy-900 p-4 flex justify-between items-center text-white sticky top-0 z-10 rounded-t-lg">
-                    <h3 className="font-bold text-lg flex items-center gap-2">
-                        <Icon name="Calendar" /> Appointments: {member.name}
-                    </h3>
+                    <div>
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                            <Icon name="Calendar" /> Appointments: {member.name}
+                        </h3>
+                        <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-white/60">
+                            Wedding member context stays active while scheduling
+                        </p>
+                    </div>
                     <button type="button" onClick={onClose} className="hover:bg-app-surface-2/10 p-1 rounded-full transition-colors text-app-text-muted hover:text-white">
                         <Icon name="X" size={20} />
                     </button>

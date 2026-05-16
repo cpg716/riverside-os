@@ -98,7 +98,7 @@ export default function AlterationSchedulingDrawer({
               <Scissors className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-lg font-black text-app-text tracking-tight">Plan Work Day</h2>
+              <h2 className="text-lg font-black text-app-text tracking-tight">Plan & Schedule</h2>
               <p className="text-xs text-app-text-muted font-bold uppercase tracking-widest mt-0.5 flex items-center gap-1.5">
                 <User className="w-3 h-3" />
                 {customerName}

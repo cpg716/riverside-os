@@ -1629,9 +1629,9 @@ export default function Cart({
       <div className="relative z-0 flex min-h-0 min-w-0 flex-col border-r border-app-border">
         <div className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2 shadow-sm sm:px-4 lg:px-6 lg:py-3">
           <div className="space-y-2 rounded-2xl border border-app-border/90 bg-[color-mix(in_srgb,var(--app-surface)_90%,var(--app-surface-2))] p-2.5 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.22)]">
-          {/* Wedding link badge */}
-          {activeWeddingMember && (
-            <div className="flex items-center justify-between rounded-xl border border-app-accent/30 bg-app-accent/5 p-2 animate-in slide-in-from-top duration-300">
+            {/* Wedding link badge */}
+            {activeWeddingMember && (
+              <div className="flex items-center justify-between rounded-xl border border-app-accent/30 bg-app-accent/5 p-2 animate-in slide-in-from-top duration-300">
               <div className="flex min-w-0 items-center gap-2.5">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-app-accent text-white shadow-lg shadow-app-accent/20">
                   <WEDDINGS_ICON size={14} />
@@ -1656,8 +1656,41 @@ export default function Cart({
               >
                 <X size={16} />
               </button>
+              </div>
+            )}
+
+          {(selectedCustomer || parkedRows.length > 0 || pendingAlterationIntakes.length > 0) ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-2 text-[10px] font-bold text-app-text-muted">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-app-surface-2 px-2 py-1 font-black uppercase tracking-widest text-app-text">
+                <UserCircle size={12} aria-hidden />
+                {selectedCustomer
+                  ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}`
+                  : "Walk-in sale"}
+              </span>
+              {activeWeddingMember ? (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/25 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
+                  <WEDDINGS_ICON size={12} aria-hidden />
+                  {activeWeddingMember.first_name} {activeWeddingMember.last_name}
+                </span>
+              ) : null}
+              {parkedRows.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setParkedListOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 font-black uppercase tracking-widest text-app-text-muted hover:text-app-text"
+                >
+                  <Clock size={12} aria-hidden />
+                  {parkedRows.length} parked
+                </button>
+              ) : null}
+              {pendingAlterationIntakes.length > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/20 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
+                  <Scissors size={12} aria-hidden />
+                  {pendingAlterationIntakes.length} intake{pendingAlterationIntakes.length === 1 ? "" : "s"} pending checkout
+                </span>
+              ) : null}
             </div>
-          )}
+          ) : null}
 
           {/* Cashier + default salesperson on one row (after sign-in). Sign-in uses full-screen overlay (Back Office style). */}
           {checkoutOperator ? (
@@ -1770,7 +1803,11 @@ export default function Cart({
           </div>
 
           {/* Sale tools row */}
-          <div className="flex flex-wrap items-center gap-2 border-t border-app-border/50 pt-2">
+          <div className="grid gap-2 border-t border-app-border/50 pt-2 xl:grid-cols-[1.35fr_1fr_auto]">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/60 bg-app-surface-2/50 p-2">
+              <span className="w-full text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:w-auto">
+                Customer work
+              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -1830,6 +1867,11 @@ export default function Cart({
                   Exchange / Return
                 </span>
               </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/60 bg-app-surface-2/50 p-2">
+              <span className="w-full text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:w-auto">
+                Sale options
+              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -1845,7 +1887,6 @@ export default function Cart({
                   Layaway
                 </span>
               </button>
-              <div className="min-w-[8px] flex-1" aria-hidden="true" />
               <button
                 type="button"
                 data-testid="pos-action-gift-card"
@@ -1856,6 +1897,31 @@ export default function Cart({
                 <GIFT_CARDS_ICON size={16} className="shrink-0" aria-hidden />
                 Gift Card
               </button>
+              <button
+                type="button"
+                onClick={() => setOrderReviewOpen(true)}
+                disabled={lines.length === 0}
+                title="Set rush and pickup/order details. Use Shipping to ship this current sale."
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-success/35 bg-app-success/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-20"
+              >
+                <Zap size={16} className="shrink-0" aria-hidden />
+                Options
+              </button>
+              <button
+                type="button"
+                disabled={!selectedCustomer}
+                onClick={() => setOrderLoadOpen(true)}
+                title={selectedCustomer ? "View customer open orders" : "Select a customer to view open orders"}
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-info/35 bg-app-info/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-info transition-all hover:bg-app-info hover:text-white disabled:opacity-20"
+              >
+                <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
+                Orders
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/60 bg-app-surface-2/50 p-2">
+              <span className="w-full text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:w-auto xl:w-full">
+                Hold / reset
+              </span>
               <button
                 type="button"
                 disabled={lines.length === 0}
@@ -1878,26 +1944,7 @@ export default function Cart({
                 <RotateCcw size={16} />
                 Clear Sale
               </button>
-              <button
-                type="button"
-                onClick={() => setOrderReviewOpen(true)}
-                disabled={lines.length === 0}
-                title="Set rush and pickup/order details. Use Shipping to ship this current sale."
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-success/35 bg-app-success/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-20"
-              >
-                <Zap size={16} className="shrink-0" aria-hidden />
-                Options
-              </button>
-              <button
-                type="button"
-                disabled={!selectedCustomer}
-                onClick={() => setOrderLoadOpen(true)}
-                title={selectedCustomer ? "View customer open orders" : "Select a customer to view open orders"}
-                className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-info/35 bg-app-info/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-info transition-all hover:bg-app-info hover:text-white disabled:opacity-20"
-              >
-                <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
-                Orders
-              </button>
+            </div>
           </div>
           {pendingAlterationIntakes.length > 0 ? (
             <div
@@ -1911,7 +1958,7 @@ export default function Cart({
                   {pendingAlterationIntakes.length === 1 ? "" : "s"} attached to current cart
                 </span>
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Will link to checkout
+                  Next: finish checkout to create tailor queue work
                 </span>
               </div>
             </div>
@@ -2065,11 +2112,13 @@ export default function Cart({
                           {centsToFixed2(parseMoneyToCents(m.balance_due || "0"))}
                         </p>
                      </div>
-                     <button 
+                     <button
+                       type="button"
+                       aria-label={`Remove ${m.first_name} ${m.last_name} from wedding party payment`}
                        onClick={() => setDisbursementMembers(prev => prev.filter(p => p.id !== m.id))}
-                    className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-app-danger/90 text-white shadow-lg opacity-0 transition-opacity group-hover:opacity-100"
+                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-danger/30 bg-app-danger/10 text-app-danger shadow-sm transition-colors hover:bg-app-danger hover:text-white"
                      >
-                       <X size={12} />
+                       <X size={16} />
                      </button>
                   </div>
                 ))}

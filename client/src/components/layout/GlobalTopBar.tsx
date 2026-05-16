@@ -215,7 +215,7 @@ export default function GlobalTopBar({
           className={cn(
             "hidden items-center border-r border-app-border empty:hidden",
             onShellReturn && !isPosVariant ? "hidden" :
-            isPosVariant ? "gap-2 px-3 xl:flex" : "gap-4 px-4 2xl:flex",
+            isPosVariant ? "gap-2 px-2 min-[720px]:flex xl:px-3" : "gap-4 px-4 2xl:flex",
           )}
         >
           {slotContent}
@@ -327,7 +327,7 @@ export default function GlobalTopBar({
         </div>
 
         {/* Status Indicators */}
-        <div className="hidden flex-none items-center gap-2 overflow-visible xl:flex">
+        <div className="flex flex-none items-center gap-1 overflow-visible xl:gap-2">
           {!isOnline && (
             <div
               className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-700 dark:text-rose-200"

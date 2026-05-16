@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   Activity,
   AlertTriangle,
+  Bell,
   Bug,
   CheckCircle2,
   ClipboardList,
@@ -149,6 +150,38 @@ type BugOverviewRow = {
   oldest_linked_alert_at: string | null;
 };
 
+type NotificationHealth = {
+  summary: {
+    active_inbox_rows: number;
+    unread_rows: number;
+    stale_unread_rows: number;
+    history_rows: number;
+    canonical_notifications_24h: number;
+    staff_rows_24h: number;
+  };
+  generator_runs: Array<{
+    generator_key: string;
+    last_started_at: string;
+    last_finished_at: string;
+    last_success_at: string | null;
+    last_error_at: string | null;
+    last_status: "ok" | "failed";
+    last_error: string | null;
+    consecutive_failures: number;
+  }>;
+  volume_by_kind_7d: Array<{
+    semantic_kind: string;
+    kind: string;
+    canonical_count: number;
+    recipient_count: number;
+  }>;
+  stale_unread_by_kind: Array<{
+    semantic_kind: string;
+    unread_count: number;
+    oldest_created_at: string;
+  }>;
+};
+
 type GuardedActionKey =
   | "backup.trigger_local"
   | "help.reindex_search"
@@ -163,7 +196,8 @@ type SupportFeedKey =
   | "stations"
   | "alerts"
   | "audit"
-  | "bugs";
+  | "bugs"
+  | "notifications";
 
 type SupportFeedErrors = Partial<Record<SupportFeedKey, boolean>>;
 
@@ -172,6 +206,18 @@ function fmtTs(v: string | null): string {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return v;
   return d.toLocaleString();
+}
+
+function fmtCount(v: number | null | undefined): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(
+    v ?? 0,
+  );
+}
+
+function formatNotificationKindLabel(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function severityClass(severity: string): string {
@@ -331,6 +377,8 @@ export default function RosDevCenterPanel({
   const [alerts, setAlerts] = useState<AlertEventRow[]>([]);
   const [auditRows, setAuditRows] = useState<ActionAuditRow[]>([]);
   const [bugsOverview, setBugsOverview] = useState<BugOverviewRow[]>([]);
+  const [notificationHealth, setNotificationHealth] =
+    useState<NotificationHealth | null>(null);
   const [runtimeDiagnostics, setRuntimeDiagnostics] =
     useState<RuntimeDiagnosticsSnapshot | null>(null);
   const [e2eHealth, setE2eHealth] = useState<E2eHealthSnapshot | null>(null);
@@ -407,6 +455,7 @@ export default function RosDevCenterPanel({
         fetchJson<AlertEventRow[]>("alerts", "/api/ops/alerts"),
         fetchJson<ActionAuditRow[]>("audit", "/api/ops/audit-log"),
         fetchJson<BugOverviewRow[]>("bugs", "/api/ops/bugs/overview"),
+        fetchJson<NotificationHealth>("notifications", "/api/notifications/health"),
       ]);
 
       const nextErrors: SupportFeedErrors = {};
@@ -423,6 +472,9 @@ export default function RosDevCenterPanel({
         if (result.key === "alerts") setAlerts(result.data as AlertEventRow[]);
         if (result.key === "audit") setAuditRows(result.data as ActionAuditRow[]);
         if (result.key === "bugs") setBugsOverview(result.data as BugOverviewRow[]);
+        if (result.key === "notifications") {
+          setNotificationHealth(result.data as NotificationHealth);
+        }
       }
       setFeedErrors(nextErrors);
     } finally {
@@ -776,6 +828,162 @@ export default function RosDevCenterPanel({
             ? ` Last checked: ${fmtTs(runtimeDiagnostics.generated_at)}`
             : ""}
         </p>
+      </section>
+
+      <section className="ui-card p-6">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Bell className="h-5 w-5 text-app-accent" />
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Notification Health
+              </h3>
+              <p className="mt-1 text-xs text-app-text-muted">
+                Generator runs, stale alerts, and delivery noise.
+              </p>
+            </div>
+          </div>
+          <span
+            className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+              notificationHealth?.generator_runs.some((r) => r.last_status === "failed")
+                ? "border-app-danger/30 bg-app-danger/12 text-app-danger"
+                : "border-app-success/30 bg-app-success/12 text-app-success"
+            }`}
+          >
+            {notificationHealth?.generator_runs.filter((r) => r.last_status === "failed").length ??
+              0}{" "}
+            failing
+          </span>
+        </div>
+        {feedErrors.notifications ? (
+          <div className="mb-4">
+            <DegradedNotice>
+              Notification health could not refresh. Staff alerts remain usable.
+            </DegradedNotice>
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[
+            { label: "Unread", value: notificationHealth?.summary.unread_rows },
+            {
+              label: "Stale unread",
+              value: notificationHealth?.summary.stale_unread_rows,
+            },
+            {
+              label: "Active rows",
+              value: notificationHealth?.summary.active_inbox_rows,
+            },
+            {
+              label: "Generated 24h",
+              value: notificationHealth?.summary.canonical_notifications_24h,
+            },
+          ].map(({ label, value }) => (
+            <div key={label} className="ui-metric-cell ui-tint-neutral p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                {label}
+              </p>
+              <p className="mt-2 text-xl font-black text-app-text">
+                {fmtCount(value)}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="ui-metric-cell ui-tint-neutral p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Generator status
+            </p>
+            <div className="mt-3 space-y-3">
+              {(notificationHealth?.generator_runs ?? []).slice(0, 5).map((row) => (
+                <div
+                  key={row.generator_key}
+                  className="flex items-start justify-between gap-3 text-xs"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-bold text-app-text">
+                      {formatNotificationKindLabel(row.generator_key)}
+                    </p>
+                    <p className="truncate text-[11px] text-app-text-muted">
+                      {row.last_status === "failed"
+                        ? row.last_error || "Generator failed"
+                        : `Last ran ${fmtTs(row.last_finished_at)}`}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-wider ${
+                      row.last_status === "failed"
+                        ? "border-app-danger/30 bg-app-danger/12 text-app-danger"
+                        : "border-app-success/30 bg-app-success/12 text-app-success"
+                    }`}
+                  >
+                    {row.last_status === "failed"
+                      ? `${row.consecutive_failures}x fail`
+                      : "OK"}
+                  </span>
+                </div>
+              ))}
+              {!notificationHealth?.generator_runs.length ? (
+                <p className="text-xs text-app-text-muted">
+                  No generator run records yet.
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="ui-metric-cell ui-tint-neutral p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Highest volume
+            </p>
+            <div className="mt-3 space-y-2">
+              {(notificationHealth?.volume_by_kind_7d ?? []).slice(0, 5).map((row) => (
+                <div
+                  key={`${row.kind}:${row.semantic_kind}`}
+                  className="flex justify-between gap-3 text-xs"
+                >
+                  <span className="truncate text-app-text">
+                    {formatNotificationKindLabel(row.semantic_kind)}
+                  </span>
+                  <span className="font-bold text-app-text-muted">
+                    {fmtCount(row.recipient_count)} rows
+                  </span>
+                </div>
+              ))}
+              {!notificationHealth?.volume_by_kind_7d.length ? (
+                <p className="text-xs text-app-text-muted">
+                  No notification volume in the last 7 days.
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="ui-metric-cell ui-tint-neutral p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Stale unread
+            </p>
+            <div className="mt-3 space-y-2">
+              {(notificationHealth?.stale_unread_by_kind ?? []).slice(0, 5).map((row) => (
+                <div
+                  key={row.semantic_kind}
+                  className="flex justify-between gap-3 text-xs"
+                >
+                  <span className="truncate text-app-text">
+                    {formatNotificationKindLabel(row.semantic_kind)}
+                  </span>
+                  <span className="font-bold text-app-warning">
+                    {fmtCount(row.unread_count)}
+                  </span>
+                </div>
+              ))}
+              {!notificationHealth?.stale_unread_by_kind.length ? (
+                <p className="text-xs text-app-text-muted">
+                  No stale unread alerts.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="ui-card p-6">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, Printer, Plus, Clock, User, Trash, Scissors, Ruler, ShoppingBag, Search, X } from 'lucide-react';
+import { getBaseUrl } from '../../lib/apiConfig';
 import { weddingApi } from '../../lib/weddingApi';
 import AppointmentModal from './AppointmentModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
@@ -7,6 +8,8 @@ import { formatPhone } from '../../lib/utils.ts';
 import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+
+const baseUrl = getBaseUrl();
 
 interface PrintableRow {
   key: string;
@@ -44,6 +47,63 @@ const printStyles = () => `
 const formatApptDate = (date: Date) => {
   return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 };
+
+const localDateKey = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const appointmentLocalDateKey = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
+  return localDateKey(date);
+};
+
+const appointmentLocalTimeKey = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso.slice(11, 16);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+};
+
+const isAppointmentInSlot = (appt: Appointment, dateStr: string, time: string) =>
+  appointmentLocalDateKey(appt.datetime) === dateStr &&
+  appointmentLocalTimeKey(appt.datetime) === time;
+
+const normalizeAppointmentRow = (row: Record<string, unknown>): Appointment => ({
+  id: String(row.id ?? ""),
+  datetime: String(row.datetime ?? row.starts_at ?? ""),
+  status: String(row.status ?? "Scheduled"),
+  type: String(row.type ?? row.appointment_type ?? "Measurement"),
+  customerName:
+    (row.customerName as string | null | undefined) ??
+    (row.customer_display_name as string | null | undefined) ??
+    null,
+  phone: (row.phone as string | null | undefined) ?? null,
+  salesperson: (row.salesperson as string | null | undefined) ?? null,
+  notes: (row.notes as string | null | undefined) ?? null,
+  partyId:
+    row.partyId != null
+      ? String(row.partyId)
+      : row.wedding_party_id != null
+        ? String(row.wedding_party_id)
+        : null,
+  memberId:
+    row.memberId != null
+      ? String(row.memberId)
+      : row.wedding_member_id != null
+        ? String(row.wedding_member_id)
+        : null,
+  customerId:
+    row.customerId != null
+      ? String(row.customerId)
+      : row.customer_id != null
+        ? String(row.customer_id)
+        : null,
+  customer_display_name: (row.customer_display_name as string | null | undefined) ?? null,
+  appointment_type: (row.appointment_type as string | null | undefined) ?? null,
+});
 
 export interface Appointment {
   id: string;
@@ -83,6 +143,8 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Appointment[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchAppointments = useCallback(async () => {
     try {
@@ -90,18 +152,18 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
       const start = new Date(selectedDate);
 
       if (viewMode === 'day') {
-        const dateStr = start.toISOString().split('T')[0];
+        const dateStr = localDateKey(start);
         startStr = `${dateStr}T00:00:00`;
         endStr = `${dateStr}T23:59:59`;
       } else {
         const day = start.getDay();
         const diff = start.getDate() - day + (day === 0 ? -6 : 1);
         start.setDate(diff);
-        startStr = start.toISOString().split('T')[0] + 'T00:00:00';
+        startStr = localDateKey(start) + 'T00:00:00';
 
         const end = new Date(start);
         end.setDate(start.getDate() + 6);
-        endStr = end.toISOString().split('T')[0] + 'T23:59:59';
+        endStr = localDateKey(end) + 'T23:59:59';
       }
 
       const data = await weddingApi.getAppointments({
@@ -110,24 +172,35 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
         headers: wmHeaders,
       });
       setAppointments(data);
+      setLoadError(null);
     } catch (err) {
       console.error("Failed to fetch appointments:", err);
+      setLoadError("Appointments could not refresh. Check the connection and try again.");
     }
   }, [selectedDate, viewMode, wmHeaders]);
 
   const runSearch = useCallback(async (q: string) => {
     if (!q.trim()) {
       setSearchResults([]);
+      setSearchFailed(false);
       return;
     }
     try {
-      const res = await fetch(`/api/weddings/appointments/search?q=${encodeURIComponent(q.trim())}`, {
+      const res = await fetch(`${baseUrl}/api/weddings/appointments/search?q=${encodeURIComponent(q.trim())}`, {
         headers: wmHeaders,
       });
       if (res.ok) {
-        setSearchResults(await res.json());
+        const rows = (await res.json()) as Record<string, unknown>[];
+        setSearchResults(rows.map(normalizeAppointmentRow));
+        setSearchFailed(false);
+        return;
       }
-    } catch { /* ignore */ }
+      setSearchResults([]);
+      setSearchFailed(true);
+    } catch {
+      setSearchResults([]);
+      setSearchFailed(true);
+    }
   }, [wmHeaders]);
 
   useEffect(() => {
@@ -185,7 +258,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   const handleToday = () => setSelectedDate(new Date());
 
   const handleAddAppt = (timeSlot?: string) => {
-    const dateStr = selectedDate.toISOString().split('T')[0];
+    const dateStr = localDateKey(selectedDate);
     setSelectedAppt({
       datetime: `${dateStr}T${timeSlot || '10:00'}:00`,
       status: 'Scheduled'
@@ -194,7 +267,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   };
 
   const handleAddApptAtDate = (date: Date, timeSlot?: string) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = localDateKey(date);
     setSelectedAppt({
       datetime: `${dateStr}T${timeSlot || '10:00'}:00`,
       status: 'Scheduled'
@@ -251,10 +324,10 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
 
   const printableRows = useMemo<PrintableRow[]>(() => {
     if (viewMode === "day") {
-      const dateStr = selectedDate.toISOString().split("T")[0];
+      const dateStr = localDateKey(selectedDate);
       const dayRows: PrintableRow[] = [];
       timeSlots.forEach((time) => {
-        const slotAppts = appointments.filter((a) => a.datetime === `${dateStr}T${time}:00`);
+        const slotAppts = appointments.filter((a) => isAppointmentInSlot(a, dateStr, time));
         if (slotAppts.length === 0) {
           dayRows.push({
             key: `${selectedDate.toISOString()}:${time}`,
@@ -289,9 +362,9 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
         month: "numeric",
         day: "numeric",
       });
-      const dateStr = date.toISOString().split("T")[0];
+      const dateStr = localDateKey(date);
       timeSlots.forEach((time) => {
-        const slotAppts = appointments.filter((a) => a.datetime === `${dateStr}T${time}:00`);
+        const slotAppts = appointments.filter((a) => isAppointmentInSlot(a, dateStr, time));
         if (slotAppts.length === 0) {
           weekRows.push({
             key: `${dateStr}:${time}:empty`,
@@ -455,7 +528,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             <input
               type="date"
               className="min-w-0 bg-transparent px-3 text-xs font-bold text-app-text outline-none"
-              value={selectedDate.toISOString().split('T')[0]}
+              value={localDateKey(selectedDate)}
               onChange={(e) => {
                 if (e.target.value) {
                   const [y, m, d] = e.target.value.split('-').map(Number);
@@ -512,7 +585,11 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             {searchQuery && (
               <button
                 type="button"
-                onClick={() => { setSearchQuery(""); setSearchResults([]); }}
+                onClick={() => {
+                  setSearchQuery("");
+                  setSearchResults([]);
+                  setSearchFailed(false);
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-app-text-muted hover:text-app-text"
               >
                 <X size={14} />
@@ -528,7 +605,11 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                   <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Search Results</span>
                   <button onClick={() => setIsSearching(false)} className="text-app-text-muted hover:text-app-text"><X size={14}/></button>
                 </div>
-                {searchResults.length === 0 ? (
+                {searchFailed ? (
+                  <p className="rounded-xl border border-app-warning/30 bg-app-warning/10 p-4 text-center text-xs font-semibold text-app-warning">
+                    Appointment search is unavailable right now.
+                  </p>
+                ) : searchResults.length === 0 ? (
                   <p className="p-4 text-center text-xs text-app-text-muted italic">No matching appointments found.</p>
                 ) : (
                   <div className="space-y-2">
@@ -547,7 +628,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                           <div>
                             <div className="text-xs font-black uppercase text-app-text">{a.customerName || a.customer_display_name || 'Anonymous'}</div>
                             <div className="text-[9px] font-bold text-app-text-muted mt-0.5">
-                              {new Date(a.datetime).toLocaleDateString()} @ {new Date(a.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {a.appointment_type}
+                              {new Date(a.datetime).toLocaleDateString()} @ {new Date(a.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {a.type || a.appointment_type}
                             </div>
                           </div>
                           <div className="text-[9px] font-black uppercase text-app-accent opacity-0 group-hover/res:opacity-100 transition-opacity">Jump to Day →</div>
@@ -581,12 +662,17 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
 
       {/* Main Grid */}
       <div className="flex-1 overflow-auto no-scrollbar bg-app-bg/50 p-4 print:p-0">
+        {loadError ? (
+          <div className="mx-auto mb-4 max-w-5xl rounded-xl border border-app-warning/30 bg-app-warning/10 px-4 py-3 text-sm font-semibold text-app-warning">
+            {loadError}
+          </div>
+        ) : null}
         {viewMode === 'day' ? (
           <div className="mx-auto max-w-5xl rounded-2xl border border-app-border bg-app-surface shadow-2xl shadow-black/10 overflow-hidden print:border-0 print:shadow-none">
             <div className={`grid ${isCompactLayout ? "grid-cols-[72px_1fr]" : "grid-cols-[100px_1fr]"} divide-y divide-app-border/40`}>
               {timeSlots.map(time => {
-                const dateStr = selectedDate.toISOString().split('T')[0];
-                const slotAppts = appointments.filter(a => a.datetime === `${dateStr}T${time}:00`);
+                const dateStr = localDateKey(selectedDate);
+                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time));
                 const hour = parseInt(time.split(':')[0]);
                 const displayTime = `${hour > 12 ? hour - 12 : hour}:${time.split(':')[1]} ${hour >= 12 ? 'PM' : 'AM'}`;
 
@@ -650,8 +736,8 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                                 {displayTime}
                             </div>
                             {weekDates.map(date => {
-                                const dateStr = date.toISOString().split('T')[0];
-                                const slotAppts = appointments.filter(a => a.datetime === `${dateStr}T${time}:00`);
+                                const dateStr = localDateKey(date);
+                                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time));
                                 const isToday = date.toDateString() === new Date().toDateString();
 
                                 return (
@@ -704,9 +790,12 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
 };
 
 const AppointmentCard: React.FC<{ appt: Appointment; onEdit: (a: Appointment) => void; onDelete: (e: React.MouseEvent, id: string) => void, isCompact?: boolean }> = ({ appt, onEdit, onDelete, isCompact }) => {
-  const isMeasurement = appt.type === 'Measurement';
-  const isFitting = appt.type === 'Fitting';
-  const isPickup = appt.type === 'Pickup';
+  const appointmentType = appt.type || appt.appointment_type || "Service";
+  const normalizedType = appointmentType.toLowerCase();
+  const customerName = appt.customerName || appt.customer_display_name || "Anonymous";
+  const isMeasurement = normalizedType === 'measurement';
+  const isFitting = normalizedType === 'fitting';
+  const isPickup = normalizedType === 'pickup';
   
   let colorClass = "bg-app-surface-3 border-app-border text-app-text";
   let icon = <Clock size={12} />;
@@ -731,9 +820,9 @@ const AppointmentCard: React.FC<{ appt: Appointment; onEdit: (a: Appointment) =>
       className={`group/card relative flex flex-col justify-between rounded-xl border-l-[6px] p-3 shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98] cursor-pointer ${isCompact ? 'min-w-0 max-w-full' : 'min-w-[180px] max-w-[240px]'} ${colorClass}`}
     >
       <div className="min-w-0">
-        <h4 className="truncate text-xs font-black uppercase tracking-tight">{appt.customerName || 'Anonymous'}</h4>
+        <h4 className="truncate text-xs font-black uppercase tracking-tight">{customerName}</h4>
         <div className="mt-1 flex items-center gap-1.5 text-[10px] font-bold opacity-80">
-          {icon} <span>{appt.type}</span>
+          {icon} <span>{appointmentType}</span>
           {!isCompact && appt.phone && <span className="opacity-40">• {formatPhone(appt.phone)}</span>}
         </div>
         {!isCompact && appt.salesperson && (

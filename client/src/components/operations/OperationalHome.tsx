@@ -1319,7 +1319,7 @@ export default function OperationalHome({
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
                <ShieldCheck size={64} className="text-app-danger opacity-20" />
                <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
-                 Access restricted. Directive <span className="text-app-text">register.reports</span> is required to access the daily sales matrix.
+	                 Daily sales access is required to view the sales matrix.
                </p>
             </div>
           ) : (
@@ -1354,7 +1354,7 @@ export default function OperationalHome({
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
               <ShieldCheck size={64} className="text-app-danger opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
-                Access restricted. Directive <span className="text-app-text">customers.hub_view</span> is required for Podium inbox access.
+	                Customer messaging access is required to open the Podium inbox.
               </p>
             </div>
           ) : (
@@ -1377,7 +1377,7 @@ export default function OperationalHome({
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
               <ShieldCheck size={64} className="text-app-danger opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
-                Access restricted. Directive <span className="text-app-text">customers.hub_view</span> is required for mailbox access.
+	                Customer messaging access is required to open the mailbox.
               </p>
             </div>
           ) : (
@@ -1398,7 +1398,7 @@ export default function OperationalHome({
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
               <ShieldCheck size={64} className="text-app-danger opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
-                Access restricted. Directive <span className="text-app-text">orders.view</span> is required to monitor the pickup queue.
+	                Order access is required to monitor the pickup queue.
               </p>
             </div>
           ) : (
@@ -1423,7 +1423,7 @@ export default function OperationalHome({
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
               <ShieldCheck size={64} className="text-app-danger opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
-                Access restricted. Directive <span className="text-app-text">reviews.view</span> is required to monitor social proof.
+	                Reviews access is required to monitor customer feedback.
               </p>
             </div>
           ) : (
@@ -1768,7 +1768,7 @@ export default function OperationalHome({
         <div className="xl:col-span-8 space-y-6">
           <DashboardGridCard
             title="Action Board"
-            subtitle="Today's priority tasks and directives"
+            subtitle="Today's priority tasks and follow-ups"
             icon={Zap}
           >
             {actionBoardLoadError ? (

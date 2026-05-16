@@ -18,7 +18,7 @@ use crate::logic::backups::BackupManager;
 use crate::logic::help_corpus;
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::integration_credentials;
-use crate::logic::notifications::{insert_app_notification_deduped, staff_ids_with_permission};
+use crate::logic::notifications::{staff_ids_with_permission, upsert_app_notification_by_dedupe};
 use crate::logic::shippo::load_effective_shippo_config;
 use crate::logic::weather::load_store_weather_settings;
 
@@ -1070,6 +1070,7 @@ struct ExistingAlertRow {
 #[derive(Debug, Clone)]
 struct OpenAlertSignal {
     alert_id: Uuid,
+    dedupe_key: String,
     rule: AlertRuleConfig,
     title: String,
     body: String,
@@ -1154,7 +1155,8 @@ async fn emit_open_alert_notifications(
     if signal.rule.channel_inbox {
         let target = staff_ids_with_permission(pool, OPS_DEV_CENTER_VIEW).await?;
         if !target.is_empty() {
-            let nid = insert_app_notification_deduped(
+            let notification_dedupe = format!("ops_alert:{}", signal.dedupe_key);
+            let nid = upsert_app_notification_by_dedupe(
                 pool,
                 "ops_alert",
                 &signal.title,
@@ -1168,10 +1170,9 @@ async fn emit_open_alert_notifications(
                 }),
                 "ops.dev_center",
                 json!({ "mode": "staff_ids", "staff_ids": target.clone() }),
-                None,
+                &notification_dedupe,
             )
-            .await?
-            .ok_or_else(|| sqlx::Error::Protocol("ops alert notification insert skipped".into()))?;
+            .await?;
 
             crate::logic::notifications::fan_out_notification_to_staff_ids(pool, nid, &target)
                 .await?;
@@ -1358,6 +1359,7 @@ async fn upsert_open_alert(
 
         return Ok(Some(OpenAlertSignal {
             alert_id: existing_row.id,
+            dedupe_key: dedupe_key.to_string(),
             rule,
             title: title_s,
             body: body_s,
@@ -1389,6 +1391,7 @@ async fn upsert_open_alert(
 
     Ok(Some(OpenAlertSignal {
         alert_id,
+        dedupe_key: dedupe_key.to_string(),
         rule,
         title: title_s,
         body: body_s,

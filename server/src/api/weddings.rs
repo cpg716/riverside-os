@@ -561,6 +561,10 @@ pub struct CreateAppointmentRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateAppointmentRequest {
+    #[serde(default)]
+    pub wedding_member_id: Option<Uuid>,
+    #[serde(default)]
+    pub customer_id: Option<Uuid>,
     pub customer_display_name: Option<String>,
     pub phone: Option<String>,
     pub appointment_type: Option<String>,
@@ -2078,6 +2082,18 @@ async fn update_appointment(
     let mut sep = qb.separated(", ");
     let mut has_updates = false;
 
+    if let Some(mid) = body.wedding_member_id {
+        let row: Option<(Uuid, Uuid)> =
+            sqlx::query_as("SELECT wedding_party_id, id FROM wedding_members WHERE id = $1")
+                .bind(mid)
+                .fetch_optional(&state.db)
+                .await?;
+        let (party_id, real_mid) = row.ok_or(WeddingError::MemberNotFound)?;
+        sep.push("wedding_party_id = ").push_bind(party_id);
+        sep.push("wedding_member_id = ").push_bind(real_mid);
+        has_updates = true;
+    }
+
     macro_rules! set_opt {
         ($field:literal, $value:expr) => {
             if let Some(v) = $value {
@@ -2087,6 +2103,7 @@ async fn update_appointment(
         };
     }
 
+    set_opt!("customer_id", body.customer_id);
     set_opt!("customer_display_name", body.customer_display_name);
     set_opt!("phone", body.phone);
     set_opt!("appointment_type", body.appointment_type);

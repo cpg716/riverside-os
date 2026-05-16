@@ -210,18 +210,19 @@ export default function PosShell({
     }
 
     setSlotContent(
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => setManagerMode(!managerMode)}
-          className={`h-10 px-4 rounded-xl border-2 flex items-center gap-2 text-[9px] font-black uppercase tracking-widest italic transition-all active:scale-95 ${
+          className={`h-10 px-3 xl:px-4 rounded-xl border-2 flex items-center gap-2 text-[9px] font-black uppercase tracking-widest italic transition-all active:scale-95 ${
             managerMode
               ? "border-amber-400/40 bg-amber-400/10 text-amber-500 shadow-glow-amber-xs"
               : "border-app-border bg-app-surface-2 text-app-text-muted"
           }`}
         >
           {managerMode ? <ShieldCheck size={16} strokeWidth={3} /> : <ShieldAlert size={16} />}
-          <span>{managerMode ? "Manager Access" : "Staff Access"}</span>
+          <span className="hidden xl:inline">{managerMode ? "Manager Access" : "Staff Access"}</span>
+          <span className="xl:hidden">{managerMode ? "Manager" : "Staff"}</span>
         </button>
 
         {managerMode &&
@@ -232,7 +233,7 @@ export default function PosShell({
             <button
               type="button"
               onClick={() => setShiftHandoffOpen(true)}
-              className="h-10 px-4 rounded-xl border-2 border-app-border bg-app-surface-2 text-[9px] font-black uppercase tracking-widest italic text-app-text-muted hover:border-app-accent hover:text-app-text transition-all active:scale-95"
+              className="h-10 px-3 xl:px-4 rounded-xl border-2 border-app-border bg-app-surface-2 text-[9px] font-black uppercase tracking-widest italic text-app-text-muted hover:border-app-accent hover:text-app-text transition-all active:scale-95"
             >
               Handoff
             </button>
@@ -242,20 +243,22 @@ export default function PosShell({
           <button
             type="button"
             onClick={() => setShowCloseModal(true)}
-            className="h-10 px-4 rounded-xl border-2 border-app-warning/30 bg-app-warning/10 text-[9px] font-black uppercase tracking-widest italic text-app-warning hover:border-app-warning/50 hover:bg-app-warning/15 transition-all active:scale-95"
+            className="h-10 px-3 xl:px-4 rounded-xl border-2 border-app-warning/30 bg-app-warning/10 text-[9px] font-black uppercase tracking-widest italic text-app-warning hover:border-app-warning/50 hover:bg-app-warning/15 transition-all active:scale-95"
           >
-            Close Register
+            <span className="hidden xl:inline">Close Register</span>
+            <span className="xl:hidden">Close</span>
           </button>
         )}
 
         {isRegisterOpen && sessionId && registerLane != null && registerLane !== 1 && (
-          <div className="h-10 px-4 rounded-xl border border-app-border bg-app-surface-2 text-[9px] font-black uppercase tracking-widest italic text-app-text-muted flex items-center">
-            Close on Register #1
+          <div className="h-10 px-3 xl:px-4 rounded-xl border border-app-border bg-app-surface-2 text-[9px] font-black uppercase tracking-widest italic text-app-text-muted flex items-center">
+            <span className="hidden xl:inline">Close on Register #1</span>
+            <span className="xl:hidden">Close on #1</span>
           </div>
         )}
 
         {isRegisterOpen && registerLane != null && (
-          <div className="px-4 h-8 flex items-center gap-2 rounded-full bg-app-surface-2 border border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted italic shadow-inner">
+          <div className="hidden px-4 h-8 xl:flex items-center gap-2 rounded-full bg-app-surface-2 border border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted italic shadow-inner">
             <REGISTER_ICON size={APP_ICON_SIZES.badge} className="text-app-accent" /> Register #{registerLane}
           </div>
         )}
@@ -295,7 +298,7 @@ export default function PosShell({
 
         <div className="flex flex-1 flex-col workspace-snap" onClick={(e) => { if (e.target !== e.currentTarget) return; if (!collapsed) onToggleCollapse(); }}>
           {activePosTab === "pos-dashboard" && (!isRegisterOpen || !sessionId ? (
-              <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Matrix Inactive: Open till to initialize dashboard.</div>
+              <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-40">Open register to view the sales dashboard.</div>
             ) : (
               <RegisterDashboard 
                 registerOrdinal={registerOrdinal} 
@@ -355,7 +358,7 @@ export default function PosShell({
           )}
 
           {activePosTab === "tasks" && isRegisterOpen && sessionId ? ( <RegisterTasksPanel /> ) : activePosTab === "tasks" ? (
-            <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Matrix Inactive: Open till to initialize task stream.</div>
+            <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-40">Open register to view register tasks.</div>
           ) : null}
 
           {activePosTab === "customers" && (

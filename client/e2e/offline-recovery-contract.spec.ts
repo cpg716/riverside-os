@@ -171,9 +171,9 @@ test.describe("offline checkout recovery contract", () => {
     await expect(closeButton).toBeVisible({ timeout: 30_000 });
     await closeButton.click({ force: true });
     const dialog = page.getByRole("dialog").filter({
-      hasText: /checkout recovery required|resolve pending or blocked checkout recovery/i,
+      hasText: /offline recovery blocker|resolve pending or blocked checkout recovery/i,
     }).first();
-    await expect(dialog.getByText(/checkout recovery required/i)).toBeVisible({
+    await expect(dialog.getByText(/offline recovery blocker/i)).toBeVisible({
       timeout: 15_000,
     });
     await expect(dialog.getByText(/need manager recovery/i)).toBeVisible();

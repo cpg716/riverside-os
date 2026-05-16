@@ -152,7 +152,7 @@ const SEARCH_SHORTCUTS: Record<SearchShortcutIntent, SearchShortcut> = {
     intent: "inventory_cleanup",
     key: "shortcut:inventory_cleanup",
     title: "Inventory Cleanup Review",
-    subtitle: "Open the inventory intelligence review.",
+    subtitle: "Open stock guidance and reorder suggestions.",
     tab: "inventory",
     section: "intelligence",
   },
@@ -307,6 +307,7 @@ export default function GlobalCommandSearch({
   const [weddings, setWeddings] = useState<WeddingSearchHit[]>([]);
   const [alterations, setAlterations] = useState<AlterationSearchHit[]>([]);
   const [rosieShortcutIds, setRosieShortcutIds] = useState<SearchShortcutIntent[]>([]);
+  const [failedSources, setFailedSources] = useState<string[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [commandHintVisible, setCommandHintVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -331,6 +332,7 @@ export default function GlobalCommandSearch({
     setWeddings([]);
     setAlterations([]);
     setRosieShortcutIds([]);
+    setFailedSources([]);
     setLoading(false);
   }, []);
 
@@ -505,6 +507,7 @@ export default function GlobalCommandSearch({
       setWeddings([]);
       setAlterations([]);
       setRosieShortcutIds([]);
+      setFailedSources([]);
       setLoading(false);
       return;
     }
@@ -519,7 +522,8 @@ export default function GlobalCommandSearch({
     setWeddings([]);
     setAlterations([]);
     setRosieShortcutIds([]);
-    const requests: Promise<void>[] = [];
+    setFailedSources([]);
+    const requests: Array<{ source: string; run: Promise<void> }> = [];
     let exactSkuFound = false;
     const resultCounts = {
       customers: 0,
@@ -530,125 +534,154 @@ export default function GlobalCommandSearch({
       alterations: 0,
     };
 
-    requests.push(
-      fetch(
+    requests.push({
+      source: "Customers",
+      run: fetch(
         `${baseUrl}/api/customers/search?q=${encodeURIComponent(q)}&limit=${GLOBAL_SEARCH_CUSTOMER_PAGE}&offset=0`,
         { headers: apiAuth() },
       ).then(async (res) => {
-        if (res.ok) {
-          const data = (await res.json()) as Customer[];
-          resultCounts.customers = data.length;
-          setCustomers(data);
+        if (!res.ok) {
+          throw new Error("Customer search failed");
         }
+        const data = (await res.json()) as Customer[];
+        resultCounts.customers = data.length;
+        setCustomers(data);
       }),
-    );
+    });
 
     if (looksLikeSku(q) || q.length >= 3) {
-      requests.push(
-        fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
+      requests.push({
+        source: "Exact SKU",
+        run: fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
           headers: apiAuth(),
         }).then(async (res) => {
           if (res.ok) {
             const data = (await res.json()) as { sku: string; name: string };
             exactSkuFound = true;
             setSkuHit({ sku: data.sku, name: data.name });
+            return;
+          }
+          if (res.status !== 404) {
+            throw new Error("Exact SKU lookup failed");
           }
         }),
-      );
+      });
     }
 
-    requests.push(
-      fetch(
+    requests.push({
+      source: "Inventory",
+      run: fetch(
         `${baseUrl}/api/products/control-board?search=${encodeURIComponent(q)}&parent_rank_first=true&limit=${GLOBAL_SEARCH_CONTROL_BOARD_LIMIT}`,
         { headers: apiAuth() },
       ).then(async (res) => {
-        if (res.ok) {
-          const data = (await res.json()) as { rows: ControlBoardRow[] };
-          const grouped = groupProductRows(data.rows ?? [], GLOBAL_SEARCH_PRODUCT_CAP);
-          resultCounts.products = grouped.length;
-          setProducts(grouped);
+        if (!res.ok) {
+          throw new Error("Inventory search failed");
         }
+        const data = (await res.json()) as { rows: ControlBoardRow[] };
+        const grouped = groupProductRows(data.rows ?? [], GLOBAL_SEARCH_PRODUCT_CAP);
+        resultCounts.products = grouped.length;
+        setProducts(grouped);
       }),
-    );
+    });
 
-    requests.push(
-      fetch(
+    requests.push({
+      source: "Orders",
+      run: fetch(
         `${baseUrl}/api/transactions?search=${encodeURIComponent(q)}&show_closed=true&limit=8&offset=0`,
         { headers: apiAuth() },
       ).then(async (res) => {
-        if (res.ok) {
-          const data = (await res.json()) as { items?: OrderSearchHit[] };
-          const items = data.items ?? [];
-          resultCounts.orders = items.length;
-          setOrders(items);
+        if (!res.ok) {
+          throw new Error("Order search failed");
         }
+        const data = (await res.json()) as { items?: OrderSearchHit[] };
+        const items = data.items ?? [];
+        resultCounts.orders = items.length;
+        setOrders(items);
       }),
-    );
+    });
 
-    requests.push(
-      fetch(`${baseUrl}/api/shipments?search=${encodeURIComponent(q)}&limit=8`, {
+    requests.push({
+      source: "Shipping",
+      run: fetch(`${baseUrl}/api/shipments?search=${encodeURIComponent(q)}&limit=8`, {
         headers: apiAuth(),
       }).then(async (res) => {
-        if (res.ok) {
-          const data = (await res.json()) as { items?: ShipmentSearchHit[] };
-          const items = data.items ?? [];
-          resultCounts.shipments = items.length;
-          setShipments(items);
+        if (!res.ok) {
+          throw new Error("Shipping search failed");
         }
+        const data = (await res.json()) as { items?: ShipmentSearchHit[] };
+        const items = data.items ?? [];
+        resultCounts.shipments = items.length;
+        setShipments(items);
       }),
-    );
+    });
 
-    requests.push(
-      fetch(
+    requests.push({
+      source: "Weddings",
+      run: fetch(
         `${baseUrl}/api/weddings/parties?search=${encodeURIComponent(q)}&page=1&limit=8`,
         { headers: apiAuth() },
       ).then(async (res) => {
-        if (res.ok) {
-          const data = (await res.json()) as { data?: WeddingSearchHit[] };
-          const items = data.data ?? [];
-          resultCounts.weddings = items.length;
-          setWeddings(items);
+        if (!res.ok) {
+          throw new Error("Wedding search failed");
         }
+        const data = (await res.json()) as { data?: WeddingSearchHit[] };
+        const items = data.data ?? [];
+        resultCounts.weddings = items.length;
+        setWeddings(items);
       }),
-    );
+    });
 
-    requests.push(
-      fetch(`${baseUrl}/api/alterations?search=${encodeURIComponent(q)}`, {
+    requests.push({
+      source: "Alterations",
+      run: fetch(`${baseUrl}/api/alterations?search=${encodeURIComponent(q)}`, {
         headers: apiAuth(),
       }).then(async (res) => {
-        if (res.ok) {
-          const data = (await res.json()) as AlterationSearchHit[];
-          const items = data.filter((row) => row.status !== "picked_up").slice(0, 8);
-          resultCounts.alterations = items.length;
-          setAlterations(items);
+        if (!res.ok) {
+          throw new Error("Alterations search failed");
         }
+        const data = (await res.json()) as AlterationSearchHit[];
+        const items = data.filter((row) => row.status !== "picked_up").slice(0, 8);
+        resultCounts.alterations = items.length;
+        setAlterations(items);
       }),
-    );
+    });
 
     try {
-      await Promise.all(requests);
+      const settled = await Promise.allSettled(requests.map(({ run }) => run));
+      const failed = settled.flatMap((result, index) =>
+        result.status === "rejected" ? [requests[index]?.source ?? "Search"] : [],
+      );
+      if (activeSearchQueryRef.current === q) {
+        setFailedSources(failed);
+      }
     } finally {
       setLoading(false);
     }
 
     if (!onNavigateToTab || q.length < 3 || activeSearchQueryRef.current !== q) return;
-    const response = await requestRosieSearchIntent(
-      {
-        query: q,
-        available_shortcuts: ROSIE_SEARCH_SHORTCUT_IDS.map((id) => ({
-          id,
-          label: SEARCH_SHORTCUTS[id].title,
-          description: SEARCH_SHORTCUTS[id].subtitle,
-        })),
-        deterministic_context: {
-          exact_sku_found: exactSkuFound,
-          result_counts: resultCounts,
+    try {
+      const response = await requestRosieSearchIntent(
+        {
+          query: q,
+          available_shortcuts: ROSIE_SEARCH_SHORTCUT_IDS.map((id) => ({
+            id,
+            label: SEARCH_SHORTCUTS[id].title,
+            description: SEARCH_SHORTCUTS[id].subtitle,
+          })),
+          deterministic_context: {
+            exact_sku_found: exactSkuFound,
+            result_counts: resultCounts,
+          },
         },
-      },
-      { headers: apiAuth() },
-    );
-    if (activeSearchQueryRef.current === q) {
-      setRosieShortcutIds(response.status === "available" ? response.shortcut_ids : []);
+        { headers: apiAuth() },
+      );
+      if (activeSearchQueryRef.current === q) {
+        setRosieShortcutIds(response.status === "available" ? response.shortcut_ids : []);
+      }
+    } catch {
+      if (activeSearchQueryRef.current === q) {
+        setFailedSources((prev) => [...prev, "Search shortcuts"]);
+      }
     }
   }, [apiAuth, onNavigateToTab]);
 
@@ -669,6 +702,7 @@ export default function GlobalCommandSearch({
       setWeddings([]);
       setAlterations([]);
       setRosieShortcutIds([]);
+      setFailedSources([]);
       setLoading(false);
       return;
     }
@@ -1004,6 +1038,11 @@ export default function GlobalCommandSearch({
               aria-label="Search results"
               className="min-h-0 flex-1 overflow-auto px-3 py-3 sm:px-4"
             >
+              {failedSources.length > 0 && query.trim().length >= 2 && !loading ? (
+                <div className="mb-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-amber-800 dark:text-amber-100">
+                  Some search sources did not respond: {failedSources.join(", ")}. Results shown may be incomplete.
+                </div>
+              ) : null}
               {query.trim().length < 2 ? (
                 <div className="flex h-full min-h-[18rem] flex-col items-center justify-center rounded-[24px] border border-dashed border-app-border/70 bg-app-surface-2/60 px-6 text-center">
                   <Search size={40} className="mb-4 text-app-text-muted/70" aria-hidden />
@@ -1026,10 +1065,12 @@ export default function GlobalCommandSearch({
                 <div className="flex h-full min-h-[18rem] flex-col items-center justify-center rounded-[24px] bg-app-surface-2/60 px-6 text-center">
                   <Search size={40} className="mb-4 text-app-text-muted/70" aria-hidden />
                   <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                    No matches found
+                    {failedSources.length > 0 ? "Search incomplete" : "No matches found"}
                   </p>
                   <p className="mt-2 max-w-lg text-sm font-medium text-app-text-muted">
-                    Try a broader name, order number, SKU, wedding party name, or shipment tracking value.
+                    {failedSources.length > 0
+                      ? "Try again before treating this as no match. Some lookup sources did not respond."
+                      : "Try a broader name, order number, SKU, wedding party name, or shipment tracking value."}
                   </p>
                 </div>
               ) : (
