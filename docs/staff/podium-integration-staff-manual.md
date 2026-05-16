@@ -78,7 +78,7 @@ If the authorization page says the Client ID and redirect URI do not match, regi
 2. Use **Send Text** to search/select a current customer or enter a phone number.
 3. If the phone number is not already a customer, enter the customer’s **first** and **last** name before sending. Riverside creates the new contact and records the outbound message.
 4. Find an existing thread; click to open their profile / hub.
-5. Use **Refresh** after you know a new message arrived if the row does not update.
+5. Use **Refresh** after you know a new message arrived if the row does not update. Refresh asks Podium for the current conversation list and brings back multiple pages when needed, so recent provider conversations should not be hidden behind old synced rows.
 
 **Permission:** Viewing requires **`customers.hub_view`**. Sending or creating the new contact requires **`customers.hub_edit`**.
 
@@ -135,6 +135,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **Send failed / Podium unavailable** | Readiness + toggles + location UID | Manager / IT |
 | **Automated SMS never fires** | Customer **opt-in** + valid phone + template not empty | Admin + [Podium_Integration_Manual.md](Podium_Integration_Manual.md) |
 | **Inbound customer texts never appear** | Confirm the public webhook URL is registered and tunnel/public host is running | IT checks webhook secret/signature and event types |
+| **Podium Inbox shows old conversations but not current Podium rows** | Click **Sync Podium** / **Refresh** once and confirm the Settings card still says credentials configured | IT checks OAuth scopes, location UID, provider cursor sync, and whether Podium returned the expected conversation page |
 | **Store email fails** | IONOS mailbox settings, customer email, server logs | Settings admin |
 | **Widget missing on public site** | Not a cashier task—**IT** + storefront flags | [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md) |
 
@@ -158,4 +159,4 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 - [pos-register-cart.md](pos-register-cart.md) — Register and receipt flow.
 - [operations-home.md](operations-home.md) — Operations home and Reviews.
 
-**Last reviewed:** 2026-05-15
+**Last reviewed:** 2026-05-16

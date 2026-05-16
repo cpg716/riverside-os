@@ -60,6 +60,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
    - **Loyalty:** full accrual clawback when **`amount_paid`** reaches zero after the refund (same transaction).
    - **Gift card:** if `payment_method` indicates a gift-card tender, **`gift_card_code`** is required; balance is credited in the same transaction.
    - **Helcim:** if the method looks like a card tender and an original positive Helcim allocation has a provider transaction id, the server creates a deterministic provider attempt and attempts a **Helcim Refund**. ROS commits the negative payment and refund queue update only when Helcim returns approved/captured. Provider request errors, rate limits, or declines persist the failed provider attempt for audit and leave ROS refund state unchanged.
+   - **Cash rounding:** cash refunds obey the same pennyless-cash rule as cash sales. The exact return credit remains the source of truth, while the drawer payout may round to the nearest `$0.05`; checkout records the negative cash allocation against the returned transaction and keeps the rounding adjustment separately auditable.
 
 3. **UI**
    - **Transactions** workspace: refunds-due strip, **Process refund** modal (open register **`session_id`** from **`GET /api/sessions/current`** with **`mergedPosStaffHeaders(backofficeHeaders)`** so the call is authorized when the till is closed but Back Office is signed in). If there is **no** open till (**404**), the UI offers **Go to POS** ( **`RegisterGateContext`** ) so staff can enter POS and open or attach to a lane; with **multiple** open lanes, **`GET /current`** may return **409** — pick a session per **`docs/STAFF_PERMISSIONS.md`** / **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**. `backofficeHeaders` on all transaction fetches.
@@ -100,6 +101,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
    - **Guided Phases**: Implements step-by-step navigation (Selection, Returns, Cart replacement).
    - **Active Instructions**: Context-aware instruction cards guide staff through complex return semantics.
    - **Automated Linking**: After replacement checkout, `POST /api/transactions/{original}/exchange-link?register_session_id=…` runs automatically to link the legs for reporting.
+   - **Settlement**: return credits, deposits, replacement lines, and any remaining customer balance or refund must flow through checkout so the cart, payment allocations, customer history, QBO staging, and audit trail agree.
 
 ---
 

@@ -49,6 +49,16 @@ If a customer pays $50 with a Credit Card and the remaining $10.02 with Cash:
 - The Cash split rounds from `$10.02` to `$10.00`.
 - The order stores a `rounding_adjustment` of `-0.02`.
 
+### Cash Refunds
+Cash refunds follow the same nickel rule, but the sign is negative:
+
+- The returned merchandise, tax, and any deposit credit remain exact to the cent.
+- The drawer payout is rounded to the nearest `$0.05`.
+- The difference is stored as the transaction `rounding_adjustment`.
+- Checkout allocation must allocate the negative payment back to the returned transaction instead of treating the extra penny difference as uncovered order payment.
+
+Example: an exact customer credit of `$71.23` paid out in cash becomes a `$71.25` drawer payout with a `$0.02` cash-rounding adjustment. The refund stays auditable as one negative cash payment plus the rounding line.
+
 ---
 
 ## 4. QBO Journal Accounting
@@ -80,4 +90,4 @@ When the daily staging journal is generated:
 
 ---
 
-*Last updated: 2026-04-15*
+*Last updated: 2026-05-16*

@@ -110,7 +110,7 @@ export default function PodiumMessagingInboxSection({
 
   const loadUnmatched = useCallback(async () => {
     try {
-      const res = await fetch(`${baseUrl}/api/customers/podium/messaging-unmatched?limit=10`, {
+      const res = await fetch(`${baseUrl}/api/customers/podium/messaging-unmatched?limit=25`, {
         headers: apiAuth(),
         cache: "no-store",
       });
@@ -183,7 +183,7 @@ export default function PodiumMessagingInboxSection({
       const res = await fetch(`${baseUrl}/api/customers/podium/messaging-sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({ limit: 25 }),
+        body: JSON.stringify({ limit: 200 }),
       });
       if (!res.ok) {
         toast("Podium sync could not run. Check credentials and scopes.", "error");

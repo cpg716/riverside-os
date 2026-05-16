@@ -926,6 +926,18 @@ fn values_from_collection(value: Value) -> Vec<Value> {
     Vec::new()
 }
 
+fn next_cursor_from_collection(value: &Value) -> Option<String> {
+    first_string_at(
+        value,
+        &[
+            "/metadata/nextCursor",
+            "/data/metadata/nextCursor",
+            "/data/nextCursor",
+            "/nextCursor",
+        ],
+    )
+}
+
 pub async fn fetch_podium_conversations(
     pool: &PgPool,
     http: &reqwest::Client,
@@ -940,22 +952,45 @@ pub async fn fetch_podium_conversations(
         PodiumError::NotConfigured
     })?;
     let token = get_valid_access_token(http, token_cache, &creds).await?;
-    let mut req = add_podium_headers(
-        http.get(podium_conversations_url(&creds.api_base_url)),
-        Some(&token),
-    )
-    .query(&[("limit", limit.clamp(1, 100))]);
     let loc = cfg.location_uid.trim();
-    if !loc.is_empty() {
-        req = req.query(&[("locationUid", loc)]);
+    let total_limit = limit.clamp(1, 500) as usize;
+    let page_limit = total_limit.min(100) as i64;
+    let mut cursor: Option<String> = None;
+    let mut conversations = Vec::new();
+
+    loop {
+        let mut req = add_podium_headers(
+            http.get(podium_conversations_url(&creds.api_base_url)),
+            Some(&token),
+        );
+        if let Some(cursor) = cursor.as_deref() {
+            req = req.query(&[("cursor", cursor)]);
+        } else {
+            req = req.query(&[("limit", page_limit)]);
+            if !loc.is_empty() {
+                req = req.query(&[("locationUid", loc)]);
+            }
+        }
+        let res = req.send().await?;
+        let status = res.status();
+        if !status.is_success() {
+            return Err(PodiumError::SendHttp(status.as_u16()));
+        }
+        let value = res.json::<Value>().await.unwrap_or_else(|_| json!({}));
+        conversations.extend(values_from_collection(value.clone()));
+        if conversations.len() >= total_limit {
+            conversations.truncate(total_limit);
+            break;
+        }
+        let Some(next_cursor) = next_cursor_from_collection(&value) else {
+            break;
+        };
+        if cursor.as_deref() == Some(next_cursor.as_str()) {
+            break;
+        }
+        cursor = Some(next_cursor);
     }
-    let res = req.send().await?;
-    let status = res.status();
-    if !status.is_success() {
-        return Err(PodiumError::SendHttp(status.as_u16()));
-    }
-    let value = res.json::<Value>().await.unwrap_or_else(|_| json!({}));
-    Ok(values_from_collection(value))
+    Ok(conversations)
 }
 
 pub async fn fetch_podium_conversation_messages(

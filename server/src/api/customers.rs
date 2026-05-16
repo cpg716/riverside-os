@@ -4703,7 +4703,7 @@ async fn post_podium_messaging_sync(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
-        body.limit.unwrap_or(25),
+        body.limit.unwrap_or(200),
     )
     .await
     .map_err(|err| CustomerError::PodiumUnavailable(err.to_string()))?;

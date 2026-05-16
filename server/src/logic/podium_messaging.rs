@@ -386,7 +386,7 @@ pub async fn list_unmatched_conversations(
             last_seen_at
         FROM podium_sync_unmatched_conversation
         WHERE resolved_at IS NULL
-        ORDER BY last_seen_at DESC
+        ORDER BY COALESCE(last_message_at, last_seen_at) DESC, last_seen_at DESC
         LIMIT $1
         "#,
     )
@@ -962,7 +962,7 @@ pub async fn sync_recent_from_podium(
     limit: i64,
 ) -> Result<PodiumSyncResult, podium::PodiumError> {
     let conversations =
-        podium::fetch_podium_conversations(pool, http, token_cache, limit.clamp(1, 100)).await?;
+        podium::fetch_podium_conversations(pool, http, token_cache, limit.clamp(1, 500)).await?;
     let mut result = PodiumSyncResult {
         conversations_seen: conversations.len(),
         conversations_matched: 0,

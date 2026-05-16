@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documented the Wedding Manager to Register handoff across the fulfillment contract, cutover design, and staff Register/Weddings guides.
 
 ### Fixed
+- Allowed pennyless cash rounding on negative refund checkouts so a rounded cash payout can allocate back to the returned transaction without blocking payment finalization.
+- Expanded Podium Inbox sync to page through current provider conversations and keep recent unmatched provider threads ordered ahead of older synced rows.
 - Hardened release documentation around visual baseline, Payments Operations, Back Office sign-in, and E2E environment requirements so the certification record no longer treats those lanes as unresolved skips.
 - Restored the Register salesperson requirement across normal Pay, special-order Review Order, and checkout-finalize paths; the server now rejects sale lines without a sale-level or line-level salesperson.
 - Prevented the Windows desktop app from using the PWA service-worker update/cache path so an updated shell cannot keep rendering stale web app files.

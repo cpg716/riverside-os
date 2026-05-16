@@ -678,6 +678,41 @@ fn build_payment_allocation_plan(
     current_transaction_allocation: Decimal,
     order_payments: &[ResolvedOrderPayment],
 ) -> Result<Vec<PaymentAllocationPlan>, CheckoutError> {
+    if current_transaction_allocation.round_dp(2) < Decimal::ZERO {
+        if !order_payments.is_empty() {
+            return Err(CheckoutError::InvalidPayload(
+                "refund allocation cannot target existing order payments".to_string(),
+            ));
+        }
+        let mut plan = Vec::new();
+        for (split_index, split) in payment_splits.iter().enumerate() {
+            let amount = split.amount.round_dp(2);
+            if amount.is_zero() {
+                continue;
+            }
+            if amount > Decimal::ZERO {
+                return Err(CheckoutError::InvalidPayload(
+                    "refund allocation cannot include positive tender".to_string(),
+                ));
+            }
+            plan.push(PaymentAllocationPlan {
+                payment_split_index: split_index,
+                target_transaction_id: current_transaction_id,
+                amount,
+                metadata: split.metadata.clone(),
+                check_number: split.check_number.clone(),
+                is_existing_order_payment: false,
+            });
+        }
+        let allocated_total: Decimal = plan.iter().map(|allocation| allocation.amount).sum();
+        if allocated_total.round_dp(2) != current_transaction_allocation.round_dp(2) {
+            return Err(CheckoutError::InvalidPayload(
+                "payment allocation plan does not cover requested order payments".to_string(),
+            ));
+        }
+        return Ok(plan);
+    }
+
     let mut current_remaining = current_transaction_allocation.round_dp(2);
     let expected_total = (current_remaining
         + order_payments
@@ -5093,6 +5128,24 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("existing_order_payment")
         );
+    }
+
+    #[test]
+    fn transaction_checkout_allocation_plan_allows_cash_rounded_refund() {
+        let current_tx_id = Uuid::new_v4();
+
+        let plan = build_payment_allocation_plan(
+            &[resolved_split(Decimal::new(-7125, 2))],
+            current_tx_id,
+            Decimal::new(-7125, 2),
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].target_transaction_id, current_tx_id);
+        assert_eq!(plan[0].amount, Decimal::new(-7125, 2));
+        assert!(!plan[0].is_existing_order_payment);
     }
 
     #[tokio::test]
