@@ -4,7 +4,7 @@ function apiBase(): string {
   const raw =
     process.env.E2E_API_BASE?.trim() ||
     process.env.VITE_API_BASE?.trim() ||
-    "http://127.0.0.1:3000";
+    "http://127.0.0.1:43300";
   return raw.replace(/\/$/, "");
 }
 
@@ -120,6 +120,11 @@ type HelcimAttemptResponse = {
 
 type TransactionDetailResponse = {
   total_price: string;
+  items: Array<{
+    transaction_line_id: string;
+    quantity: number;
+    quantity_returned: number;
+  }>;
 };
 
 type ReconciliationResponse = {
@@ -391,6 +396,145 @@ async function checkoutWithApprovedHelcimAttempt(
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
+async function checkoutWithCash(
+  request: Parameters<typeof test>[0]["request"],
+  sessionId: string,
+  sessionToken: string,
+  operatorStaffId: string,
+  product: { productId: string; variantId: string },
+): Promise<CheckoutResponse> {
+  const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
+    },
+    data: {
+      session_id: sessionId,
+      operator_staff_id: operatorStaffId,
+      primary_salesperson_id: operatorStaffId,
+      customer_id: null,
+      payment_method: "cash",
+      total_price: "108.75",
+      amount_paid: "108.75",
+      items: [
+        {
+          product_id: product.productId,
+          variant_id: product.variantId,
+          fulfillment: "takeaway",
+          quantity: 1,
+          unit_price: "100.00",
+          unit_cost: "40.00",
+          state_tax: "4.00",
+          local_tax: "4.75",
+          salesperson_id: operatorStaffId,
+        },
+      ],
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as CheckoutResponse;
+}
+
+async function fetchTransactionDetail(
+  request: Parameters<typeof test>[0]["request"],
+  transactionId: string,
+  sessionId: string,
+  sessionToken: string,
+): Promise<TransactionDetailResponse> {
+  const res = await request.get(
+    `${apiBase()}/api/transactions/${transactionId}?register_session_id=${encodeURIComponent(sessionId)}`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as TransactionDetailResponse;
+}
+
+async function createReturnQueue(
+  request: Parameters<typeof test>[0]["request"],
+  transactionId: string,
+  transactionLineId: string,
+  sessionId: string,
+  sessionToken: string,
+): Promise<void> {
+  const res = await request.post(
+    `${apiBase()}/api/transactions/${transactionId}/returns?register_session_id=${encodeURIComponent(sessionId)}`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      data: {
+        lines: [
+          {
+            transaction_line_id: transactionLineId,
+            quantity: 1,
+            reason: "refund",
+          },
+        ],
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+async function closeRegisterGroupWithNote(
+  request: Parameters<typeof test>[0]["request"],
+  sessionId: string,
+  sessionToken: string,
+): Promise<{ status: number; bodyText: string }> {
+  const recon = await fetchReconciliation(request, sessionId, sessionToken);
+  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/close`, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
+    },
+    data: {
+      actual_cash: recon.expected_cash,
+      closing_notes: "Concurrent refund/register-close certification",
+      closing_comments: null,
+    },
+    failOnStatusCode: false,
+  });
+  return { status: res.status(), bodyText: await res.text() };
+}
+
+async function processCashRefund(
+  request: Parameters<typeof test>[0]["request"],
+  transactionId: string,
+  sessionId: string,
+  amount: string,
+): Promise<{ status: number; bodyText: string }> {
+  const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/refunds/process`, {
+    headers: {
+      ...adminHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      session_id: sessionId,
+      payment_method: "cash",
+      amount,
+    },
+    failOnStatusCode: false,
+  });
+  return { status: res.status(), bodyText: await res.text() };
+}
+
 async function closeAnyExistingOpenGroup(
   request: Parameters<typeof test>[0]["request"],
 ): Promise<void> {
@@ -615,6 +759,62 @@ test.describe("Register close / reconciliation", () => {
       approvedAttempt,
     );
     await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
+  });
+
+  test("concurrent refund and register close serialize on register session state", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const operatorStaffId = await verifyAdminStaffId(request);
+    const opened = await openFreshPrimarySession(request);
+    const sessionToken = opened.pos_api_token ?? "";
+    const product = await createDeterministicProduct(request, operatorStaffId);
+    const checkout = await checkoutWithCash(
+      request,
+      opened.session_id,
+      sessionToken,
+      operatorStaffId,
+      product,
+    );
+    const detail = await fetchTransactionDetail(
+      request,
+      checkout.transaction_id,
+      opened.session_id,
+      sessionToken,
+    );
+    const line = detail.items[0];
+    expect(line?.transaction_line_id).toBeTruthy();
+    await createReturnQueue(
+      request,
+      checkout.transaction_id,
+      line?.transaction_line_id ?? "",
+      opened.session_id,
+      sessionToken,
+    );
+
+    const closePromise = closeRegisterGroupWithNote(request, opened.session_id, sessionToken);
+    const refundPromise = processCashRefund(
+      request,
+      checkout.transaction_id,
+      opened.session_id,
+      "108.75",
+    );
+    const [closeResult, refundResult] = await Promise.all([closePromise, refundPromise]);
+
+    expect(closeResult.status, closeResult.bodyText.slice(0, 1000)).toBe(200);
+    if (refundResult.status !== 200) {
+      expect(refundResult.bodyText).toMatch(/register session is not open/i);
+    }
+
+    const afterCloseRefund = await processCashRefund(
+      request,
+      checkout.transaction_id,
+      opened.session_id,
+      "1.00",
+    );
+    expect(afterCloseRefund.status).toBe(400);
+    expect(afterCloseRefund.bodyText).toMatch(/register session is not open|no open refund/i);
   });
 
   test("historical Z session list stays unified to Register #1 for a till-close group", async ({

@@ -67,7 +67,8 @@ test.describe("Physical inventory review and publish verification", () => {
       timeout: 10_000,
     });
     await expect(page.getByText(/what changed if published/i)).toBeVisible();
-    await expect(page.getByText(/does not replay receiving, sales/i)).toBeVisible();
+    await expect(page.getByText(/sales during the count are deducted in review/i)).toBeVisible();
+    await expect(page.getByText(/receiving must stay paused until publish or cancel/i)).toBeVisible();
     await expect(page.getByText(/retrying refresh is safe and does not update live stock/i)).toBeVisible();
     await page.getByRole("button", { name: /publish reviewed counts/i }).click();
 

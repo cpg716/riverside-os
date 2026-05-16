@@ -567,7 +567,7 @@ test.describe("inventory audit contract", () => {
     expect(replayDetail.lines[0]?.qty_previously_received).toBe(2);
   });
 
-  test("physical inventory publish preserves concurrent receipt stock", async ({ request }) => {
+  test("physical inventory blocks receiving until publish and then preserves receipt stock", async ({ request }) => {
     test.setTimeout(90_000);
     await cancelActivePhysicalInventorySession(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -593,15 +593,29 @@ test.describe("inventory audit contract", () => {
     const line = detail.lines[0];
     expect(line, "purchase order line missing").toBeTruthy();
 
-    const [publishAttempt, receipt] = await Promise.all([
-      publishPhysicalInventorySession(request, session.id),
-      receivePurchaseOrder(request, po.id, {
+    const blockedReceipt = await request.post(`${apiBase()}/api/purchase-orders/${po.id}/receive`, {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
         invoice_number: `PHY-${suffix}`,
+        freight_total: "0.00",
         lines: [{ po_line_id: line!.line_id, quantity_received_now: 1 }],
-      }),
-    ]);
+      },
+      failOnStatusCode: false,
+    });
+    const blockedText = await blockedReceipt.text();
+    expect(blockedReceipt.status(), blockedText.slice(0, 1000)).toBe(400);
+    expect(blockedText).toContain("Receiving is paused");
+
+    const publishAttempt = await publishPhysicalInventorySession(request, session.id);
 
     expect(publishAttempt.status, publishAttempt.bodyText.slice(0, 1000)).toBe(200);
+    const receipt = await receivePurchaseOrder(request, po.id, {
+      invoice_number: `PHY-${suffix}`,
+      lines: [{ po_line_id: line!.line_id, quantity_received_now: 1 }],
+    });
     expect(receipt.idempotent_replay).toBe(false);
 
     const after = await getInventoryIntelligence(request, product.variantId);

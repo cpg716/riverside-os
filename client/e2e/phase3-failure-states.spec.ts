@@ -362,7 +362,7 @@ test.describe("Phase 3 failure-state coverage", () => {
     await expect(page.getByRole("button", { name: "Low stock needs review — Open" })).toBeVisible({
       timeout: 20_000,
     });
-    await page.getByRole("button", { name: /mark new read/i }).click();
+    await page.getByRole("button", { name: /mark read/i }).click();
 
     await expect(page.getByText("Some alerts were not marked read")).toBeVisible({
       timeout: 20_000,
