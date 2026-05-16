@@ -56,6 +56,23 @@ Terminal selection is in the checkout drawer header. Register #1 defaults to **T
 
 The **Payment Status** panel shows whether a terminal transaction was sent, is waiting for approval, approved, declined, canceled, expired, or returned an error code. Do not complete the sale until the Helcim attempt is approved and appears as an applied payment.
 
+## Pilot payment recovery rehearsal
+
+Before pilot, rehearse these scenarios with the real terminal path the store will use. Record the date, register lane, terminal, staff member, and result in the pilot issue log or daily review sheet.
+
+| Scenario | Expected result | Signoff |
+|----------|-----------------|---------|
+| Normal card sale approved | Approved payment appears in ROS and sale completes once. | |
+| Terminal decline | Sale remains unpaid; cashier can choose another tender without duplicate payment. | |
+| Terminal pending longer than expected | Payment Status shows pending/recovery guidance and Z-close remains blocked until resolved. | |
+| Terminal approved but ROS not finalized | Manager checks terminal outcome, records or resolves the attempt, and does not retry blindly. | |
+| Terminal cancel | Attempt is canceled or marked unresolved with manager review before close. | |
+| Offline queue exists before close | Z-close remains blocked until offline recovery is clear or assigned. | |
+| Card refund through terminal | Refund records only after provider approval and appears in end-of-day review. | |
+| Register close after payment recovery | Z-report includes the final card outcome and no unresolved payment attempts remain. | |
+
+Pilot rule: if the terminal and ROS disagree, stop the sale flow and get manager review. Do not create a second card attempt until the first attempt is checked from the Payment Status panel or Payments Health.
+
 ## Batches
 
 Use **Batches** to review Helcim processor batches.
@@ -111,7 +128,7 @@ Transaction details show:
 
 ## RMS Charge
 
-Use **RMS Charge Sale** and **RMS Charge Payment** as normal manual financial workflows. Staff do not need a live CoreCard API post to record the sale, collect an RMS payment, or preserve the operational reference trail in ROS.
+Use **RMS Charge Sale** and **RMS Charge Payment** as normal manual financial workflows. Staff do not need an automatic RMS integration to record the sale, collect an RMS payment, or preserve the operational reference trail in ROS.
 
 Required details:
 
@@ -121,15 +138,13 @@ Required details:
 - **Reference Number** when available.
 - Payment tender for RMS Charge payment collection.
 
-The **Reference Number** is the approval, authorization, merchant, or support reference from the approved R2S/CoreCard process. Never enter a PAN, CVV, card token, or full account number in this field.
+The **Reference Number** is the approval, authorization, merchant, or support reference from the approved RMS/R2S process. Never enter a PAN, CVV, card token, or full account number in this field.
 
-RMS Charge entries appear in customer history, RMS Charge reporting, and reconciliation review. They preserve the staff actor, timestamps, account/program metadata, and reference details. ROS does not imply that bank deposit matching, QBO posting, or live CoreCard settlement happened automatically.
+RMS Charge entries appear in customer history, RMS Charge reporting, and reconciliation review. They preserve the staff actor, timestamps, account/program metadata, and reference details. ROS does not imply that bank deposit matching, QBO posting, or external RMS settlement happened automatically.
 
-Manual RMS Charge refunds and reversals are recorded manually against the RMS Charge transaction/reference trail. Future live-post references are not required for that manual tracking path.
+Manual RMS Charge refunds and reversals are recorded manually against the RMS Charge transaction/reference trail.
 
 Every POS-created RMS Charge Sale and RMS Charge Payment must be reported to R2S by the next day. This is tracked in **Customers → RMS Charge**, not the Payments workspace. Use the `Report to R2S` status, due date, and `Mark Reported` action on the RMS Charge record after staff complete the R2S follow-up.
-
-If live CoreCard automation is enabled later, ROS may add host references automatically after validated live reads/posts. The staff workflow remains **RMS Charge Sale**, **RMS Charge Payment**, **Reference Number**, **Program**, and **Account**.
 
 ## Deposits
 

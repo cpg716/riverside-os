@@ -48,6 +48,27 @@ Backdated corrections are governed. The **business date** controls the sales/rep
 
 Payments → Deposits can record actual bank deposits and match them to expected Helcim batches for review. That matching is audit evidence only: it does not create a QuickBooks deposit, post a bank deposit, or change the daily journal bundle.
 
+## Sandbox certification signoff
+
+Before pilot accounting relies on QBO posting, run these scenarios in the QBO sandbox company and sign off the result. A checked row means the staged journal was reviewed in ROS, approved by the accounting owner, synced to QBO, and compared back to Riverside reports.
+
+| Scenario | Expected evidence | Signed |
+|----------|-------------------|--------|
+| Normal sales day | ROS staged journal balances and QBO journal matches expected revenue/tax/tender lines. | |
+| Cash, card, check mix | Tender clearing lines match Register Reports and Z-report evidence. | |
+| Gift card sale/redemption | Liability movement is visible and not treated as normal sales revenue. | |
+| Loyalty reward issued | Loyalty expense / loyalty gift-card handling matches the staged journal. | |
+| Return/refund day | Contra revenue/tax/refund clearing lines match the return evidence. | |
+| Exchange with replacement sale | Return and replacement effects are understandable and traceable. | |
+| Deposit/open balance activity | Deposit liability and relief behavior matches the transaction detail. | |
+| Shipping income | Shipping income maps to the configured account. | |
+| Warning-bearing journal | Accounting reviews warnings before approval; warnings are not ignored because the journal balances. | |
+| Failed sync and retry | Failed row remains visible, error is assigned, and retry does not create an unexplained duplicate. | |
+| Duplicate-post check | Re-sync/retry uses the existing staging row/request path and does not create a second QBO journal for the same approved row. | |
+| Z-close handoff | The Z-report row shows the QBO staging state for the closed business date. | |
+
+Pilot rule: only the accounting owner or store owner approves warning-bearing journals. Cashiers and floor managers may close the register, but they do not clear QBO staging for pilot accounting.
+
 ## History
 
 **Purpose:** **Audit** of what posted when — troubleshooting and month-end proof.

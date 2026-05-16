@@ -34,20 +34,18 @@ Examples:
 
 ## R2S reporting is separate
 
-The `Report to R2S` status belongs to the RMS Charge transaction record. It is a staff follow-up checklist, not a live API post and not QBO/bank reconciliation.
+The `Report to R2S` status belongs to the RMS Charge transaction record. It is a staff follow-up checklist, not automatic external posting and not QBO/bank reconciliation.
 
 Before closing daily RMS work, review Customer → `RMS Charge` → `Transactions` for `Unreported` and `Overdue` records. Use `Mark Reported` only after staff complete the R2S reporting step.
 
-## Pre-live no-go signals
+## Manual workflow no-go signals
 
-Reconciliation does not replace optional live-integration proof. Before enabling future live API posting, stop and review if any of these are present:
+Reconciliation does not replace staff review. Stop and assign the issue if any of these are present:
 
-- account, program, balance, or summary reads are not live-confirmed
-- readiness still says `Not live-verified yet`
-- Settings → `CoreCard` says a restart is required after credentials were saved
-- unsigned update mode is enabled outside a controlled test
-- future live-posted RMS records are missing references
-- repair polling has unresolved exceptions or stale unmatched events
+- account, program, balance, or summary details do not match the manual RMS/R2S record
+- required R2S reporting is still `Unreported` or `Overdue`
+- RMS records are missing reference numbers where the manual process produced one
+- reconciliation has unresolved exceptions or stale unmatched records
 
 ## Actions to take
 

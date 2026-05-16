@@ -38,7 +38,7 @@ Settings appears in these sidebar groups:
 2. **Podium**
 3. **Shippo**
 4. **Helcim**
-5. **CoreCard**
+5. **RMS Charge diagnostics**
 6. **QuickBooks**
 7. **Counterpoint**
 8. **NuORDER**
@@ -113,7 +113,7 @@ Typical areas (labels may group differently by build):
 - **Counterpoint bridge:** Status, **Inbound staging** toggle, queue **Apply/Discard**, and **Maps**. To prevent console spam when you are away from the store, the bridge status panel will stop checking automatically after **3 failures**. Use the **[Reconnect]** button to resume monitoring.
 - **Helcim:** card processor API token, Terminal 1 / Terminal 2 device codes, public webhook delivery path, supported webhook events, optional webhook signing secret, and test mode. **Webhook received by ROS** means a signed delivery was stored; **Provider event attached to ROS checkout** means ROS matched that provider event to one safe pending checkout attempt. Use **Payments → Health** for payment update review.
 - **Podium (SMS + web chat):** operational SMS templates, whether to send pickup/alteration texts through Podium, **location UID**, optional **storefront widget** snippet, readiness checks, OAuth **Client ID / Client Secret / refresh token**, **API Host / OAuth Token URL**, and **webhook secret**. Routine credentials are saved in Settings through encrypted integration credentials. Start Podium authorization from this card only after Client ID and Client Secret show as saved. The refresh token is normally saved automatically after the Podium authorization flow. The webhook URL must be a public HTTPS Riverside URL, not `localhost`. **Staff manuals:** [podium-integration-staff-manual.md](podium-integration-staff-manual.md) (quick tasks), [Podium_Integration_Manual.md](Podium_Integration_Manual.md) (full reference). Engineers: [PLAN_PODIUM_SMS_INTEGRATION.md](../PLAN_PODIUM_SMS_INTEGRATION.md), [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md).
-- **CoreCard:** host credentials for RMS Charge / CoreCredit posting. Credentials are saved securely in Settings; because live CoreCard runtime configuration is loaded when the server starts, a server restart may be required before newly saved credentials are used by live CoreCard requests.
+- **RMS Charge:** current pilot operations use the manual RMS/R2S workflow. Do not treat Settings credentials or diagnostics as automatic RMS posting approval.
 - **Customers (CRM / hub):** **Operational SMS** (pickup / alterations) can be toggled separately from **marketing SMS** on the relationship hub and add-customer flows after migration **71** (see plan doc).
 - **Never** paste API keys or integration secrets into chat, notes, customer records, or screenshots. Routine integration credentials belong in Backoffice Settings. The root encryption key (`RIVERSIDE_CREDENTIALS_KEY`, with `QBO_TOKEN_ENC_KEY` only as a transitional fallback) remains a deployment-level secret.
 

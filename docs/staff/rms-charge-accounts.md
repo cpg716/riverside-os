@@ -29,11 +29,9 @@ Important rules:
 - removing a link changes Riverside's customer relationship only; it does not change the RMS Charge account itself
 - link and unlink corrections are recorded in the staff audit trail
 
-## Optional live-read proof
+## Manual account review
 
-Settings can still show optional future live-integration readiness. Day-to-day account review in Customer → RMS Charge is manual-first.
-
-Do not use account links, balances, or programs as proof that future live API posting is enabled. Use Settings → `CoreCard` probe status for that specific technical validation.
+Day-to-day account review in Customer → RMS Charge is manual-first. Do not use account links, balances, or programs as proof that external RMS posting happened automatically.
 
 ## Safe correction workflow
 

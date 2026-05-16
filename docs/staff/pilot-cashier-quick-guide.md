@@ -1,0 +1,121 @@
+# Pilot cashier quick guide
+
+**Audience:** Cashiers and sales staff.
+
+**Purpose:** Fast counter reference for live pilot selling, recovery, and escalation.
+
+---
+
+## Normal sale
+
+1. Select your staff identity and enter your Access PIN when prompted.
+2. Attach the customer when needed for loyalty, wedding, RMS Charge, order payment, pickup, or receipt contact.
+3. Scan or search items.
+4. Confirm item, size, price, tax, salesperson, and fulfillment choice.
+5. Review Balance Due with the customer.
+6. Take payment and wait for the confirmed completion screen.
+7. Print, email, or text receipt as requested.
+
+**Do not start the next customer until the receipt screen is handled and the sale is clearly complete.**
+
+---
+
+## Split tender
+
+1. Confirm the full Balance Due.
+2. Add the first payment amount.
+3. Confirm the remaining Balance Due.
+4. Add the next payment.
+5. Repeat until Balance Due is zero.
+6. If a payment looks uncertain, stop and call a manager.
+
+**Rule:** Never guess whether a card payment worked. Manager reviews payment status before retry.
+
+---
+
+## Parked sales
+
+Use Park when:
+
+- The customer steps away.
+- You need a manager before continuing.
+- You are interrupted and the cart should be recoverable by name/session.
+
+Before parking:
+
+1. Attach the customer if known.
+2. Add a clear note when the situation is not obvious.
+3. Tell the next staff member what is still needed.
+
+Before close:
+
+- Retrieve, complete, or let the manager review parked sales.
+
+---
+
+## Refunds and exchanges
+
+Cashier may start lookup if trained, but manager should supervise during pilot.
+
+1. Locate the original transaction.
+2. Confirm the customer, receipt, item, return quantity, and return window.
+3. If older than policy window or unclear, call manager.
+4. Choose refund or exchange path.
+5. Do not leave saved return lines unfinished.
+6. Confirm refund tender or replacement sale before close.
+
+**Escalate immediately when:**
+
+- Customer has no receipt and lookup is uncertain.
+- Card refund status is unclear.
+- Wedding group payment or member balance is involved.
+- Refund started but the customer changes their mind.
+
+---
+
+## Blocked checkout
+
+1. Stop clicking after one safe retry.
+2. Read the message on screen.
+3. If payment may have been attempted, do not run the tender again.
+4. Park the sale if possible.
+5. Call manager.
+6. Write down customer name, time, amount, register, and what happened.
+
+**Never clear browser data, force close the app, or resell the same cart without manager approval.**
+
+---
+
+## Receipt reprint
+
+1. Open the transaction or recent receipt area.
+2. Confirm customer and transaction amount.
+3. Reprint only the correct receipt.
+4. If the customer says payment happened but no receipt exists, call manager.
+
+---
+
+## Customer lookup
+
+1. Search by phone first when possible.
+2. Use name plus phone or email for common names.
+3. If duplicates appear, choose carefully. Do not merge unless trained.
+4. For wedding customers, confirm party name and event date.
+5. For RMS Charge, confirm the account belongs to the customer before using it.
+
+---
+
+## Escalation rules
+
+Call a manager for:
+
+- Refunds, exchanges, voids after payment.
+- Any card/payment uncertainty.
+- Cash discrepancy or customer payment dispute.
+- Wedding pickup with balance due, wrong member, or partial release.
+- RMS Charge uncertainty.
+- Offline recovery or blocked checkout.
+- Inventory adjustment request.
+- Any error that repeats twice.
+
+**Last reviewed:** 2026-05-16

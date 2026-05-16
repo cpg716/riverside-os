@@ -107,6 +107,8 @@ Use **Order Stock** when you are planning or building a vendor order before merc
 
 Use **Receive Stock** when merchandise is already here and you have vendor paperwork in hand.
 
+If a physical inventory session is open or in review, receiving is paused. Sales may continue during the count, but ROS will not post received stock until the count is published or canceled.
+
 1. **Receive Stock** → choose a submitted **PO** that is ready to receive, or create a **Direct Invoice** if the shipment arrived without a pre-built PO.
 2. Check the document state before opening the receiving worksheet:
    - **Submitted PO** = ready to receive.

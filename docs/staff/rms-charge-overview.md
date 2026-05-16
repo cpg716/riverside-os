@@ -37,17 +37,15 @@ Customer → `RMS Charge` tracks this directly on each RMS Charge record:
 - `Reported`
   Staff recorded that the R2S follow-up was completed.
 
-Marking a record `Reported` only clears the reporting follow-up. It does not change transaction amounts, post to a live API, or imply automatic accounting/bank reconciliation.
+Marking a record `Reported` only clears the reporting follow-up. It does not change transaction amounts, post to an external RMS system, or imply automatic accounting/bank reconciliation.
 
 Use `Reference Number` for the R2S approval, authorization, merchant, or support reference. Do not enter PAN, CVV, card tokens, or full account numbers.
 
 Permission required to mark reported: `rms_charge.report_to_r2s` or RMS Charge reporting access.
 
-## Optional live integration readiness
+## Manual RMS readiness
 
-Settings → `CoreCard` can still validate optional future live integration. That validation is not required for the manual RMS Charge workflow.
-
-Before enabling any future live API posting, Settings → `CoreCard` should show saved credentials, runtime configuration loaded, no restart-required warning, Merchant Number `12115`, Merchant ID `11324`, unsigned webhooks disabled, and **Run Probe** should return `Live CoreCard read confirmed`. The Payments workspace is Helcim-focused and should not be used as proof of RMS Charge status.
+The current pilot workflow is manual RMS Charge. A record is ready for daily review when the account, program, amount, reference number, and `Report to R2S` status are clear. The Payments workspace is Helcim-focused and should not be used as proof of RMS Charge status.
 
 ## What you can do in the RMS Charge workspace
 

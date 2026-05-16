@@ -33,6 +33,23 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Open, close, EOD narrative | [EOD-AND-OPEN-CLOSE.md](EOD-AND-OPEN-CLOSE.md) |
 | PII and customer data | [PII-AND-CUSTOMER-DATA.md](PII-AND-CUSTOMER-DATA.md) |
 | Store-specific SOP (fill in) | [STORE-SOP-TEMPLATE.md](STORE-SOP-TEMPLATE.md) |
+| Pilot command sheet | [pilot-command-sheet.md](pilot-command-sheet.md) |
+| Pilot cashier quick guide | [pilot-cashier-quick-guide.md](pilot-cashier-quick-guide.md) |
+| Pilot manager operations guide | [pilot-manager-operations-guide.md](pilot-manager-operations-guide.md) |
+| Pilot wedding operations guide | [pilot-wedding-operations-guide.md](pilot-wedding-operations-guide.md) |
+| Pilot alterations operations guide | [pilot-alterations-operations-guide.md](pilot-alterations-operations-guide.md) |
+| Pilot receiving and inventory guide | [pilot-receiving-inventory-guide.md](pilot-receiving-inventory-guide.md) |
+| Pilot daily reconciliation checklist | [pilot-daily-reconciliation-checklist.md](pilot-daily-reconciliation-checklist.md) |
+| Pilot escalation guide | [pilot-escalation-guide.md](pilot-escalation-guide.md) |
+| Pilot governance rules | [pilot-governance-rules.md](pilot-governance-rules.md) |
+| Pilot issue log template | [pilot-issue-log-template.md](pilot-issue-log-template.md) |
+| Pilot daily review template | [pilot-daily-review-template.md](pilot-daily-review-template.md) |
+| Pilot incident severity guide | [pilot-incident-severity-guide.md](pilot-incident-severity-guide.md) |
+| Pilot escalation tree | [pilot-escalation-tree.md](pilot-escalation-tree.md) |
+| Pilot observation checklist | [pilot-observation-checklist.md](pilot-observation-checklist.md) |
+| Pilot go/no-go criteria | [pilot-go-no-go-criteria.md](pilot-go-no-go-criteria.md) |
+| Pilot freeze rules | [pilot-freeze-rules.md](pilot-freeze-rules.md) |
+| Pilot support package | [pilot-support-package.md](pilot-support-package.md) |
 | Abstract: transactions & stock | [abstracts/transactions-and-stock.md](abstracts/transactions-and-stock.md) |
 | Abstract: returns / refunds | [abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md) |
 | Abstract: wedding group pay | [abstracts/wedding-group-pay.md](abstracts/wedding-group-pay.md) |

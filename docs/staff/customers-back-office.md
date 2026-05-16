@@ -63,8 +63,8 @@ The same Add Customer intake is used from POS when staff search by a name, phone
    - **Exceptions** is the staff ownership queue for assign / retry / resolve work.
    - **Reconciliation** is a global RMS support review tab and is not filtered to only the customer currently selected.
 7. Resolution notes should explain what cleared the issue instead of using a generic close-out.
-8. In `Accounts`, use `Remove Link` only to correct the Riverside customer relationship to an RMS account. The confirmation step explains that CoreCard itself is not changed and the correction is logged.
-9. Live RMS refund/reversal actions are manager/admin-sensitive and should only be used by approved staff with the required permissions.
+8. In `Accounts`, use `Remove Link` only to correct the Riverside customer relationship to an RMS account. The confirmation step explains that the external RMS account is not changed and the correction is logged.
+9. RMS refund/reversal actions are manager/admin-sensitive and should only be used by approved staff with the required permissions.
 10. Start with the role-based RMS manuals:
    - **[RMS Charge overview](rms-charge-overview.md)**
    - **[RMS Charge accounts](rms-charge-accounts.md)**

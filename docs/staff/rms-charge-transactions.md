@@ -18,7 +18,7 @@ That includes:
 
 ## Weekly RMS Account List snapshot
 
-Sales Support uploads the weekly R2S/CoreCredit Account List report from **Customer → RMS Charge → Accounts**.
+Sales Support uploads the weekly RMS/R2S Account List report from **Customer → RMS Charge → Accounts**.
 
 Use the upload tool to:
 
@@ -36,7 +36,7 @@ It does **not**:
 - create RMS Charge sales or payments
 - create refund/reversal records
 - create ledger rows
-- post anything to R2S, CoreCard, or QBO
+- post anything to R2S, external RMS systems, or QBO
 
 RMS Charge remains the source of truth for operational financing activity. Imported Account List balances should be read as `Last imported balance` and `Last imported open-to-buy`, not live balances.
 
@@ -84,7 +84,7 @@ Marking reported:
 - stores the optional note/reference
 - clears the related reminder
 - does not change financial amounts
-- does not imply live API posting
+- does not imply automatic external posting
 
 ## Posting status meanings
 
@@ -113,11 +113,9 @@ It matters because Riverside uses it for:
 - reconciliation follow-up
 - R2S reporting follow-up
 
-## Optional live integration proof
+## Manual workflow proof
 
-Manual RMS Charge records do not need a live API proof to be operationally complete. They need accurate customer/account/program/amount/reference details and `Report to R2S` completion.
-
-Future live API activation still requires Settings → `CoreCard` live-read proof before staff rely on automatic posting.
+Manual RMS Charge records are operationally complete when they have accurate customer/account/program/amount/reference details and `Report to R2S` completion. Do not wait for automatic integration proof; current pilot operations use the manual RMS workflow.
 
 ## When to escalate
 
