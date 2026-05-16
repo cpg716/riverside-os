@@ -142,7 +142,7 @@ export function LoyaltyRedeemDialog({
             </div>
             <div className="min-w-0">
               <p id={titleId} className="text-2xl font-black uppercase tracking-tight text-app-text">
-                Issue Reward Card
+                Issue Loyalty Gift Card
               </p>
               <div className="flex items-center gap-2 mt-1">
                 <User size={12} className="text-app-text-muted opacity-40" />
@@ -211,8 +211,8 @@ export function LoyaltyRedeemDialog({
                   </label>
                   <div className="flex items-center gap-3 rounded-[24px] border border-dashed border-amber-500/20 bg-amber-500/[0.03] px-5 py-4">
                     <Gift className="h-6 w-6 shrink-0 text-amber-500 opacity-70" />
-                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700 leading-tight">
-                      This redemption issues the full reward to a loyalty gift card. Complete any live sale separately in the register.
+                  <p className="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700 leading-tight">
+                      This creates value on a loyalty gift card. It does not discount the open sale until that gift card is redeemed in the payment drawer.
                     </p>
                   </div>
             </div>
@@ -266,7 +266,7 @@ export function LoyaltyRedeemDialog({
                 {busy ? "Issuing Reward..." : (
                   <div className="flex items-center justify-center gap-3">
                     <Sparkles size={20} className="text-emerald-300" />
-                    {"Issue Reward Card"}
+                    {"Issue Loyalty Gift Card"}
                   </div>
                 )}
               </button>

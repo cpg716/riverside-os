@@ -29,6 +29,7 @@ interface TransactionItemRow {
 
 interface TransactionDetailLite {
   transaction_id: string;
+  transaction_display_id?: string;
   booked_at: string;
   status: string;
   total_price: string;
@@ -79,6 +80,8 @@ const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
   },
 ];
 
+const RETURN_MANAGER_APPROVAL_WINDOW_DAYS = 60;
+
 export default function PosExchangeWizard({
   open,
   initialTransactionId,
@@ -120,6 +123,8 @@ export default function PosExchangeWizard({
   const [refundMethod, setRefundMethod] = useState("card_present");
   const [refundGiftCode, setRefundGiftCode] = useState("");
   const workflowIndex = EXCHANGE_WORKFLOW_STEPS.findIndex((item) => item.id === step);
+  const receiptLabel =
+    detail?.transaction_display_id ?? detail?.transaction_id.slice(0, 8).toUpperCase() ?? "";
  
    const sessionQs = `register_session_id=${encodeURIComponent(sessionId)}`;
 
@@ -158,7 +163,7 @@ export default function PosExchangeWizard({
       }
       
       const daysOld = (Date.now() - new Date(d.booked_at).getTime()) / (1000 * 60 * 60 * 24);
-      if (daysOld > 30) {
+      if (daysOld > RETURN_MANAGER_APPROVAL_WINDOW_DAYS) {
         setPendingManagerApproval(d);
       } else {
         setDetail(d);
@@ -205,6 +210,7 @@ export default function PosExchangeWizard({
     const taxCents = parseMoneyToCents(line.item.state_tax) + parseMoneyToCents(line.item.local_tax);
     return sum + (unitCents + taxCents) * line.quantity;
   }, 0);
+  const selectedReturnCount = (selectedReturnLines() ?? []).reduce((sum, line) => sum + line.quantity, 0);
 
   const submitReturns = async (nextAction: "refund" | "exchange") => {
     if (!detail) return;
@@ -232,7 +238,9 @@ export default function PosExchangeWizard({
             })),
             manager_staff_id: managerApproval?.staffId,
             manager_pin: managerApproval?.pin,
-            manager_reason: managerApproval ? "Admin approved return outside 30-day policy" : undefined,
+            manager_reason: managerApproval
+              ? `Manager approved return outside ${RETURN_MANAGER_APPROVAL_WINDOW_DAYS}-day policy`
+              : undefined,
           }),
         },
       );
@@ -354,7 +362,7 @@ export default function PosExchangeWizard({
                 Exchange / Return Wizard
               </h2>
               <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted opacity-60">
-                Register Workflow · Riverside OS
+                Register returns desk
               </p>
             </div>
           </div>
@@ -366,6 +374,25 @@ export default function PosExchangeWizard({
           >
             <X className="h-5 w-5" />
           </button>
+        </div>
+        <div className="border-b border-app-border/50 bg-app-surface-2/70 px-6 py-3">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            <span className="rounded-lg border border-app-border bg-app-surface px-2.5 py-1 text-app-text">
+              {customer ? `${customer.first_name} ${customer.last_name}` : "Customer not selected"}
+            </span>
+            {detail ? (
+              <span className="rounded-lg border border-app-accent/25 bg-app-accent/10 px-2.5 py-1 text-app-accent">
+                Receipt {receiptLabel}
+              </span>
+            ) : null}
+            <span className="rounded-lg bg-app-surface px-2.5 py-1">
+              {step === "load"
+                ? "Find original sale"
+                : step === "return"
+                  ? "Return in progress"
+                  : "Return saved"}
+            </span>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="mb-8 grid gap-4 lg:grid-cols-[1fr,240px]">
@@ -441,7 +468,7 @@ export default function PosExchangeWizard({
                  />
               </div>
               <p className="text-[10px] text-app-text-muted leading-relaxed opacity-60">
-                Transactions older than 30 days require Admin approval. For uneven wedding group payments,
+                Transactions older than {RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days require Manager Access. For uneven wedding group payments,
                 confirm return quantities against the correct member record before refunding.
               </p>
             </div>
@@ -455,7 +482,7 @@ export default function PosExchangeWizard({
                     Transaction Source
                   </p>
                   <p className="mt-1 text-sm font-black text-app-text">
-                    Receipt: <span className="font-mono text-app-accent">{detail.transaction_id.slice(0, 8).toUpperCase()}</span>
+                    Receipt: <span className="font-mono text-app-accent">{receiptLabel}</span>
                   </p>
                 </div>
                 <div className="flex gap-4 border-l border-app-border/50 pl-4">
@@ -476,19 +503,19 @@ export default function PosExchangeWizard({
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Total</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Original total</p>
                   <p className="mt-1 font-mono text-lg font-black text-app-text">
                     ${formatMoney(parseMoney(detail.total_price))}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Paid</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Paid on sale</p>
                   <p className="mt-1 font-mono text-lg font-black text-emerald-500">
                     ${formatMoney(parseMoney(detail.amount_paid))}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Balance</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Balance still due</p>
                   <p className="mt-1 font-mono text-lg font-black text-app-warning">
                     ${formatMoney(parseMoney(detail.balance_due))}
                   </p>
@@ -561,15 +588,29 @@ export default function PosExchangeWizard({
               </div>
               {selectedRefundCents > 0 ? (
                 <div className="rounded-2xl border border-app-danger/20 bg-app-danger/5 p-4">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-danger">
-                    Return cart
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-danger">
+                      Return pending
+                    </p>
+                    <span className="rounded-full bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-danger">
+                      {selectedReturnCount} item{selectedReturnCount === 1 ? "" : "s"} · -${centsToFixed2(selectedRefundCents)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-black text-app-text">
+                    Not refunded yet. Choose “Refund customer” or “Continue exchange” to record the return path.
                   </p>
-                  <p className="mt-1 text-sm font-black text-app-text">
-                    Selected returns create a customer credit of -${centsToFixed2(selectedRefundCents)} before any replacement items.
-                  </p>
+                    <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                      Refund customer closes this as a refund-only return. Continue exchange saves the return lines and opens the register path for replacement items.
+                    </p>
+                    <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                      If interrupted, keep this window open. Nothing is tendered until you choose refund or continue the exchange.
+                    </p>
+                    <p className="mt-2 text-xs font-bold text-app-danger">
+                      Pilot watch: if this flow is reopened later, confirm the saved return lines and refund tender before register close.
+                    </p>
                 </div>
               ) : null}
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="sticky bottom-0 -mx-6 grid gap-3 border-t border-app-border bg-app-surface/95 px-6 py-4 backdrop-blur sm:grid-cols-2">
                 <button
                   type="button"
                   disabled={submitting}
@@ -577,7 +618,7 @@ export default function PosExchangeWizard({
                   className="ui-btn-secondary flex w-full items-center justify-center gap-2 py-4 font-black uppercase tracking-[0.16em]"
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Refund only
+                  Refund customer
                 </button>
                 <button
                   type="button"
@@ -586,7 +627,7 @@ export default function PosExchangeWizard({
                   className="ui-btn-primary flex w-full items-center justify-center gap-2 py-4 font-black uppercase tracking-[0.16em] shadow-glow-accent-xs"
                 >
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  Exchange for new items
+                  Continue exchange
                 </button>
               </div>
             </div>
@@ -594,8 +635,13 @@ export default function PosExchangeWizard({
 
           {step === "done" && detail && (
             <div className="space-y-4 text-center">
-              <Package className="mx-auto h-12 w-12 text-emerald-600" />
-              <p className="text-sm font-bold text-app-text">Returns are saved on the original transaction.</p>
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900">
+                <Package className="mx-auto h-12 w-12 text-emerald-600" />
+                <p className="mt-2 text-[10px] font-black uppercase tracking-[0.2em]">Return saved</p>
+                <p className="mt-1 text-sm font-bold">
+                  Return lines are recorded on receipt {receiptLabel}. No refund is complete until tender is selected.
+                </p>
+              </div>
               <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                   Negative return lines
@@ -612,22 +658,45 @@ export default function PosExchangeWizard({
                 </div>
               </div>
               <p className="text-xs text-app-text-muted">
-                Refund-only can be tendered now. Exchanges can continue into a replacement sale; refund any remaining credit after replacement items are selected.
+                Return lines are saved. Next step: refund this credit now, or continue to a replacement sale and refund any remaining credit afterward.
               </p>
-              <button
-                type="button"
-                onClick={() => setRefundModalOpen(true)}
-                className="ui-btn-secondary w-full py-3 font-black uppercase tracking-widest"
-              >
-                Refund customer now
-              </button>
-              <button
-                type="button"
-                onClick={handleContinue}
-                className="ui-btn-primary w-full py-3 font-black uppercase tracking-widest"
-              >
-                Continue to replacement sale
-              </button>
+              <div className="grid gap-3 text-left sm:grid-cols-2">
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Refund now
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    Use when the customer is not buying replacement items. Select the refund tender and finish before closing the drawer.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Replacement sale
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    Use when the customer is exchanging. Add replacement items next, then settle any remaining balance or credit.
+                  </p>
+                </div>
+              </div>
+              <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-xs font-bold text-amber-900">
+                Pilot watch: saved return lines are audit-sensitive until the refund or replacement sale is finished.
+              </p>
+              <div className="sticky bottom-0 -mx-6 grid gap-3 border-t border-app-border bg-app-surface/95 px-6 py-4 backdrop-blur sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setRefundModalOpen(true)}
+                  className="ui-btn-secondary w-full py-3 font-black uppercase tracking-widest"
+                >
+                  Refund customer now
+                </button>
+                <button
+                  type="button"
+                  onClick={handleContinue}
+                  className="ui-btn-primary w-full py-3 font-black uppercase tracking-widest"
+                >
+                  Continue replacement sale
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -637,7 +706,7 @@ export default function PosExchangeWizard({
         <ManagerApprovalModal
           isOpen={true}
           title="Return Deadline Exceeded"
-          message="This original sale is older than 30 days. An Admin PIN is required to process an exchange/return."
+          message={`This original sale is older than ${RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days. Manager Access is required to process an exchange/return.`}
           onClose={() => {
             setPendingManagerApproval(null);
             setLoading(false);
@@ -652,12 +721,12 @@ export default function PosExchangeWizard({
                  authorize_action: "older_return_approval",
                  authorize_metadata: {
                    transaction_id: pendingManagerApproval.transaction_id,
-                   reason: "Admin approved return outside 30-day policy",
+                   reason: `Manager approved return outside ${RETURN_MANAGER_APPROVAL_WINDOW_DAYS}-day policy`,
                  },
                })
              });
              if (!res.ok) {
-               throw new Error("Invalid Manager PIN.");
+               throw new Error("Manager Access was not approved.");
              }
              setManagerApproval({ staffId: managerId, pin });
              setDetail(pendingManagerApproval);

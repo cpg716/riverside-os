@@ -11,7 +11,7 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 | Key | Use |
 |-----|-----|
 | `orders.view` | List transactions, read detail, audit trail, receipt ZPL (with BO headers). |
-| `orders.modify` | Edit transaction lines, pickup, returns, exchanges. **(Manager PIN required after 60 days)** |
+| `orders.modify` | Edit transaction lines, pickup, returns, exchanges. **(Manager Access required after 60 days)** |
 | `orders.suit_component_swap` | `POST /api/transactions/{id}/items/{line}/suit-swap` — requires **`orders.modify`** as well; BO staff only (no register_session bypass). Seeded by **`scripts/seeds/seed_rbac.sql`**. |
 | `orders.cancel` | `PATCH` transaction to `cancelled` when **payment allocations** exist (queues refund). |
 | `orders.void_sale` | `PATCH` to `cancelled` when the transaction has **no** payment allocations (void mistaken / unpaid cart). Either **`orders.cancel`** or **`orders.void_sale`** suffices when there are no allocations. Seeded by **`scripts/seeds/seed_rbac.sql`**. |
@@ -30,7 +30,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 **Policy Note (60-Day Window)**:
  - **Transactions <= 60 days old**: Can be modified by any staff member on an active session.
- - **Transactions > 60 days old**: Always requires a **Manager PIN** override (`orders.modify` permission) even if a session ID is provided.
+ - **Transactions > 60 days old**: Always requires a **Manager Access** override (`orders.modify` permission) even if a session ID is provided.
 
 | Operation | Query / body | Requirement |
 |-----------|----------------|-------------|

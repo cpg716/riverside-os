@@ -84,7 +84,7 @@ interface HelcimAttempt {
 }
 
 function rmsSourceLabel(source?: string | null) {
-  if (source === "corecard_live") return "Live CoreCard";
+  if (source === "corecard_live") return "Manual RMS Charge";
   if (source === "manual" || source === "local_fallback") return "Manual RMS Charge";
   if (source === "unavailable") return "Unavailable";
   return source || "Manual RMS Charge";
@@ -2393,7 +2393,7 @@ export default function NexoCheckoutDrawer({
                             RMS Charge
                           </p>
                           <p className="mt-1 text-[11px] font-semibold leading-snug text-app-text-muted">
-                            Charge today's sale to approved private-label credit. Choose an eligible program before adding payment.
+                            Manual RMS Charge only. Confirm the account/program in the current RMS workflow, enter the reference, then report to R2S.
                           </p>
                         </div>
                         {!customerId ? (
@@ -2492,9 +2492,12 @@ export default function NexoCheckoutDrawer({
                               <input
                                 value={rmsReferenceNumber}
                                 onChange={(event) => setRmsReferenceNumber(event.target.value)}
-                                placeholder="Approval or reference"
+                                placeholder="Manual approval or R2S reference"
                                 className="ui-input mt-2 h-11 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-black uppercase tracking-wide text-app-text focus:border-app-accent"
                               />
+                              <p className="mt-2 text-[11px] font-semibold leading-snug text-app-text-muted">
+                                Riverside records this sale for follow-up; it does not update the RMS account automatically.
+                              </p>
                             </label>
 
                             <div className="space-y-2">
@@ -2542,7 +2545,7 @@ export default function NexoCheckoutDrawer({
                             RMS Charge Payment
                           </p>
                           <p className="mt-2 text-[11px] font-medium leading-relaxed text-app-text-muted">
-                            This cash or check payment lowers the selected RMS Charge balance. Keep it separate from a normal sale payment.
+                            Manual RMS Charge payment collection. Record cash or check here, then handle the current RMS/R2S follow-up outside Riverside.
                           </p>
                         </div>
                         {!customerId ? (
@@ -2660,6 +2663,9 @@ export default function NexoCheckoutDrawer({
                             className="ui-input h-14 w-full rounded-xl border border-app-border bg-app-bg pl-12 pr-4 text-lg font-black uppercase tracking-widest focus:border-app-accent"
                           />
                         </div>
+                        <p className="rounded-xl border border-app-info/20 bg-app-info/10 px-3 py-2 text-[11px] font-semibold leading-snug text-app-text-muted">
+                          Redeems available gift-card balance against this sale. Loyalty rewards must first be issued to a loyalty gift card before they can be used here.
+                        </p>
                       </div>
                     )}
 

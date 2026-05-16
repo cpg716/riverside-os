@@ -9,6 +9,7 @@ import {
   resetFakeCoreCardHost,
   seedRmsFixture,
   setFakeCoreCardScenario,
+  verifyStaffId,
 } from "./helpers/rmsCharge";
 
 test.describe("POS RMS Charge", () => {
@@ -94,6 +95,7 @@ test.describe("POS RMS Charge", () => {
     const fixture = await seedRmsFixture(request, "multi_match", "Multi");
     const chosen = fixture.linked_accounts[1]!;
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
     const checkout = await request.post(
       `${process.env.E2E_API_BASE || "http://127.0.0.1:43300"}/api/transactions/checkout`,
       {
@@ -106,13 +108,8 @@ test.describe("POS RMS Charge", () => {
         },
         data: {
           session_id: sessionId,
-          operator_staff_id: await (async () => {
-            const res = await request.post(`${process.env.E2E_API_BASE || "http://127.0.0.1:43300"}/api/staff/verify-cashier-code`, {
-              headers: { "Content-Type": "application/json" },
-              data: { cashier_code: "1234", pin: "1234" },
-            });
-            return ((await res.json()) as { staff_id: string }).staff_id;
-          })(),
+          operator_staff_id: operatorStaffId,
+          primary_salesperson_id: operatorStaffId,
           customer_id: fixture.customer.id,
           payment_method: "on_account_rms90",
           total_price: fixture.product.unit_price,
@@ -142,6 +139,7 @@ test.describe("POS RMS Charge", () => {
               unit_cost: fixture.product.unit_cost,
               state_tax: "0.00",
               local_tax: "0.00",
+              salesperson_id: operatorStaffId,
             },
           ],
           checkout_client_id: crypto.randomUUID(),

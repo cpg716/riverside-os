@@ -380,6 +380,7 @@ export async function checkoutFinancedSale(
     data: {
       session_id: sessionId,
       operator_staff_id: operatorStaffId,
+      primary_salesperson_id: operatorStaffId,
       customer_id: options.fixture.customer.id,
       payment_method: paymentMethod,
       total_price: options.fixture.product.unit_price,
@@ -410,6 +411,7 @@ export async function checkoutFinancedSale(
           unit_cost: options.fixture.product.unit_cost,
           state_tax: "0.00",
           local_tax: "0.00",
+          salesperson_id: operatorStaffId,
         },
       ],
       checkout_client_id: checkoutClientId,

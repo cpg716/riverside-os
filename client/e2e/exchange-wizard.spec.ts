@@ -69,6 +69,13 @@ type RefundQueueRow = {
   is_open: boolean;
 };
 
+function daysAgoIsoTimestamp(days: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - days);
+  date.setUTCHours(date.getUTCHours() - 1);
+  return date.toISOString();
+}
+
 async function verifyAdminStaffId(request: APIRequestContext): Promise<string> {
   const res = await request.post(`${apiBase()}/api/staff/verify-cashier-code`, {
     data: {
@@ -162,6 +169,53 @@ async function ensureSessionToken(
   };
 }
 
+async function ensureAlternateSessionToken(
+  request: APIRequestContext,
+  excludedSessionId: string,
+): Promise<{ sessionId: string; sessionToken: string }> {
+  const listRes = await request.get(`${apiBase()}/api/sessions/list-open`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+  expect(listRes.status()).toBe(200);
+  const rows = (await listRes.json()) as SessionListRow[];
+  const existing = rows.find((row) => row.session_id && row.session_id !== excludedSessionId);
+
+  if (existing?.session_id) {
+    const tokenRes = await request.post(
+      `${apiBase()}/api/sessions/${existing.session_id}/attach`,
+      {
+        headers: adminHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(tokenRes.status()).toBe(200);
+    const tokenBody = (await tokenRes.json()) as { pos_api_token?: string };
+    expect(tokenBody.pos_api_token).toBeTruthy();
+    return {
+      sessionId: existing.session_id,
+      sessionToken: tokenBody.pos_api_token ?? "",
+    };
+  }
+
+  const openRes = await request.post(`${apiBase()}/api/sessions/open`, {
+    data: {
+      cashier_code: e2eAdminCode(),
+      pin: e2eAdminCode(),
+      opening_float: "200.00",
+      register_lane: 2,
+    },
+    failOnStatusCode: false,
+  });
+  expect(openRes.status()).toBe(200);
+  const opened = (await openRes.json()) as SessionOpenResponse;
+  expect(opened.pos_api_token).toBeTruthy();
+  return {
+    sessionId: opened.session_id,
+    sessionToken: opened.pos_api_token ?? "",
+  };
+}
+
 async function createDeterministicProduct(
   request: APIRequestContext,
   actorStaffId: string,
@@ -231,6 +285,91 @@ async function createDeterministicProduct(
     productId: created.id,
     variantId: variants[0]?.id ?? "",
     sku,
+  };
+}
+
+async function assignTransactionAge(
+  request: APIRequestContext,
+  transactionId: string,
+  daysOld: number,
+): Promise<void> {
+  const res = await request.post(`${apiBase()}/api/test-support/qbo/assign-transaction-timestamp`, {
+    headers: {
+      ...adminHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      transaction_id: transactionId,
+      timestamp_utc: daysAgoIsoTimestamp(daysOld),
+    },
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
+}
+
+async function createReturnPolicyFixture(
+  request: APIRequestContext,
+  operatorStaffId: string,
+  sessionId: string,
+  sessionToken: string,
+): Promise<{ transactionId: string; lineId: string }> {
+  const { productId, variantId, sku } = await createDeterministicProduct(
+    request,
+    operatorStaffId,
+  );
+
+  const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
+    headers: {
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
+    },
+    data: {
+      session_id: sessionId,
+      operator_staff_id: operatorStaffId,
+      primary_salesperson_id: operatorStaffId,
+      customer_id: null,
+      payment_method: "cash",
+      total_price: "108.75",
+      amount_paid: "108.75",
+      items: [
+        {
+          product_id: productId,
+          variant_id: variantId,
+          fulfillment: "takeaway",
+          quantity: 1,
+          unit_price: "100.00",
+          unit_cost: "40.00",
+          state_tax: "4.00",
+          local_tax: "4.75",
+          salesperson_id: operatorStaffId,
+        },
+      ],
+    },
+    failOnStatusCode: false,
+  });
+  expect(checkoutRes.status()).toBe(200);
+  const checkout = (await checkoutRes.json()) as CheckoutResponse;
+  expect(checkout.transaction_id).toBeTruthy();
+
+  const detailRes = await request.get(
+    `${apiBase()}/api/transactions/${checkout.transaction_id}?register_session_id=${encodeURIComponent(sessionId)}`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      failOnStatusCode: false,
+    },
+  );
+  expect(detailRes.status()).toBe(200);
+  const detail = (await detailRes.json()) as TransactionDetailResponse;
+  const line = detail.items.find((item) => item.sku === sku);
+  expect(line?.transaction_line_id).toBeTruthy();
+  return {
+    transactionId: checkout.transaction_id,
+    lineId: line?.transaction_line_id ?? "",
   };
 }
 
@@ -407,5 +546,120 @@ test.describe("POS exchange wizard", () => {
     expect(refund?.amount_refunded).toBe("0");
 
     // ZPL is no longer used; verification of financial totals is handled by the JSON detail check above.
+  });
+
+  test("day 31 return from another register session is allowed without manager override", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+
+    const operatorStaffId = await verifyAdminStaffId(request);
+    const originalSession = await ensureSessionToken(request);
+    const alternateSession = await ensureAlternateSessionToken(
+      request,
+      originalSession.sessionId,
+    );
+    const fixture = await createReturnPolicyFixture(
+      request,
+      operatorStaffId,
+      originalSession.sessionId,
+      originalSession.sessionToken,
+    );
+    await assignTransactionAge(request, fixture.transactionId, 31);
+
+    const returnRes = await request.post(
+      `${apiBase()}/api/transactions/${fixture.transactionId}/returns?register_session_id=${encodeURIComponent(alternateSession.sessionId)}`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": alternateSession.sessionId,
+          "x-riverside-pos-session-token": alternateSession.sessionToken,
+        },
+        data: {
+          lines: [
+            {
+              transaction_line_id: fixture.lineId,
+              quantity: 1,
+              reason: "exchange",
+            },
+          ],
+        },
+        failOnStatusCode: false,
+      },
+    );
+
+    const bodyText = await returnRes.text();
+    expect(returnRes.status(), bodyText.slice(0, 500)).toBe(200);
+  });
+
+  test("day 61 return from another register session requires manager override", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+
+    const operatorStaffId = await verifyAdminStaffId(request);
+    const originalSession = await ensureSessionToken(request);
+    const alternateSession = await ensureAlternateSessionToken(
+      request,
+      originalSession.sessionId,
+    );
+    const fixture = await createReturnPolicyFixture(
+      request,
+      operatorStaffId,
+      originalSession.sessionId,
+      originalSession.sessionToken,
+    );
+    await assignTransactionAge(request, fixture.transactionId, 61);
+
+    const withoutOverride = await request.post(
+      `${apiBase()}/api/transactions/${fixture.transactionId}/returns?register_session_id=${encodeURIComponent(alternateSession.sessionId)}`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": alternateSession.sessionId,
+          "x-riverside-pos-session-token": alternateSession.sessionToken,
+        },
+        data: {
+          lines: [
+            {
+              transaction_line_id: fixture.lineId,
+              quantity: 1,
+              reason: "exchange",
+            },
+          ],
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const rejectedText = await withoutOverride.text();
+    expect(withoutOverride.status(), rejectedText.slice(0, 500)).toBe(403);
+    expect(rejectedText).toContain("older than 60 days");
+
+    const withOverride = await request.post(
+      `${apiBase()}/api/transactions/${fixture.transactionId}/returns?register_session_id=${encodeURIComponent(alternateSession.sessionId)}`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": alternateSession.sessionId,
+          "x-riverside-pos-session-token": alternateSession.sessionToken,
+        },
+        data: {
+          manager_staff_id: operatorStaffId,
+          manager_pin: e2eAdminCode(),
+          manager_reason: "E2E older return approval",
+          lines: [
+            {
+              transaction_line_id: fixture.lineId,
+              quantity: 1,
+              reason: "exchange",
+            },
+          ],
+        },
+        failOnStatusCode: false,
+      },
+    );
+
+    const approvedText = await withOverride.text();
+    expect(withOverride.status(), approvedText.slice(0, 500)).toBe(200);
   });
 });

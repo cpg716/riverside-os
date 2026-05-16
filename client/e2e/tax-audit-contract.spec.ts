@@ -93,6 +93,10 @@ function localBusinessDate(): string {
   return `${year}-${month}-${day}`;
 }
 
+function utcAuditDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function taxFor(category: TaxCategory, unitPrice: string) {
   return calculateNysErieTaxStringsForUnit(category, parseMoneyToCents(unitPrice));
 }
@@ -429,7 +433,7 @@ test.describe("tax audit contract", () => {
     request,
   }) => {
     test.setTimeout(90_000);
-    const day = localBusinessDate();
+    const day = utcAuditDate();
     const before = await fetchNysTaxAudit(request, day);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);

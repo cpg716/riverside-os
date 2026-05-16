@@ -48,6 +48,8 @@ use crate::models::{
     DbTransactionCategory,
 };
 
+const RETURN_MANAGER_APPROVAL_WINDOW_DAYS: i64 = 60;
+
 pub(crate) async fn rosie_order_summary(
     state: &AppState,
     headers: &HeaderMap,
@@ -1138,7 +1140,7 @@ async fn authorize_transaction_modify_bo_or_register(
             return Ok(None);
         }
 
-        // 2. Not in session? Check age (30 day policy)
+        // 2. Not in session? Check age against the store return window.
         let booked_at = sqlx::query_scalar::<_, DateTime<Utc>>(
             "SELECT booked_at FROM transactions WHERE id = $1",
         )
@@ -1148,8 +1150,8 @@ async fn authorize_transaction_modify_bo_or_register(
         .ok_or(TransactionError::NotFound)?;
 
         let days_old = (Utc::now() - booked_at).num_days();
-        if days_old <= 30 {
-            // Within 30 days, any register session can process the return/exchange.
+        if days_old <= RETURN_MANAGER_APPROVAL_WINDOW_DAYS {
+            // Within the return window, any register session can process the return/exchange.
             return Ok(None);
         }
 
@@ -1158,11 +1160,13 @@ async fn authorize_transaction_modify_bo_or_register(
                 pins::authenticate_staff_by_id(&state.db, manager_staff_id, Some(manager_pin))
                     .await
                     .map_err(|_| {
-                        TransactionError::InvalidPayload("invalid manager PIN".to_string())
+                        TransactionError::InvalidPayload(
+                            "Manager Access was not approved".to_string(),
+                        )
                     })?;
             if manager.role != crate::models::DbStaffRole::Admin {
                 return Err(TransactionError::Forbidden(
-                    "admin authorization required for older return".to_string(),
+                    "Manager Access required for older return".to_string(),
                 ));
             }
             let reason = manager_reason
@@ -1183,7 +1187,7 @@ async fn authorize_transaction_modify_bo_or_register(
             return Ok(Some(manager.id));
         }
 
-        // 3. Older than 30 days? Require BO permission or manager approval.
+        // 3. Older than the return window? Require BO permission or manager approval.
         if let Ok(s) =
             middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY).await
         {
@@ -1191,7 +1195,9 @@ async fn authorize_transaction_modify_bo_or_register(
         }
 
         return Err(TransactionError::Forbidden(
-            "transaction is older than 30 days; manager approval required".to_string(),
+            format!(
+                "transaction is older than {RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days; manager approval required"
+            ),
         ));
     }
     let s = middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY)
@@ -1925,12 +1931,6 @@ async fn process_refund(
         .await
         .map_err(map_perm_err)?;
 
-    if !register_session_is_open(&state.db, body.session_id).await? {
-        return Err(TransactionError::InvalidPayload(
-            "register session is not open".to_string(),
-        ));
-    }
-
     if body.amount <= Decimal::ZERO {
         return Err(TransactionError::InvalidPayload(
             "amount must be positive".to_string(),
@@ -1940,6 +1940,23 @@ async fn process_refund(
     let method_l = body.payment_method.to_lowercase();
 
     let mut tx = state.db.begin().await?;
+    let session_open: Option<bool> = sqlx::query_scalar(
+        r#"
+        SELECT lifecycle_status = 'open'
+        FROM register_sessions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(body.session_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if session_open != Some(true) {
+        return Err(TransactionError::InvalidPayload(
+            "register session is not open".to_string(),
+        ));
+    }
+
     let row: Option<RefundQueueRow> = sqlx::query_as(
         r#"
         SELECT id, transaction_id, customer_id, amount_due, amount_refunded, is_open, reason, created_at
@@ -2100,13 +2117,15 @@ async fn process_refund(
                     crate::auth::pins::authenticate_staff_by_id(&state.db, m_id, Some(m_pin))
                         .await
                         .map_err(|_| {
-                            TransactionError::InvalidPayload("invalid manager PIN".to_string())
+                            TransactionError::InvalidPayload(
+                                "Manager Access was not approved".to_string(),
+                            )
                         })?;
 
                 // The current role model has no Manager role; Admin is the manager-equivalent step-up.
                 if manager.role != crate::models::DbStaffRole::Admin {
                     return Err(TransactionError::Forbidden(
-                        "admin authorization required for legacy manual refund".to_string(),
+                        "Manager Access required for legacy manual refund".to_string(),
                     ));
                 }
 
