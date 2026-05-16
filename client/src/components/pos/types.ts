@@ -238,6 +238,7 @@ export interface CheckoutPayload {
     amount: string;
   }[];
   checkout_client_id?: string;
+  booked_at_local?: string;
   /** Binds server `store_shipping_rate_quote` into checkout totals. */
   shipping_rate_quote_id?: string | null;
   /** Binds Order Urgency */

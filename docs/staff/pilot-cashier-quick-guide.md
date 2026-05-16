@@ -18,6 +18,17 @@
 
 **Do not start the next customer until the receipt screen is handled and the sale is clearly complete.**
 
+### Backdate the current sale
+
+Use this only when a manager approves recording the sale under an earlier store date/time.
+
+1. In **Register**, tap **Store date and time** near the salesperson selector.
+2. Pick the correct store-local date/time.
+3. Confirm the label changes to **Backdated sale** before checkout.
+4. Finish checkout normally.
+
+The backdate applies only to the current sale. ROS returns to the live store date/time after checkout, cart clear, or customer change.
+
 ---
 
 ## Split tender

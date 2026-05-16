@@ -32,6 +32,7 @@ interface UseCartCheckoutProps {
   pendingAlterationIntakes: PendingAlterationIntake[];
   orderPaymentLines: OrderPaymentCartLine[];
   pickupConfirmed: boolean;
+  saleDateTimeLocal?: string | null;
   totals: CartTotals; 
   toast: (msg: string, type?: "success" | "error" | "info") => void;
   clearCart: () => void;
@@ -98,6 +99,7 @@ export function useCartCheckout({
   pendingAlterationIntakes,
   orderPaymentLines,
   pickupConfirmed,
+  saleDateTimeLocal,
   totals,
   toast,
   clearCart,
@@ -267,6 +269,7 @@ export function useCartCheckout({
         total_price: centsToFixed2(ledgerSignals.isTaxExempt ? totals.orderTotalCents - (totals.stateTaxCents + totals.localTaxCents) : totals.orderTotalCents),
         amount_paid: centsToFixed2(tenderPaidCents),
         checkout_client_id: checkoutClientId,
+        booked_at_local: saleDateTimeLocal?.trim() || undefined,
         is_rush: options?.is_rush ?? lines.some((l) => l.is_rush),
         need_by_date:
           options?.need_by_date ??
@@ -381,7 +384,7 @@ export function useCartCheckout({
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember, 
     cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
-    pickupConfirmed, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession
+    pickupConfirmed, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession
   ]);
 
   return {

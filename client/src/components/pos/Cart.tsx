@@ -257,6 +257,7 @@ export default function Cart({
   const [posShipping, setPosShipping] = useState<PosShippingSelection | null>(null);
   const [checkoutAppliedPayments, setCheckoutAppliedPayments] = useState<AppliedPaymentLine[]>([]);
   const [checkoutDepositLedger, setCheckoutDepositLedger] = useState("");
+  const [saleDateTimeLocal, setSaleDateTimeLocal] = useState<string | null>(null);
   const [pickupConfirmed, setPickupConfirmed] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [activeWeddingMember, setActiveWeddingMember] = useState<WeddingMember | null>(null);
@@ -384,14 +385,31 @@ export default function Cart({
     [lines, rmsPaymentMeta],
   );
 
+  const resetSaleDateTime = useCallback(() => {
+    setSaleDateTimeLocal(null);
+  }, []);
+
 	  const clearCartAndAlterations = useCallback(() => {
     clearCart();
+    resetSaleDateTime();
     setPendingAlterationIntakes([]);
     setEditingAlterationIntake(null);
     setOrderPaymentLines([]);
     setEditingOrderPaymentLine(null);
     setEditingOrderPaymentAmount("");
-  }, [clearCart]);
+  }, [clearCart, resetSaleDateTime]);
+
+  const selectedCustomerId = selectedCustomer?.id ?? null;
+  const previousSelectedCustomerId = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (
+      previousSelectedCustomerId.current !== undefined &&
+      previousSelectedCustomerId.current !== selectedCustomerId
+    ) {
+      resetSaleDateTime();
+    }
+    previousSelectedCustomerId.current = selectedCustomerId;
+  }, [resetSaleDateTime, selectedCustomerId]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id ?? null;
@@ -1010,6 +1028,7 @@ export default function Cart({
     pendingAlterationIntakes,
     orderPaymentLines,
     pickupConfirmed,
+    saleDateTimeLocal,
     totals,
     toast,
     clearCart: clearCartAndAlterations,
@@ -1020,9 +1039,10 @@ export default function Cart({
     if (checkoutTransactionId) {
       setLastTransactionId(checkoutTransactionId);
       setCheckoutDrawerOpen(false);
+      resetSaleDateTime();
       onRegisterTransactionCommitted?.();
     }
-  }, [checkoutTransactionId, onRegisterTransactionCommitted]);
+  }, [checkoutTransactionId, onRegisterTransactionCommitted, resetSaleDateTime]);
 
   // --- Parked Sales Hook ---
   const {
@@ -1749,7 +1769,11 @@ export default function Cart({
                   ) : null}
                 </>
               ) : null}
-              <PosRegisterLiveClock timeZone={receiptTimezone} />
+              <PosRegisterLiveClock
+                timeZone={receiptTimezone}
+                overrideLocalDateTime={saleDateTimeLocal}
+                onOverrideChange={setSaleDateTimeLocal}
+              />
             </div>
           ) : null}
 

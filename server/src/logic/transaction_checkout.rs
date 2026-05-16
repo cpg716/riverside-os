@@ -1,6 +1,6 @@
 //! POS checkout: split resolution, validation, and transactional persistence.
 
-use chrono::Utc;
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -166,6 +166,10 @@ pub struct CheckoutRequest {
     pub order_payments: Vec<CheckoutOrderPayment>,
     #[serde(default)]
     pub checkout_client_id: Option<Uuid>,
+    /// Store-local date/time selected in Register for this transaction only.
+    /// Format: `YYYY-MM-DDTHH:MM` from an HTML datetime-local input.
+    #[serde(default)]
+    pub booked_at_local: Option<String>,
     /// Consumed at checkout (single use); amount included in `total_price` validation.
     #[serde(default)]
     pub shipping_rate_quote_id: Option<Uuid>,
@@ -219,6 +223,44 @@ pub struct CheckoutResponse {
     pub status: String,
     pub loyalty_points_earned: i32,
     pub loyalty_points_balance: Option<i32>,
+}
+
+fn parse_booked_at_local(raw: &str) -> Result<NaiveDateTime, CheckoutError> {
+    let trimmed = raw.trim();
+    for fmt in ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"] {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(trimmed, fmt) {
+            return Ok(dt);
+        }
+    }
+    Err(CheckoutError::InvalidPayload(
+        "transaction date/time must be a valid store-local date and time".to_string(),
+    ))
+}
+
+async fn resolve_checkout_booked_at(
+    pool: &PgPool,
+    raw: Option<&str>,
+) -> Result<(Option<String>, Option<NaiveDate>), CheckoutError> {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok((None, None));
+    };
+    let parsed = parse_booked_at_local(raw)?;
+    let sql_value = parsed.format("%Y-%m-%d %H:%M:%S").to_string();
+    let is_allowed: bool = sqlx::query_scalar(
+        r#"
+        SELECT ($1::timestamp AT TIME ZONE reporting.effective_store_timezone())
+            <= CURRENT_TIMESTAMP + INTERVAL '5 minutes'
+        "#,
+    )
+    .bind(&sql_value)
+    .fetch_one(pool)
+    .await?;
+    if !is_allowed {
+        return Err(CheckoutError::InvalidPayload(
+            "transaction date/time cannot be in the future".to_string(),
+        ));
+    }
+    Ok((Some(sql_value), Some(parsed.date())))
 }
 
 #[derive(Debug)]
@@ -2410,11 +2452,26 @@ pub async fn execute_checkout(
         is_rms_payment_collection,
     )
     .await?;
-    let transaction_financing_metadata = pos_rms_charge::transaction_metadata_from_splits(
+    let (checkout_booked_at_local, checkout_business_date) =
+        resolve_checkout_booked_at(pool, payload.booked_at_local.as_deref()).await?;
+
+    let mut transaction_financing_metadata = pos_rms_charge::transaction_metadata_from_splits(
         payment_splits
             .iter()
             .map(|split| (split.method.as_str(), &split.metadata)),
     );
+    if let (Some(booked_at_local), Some(business_date)) =
+        (checkout_booked_at_local.as_deref(), checkout_business_date)
+    {
+        if let Some(obj) = transaction_financing_metadata.as_object_mut() {
+            obj.insert("register_backdated".to_string(), json!(true));
+            obj.insert("booked_at_local".to_string(), json!(booked_at_local));
+            obj.insert(
+                "business_date".to_string(),
+                json!(business_date.to_string()),
+            );
+        }
+    }
 
     for s in &payment_splits {
         if s.method.trim().eq_ignore_ascii_case("store_credit") && payload.customer_id.is_none() {
@@ -2888,12 +2945,12 @@ pub async fn execute_checkout(
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7,
-            CURRENT_TIMESTAMP,
-            (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
-            $8, $9,
-            $10, $11, $12,
-            $13, $14, $15, $16, $17, $18,
-            $19, $20, $21
+            COALESCE(($8::timestamp AT TIME ZONE reporting.effective_store_timezone()), CURRENT_TIMESTAMP),
+            COALESCE($9::date, (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date),
+            $10, $11,
+            $12, $13, $14,
+            $15, $16, $17, $18, $19, $20,
+            $21, $22, $23
         )
         RETURNING id, display_id
         "#,
@@ -2905,6 +2962,8 @@ pub async fn execute_checkout(
     .bind(payload.total_price)
     .bind(amount_toward_order)
     .bind(balance_due)
+    .bind(checkout_booked_at_local.as_deref())
+    .bind(checkout_business_date)
     .bind(weather_json)
     .bind(payload.checkout_client_id)
     .bind(order_fulfillment_method)
@@ -3785,9 +3844,9 @@ pub async fn execute_checkout(
                 )
                 VALUES (
                     $1, $2, $3, $4, $5,
-                    (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date,
-                    $6, $7, $8, $9,
-                    $10, $11, $12, $13, $14, $15, $16, $17, $18
+                    COALESCE($6::date, (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date),
+                    $7, $8, $9, $10,
+                    $11, $12, $13, $14, $15, $16, $17, $18, $19
                 )
                 RETURNING id
                 "#,
@@ -3797,6 +3856,7 @@ pub async fn execute_checkout(
             .bind(payment_tx_category)
             .bind(method)
             .bind(split.amount)
+            .bind(checkout_business_date)
             .bind(&split.metadata)
             .bind(&split.payment_provider)
             .bind(&split.provider_payment_id)
