@@ -97,10 +97,11 @@ pub async fn commission_breakdown_for_line_at(
     }
 
     let category_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT category_id FROM products WHERE id = $1")
+        sqlx::query_scalar::<_, Option<Uuid>>("SELECT category_id FROM products WHERE id = $1")
             .bind(input.product_id)
             .fetch_optional(&mut *conn)
-            .await?;
+            .await?
+            .flatten();
 
     // Fixed-dollar SPIFF lookup only. Percentage/category overrides are intentionally ignored.
     #[derive(sqlx::FromRow)]
