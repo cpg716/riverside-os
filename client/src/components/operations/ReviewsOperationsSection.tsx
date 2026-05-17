@@ -8,6 +8,27 @@ import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
 
+function reviewStatusLabel(status: string | null | undefined, sent: boolean, suppressed: boolean) {
+  switch (status) {
+    case "sent":
+      return "Sent";
+    case "suppressed":
+      return "Skipped by staff";
+    case "skipped_recent_180d":
+      return "Skipped: asked recently";
+    case "skipped_no_contact":
+      return "Skipped: no contact";
+    case "disabled":
+      return "Reviews off";
+    case "not_ready":
+      return "Not completed";
+    default:
+      if (sent) return "Sent";
+      if (suppressed) return "Skipped";
+      return "Pending";
+  }
+}
+
 export interface ReviewInviteRow {
   transaction_id: string;
   display_id: string;
@@ -73,7 +94,7 @@ export default function ReviewsOperationsSection({
         headers: auth(),
       });
       if (!res.ok) {
-        toast("Could not sync Podium review status.", "error");
+        toast("Could not update Podium review status.", "error");
         return;
       }
       const result = (await res.json()) as {
@@ -81,7 +102,7 @@ export default function ReviewsOperationsSection({
         rows_updated: number;
       };
       toast(
-        `Podium reviews synced: ${result.rows_updated} ROS rows updated from ${result.provider_rows_seen} provider rows.`,
+        `Podium reviews updated: ${result.rows_updated} rows refreshed from ${result.provider_rows_seen} Podium rows.`,
         "success",
       );
       await load();
@@ -113,8 +134,7 @@ export default function ReviewsOperationsSection({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs font-medium text-app-text-muted max-w-2xl leading-relaxed">
-          Post-sale review invite decisions from the receipt summary (POS), including
-          provider ids and review links returned by Podium when available.
+          Review requests sent from sale completion. Riverside asks after completed or picked-up sales and only once per customer every 180 days.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -127,7 +147,7 @@ export default function ReviewsOperationsSection({
               className={`h-4 w-4 ${syncBusy ? "animate-spin" : ""}`}
               aria-hidden
             />
-            Sync Podium
+            Update from Podium
           </button>
           <button
             type="button"
@@ -190,11 +210,11 @@ export default function ReviewsOperationsSection({
                       <td className="px-3 py-2.5">
                         {sent ? (
                           <span className="ui-pill bg-app-success/10 text-app-success">
-                            {r.podium_review_invite_status ?? "Sent"}
+                            {reviewStatusLabel(r.podium_review_invite_status, sent, suppressed)}
                           </span>
                         ) : suppressed ? (
                           <span className="ui-pill bg-app-surface-2 text-app-text-muted">
-                            {r.podium_review_invite_status ?? "Suppressed"}
+                            {reviewStatusLabel(r.podium_review_invite_status, sent, suppressed)}
                           </span>
                         ) : (
                           <span className="ui-pill bg-app-surface-2 text-app-text-muted">

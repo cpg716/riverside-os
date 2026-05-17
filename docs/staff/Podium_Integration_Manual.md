@@ -22,7 +22,7 @@ When Podium is **configured on the server** and **enabled in Settings**, Riversi
 | **Direct staff texts** | From **Podium Inbox**, send a text to an existing customer or enter a new phone number; new numbers require first and last name and create a Podium-sourced customer contact. |
 | **Inbound messages** | If Podium is allowed to call Riverside’s **webhook**, new customer texts can appear as threads and **notifications** (see section 7). |
 | **Web chat on your site** | Paste Podium’s widget snippet so the public storefront can load it (optional build flag). |
-| **Review invites (tracking)** | Store whether the cashier chose to **send** or **skip** a post-sale review prompt; **live** Podium review API send is still a roadmap item (see section 8). |
+| **Review invites** | Send post-sale Podium review requests from sale completion, track skipped/sent outcomes, and update invite status in Operations (see section 8). |
 
 Riverside does **not** recreate Podium’s full multi-user Inbox. Use Riverside for **CRM-context** messaging next to orders and profiles; power users may still use Podium directly.
 
@@ -138,6 +138,8 @@ Unmatched provider threads are grouped under **Unknown Podium senders** so the m
 
 Viewing requires **`customers.hub_view`**. Sending and new-contact creation require **`customers.hub_edit`**.
 
+**Inbox freshness:** Riverside receives new Podium messages by webhook when the public webhook is configured. The Inbox screen refreshes every minute while open, and Riverside runs a background Podium pull every 30 hours by default to catch missed history. Use **Pull from Podium** when staff want an immediate missed-history check.
+
 **Important:** A customer can appear in **Podium Inbox** before Riverside has the full message body history for that thread. The inbox row is backed by a matched **conversation**. The customer **Messages** tab is backed by stored **message** rows. If webhooks were disabled, rejected, or the Podium OAuth grant is missing **`read_messages`**, the profile may show a Podium sync error until IT fixes the webhook/scope issue and runs sync again.
 
 ### 4.3 Relationship Hub → Messages tab
@@ -214,9 +216,9 @@ Do not give Podium a `localhost` webhook URL. Podium must reach Riverside from t
 
 **Receipt (POS):** On the receipt summary, cashiers can **skip** or allow a **review invite** according to store defaults set in **Settings → General**.
 
-**What Riverside records today:** If the sale is eligible and not skipped, the Transaction Record may be stamped with **`review_invite_sent_at`** and a **placeholder** Podium invite id until the live Podium review API is wired. Admins get a **stub** notification explaining that the real Podium send is pending configuration.
+**When Riverside sends:** Riverside sends through Podium for completed / picked-up sales when the Transaction Record has a customer, at least one non-internal fulfilled line, and a usable phone or email. Riverside only asks each customer once every **180 days**. If the cashier chooses **Do not send**, the customer was asked recently, or contact information is missing, Riverside records the skipped outcome instead of silently failing.
 
-**Operations → Reviews:** Staff with **`reviews.view`** see Transaction Records with invite **sent** or **suppressed** timestamps and open the record in Back Office from the list.
+**Operations → Reviews:** Staff with **`reviews.view`** see Transaction Records with invite **sent** or **skipped** timestamps, update status from Podium, and open the record in Back Office from the list.
 
 Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 
@@ -263,6 +265,7 @@ Manage routine Podium credentials in **Settings → Integrations → Podium** (n
 | **`RIVERSIDE_PODIUM_WEBHOOK_SECRET`** | Verify inbound webhooks |
 | **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`** | Dev only |
 | **`RIVERSIDE_PODIUM_INBOUND_DISABLED`** | Skip CRM ingest; verified deliveries may still be recorded in the webhook ledger |
+| **`RIVERSIDE_PODIUM_SYNC_INTERVAL_SECS`** | Optional fallback inbox pull interval; default 30 hours, minimum 10 minutes |
 
 **Client (optional):** **`VITE_PODIUM_OAUTH_REDIRECT_URI`**, **`VITE_STOREFRONT_EMBEDS`**.
 

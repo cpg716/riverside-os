@@ -4,7 +4,7 @@ title: "Receipt Preview and Delivery"
 order: 1068
 summary: "Preview, print, text, or email the completed sale receipt."
 source: client/src/components/pos/ReceiptSummaryModal.tsx
-last_scanned: 2026-05-10
+last_scanned: 2026-05-17
 tags: pos-receipt-summary-modal, pos, receipt, printing
 status: approved
 ---
@@ -36,6 +36,11 @@ The sale complete receipt preview shows the customer receipt after checkout. It 
 - **Text receipt** and **Email receipt** send the customer copy when the sale has the needed customer contact information.
 - **Gift receipt** prints a gift copy without exposing normal payment detail.
 - **Reports printer** opens the formatted receipt for the workstation report printer path.
+- **Review Request** lets the cashier send or skip the Podium review request for eligible completed or picked-up sales.
+
+## Review requests
+
+The review request option appears on eligible sale completion screens when Podium review requests are enabled. Riverside only sends after completed or picked-up sales, and only once per customer every 180 days. If the customer was asked recently, has no phone or email, or the cashier chooses **Do not send**, Riverside records that outcome instead of silently failing.
 
 ## Receipt preview
 

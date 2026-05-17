@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -21,6 +21,8 @@ import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
+const INBOX_LOCAL_REFRESH_MS = 60_000;
+const PROVIDER_PULL_STALE_MS = 30 * 60 * 60 * 1000;
 
 type InboxRow = {
   conversation_id: string;
@@ -125,6 +127,13 @@ function fullDateTime(value: string | null | undefined) {
   });
 }
 
+function isOlderThan(value: string | null | undefined, maxAgeMs: number) {
+  if (!value) return true;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return true;
+  return Date.now() - date.getTime() > maxAgeMs;
+}
+
 function channelIcon(channel: string) {
   return channel === "email" ? Mail : Phone;
 }
@@ -166,6 +175,7 @@ export default function PodiumMessagingInboxSection({
   const [directBody, setDirectBody] = useState("");
   const [directSearchBusy, setDirectSearchBusy] = useState(false);
   const [directSendBusy, setDirectSendBusy] = useState(false);
+  const autoProviderPullKeyRef = useRef<string | null>(null);
 
   const loadHealth = useCallback(async () => {
     try {
@@ -194,11 +204,12 @@ export default function PodiumMessagingInboxSection({
     }
   }, [apiAuth]);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (opts?: { background?: boolean }) => {
+    if (!opts?.background) setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/customers/podium/messaging-inbox?limit=80`, {
         headers: apiAuth(),
+        cache: "no-store",
       });
       if (!res.ok) {
         setLoadError("Could not refresh Podium inbox.");
@@ -213,7 +224,7 @@ export default function PodiumMessagingInboxSection({
     } catch {
       setLoadError("Could not refresh Podium inbox.");
     } finally {
-      setLoading(false);
+      if (!opts?.background) setLoading(false);
     }
   }, [apiAuth, loadHealth, loadUnmatched]);
 
@@ -222,6 +233,15 @@ export default function PodiumMessagingInboxSection({
     void loadHealth();
     void loadUnmatched();
   }, [loadHealth, loadUnmatched, refresh]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refresh({ background: true });
+      }
+    }, INBOX_LOCAL_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [refresh]);
 
   const channelOptions = useMemo(
     () => Array.from(new Set(rows.map((row) => row.channel).filter(Boolean))).sort(),
@@ -288,7 +308,7 @@ export default function PodiumMessagingInboxSection({
     };
   }, [apiAuth, selectedRow]);
 
-  const runSync = async () => {
+  const runSync = useCallback(async (opts?: { quiet?: boolean }) => {
     setSyncBusy(true);
     try {
       const res = await fetch(`${baseUrl}/api/customers/podium/messaging-sync`, {
@@ -297,7 +317,9 @@ export default function PodiumMessagingInboxSection({
         body: JSON.stringify({ limit: 200 }),
       });
       if (!res.ok) {
-        toast("Podium sync could not run. Check credentials and scopes.", "error");
+        if (!opts?.quiet) {
+          toast("Podium pull could not run. Check credentials and permissions.", "error");
+        }
         return;
       }
       const result = (await res.json()) as {
@@ -306,15 +328,33 @@ export default function PodiumMessagingInboxSection({
         messages_inserted: number;
         errors?: string[];
       };
-      toast(
-        `Podium sync added ${result.messages_inserted} messages across ${result.conversations_matched} conversations. ${result.conversations_unmatched} need customer matching.`,
-        "success",
-      );
-      await refresh();
+      if (!opts?.quiet) {
+        toast(
+          `Podium pull added ${result.messages_inserted} messages across ${result.conversations_matched} conversations. ${result.conversations_unmatched} need customer matching.`,
+          "success",
+        );
+      }
+      await refresh({ background: opts?.quiet });
     } finally {
       setSyncBusy(false);
     }
-  };
+  }, [apiAuth, refresh, toast]);
+
+  const providerPullDue = useMemo(
+    () =>
+      !!health?.credentials_configured &&
+      !!health.location_uid_configured &&
+      isOlderThan(health.last_sync_at, PROVIDER_PULL_STALE_MS),
+    [health],
+  );
+
+  useEffect(() => {
+    if (!providerPullDue || syncBusy) return;
+    const key = health?.last_sync_at ?? "never";
+    if (autoProviderPullKeyRef.current === key) return;
+    autoProviderPullKeyRef.current = key;
+    void runSync({ quiet: true });
+  }, [health?.last_sync_at, providerPullDue, runSync, syncBusy]);
 
   const markRead = async (row: InboxRow) => {
     await fetch(`${baseUrl}/api/customers/podium/conversations/${row.conversation_id}/read`, {
@@ -511,7 +551,7 @@ export default function PodiumMessagingInboxSection({
             className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
           >
             <RefreshCw size={13} className={syncBusy ? "animate-spin" : ""} aria-hidden />
-            Sync Podium
+            Pull from Podium
           </button>
           <button
             type="button"
@@ -529,7 +569,7 @@ export default function PodiumMessagingInboxSection({
             ["Conversations", `${rows.length}`],
             ["Needs reply", `${needsReplyCount}`],
             ["Unread", `${unreadCount}`],
-            ["Last sync", health.last_sync_at ? fullDateTime(health.last_sync_at) : health.last_message_at ? fullDateTime(health.last_message_at) : "Not synced"],
+            ["Last Podium pull", health.last_sync_at ? fullDateTime(health.last_sync_at) : "Not yet"],
           ].map(([label, value]) => (
             <div key={label} className="rounded-2xl border border-app-border bg-app-surface px-4 py-4 shadow-sm">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -538,6 +578,54 @@ export default function PodiumMessagingInboxSection({
               <p className="mt-2 text-2xl font-black text-app-text">{value}</p>
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {health ? (
+        <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-3 text-sm shadow-sm">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Inbox updating
+              </p>
+              <p className="mt-1 font-semibold text-app-text">
+                This screen refreshes every minute while open. New Podium webhooks appear here after refresh.
+              </p>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Last webhook: {fullDateTime(health.last_webhook_received_at)} · Last local message: {fullDateTime(health.last_message_at)}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`ui-pill ${
+                  health.webhook_secret_configured && health.inbound_ingest_enabled
+                    ? "bg-app-success/10 text-app-success"
+                    : "bg-app-warning/10 text-app-warning"
+                }`}
+              >
+                {health.webhook_secret_configured && health.inbound_ingest_enabled
+                  ? "Webhook ready"
+                  : "Webhook needs setup"}
+              </span>
+              <span
+                className={`ui-pill ${
+                  providerPullDue ? "bg-app-warning/10 text-app-warning" : "bg-app-success/10 text-app-success"
+                }`}
+              >
+                {providerPullDue
+                  ? syncBusy
+                    ? "Pulling missed history"
+                    : "Missed-history pull due"
+                  : "Missed-history pull current"}
+              </span>
+            </div>
+          </div>
+          {health.last_webhook_failure_at ? (
+            <p className="mt-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
+              Last webhook issue: {fullDateTime(health.last_webhook_failure_at)}
+              {health.last_webhook_failure_reason ? ` - ${health.last_webhook_failure_reason}` : ""}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -763,7 +851,7 @@ export default function PodiumMessagingInboxSection({
                         No messages loaded for this conversation yet.
                       </p>
                       <p className="mt-1 max-w-sm text-xs font-semibold">
-                        Sync Podium or open the customer record if this thread needs more history.
+                        Pull from Podium or open the customer record if this thread needs more history.
                       </p>
                     </div>
                   )}

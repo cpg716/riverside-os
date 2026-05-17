@@ -1,10 +1,12 @@
 # Plan: Podium reviews (invites + Operations hub)
 
-**Status:** **Partially implemented** — **`store_settings.review_policy`** (**100**), **`ReceiptSummaryModal`** opt-out / defaults, **`POST /api/transactions/{id}/review-invite`** (stub Podium path + idempotency fields), **Operations → Reviews** (**`reviews.view`**), admin **`review_invite_sent`** notification. **Live Podium review-invite API** (replace stub) and response workflows remain **roadmap**. **Tracker:** **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**. **Gift / subset receipts** (print, email, text) share **`ReceiptSummaryModal`** with review UX — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**.
+**Status:** **Implemented for post-sale invites** — **`store_settings.review_policy`** (**100**), **`ReceiptSummaryModal`** opt-out / defaults, **`POST /api/transactions/{id}/review-invite`** using Podium **`POST /v4/reviews/invites`**, per-customer **180-day cooldown**, **Operations → Reviews** (**`reviews.view`**), provider status refresh, and admin **`review_invite_sent`** notification. Review-response workflows remain **roadmap**. **Tracker:** **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**. **Gift / subset receipts** (print, email, text) share **`ReceiptSummaryModal`** with review UX — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**.
 
 **Depends on:** Podium OAuth (**`RIVERSIDE_PODIUM_*`**), **`podium_sms_config`** (**`location_uid`**, outbound toggles) — **[`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md)**. Receipt completion UX — **[`RECEIPT_BUILDER_AND_DELIVERY.md`](./RECEIPT_BUILDER_AND_DELIVERY.md)**.
 
-**Podium API (verify against current docs):** Review invite creation (e.g. **Create a review invite link**), listing/fetching reviews, responses. Scopes typically include **`read_reviews`** / **`write_reviews`** (not payments). **Do not reuse** invite URLs; generate a new invite per send per Podium guidance.
+**Podium API:** Review invite creation uses **`POST /v4/reviews/invites`**. Status refresh uses Podium review-invite rows when available. Scopes typically include review read/write permissions. **Do not reuse** invite URLs; generate a new invite per send per Podium guidance.
+
+**Podium Inbox reliability:** inbound message webhooks update Riverside by event when Podium webhook delivery is configured. A server background worker also pulls recent Podium conversations every **30 hours** by default (`RIVERSIDE_PODIUM_SYNC_INTERVAL_SECS` can override, minimum 10 minutes). The Inbox screen refreshes the Riverside copy every minute while open and shows webhook / missed-history pull health.
 
 ---
 
@@ -27,19 +29,22 @@
 
 ---
 
-## Eligibility rules (proposal)
+## Eligibility rules
 
-- Transaction Record has **`customer_id`** (or phone/email for walk-in edge case — product choice).
-- Transaction status in allowed set (configurable store setting or hard-coded enum).
-- **`review_invite_suppressed`** (or equivalent) not set on the Transaction Record for this checkout.
-- Podium **credentials** + **location** + review-capable account; **`write_reviews`** (or documented equivalent) granted on the developer app.
+- Transaction Record has **`customer_id`**.
+- Transaction status is **fulfilled**, which is the Riverside state used for completed / takeaway / picked-up sales.
+- At least one non-internal line exists, and all non-internal lines are fulfilled.
+- The Transaction Record has not already saved a sent or skipped review choice.
+- The customer has not received a Riverside review invite in the last **180 days**.
+- The customer has a valid phone number or email address.
+- Podium credentials, location, and review permissions are configured.
 
 ---
 
 ## Receipt UI (POS)
 
-- Toggle: **“Send review request”** (checked by default) or **“Skip review request”** (unchecked by default — pick one pattern and stick to it).
-- On modal **close** / **Begin new sale:** if not suppressed, enqueue server job or call **`POST`** API once (idempotent per **`transaction_id`**).
+- Toggle: **Send** / **Do not send**.
+- On modal **close** / **Begin new sale:** if not suppressed, call **`POST /api/transactions/{id}/review-invite`** once. The server returns a staff-readable outcome such as sent, skipped by staff, skipped because the customer was asked in the last 180 days, or skipped because contact information is missing.
 - Persist suppression in **`transactions`** (or side table) when cashier opts out **before** close.
 
 ---
@@ -58,7 +63,7 @@ Recommendation: **modal dismiss** + **idempotent** “invite already sent” gua
 
 ## Server (proposal)
 
-- **`logic/podium_reviews.rs`** (or extend **`podium.rs`**): create invite, list reviews, post response wrappers; map **`PodiumError`** to domain errors.
+- **`logic/podium_reviews.rs`** and **`logic/podium.rs`**: create invite, list invite rows, map **`PodiumError`** to domain errors.
 - **Routes:** e.g. **`POST /api/transactions/{id}/review-invite`** (staff/register-gated), **`GET /api/podium/reviews`** (Operations), webhooks extension if Podium emits review events (TBD).
 - **Migration:** columns on **`transactions`**: **`review_invite_suppressed_at`**, **`review_invite_sent_at`**, **`podium_review_invite_id`** (nullable); optional **`podium_review_id`** when review received and correlated.
 

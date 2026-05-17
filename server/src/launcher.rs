@@ -399,6 +399,47 @@ async fn launch_server_inner(
         }
     });
 
+    let podium_sync_interval_secs = std::env::var("RIVERSIDE_PODIUM_SYNC_INTERVAL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(30 * 60 * 60)
+        .max(10 * 60);
+    let podium_sync_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
+            podium_sync_interval_secs,
+        ));
+        loop {
+            ticker.tick().await;
+            match crate::logic::podium_messaging::sync_recent_from_podium(
+                &podium_sync_state.db,
+                &podium_sync_state.http_client,
+                &podium_sync_state.podium_token_cache,
+                200,
+            )
+            .await
+            {
+                Ok(summary) => {
+                    tracing::info!(
+                        conversations_matched = summary.conversations_matched,
+                        conversations_unmatched = summary.conversations_unmatched,
+                        messages_inserted = summary.messages_inserted,
+                        error_count = summary.errors.len(),
+                        "Podium inbox background pull completed"
+                    );
+                }
+                Err(crate::logic::podium::PodiumError::NotConfigured) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        target: "podium",
+                        error = %error,
+                        "Podium inbox background pull failed"
+                    );
+                }
+            }
+        }
+    });
+
     if state.corecard_config.is_configured() {
         let corecard_state = state.clone();
         tokio::spawn(async move {

@@ -1420,7 +1420,7 @@ async fn post_transaction_review_invite(
     Query(q): Query<TransactionReadQuery>,
     headers: HeaderMap,
     Json(body): Json<PostOrderReviewInviteBody>,
-) -> Result<Json<serde_json::Value>, TransactionError> {
+) -> Result<Json<podium_reviews::ReviewInviteChoiceResult>, TransactionError> {
     authorize_transaction_read_bo_or_register(
         &state,
         &headers,
@@ -1428,7 +1428,7 @@ async fn post_transaction_review_invite(
         q.register_session_id,
     )
     .await?;
-    podium_reviews::apply_post_sale_review_choice(
+    let result = podium_reviews::apply_post_sale_review_choice(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
@@ -1448,7 +1448,7 @@ async fn post_transaction_review_invite(
             TransactionError::BadGateway(format!("Podium review request failed: {err}"))
         }
     })?;
-    Ok(Json(json!({ "ok": true })))
+    Ok(Json(result))
 }
 
 async fn list_transactions(

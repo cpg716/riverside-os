@@ -81,6 +81,37 @@ type OrderReviewGateRow = (
     bool,
 );
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewInviteChoiceResult {
+    pub ok: bool,
+    pub status: String,
+    pub message: String,
+    pub provider_id: Option<String>,
+    pub review_url: Option<String>,
+}
+
+impl ReviewInviteChoiceResult {
+    fn new(status: &str, message: &str) -> Self {
+        Self {
+            ok: true,
+            status: status.to_string(),
+            message: message.to_string(),
+            provider_id: None,
+            review_url: None,
+        }
+    }
+
+    fn sent(provider_id: String, review_url: Option<String>) -> Self {
+        Self {
+            ok: true,
+            status: "sent".to_string(),
+            message: "Review request sent through Podium.".to_string(),
+            provider_id: Some(provider_id),
+            review_url,
+        }
+    }
+}
+
 /// Persist cashier choice at end of receipt flow. Sends a Podium review invite only
 /// for completed, fulfilled sales and enforces one invite per customer per 180 days.
 pub async fn apply_post_sale_review_choice(
@@ -89,7 +120,7 @@ pub async fn apply_post_sale_review_choice(
     podium_cache: &Arc<Mutex<PodiumTokenCache>>,
     transaction_id: Uuid,
     skip_invite: bool,
-) -> Result<(), ReviewInviteError> {
+) -> Result<ReviewInviteChoiceResult, ReviewInviteError> {
     let policy = load_store_review_policy(pool).await?;
 
     let mut tx = pool.begin().await?;
@@ -165,17 +196,26 @@ pub async fn apply_post_sale_review_choice(
             .await?;
         }
         tx.commit().await?;
-        return Ok(());
+        return Ok(ReviewInviteChoiceResult::new(
+            "suppressed",
+            "Review request skipped for this sale.",
+        ));
     }
 
     if !policy.review_invites_enabled {
         tx.commit().await?;
-        return Ok(());
+        return Ok(ReviewInviteChoiceResult::new(
+            "disabled",
+            "Review requests are turned off in store settings.",
+        ));
     }
 
     if suppressed_at.is_some() || sent_at.is_some() {
         tx.commit().await?;
-        return Ok(());
+        return Ok(ReviewInviteChoiceResult::new(
+            "already_saved",
+            "Review request choice was already saved for this sale.",
+        ));
     }
 
     if status != "fulfilled"
@@ -184,7 +224,10 @@ pub async fn apply_post_sale_review_choice(
         || !all_reviewable_lines_fulfilled
     {
         tx.commit().await?;
-        return Ok(());
+        return Ok(ReviewInviteChoiceResult::new(
+            "not_ready",
+            "Review request not sent. Riverside only asks after completed or picked-up sales.",
+        ));
     }
 
     if recent_customer_invite {
@@ -201,7 +244,10 @@ pub async fn apply_post_sale_review_choice(
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        return Ok(());
+        return Ok(ReviewInviteChoiceResult::new(
+            "skipped_recent_180d",
+            "Review request skipped. This customer was asked in the last 180 days.",
+        ));
     }
 
     let has_review_phone = phone
@@ -226,7 +272,10 @@ pub async fn apply_post_sale_review_choice(
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        return Ok(());
+        return Ok(ReviewInviteChoiceResult::new(
+            "skipped_no_contact",
+            "Review request skipped. Customer needs a phone number or email first.",
+        ));
     }
 
     tx.commit().await?;
@@ -259,7 +308,7 @@ pub async fn apply_post_sale_review_choice(
         "#,
     )
     .bind(transaction_id)
-    .bind(final_provider_id)
+    .bind(final_provider_id.as_str())
     .bind(invite.review_url.as_deref())
     .execute(pool)
     .await?;
@@ -297,7 +346,10 @@ pub async fn apply_post_sale_review_choice(
         }
     }
 
-    Ok(())
+    Ok(ReviewInviteChoiceResult::sent(
+        final_provider_id,
+        invite.review_url,
+    ))
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]

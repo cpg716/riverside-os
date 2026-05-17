@@ -80,6 +80,14 @@ type OrderDetail = {
   review_invite_suppressed_at?: string | null;
 };
 
+type ReviewInviteChoiceResult = {
+  ok?: boolean;
+  status?: string;
+  message?: string;
+  provider_id?: string | null;
+  review_url?: string | null;
+};
+
 function binaryStringToBase64(value: string) {
   let binary = "";
   for (let i = 0; i < value.length; i += 1) {
@@ -271,6 +279,19 @@ export default function ReceiptSummaryModal({
       if (!res.ok) {
         await res.json().catch(() => ({}));
         toast("Could not save review invite choice.", "error");
+        return;
+      }
+      const result = (await res.json().catch(() => ({}))) as ReviewInviteChoiceResult;
+      if (result.status === "sent") {
+        toast("Review request sent through Podium.", "success");
+      } else if (result.status === "suppressed") {
+        toast("Review request skipped for this sale.", "info");
+      } else if (result.status === "skipped_recent_180d") {
+        toast("Review request skipped. This customer was asked in the last 180 days.", "info");
+      } else if (result.status === "skipped_no_contact") {
+        toast("Review request skipped. Add a phone or email to ask later.", "info");
+      } else if (result.status === "not_ready") {
+        toast("Review request will only send after completed or picked-up sales.", "info");
       }
     } catch {
       toast("Could not save review invite choice", "error");
@@ -940,7 +961,7 @@ export default function ReceiptSummaryModal({
                     Review Request
                   </p>
                   <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                    Sends after the sale handoff unless the cashier opts out.
+                    Sends after completed or picked-up sales. Riverside only asks each customer once every 180 days.
                   </p>
                 </div>
               </div>
