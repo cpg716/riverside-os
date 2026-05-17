@@ -27,6 +27,11 @@ export type RosieChatCompletionRequest = {
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
+  reasoning?: boolean;
+  chat_template_kwargs?: {
+    enable_thinking?: boolean;
+    [key: string]: unknown;
+  };
 };
 
 export type RosieChatCompletionResponse = {
@@ -51,6 +56,21 @@ export type RosieChatCompletionResponse = {
   usage?: Record<string, unknown>;
 };
 
+type RosieStreamDelta = {
+  choices?: Array<{
+    delta?: {
+      content?: string;
+      text?: string;
+      reasoning_content?: string;
+    };
+    text?: string;
+    message?: {
+      content?: string;
+    };
+  }>;
+  error?: string | { message?: string };
+};
+
 export type RosieHelpGroundingSource = {
   kind:
     | "manual"
@@ -60,7 +80,8 @@ export type RosieHelpGroundingSource = {
     | "customer"
     | "wedding"
     | "inventory"
-    | "catalog";
+    | "catalog"
+    | "workflow";
   title: string;
   excerpt: string;
   content: string;
@@ -79,13 +100,33 @@ export type RosieGroundedHelpRequest = {
   question: string;
   mode?: "help" | "conversation";
   settings: Pick<RosieSettings, "enabled" | "response_style" | "show_citations">;
+  client_context?: RosieClientContext;
 };
 
 export type RosieGroundedHelpResponse = {
   answer: string;
   sources: RosieHelpGroundingSource[];
   tool_results: RosieToolResult[];
+  suggested_actions: RosieSuggestedAction[];
   completion: RosieChatCompletionResponse;
+};
+
+export type RosieClientContext = {
+  current_surface?: string;
+  active_manual_id?: string;
+  active_manual_title?: string;
+  active_customer_id?: string;
+  active_transaction_id?: string;
+  active_inventory_variant_id?: string;
+  last_user_question?: string;
+  last_assistant_summary?: string;
+};
+
+export type RosieSuggestedAction = {
+  id: string;
+  label: string;
+  description: string;
+  target: string;
 };
 
 export type RosieToolResult = {
@@ -93,6 +134,8 @@ export type RosieToolResult = {
     | "help_search"
     | "help_get_manual"
     | "store_sop_get"
+    | "client_workflow_context"
+    | "operational_playbook"
     | "reporting_run"
     | "order_summary"
     | "customer_hub_snapshot"
@@ -212,6 +255,7 @@ export type RosieToolContextResponse = {
   settings: Pick<RosieSettings, "enabled" | "response_style" | "show_citations">;
   sources: RosieHelpGroundingSource[];
   tool_results: RosieToolResult[];
+  suggested_actions: RosieSuggestedAction[];
 };
 
 export type RosieIntelligenceSourceGroup = {
@@ -1042,12 +1086,20 @@ export async function rosieChatCompletions(
   },
 ): Promise<RosieChatCompletionResponse> {
   const settings = normalizeRosieSettings(options?.settings ?? loadLocalRosieSettings());
+  const rosiePayload: RosieChatCompletionRequest = {
+    ...payload,
+    reasoning: false,
+    chat_template_kwargs: {
+      ...(payload.chat_template_kwargs ?? {}),
+      enable_thinking: false,
+    },
+  };
 
   if (!settings.enabled) {
     throw new Error("ROSIE is disabled for this workstation.");
   }
 
-  if (payload.stream) {
+  if (rosiePayload.stream) {
     throw new Error("Streaming ROSIE completions are not wired yet.");
   }
 
@@ -1056,7 +1108,7 @@ export async function rosieChatCompletions(
       await ensureRosieLocalLlmRunning();
       return await invoke<RosieChatCompletionResponse>(
         "rosie_llama_chat_completions",
-        { payload },
+        { payload: rosiePayload },
       );
     } catch (error) {
       console.warn("ROSIE direct transport failed, falling back to Axum:", error);
@@ -1071,7 +1123,7 @@ export async function rosieChatCompletions(
         "Content-Type": "application/json",
         ...(options?.headers ?? {}),
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(rosiePayload),
     },
   );
 
@@ -1096,6 +1148,116 @@ export async function rosieChatCompletions(
   return json as RosieChatCompletionResponse;
 }
 
+async function rosieChatCompletionsStream(
+  payload: RosieChatCompletionRequest,
+  options?: {
+    headers?: Record<string, string>;
+    settings?: RosieSettings;
+    on_delta?: (delta: string) => void;
+  },
+): Promise<RosieChatCompletionResponse> {
+  const settings = normalizeRosieSettings(options?.settings ?? loadLocalRosieSettings());
+  if (!settings.enabled) {
+    throw new Error("ROSIE is disabled for this workstation.");
+  }
+
+  const response = await fetch(
+    `${getBaseUrl()}/api/help/rosie/v1/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options?.headers ?? {}),
+      },
+      body: JSON.stringify({
+        ...payload,
+        stream: true,
+        reasoning: false,
+        chat_template_kwargs: {
+          ...(payload.chat_template_kwargs ?? {}),
+          enable_thinking: false,
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const json = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(json.error ?? `ROSIE stream failed with HTTP ${response.status}`);
+  }
+  if (!response.body) {
+    throw new Error("ROSIE stream did not return a readable response body.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let answer = "";
+
+  const handleEvent = (eventText: string) => {
+    const dataLines = eventText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .filter(Boolean);
+
+    for (const dataLine of dataLines) {
+      if (dataLine === "[DONE]") continue;
+      let event: RosieStreamDelta;
+      try {
+        event = JSON.parse(dataLine) as RosieStreamDelta;
+      } catch {
+        continue;
+      }
+      if (event.error) {
+        const message =
+          typeof event.error === "string" ? event.error : event.error.message;
+        if (message) throw new Error(message);
+      }
+      for (const choice of event.choices ?? []) {
+        const delta =
+          choice.delta?.content ??
+          choice.delta?.text ??
+          choice.text ??
+          choice.message?.content ??
+          "";
+        if (!delta) continue;
+        answer += delta;
+        options?.on_delta?.(delta);
+      }
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() ?? "";
+    for (const eventText of events) {
+      handleEvent(eventText);
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    handleEvent(buffer);
+  }
+
+  return {
+    choices: [
+      {
+        index: 0,
+        finish_reason: "stop",
+        message: {
+          role: "assistant",
+          content: sanitizeRosieAnswerText(answer),
+        },
+      },
+    ],
+  };
+}
+
 function buildGroundedHelpSystemPrompt(
   request: RosieGroundedHelpRequest,
   context: RosieToolContextResponse,
@@ -1108,6 +1270,8 @@ function buildGroundedHelpSystemPrompt(
     conversationMode
       ? "Answer from the provided RiversideOS Help Center, store playbook, reporting results, and approved operational tool results."
       : "Answer Help Center and workflow questions from the provided structured Help Center and store playbook.",
+    "When operational_playbook results are present, use them as the primary recovery checklist for the named workflow.",
+    "When client_workflow_context is present, use it only as short-session UI context; it is not a source of business truth.",
     "Use reporting numbers only when they appear in a reporting_run tool result.",
     "Use order, customer, wedding, or inventory data only when they appear in the provided operational tool results.",
     "Do not use SQL, hidden routes, non-approved tools, or any imaginary data beyond the provided results.",
@@ -1193,6 +1357,16 @@ function buildGroundedHelpUserPrompt(
         .join("\n"),
     )
     .join("\n\n---\n\n");
+  const suggestedActions = context.suggested_actions
+    .slice(0, 5)
+    .map((action, index) =>
+      [
+        `Action ${index + 1}: ${action.label}`,
+        `Target: ${action.target}`,
+        `Description: ${action.description}`,
+      ].join("\n"),
+    )
+    .join("\n\n---\n\n");
 
   return [
     `User question: ${request.question}`,
@@ -1202,6 +1376,9 @@ function buildGroundedHelpUserPrompt(
     "",
     "Grounding sources:",
     sources || "No sources were provided.",
+    "",
+    "Suggested staff actions:",
+    suggestedActions || "No deterministic actions were suggested.",
   ].join("\n");
 }
 
@@ -1375,6 +1552,7 @@ export async function askRosieGroundedHelp(
         answer: greeting,
         sources: [],
         tool_results: [],
+        suggested_actions: [],
         completion: { choices: [{ message: { role: "assistant", content: greeting } }] },
       };
     }
@@ -1445,6 +1623,104 @@ export async function askRosieGroundedHelp(
     answer,
     sources: context.sources,
     tool_results: context.tool_results,
+    suggested_actions: context.suggested_actions,
+    completion,
+  };
+}
+
+export async function askRosieGroundedHelpStream(
+  request: RosieGroundedHelpRequest,
+  options?: {
+    headers?: Record<string, string>;
+    on_delta?: (delta: string) => void;
+    on_context?: (context: RosieToolContextResponse) => void;
+  },
+): Promise<RosieGroundedHelpResponse> {
+  if (request.mode === "conversation") {
+    const greeting = rosieConversationalGreeting(request.question);
+    if (greeting) {
+      options?.on_delta?.(greeting);
+      return {
+        answer: greeting,
+        sources: [],
+        tool_results: [],
+        suggested_actions: [],
+        completion: { choices: [{ message: { role: "assistant", content: greeting } }] },
+      };
+    }
+  }
+
+  const context = await fetchRosieToolContext(request, options);
+  options?.on_context?.(context);
+  const messages: RosieChatMessage[] = [
+    {
+      role: "system",
+      content: buildGroundedHelpSystemPrompt(request, context),
+    },
+    {
+      role: "user",
+      content: buildGroundedHelpUserPrompt(request, context),
+    },
+  ];
+  const maxTokens =
+    request.settings.response_style === "detailed"
+      ? request.mode === "conversation"
+        ? 320
+        : 420
+      : request.mode === "conversation"
+        ? 180
+        : 180;
+
+  let completion = await rosieChatCompletionsStream(
+    {
+      model: "local",
+      temperature: 0.2,
+      max_tokens: maxTokens,
+      messages,
+    },
+    {
+      headers: options?.headers,
+      on_delta: options?.on_delta,
+    },
+  );
+  let answer = extractRosieCompletionAnswer(completion);
+
+  if (!answer) {
+    completion = await rosieChatCompletions(
+      {
+        model: "local",
+        temperature: 0.2,
+        max_tokens:
+          request.settings.response_style === "detailed"
+            ? request.mode === "conversation"
+              ? 260
+              : 360
+            : 160,
+        messages: [
+          ...messages,
+          {
+            role: "user",
+            content:
+              "Your previous attempt did not include a final answer. Reply now with only the final answer in 2-4 concise sentences.",
+          },
+        ],
+      },
+      {
+        headers: options?.headers,
+      },
+    );
+    answer = extractRosieCompletionAnswer(completion);
+  }
+
+  if (!answer) {
+    answer = buildRosieGroundedFallbackAnswer(request, context);
+  }
+
+  return {
+    answer,
+    sources: context.sources,
+    tool_results: context.tool_results,
+    suggested_actions: context.suggested_actions,
     completion,
   };
 }

@@ -31,6 +31,12 @@ It never becomes a system of record and never mutates business logic autonomousl
 - model narrates returned JSON only
 - no tool = no data
 
+## Operational Copilot Rules
+- ROSIE may use server-authored operational playbooks for recovery guidance.
+- Current playbook scope includes register close blockers, refund recovery, inventory mismatch triage, QBO exception interpretation, receiving assistance, inventory lookup, and appointment scheduling guidance.
+- Playbooks are guidance and citation material only; they do not authorize, mutate, close, refund, post, sync, or book anything.
+- Suggested actions may open a guided follow-up or point staff to the correct workflow surface, but final action remains in the normal Riverside OS screen.
+
 ## Mutation Rules
 - all writes must:
   - use existing API routes
@@ -48,6 +54,8 @@ It never becomes a system of record and never mutates business logic autonomousl
 ## Memory and Learning Rules
 - no persistent conversation memory as truth
 - no autonomous self-modification
+- short-session UI context may include current surface, active Help article, active entity identifiers already visible to the user, and the last question/answer summary
+- short-session UI context is convenience context only and must not override server tool JSON, Store SOP, manuals, or manager decisions
 - learning only via:
   - docs/manual updates
   - policy-pack updates

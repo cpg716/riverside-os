@@ -20,15 +20,16 @@ The legacy `POST /api/ai/help`, `POST /api/ai/admin/reindex-docs`, `ai_doc_chunk
 
 Current Help search uses the `ros_help` Meilisearch index and `GET /api/help/search`.
 
-ROSIE uses the same Help retrieval path through the server-validated `help_search` tool context. It may also use approved read tools and live Store SOP when authenticated. It must not query raw business tables or use retired `/api/ai/*` routes.
+ROSIE uses the same Help retrieval path through the server-validated `help_search` tool context. It may also use approved read tools, live Store SOP, short-session UI context, and server-authored operational playbooks when authenticated. It must not query raw business tables or use retired `/api/ai/*` routes.
 
 Source priority for answers:
 
 1. Server tool JSON for live facts and numbers.
 2. Store SOP returned by `GET /api/staff/store-sop`.
 3. In-app Help manuals and `docs/staff/*` procedure docs.
-4. ROSIE contract docs and reporting/API catalogs.
-5. Model prose, only as explanation of the sources above.
+4. Server-authored operational playbooks for recovery workflow guidance.
+5. ROSIE contract docs and reporting/API catalogs.
+6. Model prose, only as explanation of the sources above.
 
 ## Regeneration workflow
 
@@ -96,13 +97,20 @@ Use realistic staff queries when certifying the corpus:
 - printer issue
 - customer merge
 - reprint receipt
+- register close blocker
+- refund failed
+- inventory mismatch
+- journal failed
+- receive stock by voice
+- schedule appointment by voice
 
 Expected behavior:
 
 - Help search should return the most operational manual first, not retired implementation notes.
 - Recovery and escalation docs should be discoverable.
 - QBO, RMS, close/register, payment/refund, receiving, physical inventory, and pilot governance queries should have at least one current-release result.
-- ROSIE answers should cite the Help manual or staff doc that supplied the workflow.
+- ROSIE answers should cite the Help manual, staff doc, Store SOP, operational read result, or operational playbook that supplied the workflow.
+- ROSIE Suggested Actions should guide staff into a follow-up or correct screen; they must not perform silent mutations or replace manager approval.
 
 ## Retired behavior
 

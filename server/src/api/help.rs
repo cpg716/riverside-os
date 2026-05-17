@@ -4,8 +4,9 @@ use std::collections::HashSet;
 use std::path::{Path as FsPath, PathBuf};
 
 use axum::{
+    body::Body,
     extract::{Path, Query, State},
-    http::HeaderMap,
+    http::{header::CONTENT_TYPE, HeaderMap},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -52,9 +53,10 @@ async fn send_rosie_upstream_chat_request(
     upstream_url: &str,
     body: &Value,
 ) -> Result<reqwest::Response, reqwest::Error> {
+    let body = rosie_disable_model_reasoning(body);
     let mut last_error = None;
     for attempt in 1..=3 {
-        match upstream_client.post(upstream_url).json(body).send().await {
+        match upstream_client.post(upstream_url).json(&body).send().await {
             Ok(ok) => return Ok(ok),
             Err(error) => {
                 tracing::warn!(
@@ -73,6 +75,25 @@ async fn send_rosie_upstream_chat_request(
     }
 
     Err(last_error.expect("rosie upstream retries should capture a terminal error"))
+}
+
+fn rosie_disable_model_reasoning(body: &Value) -> Value {
+    let mut payload = body.clone();
+    let Some(object) = payload.as_object_mut() else {
+        return payload;
+    };
+    object.insert("reasoning".to_string(), Value::Bool(false));
+
+    let kwargs = object
+        .entry("chat_template_kwargs")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(kwargs_object) = kwargs.as_object_mut() {
+        kwargs_object.insert("enable_thinking".to_string(), Value::Bool(false));
+    } else {
+        *kwargs = serde_json::json!({ "enable_thinking": false });
+    }
+
+    payload
 }
 
 #[derive(Debug, Deserialize)]
@@ -190,10 +211,25 @@ struct RosieToolContextRequest {
     #[serde(default = "default_rosie_tool_context_mode")]
     mode: String,
     settings: RosieToolContextSettings,
+    #[serde(default)]
+    client_context: Option<RosieClientContextIn>,
 }
 
 fn default_rosie_tool_context_mode() -> String {
     "help".to_string()
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct RosieClientContextIn {
+    current_surface: Option<String>,
+    active_manual_id: Option<String>,
+    active_manual_title: Option<String>,
+    active_customer_id: Option<Uuid>,
+    active_transaction_id: Option<Uuid>,
+    active_inventory_variant_id: Option<Uuid>,
+    last_user_question: Option<String>,
+    last_assistant_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -265,11 +301,20 @@ struct RosieToolResultOut {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct RosieSuggestedActionOut {
+    id: String,
+    label: String,
+    description: String,
+    target: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct RosieToolContextResponse {
     question: String,
     settings: RosieToolContextSettings,
     sources: Vec<RosieToolGroundingSourceOut>,
     tool_results: Vec<RosieToolResultOut>,
+    suggested_actions: Vec<RosieSuggestedActionOut>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -626,6 +671,7 @@ mod tests {
                 response_style: "concise".to_string(),
                 show_citations: true,
             },
+            client_context: None,
         }
     }
 
@@ -1061,6 +1107,41 @@ mod tests {
             Value::String("Proxy retry ok.".to_string())
         );
     }
+
+    #[test]
+    fn rosie_upstream_payload_disables_gemma_reasoning() {
+        let payload = rosie_disable_model_reasoning(&serde_json::json!({
+            "model": "local",
+            "messages": [{ "role": "user", "content": "Help me close the register." }],
+            "chat_template_kwargs": { "existing": true }
+        }));
+
+        assert_eq!(payload["reasoning"], Value::Bool(false));
+        assert_eq!(
+            payload["chat_template_kwargs"]["enable_thinking"],
+            Value::Bool(false)
+        );
+        assert_eq!(
+            payload["chat_template_kwargs"]["existing"],
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn rosie_workflow_playbooks_emit_operational_actions() {
+        let playbooks = workflow_playbooks("Register close blocked by offline recovery.");
+        assert!(playbooks.iter().any(|playbook| {
+            playbook.get("id").and_then(Value::as_str) == Some("register_close_blockers")
+        }));
+
+        let actions = playbooks
+            .iter()
+            .flat_map(suggested_actions_from_playbook)
+            .collect::<Vec<_>>();
+        assert!(actions
+            .iter()
+            .any(|action| action.id == "review_offline_recovery"));
+    }
 }
 
 fn excerpt_from_body(body: &str, max: usize) -> String {
@@ -1419,6 +1500,198 @@ fn infer_operational_tool_requests(question: &str, headers: &HeaderMap) -> Vec<(
     }
 
     requests
+}
+
+fn action(id: &str, label: &str, description: &str, target: &str) -> RosieSuggestedActionOut {
+    RosieSuggestedActionOut {
+        id: id.to_string(),
+        label: label.to_string(),
+        description: description.to_string(),
+        target: target.to_string(),
+    }
+}
+
+fn workflow_playbooks(question: &str) -> Vec<Value> {
+    let lower = question.to_ascii_lowercase();
+    let mut playbooks = Vec::new();
+
+    if lower.contains("close blocker")
+        || lower.contains("close blocked")
+        || lower.contains("register close blocked")
+        || lower.contains("z close")
+        || lower.contains("z-close")
+    {
+        playbooks.push(serde_json::json!({
+            "id": "register_close_blockers",
+            "title": "Register close blocker recovery",
+            "voice_prompt": "What is blocking register close?",
+            "steps": [
+                "Confirm whether offline checkout recovery is pending or blocked before counting the drawer.",
+                "Review the close warning and keep the register open until the blocking queue is cleared or assigned.",
+                "If the blocker is payment uncertainty, preserve the transaction state and escalate for Manager Access.",
+                "After recovery is clear, rerun the register close review and compare expected cash before submitting."
+            ],
+            "do_not": [
+                "Do not force-close the register while checkout recovery is unresolved.",
+                "Do not clear a blocker just to remove it from the close screen."
+            ],
+            "actions": [
+                { "id": "open_register_close", "label": "Open Register Close", "target": "pos:register-close" },
+                { "id": "review_offline_recovery", "label": "Review Offline Recovery", "target": "help:offline-recovery" }
+            ]
+        }));
+    }
+
+    if lower.contains("refund")
+        || lower.contains("return failed")
+        || lower.contains("refund failed")
+        || lower.contains("exchange failed")
+    {
+        playbooks.push(serde_json::json!({
+            "id": "refund_recovery",
+            "title": "Refund and return recovery",
+            "voice_prompt": "Help me recover a refund.",
+            "steps": [
+                "Start from the original Transaction Record and confirm the payment, line, and return-window state.",
+                "If the transaction is older than the standard window, require Manager Access before continuing.",
+                "For payment failures, preserve the visible error and do not retry until the tender state is clear.",
+                "Use the guided return or exchange flow so inventory, payment allocation, and audit notes stay aligned."
+            ],
+            "do_not": [
+                "Do not issue an off-system refund to make the screen match.",
+                "Do not bypass Manager Access for out-of-window returns."
+            ],
+            "actions": [
+                { "id": "open_transactions", "label": "Open Transactions", "target": "orders:transactions" },
+                { "id": "open_returns_help", "label": "Open Returns Help", "target": "help:returns" }
+            ]
+        }));
+    }
+
+    if lower.contains("inventory mismatch")
+        || lower.contains("stock mismatch")
+        || lower.contains("wrong stock")
+        || lower.contains("inventory count")
+    {
+        playbooks.push(serde_json::json!({
+            "id": "inventory_mismatch",
+            "title": "Inventory mismatch triage",
+            "voice_prompt": "Help me check an inventory mismatch.",
+            "steps": [
+                "Identify the exact SKU or variant before changing quantities.",
+                "Compare on-hand, reserved, layaway, and available stock instead of relying on one number.",
+                "Check recent receiving, pickup, layaway, and physical count activity for the variant.",
+                "Use traceable receiving or physical inventory adjustments only after the source of mismatch is clear."
+            ],
+            "do_not": [
+                "Do not edit stock as a shortcut without a traceable movement.",
+                "Do not ignore reserved or layaway stock when explaining available inventory."
+            ],
+            "actions": [
+                { "id": "open_inventory_control", "label": "Open Inventory Control", "target": "inventory:control-board" },
+                { "id": "start_inventory_lookup", "label": "Lookup SKU", "target": "voice:inventory-lookup" }
+            ]
+        }));
+    }
+
+    if lower.contains("qbo")
+        || lower.contains("quickbooks")
+        || lower.contains("journal exception")
+        || lower.contains("journal failed")
+    {
+        playbooks.push(serde_json::json!({
+            "id": "qbo_exception",
+            "title": "QBO exception interpretation",
+            "voice_prompt": "Explain this QBO exception.",
+            "steps": [
+                "Open the proposal or sync run and read the exact exception before retrying.",
+                "Confirm the proposal balances to Riverside reporting totals for the same business date.",
+                "Check mapping, account, tax, tender, and rounding warnings before approving a retry.",
+                "Escalate to accounting when the exception affects balanced totals or revenue classification."
+            ],
+            "do_not": [
+                "Do not sync an unbalanced proposal.",
+                "Do not treat a QBO failure as a Riverside ledger change unless the returned evidence says so."
+            ],
+            "actions": [
+                { "id": "open_qbo", "label": "Open QBO Workspace", "target": "settings:qbo" },
+                { "id": "review_qbo_help", "label": "Review QBO Help", "target": "help:qbo" }
+            ]
+        }));
+    }
+
+    if lower.contains("receiving")
+        || lower.contains("receive stock")
+        || lower.contains("hands busy")
+    {
+        playbooks.push(serde_json::json!({
+            "id": "voice_receiving",
+            "title": "Voice receiving assistance",
+            "voice_prompt": "ROSIE, help me receive stock.",
+            "steps": [
+                "Use voice to identify the PO, vendor, SKU, or interrupted receiving step.",
+                "Confirm whether stock already posted before re-entering quantities.",
+                "Read back the SKU and quantity before any staff member submits the receiving action.",
+                "Keep all mutations in the normal Receive Stock UI; ROSIE only guides and explains."
+            ],
+            "do_not": [
+                "Do not let voice create stock movements by itself.",
+                "Do not re-enter interrupted quantities until posted state is verified."
+            ],
+            "actions": [
+                { "id": "open_receive_stock", "label": "Open Receive Stock", "target": "inventory:receive-stock" },
+                { "id": "voice_lookup_sku", "label": "Voice SKU Lookup", "target": "voice:inventory-lookup" }
+            ]
+        }));
+    }
+
+    if lower.contains("appointment")
+        || lower.contains("schedule appointment")
+        || lower.contains("fitting")
+        || lower.contains("calendar")
+    {
+        playbooks.push(serde_json::json!({
+            "id": "voice_appointment",
+            "title": "Voice appointment scheduling guidance",
+            "voice_prompt": "ROSIE, help schedule an appointment.",
+            "steps": [
+                "Capture customer name, appointment type, date preference, and staff or room constraints.",
+                "Check the scheduler availability before promising a time.",
+                "Use the normal scheduler form for the final booking so reminders and audit context are saved.",
+                "Read back the selected time and customer before staff confirms."
+            ],
+            "do_not": [
+                "Do not book from voice alone.",
+                "Do not invent availability when the scheduler has not returned it."
+            ],
+            "actions": [
+                { "id": "open_scheduler", "label": "Open Scheduler", "target": "scheduler:appointments" },
+                { "id": "capture_appointment_details", "label": "Capture Details", "target": "voice:appointment-details" }
+            ]
+        }));
+    }
+
+    playbooks
+}
+
+fn suggested_actions_from_playbook(playbook: &Value) -> Vec<RosieSuggestedActionOut> {
+    playbook
+        .get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|action_value| {
+            Some(action(
+                action_value.get("id")?.as_str()?,
+                action_value.get("label")?.as_str()?,
+                playbook
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Workflow action"),
+                action_value.get("target")?.as_str()?,
+            ))
+        })
+        .collect()
 }
 
 fn repo_root() -> PathBuf {
@@ -1882,6 +2155,16 @@ async fn rosie_chat_completions(
         })?;
 
     let status = response.status();
+    if body.get("stream").and_then(Value::as_bool).unwrap_or(false) {
+        let stream = response.bytes_stream();
+        return Ok((
+            status,
+            [(CONTENT_TYPE, "text/event-stream; charset=utf-8")],
+            Body::from_stream(stream),
+        )
+            .into_response());
+    }
+
     let payload = response.json::<Value>().await.map_err(|e| {
         tracing::error!(error = %e, %upstream_url, "rosie upstream response parse failed");
         (
@@ -2175,14 +2458,83 @@ async fn rosie_tool_context(
 
     let mut sources = Vec::<RosieToolGroundingSourceOut>::new();
     let mut tool_results = Vec::<RosieToolResultOut>::new();
+    let mut suggested_actions = Vec::<RosieSuggestedActionOut>::new();
     let question = body.question.trim();
     let conversation_mode = body.mode.trim().eq_ignore_ascii_case("conversation");
+    let source_excerpt_limit = if conversation_mode { 700 } else { 1200 };
     if question.is_empty() {
         return Err((
             axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": "question is required" })),
         )
             .into_response());
+    }
+
+    if let Some(client_context) = body.client_context.as_ref() {
+        tool_results.push(RosieToolResultOut {
+            tool_name: "client_workflow_context".to_string(),
+            args: serde_json::json!({}),
+            result: serde_json::json!({
+                "current_surface": client_context.current_surface,
+                "active_manual_id": client_context.active_manual_id,
+                "active_manual_title": client_context.active_manual_title,
+                "active_customer_id": client_context.active_customer_id,
+                "active_transaction_id": client_context.active_transaction_id,
+                "active_inventory_variant_id": client_context.active_inventory_variant_id,
+                "last_user_question": client_context
+                    .last_user_question
+                    .as_deref()
+                    .map(|value| sanitize_excerpt(value, 180)),
+                "last_assistant_summary": client_context
+                    .last_assistant_summary
+                    .as_deref()
+                    .map(|value| sanitize_excerpt(value, 240)),
+            }),
+        });
+    }
+
+    for playbook in workflow_playbooks(question) {
+        let playbook_id = playbook
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("operational_playbook")
+            .to_string();
+        let title = playbook
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("Operational workflow");
+        let steps = playbook
+            .get("steps")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default();
+        suggested_actions.extend(suggested_actions_from_playbook(&playbook));
+        sources.push(RosieToolGroundingSourceOut {
+            kind: "workflow".to_string(),
+            title: title.to_string(),
+            excerpt: sanitize_excerpt(&steps, 260),
+            content: sanitize_excerpt(&playbook.to_string(), source_excerpt_limit),
+            manual_id: None,
+            manual_title: None,
+            section_slug: None,
+            section_heading: None,
+            anchor_id: None,
+            report_spec_id: None,
+            report_route: None,
+            route: None,
+            entity_id: Some(playbook_id.clone()),
+        });
+        tool_results.push(RosieToolResultOut {
+            tool_name: "operational_playbook".to_string(),
+            args: serde_json::json!({ "playbook_id": playbook_id }),
+            result: playbook,
+        });
     }
 
     let policies = load_all_policies(&state.db).await.map_err(|e| {
@@ -2196,7 +2548,6 @@ async fn rosie_tool_context(
 
     let help_limit = if conversation_mode { 3 } else { 6 };
     let manual_detail_limit = if conversation_mode { 0 } else { 4 };
-    let source_excerpt_limit = if conversation_mode { 700 } else { 1200 };
 
     let help_hits = if let Some(client) = state.meilisearch.as_ref() {
         match help_search_hits(client, question, help_limit).await {
@@ -2560,6 +2911,7 @@ async fn rosie_tool_context(
         settings: body.settings,
         sources,
         tool_results,
+        suggested_actions,
     }))
 }
 

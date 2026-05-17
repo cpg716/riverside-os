@@ -64,12 +64,19 @@ The print action uses the browser print window. It does not create a PDF inside 
 
 ROSIE help is optional. It should return quickly or fall back quietly if the local model host is slow or unavailable. ROSIE does not replace the manual or the current screen state.
 
-Use sources to open the exact manual section ROSIE used.
+While ROSIE is answering, the drawer shows visible thinking and then streams the answer into the same message. Sources can appear before the answer is finished so staff can see which manuals, reports, Store SOP, or operational playbooks are being used.
+
+Use sources to open the exact manual section ROSIE used. Non-manual sources, such as workflow playbooks or operational read tools, are shown as evidence chips but do not replace the current workflow screen.
+
+ROSIE can show **Suggested Actions** for common recovery work, including register close blockers, refund recovery, inventory mismatches, QBO exceptions, receiving, inventory lookup, and appointment scheduling. Suggested Actions start a guided ROSIE follow-up; they do not submit workflow changes, approve exceptions, or bypass Manager Access.
+
+Chat with ROSIE keeps a short session context, such as the current Help article and the last question/answer summary. This context helps ROSIE stay conversational, but live screen facts, server tool results, Store SOP, and manuals remain the source of truth.
 
 ## What to watch for
 
 - If a manual cannot load, use search or try again later.
 - If ROSIE is unavailable, continue with the staff manual and visible workflow controls.
+- If a Suggested Action does not match the screen in front of you, follow the current workflow and ask a manager or support for help.
 - Do not paste passwords, Access PINs, card numbers, or private customer notes into ROSIE.
 
 ## Related workflows

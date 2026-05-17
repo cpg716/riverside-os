@@ -1,12 +1,33 @@
-# Intelligence & Decision Support (ROS v0.2.0)
+# Intelligence & Decision Support
 
-**Audience:** Owners, Managers, and Inventory Leads.
+**Audience:** Owners, Managers, Inventory Leads, and staff using ROSIE for guided help.
 
 **Where in ROS:**
 - **Inventory Workspace** (Product Intelligence Drawer)
 - **Staff -> Commission Reports** (Truth Trace)
+- **Help Center -> Ask ROSIE / Chat with ROSIE**
 
 ---
+
+## ROSIE operational copilots
+
+ROSIE can now act as a guided operational copilot for common recovery questions:
+
+- close blockers
+- refund or return recovery
+- inventory mismatch triage
+- QBO exception interpretation
+- receiving assistance
+- inventory lookup
+- appointment scheduling guidance
+
+ROSIE answers stream into the Help Center and show sources when available. Sources may include manuals, Store SOP, approved read tools, reports, or server-authored operational playbooks.
+
+ROSIE may also show **Suggested Actions**. These start a guided follow-up or point staff toward the correct workflow. They do not post receiving, change inventory, approve refunds, close registers, sync QBO, or book appointments.
+
+ROSIE remembers only short-session context, such as the current Help article and the last question/answer summary. Treat that as conversational context, not business truth. Current screen state, server facts, manuals, Store SOP, and manager decisions are still authoritative.
+
+For voice use, speak the operational need plainly: "help me receive stock," "look up this SKU," or "help schedule an appointment." ROSIE can guide the steps and read back a summary, but staff must confirm final work in the normal Riverside OS screen.
 
 ## 1. Product Intelligence Drawer
 
@@ -71,5 +92,7 @@ The following features were retired or postponed during the v0.2.0 stabilization
 - [reports-curated-manual.md](reports-curated-manual.md)
 - [insights-back-office.md](insights-back-office.md)
 - [inventory-back-office.md](inventory-back-office.md)
+- [settings-back-office.md](settings-back-office.md)
+- [../ROSIE_OPERATING_CONTRACT.md](../ROSIE_OPERATING_CONTRACT.md)
 
-**Last Reviewed:** 2026-04-13
+**Last Reviewed:** 2026-05-17

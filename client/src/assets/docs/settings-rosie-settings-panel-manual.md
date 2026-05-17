@@ -51,6 +51,8 @@ If ROSIE is slow or unavailable, insight panels show a short unavailable note an
 
 Voice controls only appear when the workstation supports them. Spoken responses come from the configured Riverside host path, not from browser text-to-speech.
 
+Voice workflow prompts are designed for hands-busy assistance. Staff can use them for receiving guidance, inventory lookup, and appointment detail capture, but ROSIE only guides the workflow. Final receiving, inventory, refund, register close, QBO, and scheduling actions still happen in the normal Riverside OS screen with the required staff or manager confirmation.
+
 ## Status wording
 
 Use staff-facing status labels. Avoid internal runtime terms when explaining the station to staff.
@@ -63,5 +65,6 @@ ROSIE settings control assistance, not source-of-truth behavior. Turning ROSIE o
 ## What to watch for
 
 - Do not use ROSIE to approve financial, register, Counterpoint, or QBO sign-off decisions.
+- Do not treat voice output as proof that a workflow was completed; verify the visible screen state.
 - Do not paste Access PINs, tokens, card numbers, or private customer notes into ROSIE.
 - If the local model host is offline, continue using manuals and deterministic workflow screens.

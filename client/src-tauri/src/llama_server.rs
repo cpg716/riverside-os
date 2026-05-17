@@ -118,13 +118,13 @@ pub async fn rosie_llama_start(
         }
     }
 
-    if let Ok(extra_args) = std::env::var("RIVERSIDE_LLAMA_EXTRA_ARGS") {
-        let trimmed = extra_args.trim();
-        if !trimmed.is_empty() {
-            let parsed: Vec<&str> = trimmed.split_ascii_whitespace().collect();
-            if !parsed.is_empty() {
-                cmd = cmd.args(parsed);
-            }
+    let extra_args =
+        std::env::var("RIVERSIDE_LLAMA_EXTRA_ARGS").unwrap_or_else(|_| "--reasoning off".into());
+    let trimmed = extra_args.trim();
+    if !trimmed.is_empty() {
+        let parsed: Vec<&str> = trimmed.split_ascii_whitespace().collect();
+        if !parsed.is_empty() {
+            cmd = cmd.args(parsed);
         }
     }
 

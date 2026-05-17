@@ -87,6 +87,7 @@ RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server
 - Confirm `GET /v1/models` reports `google_gemma-4-E4B-it-Q4_K_M.gguf`.
 - Confirm `POST /api/help/rosie/v1/insight-summary` returns `status: "available"` with 1-3 bullets for a deterministic fact payload.
 - If the model is healthy but the insight response is still `unavailable`, check for empty `message.content` caused by reasoning output.
+- ROSIE request payloads also set `chat_template_kwargs.enable_thinking=false` and `reasoning=false` so direct API calls do not burn the response budget on hidden reasoning.
 - Restart stale API processes after pulling a branch that changes ROSIE routes.
 
 ### STT fallback
