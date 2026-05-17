@@ -2,7 +2,7 @@
 id: pos-register-reports
 title: "Register Reports & Daily Sales"
 order: 1074
-summary: "Daily sales activity timeline, tender totals, and professional audit printing for the current register session."
+summary: "Daily sales activity timeline, completed-sale voids, tender totals, and professional audit printing for the current register session."
 source: client/src/components/pos/RegisterReports.tsx
 tags: pos, register, reports, audit, printing
 ---
@@ -21,15 +21,16 @@ This screen provides a real-time audit of register activity, daily sales, and sh
 
 ## What this is
 
-Use this screen to review the current register session, print the full-page daily report, and verify lane activity before final close.
+Use this screen to review the current register session, void a completed sale with Manager Access when store policy allows it, print the full-page daily report, and verify lane activity before final close.
 
 ## How to use it
 
 1. Open **POS → Reports** while the register session is still active.
 2. Review the sales timeline and summary cards for the current lane or till group.
 3. Open individual entries when you need receipt or tender detail.
-4. Use **Print Report (Full Page)** when the shift needs a professional audit printout.
-5. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
+4. Use **Void** on a completed sale only after a manager confirms the transaction, reason, tender reversal, and inventory impact.
+5. Use **Print Report (Full Page)** when the shift needs a professional audit printout.
+6. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
 
 ## Daily Sales Activity
 The **Daily Sales** view shows a chronological timeline of every transaction. Tap an entry to view the full receipt or reprint it. Use this for:
@@ -37,6 +38,21 @@ The **Daily Sales** view shows a chronological timeline of every transaction. Ta
 - Correcting tender types by reviewing the audit log.
 - Monitoring mid-shift velocity without closing the drawer.
 - Confirming whether the activity was **Takeaway**, **Special Order**, **Custom Order**, **Wedding Order**, **Layaway**, or mixed fulfillment.
+
+## Void a completed sale
+
+The **Void** action is for manager-approved completed-sale reversals. It does not delete the transaction. ROS keeps the original Transaction Record and writes a permanent void record with the approver, reason, tender summary, refund queue state, and inventory impact.
+
+1. Find the sale in **Daily Sales Activity**.
+2. Confirm customer, amount, tender, and timestamp.
+3. Tap **Void**.
+4. Enter a clear reason.
+5. Manager approves with **Manager Access**.
+6. Read the completion message:
+   - **Refund workflow opened** means the refund still needs to be processed.
+   - **No refund balance remains** means there is no remaining paid balance to reverse.
+
+Use the refund workflow to finish cash, card, gift card, store credit, or split-tender reversal work. Do not tell the customer a reversal is complete until the refund state is resolved.
 
 ## Professional Audit Printing
 You can now generate a professional, full-page **Daily Sales Report** that includes:

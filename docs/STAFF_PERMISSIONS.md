@@ -171,7 +171,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `orders.view` | List/read orders, audit, receipt ZPL (Back Office headers; or `register_session_id` when tied to that session). |
 | `orders.modify` | Edit transaction lines, pickup, line returns, exchange link. **(Manager PIN required after 60 days)** |
 | `orders.cancel` | Set order status to cancelled (queues refunds when payments exist). |
-| `orders.refund_process` | `GET /refunds/due`, `POST .../refunds/process`. |
+| `orders.refund_process` | `GET /refunds/due`, `POST .../refunds/process`, and completed-sale POS voids that open refund/reversal work. |
 | `orders.edit_attribution` | Patch order attribution. |
 | `orders.lifecycle_manage` | Manual audited item lifecycle repair/override. Risky receiving and pickup transitions still route through receiving/pickup workflows. |
 | `loyalty.adjust_points` | Manual loyalty adjustments. |
@@ -269,7 +269,7 @@ Any `fetch` to a permission-gated API must pass **`...(backofficeHeaders() as Re
 4. Confirm gated workspaces send **`backofficeHeaders`** on every relevant request (Insights, QBO, Staff, physical inventory, etc.).
 5. Confirm **sidebar** hides tabs and subsections (e.g. Physical count, **Commission reports**, Staff sub-panels) when mapped permissions are absent.
 6. Confirm **deep links** or stale subsections **redirect** to the first allowed subsection after permissions load (`App.tsx`).
-7. **Orders:** With **`orders.view`** only, confirm list/detail work with **`backofficeHeaders`**; confirm **`orders.refund_process`** is required for **`/api/transactions/refunds/due`** and **process refund**; confirm **`orders.modify`** is required for line edits and **returns** (see **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**).
+7. **Orders:** With **`orders.view`** only, confirm list/detail work with **`backofficeHeaders`**; confirm **`orders.refund_process`** is required for **`/api/transactions/refunds/due`**, **process refund**, and completed-sale POS voids; confirm **`orders.modify`** is required for line edits and **returns** (see **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**).
 
 ---
 

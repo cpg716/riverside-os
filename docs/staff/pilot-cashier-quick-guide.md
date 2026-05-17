@@ -82,6 +82,18 @@ Cashier may start lookup if trained, but manager should supervise during pilot.
 - Wedding group payment or member balance is involved.
 - Refund started but the customer changes their mind.
 
+## Completed-sale voids
+
+Cashier may locate the transaction in **POS -> Reports -> Daily Sales**, but Manager Access is required to void after payment.
+
+1. Confirm the original transaction, customer, receipt, amount, and tender.
+2. Tap **Void** only when the manager approves.
+3. Enter a clear reason.
+4. Manager enters their **Access PIN**.
+5. Read the completion message. If a refund workflow opened, do not tell the customer the reversal is finished until the refund is processed.
+
+See [pos-void-transactions.md](pos-void-transactions.md).
+
 ---
 
 ## Blocked checkout
@@ -129,4 +141,4 @@ Call a manager for:
 - Inventory adjustment request.
 - Any error that repeats twice.
 
-**Last reviewed:** 2026-05-16
+**Last reviewed:** 2026-05-17

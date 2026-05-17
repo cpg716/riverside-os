@@ -64,7 +64,7 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 | **Universal Importer** | The tool used to bulk-update catalog data from CSV files (supports Lightspeed/NuORDER presets). |
 | **Sparkline** | High-density trend chart shown on dashboard cards to visualize sales or performance over time. |
 | **User override** | Per-person allow/deny on a single permission key; **deny** wins over role **allow**. |
-| **Void (line / sale)** | Removing a line before pay, or reversing an unpaid mistake cart; **post-payment** voids follow strict policy. |
+| **Void (line / sale)** | Removing a line before pay, reversing an unpaid mistake cart, or manager-voiding a completed sale through the audited POS void workflow. A completed-sale void is not a delete; it keeps the Transaction Record and opens refund/reversal work when needed. |
 | **Wedding Health** | A risk-scoring algorithm (40/40/20) that flags parties at risk of fulfillment failure. |
 | **Wedding order** | Order line or order context tied to wedding-party fulfillment rules. |
 | **WowDash** | The unified, premium design system for Riverside OS dashboards and metrics visualization. |
@@ -77,4 +77,4 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 - [FAQ.md](FAQ.md)
 - [permissions-and-access.md](permissions-and-access.md)
 
-**Last reviewed:** 2026-04-13
+**Last reviewed:** 2026-05-17

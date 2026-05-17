@@ -60,6 +60,7 @@ Before pilot accounting relies on QBO posting, run these scenarios in the QBO sa
 | Gift card sale/redemption | Liability movement is visible and not treated as normal sales revenue. | |
 | Loyalty reward issued | Loyalty expense / loyalty gift-card handling matches the staged journal. | |
 | Return/refund day | Contra revenue/tax/refund clearing lines match the return evidence. | |
+| Completed-sale void day | Original sale remains traceable, void record is explainable, refund/reversal evidence clears correctly, and any revision row is reviewed before approval. | |
 | Exchange with replacement sale | Return and replacement effects are understandable and traceable. | |
 | Deposit/open balance activity | Deposit liability and relief behavior matches the transaction detail. | |
 | Shipping income | Shipping income maps to the configured account. | |
@@ -101,4 +102,4 @@ Pilot rule: only the accounting owner or store owner approves warning-bearing jo
 - [../QBO_JOURNAL_TEST_MATRIX.md](../QBO_JOURNAL_TEST_MATRIX.md)
 - [../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md](../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md)
 
-**Last reviewed:** 2026-05-16
+**Last reviewed:** 2026-05-17

@@ -10,14 +10,15 @@
 2. **After payment:** use the **return** / **refund** / **exchange** flows your training covers — permissions such as **orders.refund_process** gate who can do them, even though the financial API/routes now live under **transactions**.
 3. A **refund queue** may apply: partial refunds and returns can interact with **open queue** rows — do not “work around” the UI without manager approval.
 4. **Exchanges** may link orders via **exchange group** semantics — follow the in-app flow rather than manual balance edits.
+5. **Completed-sale voids:** POS **Reports -> Daily Sales -> Void** requires Manager Access. The original Transaction Record stays visible, a permanent void record is written, and any money movement still goes through the refund workflow.
 
 ---
 
 ## Escalation
 
-- Large refunds, **tax-exempt** corrections, or anything that **feels** like fraud → manager.
-- Detail screens: [../orders-back-office.md](../orders-back-office.md), [../pos-register-cart.md](../pos-register-cart.md).
+- Large refunds, **tax-exempt** corrections, completed-sale voids, or anything that **feels** like fraud -> manager.
+- Detail screens: [../orders-back-office.md](../orders-back-office.md), [../pos-register-cart.md](../pos-register-cart.md), [../pos-void-transactions.md](../pos-void-transactions.md).
 
 ---
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-05-17

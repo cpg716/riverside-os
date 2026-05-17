@@ -92,6 +92,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Bug reports — **admin triage** | [bug-reports-admin-manual.md](bug-reports-admin-manual.md) |
 | POS Dashboard | [pos-dashboard.md](pos-dashboard.md) |
 | POS Register (cart) | [pos-register-cart.md](pos-register-cart.md) |
+| POS Void Transactions | [pos-void-transactions.md](pos-void-transactions.md) |
 | POS Register wedding checklist reference | [../POS_WEDDING_REGISTER_WORKFLOW.md](../POS_WEDDING_REGISTER_WORKFLOW.md) |
 | POS RMS Charge quick guide | [pos-rms-charge.md](pos-rms-charge.md) |
 | POS Tasks | [pos-tasks.md](pos-tasks.md) |
@@ -188,6 +189,7 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 |----------------|------------|
 | Dashboard | [pos-dashboard.md](pos-dashboard.md) |
 | Register | [pos-register-cart.md](pos-register-cart.md) |
+| Void completed sale | [pos-void-transactions.md](pos-void-transactions.md) |
 | Tasks | [pos-tasks.md](pos-tasks.md) |
 | Customers | [customers-back-office.md](customers-back-office.md) (POS uses only **All**, **Add**, and **Duplicate Review**) |
 | RMS Charge | [pos-rms-charge.md](pos-rms-charge.md) |

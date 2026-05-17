@@ -143,7 +143,8 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 ## Void line vs void sale
 
 - **Remove line** before tender: usually allowed within policy.
-- **Void whole sale** or **post-tender void:** manager and **orders.*** permissions; follow store policy.
+- **Void whole sale before payment:** manager and **orders.*** permissions; follow store policy.
+- **Void completed sale after payment:** use POS **Reports -> Daily Sales -> Void**. This keeps the original Transaction Record visible, writes a permanent void record, and opens the refund/reversal workflow when money is still owed back. See [pos-void-transactions.md](pos-void-transactions.md).
 
 ## Helping a customer who is confused
 

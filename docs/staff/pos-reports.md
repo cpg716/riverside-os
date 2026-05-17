@@ -21,7 +21,8 @@
 1. Confirm the **correct** drawer/session is active (profile shows expected cashier).
 2. POS → **Reports**.
 3. View **Daily Sales** to see a chronological timeline of activity. **Check numbers** are displayed next to the payment method for all check transactions.
-4. **Print Audit**: Tap the **Print Report** button to generate a professional full-page audit document of the day's activity.
+4. For a completed-sale mistake that must be reversed, use **Void** only with Manager Access. Read the impact list before confirming; the original Transaction Record remains visible and the refund workflow may still need completion.
+5. **Print Audit**: Tap the **Print Report** button to generate a professional full-page audit document of the day's activity.
 
 ### Train a new hire on tender types
 
@@ -48,6 +49,7 @@
 | Empty / 403 | **register.reports** + session | Manager uses BO path |
 | Totals don’t match cart | Complete or **park** open sales | — |
 | Card review blocks close | Use **Review** in Z-close or **POS → Payments** and record the terminal outcome | Manager checks Back Office Payments → Health if the issue still remains |
+| Voided sale still shows refund due | Complete the refund workflow tied to that void | Manager reviews the void record and refund queue |
 | Stale timestamp | **Refresh** | Network |
 | Two sessions confused | **Session ordinal** on report header | Lead identifies correct drawer |
 
@@ -55,12 +57,14 @@
 
 - **Over/short** outside tolerance.
 - Suspected **duplicate** card capture or **wrong tender type** on large sale.
+- Any completed-sale **Void** with unclear refund, inventory, QBO, RMS, or customer-history impact.
 
 ---
 
 ## See also
 
 - [pos-dashboard.md](pos-dashboard.md)
+- [pos-void-transactions.md](pos-void-transactions.md)
 - [orders-back-office.md](orders-back-office.md)
 - [../REGISTER_DASHBOARD.md](../REGISTER_DASHBOARD.md)
 - [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)

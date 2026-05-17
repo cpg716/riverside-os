@@ -33,6 +33,7 @@ Before approving:
 Do not approve:
 
 - A refund when the original transaction is uncertain.
+- A completed-sale void unless you have confirmed customer, receipt, amount, tender, reason, and the next refund/reversal step.
 - A payment retry when provider outcome is unknown.
 - A wedding release when balance or member identity is uncertain.
 - QBO posting with unresolved warnings.
@@ -62,6 +63,7 @@ Daily manager review must include:
 - Check numbers.
 - Card/payment uncertainty.
 - Refunds and exchanges.
+- Completed-sale voids and their refund/reversal status.
 - Parked sales.
 - Offline recovery.
 - RMS Charge sales/payments.
@@ -139,6 +141,7 @@ Do not allow vague notes like "fixed", "test", or "inventory".
 Watch for:
 
 - Staff hesitating at refund/exchange steps.
+- Staff using void when a return, exchange, or payment review is the correct workflow.
 - Repeated manager override requests.
 - Repeated checkout recovery or payment uncertainty.
 - Wedding pickup confusion.
@@ -149,4 +152,4 @@ Watch for:
 
 Record repeat issues for end-of-day pilot review.
 
-**Last reviewed:** 2026-05-16
+**Last reviewed:** 2026-05-17

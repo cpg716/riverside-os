@@ -27,6 +27,8 @@
 | Check | Done | Notes |
 |-------|------|-------|
 | All refunds reviewed | | |
+| Completed-sale voids reviewed | | |
+| Void refund/reversal status resolved or assigned | | |
 | Refund tender evidence reviewed | | |
 | Exchanges completed or assigned | | |
 | Saved return lines not left unfinished | | |
@@ -117,4 +119,4 @@
 | Accounting review | | |
 | Pilot lead review | | |
 
-**Last reviewed:** 2026-05-16
+**Last reviewed:** 2026-05-17
