@@ -16,6 +16,7 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'store_settings'),
                 ('public', 'staff_role_permission'),
                 ('public', 'staff_permission'),
+                ('public', 'podium_message'),
                 ('public', 'products'),
                 ('public', 'product_variants'),
                 ('public', 'inventory_transactions'),
@@ -31,6 +32,7 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'payment_allocations'),
                 ('public', 'payment_provider_attempts'),
                 ('public', 'transaction_return_lines'),
+                ('public', 'transaction_loyalty_accrual'),
                 ('public', 'register_sessions'),
                 ('public', 'qbo_mappings'),
                 ('public', 'integration_credentials'),
@@ -47,6 +49,9 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'staff', 'pin_hash'),
                 ('public', 'staff', 'email_signature'),
                 ('public', 'staff', 'max_discount_percent'),
+                ('public', 'staff', 'podium_user_uid'),
+                ('public', 'staff', 'podium_display_name'),
+                ('public', 'podium_message', 'podium_sender_uid'),
                 ('public', 'store_settings', 'environment_mode'),
                 ('public', 'store_settings', 'active_card_provider'),
                 ('public', 'store_settings', 'email_config'),
@@ -59,6 +64,10 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'transactions', 'tax_exempt_reason'),
                 ('public', 'transaction_lines', 'transaction_id'),
                 ('public', 'transaction_lines', 'fulfillment_order_id'),
+                ('public', 'transaction_lines', 'fulfilled_at'),
+                ('public', 'transaction_loyalty_accrual', 'transaction_id'),
+                ('public', 'transaction_loyalty_accrual', 'points_earned'),
+                ('public', 'transaction_loyalty_accrual', 'product_subtotal'),
                 ('public', 'payment_allocations', 'target_transaction_id'),
                 ('public', 'payment_transactions', 'payment_provider'),
                 ('public', 'payment_transactions', 'provider_payment_id'),
@@ -84,7 +93,8 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('reporting', 'fulfillment_orders_core'),
                 ('reporting', 'order_lines'),
                 ('reporting', 'payment_ledger'),
-                ('reporting', 'merchant_reconciliation')
+                ('reporting', 'merchant_reconciliation'),
+                ('reporting', 'transaction_status_integrity')
         ),
         expected_functions(schema_name, function_name) AS (
             VALUES

@@ -12,10 +12,14 @@ export interface QboMatrixAccount {
 export const QBO_MATRIX_TENDERS = [
   { id: "helcim_card", label: "Helcim card clearing" },
   { id: "card_terminal", label: "Legacy card terminal" },
+  { id: "card_manual", label: "Manual card clearing" },
+  { id: "card_saved", label: "Saved card clearing" },
+  { id: "card_credit", label: "Card refund clearing" },
   { id: "cash", label: "Cash" },
   { id: "check", label: "Check" },
   { id: "on_account", label: "On account (AR)" },
   { id: "gift_card", label: "Gift card (redemption)" },
+  { id: "exchange_credit", label: "Exchange credit clearing" },
 ] as const;
 
 export const QBO_MATRIX_CUSTOM_TYPES = [
@@ -56,6 +60,12 @@ export const QBO_MATRIX_FINANCIAL_ACCOUNTS = [
     help: "Layaway or order deposits retained after approved forfeiture.",
     placeholder: "Forfeited deposit income",
   },
+  {
+    key: "misc_fallback",
+    label: "Unmapped activity review holding",
+    help: "Last-resort holding account for journal rows that still need accounting review after all specific mappings are checked.",
+    placeholder: "Accounting review holding",
+  },
 ] as const;
 
 /** Matrix UI key → `qbo_mappings` row (server). */
@@ -94,6 +104,9 @@ export function matrixKeyToGranular(
   }
   if (key === "forfeited_deposit_income") {
     return { source_type: "income_forfeited_deposit", source_id: "default" };
+  }
+  if (key === "misc_fallback") {
+    return { source_type: "MISC_FALLBACK", source_id: "default" };
   }
   let m = /^rev_(.+)$/.exec(key);
   if (m) return { source_type: "category_revenue", source_id: m[1] };
@@ -153,6 +166,8 @@ export function granularToMatrixKey(
       return source_id === "default" ? "refund_queue_liability" : null;
     case "income_forfeited_deposit":
       return source_id === "default" ? "forfeited_deposit_income" : null;
+    case "MISC_FALLBACK":
+      return source_id === "default" ? "misc_fallback" : null;
     default:
       return null;
   }

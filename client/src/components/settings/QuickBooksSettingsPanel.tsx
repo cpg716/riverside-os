@@ -59,34 +59,90 @@ interface LedgerMapping {
 
 const baseUrl = getBaseUrl();
 
-const LEGACY_ROWS: { key: string; description: string }[] = [
+const LEGACY_ROWS: { key: string; label: string; description: string }[] = [
   {
     key: "REVENUE_CLOTHING",
+    label: "Fallback clothing revenue",
     description: "Fallback revenue (unmapped category)",
   },
-  { key: "REVENUE_FOOTWEAR", description: "Footwear revenue fallback" },
-  { key: "REVENUE_SERVICE", description: "Service / alterations fallback" },
-  { key: "REVENUE_ALTERATIONS", description: "Alterations revenue fallback" },
+  {
+    key: "REVENUE_FOOTWEAR",
+    label: "Fallback footwear revenue",
+    description: "Footwear revenue fallback",
+  },
+  {
+    key: "REVENUE_SERVICE",
+    label: "Fallback service revenue",
+    description: "Service / alterations fallback",
+  },
+  {
+    key: "REVENUE_ALTERATIONS",
+    label: "Alterations revenue",
+    description: "Alterations revenue fallback",
+  },
   {
     key: "REVENUE_SHIPPING",
+    label: "Shipping income",
     description: "Customer-charged shipping income fallback",
   },
-  { key: "INV_ASSET", description: "Default inventory asset" },
-  { key: "COGS_DEFAULT", description: "Default COGS" },
-  { key: "COGS_FREIGHT", description: "Inbound freight (PO)" },
-  { key: "EXP_SHIPPING", description: "Shipping expense" },
-  { key: "EXP_MERCHANT_FEE", description: "Card processing fees" },
-  { key: "CASH_ROUNDING", description: "Cash rounding adjustments" },
+  {
+    key: "REVENUE_FALLBACK",
+    label: "Unmapped revenue review",
+    description: "Fallback income for unclassified positive inventory adjustments",
+  },
+  {
+    key: "INV_ASSET",
+    label: "Inventory asset fallback",
+    description: "Default inventory asset",
+  },
+  {
+    key: "INV_SHRINKAGE",
+    label: "Inventory shrinkage expense",
+    description: "Damaged, missing, or negative inventory adjustments",
+  },
+  {
+    key: "INV_RTV_CLEARING",
+    label: "Return-to-vendor clearing",
+    description: "Inventory value moving out through vendor returns",
+  },
+  {
+    key: "COGS_DEFAULT",
+    label: "Cost of goods sold fallback",
+    description: "Default COGS",
+  },
+  {
+    key: "COGS_FREIGHT",
+    label: "Inbound freight cost",
+    description: "Inbound freight (PO)",
+  },
+  {
+    key: "EXP_SHIPPING",
+    label: "Shipping expense",
+    description: "Shipping expense",
+  },
+  {
+    key: "EXP_MERCHANT_FEE",
+    label: "Card processing fees",
+    description: "Card processing fees",
+  },
+  {
+    key: "CASH_ROUNDING",
+    label: "Cash rounding gain/loss",
+    description: "Cash rounding adjustments",
+  },
   {
     key: "RMS_CHARGE_FINANCING_CLEARING",
+    label: "RMS Charge financing clearing",
     description: "RMS financed sales clearing",
   },
   {
     key: "RMS_R2S_PAYMENT_CLEARING",
+    label: "RMS/R2S payment clearing",
     description: "R2S payment collections clearing",
   },
   {
     key: "REFUND_LIABILITY_CLEARING",
+    label: "Refund holding account",
     description: "Refund queue liability fallback",
   },
 ];
@@ -131,7 +187,7 @@ export default function QuickBooksSettingsPanel({
     const [accountsRes, categoriesRes, granularRes, ledgerRes] =
       await Promise.all([
         fetch(`${baseUrl}/api/qbo/accounts-cache`, { headers: h }),
-        fetch(`${baseUrl}/api/categories`, { headers: h }),
+        fetch(`${baseUrl}/api/qbo/mapping-categories`, { headers: h }),
         fetch(`${baseUrl}/api/qbo/granular-mappings`, { headers: h }),
         fetch(`${baseUrl}/api/qbo/mappings`, { headers: h }),
       ]);
@@ -554,7 +610,7 @@ export default function QuickBooksSettingsPanel({
           <table className="w-full text-left text-sm">
             <thead className="bg-app-surface text-[9px] font-black uppercase tracking-widest text-app-text-muted">
               <tr>
-                <th className="px-4 py-2">Key</th>
+                <th className="px-4 py-2">Purpose</th>
                 <th className="px-4 py-2">Account</th>
                 <th className="px-4 py-2" />
               </tr>
@@ -566,8 +622,8 @@ export default function QuickBooksSettingsPanel({
                 return (
                   <tr key={row.key}>
                     <td className="px-4 py-3">
-                      <div className="font-mono text-xs font-bold">
-                        {row.key}
+                      <div className="text-xs font-black text-app-text">
+                        {row.label}
                       </div>
                       <p className="text-[10px] text-app-text-muted">
                         {row.description}

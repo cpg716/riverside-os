@@ -150,6 +150,12 @@ pub struct GranularMappingRow {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct QboMappingCategoryRow {
+    pub id: Uuid,
+    pub name: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SaveGranularMappingRequest {
     pub source_type: String,
@@ -223,6 +229,7 @@ pub fn router() -> Router<AppState> {
         .route("/tokens/refresh", post(refresh_tokens_stub))
         .route("/accounts-cache", get(list_accounts_cache))
         .route("/accounts-cache/refresh", post(refresh_accounts_cache))
+        .route("/mapping-categories", get(list_mapping_categories))
         .route(
             "/mappings",
             get(list_mappings).post(save_mapping).delete(delete_mapping),
@@ -1139,6 +1146,25 @@ async fn refresh_accounts_cache(
     let _ = record_integration_success(&state.db, "qbo_accounts_refresh").await;
 
     Ok(Json(json!({ "status": "refreshed", "count": count })))
+}
+
+async fn list_mapping_categories(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<QboMappingCategoryRow>>, QboError> {
+    require_staff_with_permission(&state, &headers, QBO_VIEW)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+    let rows = sqlx::query_as::<_, QboMappingCategoryRow>(
+        r#"
+        SELECT id, name
+        FROM categories
+        ORDER BY name
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
 }
 
 async fn list_mappings(

@@ -105,46 +105,65 @@ export default function QboMappingMatrix({
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border">
-              {categories.map((cat) => (
-                <tr
-                  key={cat.id}
-                  className="transition-colors hover:bg-app-surface-2/30"
-                >
-                  <td className="px-5 py-4 font-bold text-app-text">
-                    {cat.name}
-                  </td>
-                  <td className="px-5 py-4">
-                    <AccountSelect
-                      valueId={mappings[`rev_${cat.id}`]?.qbo_account_id ?? ""}
-                      accounts={accounts}
-                      onPick={(id, name) =>
-                        updateMapping(`rev_${cat.id}`, id, name)
-                      }
-                      placeholder="e.g. 4010 Sales"
-                    />
-                  </td>
-                  <td className="px-5 py-4">
-                    <AccountSelect
-                      valueId={mappings[`inv_${cat.id}`]?.qbo_account_id ?? ""}
-                      accounts={accounts}
-                      onPick={(id, name) =>
-                        updateMapping(`inv_${cat.id}`, id, name)
-                      }
-                      placeholder="e.g. 1200 Inventory"
-                    />
-                  </td>
-                  <td className="px-5 py-4">
-                    <AccountSelect
-                      valueId={mappings[`cogs_${cat.id}`]?.qbo_account_id ?? ""}
-                      accounts={accounts}
-                      onPick={(id, name) =>
-                        updateMapping(`cogs_${cat.id}`, id, name)
-                      }
-                      placeholder="e.g. 5000 COGS"
-                    />
+              {categories.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="px-5 py-5 text-xs font-semibold text-app-text-muted"
+                  >
+                    No Riverside categories loaded. Refresh the page after
+                    Inventory categories are synced or created; category-level
+                    revenue, inventory, and COGS mappings appear here.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                categories.map((cat) => (
+                  <tr
+                    key={cat.id}
+                    className="transition-colors hover:bg-app-surface-2/30"
+                  >
+                    <td className="px-5 py-4 font-bold text-app-text">
+                      {cat.name}
+                    </td>
+                    <td className="px-5 py-4">
+                      <AccountSelect
+                        valueId={
+                          mappings[`rev_${cat.id}`]?.qbo_account_id ?? ""
+                        }
+                        accounts={accounts}
+                        onPick={(id, name) =>
+                          updateMapping(`rev_${cat.id}`, id, name)
+                        }
+                        placeholder="e.g. 4010 Sales"
+                      />
+                    </td>
+                    <td className="px-5 py-4">
+                      <AccountSelect
+                        valueId={
+                          mappings[`inv_${cat.id}`]?.qbo_account_id ?? ""
+                        }
+                        accounts={accounts}
+                        onPick={(id, name) =>
+                          updateMapping(`inv_${cat.id}`, id, name)
+                        }
+                        placeholder="e.g. 1200 Inventory"
+                      />
+                    </td>
+                    <td className="px-5 py-4">
+                      <AccountSelect
+                        valueId={
+                          mappings[`cogs_${cat.id}`]?.qbo_account_id ?? ""
+                        }
+                        accounts={accounts}
+                        onPick={(id, name) =>
+                          updateMapping(`cogs_${cat.id}`, id, name)
+                        }
+                        placeholder="e.g. 5000 COGS"
+                      />
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

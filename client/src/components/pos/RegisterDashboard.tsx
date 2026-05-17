@@ -29,6 +29,7 @@ import {
   mergedPosStaffHeaders,
 } from "../../lib/posRegisterAuth";
 import CompassMemberDetailDrawer from "../operations/CompassMemberDetailDrawer";
+import SalesByHourSnapshotCard from "../reports/SalesByHourSnapshotCard";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 import DashboardGridCard from "../ui/DashboardGridCard";
 
@@ -359,6 +360,15 @@ export default function RegisterDashboard({
                     <WxIcon size={48} className="text-app-accent opacity-20" />
                  </div>
               </DashboardGridCard>
+
+              <SalesByHourSnapshotCard
+                authHeaders={apiAuth}
+                canLoad={
+                  permissionsLoaded &&
+                  (hasPermission("register.reports") || hasPermission("insights.view"))
+                }
+                refreshSignal={refreshSignal}
+              />
 
               {/* Staff Pulse Cards */}
               {stats && (

@@ -25,6 +25,29 @@ The only active migration files in `migrations/` are:
 | `007_reporting_views.sql` | Reporting schema, reporting functions, Metabase-facing views |
 | `008_indexes_constraints_triggers.sql` | Cross-domain indexes, constraints, triggers, generated IDs |
 | `009_promo_gift_cards.sql` | Promo gift card enum support and event-name tracking |
+| `010_counterpoint_ingest_quarantine.sql` | Counterpoint ingest quarantine review tables |
+| `011_product_variant_barcode_aliases.sql` | Product variant barcode alias tracking |
+| `012_lightspeed_normalization_reference.sql` | Lightspeed normalization reference tables |
+| `013_financial_effective_dates.sql` | Financial effective-date tracking |
+| `014_helcim_terminal_recovery_actions.sql` | Helcim terminal recovery action audit |
+| `015_counterpoint_staging_applying_status.sql` | Counterpoint staging apply status |
+| `016_counterpoint_staging_apply_claim_metadata.sql` | Counterpoint staging apply-claim metadata |
+| `017_counterpoint_staging_observability.sql` | Counterpoint staging observability fields |
+| `018_order_item_lifecycle.sql` | Order item lifecycle tracking |
+| `019_takeaway_completed_recognition.sql` | Takeaway completed recognition support |
+| `020_order_lifecycle_needs_measurements.sql` | Order lifecycle measurement flags |
+| `021_wedding_cutover_review.sql` | Wedding cutover review tracking |
+| `022_email_mailbox.sql` | Email mailbox tables |
+| `023_shippo_returns_manifests_pickups.sql` | Shippo returns, manifests, and pickups |
+| `024_register_drawer_open_events.sql` | Register drawer-open event audit |
+| `025_qbo_bridge_mapping_hardening.sql` | QBO bridge mapping hardening |
+| `026_counterpoint_go_live_hardening.sql` | Counterpoint go-live hardening |
+| `027_repair_promo_gift_card_schema.sql` | Promo gift card schema repair |
+| `028_podium_communications_hardening.sql` | Podium communications hardening |
+| `029_metabase_ro_reporting_only.sql` | Metabase read-only reporting access |
+| `030_podium_staff_identity_mapping.sql` | Podium staff identity mapping |
+| `031_checkout_takeaway_loyalty_backfill.sql` | Checkout takeaway loyalty backfill |
+| `032_transaction_status_integrity.sql` | Transaction status integrity tracking |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 

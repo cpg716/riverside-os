@@ -176,9 +176,9 @@ For complete pre-release validation (service boot order, lint/build gates, and E
 
 ## Schema Contract, Migrations, And Seeds
 
-Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through **`migrations/009_promo_gift_cards.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
+Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through **`migrations/032_transaction_status_integrity.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
 
-Apply active migrations with **`./scripts/apply-migrations-docker.sh`** or **`./scripts/apply-migrations-psql.sh`**. The ledger is the table **`public.ros_schema_migrations`** and should contain the nine active baseline filenames after a fresh baseline build.
+Apply active migrations with **`./scripts/apply-migrations-docker.sh`** or **`./scripts/apply-migrations-psql.sh`**. The ledger is the table **`public.ros_schema_migrations`** and should contain the 32 active baseline filenames after a fresh baseline build.
 
 Seed data is separate from schema:
 

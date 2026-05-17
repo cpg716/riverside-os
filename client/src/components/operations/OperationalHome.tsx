@@ -40,6 +40,7 @@ import ReviewsOperationsSection from "./ReviewsOperationsSection";
 import RosOperationsCenter, {
   type OperationsCenterNavigateTarget,
 } from "./RosOperationsCenter";
+import SalesByHourSnapshotCard from "../reports/SalesByHourSnapshotCard";
 import type { Customer } from "../pos/CustomerSelector";
 import {
   buildMorningCompassQueue,
@@ -1605,6 +1606,16 @@ export default function OperationalHome({
             getHeaders={taskAuth}
           />
         </DashboardGridCard>
+
+        <SalesByHourSnapshotCard
+          authHeaders={taskAuth}
+          canLoad={
+            permissionsLoaded &&
+            (hasPermission("register.reports") || hasPermission("insights.view"))
+          }
+          refreshSignal={refreshSignal}
+          className="xl:col-span-3"
+        />
 
         <DashboardGridCard
           title="What Needs Attention"
