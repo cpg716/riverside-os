@@ -181,6 +181,9 @@ interface TimelineItem {
 }
 
 const MS_PER_DAY = 86_400_000;
+const AGENDA_ITEM_LIMIT = 80;
+const AGENDA_DAY_GROUP_LIMIT = 18;
+const WORKLOAD_PREVIEW_LIMIT = 10;
 
 function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -602,7 +605,7 @@ export default function OperationalTimeline({
   }, [allItems, filter, query]);
 
   const visibleItems = useMemo(() => {
-    if (view === "agenda" || view === "workload") return filteredItems.slice(0, 80);
+    if (view === "agenda" || view === "workload") return filteredItems.slice(0, AGENDA_ITEM_LIMIT);
     if (view === "week") {
       const start = startOfLocalDay(anchorDate);
       const end = new Date(start);
@@ -640,6 +643,20 @@ export default function OperationalTimeline({
     }
     return grouped;
   }, [visibleItems]);
+
+  const agendaDayEntries = useMemo(
+    () => Array.from(dayItems.entries()),
+    [dayItems],
+  );
+
+  const hiddenResultCount =
+    view === "agenda" || view === "workload"
+      ? Math.max(0, filteredItems.length - visibleItems.length)
+      : 0;
+  const hiddenAgendaDayCount =
+    view === "agenda"
+      ? Math.max(0, agendaDayEntries.length - AGENDA_DAY_GROUP_LIMIT)
+      : 0;
 
   const filters: { id: TimelineFilter; label: string }[] = [
     { id: "all", label: "All" },
@@ -727,8 +744,17 @@ export default function OperationalTimeline({
         </div>
 
         {feedErrors.length > 0 ? (
-          <div className="rounded-xl border border-app-warning/30 bg-app-warning/10 px-4 py-3 text-sm font-semibold text-app-text">
-            Some source feeds did not refresh. Treat the timeline as partial until the marked workflow loads.
+          <div
+            data-testid="timeline-feed-warning"
+            className="rounded-xl border border-app-warning/30 bg-app-warning/10 px-4 py-3 text-sm font-semibold text-app-text"
+          >
+            <p>Some source feeds did not refresh. Treat the timeline as partial until the marked workflow loads.</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs font-semibold text-app-text-muted">
+              {feedErrors.slice(0, 5).map((message) => (
+                <li key={message}>{message}</li>
+              ))}
+              {feedErrors.length > 5 ? <li>{feedErrors.length - 5} more source warnings</li> : null}
+            </ul>
           </div>
         ) : null}
 
@@ -794,6 +820,17 @@ export default function OperationalTimeline({
             ))}
           </div>
         </div>
+
+        {hiddenResultCount > 0 || hiddenAgendaDayCount > 0 ? (
+          <div
+            data-testid="timeline-result-limit"
+            className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-xs font-bold text-app-text-muted"
+          >
+            Showing the nearest {visibleItems.length} matching item{visibleItems.length === 1 ? "" : "s"} for performance.
+            {hiddenResultCount > 0 ? ` ${hiddenResultCount} later item${hiddenResultCount === 1 ? "" : "s"} are hidden until you narrow the filters or search.` : ""}
+            {hiddenAgendaDayCount > 0 ? ` ${hiddenAgendaDayCount} later day group${hiddenAgendaDayCount === 1 ? "" : "s"} are outside this agenda preview.` : ""}
+          </div>
+        ) : null}
 
         {visibleItems.length === 0 ? (
           <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-16 text-center text-sm font-semibold text-app-text-muted">
@@ -889,12 +926,12 @@ export default function OperationalTimeline({
               </div>
             </div>
             <div className="space-y-3">
-              {visibleItems.slice(0, 10).map((item) => renderItem(item))}
+              {visibleItems.slice(0, WORKLOAD_PREVIEW_LIMIT).map((item) => renderItem(item))}
             </div>
           </div>
         ) : (
           <div className="grid gap-4 xl:grid-cols-[180px_minmax(0,1fr)]">
-            {Array.from(dayItems.entries()).slice(0, 18).map(([key, items]) => {
+            {agendaDayEntries.slice(0, AGENDA_DAY_GROUP_LIMIT).map(([key, items]) => {
               const day = parseOperationalDate(key);
               return (
                 <div key={key} className="contents">

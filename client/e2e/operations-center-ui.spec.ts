@@ -207,6 +207,10 @@ test.describe("ROS Operations Center", () => {
 
     await signInToBackOffice(page);
     await openBackofficeSidebarTab(page, "home");
+    const expandSidebar = page.getByRole("button", { name: /^expand sidebar$/i });
+    if (await expandSidebar.isVisible().catch(() => false)) {
+      await expandSidebar.click();
+    }
     await page.getByRole("button", { name: /^timeline$/i }).click();
 
     await expect(page.getByRole("heading", { name: /^operational timeline$/i })).toBeVisible();
@@ -221,6 +225,112 @@ test.describe("ROS Operations Center", () => {
     await expect(page.getByTestId("app-shell-state")).toHaveAttribute("data-active-tab", "qbo", {
       timeout: 10_000,
     });
+  });
+
+  test("keeps timeline usable on tablet with partial feeds and large result sets", async ({ page }) => {
+    await page.setViewportSize({ width: 834, height: 1194 });
+    const today = new Date();
+    const dateOnly = today.toISOString().slice(0, 10);
+    const appointmentRows = Array.from({ length: 95 }, (_, index) => ({
+      id: `appt-bulk-${index}`,
+      starts_at: `${dateOnly}T${String(8 + (index % 10)).padStart(2, "0")}:00:00.000Z`,
+      customer_display_name: `Timeline Bulk Customer ${index}`,
+      appointment_type: index % 2 === 0 ? "Fitting" : "Pickup consult",
+      status: "scheduled",
+      salesperson: index % 3 === 0 ? "Chris G" : "Floor team",
+    }));
+
+    await page.route("**/api/weddings/appointments?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(appointmentRows),
+      });
+    });
+    await page.route("**/api/transactions/fulfillment-queue", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/api/alterations", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "alterations unavailable" }),
+      });
+    });
+    await page.route("**/api/tasks/admin/team-open", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/api/tasks/me", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ open: [], completed_recent: [] }),
+      });
+    });
+    await page.route("**/api/qbo/staging?*", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/api/purchase-orders", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/api/inventory/physical/sessions", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ sessions: [] }),
+      });
+    });
+    await page.route("**/api/sessions/list-open", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/api/notifications?limit=16", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+    await page.route("**/api/weddings/morning-compass", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          stats: { needs_measure: 0, needs_order: 0, overdue_pickups: 0 },
+          needs_measure: [],
+          needs_order: [],
+          overdue_pickups: [],
+          rush_orders: [],
+          today_floor_staff: [],
+        }),
+      });
+    });
+    await page.route("**/api/weddings/activity-feed?*", async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+    });
+
+    await signInToBackOffice(page);
+    await openBackofficeSidebarTab(page, "home");
+    const expandSidebar = page.getByRole("button", { name: /^expand sidebar$/i });
+    if (await expandSidebar.isVisible().catch(() => false)) {
+      await expandSidebar.click();
+    }
+    await page.getByRole("button", { name: /^timeline$/i }).click();
+
+    await expect(page.getByRole("heading", { name: /^operational timeline$/i })).toBeVisible();
+    await expect(page.getByTestId("timeline-feed-warning")).toContainText("Alterations could not refresh");
+    await expect(page.getByTestId("timeline-result-limit")).toContainText("Showing the nearest 80");
+    await expect(page.getByTestId("timeline-result-limit")).toContainText("15 later items");
+    await expect(page.getByText("Timeline Bulk Customer 0")).toBeVisible();
+
+    await page.getByRole("button", { name: /^workload$/i }).click();
+    await expect(page.getByText("Workload by source")).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Appointment\s+95$/i })).toBeVisible();
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => document.documentElement.scrollWidth <= window.innerWidth + 4,
+          ),
+        { timeout: 10_000 },
+      )
+      .toBeTruthy();
   });
 
   test("summarizes blockers, degraded sources, safe actions, and deep links", async ({ page }) => {
