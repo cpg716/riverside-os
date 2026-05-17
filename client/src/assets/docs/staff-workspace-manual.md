@@ -10,6 +10,14 @@ status: approved
 
 # Staff Workspace (Team)
 
+## Screenshots
+
+![Scheduler workspace](../images/help/scheduler-workspace/main.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Alterations workspace](../images/help/alterations-workspace/main.png)
+
 The Team workspace is the central hub for managing your store's roster. Use it to add new employees, manage secure Access PINs, and define what each person can see and do in Riverside OS.
 
 ## What this is

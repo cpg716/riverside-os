@@ -10,6 +10,14 @@ tags: inventory-vendor-hub, inventory, vendors, procurement
 
 # Vendor Hub (inventory)
 
+## Screenshots
+
+![Inventory control board](../images/help/inventory-control-board/main.png)
+
+![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+
+![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+
 ## What this is
 
 Use **Vendors** to create and maintain vendor records, review vendor codes and buying history, manage optional brand links, and merge duplicate records into one source of truth.
@@ -28,10 +36,20 @@ Use **Vendors** to create and maintain vendor records, review vendor codes and b
 - Merge requires different source and target vendors.
 - Merge moves products, purchase orders, optional brand links, and mapped vendor items onto the vendor you keep before retiring the duplicate.
 
+## Operational detail
+
+Vendor cleanup affects purchasing, receiving, product history, and reporting. Before merging vendors, compare vendor code, account number, recent purchase orders, and product links. If two suppliers are related but not the same legal/vendor account, keep them separate and document the relationship in the vendor notes instead of merging.
+
+
 ## Tips
 
 - Treat **vendor code** as the integration key for Counterpoint-linked vendors.
 - Merge duplicates before building new POs so receiving and reporting stay attached to one supplier record.
+
+## What happens next
+
+After edits or merges, review open purchase orders and recent receiving history for that vendor. If staff are using the vendor for new buying work, confirm the name and code are clear enough to find later from Purchase Orders and receiving.
+
 
 ## Related workflows
 

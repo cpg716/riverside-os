@@ -10,6 +10,14 @@ tags: inventory-physical-inventory-workspace, inventory, physical-count, reconci
 
 # Physical Inventory Workspace (inventory)
 
+## Screenshots
+
+![Inventory control board](../images/help/inventory-control-board/main.png)
+
+![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+
+![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+
 ## What this is
 
 Use **Physical count** to run a full-store or category-limited count, review variances, and publish reconciled stock with an audit trail.
@@ -29,7 +37,18 @@ Use **Physical count** to run a full-store or category-limited count, review var
 - Full-count review now surfaces **missing variants** before publish instead of silently leaving them untouched.
 - Publish applies the reviewed reconciliation to live stock and records the inventory transaction history atomically.
 
+## Recovery and escalation
+
+If counting is interrupted, return to the same session instead of starting over. During review, missed in-scope SKUs are important signals: they may mean the wrong scope was selected, the item is misplaced, or the floor count is incomplete. Publish only when a manager is comfortable that variances reflect reality rather than an interrupted count.
+
+
 ## Tips
 
 - Treat a large block of **not counted** rows as a scope problem first, not as automatic shrink.
 - Use review notes for damaged, misplaced, or pending floor-check explanations before publishing.
+
+## Manager review
+
+Manager review is required when variances are large, the wrong scope was selected, staff counted from memory instead of scanning, or the count would create unexpected negative stock. Keep notes specific enough that the next reviewer understands whether the variance was shrink, found stock, damaged goods, or a counting mistake.
+
+Do not use Physical Inventory as a shortcut for receiving vendor goods. Vendor arrivals should go through Receive Stock so purchase order, reserved demand, and audit history stay connected. Physical Inventory is for count reconciliation after staff verify what is actually on hand.

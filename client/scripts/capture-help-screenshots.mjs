@@ -564,7 +564,7 @@ async function capture(page, spec) {
   ensureParentDir(out);
   await dismissNotifications(page);
   await page.waitForTimeout(400);
-  await page.screenshot({ path: out, fullPage: true });
+  await page.screenshot({ path: out, fullPage: spec.fullPage === true });
   return out;
 }
 

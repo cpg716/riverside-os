@@ -11,6 +11,14 @@ status: approved
 
 # Counterpoint Sync and Sign-Off
 
+## Screenshots
+
+![Reports catalog](../images/help/reports/catalog.png)
+
+![Insights dashboard](../images/help/insights/metabase-main.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
 ## What this is
 
 Counterpoint Sync Settings monitors the Counterpoint bridge, staged imports, reconciliation proof, and migration sign-off evidence.

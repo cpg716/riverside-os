@@ -11,6 +11,12 @@ status: approved
 
 # Receive Stock
 
+## Screenshots
+
+![Inventory control board](../images/help/inventory-control-board/main.png)
+
+![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+
 ![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
 ## What this is
 

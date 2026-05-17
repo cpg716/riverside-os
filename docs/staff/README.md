@@ -1,6 +1,6 @@
 # Staff help hub (Riverside OS)
 
-Staff-facing guides for **training**, **floor support**, and future **in-app / AI help** (RAG over this folder plus linked **`docs/*.md`** and root runbooks listed in the manifest). **AI / prompt authors:** see [**`../AI_CONTEXT_FOR_ASSISTANTS.md`**](../AI_CONTEXT_FOR_ASSISTANTS.md) for which document to use when (reporting vs procedures vs permissions vs live store SOP).
+Staff-facing guides for **training**, **floor support**, and current **Help Center / ROSIE grounding**. The approved corpus is this folder plus linked **`docs/*.md`** and root runbooks listed in the manifest. **AI / prompt authors:** see [**`../AI_CONTEXT_FOR_ASSISTANTS.md`**](../AI_CONTEXT_FOR_ASSISTANTS.md) for which document to use when (reporting vs procedures vs permissions vs live store SOP).
 
 Each article is structured so you can:
 
@@ -16,7 +16,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 
 **Canonical machine list:** [`CORPUS.manifest.json`](CORPUS.manifest.json) — single source of truth for embed/index jobs (`docs/staff/**` plus cross-linked first-party docs such as **`TILL_GROUP_AND_REGISTER_OPEN`**, **`REGISTER_DASHBOARD`**, runbooks at repo root).
 
-**After you change the manifest or staff Markdown:** run **`npm run help:aidocs:check`** (environment/drift check), then have an admin call **`POST /api/ai/admin/reindex-docs`** or run the repo's help reindex workflow while the API is up — see **[`../ROS_AI_HELP_CORPUS.md`](../ROS_AI_HELP_CORPUS.md)** (hybrid FTS + trigram + vector embeddings, env **`AI_EMBEDDINGS_ENABLED`**, **`RIVERSIDE_REPO_ROOT`**).
+**After you change the manifest or staff Markdown:** run **`npm run help:aidocs:check`** and **`python3 scripts/verify_ai_knowledge_drift.py`** from the repo root. If the in-app Help manuals changed, also run **`npm run generate:help`**. To refresh live Help search while the API is up, use **`npm run generate:help:refresh -- --reindex-search`** or **`bash scripts/ros-ai-reindex-local.sh`** — see **[`../ROS_AI_HELP_CORPUS.md`](../ROS_AI_HELP_CORPUS.md)**.
 
 **Completeness:** Every Back Office subsection in `SIDEBAR_SUB_SECTIONS` and every POS rail tab in `PosTabId` maps to exactly one staff article (or a clearly labeled subsection within it). When you add a sidebar item in code, add a row to the checklists below and extend the linked guide the same day.
 
@@ -50,6 +50,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Pilot go/no-go criteria | [pilot-go-no-go-criteria.md](pilot-go-no-go-criteria.md) |
 | Pilot freeze rules | [pilot-freeze-rules.md](pilot-freeze-rules.md) |
 | Pilot support package | [pilot-support-package.md](pilot-support-package.md) |
+| RC/pilot release signoff | [../RC_SIGNOFF_SUMMARY.md](../RC_SIGNOFF_SUMMARY.md), [../RELEASE_OPERATIONAL_SIGNOFF.md](../RELEASE_OPERATIONAL_SIGNOFF.md), [../releases/v0.50-gold-release-notes.md](../releases/v0.50-gold-release-notes.md) |
 | Abstract: transactions & stock | [abstracts/transactions-and-stock.md](abstracts/transactions-and-stock.md) |
 | Abstract: returns / refunds | [abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md) |
 | Abstract: wedding group pay | [abstracts/wedding-group-pay.md](abstracts/wedding-group-pay.md) |
@@ -59,6 +60,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | RBAC keys & technical detail (also in corpus) | [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md) |
 | Offline summary | [working-offline.md](working-offline.md) |
 | Operations Hub (Dashboard, Daily Sales, Pickup Queue, Podium Inbox, Mailbox, Reviews) | [operations-home.md](operations-home.md) |
+| Overlay behavior and reporting | [overlay-standard.md](overlay-standard.md) |
 | POS tab → Register (launchpad) | [register-tab-back-office.md](register-tab-back-office.md) |
 | Till group, multi-lane Z (reference) | [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md) |
 | Parked cart + RMS / RMS90 ledger (reference) | [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md) |
@@ -203,4 +205,4 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 
 ---
 
-**Last reviewed:** 2026-04-25 (v0.3.0 operational workflow updates)
+**Last reviewed:** 2026-05-16 (v0.50 gold Help/ROSIE recertification)

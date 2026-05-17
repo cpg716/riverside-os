@@ -11,6 +11,14 @@ status: approved
 
 # Operations Home
 
+## Screenshots
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Reports catalog](../images/help/reports/catalog.png)
+
+![Orders workspace](../images/help/orders-workspace/main.png)
+
 ## What this is
 
 Operations Home is the staff action board for the day. It keeps deterministic operational facts first: what changed, what needs attention, and where staff should go next.
@@ -39,6 +47,11 @@ If ROSIE is slow or unavailable, the briefing request times out or falls back qu
 A degraded indicator means that one part of the dashboard could not refresh. Use the visible cards that did load, then retry or report the degraded feed if it affects the shift.
 
 Do not assume the store has no blockers just because a degraded feed is quiet.
+
+## Operational detail
+
+Operations Home is the daily command surface. Use it to decide what needs attention first, then open the underlying workspace for the actual action. Treat cards and queues as summaries: if a count or row looks surprising, drill into the source record before making a customer promise or manager decision.
+
 
 ## What to watch for
 

@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-05-16T14:30:30.233Z",
+  "generated_at": "2026-05-17T00:31:29.558Z",
   "standard_version": "help-manual-standard-v1",
-  "published_manual_count": 67,
+  "published_manual_count": 68,
   "draft_manual_count": 0,
   "manuals": [
     {
@@ -131,7 +131,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 18,
+      "numbered_steps": 20,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -475,7 +475,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
@@ -915,7 +915,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
@@ -1091,7 +1091,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
@@ -1589,6 +1589,50 @@
       "warnings": []
     },
     {
+      "id": "pilot-recovery-governance",
+      "title": "Pilot Recovery and Governance",
+      "status": "approved",
+      "source_path": "client/src/assets/docs/pilot-recovery-governance-manual.md",
+      "required_buckets": [
+        {
+          "key": "purpose",
+          "label": "Purpose / what this is",
+          "present": true
+        },
+        {
+          "key": "steps",
+          "label": "Numbered steps / how to use it",
+          "present": true
+        },
+        {
+          "key": "guardrails",
+          "label": "What to watch for / common mistakes / tips",
+          "present": true
+        }
+      ],
+      "optional_buckets": [
+        {
+          "key": "when",
+          "label": "When to use it / prerequisites / permissions",
+          "present": false
+        },
+        {
+          "key": "outcome",
+          "label": "What happens next / expected result",
+          "present": true
+        },
+        {
+          "key": "related",
+          "label": "Related workflows",
+          "present": true
+        }
+      ],
+      "numbered_steps": 9,
+      "placeholder_hits": [],
+      "errors": [],
+      "warnings": []
+    },
+    {
       "id": "operations-fulfillment-command-center",
       "title": "Pickup Queue",
       "status": "approved",
@@ -1619,7 +1663,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
@@ -2015,7 +2059,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
@@ -2639,7 +2683,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 5,
+      "numbered_steps": 7,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -2763,7 +2807,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",

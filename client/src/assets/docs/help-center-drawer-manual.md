@@ -11,6 +11,12 @@ status: approved
 
 # Help Center Drawer
 
+## Screenshots
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+
 ![Help Center drawer](../images/help/help-center-drawer/example.png)
 ## What this is
 

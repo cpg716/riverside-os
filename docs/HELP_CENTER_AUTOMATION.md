@@ -80,6 +80,22 @@ The checked-in capture script currently refreshes these shipped Help assets:
 - `client/src/assets/images/help/remote-access/panel-main.png`
 - `client/src/assets/images/help/pos/register-dashboard.png`
 - `client/src/assets/images/help/pos/cart-empty.png`
+- `client/src/assets/images/help/pos/cart-with-lines.png`
+- `client/src/assets/images/help/pos/nexo-checkout-drawer.png`
+- `client/src/assets/images/help/pos/receipt-summary.png`
+- `client/src/assets/images/help/pos/receipt-preview.png`
+- `client/src/assets/images/help/pos/exchange-return-wizard.png`
+- `client/src/assets/images/help/pos/wedding-lookup-drawer.png`
+- `client/src/assets/images/help/reports/catalog.png`
+- `client/src/assets/images/help/insights/metabase-main.png`
+- `client/src/assets/images/help/inventory-control-board/main.png`
+- `client/src/assets/images/help/inventory-receiving-bay/main.png`
+- `client/src/assets/images/help/inventory-purchase-order-panel/main.png`
+- `client/src/assets/images/help/customers-workspace/main.png`
+- `client/src/assets/images/help/orders-workspace/main.png`
+- `client/src/assets/images/help/alterations-workspace/main.png`
+- `client/src/assets/images/help/scheduler-workspace/main.png`
+- `client/src/assets/images/help/operations-operational-home/main.png`
 
 More flows can be added safely by extending
 `client/scripts/help-screenshot-specs.mjs`.

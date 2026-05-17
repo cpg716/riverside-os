@@ -11,6 +11,12 @@ status: approved
 
 # Purchase Orders and Vendor Paperwork
 
+## Screenshots
+
+![Inventory control board](../images/help/inventory-control-board/main.png)
+
+![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+
 ![Purchase Orders and vendor paperwork](../images/help/inventory-purchase-order-panel/main.png)
 ## What this is
 
@@ -42,6 +48,11 @@ Retry refresh before receiving when this warning appears.
 ## Open Receive Stock
 
 Select the correct paperwork and open **Receive Stock**. Review the receiving drawer before posting stock.
+
+## Operational detail
+
+Use the purchase order panel to understand vendor paperwork before receiving. A PO can explain what should arrive, what is overdue, and which lines are still open. Do not use receiving to compensate for a wrong PO without first correcting or documenting the vendor paperwork issue.
+
 
 ## What to watch for
 

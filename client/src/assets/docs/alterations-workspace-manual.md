@@ -10,6 +10,12 @@ status: approved
 
 # Alterations Workspace
 
+## Screenshots
+
+![Scheduler workspace](../images/help/scheduler-workspace/main.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
 The Alterations workspace is a garment-based tailoring workbench. It tracks customers, garments, due dates, and work status for every job started at the Register.
 
 ![Alterations workspace](../images/help/alterations-workspace/main.png)

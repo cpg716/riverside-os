@@ -10,6 +10,14 @@ tags: inventory-workspace, inventory, back-office, operations
 
 # Inventory Workspace (inventory)
 
+## Screenshots
+
+![Inventory control board](../images/help/inventory-control-board/main.png)
+
+![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+
+![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+
 ## What this is
 
 Use **Back Office → Inventory** as the main operational hub for item lookup, purchase orders, receiving, vendor maintenance, import, and physical count.
@@ -37,6 +45,11 @@ Each subsection is job-based:
 - Standard POs must be **drafted**, lined, and **submitted** before receiving can begin.
 - Direct invoices skip the separate submit step but still land in the same **Receive Stock** final posting path.
 - Inventory guidance in this workspace now assumes **Counterpoint sync** is the authoritative pre-launch inventory source.
+
+## Operational detail
+
+Use Inventory List for search, review, and triage. Use Product Hub for item-level cleanup, Receive Stock for inbound quantity changes, and Physical Inventory for count reconciliation. If search returns no rows during a known outage or stale-index warning, treat it as a lookup problem, not proof that the SKU does not exist.
+
 
 ## Tips
 

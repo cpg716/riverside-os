@@ -10,6 +10,14 @@ tags: customers, rms-charge, corecard, support, reconciliation
 
 # RMS Charge Workspace
 
+## Screenshots
+
+![Customers workspace](../images/help/customers-workspace/main.png)
+
+![Orders workspace](../images/help/orders-workspace/main.png)
+
+![Wedding lookup drawer](../images/help/pos/wedding-lookup-drawer.png)
+
 ## What this is
 
 Use this workspace when a customer has an RMS Charge account and staff need to:

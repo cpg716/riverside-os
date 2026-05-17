@@ -10,6 +10,14 @@ tags: pos, gift-cards, register, staff-manual
 
 # Register Gift Card
 
+## Screenshots
+
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 Use this register modal when a customer is buying or reloading a **purchased** gift card at the register.
 
 ## What this is
@@ -46,3 +54,9 @@ After checkout is fully paid, the gift card receives the loaded balance and the 
 - If the code belongs to a loyalty, donated, or promo card, stop and send the issue to Back Office.
 - If the amount is wrong, remove the cart line before checkout.
 - If the sale is not fully paid, the card will not be credited.
+
+## Manager review
+
+Manager review is needed for duplicate load attempts, card-number mismatch, failed receipt delivery after a card sale, or any customer claim that value is missing. Use the transaction and gift card event history as the source of truth before issuing replacement value.
+
+For customer-paid purchased cards, the card load should happen through Register so payment, receipt, and liability evidence stay together. Back Office review is useful for lookup and correction, but it should not replace the sale flow for new customer-paid value.

@@ -10,6 +10,14 @@ tags: pos, shipping, shippo, rates
 
 # Shipping Quote Modal
 
+## Screenshots
+
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 The **Shipping Quote Modal** is triggered when you tap **Ship current sale** in the POS Cart. It captures the delivery address and carrier quote for a current Register sale.
 
 ## What this is
@@ -31,6 +39,11 @@ Open this modal when the customer wants delivery instead of leaving with the pro
 3. Tap **Get shipping rates**.
 4. Pick the preferred carrier and service level.
 5. Tap **Apply shipping** to add the fee to the transaction.
+
+## Operational detail
+
+Use shipping only when the customer expects shipment or when an order requires a shipping handoff. Confirm address, service, charge, and fulfillment timing before checkout is finalized. If rate quoting or label purchase fails, keep the transaction state clear and finish the shipping recovery from the Shipping or Orders workflow.
+
 
 ## What to watch for
 

@@ -11,6 +11,14 @@ status: approved
 
 # Gift Cards Workspace
 
+## Screenshots
+
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 ## What this is
 
 Gift Cards Workspace is the Back Office surface for looking up cards, reviewing balances, issuing new cards, and handling non-sale gift card workflows.
@@ -44,6 +52,11 @@ Gift card redemption happens in checkout. The sale should apply the card as gift
 ## QBO evidence
 
 QBO proposals should keep gift card subtype evidence clear. Purchased, loyalty, donated, and promo gift cards should follow their intended accounting path.
+
+## Operational detail
+
+Keep purchased, loyalty, donated, and promo cards separate when reviewing balances. Purchased cards represent customer-paid liability; loyalty, donated, and promo cards have different accounting and redemption intent. If a refund or balance correction involves a gift card, confirm the original tender and card subtype before making changes or escalating to a manager.
+
 
 ## What to watch for
 

@@ -10,6 +10,12 @@ tags: customers, support, relationships, duplicate-review
 
 # Customers Workspace
 
+## Screenshots
+
+![Orders workspace](../images/help/orders-workspace/main.png)
+
+![Wedding lookup drawer](../images/help/pos/wedding-lookup-drawer.png)
+
 ![Customers workspace](../images/help/customers-workspace/main.png)
 ## What this is
 

@@ -11,6 +11,14 @@ status: approved
 
 # Checkout & Payment
 
+## Screenshots
+
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 ## What this is
 
 The checkout drawer collects payment, shows the remaining balance due, and completes the sale. It keeps payment status visible while the cart stays in the background.

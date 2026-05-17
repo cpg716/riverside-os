@@ -11,6 +11,14 @@ status: approved
 
 # Receipt Preview and Delivery
 
+## Screenshots
+
+![Receipt summary](../images/help/pos/receipt-summary.png)
+
+![Receipt preview](../images/help/pos/receipt-preview.png)
+
+![Printers and settings context](../images/help/settings-help-center-settings-panel/example.png)
+
 ## What this is
 
 The sale complete receipt preview shows the customer receipt after checkout. It should match the Receipt Builder style closely enough that staff can trust what will print, email, or text.

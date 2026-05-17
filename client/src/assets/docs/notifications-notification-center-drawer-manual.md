@@ -11,6 +11,14 @@ status: approved
 
 # Notification Center and Team Announcements
 
+## Screenshots
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Reports catalog](../images/help/reports/catalog.png)
+
+![Orders workspace](../images/help/orders-workspace/main.png)
+
 ## What this is
 
 The **Communications & Alerts** drawer is Riverside’s in-app notification center. It is where staff review new alerts, reopen earlier activity, and keep their inbox under control during the day.

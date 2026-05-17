@@ -11,6 +11,14 @@ status: approved
 
 # Procurement Hub (pos)
 
+## Screenshots
+
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 ## What this is
 
 Use **Procurement Hub** in POS mode when staff need a register-friendly way to open purchase orders, direct invoices, and the receiving workflow without leaving the operational shell.

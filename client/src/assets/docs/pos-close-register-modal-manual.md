@@ -9,6 +9,14 @@ tags: pos, register, closing, Z-report, audit
 
 # Z-Reconciliation & Closing
 
+## Screenshots
+
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 The **Close Register** workspace is the final step of a shift. It reconciles expected totals against actual physical counts.
 
 ## What this is
@@ -31,6 +39,11 @@ Upon closing, a professional, full-page **Z-Audit Report** is generated.
 - **Audit Grade**: Replaces legacy thermal strips with high-fidelity Letter/A4 documents.
 - **Reporting Station**: The header confirms the assigned printer name for accountability.
 - **Routing**: This report prints automatically to your **Report Station** (System Printer).
+
+## Recovery and escalation
+
+Register close is final for the till group. If cash, card, gift card, or RMS/R2S totals do not match expected evidence, stop before closing and review the daily sales and terminal reports. A manager should decide whether the variance is explained, needs a note, or should block close until support/accounting reviews it.
+
 
 ## Tips
 - **No mid-shift "X"**: Mid-shift counts should use the live Dashboard. The Z-close is a permanent shift-ending action.

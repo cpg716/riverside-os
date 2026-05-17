@@ -38,6 +38,7 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("operations-operational-home", "client/src/assets/docs/operations-operational-home-manual.md"),
     ("orders-workspace", "client/src/assets/docs/orders-workspace-manual.md"),
     ("pos-close-register-modal", "client/src/assets/docs/pos-close-register-modal-manual.md"),
+    ("pilot-recovery-governance", "client/src/assets/docs/pilot-recovery-governance-manual.md"),
     ("operations-fulfillment-command-center", "client/src/assets/docs/operations-fulfillment-command-center-manual.md"),
     ("pos-custom-work", "client/src/assets/docs/pos-custom-work-manual.md"),
     ("pos-nexo-checkout-drawer", "client/src/assets/docs/pos-nexo-checkout-drawer-manual.md"),

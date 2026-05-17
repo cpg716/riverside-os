@@ -8,6 +8,14 @@ tags: settings, remote, tailscale, host-mode
 
 # Remote Access
 
+## Screenshots
+
+![Remote access panel](../images/help/remote-access/panel-main.png)
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
 Riverside uses **Tailscale** for private remote access when a device is **not** on the same local network as the host machine.
 
 That is a different concept from:
@@ -40,6 +48,11 @@ The host can expose a private Riverside remote path after both of these are true
 - This flow is for **private off-site access**, not public-web deployment
 - disconnecting Tailscale will remove private remote access
 - starting host mode does not ask for Helcim keys in the UI; those belong in the host environment
+
+## Recovery and escalation
+
+Remote access is for approved support and operational recovery. Do not leave a support session open after the work is complete. If the store is using remote help during a payment, register close, or customer-data issue, keep the manager informed and avoid reading card numbers or Access PINs aloud.
+
 
 ## Related workflows
 

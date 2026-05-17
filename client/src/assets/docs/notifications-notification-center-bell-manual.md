@@ -11,6 +11,14 @@ status: approved
 
 # Notifications Bell
 
+## Screenshots
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Reports catalog](../images/help/reports/catalog.png)
+
+![Orders workspace](../images/help/orders-workspace/main.png)
+
 ## What this is
 
 The bell is Riverside’s shared notification entry point. Use it to see whether anything new needs your attention and to open the full **Communications & Alerts** drawer.

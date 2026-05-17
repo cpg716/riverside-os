@@ -11,6 +11,14 @@ status: approved
 
 # Inventory Bulk Bar (inventory)
 
+## Screenshots
+
+![Inventory control board](../images/help/inventory-control-board/main.png)
+
+![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+
+![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+
 ## What this is
 
 Use the **Inventory Bulk Bar** when you have selected one or more products in Inventory List and need to act on that selection without opening every product one by one.
@@ -33,6 +41,11 @@ Use it when you need to:
 2. Use `Bulk print price tags`.
 3. Review the variation-aware print dialog and adjust quantities where needed.
 4. Confirm the final retail price-tag batch.
+
+## Operational detail
+
+Bulk actions are for clean, reviewed selections only. Before applying a bulk change, filter the list down to the exact intended SKUs and scan the selected rows for outliers such as inactive products, wrong category, or unexpected vendor. If the selection includes financial or stock-sensitive fields, pause and use a smaller batch.
+
 
 ## What to watch for
 

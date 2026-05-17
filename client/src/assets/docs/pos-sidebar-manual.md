@@ -11,6 +11,14 @@ status: approved
 
 # POS Sidebar
 
+## Screenshots
+
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 The POS sidebar is the left rail for register work. It keeps cashier workflows close to the cart without exposing the full Back Office settings tree.
 
 ## What this is
@@ -31,6 +39,11 @@ Use the POS sidebar to move between register-side tools:
 3. Use **Inventory** to confirm an item, SKU, or stock status without leaving POS.
 4. Use **Orders**, **Shipping**, or **Layaways** when a sale turns into a follow-up or fulfillment task.
 5. Return to **Register** when you are ready to complete the transaction.
+
+## Operational detail
+
+The POS rail is organized for register work first. Use Register for the live sale, Dashboard for between-customer status, and the supporting hubs only when they are part of the current transaction. If a tab is missing, it is usually controlled by staff access or POS mode restrictions, not a broken sidebar.
+
 
 ## What to watch for
 

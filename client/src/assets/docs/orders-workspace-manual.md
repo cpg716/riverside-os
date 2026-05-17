@@ -10,6 +10,12 @@ tags: orders, fulfillment, deposits, tracking
 
 # Orders Workspace
 
+## Screenshots
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Receipt summary](../images/help/pos/receipt-summary.png)
+
 The Orders workspace is the main place to review non-takeaway orders.
 
 ![Orders workspace](../images/help/orders-workspace/main.png)

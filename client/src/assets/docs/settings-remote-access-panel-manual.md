@@ -10,6 +10,14 @@ tags: settings-remote-access-panel, remote-access, tailscale, host-mode
 
 # Remote Access Panel
 
+## Screenshots
+
+![Remote access panel](../images/help/remote-access/panel-main.png)
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
 Use **Settings → Remote Access** only on the dedicated Windows host machine. This panel is for:
 
 - starting **Shop Host** so local-network satellite devices can use Riverside

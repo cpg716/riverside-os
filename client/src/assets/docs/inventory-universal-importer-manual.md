@@ -10,6 +10,14 @@ tags: inventory-universal-importer, inventory, import, counterpoint
 
 # Universal Importer (inventory)
 
+## Screenshots
+
+![Inventory control board](../images/help/inventory-control-board/main.png)
+
+![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+
+![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+
 ## What this is
 
 Use **Inventory → Import** for **catalog-only CSV mapping** when you need to add or clean up products, variants, categories, vendor links, retail, or cost from a spreadsheet.
@@ -31,8 +39,19 @@ Use **Receiving** or **Physical Inventory** for operational stock changes after 
 5. Review the mapping summary.
 6. Confirm the file is only meant to update catalog structure, then run **Commit catalog changes**.
 
+## Recovery and escalation
+
+If an import preview looks wrong, cancel before committing. Most importer mistakes come from mapped columns that look similar, such as style number, vendor code, UPC, and SKU. Save a copy of the source file and mapping notes when support needs to investigate skipped rows or duplicate SKU warnings.
+
+
 ## Tips
 
 - **SKU** is the variant identity. Duplicate SKUs in the source file will overwrite catalog fields for that SKU, but they will **not** change live stock.
 - If the source file includes stock columns, leave them out of the mapping. This importer rejects stock-on-hand imports on purpose.
 - If you are preparing a store launch, finish Counterpoint sync first so opening on-hand quantities come from the authoritative source.
+
+## Manager review
+
+Manager or inventory lead review is required when the import changes cost, retail, category, or vendor identity for many rows. Those fields affect reports, tags, purchasing, and staff search. If the file came from a vendor, keep the original file attached to the issue or handoff notes.
+
+Do not run a spreadsheet twice just because the first preview looked slow. Wait for the preview or error state, then decide whether to cancel, correct the mapping, or commit. Duplicate imports can make cleanup harder even when stock quantities are protected.

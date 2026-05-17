@@ -11,6 +11,14 @@ status: approved
 
 # Variations Workspace (inventory)
 
+## Screenshots
+
+![Inventory control board](../images/help/inventory-control-board/main.png)
+
+![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+
+![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+
 ## What this is
 
 Use **Variations Workspace** inside Product Hub when you need a matrix-level view of one product’s sizes, colors, or other variation axes and want to act on all or part of that matrix.

@@ -11,6 +11,14 @@ status: approved
 
 # Helcim Settings
 
+## Screenshots
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+
+![Remote access panel](../images/help/remote-access/panel-main.png)
+
 <!-- help:component-source -->
 _Linked component: `client/src/components/settings/HelcimSettingsPanel.tsx`._
 <!-- /help:component-source -->

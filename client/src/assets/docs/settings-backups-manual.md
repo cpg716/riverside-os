@@ -8,6 +8,14 @@ tags: settings, backups, restore, recovery
 
 # Data Lifecycle & Backups
 
+## Screenshots
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+
+![Remote access panel](../images/help/remote-access/panel-main.png)
+
 Riverside OS includes an enterprise-grade backup and restoration system designed to ensure data integrity across local and cloud environments.
 
 ## What this is

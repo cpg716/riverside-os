@@ -1,53 +1,63 @@
-# Overlay Behavior Standard (Staff Guide)
+# Overlay Behavior Standard
 
 This guide explains how popups, drawers, and menus should behave in Riverside OS so staff do not lose context while working.
 
-## What Staff Should Experience
+## What staff should experience
 
-1. Drawers and slide-outs
-- Open against the current screen (not far below the visible area).
+## When to use it
+
+Use this guide when a drawer, popup, menu, or wizard appears in the wrong place, opens behind another panel, blocks the wrong part of the screen, or makes the workflow hard to finish.
+
+## How to check an overlay problem
+
+1. Keep the screen open if you can.
+2. Confirm which workspace you were using and which button opened the overlay.
+3. Check whether the overlay is visible, centered or attached to the expected field, and above the current screen.
+4. Take a screenshot if anything appears hidden, buried, or off-screen.
+5. Report the issue with the workspace, action, screenshot, and whether refreshing changed the behavior.
+
+## Expected behavior
+
+Drawers and slide-outs:
+
+- Open against the current screen.
 - Stay visible even if the page was already scrolled.
+- Keep the staff member in the same workflow context.
 
-2. Modals and wizards
+Modals and wizards:
+
 - Open centered or full-screen above the current work.
 - Keep background from scrolling while the modal is open.
 
-3. Search dropdowns and quick menus
+Search dropdowns and quick menus:
+
 - Open next to the field/button you used.
 - If there is not enough room below, they should open upward instead.
 
-4. System-priority overlays
+System-priority overlays:
+
 - Always appear above normal drawers and modals when shown.
 
-## Layering Rules (Internal Reference)
+## What to watch for
 
-- Drawers: `z-[100]`
-- Modals/Wizards: `z-[200]`
-- System-priority: `z-[300]`
-
-## Current Known Drift
-
-Migrated in commit `017c2785`:
-- `client/src/components/alterations/scheduler/AlterationSchedulingDrawer.tsx`
-- `client/src/components/customers/ShipmentsHubSection.tsx` (manual shipment modal path)
-- `client/src/components/layout/RegisterPickModal.tsx`
-
-Also tracked:
-- Some overlays still differ in mount-root behavior.
-- Some overlay layers still use non-standard z-index values.
-- Full manual overlay flow validation remains pending for Alteration Scheduling, Manual Shipment modal, and Register Pick modal in a reachable authenticated runtime path.
-
-## Rollout Plan
-
-1. Phase 1: Publish and align on this standard.
-2. Phase 2: Migrate the three fixed in-place overlays (completed in commit `017c2785`).
-3. Phase 3: Normalize mount-root and z-index usage.
-4. Phase 4: Add regression tests for visibility and layering.
-
-## When To Report A Bug
-
-Report an overlay bug if any of the following happen:
-- A popup/drawer opens off-screen near the bottom of a long page.
+- A popup or drawer opens off-screen near the bottom of a long page.
 - You must scroll upward just to see an opened overlay.
 - A modal appears behind another panel.
 - Background keeps scrolling while a blocking modal is open.
+- A menu is cut off even though there is space above it.
+
+## Manager and support handoff
+
+Overlay issues are usually usability defects, not staff mistakes. Report them when they prevent normal work, especially during Register, customer, alteration, shipping, or manager approval flows.
+
+## What happens next
+
+Support should reproduce the same workflow and check whether the overlay is using the standard drawer, modal, wizard, or menu behavior.
+
+Staff should continue the workflow only if all required buttons and warnings are visible. If a manager approval, payment, refund, or inventory post is hidden, stop and escalate before proceeding.
+
+## Related workflows
+
+- [Universal Search](universal-search.md)
+- [Error and Toast Guide](ERROR-AND-TOAST-GUIDE.md)
+- [Pilot Escalation Guide](pilot-escalation-guide.md)

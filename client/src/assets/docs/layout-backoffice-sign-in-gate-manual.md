@@ -10,6 +10,14 @@ tags: layout-backoffice-sign-in-gate, signin, access-pin, host-settings
 
 # Backoffice Sign-In Gate
 
+## Screenshots
+
+![Help Center drawer](../images/help/help-center-drawer/example.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Reports catalog](../images/help/reports/catalog.png)
+
 The sign-in gate protects Riverside before any shell or navigation appears.
 
 ## What this is
@@ -40,6 +48,11 @@ Example values:
 - On the Backoffice / Server PC, if the app is pointed at `localhost` or `127.0.0.1` and the staff roster cannot load, Riverside tries to start the installed **Riverside OS Server** Windows scheduled task and then retries the roster check.
 - If your name does not appear, the device may be pointed at the wrong host URL for its current role or location.
 - For lockout recovery, use the in-app **Lockout Recovery Manual** from Help.
+
+## Recovery and escalation
+
+If sign-in fails, confirm the selected staff member before re-entering the Access PIN. Repeated failures should be treated as an access issue, not a reason to share another person's PIN. If the station cannot reach the API, follow the offline or server-start recovery path before attempting normal Back Office work.
+
 
 ## What to watch for
 

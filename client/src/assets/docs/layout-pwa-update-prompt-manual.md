@@ -10,6 +10,14 @@ tags: layout-pwa-update-prompt, pwa, updates
 
 # PWA Update Prompt
 
+## Screenshots
+
+![Help Center drawer](../images/help/help-center-drawer/example.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Reports catalog](../images/help/reports/catalog.png)
+
 Riverside uses this surface for both parts of the installed PWA contract:
 
 - **Install prompt** when the device is still running Riverside in a normal browser tab

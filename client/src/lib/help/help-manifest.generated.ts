@@ -37,37 +37,38 @@ import manual_32_raw from "../../assets/docs/notifications-notification-center-d
 import manual_33_raw from "../../assets/docs/operations-operational-home-manual.md?raw";
 import manual_34_raw from "../../assets/docs/orders-workspace-manual.md?raw";
 import manual_35_raw from "../../assets/docs/pos-close-register-modal-manual.md?raw";
-import manual_36_raw from "../../assets/docs/operations-fulfillment-command-center-manual.md?raw";
-import manual_37_raw from "../../assets/docs/pos-custom-work-manual.md?raw";
-import manual_38_raw from "../../assets/docs/pos-nexo-checkout-drawer-manual.md?raw";
-import manual_39_raw from "../../assets/docs/pos-shipping-manual.md?raw";
-import manual_40_raw from "../../assets/docs/pos-shipping-modal-manual.md?raw";
-import manual_41_raw from "../../assets/docs/pos-sidebar-manual.md?raw";
-import manual_42_raw from "../../assets/docs/pos-procurement-hub-manual.md?raw";
-import manual_43_raw from "../../assets/docs/pos-receipt-summary-modal-manual.md?raw";
-import manual_44_raw from "../../assets/docs/pos-order-load-modal-manual.md?raw";
-import manual_45_raw from "../../assets/docs/pos-register-dashboard-manual.md?raw";
-import manual_46_raw from "../../assets/docs/pos-register-gift-card-load-modal-manual.md?raw";
-import manual_47_raw from "../../assets/docs/pos-register-overlay-manual.md?raw";
-import manual_48_raw from "../../assets/docs/pos-register-reports-manual.md?raw";
-import manual_49_raw from "../../assets/docs/qbo-mapping-matrix-manual.md?raw";
-import manual_50_raw from "../../assets/docs/qbo-workspace-manual.md?raw";
-import manual_51_raw from "../../assets/docs/reports-workspace-manual.md?raw";
-import manual_52_raw from "../../assets/docs/scheduler-workspace-manual.md?raw";
-import manual_53_raw from "../../assets/docs/settings-bug-reports-settings-panel-manual.md?raw";
-import manual_54_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
-import manual_55_raw from "../../assets/docs/settings-helcim-settings-panel-manual.md?raw";
-import manual_56_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
-import manual_57_raw from "../../assets/docs/settings-receipt-builder-panel-manual.md?raw";
-import manual_58_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
-import manual_59_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
-import manual_60_raw from "../../assets/docs/staff-schedule-panel-manual.md?raw";
-import manual_61_raw from "../../assets/docs/settings-printers-and-scanners-panel-manual.md?raw";
-import manual_62_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
-import manual_63_raw from "../../assets/docs/staff-workspace-manual.md?raw";
-import manual_64_raw from "../../assets/docs/settings-ros-dev-center-panel-manual.md?raw";
-import manual_65_raw from "../../assets/docs/settings-rosie-settings-panel-manual.md?raw";
-import manual_66_raw from "../../assets/docs/staff-weekly-grid-view-manual.md?raw";
+import manual_36_raw from "../../assets/docs/pilot-recovery-governance-manual.md?raw";
+import manual_37_raw from "../../assets/docs/operations-fulfillment-command-center-manual.md?raw";
+import manual_38_raw from "../../assets/docs/pos-custom-work-manual.md?raw";
+import manual_39_raw from "../../assets/docs/pos-nexo-checkout-drawer-manual.md?raw";
+import manual_40_raw from "../../assets/docs/pos-shipping-manual.md?raw";
+import manual_41_raw from "../../assets/docs/pos-shipping-modal-manual.md?raw";
+import manual_42_raw from "../../assets/docs/pos-sidebar-manual.md?raw";
+import manual_43_raw from "../../assets/docs/pos-procurement-hub-manual.md?raw";
+import manual_44_raw from "../../assets/docs/pos-receipt-summary-modal-manual.md?raw";
+import manual_45_raw from "../../assets/docs/pos-order-load-modal-manual.md?raw";
+import manual_46_raw from "../../assets/docs/pos-register-dashboard-manual.md?raw";
+import manual_47_raw from "../../assets/docs/pos-register-gift-card-load-modal-manual.md?raw";
+import manual_48_raw from "../../assets/docs/pos-register-overlay-manual.md?raw";
+import manual_49_raw from "../../assets/docs/pos-register-reports-manual.md?raw";
+import manual_50_raw from "../../assets/docs/qbo-mapping-matrix-manual.md?raw";
+import manual_51_raw from "../../assets/docs/qbo-workspace-manual.md?raw";
+import manual_52_raw from "../../assets/docs/reports-workspace-manual.md?raw";
+import manual_53_raw from "../../assets/docs/scheduler-workspace-manual.md?raw";
+import manual_54_raw from "../../assets/docs/settings-bug-reports-settings-panel-manual.md?raw";
+import manual_55_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
+import manual_56_raw from "../../assets/docs/settings-helcim-settings-panel-manual.md?raw";
+import manual_57_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
+import manual_58_raw from "../../assets/docs/settings-receipt-builder-panel-manual.md?raw";
+import manual_59_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
+import manual_60_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
+import manual_61_raw from "../../assets/docs/staff-schedule-panel-manual.md?raw";
+import manual_62_raw from "../../assets/docs/settings-printers-and-scanners-panel-manual.md?raw";
+import manual_63_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
+import manual_64_raw from "../../assets/docs/staff-workspace-manual.md?raw";
+import manual_65_raw from "../../assets/docs/settings-ros-dev-center-panel-manual.md?raw";
+import manual_66_raw from "../../assets/docs/settings-rosie-settings-panel-manual.md?raw";
+import manual_67_raw from "../../assets/docs/staff-weekly-grid-view-manual.md?raw";
 
 export const HELP_MANUALS: HelpManual[] = [
   {
@@ -80,9 +81,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "reports",
     title: "Reports (curated)",
-    summary: "Back Office Reports library: searchable curated report tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase).",
+    summary: "Back Office Reports library: categorized searchable report tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase).",
     markdown: manual_1_raw,
-    tags: ["reports","analytics","insights","pivot","margin","rbac","search"],
+    tags: ["reports","analytics","insights","pivot","margin","rbac","search","categories"],
   },
   {
     id: "insights",
@@ -323,220 +324,227 @@ export const HELP_MANUALS: HelpManual[] = [
     tags: ["pos","register","closing","Z-report","audit"],
   },
   {
+    id: "pilot-recovery-governance",
+    title: "Pilot Recovery and Governance",
+    summary: "Find the right recovery, reconciliation, and manager-escalation path during the RC/pilot release.",
+    markdown: manual_36_raw,
+    tags: ["pilot","recovery","offline","governance","escalation","blocked-checkout","qbo-failed","rms-payment","close-register","z-report","receiving-interrupted","inventory-adjustment","printer-issue"],
+  },
+  {
     id: "operations-fulfillment-command-center",
     title: "Pickup Queue",
     summary: "Prioritize ready, rush, due-soon, and blocked orders from the Operations pickup queue.",
-    markdown: manual_36_raw,
+    markdown: manual_37_raw,
     tags: ["operations","pickup-queue","orders","ready-for-pickup","rush"],
   },
   {
     id: "pos-custom-work",
     title: "Custom Orders & Rush Orders",
     summary: "Book made-to-measure custom work in POS, capture vendor references, and flag rush handling when needed.",
-    markdown: manual_37_raw,
+    markdown: manual_38_raw,
     tags: ["pos","custom-orders","rush","fulfillment"],
   },
   {
     id: "pos-nexo-checkout-drawer",
     title: "Checkout & Payment",
     summary: "Collect payment, monitor Helcim terminal status, and complete a sale from the POS checkout drawer.",
-    markdown: manual_38_raw,
+    markdown: manual_39_raw,
     tags: ["pos","checkout","helcim","card","payment","receipt"],
   },
   {
     id: "pos-shipping-manual",
     title: "Shipping & Fulfillment Guide",
     summary: "Guide to quoting current-sale shipping at the Register and tracking shipments after checkout.",
-    markdown: manual_39_raw,
+    markdown: manual_40_raw,
     tags: ["pos","shipping","shippo","fulfillment","back-office"],
   },
   {
     id: "pos-shipping-modal",
     title: "Shipping Quote Modal",
     summary: "Component for capturing delivery addresses and fetching live carrier rates at the Register.",
-    markdown: manual_40_raw,
+    markdown: manual_41_raw,
     tags: ["pos","shipping","shippo","rates"],
   },
   {
     id: "pos-sidebar",
     title: "POS Sidebar",
     summary: "Use the POS rail to move between Register, Customers, RMS Charge, Podium Inbox, Shipping, Layaways, and other register-side workflows.",
-    markdown: manual_41_raw,
+    markdown: manual_42_raw,
     tags: ["pos-sidebar","pos","navigation","register"],
   },
   {
     id: "pos-procurement-hub",
     title: "Procurement Hub (pos)",
     summary: "POS-side procurement surface for opening purchase orders, direct invoices, and Receive Stock workflows.",
-    markdown: manual_42_raw,
+    markdown: manual_43_raw,
     tags: ["pos-procurement-hub","pos","procurement","receiving"],
   },
   {
     id: "pos-receipt-summary-modal",
     title: "Receipt Preview and Delivery",
     summary: "Preview, print, text, or email the completed sale receipt.",
-    markdown: manual_43_raw,
+    markdown: manual_44_raw,
     tags: ["pos-receipt-summary-modal","pos","receipt","printing"],
   },
   {
     id: "pos-order-load-modal",
     title: "Customer Orders",
     summary: "Review a customer's open orders in POS, check balance and lifecycle status, add or edit open lines, collect payments, and copy unfulfilled lines only when starting a new sale.",
-    markdown: manual_44_raw,
+    markdown: manual_45_raw,
     tags: ["pos","orders","pickup","fulfillment"],
   },
   {
     id: "pos-register-dashboard",
     title: "Register Dashboard (pos)",
     summary: "Use the register dashboard as the Windows station home screen after the till is open.",
-    markdown: manual_45_raw,
+    markdown: manual_46_raw,
     tags: ["pos-register-dashboard","pos","register","windows"],
   },
   {
     id: "pos-register-gift-card-load-modal",
     title: "Register Gift Card",
     summary: "POS guide for adding a purchased gift card load to the cart.",
-    markdown: manual_46_raw,
+    markdown: manual_47_raw,
     tags: ["pos","gift-cards","register","staff-manual"],
   },
   {
     id: "pos-register-overlay",
     title: "Register Overlay (pos)",
     summary: "Use this screen to open or attach the Windows register terminal to the correct lane before selling.",
-    markdown: manual_47_raw,
+    markdown: manual_48_raw,
     tags: ["pos-register-overlay","pos","register","windows"],
   },
   {
     id: "pos-register-reports",
     title: "Register Reports & Daily Sales",
     summary: "Daily sales activity timeline, tender totals, and professional audit printing for the current register session.",
-    markdown: manual_48_raw,
+    markdown: manual_49_raw,
     tags: ["pos","register","reports","audit","printing"],
   },
   {
     id: "qbo-mapping-matrix",
     title: "QBO Mapping Matrix (qbo)",
     summary: "Guide to linking Riverside OS accounts (Revenue, Inventory, Tenders) to your QuickBooks Online Chart of Accounts.",
-    markdown: manual_49_raw,
+    markdown: manual_50_raw,
     tags: ["qbo","mapping","accounting","chart-of-accounts","coa","setup"],
   },
   {
     id: "qbo-workspace",
     title: "QBO Workspace",
     summary: "Review QuickBooks Online staging, balanced proposals, drilldown evidence, and liability tender treatment.",
-    markdown: manual_50_raw,
+    markdown: manual_51_raw,
     tags: ["qbo","quickbooks","accounting","journal","staging","finance"],
   },
   {
     id: "reports-workspace",
     title: "Reports Workspace (reports)",
     summary: "Find curated store reports by task, question, keyword, audience, or sensitivity.",
-    markdown: manual_51_raw,
-    tags: ["reports-workspace","reports","search","reporting","staff"],
+    markdown: manual_52_raw,
+    tags: ["reports-workspace","reports","search","reporting","staff","categories"],
   },
   {
     id: "scheduler-workspace",
     title: "Scheduler Workspace",
     summary: "Store-wide appointment scheduler: viewing calendar, booking fittings/consultations, and managing staff availability.",
-    markdown: manual_52_raw,
+    markdown: manual_53_raw,
     tags: ["scheduler","appointments","calendar","booking"],
   },
   {
     id: "settings-bug-reports-settings-panel",
     title: "Bug Reports Settings",
     summary: "Review submitted bug reports and support diagnostics without exposing sensitive values.",
-    markdown: manual_53_raw,
+    markdown: manual_54_raw,
     tags: ["settings-bug-reports-settings-panel","support","diagnostics"],
   },
   {
     id: "settings-counterpoint-sync-settings-panel",
     title: "Counterpoint Sync and Sign-Off",
     summary: "Monitor the Counterpoint bridge, review imported proof, and understand historical tax semantics.",
-    markdown: manual_54_raw,
+    markdown: manual_55_raw,
     tags: ["settings-counterpoint-sync-settings-panel","counterpoint","bridge","sync","signoff"],
   },
   {
     id: "settings-helcim-settings-panel",
     title: "Helcim Settings",
     summary: "Configure Helcim API credentials, terminal device codes, webhook setup, and test mode without exposing payment secrets.",
-    markdown: manual_55_raw,
+    markdown: manual_56_raw,
     tags: ["settings","helcim","payments","webhook","terminal"],
   },
   {
     id: "settings-meilisearch-settings-panel",
     title: "Meilisearch Settings",
     summary: "Check Meilisearch sync health, distinguish Refresh from Rebuild, and understand which search indices ROS keeps current.",
-    markdown: manual_56_raw,
+    markdown: manual_57_raw,
     tags: ["settings","meilisearch","search","reindex"],
   },
   {
     id: "settings-receipt-builder-panel",
     title: "Receipt Settings Panel (settings)",
     summary: "Adjust standard Epson receipt content for receipt printing and delivery.",
-    markdown: manual_57_raw,
+    markdown: manual_58_raw,
     tags: ["settings-receipt-builder-panel","settings","receipt","printing"],
   },
   {
     id: "settings-remote-access-panel",
     title: "Remote Access Panel",
     summary: "Use this panel on the dedicated Windows host machine to start Shop Host for local satellites and connect Tailscale for separate remote access.",
-    markdown: manual_58_raw,
+    markdown: manual_59_raw,
     tags: ["settings-remote-access-panel","remote-access","tailscale","host-mode"],
   },
   {
     id: "staff-commission-payouts-panel",
     title: "Commission Reports Panel (staff)",
     summary: "Review fulfillment-based commission reporting by staff and period.",
-    markdown: manual_59_raw,
+    markdown: manual_60_raw,
     tags: ["staff-commission-payouts-panel","component","commission","reporting"],
   },
   {
     id: "staff-schedule-panel",
     title: "Staff Schedule",
     summary: "Manage the store-wide schedule, individual staff availability, and per-week planning overrides.",
-    markdown: manual_60_raw,
+    markdown: manual_61_raw,
     tags: ["staff","schedule","availability","shifts","team"],
   },
   {
     id: "settings-printers-and-scanners-panel",
     title: "Printers And Scanners Panel (settings)",
     summary: "Configure workstation receipt, tag, report printer targets and verify scanner input.",
-    markdown: manual_61_raw,
+    markdown: manual_62_raw,
     tags: ["settings-printers-and-scanners-panel","settings","printers","scanners","hardware"],
   },
   {
     id: "staff-commission-manager-workspace",
     title: "Commission Manager Workspace (staff)",
     summary: "Use Staff → Commissions for commission reports, fixed SPIFFs, and combo incentives.",
-    markdown: manual_62_raw,
+    markdown: manual_63_raw,
     tags: ["staff-commission-manager-workspace","component","commission","reporting","incentives"],
   },
   {
     id: "staff-workspace",
     title: "Staff Workspace (Team)",
     summary: "Manage the store roster, staff PINs, commission rates, and access permissions.",
-    markdown: manual_63_raw,
+    markdown: manual_64_raw,
     tags: ["staff","roster","permissions","rbac","commissions"],
   },
   {
     id: "settings-ros-dev-center-panel",
     title: "ROS Dev Center",
     summary: "Developer and support diagnostics for checking Riverside OS health safely.",
-    markdown: manual_64_raw,
+    markdown: manual_65_raw,
     tags: ["settings-ros-dev-center-panel","support","diagnostics","dev-center"],
   },
   {
     id: "settings-rosie-settings-panel",
     title: "ROSIE Settings",
     summary: "Control optional ROSIE help, insight, voice, and local model behavior for the workstation.",
-    markdown: manual_65_raw,
+    markdown: manual_66_raw,
     tags: ["settings-rosie-settings-panel","rosie","help","voice"],
   },
   {
     id: "staff-weekly-grid-view",
     title: "Staff Weekly Grid View",
     summary: "Professional printing, store event management, and unified badge reference for the weekly schedule.",
-    markdown: manual_66_raw,
+    markdown: manual_67_raw,
     tags: ["staff","schedule","grid","printing","events"],
   },
 ];

@@ -10,6 +10,14 @@ status: approved
 
 # Staff Schedule
 
+## Screenshots
+
+![Scheduler workspace](../images/help/scheduler-workspace/main.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Alterations workspace](../images/help/alterations-workspace/main.png)
+
 The Staff Schedule workspace is the authoritative source for team availability in Riverside OS. It manages when consultants and tailors are working, which in turn controls appointment booking in the Scheduler and task assignments.
 
 ## What this is

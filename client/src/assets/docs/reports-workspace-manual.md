@@ -4,14 +4,20 @@ title: "Reports Workspace (reports)"
 order: 1083
 summary: "Find curated store reports by task, question, keyword, audience, or sensitivity."
 source: client/src/components/reports/ReportsWorkspace.tsx
-last_scanned: 2026-05-01
-tags: reports-workspace, reports, search, reporting, staff
+last_scanned: 2026-05-16
+tags: reports-workspace, reports, search, reporting, staff, categories
 status: approved
 ---
 
 # Reports Workspace (reports)
 
-![Reports workspace](../images/help/reports/catalog.png)
+## Screenshots
+
+![Reports catalog](../images/help/reports/catalog.png)
+
+![Insights dashboard](../images/help/insights/metabase-main.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
 
 ## What this is
 
@@ -19,7 +25,7 @@ Reports is the Back Office report library. Use it when you need a trusted store 
 
 ## When to use it
 
-Use Reports to find sales, inventory, register, wedding, customer, finance, staff, and operations reports by the task you are trying to finish.
+Use Reports to find sales, register, finance, customer, wedding, inventory, staff, and operations reports by the task you are trying to finish.
 
 ## Before you start
 
@@ -32,21 +38,27 @@ Use Reports to find sales, inventory, register, wedding, customer, finance, staf
 1. Open Back Office -> Reports.
 2. Use the search box: "Search reports by task, question, or keyword".
 3. Search with plain terms such as pickup, balance, tax, cash, drawer, slow stock, appointments, no-show, or open orders.
-4. Choose a report tile.
+4. Review the matching category section and choose a report tile.
 5. Use From, To, Basis, and Group by when those controls appear.
 6. Use Refresh after changing filters.
 7. Use CSV or Print Report when the table view supports it.
 
+## Operational detail
+
+Use Reports when the store needs a repeatable answer with the same filters, basis, and permissions every time. Use Insights when leadership needs dashboard exploration or Metabase-level analysis. If a report is marked planned, treat it as searchable roadmap guidance only; it should not be used as proof of a current operational total.
+
+
 ## What to watch for
 
-- Category labels describe the report area: Sales, Inventory, Register, Weddings, Customers, Finance, Staff, or Operations.
+- Category sections describe the report area: Sales & Product Performance; Register, Tender & Drawer Control; Finance, Tax & Accounting; Customer Follow-Up & Account Activity; Weddings & Event Readiness; Inventory & Replenishment; Staff, Payroll & Coverage; or Store Operations & Risk.
 - Audience labels describe the usual reader: Staff, Manager, Owner, or Admin.
 - Sensitivity labels describe access expectations: Staff-safe, Manager, or Admin-only.
-- Roadmap reports should only appear as planned when they do not have a real backend report yet.
+- Search includes report titles, descriptions, category names, category descriptions, aliases, keywords, staff questions, audience, sensitivity, and runnable status.
+- The report catalog should only show planned roadmap cards when there is no live Riverside API for that report yet.
 
 ## What happens next
 
-Available reports open a detail view and load current data from Riverside.
+Report cards open a detail view and load current data from Riverside.
 
 ## Related workflows
 
@@ -54,7 +66,3 @@ Available reports open a detail view and load current data from Riverside.
 - Daily Sales Reports
 - Booked vs Fulfilled reporting
 - Insights / Metabase
-
-## Screenshots
-
-Screenshots should be captured from the live Reports workspace with customer names and financial details redacted.

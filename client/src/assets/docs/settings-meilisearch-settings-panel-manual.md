@@ -11,6 +11,14 @@ status: published
 
 # Meilisearch Settings
 
+## Screenshots
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+
+![Remote access panel](../images/help/remote-access/panel-main.png)
+
 <!-- help:component-source -->
 _Linked component: `client/src/components/settings/MeilisearchSettingsPanel.tsx`._
 <!-- /help:component-source -->

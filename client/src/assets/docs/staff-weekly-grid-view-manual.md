@@ -10,6 +10,14 @@ status: approved
 
 # Staff Weekly Grid View
 
+## Screenshots
+
+![Scheduler workspace](../images/help/scheduler-workspace/main.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Alterations workspace](../images/help/alterations-workspace/main.png)
+
 The Weekly Grid View is the primary interactive surface for building and printing your store's weekly agenda. It provides a high-density overview of all staff shifts, store events, and operational warnings.
 
 ## What this is

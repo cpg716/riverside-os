@@ -11,6 +11,14 @@ status: approved
 
 # Bug Reports Settings
 
+## Screenshots
+
+![Help Center drawer](../images/help/help-center-drawer/example.png)
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+
 ## What this is
 
 Bug Reports Settings is the support review area for submitted reports and diagnostic incidents.

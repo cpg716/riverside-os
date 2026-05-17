@@ -20,6 +20,11 @@ This is the default home screen many Windows register stations land on after the
 2. Review the dashboard cards for shift context, then switch to **Register** when you are ready to sell.
 3. Use the dashboard when you need to pause between customers without leaving the POS shell.
 
+## Operational detail
+
+Use the dashboard between customers, not during an in-progress checkout. If the next customer starts while a prior receipt, payment, or parked sale is unresolved, finish that recovery first. The dashboard is safe for orientation, but financial truth lives in the cart, receipt summary, register reports, and close workflow.
+
+
 ## Tips
 
 - This screen is post-open only. API and receipt-printer readiness are checked earlier on the Register Access screen.
@@ -28,7 +33,22 @@ This is the default home screen many Windows register stations land on after the
 
 ## Screenshots
 
-Use governed screenshots from `../images/help/pos-register-dashboard/` when this manual is refreshed so the dashboard examples match the live station view.
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
+
+## What happens next
+
+When the next customer is ready, switch to Register and confirm the product search field is ready before scanning. At shift end, move from the dashboard to Register Reports or Close Register instead of treating dashboard totals as the final Z-report.
+
+
+## Manager review
+
+Manager review is needed when dashboard context conflicts with the cart, register reports, or close-register evidence. The dashboard is for orientation; it should never override payment confirmation, receipt summary, Z-report totals, or transaction history.
+
 
 ## Related workflows
 

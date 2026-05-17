@@ -11,6 +11,14 @@ status: approved
 
 # Commission Reports Panel (staff)
 
+## Screenshots
+
+![Scheduler workspace](../images/help/scheduler-workspace/main.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Alterations workspace](../images/help/alterations-workspace/main.png)
+
 ## What This Is
 
 Use **Staff → Commissions → Reports** to review earned commission activity by period.

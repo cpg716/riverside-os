@@ -10,6 +10,12 @@ status: approved
 
 # Scheduler Workspace
 
+## Screenshots
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Alterations workspace](../images/help/alterations-workspace/main.png)
+
 The Scheduler is the central hub for managing store appointments, consultations, and fittings. It provides a visual calendar interface to ensure your team is never double-booked.
 
 ![Scheduler workspace](../images/help/scheduler-workspace/main.png)

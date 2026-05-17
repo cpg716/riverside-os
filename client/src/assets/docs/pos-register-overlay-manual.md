@@ -23,6 +23,11 @@ This is the **Register Access** screen shown before the POS cart can be used. It
 5. If you are at the main cash drawer, open **Register #1** and enter the opening float.
 6. If you are opening another lane, wait until **Register #1** is already active, then continue.
 
+## Recovery and escalation
+
+If the register overlay blocks entry, read the displayed readiness message before retrying. The fix may be opening a till, selecting the correct register, confirming staff access, or restoring server/API connectivity. Do not bypass register access with another staff member's PIN; the register session owner and acting staff must remain auditable.
+
+
 ## Tips
 
 - Register #1 is the main drawer and the only lane that performs the shared Z-close.
@@ -33,7 +38,12 @@ This is the **Register Access** screen shown before the POS cart can be used. It
 
 ## Screenshots
 
-Use governed screenshots from `../images/help/pos-register-overlay/` when this manual is refreshed so the station-readiness examples stay aligned with the live UI.
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 
 ## Related workflows
 

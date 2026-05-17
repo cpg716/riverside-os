@@ -11,6 +11,14 @@ status: approved
 
 # Receipt Settings Panel (settings)
 
+## Screenshots
+
+![Receipt preview](../images/help/pos/receipt-preview.png)
+
+![Receipt summary](../images/help/pos/receipt-summary.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 ## What this is
 
 Receipt Settings controls what appears on customer receipts. The production path is **Standard Epson**, which uses ReceiptLine markdown for the editable template and prints ESC/POS receipts on Epson TM-m30III-compatible printers.
@@ -31,6 +39,11 @@ Use this panel when changing the receipt logo, store name, header lines, footer 
 8. Use the preview to review the standard receipt shape.
 9. Use **Print Test** to send the current preview to the Epson receipt printer.
 10. Click **Apply** to save the standard receipt settings.
+
+## Recovery and escalation
+
+If a test print does not match the preview, check printer routing first, then re-open Receipt Settings and confirm the saved template still contains the required financial tokens. Do not remove tender, tax, paid, balance, or item-line tokens to make the layout shorter; those fields are part of the customer receipt audit trail.
+
 
 ## Tips
 
@@ -53,7 +66,3 @@ New receipt settings apply to future receipt previews, printed receipts, text re
 - Printers & Scanners controls the workstation printer target, cash drawer test, Zebra tag station, report printer, and scanner test.
 - POS sale completion uses these receipt settings after checkout.
 - Podium receipt delivery uses the same standard receipt content when no legacy HTML template exists.
-
-## Screenshots
-
-Use governed screenshots from `../images/help/settings-receipt-builder-panel/` when this manual is refreshed.

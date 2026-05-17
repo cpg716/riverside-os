@@ -2,11 +2,17 @@
 id: reports
 title: "Reports (curated)"
 order: 14
-summary: "Back Office Reports library: searchable curated report tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase)."
-tags: reports, analytics, insights, pivot, margin, rbac, search
+summary: "Back Office Reports library: categorized searchable report tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase)."
+tags: reports, analytics, insights, pivot, margin, rbac, search, categories
 ---
 
 # Reports (curated) — in-app guide
+
+## Screenshots
+
+![Insights dashboard](../images/help/insights/metabase-main.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
 
 **Back Office → Reports** shows a **catalog** of read-only reports. Each card is wired to **Riverside** APIs and **your permissions** (not Metabase’s).
 
@@ -32,7 +38,18 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 
 Search understands report titles, descriptions, categories, keywords, and common staff questions. Try task words like **pickup**, **balance**, **tax**, **drawer**, **cash**, **appointments**, **no-show**, **slow stock**, **open orders**, or **failed payments**.
 
-Reports are grouped by store category: **Sales**, **Inventory**, **Register**, **Weddings**, **Customers**, **Finance**, **Staff**, and **Operations**. Cards also show the intended audience and sensitivity:
+Reports are grouped by store category so related work stays together:
+
+- **Sales & Product Performance**
+- **Register, Tender & Drawer Control**
+- **Finance, Tax & Accounting**
+- **Customer Follow-Up & Account Activity**
+- **Weddings & Event Readiness**
+- **Inventory & Replenishment**
+- **Staff, Payroll & Coverage**
+- **Store Operations & Risk**
+
+Cards also show the intended audience and sensitivity:
 
 - **Staff-safe**: suitable for normal floor operations.
 - **Manager**: operational leadership or sensitive follow-up.
@@ -43,6 +60,7 @@ Reports are grouped by store category: **Sales**, **Inventory**, **Register**, *
 - **Permissions**: The **Reports** library respects Riverside permissions, so missing cards usually mean missing access.
 - **Admin restricted**: **Margin pivot** is more restricted than standard sales views.
 - **Basis Accuracy**: Choose the correct **Basis** before exporting or printing; booked and completed answers are not interchangeable.
+- **Runnable cards**: Current catalog cards open live Riverside reports. Do not treat report names as a substitute for the selected date range and basis.
 
 ## Reports vs Insights
 
@@ -61,6 +79,12 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 - **Staff Schedule Coverage vs Sales**: Staffing coverage compared with sales volume, appointments, pickups, and register activity.
 - **Customer Follow-Up**: Customers needing action because of balances, pickups, recent quotes/orders, wedding dates, stale RMS charges, or missing recent contact.
 - **Exception & Risk**: Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks.
+- **Sales Trend & Pace**: Daily sales pace compared with the prior week, including paid amounts and open balances.
+- **Gift Card Liability Activity**: Gift card issue/load, redemption, other decreases, and net liability movement.
+- **Layaway Aging & Deposit Risk**: Open layaway age, paid deposits, balances, promised pickup dates, and risk status.
+- **Alterations Throughput & Aging**: Intake, due, completed, overdue, open, and average age counts by alteration status.
+- **Online Store Conversion & Fulfillment**: Web carts, expired carts, online sales, pickup/ship fulfillment, and open balances.
+- **Purchase, Receiving & Reorder Health**: Open purchase order units, overdue receiving, estimated open cost, and reorder risk.
 
 ## What happens next
 

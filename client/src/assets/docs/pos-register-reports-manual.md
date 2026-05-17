@@ -9,6 +9,14 @@ tags: pos, register, reports, audit, printing
 
 # Register Reports (Daily Sales)
 
+## Screenshots
+
+![Reports catalog](../images/help/reports/catalog.png)
+
+![Insights dashboard](../images/help/insights/metabase-main.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
 This screen provides a real-time audit of register activity, daily sales, and shared drawer coordination.
 
 ## What this is

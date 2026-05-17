@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::logic::help_manual_policy::HELP_MANUAL_FILES;
 
-pub const ROSIE_POLICY_PACK_VERSION: &str = "rosie-policy-pack-2026-04-22-v1";
-pub const ROSIE_INTELLIGENCE_PACK_VERSION: &str = "rosie-intelligence-pack-2026-04-22-v1";
+pub const ROSIE_POLICY_PACK_VERSION: &str = "rosie-policy-pack-2026-05-16-v1";
+pub const ROSIE_INTELLIGENCE_PACK_VERSION: &str = "rosie-intelligence-pack-2026-05-16-v1";
 pub const OPTIONAL_CURATED_TRACE_ROOT: &str = "docs/rosie/curated_examples";
 
 const GENERATED_HELP_OUTPUTS: &[&str] = &[
@@ -26,7 +26,10 @@ const GENERATED_HELP_OUTPUTS: &[&str] = &[
 const POLICY_CONTRACT_DOCS: &[&str] = &[
     "docs/AI_CONTEXT_FOR_ASSISTANTS.md",
     "docs/AI_REPORTING_DATA_CATALOG.md",
+    "docs/HELP_CENTER_AUTOMATION.md",
     "docs/PLAN_LOCAL_LLM_HELP.md",
+    "docs/ROS_AI_HELP_CORPUS.md",
+    "docs/ROSIE_OPERATING_CONTRACT.md",
 ];
 
 const EXCLUDED_SOURCE_RULES: &[&str] = &[

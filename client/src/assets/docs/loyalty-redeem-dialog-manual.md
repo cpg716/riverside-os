@@ -10,6 +10,14 @@ tags: loyalty, redemption, gift-cards, checkout
 
 # Reward Redemption Dialog
 
+## Screenshots
+
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 The **Reward Redemption Dialog** is the final step in the loyalty reward cycle. It allows staff to deduct points from a customer and issue the full reward to a loyalty gift card.
 
 ## What this is

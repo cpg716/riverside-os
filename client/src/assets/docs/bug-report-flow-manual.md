@@ -11,6 +11,14 @@ status: approved
 
 # Bug Report Flow
 
+## Screenshots
+
+![Help Center drawer](../images/help/help-center-drawer/example.png)
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+
 ## What this is
 
 Use the bug report flow when something in Riverside OS blocks work, looks wrong, or needs a developer to review the workstation state.

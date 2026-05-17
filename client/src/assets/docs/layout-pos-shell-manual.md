@@ -36,7 +36,12 @@ This is the main **Register desktop shell** used on the Windows Tauri app after 
 
 ## Screenshots
 
-Use governed screenshots from `../images/help/layout-pos-shell/` when this manual is refreshed so the POS shell visuals stay aligned with the live UI.
+![Help Center drawer](../images/help/help-center-drawer/example.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
+![Reports catalog](../images/help/reports/catalog.png)
+
 
 ## Related workflows
 

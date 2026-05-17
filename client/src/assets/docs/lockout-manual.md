@@ -8,6 +8,14 @@ tags: auth, recovery, sign-in, support
 
 # Lockout Recovery Manual
 
+## Screenshots
+
+![Help Center drawer](../images/help/help-center-drawer/example.png)
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+
 If you or your staff are unable to sign in to the Riverside OS Back Office or POS Register, follow these steps to restore access.
 
 ## What this is

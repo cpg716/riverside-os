@@ -8,6 +8,12 @@ tags: insights, metabase, reports, analytics, commission
 
 # Insights (Metabase) — staff guide
 
+## Screenshots
+
+![Reports catalog](../images/help/reports/catalog.png)
+
+![Operational home](../images/help/operations-operational-home/main.png)
+
 ![Insights Metabase dashboard](../images/help/insights/metabase-main.png)
 ## What this is
 

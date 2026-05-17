@@ -11,6 +11,14 @@ status: approved
 
 # QBO Workspace
 
+## Screenshots
+
+![Reports catalog for accounting context](../images/help/reports/catalog.png)
+
+![Insights dashboard for accounting review](../images/help/insights/metabase-main.png)
+
+![Operational home for daily review](../images/help/operations-operational-home/main.png)
+
 ## What this is
 
 QBO Workspace is the review and staging area for QuickBooks Online journal proposals. It is designed for auditability before anything is synced to the accounting system.

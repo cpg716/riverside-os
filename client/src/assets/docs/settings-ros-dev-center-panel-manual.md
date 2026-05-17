@@ -11,6 +11,14 @@ status: approved
 
 # ROS Dev Center
 
+## Screenshots
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+
+![Remote access panel](../images/help/remote-access/panel-main.png)
+
 ## What this is
 
 ROS Dev Center is the protected diagnostics area for managers, support, and developers. It is not a daily staff workflow.

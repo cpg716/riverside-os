@@ -11,6 +11,14 @@ status: approved
 
 # Customer Relationship Hub
 
+## Screenshots
+
+![Customers workspace](../images/help/customers-workspace/main.png)
+
+![Orders workspace](../images/help/orders-workspace/main.png)
+
+![Wedding lookup drawer](../images/help/pos/wedding-lookup-drawer.png)
+
 ## What this is
 
 Customer Relationship Hub is the drawer for one customer. It brings profile facts, customer snapshot, transactions, alterations, loyalty, messages, measurements, and timeline context into one place.

@@ -11,6 +11,14 @@ status: approved
 
 # Printers And Scanners Panel (settings)
 
+## Screenshots
+
+![Receipt summary](../images/help/pos/receipt-summary.png)
+
+![Receipt preview](../images/help/pos/receipt-preview.png)
+
+![Remote access panel](../images/help/remote-access/panel-main.png)
+
 ## What this is
 
 This panel stores the current workstation's hardware targets. Back Office and POS use the same local settings, but POS opens a Register Hardware view with lane-focused readiness and test actions.
@@ -31,6 +39,11 @@ Use this panel when opening a new lane, replacing a printer, checking scanner in
 8. Use **Check connection** for the receipt printer in the Riverside desktop app.
 9. Focus the scanner test field and scan a barcode to confirm HID keyboard input is reaching ROS.
 
+## Recovery and escalation
+
+If a printer test fails, do not keep retrying sale completion from the cart. Confirm the selected printer, printer power/network state, and whether the station is running the desktop app or browser/PWA mode. For cash drawer issues, record the manual-open reason and staff member before calling support so the Z-report remains auditable.
+
+
 ## Tips
 
 - Receipt printing uses Epson ESC/POS for the TM-m30III path.
@@ -50,7 +63,3 @@ The workstation immediately uses the saved local printer targets for receipt, ta
 - Receipt Settings controls Epson receipt content.
 - POS sale completion uses the receipt printer target.
 - Inventory tag printing uses the tag station target.
-
-## Screenshots
-
-Use governed screenshots from `../images/help/settings-printers-and-scanners-panel/` when this manual is refreshed.

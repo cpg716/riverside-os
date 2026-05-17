@@ -11,6 +11,14 @@ status: approved
 
 # Product Hub Drawer
 
+## Screenshots
+
+![Inventory control board](../images/help/inventory-control-board/main.png)
+
+![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+
+![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+
 The Product Hub is the single source of truth for a specific SKU. Use it to verify inventory levels, review variations, and print retail price tags.
 
 ## What this is

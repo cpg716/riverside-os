@@ -11,6 +11,14 @@ status: approved
 
 # ROSIE Settings
 
+## Screenshots
+
+![Help Center drawer](../images/help/help-center-drawer/example.png)
+
+![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+
+![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+
 ## What this is
 
 ROSIE Settings controls the optional help and insight assistant for the workstation.
@@ -46,6 +54,11 @@ Voice controls only appear when the workstation supports them. Spoken responses 
 ## Status wording
 
 Use staff-facing status labels. Avoid internal runtime terms when explaining the station to staff.
+
+## Operational detail
+
+ROSIE settings control assistance, not source-of-truth behavior. Turning ROSIE off should never hide deterministic workflow facts, totals, warnings, or manual access. If ROSIE gives an answer that conflicts with the current screen or a manager decision, follow the screen/manual and log the ROSIE grounding issue.
+
 
 ## What to watch for
 

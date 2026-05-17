@@ -10,6 +10,14 @@ tags: pos, orders, pickup, fulfillment
 
 # Customer Orders
 
+## Screenshots
+
+![Register dashboard](../images/help/pos/register-dashboard.png)
+
+![Cart with lines](../images/help/pos/cart-with-lines.png)
+
+![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+
 Use this window when a customer already has an open order and staff need to review what is still open.
 
 ## What it shows

@@ -62,8 +62,6 @@ You must **open the register drawer** when prompted (lane, opening float, and **
 
 When the drawer is active, you often land on **Dashboard**. Here you can see shift-friendly summaries and shortcuts. To ring items, switch to **Register** in the POS sidebar (shopping cart icon).
 
-![Empty register — search and cart](../images/help/pos/cart-empty.png)
-
 ---
 
 ## Ring a sale (Register)
@@ -103,8 +101,6 @@ Use this when a customer is exchanging or returning items tied to a completed tr
 
 Inventory and bookkeeping follow server rules for takeaway, order, and wedding lines; ask a lead if you are unsure.
 
-![Exchange and return wizard](../images/help/pos/exchange-return-wizard.png)
-
 ---
 
 ## Checkout and payment (payment ledger)
@@ -129,15 +125,11 @@ The **Sale Complete** screen is the receipt handoff point after checkout. Use it
 
 Select **View Receipt** to inspect the same formatted receipt layout used for customer delivery and the report-printer view.
 
-![Formatted receipt preview](../images/help/pos/receipt-preview.png)
-
 ---
 
 ## Wedding lookup
 
 From **Register**, select **Wedding** to open the wedding lookup panel. Search or pick the party you need, then use the on-screen actions your manager defined. Press **Escape** to close when finished.
-
-![Wedding lookup](../images/help/pos/wedding-lookup-drawer.png)
 
 ---
 
