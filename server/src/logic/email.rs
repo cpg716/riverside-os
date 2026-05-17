@@ -500,6 +500,7 @@ pub struct EmailAttachmentPayload {
     pub bytes: Vec<u8>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn send_email_with_attachments(
     pool: &PgPool,
     to_email: &str,

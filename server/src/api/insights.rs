@@ -751,7 +751,6 @@ async fn commission_ledger(
         ) current_rate ON TRUE
         ORDER BY realized_pending_payout DESC, unpaid_commission DESC
         "#,
-        rec = rec,
     );
     let rows = sqlx::query_as::<_, CommissionLedgerRow>(&sql)
         .bind(start)
@@ -900,7 +899,6 @@ async fn commission_lines(
         SELECT * FROM pipeline_rows
         ORDER BY booked_at DESC
         "#,
-        rec = rec,
     );
     let rows = sqlx::query_as::<_, CommissionLineRow>(&sql)
         .bind(q.staff_id)
@@ -2530,6 +2528,7 @@ async fn sales_by_day_report(
 ) -> Result<Json<Vec<SalesByDayHourReportRow>>, InsightsError> {
     require_insights_or_register_reports(&state, &headers).await?;
     let (start, end) = range_bounds(&q);
+    let excluded_line_kinds = SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL;
     let rows = sqlx::query_as::<_, SalesByDayHourReportRow>(
         &format!(
             r#"
@@ -2671,8 +2670,7 @@ async fn sales_by_day_report(
             ON pwd.business_date = (h.business_date - INTERVAL '7 days')::date
         ORDER BY h.business_date DESC, h.sale_hour ASC
         LIMIT 2000
-        "#,
-            excluded_line_kinds = SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL
+        "#
         ),
     )
     .bind(start.date_naive())
