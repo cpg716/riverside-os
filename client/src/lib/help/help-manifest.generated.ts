@@ -438,9 +438,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "reports-workspace",
     title: "Reports Workspace (reports)",
-    summary: "Find curated store reports by task, question, keyword, audience, or sensitivity.",
+    summary: "Find curated store reports by task, question, keyword, category, audience, or sensitivity.",
     markdown: manual_52_raw,
-    tags: ["reports-workspace","reports","search","reporting","staff","categories"],
+    tags: ["reports-workspace","reports","search","reporting","staff","categories","icons","visual-library"],
   },
   {
     id: "scheduler-workspace",

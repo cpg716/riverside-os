@@ -1,14 +1,37 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, BarChart3, ChevronLeft, Download, Printer, RefreshCw, Search } from "lucide-react";
+import {
+  ArrowRight,
+  BadgeDollarSign,
+  Banknote,
+  BarChart3,
+  CalendarHeart,
+  ChevronLeft,
+  ClipboardList,
+  CreditCard,
+  Download,
+  PackageSearch,
+  Printer,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  Sparkles,
+  TrendingUp,
+  Users,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
   PIVOT_GROUP_OPTIONS,
+  REPORT_CATEGORY_DETAILS,
+  REPORT_CATEGORY_ORDER,
   REPORTS_CATALOG,
+  compareReportsForLibrary,
   isAvailableReport,
   reportSearchScore,
   reportVisible,
+  type ReportCategory,
   type ReportDef,
   type ReportUrlContext,
 } from "../../lib/reportsCatalog";
@@ -314,6 +337,127 @@ const REGISTER_DAY_SUMMARY_FIELDS = [
   "from_eod_snapshot",
 ];
 
+type ReportCategoryVisual = {
+  icon: LucideIcon;
+  accent: string;
+  soft: string;
+  ring: string;
+  chip: string;
+};
+
+const REPORT_CATEGORY_VISUALS: Record<ReportCategory, ReportCategoryVisual> = {
+  Sales: {
+    icon: TrendingUp,
+    accent: "text-sky-600",
+    soft: "bg-sky-500/10",
+    ring: "border-sky-400/40",
+    chip: "bg-sky-500/10 text-sky-800 dark:text-sky-100",
+  },
+  Register: {
+    icon: Banknote,
+    accent: "text-emerald-600",
+    soft: "bg-emerald-500/10",
+    ring: "border-emerald-400/40",
+    chip: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-100",
+  },
+  Finance: {
+    icon: BadgeDollarSign,
+    accent: "text-amber-600",
+    soft: "bg-amber-500/10",
+    ring: "border-amber-400/40",
+    chip: "bg-amber-500/10 text-amber-800 dark:text-amber-100",
+  },
+  Customers: {
+    icon: Users,
+    accent: "text-violet-600",
+    soft: "bg-violet-500/10",
+    ring: "border-violet-400/40",
+    chip: "bg-violet-500/10 text-violet-800 dark:text-violet-100",
+  },
+  Weddings: {
+    icon: CalendarHeart,
+    accent: "text-pink-600",
+    soft: "bg-pink-500/10",
+    ring: "border-pink-400/40",
+    chip: "bg-pink-500/10 text-pink-800 dark:text-pink-100",
+  },
+  Inventory: {
+    icon: PackageSearch,
+    accent: "text-cyan-600",
+    soft: "bg-cyan-500/10",
+    ring: "border-cyan-400/40",
+    chip: "bg-cyan-500/10 text-cyan-800 dark:text-cyan-100",
+  },
+  Staff: {
+    icon: ClipboardList,
+    accent: "text-lime-700",
+    soft: "bg-lime-500/10",
+    ring: "border-lime-400/40",
+    chip: "bg-lime-500/10 text-lime-800 dark:text-lime-100",
+  },
+  Operations: {
+    icon: ShieldAlert,
+    accent: "text-rose-600",
+    soft: "bg-rose-500/10",
+    ring: "border-rose-400/40",
+    chip: "bg-rose-500/10 text-rose-800 dark:text-rose-100",
+  },
+};
+
+function ReportTile({ report, onSelect }: { report: ReportDef; onSelect: () => void }) {
+  const visual = REPORT_CATEGORY_VISUALS[report.category];
+  const Icon = visual.icon;
+
+  return (
+    <button
+      type="button"
+      data-testid={`reports-catalog-card-${report.id}`}
+      onClick={onSelect}
+      className={`group relative flex h-full w-full overflow-hidden rounded-2xl border ${visual.ring} bg-app-surface p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-app-accent/50 hover:shadow-md`}
+    >
+      <span className={`absolute inset-y-0 left-0 w-1 ${visual.soft}`} aria-hidden />
+      <span className="flex min-w-0 flex-1 flex-col pl-1">
+        <span className="flex items-start gap-3">
+          <span
+            className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-current/20 ${visual.soft} ${visual.accent}`}
+          >
+            <Icon className="h-5 w-5" aria-hidden />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-black text-app-text">{report.title}</span>
+            <span className="mt-1 block text-xs font-semibold leading-snug text-app-text-muted">
+              {report.description}
+            </span>
+          </span>
+        </span>
+        <span className="mt-4 flex flex-wrap gap-1.5">
+          <span className={`ui-chip text-xs font-bold ${visual.chip}`}>
+            {report.category}
+          </span>
+          <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
+            For {report.audience}
+          </span>
+          <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
+            {report.sensitivity === "Staff-safe"
+              ? "Staff-safe"
+              : `${report.sensitivity} access`}
+          </span>
+          {!isAvailableReport(report) ? (
+            <span className="ui-chip bg-app-accent/10 text-xs font-bold text-app-accent">
+              Planned
+            </span>
+          ) : null}
+          {report.adminOnly && report.sensitivity !== "Admin-only" ? (
+            <span className="ui-chip bg-app-warning/10 text-xs font-bold text-app-warning">
+              Admin only
+            </span>
+          ) : null}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function registerDayActivityRows(payload: unknown): Record<string, unknown>[] {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
   const activities = (payload as { activities?: unknown }).activities;
@@ -355,7 +499,9 @@ export default function ReportsWorkspace({
 
   const visible = useMemo(
     () =>
-      REPORTS_CATALOG.filter((r) => reportVisible(r, hasPermission, staffRole)),
+      REPORTS_CATALOG.filter((r) => reportVisible(r, hasPermission, staffRole)).sort(
+        compareReportsForLibrary,
+      ),
     [hasPermission, staffRole],
   );
 
@@ -365,9 +511,23 @@ export default function ReportsWorkspace({
     return visible
       .map((report) => ({ report, score: reportSearchScore(report, query) }))
       .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => b.score - a.score || compareReportsForLibrary(a.report, b.report))
       .map(({ report }) => report);
   }, [searchQuery, visible]);
+
+  const groupedSearchResults = useMemo(() => {
+    const byCategory = new Map<ReportCategory, ReportDef[]>();
+    for (const report of searchResults) {
+      const reports = byCategory.get(report.category) ?? [];
+      reports.push(report);
+      byCategory.set(report.category, reports);
+    }
+
+    return REPORT_CATEGORY_ORDER.map((category) => ({
+      category,
+      reports: byCategory.get(category) ?? [],
+    })).filter((group) => group.reports.length > 0);
+  }, [searchResults]);
 
   const runLoad = useCallback(
     async (r: ReportDef) => {
@@ -445,26 +605,56 @@ export default function ReportsWorkspace({
   const showRange = selectedAvailable?.usesGlobalDateRange ?? false;
   const showBasis = selectedAvailable?.usesBasis ?? false;
   const showGroup = selectedAvailable?.supportsGroupBy ?? false;
+  const selectedVisual = selected ? REPORT_CATEGORY_VISUALS[selected.category] : null;
+  const SelectedIcon = selectedVisual?.icon;
 
   return (
     <div
       data-testid="reports-workspace"
-      className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto bg-app-surface p-4 sm:p-6"
+      className="flex min-h-0 flex-1 flex-col gap-5 overflow-auto bg-app-bg p-4 sm:p-6"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-app-accent">
-            <BarChart3 className="h-6 w-6" aria-hidden />
-            <h1 className="text-xl font-black tracking-tight text-app-text sm:text-2xl">
-              Reports
-            </h1>
+      <div className="relative overflow-hidden rounded-3xl border border-app-border bg-gradient-to-br from-app-accent/10 via-app-bg to-sky-500/10 p-5 shadow-sm">
+        <div
+          className="pointer-events-none absolute right-6 top-4 h-28 w-28 rounded-full bg-app-accent/10 blur-3xl"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute bottom-0 right-36 h-24 w-24 rounded-full bg-amber-400/10 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="flex max-w-3xl gap-4">
+            <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-accent/25 bg-app-accent/10 text-app-accent shadow-sm">
+              <BarChart3 className="h-7 w-7" aria-hidden />
+            </span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-black tracking-tight text-app-text sm:text-3xl">
+                  Reports
+                </h1>
+                <span className="ui-chip bg-app-accent/10 text-xs font-black text-app-accent">
+                  {visible.length} available
+                </span>
+              </div>
+              <p className="mt-2 text-sm font-semibold text-app-text-muted">
+                Search the curated report library by task, question, or keyword. Color-coded
+                categories keep finance, register, staff, wedding, inventory, and operations work
+                easy to scan without changing report access rules.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-app-border bg-app-surface/80 px-3 py-1 text-xs font-black text-app-text-muted">
+                  <Sparkles className="h-3.5 w-3.5 text-app-accent" aria-hidden />
+                  Curated store library
+                </span>
+                <span className="rounded-full border border-app-border bg-app-surface/80 px-3 py-1 text-xs font-black text-app-text-muted">
+                  {REPORT_CATEGORY_ORDER.length} categories
+                </span>
+                <span className="rounded-full border border-app-border bg-app-surface/80 px-3 py-1 text-xs font-black text-app-text-muted">
+                  RBAC filtered
+                </span>
+              </div>
+            </div>
           </div>
-          <p className="mt-1 max-w-2xl text-sm font-semibold text-app-text-muted">
-            Search the curated report library by task, question, or keyword. Sensitive reports stay
-            separated by staff access.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={onOpenMetabaseExplore}
@@ -476,25 +666,39 @@ export default function ReportsWorkspace({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 rounded-2xl border border-app-border bg-app-surface-2/60 p-4">
+      <div className="grid gap-3 rounded-3xl border border-app-border bg-app-surface-2/60 p-4 shadow-sm md:grid-cols-2">
         <button
           type="button"
           onClick={onNavigateRegisterReports}
-          className="min-h-11 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-sm font-bold text-app-text transition hover:border-app-accent/40"
+          className="group flex min-h-16 items-center gap-3 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-left transition hover:-translate-y-0.5 hover:border-emerald-500/50 hover:shadow-sm"
         >
-          POS register day &amp; lane reports
-          <span className="mt-0.5 block font-semibold text-app-text-muted">
-            Operations → Register reports
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-700">
+            <CreditCard className="h-5 w-5" aria-hidden />
+          </span>
+          <span>
+            <span className="block text-sm font-black text-app-text">
+              POS register day &amp; lane reports
+            </span>
+            <span className="mt-0.5 block text-xs font-semibold text-app-text-muted">
+              Operations → Register reports
+            </span>
           </span>
         </button>
         <button
           type="button"
           onClick={onNavigateCommissionPayouts}
-          className="min-h-11 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-sm font-bold text-app-text transition hover:border-app-accent/40"
+          className="group flex min-h-16 items-center gap-3 rounded-2xl border border-lime-400/30 bg-lime-500/10 px-4 py-3 text-left transition hover:-translate-y-0.5 hover:border-lime-500/50 hover:shadow-sm"
         >
-          Commission finalize &amp; payouts
-          <span className="mt-0.5 block font-semibold text-app-text-muted">
-            Staff → Commission payouts
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-lime-500/15 text-lime-700">
+            <BadgeDollarSign className="h-5 w-5" aria-hidden />
+          </span>
+          <span>
+            <span className="block text-sm font-black text-app-text">
+              Commission finalize &amp; payouts
+            </span>
+            <span className="mt-0.5 block text-xs font-semibold text-app-text-muted">
+              Staff → Commission payouts
+            </span>
           </span>
         </button>
       </div>
@@ -505,62 +709,65 @@ export default function ReportsWorkspace({
             <p className="text-sm font-semibold text-app-text-muted">Loading permissions…</p>
           ) : (
             <>
-              <label className="relative block max-w-2xl">
-                <span className="sr-only">Search reports</span>
-                <Search
-                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted"
-                  aria-hidden
-                />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search reports by task, question, or keyword"
-                  className="ui-input w-full rounded-xl py-2 pl-9 pr-3 text-sm font-semibold"
-                />
-              </label>
+              <div className="rounded-3xl border border-app-border bg-app-surface p-4 shadow-sm">
+                <label className="relative block max-w-3xl">
+                  <span className="sr-only">Search reports</span>
+                  <Search
+                    className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-app-text-muted"
+                    aria-hidden
+                  />
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search reports by task, question, or keyword"
+                    className="ui-input w-full rounded-2xl py-3 pl-12 pr-3 text-sm font-semibold"
+                  />
+                </label>
+              </div>
 
               {searchResults.length > 0 ? (
-                <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {searchResults.map((r) => (
-                    <li key={r.id}>
-                      <button
-                        type="button"
-                        data-testid={`reports-catalog-card-${r.id}`}
-                        onClick={() => setSelected(r)}
-                        className="flex h-full w-full flex-col rounded-2xl border border-app-border bg-app-surface p-4 text-left shadow-sm transition hover:border-app-accent/45"
+                <div className="space-y-5">
+                  {groupedSearchResults.map(({ category, reports }) => {
+                    const categoryDetails = REPORT_CATEGORY_DETAILS[category];
+                    const visual = REPORT_CATEGORY_VISUALS[category];
+                    const CategoryIcon = visual.icon;
+                    return (
+                      <section
+                        key={category}
+                        className={`overflow-hidden rounded-3xl border ${visual.ring} bg-app-surface shadow-sm`}
                       >
-                        <span className="text-sm font-black text-app-text">{r.title}</span>
-                        <span className="mt-2 flex-1 text-xs font-semibold leading-snug text-app-text-muted">
-                          {r.description}
-                        </span>
-                        <span className="mt-3 flex flex-wrap gap-1.5">
-                          <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
-                            {r.category}
-                          </span>
-                          <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
-                            For {r.audience}
-                          </span>
-                          <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
-                            {r.sensitivity === "Staff-safe"
-                              ? "Staff-safe"
-                              : `${r.sensitivity} access`}
-                          </span>
-                          {!isAvailableReport(r) ? (
-                            <span className="ui-chip bg-app-accent/10 text-xs font-bold text-app-accent">
-                              Planned
+                        <div className={`flex flex-wrap items-center justify-between gap-3 border-b border-app-border p-4 ${visual.soft}`}>
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span
+                              className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-current/20 bg-app-surface/70 ${visual.accent}`}
+                            >
+                              <CategoryIcon className="h-5 w-5" aria-hidden />
                             </span>
-                          ) : null}
-                          {r.adminOnly && r.sensitivity !== "Admin-only" ? (
-                            <span className="ui-chip bg-app-warning/10 text-xs font-bold text-app-warning">
-                              Admin only
-                            </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                            <div className="min-w-0">
+                              <h2 className="text-sm font-black text-app-text">
+                                {categoryDetails.label}
+                              </h2>
+                              <p className="mt-0.5 text-xs font-semibold text-app-text-muted">
+                                {categoryDetails.description}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-xs font-bold text-app-text-muted">
+                            {reports.length} {reports.length === 1 ? "report" : "reports"}
+                          </span>
+                        </div>
+                        <ul className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                          {reports.map((r) => (
+                            <li key={r.id}>
+                              <ReportTile report={r} onSelect={() => setSelected(r)} />
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    );
+                  })}
+                </div>
               ) : searchQuery.trim() ? (
                 <p className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-sm font-semibold text-app-text-muted">
                   No matching reports yet. Try a task like pickup, balance, tax, or slow stock.
@@ -574,7 +781,9 @@ export default function ReportsWorkspace({
           )}
         </>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-4 rounded-2xl border border-app-border bg-app-surface-2/40 p-4">
+        <div
+          className={`flex min-h-0 flex-1 flex-col gap-4 rounded-3xl border ${selectedVisual?.ring ?? "border-app-border"} bg-app-surface-2/40 p-4 shadow-sm`}
+        >
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -588,8 +797,20 @@ export default function ReportsWorkspace({
               <ChevronLeft className="h-4 w-4" aria-hidden />
               Library
             </button>
-            <span className="min-w-0 flex-1 basis-full text-sm font-black text-app-text sm:basis-auto">
-              {selected.title}
+            <span className="flex min-w-0 flex-1 basis-full items-center gap-3 text-sm font-black text-app-text sm:basis-auto">
+              {SelectedIcon && selectedVisual ? (
+                <span
+                  className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-current/20 ${selectedVisual.soft} ${selectedVisual.accent}`}
+                >
+                  <SelectedIcon className="h-5 w-5" aria-hidden />
+                </span>
+              ) : null}
+              <span className="min-w-0">
+                <span className="block truncate">{selected.title}</span>
+                <span className="mt-0.5 block text-xs font-semibold text-app-text-muted">
+                  {REPORT_CATEGORY_DETAILS[selected.category].label}
+                </span>
+              </span>
             </span>
             {isAvailableReport(selected) ? (
               <button

@@ -2,10 +2,10 @@
 id: reports-workspace
 title: "Reports Workspace (reports)"
 order: 1083
-summary: "Find curated store reports by task, question, keyword, audience, or sensitivity."
+summary: "Find curated store reports by task, question, keyword, category, audience, or sensitivity."
 source: client/src/components/reports/ReportsWorkspace.tsx
 last_scanned: 2026-05-16
-tags: reports-workspace, reports, search, reporting, staff, categories
+tags: reports-workspace, reports, search, reporting, staff, categories, icons, visual-library
 status: approved
 ---
 
@@ -21,7 +21,7 @@ status: approved
 
 ## What this is
 
-Reports is the Back Office report library. Use it when you need a trusted store report without building a custom Insights question.
+Reports is the Back Office report library. Use it when you need a trusted store report without building a custom Insights question. The page uses category colors and icons to make report areas easier to scan.
 
 ## When to use it
 
@@ -45,7 +45,7 @@ Use Reports to find sales, register, finance, customer, wedding, inventory, staf
 
 ## Operational detail
 
-Use Reports when the store needs a repeatable answer with the same filters, basis, and permissions every time. Use Insights when leadership needs dashboard exploration or Metabase-level analysis. If a report is marked planned, treat it as searchable roadmap guidance only; it should not be used as proof of a current operational total.
+Use Reports when the store needs a repeatable answer with the same filters, basis, and permissions every time. Use Insights when leadership needs dashboard exploration or Metabase-level analysis. Category colors and icons are visual shortcuts only; Riverside permissions decide what each staff member can open. If a report is marked planned, treat it as searchable roadmap guidance only; it should not be used as proof of a current operational total.
 
 
 ## What to watch for

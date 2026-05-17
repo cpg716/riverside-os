@@ -190,6 +190,34 @@ fn default_insights_report_basis() -> String {
     "booked".to_string()
 }
 
+async fn require_insights_or_register_reports(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), InsightsError> {
+    if require_staff_with_permission(state, headers, INSIGHTS_VIEW)
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    require_staff_with_permission(state, headers, REGISTER_REPORTS)
+        .await
+        .map(|_| ())
+        .map_err(|(s, _)| {
+            if s == StatusCode::FORBIDDEN {
+                InsightsError::Forbidden(
+                    "insights.view or register.reports permission required".to_string(),
+                )
+            } else {
+                InsightsError::Unauthorized(
+                    "staff credentials required (x-riverside-staff-code and PIN if set)"
+                        .to_string(),
+                )
+            }
+        })
+}
+
 /// Cost / margin reporting: **Admin role only** (not `insights.view` alone).
 async fn require_admin_for_margin_analytics(
     state: &AppState,
@@ -2403,6 +2431,559 @@ async fn exception_risk_report(
     Ok(Json(rows))
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct SalesTrendPaceReportRow {
+    pub report_date: NaiveDate,
+    pub transaction_count: i64,
+    pub gross_sales: Decimal,
+    pub amount_paid: Decimal,
+    pub balance_due: Decimal,
+    pub prior_week_gross_sales: Decimal,
+    pub delta_vs_prior_week: Decimal,
+}
+
+async fn sales_trend_pace_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<SalesTrendPaceReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, SalesTrendPaceReportRow>(
+        r#"
+        WITH days AS (
+            SELECT generate_series($1::date, ($2::date - INTERVAL '1 day')::date, INTERVAL '1 day')::date AS report_date
+        ),
+        current_sales AS (
+            SELECT
+                COALESCE(business_date, booked_at::date) AS report_date,
+                COUNT(*)::bigint AS transaction_count,
+                COALESCE(ROUND(SUM(total_price), 2), 0)::numeric(14,2) AS gross_sales,
+                COALESCE(ROUND(SUM(amount_paid), 2), 0)::numeric(14,2) AS amount_paid,
+                COALESCE(ROUND(SUM(balance_due), 2), 0)::numeric(14,2) AS balance_due
+            FROM transactions
+            WHERE booked_at >= $3 AND booked_at < $4
+              AND status::text <> 'cancelled'
+            GROUP BY 1
+        ),
+        prior_week AS (
+            SELECT
+                (COALESCE(business_date, booked_at::date) + INTERVAL '7 days')::date AS report_date,
+                COALESCE(ROUND(SUM(total_price), 2), 0)::numeric(14,2) AS prior_week_gross_sales
+            FROM transactions
+            WHERE booked_at >= ($3 - INTERVAL '7 days')
+              AND booked_at < ($4 - INTERVAL '7 days')
+              AND status::text <> 'cancelled'
+            GROUP BY 1
+        )
+        SELECT
+            d.report_date,
+            COALESCE(cs.transaction_count, 0)::bigint AS transaction_count,
+            COALESCE(cs.gross_sales, 0)::numeric(14,2) AS gross_sales,
+            COALESCE(cs.amount_paid, 0)::numeric(14,2) AS amount_paid,
+            COALESCE(cs.balance_due, 0)::numeric(14,2) AS balance_due,
+            COALESCE(pw.prior_week_gross_sales, 0)::numeric(14,2) AS prior_week_gross_sales,
+            (COALESCE(cs.gross_sales, 0) - COALESCE(pw.prior_week_gross_sales, 0))::numeric(14,2) AS delta_vs_prior_week
+        FROM days d
+        LEFT JOIN current_sales cs ON cs.report_date = d.report_date
+        LEFT JOIN prior_week pw ON pw.report_date = d.report_date
+        ORDER BY d.report_date DESC
+        LIMIT 500
+        "#,
+    )
+    .bind(start.date_naive())
+    .bind(end.date_naive())
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct SalesByDayHourReportRow {
+    pub business_date: NaiveDate,
+    pub weekday: String,
+    pub hour: i32,
+    pub hour_label: String,
+    pub transaction_count: i64,
+    pub sales_total: Decimal,
+    pub average_sale: Decimal,
+    pub day_transaction_count: i64,
+    pub day_sales_total: Decimal,
+    pub active_sales_hours: i64,
+    pub sales_per_hour: Decimal,
+    pub prior_year_business_date: NaiveDate,
+    pub prior_year_hour_sales_total: Option<Decimal>,
+    pub prior_year_day_sales_total: Option<Decimal>,
+    pub prior_year_sales_per_hour: Option<Decimal>,
+    pub sales_delta_vs_prior_year: Option<Decimal>,
+    pub prior_week_business_date: NaiveDate,
+    pub prior_week_day_sales_total: Option<Decimal>,
+    pub sales_delta_vs_prior_week: Option<Decimal>,
+}
+
+async fn sales_by_day_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<SalesByDayHourReportRow>>, InsightsError> {
+    require_insights_or_register_reports(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, SalesByDayHourReportRow>(
+        &format!(
+            r#"
+        WITH line_sales AS (
+            SELECT
+                COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) AS business_date,
+                EXTRACT(HOUR FROM o.booked_at AT TIME ZONE reporting.effective_store_timezone())::int AS sale_hour,
+                o.id AS transaction_id,
+                (
+                    GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                    * COALESCE(oi.unit_price, 0)
+                ) AS line_sales
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
+            INNER JOIN products p ON p.id = oi.product_id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) >= $1::date
+              AND COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) < $2::date
+              AND o.status::text <> 'cancelled'
+              {excluded_line_kinds}
+        ),
+        comparison_line_sales AS (
+            SELECT
+                COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) AS business_date,
+                EXTRACT(HOUR FROM o.booked_at AT TIME ZONE reporting.effective_store_timezone())::int AS sale_hour,
+                o.id AS transaction_id,
+                (
+                    GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                    * COALESCE(oi.unit_price, 0)
+                ) AS line_sales
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
+            INNER JOIN products p ON p.id = oi.product_id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) >= ($1::date - INTERVAL '1 year')
+              AND COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                ) < $2::date
+              AND o.status::text <> 'cancelled'
+              {excluded_line_kinds}
+        ),
+        hourly AS (
+            SELECT
+                business_date,
+                sale_hour,
+                COUNT(DISTINCT transaction_id)::bigint AS transaction_count,
+                COALESCE(ROUND(SUM(line_sales), 2), 0)::numeric(14,2) AS sales_total
+            FROM line_sales
+            GROUP BY business_date, sale_hour
+        ),
+        daily AS (
+            SELECT
+                business_date,
+                COUNT(DISTINCT transaction_id)::bigint AS day_transaction_count,
+                COUNT(DISTINCT sale_hour)::bigint AS active_sales_hours,
+                COALESCE(ROUND(SUM(line_sales), 2), 0)::numeric(14,2) AS day_sales_total
+            FROM line_sales
+            GROUP BY business_date
+        ),
+        comparison_hourly AS (
+            SELECT
+                business_date,
+                sale_hour,
+                COALESCE(ROUND(SUM(line_sales), 2), 0)::numeric(14,2) AS sales_total
+            FROM comparison_line_sales
+            GROUP BY business_date, sale_hour
+        ),
+        comparison_daily AS (
+            SELECT
+                business_date,
+                COUNT(DISTINCT sale_hour)::bigint AS active_sales_hours,
+                COALESCE(ROUND(SUM(line_sales), 2), 0)::numeric(14,2) AS day_sales_total
+            FROM comparison_line_sales
+            GROUP BY business_date
+        )
+        SELECT
+            h.business_date,
+            TRIM(TO_CHAR(h.business_date, 'Day')) AS weekday,
+            h.sale_hour AS hour,
+            (((h.sale_hour + 11) % 12) + 1)::text
+                || ':00 '
+                || CASE WHEN h.sale_hour < 12 THEN 'AM' ELSE 'PM' END AS hour_label,
+            h.transaction_count,
+            h.sales_total,
+            COALESCE(ROUND(h.sales_total / NULLIF(h.transaction_count, 0), 2), 0)::numeric(14,2) AS average_sale,
+            d.day_transaction_count,
+            d.day_sales_total,
+            d.active_sales_hours,
+            COALESCE(ROUND(d.day_sales_total / NULLIF(d.active_sales_hours, 0), 2), 0)::numeric(14,2) AS sales_per_hour,
+            (h.business_date - INTERVAL '1 year')::date AS prior_year_business_date,
+            pyh.sales_total AS prior_year_hour_sales_total,
+            pyd.day_sales_total AS prior_year_day_sales_total,
+            CASE
+                WHEN pyd.day_sales_total IS NULL THEN NULL::numeric(14,2)
+                ELSE COALESCE(ROUND(pyd.day_sales_total / NULLIF(pyd.active_sales_hours, 0), 2), 0)::numeric(14,2)
+            END AS prior_year_sales_per_hour,
+            CASE
+                WHEN pyd.day_sales_total IS NULL THEN NULL::numeric(14,2)
+                ELSE (d.day_sales_total - pyd.day_sales_total)::numeric(14,2)
+            END AS sales_delta_vs_prior_year,
+            (h.business_date - INTERVAL '7 days')::date AS prior_week_business_date,
+            pwd.day_sales_total AS prior_week_day_sales_total,
+            CASE
+                WHEN pwd.day_sales_total IS NULL THEN NULL::numeric(14,2)
+                ELSE (d.day_sales_total - pwd.day_sales_total)::numeric(14,2)
+            END AS sales_delta_vs_prior_week
+        FROM hourly h
+        INNER JOIN daily d ON d.business_date = h.business_date
+        LEFT JOIN comparison_hourly pyh
+            ON pyh.business_date = (h.business_date - INTERVAL '1 year')::date
+           AND pyh.sale_hour = h.sale_hour
+        LEFT JOIN comparison_daily pyd
+            ON pyd.business_date = (h.business_date - INTERVAL '1 year')::date
+        LEFT JOIN comparison_daily pwd
+            ON pwd.business_date = (h.business_date - INTERVAL '7 days')::date
+        ORDER BY h.business_date DESC, h.sale_hour ASC
+        LIMIT 2000
+        "#,
+            excluded_line_kinds = SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL
+        ),
+    )
+    .bind(start.date_naive())
+    .bind(end.date_naive())
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct GiftCardLiabilityActivityReportRow {
+    pub activity_date: NaiveDate,
+    pub card_kind: String,
+    pub cards_touched: i64,
+    pub event_count: i64,
+    pub issued_or_loaded_amount: Decimal,
+    pub redeemed_amount: Decimal,
+    pub other_decrease_amount: Decimal,
+    pub net_liability_change: Decimal,
+}
+
+async fn gift_card_liability_activity_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<GiftCardLiabilityActivityReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, GiftCardLiabilityActivityReportRow>(
+        r#"
+        SELECT
+            e.created_at::date AS activity_date,
+            COALESCE(gc.card_kind::text, 'unknown') AS card_kind,
+            COUNT(DISTINCT e.gift_card_id)::bigint AS cards_touched,
+            COUNT(*)::bigint AS event_count,
+            COALESCE(ROUND(SUM(CASE WHEN e.amount > 0 THEN e.amount ELSE 0 END), 2), 0)::numeric(14,2) AS issued_or_loaded_amount,
+            COALESCE(ROUND(SUM(CASE WHEN e.amount < 0 AND lower(e.event_kind) IN ('redeem', 'redeemed', 'redemption') THEN ABS(e.amount) ELSE 0 END), 2), 0)::numeric(14,2) AS redeemed_amount,
+            COALESCE(ROUND(SUM(CASE WHEN e.amount < 0 AND lower(e.event_kind) NOT IN ('redeem', 'redeemed', 'redemption') THEN ABS(e.amount) ELSE 0 END), 2), 0)::numeric(14,2) AS other_decrease_amount,
+            COALESCE(ROUND(SUM(e.amount), 2), 0)::numeric(14,2) AS net_liability_change
+        FROM gift_card_events e
+        LEFT JOIN gift_cards gc ON gc.id = e.gift_card_id
+        WHERE e.created_at >= $1 AND e.created_at < $2
+        GROUP BY activity_date, card_kind
+        ORDER BY activity_date DESC, card_kind ASC
+        LIMIT 500
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct LayawayAgingDepositRiskReportRow {
+    pub transaction_id: Uuid,
+    pub transaction_display_id: String,
+    pub customer_name: String,
+    pub booked_at: DateTime<Utc>,
+    pub line_count: i64,
+    pub layaway_total: Decimal,
+    pub amount_paid: Decimal,
+    pub balance_due: Decimal,
+    pub days_open: i64,
+    pub promised_pickup_date: Option<NaiveDate>,
+    pub risk_status: String,
+}
+
+async fn layaway_aging_deposit_risk_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<LayawayAgingDepositRiskReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, LayawayAgingDepositRiskReportRow>(
+        r#"
+        WITH layaway_lines AS (
+            SELECT
+                tl.transaction_id,
+                COUNT(*)::bigint AS line_count,
+                COALESCE(ROUND(SUM((COALESCE(tl.unit_price, 0) * tl.quantity) + COALESCE(tl.state_tax, 0) + COALESCE(tl.local_tax, 0)), 2), 0)::numeric(14,2) AS layaway_total,
+                MIN(tl.need_by_date) FILTER (WHERE tl.need_by_date IS NOT NULL) AS promised_pickup_date,
+                COUNT(*) FILTER (WHERE tl.ready_for_pickup_at IS NOT NULL AND tl.picked_up_at IS NULL)::bigint AS ready_count
+            FROM transaction_lines tl
+            WHERE tl.fulfillment::text = 'layaway'
+            GROUP BY tl.transaction_id
+        )
+        SELECT
+            t.id AS transaction_id,
+            COALESCE(t.display_id, t.short_id, t.id::text) AS transaction_display_id,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.company_name, c.customer_code, 'Walk-in') AS customer_name,
+            t.booked_at,
+            ll.line_count,
+            ll.layaway_total,
+            COALESCE(t.amount_paid, 0)::numeric(14,2) AS amount_paid,
+            COALESCE(t.balance_due, 0)::numeric(14,2) AS balance_due,
+            (CURRENT_DATE - t.booked_at::date)::bigint AS days_open,
+            ll.promised_pickup_date,
+            CASE
+                WHEN ll.ready_count > 0 THEN 'Ready for pickup'
+                WHEN COALESCE(t.balance_due, 0) > 0 AND t.booked_at < now() - INTERVAL '60 days' THEN 'Aging balance'
+                WHEN COALESCE(t.balance_due, 0) <= 0 THEN 'Paid layaway'
+                ELSE 'Open layaway'
+            END AS risk_status
+        FROM transactions t
+        JOIN layaway_lines ll ON ll.transaction_id = t.id
+        LEFT JOIN customers c ON c.id = t.customer_id
+        WHERE t.booked_at >= $1 AND t.booked_at < $2
+          AND t.status::text <> 'cancelled'
+        ORDER BY days_open DESC, COALESCE(t.balance_due, 0) DESC, t.booked_at DESC
+        LIMIT 500
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct AlterationsThroughputAgingReportRow {
+    pub status: String,
+    pub intake_count: i64,
+    pub due_count: i64,
+    pub completed_count: i64,
+    pub overdue_open_count: i64,
+    pub open_order_count: i64,
+    pub oldest_open_at: Option<DateTime<Utc>>,
+    pub average_open_age_days: Option<Decimal>,
+}
+
+async fn alterations_throughput_aging_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<AlterationsThroughputAgingReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, AlterationsThroughputAgingReportRow>(
+        r#"
+        SELECT
+            status::text AS status,
+            COUNT(*) FILTER (WHERE created_at >= $1 AND created_at < $2)::bigint AS intake_count,
+            COUNT(*) FILTER (WHERE due_at >= $1 AND due_at < $2)::bigint AS due_count,
+            COUNT(*) FILTER (WHERE status::text = 'picked_up' AND updated_at >= $1 AND updated_at < $2)::bigint AS completed_count,
+            COUNT(*) FILTER (WHERE status::text <> 'picked_up' AND due_at IS NOT NULL AND due_at < now())::bigint AS overdue_open_count,
+            COUNT(*) FILTER (WHERE status::text <> 'picked_up')::bigint AS open_order_count,
+            MIN(created_at) FILTER (WHERE status::text <> 'picked_up') AS oldest_open_at,
+            ROUND(AVG(EXTRACT(EPOCH FROM (now() - created_at)) / 86400) FILTER (WHERE status::text <> 'picked_up'), 1)::numeric(14,1) AS average_open_age_days
+        FROM alteration_orders
+        WHERE (created_at >= $1 AND created_at < $2)
+           OR (due_at >= $1 AND due_at < $2)
+           OR (updated_at >= $1 AND updated_at < $2)
+           OR (status::text <> 'picked_up' AND due_at IS NOT NULL AND due_at < now())
+        GROUP BY status::text
+        ORDER BY overdue_open_count DESC, open_order_count DESC, status ASC
+        LIMIT 500
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct OnlineStoreConversionFulfillmentReportRow {
+    pub report_date: NaiveDate,
+    pub cart_count: i64,
+    pub expired_cart_count: i64,
+    pub online_transaction_count: i64,
+    pub online_sales: Decimal,
+    pub pickup_fulfillment_count: i64,
+    pub shipping_fulfillment_count: i64,
+    pub open_balance_count: i64,
+}
+
+async fn online_store_conversion_fulfillment_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<OnlineStoreConversionFulfillmentReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, OnlineStoreConversionFulfillmentReportRow>(
+        r#"
+        WITH days AS (
+            SELECT generate_series($1::date, ($2::date - INTERVAL '1 day')::date, INTERVAL '1 day')::date AS report_date
+        ),
+        carts AS (
+            SELECT
+                created_at::date AS report_date,
+                COUNT(*)::bigint AS cart_count,
+                COUNT(*) FILTER (WHERE expires_at < now())::bigint AS expired_cart_count
+            FROM store_guest_cart
+            WHERE created_at >= $3 AND created_at < $4
+            GROUP BY 1
+        ),
+        online_tx AS (
+            SELECT
+                COALESCE(business_date, booked_at::date) AS report_date,
+                COUNT(*)::bigint AS online_transaction_count,
+                COALESCE(ROUND(SUM(total_price), 2), 0)::numeric(14,2) AS online_sales,
+                COUNT(*) FILTER (WHERE fulfillment_method::text = 'pickup')::bigint AS pickup_fulfillment_count,
+                COUNT(*) FILTER (WHERE fulfillment_method::text = 'ship')::bigint AS shipping_fulfillment_count,
+                COUNT(*) FILTER (WHERE COALESCE(balance_due, 0) > 0)::bigint AS open_balance_count
+            FROM transactions
+            WHERE booked_at >= $3 AND booked_at < $4
+              AND status::text <> 'cancelled'
+              AND sale_channel::text = 'web'
+            GROUP BY 1
+        )
+        SELECT
+            d.report_date,
+            COALESCE(c.cart_count, 0)::bigint AS cart_count,
+            COALESCE(c.expired_cart_count, 0)::bigint AS expired_cart_count,
+            COALESCE(ot.online_transaction_count, 0)::bigint AS online_transaction_count,
+            COALESCE(ot.online_sales, 0)::numeric(14,2) AS online_sales,
+            COALESCE(ot.pickup_fulfillment_count, 0)::bigint AS pickup_fulfillment_count,
+            COALESCE(ot.shipping_fulfillment_count, 0)::bigint AS shipping_fulfillment_count,
+            COALESCE(ot.open_balance_count, 0)::bigint AS open_balance_count
+        FROM days d
+        LEFT JOIN carts c ON c.report_date = d.report_date
+        LEFT JOIN online_tx ot ON ot.report_date = d.report_date
+        ORDER BY d.report_date DESC
+        LIMIT 500
+        "#,
+    )
+    .bind(start.date_naive())
+    .bind(end.date_naive())
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct PurchaseReceivingReorderHealthReportRow {
+    pub po_number: String,
+    pub status: String,
+    pub ordered_at: Option<DateTime<Utc>>,
+    pub expected_at: Option<DateTime<Utc>>,
+    pub line_count: i64,
+    pub units_ordered: i64,
+    pub units_received: i64,
+    pub units_open: i64,
+    pub estimated_open_cost: Decimal,
+    pub days_past_expected: Option<i64>,
+    pub reorder_risk_lines: i64,
+}
+
+async fn purchase_receiving_reorder_health_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<PurchaseReceivingReorderHealthReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, PurchaseReceivingReorderHealthReportRow>(
+        r#"
+        SELECT
+            po.po_number,
+            po.status::text AS status,
+            po.ordered_at,
+            po.expected_at,
+            COUNT(pol.id)::bigint AS line_count,
+            COALESCE(SUM(pol.quantity_ordered), 0)::bigint AS units_ordered,
+            COALESCE(SUM(COALESCE(pol.quantity_received, 0)), 0)::bigint AS units_received,
+            COALESCE(SUM(GREATEST(pol.quantity_ordered - COALESCE(pol.quantity_received, 0), 0)), 0)::bigint AS units_open,
+            COALESCE(ROUND(SUM(GREATEST(pol.quantity_ordered - COALESCE(pol.quantity_received, 0), 0) * COALESCE(pol.unit_cost, 0)), 2), 0)::numeric(14,2) AS estimated_open_cost,
+            CASE
+                WHEN po.expected_at IS NOT NULL
+                 AND po.expected_at::date < CURRENT_DATE
+                 AND po.status::text NOT IN ('closed', 'cancelled', 'complete', 'completed', 'received')
+                THEN (CURRENT_DATE - po.expected_at::date)::bigint
+                ELSE NULL::bigint
+            END AS days_past_expected,
+            COUNT(*) FILTER (
+                WHERE COALESCE(pv.track_low_stock, true) = true
+                  AND COALESCE(pv.reorder_point, 0) > 0
+                  AND (
+                    COALESCE(pv.stock_on_hand, 0)
+                    - COALESCE(pv.reserved_stock, 0)
+                    - COALESCE(pv.on_layaway, 0)
+                    + GREATEST(pol.quantity_ordered - COALESCE(pol.quantity_received, 0), 0)
+                  ) <= COALESCE(pv.reorder_point, 0)
+            )::bigint AS reorder_risk_lines
+        FROM purchase_orders po
+        JOIN purchase_order_lines pol ON pol.purchase_order_id = po.id
+        LEFT JOIN product_variants pv ON pv.id = pol.variant_id
+        WHERE (po.ordered_at >= $1 AND po.ordered_at < $2)
+           OR (po.expected_at >= $1 AND po.expected_at < $2)
+           OR (po.fully_received_at >= $1 AND po.fully_received_at < $2)
+           OR po.status::text NOT IN ('closed', 'cancelled', 'complete', 'completed', 'received')
+        GROUP BY po.id
+        ORDER BY days_past_expected DESC NULLS LAST, units_open DESC, po.po_number ASC
+        LIMIT 500
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct WeddingSavedViewCreateBody {
     pub name: String,
@@ -2972,6 +3553,28 @@ pub fn router() -> Router<AppState> {
         )
         .route("/customer-follow-up", get(customer_follow_up_report))
         .route("/exception-risk", get(exception_risk_report))
+        .route("/sales-by-day", get(sales_by_day_report))
+        .route("/sales-trend-pace", get(sales_trend_pace_report))
+        .route(
+            "/gift-card-liability-activity",
+            get(gift_card_liability_activity_report),
+        )
+        .route(
+            "/layaway-aging-deposit-risk",
+            get(layaway_aging_deposit_risk_report),
+        )
+        .route(
+            "/alterations-throughput-aging",
+            get(alterations_throughput_aging_report),
+        )
+        .route(
+            "/online-store-conversion-fulfillment",
+            get(online_store_conversion_fulfillment_report),
+        )
+        .route(
+            "/purchase-receiving-reorder-health",
+            get(purchase_receiving_reorder_health_report),
+        )
         .route("/best-sellers", get(best_sellers))
         .route("/dead-stock", get(dead_stock))
         .route("/loyalty-velocity", get(loyalty_velocity))

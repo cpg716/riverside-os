@@ -35,6 +35,7 @@ Effective rule: for each **`ReportDef`**, **`reportVisible`** requires **`adminO
 | Catalog `id` (implementation) | Staff-facing title | Required permissions | Admin-only | Status |
 |------------------------------|--------------------|----------------------|------------|--------|
 | `sales_pivot` | **Sales Breakdown** | **insights.view** | No | Available |
+| `sales_by_day` | **Sales By Day** | **insights.view** or **register.reports** | No | Available |
 | `margin_pivot` | **Margin & Cost Breakdown** | **insights.view** | **Yes** (role **admin**) | Available |
 | `best_sellers` | **Best Sellers** | **insights.view** | No | Available |
 | `dead_stock` | **Slow Stock** | **insights.view** | No | Available |
@@ -103,7 +104,7 @@ All five require **insights.view** and accept the standard curated Reports date 
 ## Operational tasks
 
 1. **Grant** **insights.view** to roles that should see **Reports** (and **Insights** tab).
-2. **Grant** **register.reports** if managers need **Register day activity** in Back Office (they may already have it for Z / operations).
+2. **Grant** **register.reports** if managers need **Register day activity** or **Sales By Day** in Back Office (they may already have it for Z / operations). **Sales By Day** also appears for staff with **insights.view**.
 3. **Grant** **customers.rms_charge** for CRM-aligned **RMS charge records** tile (aligns with **Customers → RMS charge**).
 4. **Confirm** E2E / training staff: **Playwright** **`reports-workspace.spec.ts`** expects seeded Admin **`1234`** for margin visibility in CI; **`api-gates`** uses **`scripts/seeds/seed_e2e.sql`** for non-Admin **403** on margin — see **`docs/E2E_REGRESSION_MATRIX.md`**.
 

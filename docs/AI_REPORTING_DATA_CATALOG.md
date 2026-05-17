@@ -86,6 +86,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | Report id | Backing route(s) | Permission notes |
 |-----------|------------------|------------------|
 | `sales_pivot` | `GET /api/insights/sales-pivot` | **`insights.view`** |
+| `sales_by_day` | `GET /api/insights/sales-by-day` | **`insights.view`** or **`register.reports`** |
 | `margin_pivot` | `GET /api/insights/margin-pivot` | **Admin role** only |
 | `best_sellers` | `GET /api/insights/best-sellers` | **`insights.view`** |
 | `dead_stock` | `GET /api/insights/dead-stock` | **`insights.view`** |

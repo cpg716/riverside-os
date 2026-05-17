@@ -26,7 +26,7 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 
 1. Open **Reports** in the left rail.
 2. Use **Search reports by task, question, or keyword** when you know the job but not the report name.
-3. Tap a **report card** (e.g., Daily Sales, Merchant Activity) to load the table.
+3. Tap a **report card** (e.g., Sales By Day, Merchant Activity) to load the table.
 4. Set **From** / **To** date filters.
 5. Select the **Basis** (booked sale date vs completed / recognition) if available.
 6. Use **Refresh** after changes to pull the latest data.
@@ -37,6 +37,8 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 ## Finding the right report
 
 Search understands report titles, descriptions, categories, keywords, and common staff questions. Try task words like **pickup**, **balance**, **tax**, **drawer**, **cash**, **appointments**, **no-show**, **slow stock**, **open orders**, or **failed payments**.
+
+The report library is visually grouped with category colors and icons so staff can scan by work area first, then choose the exact report. The colors are navigation aids only; report access still comes from Riverside permissions.
 
 Reports are grouped by store category so related work stays together:
 
@@ -49,7 +51,7 @@ Reports are grouped by store category so related work stays together:
 - **Staff, Payroll & Coverage**
 - **Store Operations & Risk**
 
-Cards also show the intended audience and sensitivity:
+Each report card shows an icon, category, intended audience, and sensitivity:
 
 - **Staff-safe**: suitable for normal floor operations.
 - **Manager**: operational leadership or sensitive follow-up.
@@ -79,6 +81,7 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 - **Staff Schedule Coverage vs Sales**: Staffing coverage compared with sales volume, appointments, pickups, and register activity.
 - **Customer Follow-Up**: Customers needing action because of balances, pickups, recent quotes/orders, wedding dates, stale RMS charges, or missing recent contact.
 - **Exception & Risk**: Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks.
+- **Sales By Day**: Hourly sales, sales per active hour, average sale, daily totals, and prior-week or same-date prior-year comparison when history exists.
 - **Sales Trend & Pace**: Daily sales pace compared with the prior week, including paid amounts and open balances.
 - **Gift Card Liability Activity**: Gift card issue/load, redemption, other decreases, and net liability movement.
 - **Layaway Aging & Deposit Risk**: Open layaway age, paid deposits, balances, promised pickup dates, and risk status.

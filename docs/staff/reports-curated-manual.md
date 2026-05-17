@@ -27,7 +27,7 @@ Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions,
 1. Sign in to **Back Office** (staff code and PIN when required).
 2. Select **Reports** in the left rail.
 3. Use **Search reports by task, question, or keyword** if you already know what you need.
-   - Examples: **pickup**, **balance**, **tax**, **cash**, **drawer**, **slow stock**, **appointments**, **no-show**, **open orders**.
+   - Examples: **pickup**, **balance**, **tax**, **cash**, **drawer**, **slow stock**, **sales by hour**, **appointments**, **no-show**, **open orders**.
    - You can also search by natural questions like **What sold best last month?** or **Who still owes money?**
 4. **Choose a report card** to open the detail view.
 5. When the detail shows **From** / **To**, pick the **date range** (store-local dates as shown by the control).
@@ -63,6 +63,7 @@ Tiles **only appear** if you have **every** required permission for that tile (a
 | Tile (approximate name) | What it is | Permissions |
 |-------------------------|------------|-------------|
 | **Sales Breakdown** | Revenue, tax, units, and transactions by **Group by** dimension | **insights.view** |
+| **Sales By Day** | Hourly sales, sales per active hour, average sale, daily totals, prior-week comparison, and same-date prior-year comparison when history exists | **insights.view** or **register.reports** |
 | **Margin & Cost Breakdown** | Gross margin and cost-loaded metrics (sensitive) | **insights.view** + **Admin** role |
 | **Best Sellers** | Top products by units in range | **insights.view** |
 | **Slow Stock** | On-hand products with little or no sales in range | **insights.view** |
