@@ -54,7 +54,7 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
   await posNav.getByRole("button", { name: "Podium Inbox", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible();
   await expect(
-    page.getByText(/Recent Podium SMS and email threads/i),
+    page.getByText(/Current Podium SMS and email conversations from matched customers/i),
   ).toBeVisible();
 
   await posNav.getByRole("button", { name: "Inventory", exact: true }).click();

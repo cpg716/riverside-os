@@ -171,14 +171,14 @@ test.describe("offline checkout recovery contract", () => {
     await expect(closeButton).toBeVisible({ timeout: 30_000 });
     await closeButton.click({ force: true });
     const dialog = page.getByRole("dialog").filter({
-      hasText: /offline recovery blocker|resolve pending or blocked checkout recovery/i,
+      hasText: /checkout recovery required|resolve these before closing/i,
     }).first();
-    await expect(dialog.getByText(/offline recovery blocker/i)).toBeVisible({
+    await expect(dialog.getByText(/checkout recovery required/i)).toBeVisible({
       timeout: 15_000,
     });
     await expect(dialog.getByText(/need manager recovery/i)).toBeVisible();
     await expect(
-      dialog.getByText(/resolve checkout recovery before closing the shared drawer/i),
+      dialog.getByText(/resolve these before closing so the Z report includes every completed sale/i),
     ).toBeVisible();
   });
 });
