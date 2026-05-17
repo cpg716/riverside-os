@@ -57,6 +57,14 @@ function futureUtcDate(offsetDays: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+let uniqueFutureDateCounter = 0;
+
+function isolatedFutureUtcDate(): string {
+  uniqueFutureDateCounter += 1;
+  const uniqueOffset = 10_000 + (Date.now() % 1_000_000) + uniqueFutureDateCounter;
+  return futureUtcDate(uniqueOffset);
+}
+
 function moneyToCents(value: string | number | undefined | null): number {
   if (value == null) return 0;
   const [dollarsRaw, centsRaw = ""] = String(value).trim().split(".");
@@ -341,7 +349,7 @@ test.describe("checkout tender financial contract", () => {
   test("rounded-up cash amount records balanced transaction artifacts and QBO rounding impact", async ({
     request,
   }) => {
-    const activityDate = futureUtcDate(90 + Math.floor(Math.random() * 300));
+    const activityDate = isolatedFutureUtcDate();
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
     const fixture = await seedRmsFixture(request, "single_valid", "Tender Cash Rounding");

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## [0.60.0] — 2026-05-17
 ### Added
 - Added Windows desktop app recovery for the Backoffice / Server PC: when the local API is unreachable on sign-in, the app can start the installed `Riverside OS Server` scheduled task and retry the staff roster check.
 - Added a single-release version contract: `/api/version` exposes the server release, `npm run check:version` verifies root/client/server/Tauri metadata parity, and Windows release workflows fail when release metadata disagrees.

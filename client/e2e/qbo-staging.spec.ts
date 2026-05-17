@@ -42,34 +42,29 @@ test("QBO staging shell: warning-aware staging and posting language", async ({ p
   await signInToBackOffice(page);
   const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
   const qboNav = mainNav.getByRole("button", { name: /qbo bridge/i });
+  const stagingNav = mainNav.getByRole("button", { name: /^staging$/i });
   await expect
     .poll(
       async () => {
         if (!(await qboNav.isVisible().catch(() => false))) return false;
         if (!(await qboNav.isEnabled().catch(() => false))) return false;
         await qboNav.click();
-        const bridgePanelVisible = await page
-          .getByText(/financial bridge panel/i)
-          .isVisible()
-          .catch(() => false);
-        if (bridgePanelVisible) return true;
+        if (await stagingNav.isVisible().catch(() => false)) {
+          await stagingNav.click();
+        }
         return await page
-          .getByRole("button", { name: /3 .*staging/i })
+          .getByRole("heading", { name: /review & send/i })
           .isVisible()
           .catch(() => false);
       },
       { timeout: 60_000 },
     )
     .toBeTruthy();
-  await expect(page.getByText(/financial bridge panel/i)).toBeVisible();
-  await expect(page.getByText(/accounting review state/i)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/reconciliation confidence/i)).toBeVisible();
-  await expect(page.getByText(/financial timing guide/i)).toBeVisible();
-  await expect(page.getByText(/refund, exchange, and liability review/i)).toBeVisible();
-  await expect(page.getByText(/stage \+ approve \+ post/i)).toBeVisible();
-  await expect(page.getByRole("button", { name: /stage journal/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /review & send/i })).toBeVisible();
+  await expect(page.getByText(/needs attention/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/recent quickbooks activity/i)).toBeVisible();
+  await expect(page.getByText(/dates, in plain english/i)).toBeVisible();
+  await expect(page.getByText(/refunds, exchanges, deposits, and gift cards/i)).toBeVisible();
   await expect(page.getByRole("button", { name: /copy support snapshot/i })).toBeVisible();
-  await expect(page.getByText(/posting history/i)).toBeVisible();
-  await expect(page.getByText(/posted to quickbooks/i)).toBeVisible();
-  await expect(page.getByText(/balanced journal can still require accounting review/i)).toBeVisible();
+  await expect(page.getByText(/balanced means the debits and credits match/i)).toBeVisible();
 });

@@ -228,6 +228,20 @@ test("add customer address suggestion fills city state and ZIP", async ({
       ]),
     });
   });
+  await page.route("**/api/customers/address-validation", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "suggestion-1",
+        label: "4600 Broadway, Buffalo, NY 14225",
+        address_line1: "4600 Broadway",
+        city: "Buffalo",
+        state: "NEW YORK",
+        postal_code: "14225",
+      }),
+    });
+  });
 
   await openAddCustomerDrawer(page);
   await fillRequiredCustomerFields(page);
@@ -437,5 +451,8 @@ test("customer lifecycle filter and hub badge use the same explicit state", asyn
   await expect(dialog.getByText(/lifecycle/i)).toHaveCount(0);
 
   await dialog.getByRole("button", { name: /profile\s+incomplete/i }).click();
-  await expect(dialog.getByText(/add phone and email to complete this profile/i)).toBeVisible();
+  await expect(dialog.getByText(/add phone and email to complete this profile/i)).toHaveCount(2);
+  await expect(
+    dialog.getByText(/add phone and email to complete this profile/i).nth(1),
+  ).toBeVisible();
 });

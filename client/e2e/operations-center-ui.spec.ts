@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { signInToBackOffice } from "./helpers/backofficeSignIn";
+import {
+  openBackofficeSidebarTab,
+  signInToBackOffice,
+} from "./helpers/backofficeSignIn";
 
 test.describe("ROS Operations Center", () => {
   test("summarizes blockers, degraded sources, safe actions, and deep links", async ({ page }) => {
@@ -161,22 +164,28 @@ test.describe("ROS Operations Center", () => {
     });
 
     await signInToBackOffice(page);
-    await page.getByRole("button", { name: /^operations center$/i }).click();
+    await openBackofficeSidebarTab(page, "settings");
+    const operationsCenterNav = page.getByRole("button", {
+      name: /^ros operations center$/i,
+    });
+    await expect(operationsCenterNav).toBeVisible({ timeout: 20_000 });
+    await operationsCenterNav.click({ force: true });
 
     await expect(page.getByTestId("ros-operations-center")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("heading", { name: /^ros operations center$/i })).toBeVisible();
     await expect(page.getByText(/overall store readiness/i)).toBeVisible();
     await expect(page.getByText(/blocked/i).first()).toBeVisible();
-    await expect(page.getByText(/Store open readiness has blockers/i)).toBeVisible();
-    await expect(page.getByText(/Priority: resolve blockers before opening/i)).toBeVisible();
-    await expect(page.getByText(/Store open\/close checklist/i)).toBeVisible();
-    await expect(page.getByText(/Terminal payments not ready/i).first()).toBeVisible();
+    await expect(page.getByText(/Resolve the marked items before relying on normal operations/i)).toBeVisible();
+    await expect(page.getByText(/Resolve Queue/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /store readiness/i }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /sales & register health/i }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /sync & reconciliation/i }).first()).toBeVisible();
+    await expect(page.getByText(/Confirm Helcim terminal readiness/i).first()).toBeVisible();
     await expect(page.getByText(/Review RMS blocking mismatches/i).first()).toBeVisible();
     await expect(page.getByText(/do not treat the queue as clear/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /copy support snapshot/i })).toBeVisible();
-    await expect(page.getByText(/ROS Operations Center support snapshot/i)).toBeVisible();
 
-    await page.getByRole("button", { name: /open payments health/i }).click();
+    await page.getByRole("button", { name: /sales & register health/i }).first().click();
     await expect(page.getByTestId("app-shell-state")).toHaveAttribute("data-active-tab", "payments", {
       timeout: 10_000,
     });

@@ -170,7 +170,7 @@ test.describe("bug reporting diagnostics hardening", () => {
     });
 
     const jsonDownloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: /full report json/i }).click();
+    await page.getByRole("button", { name: /ai diagnostic json/i }).click();
     const jsonDownload = await jsonDownloadPromise;
     const jsonPath = await jsonDownload.path();
     expect(jsonPath).toBeTruthy();

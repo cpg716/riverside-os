@@ -77,7 +77,7 @@ Open **View** on a row.
 
 | Button | Contents |
 |--------|----------|
-| **Full report JSON** | Entire payload: summary, steps, meta, base64 screenshot, server log text, triage fields, ids, timestamps. |
+| **AI diagnostic JSON** | Entire Codex-ready payload: summary, steps, meta, base64 screenshot, server log text, triage fields, ids, timestamps. |
 | **Screenshot PNG** | Image as stored (may be placeholder if staff unchecked capture). |
 | **Server log (.txt)** | API **tracing** ring snapshot at **submit** time. |
 | **Client console (.txt)** | Buffered client diagnostic log from the browser/WebView. |
@@ -142,7 +142,7 @@ When a report is submitted, **settings admins** may receive an **in-app notifica
 ### Handoff to engineering
 
 - Always attach or paste **full correlation id**.
-- Prefer **Full report JSON** over screenshots alone (meta + server log in one file).
+- Prefer **AI diagnostic JSON** over screenshots alone (meta + server log in one file). This package is the safest handoff to Codex or engineering support because it keeps reproduction notes, runtime context, logs, and relevant ids together.
 - Note **environment**: Tauri desktop vs PWA vs browser; **approximate store timezone** for “When.”
 
 ### Rate limiting for submitters

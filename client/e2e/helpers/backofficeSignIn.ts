@@ -159,6 +159,22 @@ export async function openBackofficeSidebarTab(
     return tabButton;
   }
   if ((await page.evaluate(() => window.innerWidth).catch(() => 1024)) < 1024) {
+    const appShellState = page.getByTestId("app-shell-state");
+    const activeTabMatches = async () =>
+      (await appShellState.getAttribute("data-active-tab").catch(() => "")) === tabId;
+    if (!(await activeTabMatches())) {
+      await resolveTabButton()
+        .evaluate((element) => {
+          (element as HTMLButtonElement).click();
+        })
+        .catch(() => {});
+    }
+    await expect
+      .poll(activeTabMatches, {
+        timeout: 20_000,
+        message: `Back Office mobile tab ${tabId} did not become active`,
+      })
+      .toBeTruthy();
     return tabButton;
   }
   if (tabId === "settings") {

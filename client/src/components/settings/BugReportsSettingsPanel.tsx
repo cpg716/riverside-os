@@ -708,7 +708,7 @@ export default function BugReportsSettingsPanel({
                   }
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
-                  Full report JSON
+                  AI diagnostic JSON
                 </button>
                 <button
                   type="button"
@@ -935,7 +935,7 @@ export default function BugReportsSettingsPanel({
                   }
                 >
                   <Clipboard className="h-3.5 w-3.5" aria-hidden />
-                  Copy all
+                  Copy AI package
                 </button>
               </div>
               <div className="grid gap-3 md:grid-cols-2">

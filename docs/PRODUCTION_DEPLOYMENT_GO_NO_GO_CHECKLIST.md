@@ -2,49 +2,46 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-## Current Deployment Status (2026-05-07)
+## Current Deployment Status (2026-05-17)
 
-- [x] Target release version is **`v0.4.5`**.
-- [ ] Current release tag exists: **`v0.4.5`**.
+- [x] Target release version is **`v0.60.0`**.
+- [ ] Current release tag exists: **`v0.60.0`**.
 - [ ] Current release has Windows installer/updater assets published.
-  - Evidence: **`v0.4.5`** has not been tagged/published yet.
-  - Previous proof: **`v0.2.1`** has `latest.json`, MSI, and `.sig`.
-  - Required action: tag/publish `v0.4.5`, then run the Windows updater release workflow, use a manual workflow artifact, or produce an approved local Windows build before installing Windows stations.
-  - Required artifacts: `latest.json`, Windows MSI, and `.sig`.
-- [ ] Latest Playwright E2E push on `main` passed.
-  - Previous pass: `ed4172de` passed on 2026-05-01.
-  - Later blocker: `ef1f6a28` failed individualized-shirt order contract coverage.
-  - Local v0.4.5 readiness evidence: gift card browser smoke and gift card contract specs passed during release prep; full GitHub E2E still needs a fresh run on the release commit.
-- [ ] Latest Lint Checks push on `main` passed.
-  - Previous blocker: server Clippy reported `control_board_meili_filter_parts` has too many arguments in `server/src/logic/meilisearch_search.rs`.
-  - Local v0.4.5 readiness evidence: targeted client/server validation passed during release prep; full GitHub lint/checks still need a fresh run on the release commit.
+  - Required action: tag/publish `v0.60.0`, then run the Windows updater release workflow and Windows deployment package workflow before installing Windows stations.
+  - Required artifacts: `latest.json`, `riverside-updater-build-manifest.json`, Windows MSI, matching `.sig`, and `RiversideOS-v0.60.0-<sha>-Windows-Deployment.zip`.
+- [ ] Latest Playwright E2E push on `main` passed for the final `v0.60.0` release commit.
+- [ ] Latest Lint Checks push on `main` passed for the final `v0.60.0` release commit.
 - [ ] Production station deployment log is complete for:
   - Backoffice / Server PC
   - Register #1 Windows Tauri
   - Register #2 iPad PWA
   - other Windows laptop PWA / optional Tauri clients
 
-## v0.4.5 Release Readiness Blockers
+## v0.60.0 Release Readiness Blockers
 
-- [x] Promo gift card support and gift card browser smoke passed locally for the v0.4.5 readiness pass.
-- [x] Counterpoint cutover reconciliation hardening is committed locally before the v0.4.5 readiness pass.
-- [ ] `v0.4.5` Windows updater assets exist: `latest.json`, MSI, and `.sig`.
+- [ ] `v0.60.0` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
+- [ ] `v0.60.0` Windows deployment package exists and its manifest source SHA matches the release tag.
 - [ ] Physical station smoke is complete for Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] GitHub checks have rerun and passed on the final release commit.
 
 ## Code Gate
 
-- [x] v0.50 GOLD automated certification evidence is recorded in [`docs/releases/v0.50-gold-certification.md`](releases/v0.50-gold-certification.md).
+- [ ] v0.60.0 automated certification evidence is recorded in [`docs/releases/v0.60.0-certification.md`](releases/v0.60.0-certification.md).
 - [x] No unresolved AI-actionable code-level P0/P1 findings remain in `docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`; human/environment verification gates below remain required.
 - [x] `cargo fmt --manifest-path server/Cargo.toml --check` — passed locally for v0.4.0 readiness on 2026-05-01.
 - [x] `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` — passed locally for v0.4.0 readiness on 2026-05-01 after the Meilisearch helper refactor.
 - [x] `cargo check --manifest-path server/Cargo.toml` — passed locally for v0.4.0 readiness on 2026-05-01.
 - [x] `cargo fmt --check --manifest-path server/Cargo.toml` — passed locally on 2026-04-25.
-- [x] `npm run check:server` — passed locally on 2026-05-14 after v0.50 GOLD skipped-lane certification.
-- [x] `npm run lint` / `npm --prefix client run lint` — passed locally on 2026-05-14 after v0.50 GOLD skipped-lane certification.
-- [x] `npm --prefix client run typecheck` — passed locally on 2026-05-14 after v0.50 GOLD skipped-lane certification.
-- [x] `npm --prefix client run build` — passed locally on 2026-04-25.
-- [x] `npm run test:e2e:release` — passed locally on 2026-05-14 for v0.50 GOLD after offline recovery, QBO, lifecycle, pickup, RMS, Payments Operations, visual workflow, mobile/responsive, and Help Center hardening; suite reported 310 passed, 31 skipped, 0 failed.
+- [x] `npm run check:version` — passed locally on 2026-05-17; `Riverside version parity OK: 0.60.0`.
+- [x] `git diff --check` — passed locally on 2026-05-17.
+- [x] `cargo fmt --manifest-path server/Cargo.toml` — passed locally on 2026-05-17.
+- [x] `npm run check:server` — passed locally on 2026-05-17.
+- [x] `npm --prefix client run lint` — passed locally on 2026-05-17.
+- [x] `npm --prefix client run typecheck` — passed locally on 2026-05-17.
+- [x] `npm --prefix client run build` — passed locally on 2026-05-17.
+- [x] `npm run test:e2e:release` — passed locally on 2026-05-17; suite reported 337 passed, 12 skipped, 0 failed.
+- [x] Help/ROSIE drift verification — `scripts/verify-ai-knowledge-drift.sh` passed locally on 2026-05-17.
+- [x] Help manifest refresh — `npm run generate:help:refresh -- --skip-screenshots` passed locally on 2026-05-17.
 - [x] Skipped-lane certification: `E2E_API_BASE=http://127.0.0.1:43300 E2E_DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os_e2e DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os_e2e RIVERSIDE_DB_NAME=riverside_os_e2e E2E_RUN_VISUAL=1 npm --prefix client run test:e2e -- e2e/backoffice-signin.spec.ts e2e/high-risk-regressions.spec.ts e2e/intelligence-and-finance.spec.ts e2e/payments-operations-contract.spec.ts e2e/payments-operations-ui.spec.ts e2e/podium-settings.spec.ts e2e/register-close-reconciliation.spec.ts e2e/staff-tasks.spec.ts e2e/visual-baselines.spec.ts --workers=1` — passed locally on 2026-05-14; suite reported 31 passed, 0 skipped, 0 failed.
 - [x] Non-admin/RBAC skip cleanup: `npm --prefix client run test:e2e -- e2e/api-gates.spec.ts e2e/high-risk-regressions.spec.ts e2e/phase2-finance-and-help-lifecycle.spec.ts e2e/rms-permissions.spec.ts --workers=1` reported 33 passed, 0 skipped on 2026-04-25.
 - [x] `npm run test:e2e:high-risk` — passed locally on 2026-04-25; suite reported 4 passed, 2 built-in skips.

@@ -61,7 +61,10 @@ async function openPaymentLedger(
   page: Parameters<typeof test>[0]["page"],
 ): Promise<void> {
   const drawer = page.getByRole("dialog", { name: /checkout/i });
-  await page.getByRole("button", { name: /pay/i }).first().click();
+  await page
+    .locator('aside[aria-label="Customer, sale totals and keypad"]')
+    .getByRole("button", { name: /pay/i })
+    .click();
   const walkInDialog = page.getByRole("dialog", { name: /checkout as walk-in/i });
   if (await walkInDialog.isVisible().catch(() => false)) {
     await walkInDialog.getByRole("button", { name: /confirm walk-in/i }).click();

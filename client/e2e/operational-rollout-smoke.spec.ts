@@ -420,10 +420,19 @@ test.describe("operational rollout smoke", () => {
     await expect(wizard.getByText(seeded.detail.items[0]!.product_name).first()).toBeVisible();
     await expect(wizard.getByText(/max return: 1/i)).toBeVisible();
     await wizard.locator("input[placeholder='0']").first().fill("1");
-    await wizard.getByRole("button", { name: /exchange for new items/i }).click();
-    await expect(wizard.getByText(/returns are saved/i)).toBeVisible({ timeout: 20_000 });
+    await wizard.getByRole("button", { name: /continue exchange|exchange for new items/i }).click();
+    await expect(page.getByText(/exchange credit/i).first()).toBeVisible({ timeout: 20_000 });
 
-    const returned = await fetchTransactionDetail(request, seeded.checkout.transaction_id);
+    const returned = await expect
+      .poll(
+        async () => {
+          const detail = await fetchTransactionDetail(request, seeded.checkout.transaction_id);
+          return detail.items[0]?.quantity_returned === 1 ? detail : null;
+        },
+        { timeout: 20_000, message: "return quantity was not recorded" },
+      )
+      .not.toBeNull()
+      .then(async () => fetchTransactionDetail(request, seeded.checkout.transaction_id));
     expect(returned.items[0]?.quantity_returned).toBe(1);
     const refund = await fetchRefundDue(request, seeded.checkout.transaction_id);
     expect(refund.is_open).toBe(true);
@@ -707,13 +716,13 @@ test.describe("operational rollout smoke", () => {
 
     const detail = page.getByRole("dialog", { name: /bug report detail/i });
     await expect(detail).toBeVisible({ timeout: 20_000 });
-    await expect(detail.getByRole("button", { name: /full report json/i })).toBeVisible();
+    await expect(detail.getByRole("button", { name: /ai diagnostic json/i })).toBeVisible();
     await expect(detail.getByRole("button", { name: /screenshot png/i })).toBeVisible();
     await expect(detail.getByRole("button", { name: /support log/i })).toBeVisible();
     await expect(detail.getByRole("button", { name: /browser log/i })).toBeVisible();
 
     const downloadPromise = page.waitForEvent("download");
-    await detail.getByRole("button", { name: /full report json/i }).click();
+    await detail.getByRole("button", { name: /ai diagnostic json/i }).click();
     const download = await downloadPromise;
     expect(await download.path()).toBeTruthy();
   });

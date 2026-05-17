@@ -293,7 +293,7 @@ test.describe("refund split-tender capacity contract", () => {
     });
     expect(result.status).toBe(400);
     const body = result.body as { error?: string };
-    expect(body.error ?? "").toContain("refund exceeds amount due");
+    expect(body.error ?? "").toContain("refund exceeds refundable paid credit");
   });
 
   test("refund against a closed queue returns a clear error", async ({ request }) => {
@@ -414,7 +414,7 @@ test.describe("refund split-tender capacity contract", () => {
       managerReason: "migration fix",
     });
     expect(r2.status).toBe(400);
-    expect((r2.body as any).error).toContain("invalid manager PIN");
+    expect((r2.body as any).error).toContain("Manager Access was not approved");
   });
 
   test("legacy/manual card refund recording succeeds with manager override", async ({ request }) => {

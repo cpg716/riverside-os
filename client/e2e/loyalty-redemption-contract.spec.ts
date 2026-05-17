@@ -184,6 +184,7 @@ async function checkoutFixtureSale(
     data: {
       session_id: sessionId,
       operator_staff_id: operatorStaffId,
+      primary_salesperson_id: operatorStaffId,
       customer_id: customerId,
       payment_method: "cash",
       total_price: fixture.product.unit_price,

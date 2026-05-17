@@ -148,7 +148,7 @@ async function checkoutGiftCardRedemption(
     data: {
       session_id: sessionId,
       operator_staff_id: operatorStaffId,
-      primary_salesperson_id: null,
+      primary_salesperson_id: operatorStaffId,
       customer_id: null,
       wedding_member_id: null,
       payment_method: "gift_card",
