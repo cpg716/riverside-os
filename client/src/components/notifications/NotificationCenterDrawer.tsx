@@ -302,8 +302,8 @@ export default function NotificationCenterDrawer({
     detail: string;
   } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const q =
         tab === "history" ? "?mode=history&limit=120" : "?limit=120";
@@ -315,9 +315,9 @@ export default function NotificationCenterDrawer({
       setLoadError(null);
     } catch {
       setLoadError("Could not refresh notifications.");
-      toast("Could not load notifications.", "error");
+      if (!silent) toast("Could not load notifications.", "error");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [apiAuth, tab, toast]);
 
@@ -325,6 +325,24 @@ export default function NotificationCenterDrawer({
     if (!isOpen) return;
     void load();
   }, [isOpen, load]);
+
+  useEffect(() => {
+    if (!isOpen || tab === "broadcast") return;
+    const refreshVisibleDrawer = () => {
+      if (document.visibilityState === "visible") {
+        void load(true);
+        onCountsChanged();
+      }
+    };
+    const t = window.setInterval(refreshVisibleDrawer, 30_000);
+    window.addEventListener("focus", refreshVisibleDrawer);
+    document.addEventListener("visibilitychange", refreshVisibleDrawer);
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener("focus", refreshVisibleDrawer);
+      document.removeEventListener("visibilitychange", refreshVisibleDrawer);
+    };
+  }, [isOpen, load, onCountsChanged, tab]);
 
   useEffect(() => {
     if (!isOpen) setExpandedSnId(null);

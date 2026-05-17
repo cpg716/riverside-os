@@ -42,6 +42,7 @@ export function isActionableNotificationDeepLink(
     case "customers":
     case "appointments":
     case "qbo":
+    case "payments":
     case "staff":
     case "gift-cards":
     case "weddings":
@@ -72,6 +73,8 @@ export function notificationDestinationLabel(link: unknown): string {
     case "qbo_staging":
     case "qbo":
       return "QuickBooks";
+    case "payments":
+      return "Payments";
     case "inventory":
       return "Inventory";
     case "settings":

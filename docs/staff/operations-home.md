@@ -82,8 +82,10 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 1. Click **bell** in header (from any tab).
 2. **Bundled** system alerts (low stock, tasks due, POs, and similar) may appear as **one row** for many items—**tap that row** to expand the list, then open each line or mark done per SOP.
 3. **Admin broadcasts** may need a **tap to expand** and read the full message.
-4. **Read** → **Complete** or **Dismiss** (archive) per SOP.
-5. **Broadcast** is **admin-only** — mis-clicks notify many people.
+4. Keep the drawer open during busy periods if needed; the list and bell refresh automatically while the app is visible.
+5. **Payment** alerts open the Payments workspace section that needs review. Register cash discrepancy alerts open the register reports area, not the sale floor.
+6. **Read** → **Complete** or **Dismiss** (archive) per SOP.
+7. **Broadcast** is **admin-only** — mis-clicks notify many people.
 
 ## Common issues and fixes
 

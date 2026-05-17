@@ -68,6 +68,27 @@ test.describe("Notification deep-link contracts", () => {
     ).toBe("Appointments");
   });
 
+  test("payment operation notifications route to the payments workspace", async () => {
+    expect(
+      isActionableNotificationDeepLink({
+        type: "payments",
+        section: "deposits",
+      }),
+    ).toBe(true);
+    expect(
+      notificationDestinationLabel({
+        type: "payments",
+        section: "deposits",
+      }),
+    ).toBe("Payments");
+    expect(
+      notificationPrimaryInteraction("payment_deposit_needs_review", {
+        type: "payments",
+        section: "deposits",
+      }),
+    ).toBe("open");
+  });
+
   test("bundles stay preview-oriented instead of direct-open", async () => {
     const bundleLink = {
       type: "notification_bundle",

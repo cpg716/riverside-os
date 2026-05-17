@@ -1394,7 +1394,10 @@ pub async fn mark_read(
         r#"
         UPDATE staff_notification
         SET read_at = COALESCE(read_at, now())
-        WHERE id = $1 AND staff_id = $2 AND archived_at IS NULL
+        WHERE id = $1
+          AND staff_id = $2
+          AND archived_at IS NULL
+          AND read_at IS NULL
         "#,
     )
     .bind(staff_notification_id)
@@ -1402,7 +1405,8 @@ pub async fn mark_read(
     .execute(pool)
     .await?;
     if res.rows_affected() == 0 {
-        return Ok(false);
+        return notification_row_exists_for_staff(pool, staff_notification_id, actor_staff_id)
+            .await;
     }
     log_action(
         pool,
@@ -1427,6 +1431,7 @@ pub async fn mark_complete(
             completed_at = COALESCE(completed_at, now()),
             read_at = COALESCE(read_at, now())
         WHERE id = $1 AND staff_id = $2 AND archived_at IS NULL
+          AND completed_at IS NULL
         "#,
     )
     .bind(staff_notification_id)
@@ -1434,7 +1439,8 @@ pub async fn mark_complete(
     .execute(pool)
     .await?;
     if res.rows_affected() == 0 {
-        return Ok(false);
+        return notification_row_exists_for_staff(pool, staff_notification_id, actor_staff_id)
+            .await;
     }
     log_action(
         pool,
@@ -1481,6 +1487,28 @@ pub async fn archive_for_staff(
     )
     .await?;
     Ok(true)
+}
+
+async fn notification_row_exists_for_staff(
+    pool: &PgPool,
+    staff_notification_id: Uuid,
+    actor_staff_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM staff_notification
+            WHERE id = $1
+              AND staff_id = $2
+              AND archived_at IS NULL
+        )
+        "#,
+    )
+    .bind(staff_notification_id)
+    .bind(actor_staff_id)
+    .fetch_one(pool)
+    .await
 }
 
 /// Archive inbox rows whose canonical notification is older than `archive_hours` (default 30d via caller).
@@ -1567,7 +1595,11 @@ pub async fn emit_register_cash_discrepancy(
     let body = format!(
         "A register session closed with a non-zero cash discrepancy ({discrepancy_cents_display}). Review Z-report / session history."
     );
-    let deep = json!({ "type": "register" });
+    let deep = json!({
+        "type": "register",
+        "section": "reports",
+        "session_id": session_id.to_string()
+    });
     let mut admins = admin_staff_ids(pool).await?;
     let mut reports = staff_ids_with_permission(pool, REGISTER_REPORTS).await?;
     admins.append(&mut reports);

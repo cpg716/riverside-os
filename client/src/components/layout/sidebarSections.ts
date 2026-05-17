@@ -106,6 +106,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
   payments: [
     { id: "overview", label: "Overview" },
     { id: "batches", label: "Batches" },
+    { id: "deposits", label: "Deposits" },
     { id: "reconciliation", label: "Reconciliation" },
     { id: "transactions", label: "Transactions" },
     { id: "health", label: "Health" },

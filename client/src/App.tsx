@@ -647,7 +647,11 @@ function App() {
       }
 
       if (t === "register") {
-        setActiveTab("register");
+        setPosMode(true);
+        const sec = linkStr(link, "section");
+        setActiveTab(
+          sec === "reports" || sec === "z-reports" ? "reports" : "register",
+        );
         setActiveSubSection("floor");
         return;
       }
@@ -744,6 +748,21 @@ function App() {
           "history",
         ]);
         setActiveSubSection(allowedQ.has(sec) ? sec : "staging");
+        return;
+      }
+
+      if (t === "payments") {
+        enterBackofficeShell("payments");
+        const sec = linkStr(link, "section") || "overview";
+        const allowedPayments = new Set([
+          "overview",
+          "batches",
+          "deposits",
+          "reconciliation",
+          "transactions",
+          "health",
+        ]);
+        setActiveSubSection(allowedPayments.has(sec) ? sec : "overview");
         return;
       }
 

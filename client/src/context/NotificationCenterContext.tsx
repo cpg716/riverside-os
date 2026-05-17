@@ -72,8 +72,25 @@ export function NotificationCenterProvider({
 
   useEffect(() => {
     if (!canView || !canReachApi) return;
-    const t = window.setInterval(() => void refreshUnread(), 60_000);
+    const t = window.setInterval(() => void refreshUnread(), 30_000);
     return () => window.clearInterval(t);
+  }, [canReachApi, canView, refreshUnread]);
+
+  useEffect(() => {
+    if (!canView || !canReachApi) return;
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshUnread();
+      }
+    };
+
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [canReachApi, canView, refreshUnread]);
 
   const value = useMemo<NotificationCenterContextValue>(
