@@ -5,6 +5,224 @@ import {
 } from "./helpers/backofficeSignIn";
 
 test.describe("ROS Operations Center", () => {
+  test("shows source-linked operational timeline items and filters", async ({ page }) => {
+    const today = new Date();
+    const iso = today.toISOString();
+    const dateOnly = iso.slice(0, 10);
+
+    await page.route("**/api/weddings/appointments?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "appt-1",
+            starts_at: `${dateOnly}T14:00:00.000Z`,
+            customer_display_name: "Timeline Appointment Customer",
+            appointment_type: "Fitting",
+            status: "scheduled",
+            salesperson: "Chris G",
+          },
+        ]),
+      });
+    });
+    await page.route("**/api/transactions/fulfillment-queue", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            order_id: "txn-timeline-1",
+            urgency: "blocked",
+            balance_due: 25,
+            next_deadline: iso,
+            wedding_party_name: "Timeline Pickup Party",
+          },
+        ]),
+      });
+    });
+    await page.route("**/api/alterations", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "alt-1",
+            customer_first_name: "Taylor",
+            customer_last_name: "Timeline",
+            status: "in_progress",
+            due_at: iso,
+            item_description: "Suit jacket",
+            work_requested: "Sleeves",
+            source_type: "past_transaction_line",
+            created_at: iso,
+          },
+        ]),
+      });
+    });
+    await page.route("**/api/tasks/admin/team-open", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            instance_id: "task-timeline-1",
+            title_snapshot: "Call timeline customer",
+            due_date: dateOnly,
+            status: "open",
+            assignee_staff_id: "staff-1",
+            assignee_name: "Chris G",
+            assignee_avatar_key: "chris",
+          },
+        ]),
+      });
+    });
+    await page.route("**/api/tasks/me", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ open: [], completed_recent: [] }),
+      });
+    });
+    await page.route("**/api/qbo/staging?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "qbo-timeline-1",
+            sync_date: dateOnly,
+            journal_entry_id: null,
+            status: "pending",
+            payload: { warnings: ["Missing account mapping"] },
+            error_message: null,
+            created_at: iso,
+          },
+        ]),
+      });
+    });
+    await page.route("**/api/purchase-orders", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "po-timeline-1",
+            po_number: "PO-TIMELINE",
+            vendor_id: "vendor-1",
+            status: "submitted",
+            vendor_name: "Timeline Vendor",
+            po_kind: "standard",
+            expected_at: iso,
+          },
+        ]),
+      });
+    });
+    await page.route("**/api/inventory/physical/sessions", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          sessions: [
+            {
+              id: "physical-timeline-1",
+              session_number: "PI-TIMELINE",
+              status: "reviewing",
+              scope: "full",
+              started_at: iso,
+              last_saved_at: iso,
+              published_at: null,
+            },
+          ],
+        }),
+      });
+    });
+    await page.route("**/api/sessions/list-open", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            session_id: "register-timeline-1",
+            register_lane: 1,
+            register_ordinal: 1,
+            cashier_name: "Chris G",
+            opened_at: iso,
+            till_close_group_id: "group-1",
+            lifecycle_status: "open",
+          },
+        ]),
+      });
+    });
+    await page.route("**/api/notifications?limit=16", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            staff_notification_id: "staff-note-1",
+            notification_id: "note-1",
+            created_at: iso,
+            kind: "inventory_alert",
+            title: "Timeline low stock alert",
+            body: "Review stock before pickup.",
+            deep_link: {},
+            source: "inventory",
+            read_at: null,
+            completed_at: null,
+            archived_at: null,
+          },
+        ]),
+      });
+    });
+    await page.route("**/api/weddings/morning-compass", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          stats: { needs_measure: 1, needs_order: 0, overdue_pickups: 0 },
+          needs_measure: [
+            {
+              id: "wed-timeline-1",
+              party_id: "party-timeline-1",
+              party_name: "Timeline Wedding",
+              customer_name: "Jordan Timeline",
+              event_date: dateOnly,
+            },
+          ],
+          needs_order: [],
+          overdue_pickups: [],
+          rush_orders: [],
+          today_floor_staff: [],
+        }),
+      });
+    });
+    await page.route("**/api/weddings/activity-feed?*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+    });
+
+    await signInToBackOffice(page);
+    await openBackofficeSidebarTab(page, "home");
+    await page.getByRole("button", { name: /^timeline$/i }).click();
+
+    await expect(page.getByRole("heading", { name: /^operational timeline$/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^agenda$/i })).toHaveAttribute("class", /app-accent/);
+    await expect(page.getByRole("button", { name: /^qbo$/i })).toBeVisible();
+    await expect(page.getByText("Timeline Appointment Customer")).toBeVisible();
+    await expect(page.getByText("Timeline Pickup Party")).toBeVisible();
+
+    await page.getByRole("button", { name: /^qbo$/i }).click();
+    await expect(page.getByText("QBO pending")).toBeVisible();
+    await page.getByText("QBO pending").click();
+    await expect(page.getByTestId("app-shell-state")).toHaveAttribute("data-active-tab", "qbo", {
+      timeout: 10_000,
+    });
+  });
+
   test("summarizes blockers, degraded sources, safe actions, and deep links", async ({ page }) => {
     await page.route("**/api/ops/health/snapshot", async (route) => {
       await route.fulfill({
