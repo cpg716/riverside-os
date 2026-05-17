@@ -48,6 +48,13 @@ import {
   type CompassActionRow,
   type RushOrderRow,
 } from "../../lib/morningCompassQueue";
+import { weddingApi, type WeddingAppointmentClient } from "../../lib/weddingApi";
+import OperationalTimeline, {
+  type TimelineTaskItem,
+  type TimelineQboRow,
+  type TimelinePurchaseOrder,
+  type TimelinePhysicalSession,
+} from "./OperationalTimeline";
 
 const baseUrl = getBaseUrl();
 
@@ -97,7 +104,9 @@ interface RegisterDaySummary {
 }
 
 type OperationalFeedKey =
+  | "appointments"
   | "tasks"
+  | "teamTasks"
   | "salesHistory"
   | "todaySummary"
   | "fulfillment"
@@ -105,7 +114,10 @@ type OperationalFeedKey =
   | "notifications"
   | "registerSessions"
   | "morningCompass"
-  | "activityFeed";
+  | "activityFeed"
+  | "qbo"
+  | "purchaseOrders"
+  | "physicalInventory";
 
 type FulfillmentUrgency = "rush" | "due_soon" | "standard" | "blocked" | "ready";
 
@@ -135,6 +147,16 @@ interface OpenRegisterSessionRow {
   opened_at: string;
   till_close_group_id: string;
   lifecycle_status: string;
+}
+
+interface TeamTaskRow {
+  instance_id: string;
+  title_snapshot: string;
+  due_date: string | null;
+  status: string;
+  assignee_staff_id: string;
+  assignee_name: string;
+  assignee_avatar_key: string;
 }
 
 interface OperationalHomeProps {
@@ -200,6 +222,13 @@ function formatWholeNumber(value: number): string {
 }
 
 const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+function localDateInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 function alterationCustomerName(row: AlterationOpsRow): string {
   return `${row.customer_first_name ?? ""} ${row.customer_last_name ?? ""}`.trim() || "Unassigned customer";
@@ -564,6 +593,184 @@ export default function OperationalHome({
   useEffect(() => {
     void loadTasksMe();
   }, [loadTasksMe, refreshSignal]);
+
+  const [timelineAppointments, setTimelineAppointments] = useState<WeddingAppointmentClient[]>([]);
+  const [teamTasksOpen, setTeamTasksOpen] = useState<TeamTaskRow[]>([]);
+  const [qboStaging, setQboStaging] = useState<TimelineQboRow[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<TimelinePurchaseOrder[]>([]);
+  const [physicalInventorySessions, setPhysicalInventorySessions] = useState<TimelinePhysicalSession[]>([]);
+
+  const loadTimelineAppointments = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("weddings.view")) {
+      setTimelineAppointments([]);
+      clearFeedLoadError("appointments");
+      return;
+    }
+    try {
+      const from = new Date();
+      from.setDate(from.getDate() - 7);
+      const to = new Date();
+      to.setDate(to.getDate() + 60);
+      const rows = await weddingApi.getAppointments({
+        from: localDateInput(from),
+        to: localDateInput(to),
+        headers: taskAuth(),
+      });
+      setTimelineAppointments(rows);
+      clearFeedLoadError("appointments");
+    } catch {
+      markFeedLoadError(
+        "appointments",
+        "Appointments could not refresh. Timeline appointment visibility may be incomplete.",
+      );
+    }
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
+
+  useEffect(() => {
+    void loadTimelineAppointments();
+  }, [loadTimelineAppointments, refreshSignal]);
+
+  const loadTeamTasksOpen = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("tasks.view_team")) {
+      setTeamTasksOpen([]);
+      clearFeedLoadError("teamTasks");
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/tasks/admin/team-open`, {
+        headers: taskAuth(),
+      });
+      if (!res.ok) throw new Error("team-tasks");
+      const data = (await res.json()) as TeamTaskRow[];
+      setTeamTasksOpen(Array.isArray(data) ? data : []);
+      clearFeedLoadError("teamTasks");
+    } catch {
+      markFeedLoadError(
+        "teamTasks",
+        "Team tasks could not refresh. Timeline follow-up ownership may be incomplete.",
+      );
+    }
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
+
+  useEffect(() => {
+    void loadTeamTasksOpen();
+  }, [loadTeamTasksOpen, refreshSignal]);
+
+  const loadQboStaging = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("qbo.view")) {
+      setQboStaging([]);
+      clearFeedLoadError("qbo");
+      return;
+    }
+    try {
+      const from = new Date();
+      from.setDate(from.getDate() - 14);
+      const to = new Date();
+      to.setDate(to.getDate() + 14);
+      const params = new URLSearchParams({
+        from: localDateInput(from),
+        to: localDateInput(to),
+      });
+      const res = await fetch(`${baseUrl}/api/qbo/staging?${params}`, {
+        headers: taskAuth(),
+      });
+      if (!res.ok) throw new Error("qbo");
+      const data = (await res.json()) as TimelineQboRow[];
+      setQboStaging(Array.isArray(data) ? data : []);
+      clearFeedLoadError("qbo");
+    } catch {
+      markFeedLoadError(
+        "qbo",
+        "QBO review status could not refresh. Accounting timeline items may be incomplete.",
+      );
+    }
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
+
+  useEffect(() => {
+    void loadQboStaging();
+  }, [loadQboStaging, refreshSignal]);
+
+  const loadPurchaseOrders = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("procurement.view")) {
+      setPurchaseOrders([]);
+      clearFeedLoadError("purchaseOrders");
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/purchase-orders`, {
+        headers: taskAuth(),
+      });
+      if (!res.ok) throw new Error("purchase-orders");
+      const data = (await res.json()) as TimelinePurchaseOrder[];
+      setPurchaseOrders(Array.isArray(data) ? data : []);
+      clearFeedLoadError("purchaseOrders");
+    } catch {
+      markFeedLoadError(
+        "purchaseOrders",
+        "Receiving commitments could not refresh. Purchase order timeline items may be incomplete.",
+      );
+    }
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
+
+  useEffect(() => {
+    void loadPurchaseOrders();
+  }, [loadPurchaseOrders, refreshSignal]);
+
+  const loadPhysicalInventorySessions = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("physical_inventory.view")) {
+      setPhysicalInventorySessions([]);
+      clearFeedLoadError("physicalInventory");
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/inventory/physical/sessions`, {
+        headers: taskAuth(),
+      });
+      if (!res.ok) throw new Error("physical-inventory");
+      const data = (await res.json()) as { sessions?: TimelinePhysicalSession[] };
+      setPhysicalInventorySessions(Array.isArray(data.sessions) ? data.sessions : []);
+      clearFeedLoadError("physicalInventory");
+    } catch {
+      markFeedLoadError(
+        "physicalInventory",
+        "Physical inventory sessions could not refresh. Inventory count timeline items may be incomplete.",
+      );
+    }
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
+
+  useEffect(() => {
+    void loadPhysicalInventorySessions();
+  }, [loadPhysicalInventorySessions, refreshSignal]);
 
   const notifOpt = useNotificationCenterOptional();
   const refreshNotifUnread = notifOpt?.refreshUnread;
@@ -1409,6 +1616,23 @@ export default function OperationalHome({
     ],
   );
 
+  const timelineTasks = useMemo<TimelineTaskItem[]>(
+    () =>
+      teamTasksOpen.length > 0
+        ? teamTasksOpen.map((task) => ({
+            id: task.instance_id,
+            title_snapshot: task.title_snapshot,
+            due_date: task.due_date,
+            assignee_name: task.assignee_name,
+          }))
+        : taskMeOpen.map((task) => ({
+            id: task.id,
+            title_snapshot: task.title_snapshot,
+            due_date: task.due_date,
+          })),
+    [taskMeOpen, teamTasksOpen],
+  );
+
   const failedFeedMessages = Object.values(feedLoadErrors).filter(
     (message): message is string => Boolean(message),
   );
@@ -1454,6 +1678,41 @@ export default function OperationalHome({
     openDrawer();
   }, [onNavigateMetric, openDrawer, taskMeOpen]);
 
+
+  if (activeSection === "timeline") {
+    return (
+      <>
+        <OperationalTimeline
+          appointments={timelineAppointments}
+          fulfillmentQueue={fulfillmentQueue}
+          alterationsQueue={alterationsQueue}
+          tasks={timelineTasks}
+          notifications={activeNotifications}
+          registerSessions={openRegisterSessions}
+          compass={compass}
+          qboStaging={qboStaging}
+          purchaseOrders={purchaseOrders}
+          physicalSessions={physicalInventorySessions}
+          feedErrors={failedFeedMessages}
+          onNavigate={(target) => onNavigateMetric?.(target)}
+          onOpenWeddingParty={onOpenWeddingParty}
+          onOpenTransaction={onOpenTransactionInBackoffice}
+          onOpenTask={(taskId) => setTaskDrawerId(taskId)}
+          onOpenAlerts={openDrawer}
+        />
+        <TaskChecklistDrawer
+          open={!!taskDrawerId}
+          instanceId={taskDrawerId}
+          authHeaders={taskAuth}
+          onClose={() => setTaskDrawerId(null)}
+          onUpdated={() => {
+            void loadTasksMe();
+            void loadTeamTasksOpen();
+          }}
+        />
+      </>
+    );
+  }
 
   if (activeSection === "daily-sales") {
     return (

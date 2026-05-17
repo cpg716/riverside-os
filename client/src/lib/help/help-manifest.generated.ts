@@ -305,14 +305,14 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "operations-operational-home",
     title: "Operations Home",
-    summary: "Store-wide command center for daily changes, source-linked attention items, register close status, and optional daily briefing.",
+    summary: "Store-wide command center for daily changes, source-linked timeline planning, attention items, register close status, and optional daily briefing.",
     markdown: manual_33_raw,
-    tags: ["operations","dashboard","action-board","triage","weddings","alterations"],
+    tags: ["operations","dashboard","timeline","calendar","action-board","triage","weddings","alterations"],
   },
   {
     id: "orders-workspace",
     title: "Orders Workspace",
-    summary: "Manage Special, Custom, Wedding, and Layaway orders. Review balances, order kind, and fulfillment status.",
+    summary: "Manage Special, Custom, and Wedding order work. Review balances, order kind, and fulfillment status.",
     markdown: manual_34_raw,
     tags: ["orders","fulfillment","deposits","tracking"],
   },
@@ -389,7 +389,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-order-load-modal",
     title: "Customer Orders",
-    summary: "Review a customer's open orders in POS, check balance and lifecycle status, add or edit open lines, collect payments, and copy unfulfilled lines only when starting a new sale.",
+    summary: "Review a customer's open Special, Custom, or Wedding order work in POS, check balance and lifecycle status, add or edit open lines, collect payments, and copy unfulfilled lines only when starting a new sale.",
     markdown: manual_45_raw,
     tags: ["pos","orders","pickup","fulfillment"],
   },
@@ -417,7 +417,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-register-reports",
     title: "Register Reports & Daily Sales",
-    summary: "Daily sales activity timeline, tender totals, and professional audit printing for the current register session.",
+    summary: "Daily sales activity timeline, completed-sale voids, tender totals, and professional audit printing for the current register session.",
     markdown: manual_49_raw,
     tags: ["pos","register","reports","audit","printing"],
   },

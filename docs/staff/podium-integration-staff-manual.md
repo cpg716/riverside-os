@@ -110,7 +110,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 ### Manager: check review invite history
 
 1. **Operations** → **Reviews** (subsection).
-2. Scan **sent** vs **suppressed** timestamps; open the order in Back Office from the row if needed.
+2. Scan **sent** vs **suppressed** timestamps; open the Transaction Record in Back Office from the row if needed.
 
 **Permission:** **`reviews.view`**.
 
@@ -118,7 +118,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
 ## Helping a coworker or customer
 
-- **“Customer says they never got the text.”** Check **profile**: phone number, **operational** / **marketing** SMS flags per store policy; confirm the order actually hit **pickup ready** (or the right trigger). Escalate if templates or Podium toggles are wrong—do not spam resends without manager approval.
+- **“Customer says they never got the text.”** Check **profile**: phone number, **operational** / **marketing** SMS flags per store policy; confirm the fulfillment work actually hit **pickup ready** (or the right trigger). Escalate if templates or Podium toggles are wrong—do not spam resends without manager approval.
 - **“This person is not in ROS yet.”** Use **Podium Inbox → Send Text**, enter the phone number plus first and last name, and send once. Riverside creates the contact with Podium as the source so staff can complete or merge it later.
 - **“Notification won’t open the right person.”** Ask them to use **Podium Inbox** or search the customer by name/code, then open **Messages** manually; IT verifies **webhook** configuration if links are consistently wrong.
 - **Never** paste Podium **secrets**, **refresh tokens**, or **webhook signing keys** into chat or bug reports—only managers/IT handle those on the server.

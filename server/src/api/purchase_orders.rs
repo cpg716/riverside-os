@@ -98,6 +98,7 @@ pub struct PurchaseOrderSummary {
     pub status: String,
     pub vendor_name: String,
     pub po_kind: String,
+    pub expected_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -274,7 +275,8 @@ async fn list_purchase_orders(
     let rows = sqlx::query_as::<_, PurchaseOrderSummary>(
         r#"
         SELECT po.id, po.po_number, po.vendor_id, po.status::text AS status, v.name AS vendor_name,
-               po.po_kind
+               po.po_kind,
+               po.expected_at::text AS expected_at
         FROM purchase_orders po
         JOIN vendors v ON v.id = po.vendor_id
         ORDER BY po.ordered_at DESC
@@ -316,7 +318,8 @@ async fn create_draft_po(
             vendor_id,
             status::text AS status,
             (SELECT name FROM vendors WHERE id = vendor_id) AS vendor_name,
-            po_kind
+            po_kind,
+            expected_at::text AS expected_at
         "#,
     )
     .bind(payload.vendor_id)
@@ -356,7 +359,8 @@ async fn create_direct_invoice_draft(
             vendor_id,
             status::text AS status,
             (SELECT name FROM vendors WHERE id = vendor_id) AS vendor_name,
-            po_kind
+            po_kind,
+            expected_at::text AS expected_at
         "#,
     )
     .bind(payload.vendor_id)

@@ -44,7 +44,7 @@ Each sub-section distinguishes:
 - **Failed sub-load:** that section could not load and shows a quiet degraded message.
 - **Successful empty:** the section loaded and has no matching records.
 
-This applies to transaction or order history, alterations, loyalty activity, messages, measurements, and timeline.
+This applies to Transaction Records, fulfillment-order work, alterations, loyalty activity, messages, measurements, and timeline.
 
 ## Working with degraded sections
 

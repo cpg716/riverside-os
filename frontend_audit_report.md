@@ -26,7 +26,7 @@ The original findings below were re-checked against the current tree:
 | Staff PIN / secrets in offline queue | **Pass** — `enqueueCheckout` persists headers only after `headersSafeForOfflinePersist()` in `client/src/lib/posRegisterAuth.ts`, which strips **`x-riverside-staff-pin`**, **`Authorization`**, and **`Cookie`** (case-insensitive). Flush merges **live** headers from `getLiveAuthHeaders`. |
 | `window.open` / PWA | **Documented** — See **`REMOTE_ACCESS_GUIDE.md`** § *PWA: popup windows*. |
 | Design tokens (`slate` / `zinc` / `fuchsia`) | **Improved** — POS, settings, wedding-manager subtree, and related surfaces aligned to **`app.*`** primitives where previously called out. |
-| `OrderAttributionModal` headers | **OK** — Uses `mergedPosStaffHeaders` so register **POS session token** is sent for `GET /api/orders/:id` and staff list; matches server **staff or POS session** gates. |
+| `OrderAttributionModal` headers | **OK** — Uses `mergedPosStaffHeaders` so register **POS session token** is sent for `GET /api/transactions/:id` and staff list; matches server **staff or POS session** gates. |
 | `ui-touch-target` | **Done** — **POS** sidebar / **Cart** / **Nexo**, **Header** menu + chevron, **Appointments** toolbar (date nav, Today, Print, New Appt, day/week toggles). |
 | Wide `min-w-[…]` grids | **Done** — **Customers** / **Insights** / **scheduler** week: **`min-w-0`**, **`overflow-x-auto`**, **`overscroll-x-contain`**, breakpoint inner widths (**`min-w-[720px]`** … **`xl:min-w-[1200px]`** on week grid). |
 | `axios` in wedding-manager | **N/A** — `lib/api.js` uses **`fetch`** (`wmJson`, SSE); no axios import. |

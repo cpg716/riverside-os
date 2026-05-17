@@ -17,7 +17,7 @@
 | **2c. Orders workspace late-bound UX** | **Partial** | Server + hub support shipping; dedicated **Orders** tab UX for ship → rates → label may lag **Shipments** hub — verify product requirements in **`PLAN_SHIPPO_SHIPPING.md`**. |
 | **3. Podium inbound + CRM** | **Shipped (core)** | Migration **99**: **`podium_conversation`**, **`podium_message`**, **`customer_created_source` `podium`**, name-capture flag. **104**: **`podium_message.podium_sender_name`** for Podium web/app replies (no ROS **`staff_id`**). Active migration **028** adds read/sync metadata, webhook failure logging, unmatched provider-conversation queueing, and review status/url fields. **`podium_inbound.rs`** classifies **inbound** vs **outbound** webhooks: customer messages → find-or-create + notifications; staff-originated Podium sends → **`direction` `outbound`**, no “new customer SMS/email” fan-out, no stub on unmatched contact. **`podium_messaging.rs`** also supports provider conversation sync, health, unmatched queue, and direct staff SMS from **Operations/POS → Podium Inbox**. |
 | **3b. Automated transactional rows** | **Partial** | Pickup/alteration/receipt flows in **`messaging.rs`** do not uniformly persist **`podium_message`** for every Podium send (hub replies / inbound do). Optional hardening: record outbound operational sends. |
-| **4. Reviews (Operations + policy)** | **Partially shipped** | **`store_settings.review_policy`** (**100**), receipt **`POST /api/orders/{id}/review-invite`**, **`ReceiptSummaryModal`** opt-out, **Operations → Reviews**, admin **`review_invite_sent`** notification (stub Podium review API — **`podium_review_invite_id`** placeholder). Real Podium review API TBD — **`PLAN_PODIUM_REVIEWS.md`**. |
+| **4. Reviews (Operations + policy)** | **Partially shipped** | **`store_settings.review_policy`** (**100**), receipt **`POST /api/transactions/{id}/review-invite`**, **`ReceiptSummaryModal`** opt-out, **Operations → Reviews**, admin **`review_invite_sent`** notification (stub Podium review API — **`podium_review_invite_id`** placeholder). Real Podium review API TBD — **`PLAN_PODIUM_REVIEWS.md`**. |
 | **5. Notifications (shared read + nudge)** | **Shipped** | Inbound Podium fan-out to staff with **`notifications.view`**; **`POST /api/notifications/by-notification/{id}/read-all`**; hourly **`messaging_unread_nudge`** for stale **`podium_*`**, **`review_*`** ( **`notifications_jobs.rs`** ); client hooks in **`NotificationCenterDrawer`**. |
 
 ---
@@ -57,7 +57,7 @@
 ## 4) Reviews — Operations-first, Settings General = policy
 
 - [x] **`review_policy`** JSONB — migration **100**; **`GET`/`PATCH /api/settings/review-policy`**
-- [x] Order columns + **`POST /api/orders/{id}/review-invite`** (idempotent choice)
+- [x] Transaction columns + **`POST /api/transactions/{id}/review-invite`** (idempotent choice)
 - [x] **`ReceiptSummaryModal`** — per-sale opt-out / default from policy
 - [x] **Operations → Reviews** — **`reviews.view`**; list rows API **`/api/reviews/invite-rows`**
 - [x] Admin notification on stub **invite recorded**
@@ -105,4 +105,4 @@ Original phased rollout:
 | Podium inbound | `server/src/logic/podium_webhook.rs`, `server/src/logic/podium_inbound.rs`, `server/src/api/webhooks.rs` |
 | CRM messaging | `server/src/logic/podium_messaging.rs`, `server/src/api/customers.rs` (podium routes) |
 | Notifications | `server/src/logic/notifications.rs`, `server/src/logic/notifications_jobs.rs`, `server/src/api/notifications.rs`, `client/src/components/notifications/NotificationCenterDrawer.tsx`, `client/src/lib/notificationDeepLink.ts` |
-| Reviews | `server/src/logic/podium_reviews.rs`, `server/src/api/reviews.rs`, `server/src/api/orders.rs` (review-invite), `client/src/components/operations/ReviewsOperationsSection.tsx`, `client/src/components/pos/ReceiptSummaryModal.tsx`, `client/src/components/settings/SettingsWorkspace.tsx` (General policy) |
+| Reviews | `server/src/logic/podium_reviews.rs`, `server/src/api/reviews.rs`, `server/src/api/transactions.rs` (review-invite), `client/src/components/operations/ReviewsOperationsSection.tsx`, `client/src/components/pos/ReceiptSummaryModal.tsx`, `client/src/components/settings/SettingsWorkspace.tsx` (General policy) |

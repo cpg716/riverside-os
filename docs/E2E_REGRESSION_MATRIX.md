@@ -195,7 +195,7 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 | `GET /api/products` (no headers) | **401** |
 | `POST /api/payments/providers/helcim/purchase` (no auth) | **401** |
 | `GET /api/settings/receipt` (no staff) | **401** or **403** |
-| `GET /api/customers/{uuid}/order-history` (no staff) | **401** |
+| `GET /api/customers/{uuid}/transaction-history` (no staff) | **401** |
 | `GET /api/insights/sales-pivot?…` (no staff) | **401** |
 | `GET /api/insights/best-sellers` (no staff) | **401** |
 | `GET /api/insights/margin-pivot` (no staff) | **401** |

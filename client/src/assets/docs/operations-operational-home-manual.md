@@ -2,10 +2,10 @@
 id: operations-operational-home
 title: "Operations Home"
 order: 1047
-summary: "Store-wide command center for daily changes, source-linked attention items, register close status, and optional daily briefing."
+summary: "Store-wide command center for daily changes, source-linked timeline planning, attention items, register close status, and optional daily briefing."
 source: client/src/components/operations/OperationalHome.tsx
 last_scanned: 2026-05-10
-tags: operations, dashboard, action-board, triage, weddings, alterations
+tags: operations, dashboard, timeline, calendar, action-board, triage, weddings, alterations
 status: approved
 ---
 
@@ -30,6 +30,14 @@ Operations Home is the staff command center for the day. It keeps deterministic 
 3. Review **What Needs Attention** for blockers and warnings.
 4. Follow the card or row into the owning workflow before taking action.
 5. Use Daily Operational Briefing only after the deterministic cards are understood.
+
+## Operational Timeline
+
+Open **Operations → Timeline** when the manager needs the planning view instead of the summary dashboard. Timeline combines existing source workflows into one visual surface: appointments, wedding readiness, pickup commitments, alteration due dates, tasks, receiving commitments, physical inventory sessions, QBO review, register close work, and open alerts.
+
+Use **Agenda** for what is next, **Week** for staffing and workload planning, **Month** for deadline pressure, and **Workload** for where pressure is coming from. Filters isolate Today, Overdue, Manager, Appointments, Weddings, Pickups, Alterations, Tasks, QBO, Receiving, Inventory, and Alerts.
+
+Timeline rows are not editable. Open the row and make changes in the source workflow so the scheduler, Wedding Manager, Pickup Queue, Alterations, Tasks, QBO, Inventory, and Notifications remain the source of truth.
 
 ## What to check first
 

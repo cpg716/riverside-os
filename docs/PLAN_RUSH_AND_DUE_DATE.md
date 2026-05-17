@@ -16,7 +16,7 @@ Migration 119 already added:
 
 ### Phase 1: API Changes ✅ DONE
 
-- [x] Add `PATCH /api/orders/{id}` endpoint to update `is_rush` and `need_by_date`
+- [x] Add `PATCH /api/transactions/{id}` endpoint to update `is_rush` and `need_by_date`
 - [x] Ensure GET endpoints include these fields in responses
 
 ### Phase 2: Cart (POS) - Create/Edit Order ✅ DONE
@@ -45,7 +45,7 @@ Migration 119 already added:
 
 ## Technical Details
 
-### API: PATCH /api/orders/{order_id}
+### API: PATCH /api/transactions/{transaction_id}
 
 ```json
 {
@@ -74,8 +74,8 @@ Add to existing stats:
 
 | File | Change |
 |------|--------|
-| `server/src/api/orders.rs` | Add PATCH handler |
-| `server/src/logic/order_list.rs` | Update queries |
+| `server/src/api/transactions.rs` | Add PATCH handler |
+| `server/src/logic/transaction_list.rs` | Update queries |
 | `client/src/components/pos/Cart.tsx` | Add Rush/Due UI |
 | `client/src/components/orders/OrdersWorkspace.tsx` | Add badges/filters |
 | `client/src/components/layout/PosSidebar.tsx` | Add Orders tab |

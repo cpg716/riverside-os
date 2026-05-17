@@ -214,9 +214,9 @@ Do not give Podium a `localhost` webhook URL. Podium must reach Riverside from t
 
 **Receipt (POS):** On the receipt summary, cashiers can **skip** or allow a **review invite** according to store defaults set in **Settings → General**.
 
-**What Riverside records today:** If the sale is eligible and not skipped, the order may be stamped with **`review_invite_sent_at`** and a **placeholder** Podium invite id until the live Podium review API is wired. Admins get a **stub** notification explaining that the real Podium send is pending configuration.
+**What Riverside records today:** If the sale is eligible and not skipped, the Transaction Record may be stamped with **`review_invite_sent_at`** and a **placeholder** Podium invite id until the live Podium review API is wired. Admins get a **stub** notification explaining that the real Podium send is pending configuration.
 
-**Operations → Reviews:** Staff with **`reviews.view`** see orders with invite **sent** or **suppressed** timestamps and open the order in Back Office from the list.
+**Operations → Reviews:** Staff with **`reviews.view`** see Transaction Records with invite **sent** or **suppressed** timestamps and open the record in Back Office from the list.
 
 Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 

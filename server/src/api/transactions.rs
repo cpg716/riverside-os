@@ -3287,7 +3287,8 @@ async fn process_exchange_settlement(
             ));
         }
         let method_l = remainder.payment_method.to_lowercase();
-        if (method_l.contains("card") || method_l.contains("helcim")) && !method_l.contains("gift") {
+        if (method_l.contains("card") || method_l.contains("helcim")) && !method_l.contains("gift")
+        {
             return Err(TransactionError::InvalidPayload(
                 "card refund remainders must use the original provider refund flow".to_string(),
             ));

@@ -25,7 +25,7 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 | **`customers.hub_edit`** | `PATCH /api/customers/{id}` (includes **`marketing_*_opt_in`**, **`transactional_sms_opt_in`** for operational pickup/alteration texts — migration **71**), `POST /api/customers/{id}/podium/messages`, `POST /api/customers/podium/direct-sms`, `POST /api/customers/podium/messaging-sync` |
 | **`customers.timeline`** | `GET …/timeline` (includes **shipping** activity from **`shipment_event`** for this customer), `POST …/notes` |
 | **`customers.measurements`** | `GET …/measurements`, `PATCH …/measurements` |
-| **`orders.view`** | `GET …/order-history` (hub **Transactions** tab - includes joint partner history if linked) |
+| **`orders.view`** | `GET …/transaction-history` (hub **Transactions** tab - includes joint partner history if linked) |
 | **`customers.couple_manage`** | `POST …/couple-link`, `DELETE …/couple-link`, `POST …/couple-link-new` (link/unlink/create-joint partners — migration **110**) |
 | **`shipments.view`** | Hub **Shipments** tab (list/detail scoped to customer; includes joint partner shipments — migration **75**) |
 
@@ -57,7 +57,7 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 ## Database seeds
 
 **`scripts/seeds/seed_rbac.sql`** inserts the four **`customers.*`** hub keys for **`admin`**, **`salesperson`**, and **`sales_support`** (all **`true`** by default). **`Admin`** role still receives the **full catalog** in application code. Tune per role or use **`staff_permission_override`** as needed.
-(Note: `orders.view` permission key covers Transactions in the Hub).
+(Note: `orders.view` permission key covers Transaction Records and scoped fulfillment-order views in the Hub).
 
 **`scripts/seeds/seed_rbac.sql`** also sets **`customers_duplicate_review`** and **`customers.merge`** to **allowed** for **`salesperson`** and **`sales_support`** (duplicate queue APIs, hub **Profile → Queue pair**, and two-customer merge in **Customers**).
 
@@ -69,7 +69,7 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
   - **Profile Tab**: Core CRM data, VIP status, and opt-in management.
   - **Messages Tab**: Customer-scoped Podium thread. The tab reads stored `podium_message` rows and may hydrate empty matched conversations through Podium's conversation-message API. If a matched `podium_conversation` exists but no message rows are available, the API returns a Podium availability error instead of a false empty state so staff know to fix webhooks/scopes and rerun sync.
   - **Transactions Tab**: Financial historical sales list (TXN-XXXX).
-  - **Fulfillment Tab**: Logistical fulfillment orders (ORD-XXXX) including special and wedding orders.
+  - **Fulfillment Tab**: Open Special, Custom, and Wedding fulfillment work linked back to the parent Transaction Record.
   - **Measurements**: Visual fitting data and individual notes.
   - **Shipments**: Logistical tracking for out-of-stock items.
   - **Payments**: Customer gift card vault and payment history.
@@ -99,7 +99,7 @@ Missing permission returns **403** with `{ "error": "missing permission", "permi
 - [`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md) — full RBAC matrix and operational notes  
 - [`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md) — **`shipments.*`**, standalone Shipping workspace, customer hub Shipments tab
 - [`docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md`](CUSTOMERS_LIGHTSPEED_REFERENCE.md) — CRM feature parity  
-- [`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md) — browse / order-history paging  
+- [`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md) — browse / transaction-history paging
 - [`AGENTS.md`](../AGENTS.md) — migrations **63**–**64** summary (hub keys + cashier duplicate/merge defaults)  
 
 **Last reviewed:** 2026-05-15 (Podium Inbox direct SMS + active baseline migration **028** communications hardening)

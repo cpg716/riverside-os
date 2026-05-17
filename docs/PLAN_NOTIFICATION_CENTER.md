@@ -223,7 +223,7 @@ Expected behavior:
 
 Current precise landing includes:
 
-- Orders: exact transaction/order context
+- Orders: exact Transaction Record or fulfillment-order context
 - Staff Tasks: exact task instance
 - Weddings: exact party
 - Alterations: exact alteration row/context

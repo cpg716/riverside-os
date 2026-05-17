@@ -4,15 +4,15 @@ Riverside OS employs a decoupled **transaction-centric architecture** that separ
 
 ## Core Architecture
 
-- **Transactions (`transactions`, visible numbers like `TXN-10001`)**: Represent the financial ledger and customer commitment. Every checkout action creates a single Transaction. It records the total price, amounts paid, balance due, and acts as the anchor for receipts and refunds.
+- **Transaction Records (`transactions`, visible numbers like `TXN-10001`)**: Represent the complete sale and financial ledger: booked items, takeaways, gift cards, alterations, deposits, payments, refunds, receipts, balances, and any unfulfilled item lines. Every checkout action creates one Transaction Record.
 - **Fulfillment Orders (`fulfillment_orders`, visible numbers like `ORD-10001`)**: Represent the logistical state of the items to be delivered. A single Transaction can have its line items mapped to one or more Fulfillment Orders. Fulfillment orders handle the physical workflow: procurement, special ordering, shipment, and physical pickup.
 
 ## User Interface (UI) Mapping
 
 To ensure clarity for staff, the Riverside OS interface uses standard industry terminology:
-- **Orders (Sidebar)**: High-level entry into logistical management.
-- **Orders Workspace**: The central fulfillment workspace where special, custom, and wedding orders are tracked through their logistical lifecycle.
-- **Sales History**: The historical archive of all financial commitments, accessible as a secondary audit view within the POS or CRM contexts.
+- **Orders (Sidebar)**: High-level entry into unfulfilled Special, Custom, and Wedding work only.
+- **Orders Workspace**: The central fulfillment workspace where Special, Custom, and Wedding order items are tracked through their logistical lifecycle. It may show payment context from the parent Transaction Record, but the order is not the whole sale.
+- **Transaction Records**: The historical archive and audit surface for the complete sale, including takeaways, order items, gift cards, alterations, deposits, payments, refunds, receipts, and balances.
 - **Daily Sales**: Financial reporting focused on register sessions and tender counts.
 
 ## The Decoupling
@@ -39,7 +39,7 @@ When the cashier completes checkout, a Transaction is generated. If items cannot
 
 ### Item Lifecycle Source of Truth
 
-Every non-takeaway ordered item is tracked at the `transaction_lines` level with an authoritative item lifecycle status:
+Every Special, Custom, and Wedding ordered item is tracked at the `transaction_lines` level with an authoritative item lifecycle status. Layaways stay in Layaways and takeaway sale lines stay in the Transaction Record; they are not Orders.
 
 1. **Needs Measurements** — the customer still needs measurements or the exact variation is not known.
 2. **NTBO** — exact product/variation is known and needs to be ordered from a vendor.
@@ -48,7 +48,7 @@ Every non-takeaway ordered item is tracked at the `transaction_lines` level with
 5. **Ready for Pickup** — verified ready for customer release.
 6. **Picked Up** — fulfilled through the existing pickup path.
 
-The lifecycle belongs to each ordered item, not only to the Transaction or Fulfillment Order. A single customer order may therefore contain a jacket that is **Received**, pants that are still **Ordered**, and an accessory that is **Ready for Pickup**. Orders list rows, order detail, lifecycle queues, wedding readiness, Operations Center counts, and printable Open Orders reports should read these fields instead of inferring item status from product or PO history.
+The lifecycle belongs to each ordered item, not only to the Transaction Record or Fulfillment Order. A single Transaction Record may therefore contain a takeaway accessory plus a jacket that is **Received**, pants that are still **Ordered**, and a wedding line that is **Ready for Pickup**. Orders list rows, order detail, lifecycle queues, wedding readiness, Operations Center counts, and printable Open Orders reports should read only Special, Custom, and Wedding order lines instead of treating every non-takeaway line as an Order.
 
 Lifecycle changes write audit events in `transaction_line_lifecycle_events`. Manual lifecycle repair paths require `orders.lifecycle_manage`; risky transitions must continue through receiving and pickup workflows so inventory, revenue, commission, and reporting contracts stay intact.
 

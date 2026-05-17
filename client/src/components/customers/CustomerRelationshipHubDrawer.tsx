@@ -877,7 +877,7 @@ export function CustomerRelationshipHubDrawer({
       setOrderHistoryLoadError(
         tab === "orders"
           ? "Customer orders could not load right now. Try again in a moment."
-          : "Customer history could not load right now. Try again in a moment.",
+          : "Customer Transaction Records could not load right now. Try again in a moment.",
       );
     } finally {
       setOrderHistoryLoading(false);
@@ -899,7 +899,7 @@ export function CustomerRelationshipHubDrawer({
       );
       setOrderHistoryRows((prev) => [...prev, ...data.items]);
     } catch {
-      toast("Could not load more orders.", "error");
+      toast(tab === "orders" ? "Could not load more orders." : "Could not load more Transaction Records.", "error");
     } finally {
       setOrderHistoryMoreBusy(false);
     }
@@ -2007,7 +2007,7 @@ export function CustomerRelationshipHubDrawer({
           {tabBtn("profile", "Profile")}
           {tabBtn("messages", "Messages")}
           {canShipmentsView ? tabBtn("shipments", "Shipping") : null}
-          {canOrdersView ? tabBtn("transactions", "History") : null}
+          {canOrdersView ? tabBtn("transactions", "Transactions") : null}
           {canOrdersView ? tabBtn("orders", "Orders") : null}
           {canOrdersView ? tabBtn("layaways", "Layaways") : null}
           {canAlterationsView ? tabBtn("alterations", "Alterations") : null}
@@ -2022,11 +2022,11 @@ export function CustomerRelationshipHubDrawer({
           <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
             <h3 className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
               <Receipt size={14} aria-hidden />
-              {tab === "transactions" ? "History" : "Orders"}
+              {tab === "transactions" ? "Transaction Records" : "Orders"}
             </h3>
             <p className="mb-3 text-xs text-app-text-muted">
               {tab === "transactions"
-                ? "Customer notes, visits, and past purchases when available."
+                ? "Complete sale records for this customer, including takeaways, gift cards, alterations, payments, refunds, and order payments."
                 : "Open and recent special orders, custom work, and wedding items for this customer."}{" "}
               Showing {customer.first_name} {customer.last_name} ·{" "}
               {customer.customer_code}
@@ -2147,7 +2147,7 @@ export function CustomerRelationshipHubDrawer({
 
           {orderHistoryLoading && orderHistoryRows.length === 0 ? (
             <p className="text-sm text-app-text-muted">
-              Loading {tab === "transactions" ? "history" : "orders"}…
+              Loading {tab === "transactions" ? "Transaction Records" : "orders"}…
             </p>
           ) : null}
 
@@ -2162,7 +2162,7 @@ export function CustomerRelationshipHubDrawer({
           !orderHistoryLoading &&
           !orderHistoryLoadError ? (
             <p className="text-sm text-app-text-muted">
-              No {tab === "transactions" ? "history" : "orders"} in this
+              No {tab === "transactions" ? "Transaction Records" : "orders"} in this
               range.
             </p>
           ) : null}
@@ -2222,7 +2222,7 @@ export function CustomerRelationshipHubDrawer({
                         }}
                         className="min-h-11 rounded-lg border border-app-success/20 bg-app-success/10 px-3 py-2 text-xs font-black uppercase tracking-wide text-app-success"
                       >
-                        {tab === "transactions" ? "Open Transaction" : "Open Order"}
+                        {tab === "transactions" ? "Open Transaction Record" : "Open Order"}
                       </button>
                     </div>
                   </article>
@@ -2235,7 +2235,7 @@ export function CustomerRelationshipHubDrawer({
                     <tr>
                       <th className="px-3 py-2">Booked</th>
                       <th className="px-3 py-2">
-                          {tab === "transactions" ? "Transaction" : "Order"}
+                          {tab === "transactions" ? "Transaction Record" : "Order"}
                       </th>
                       <th className="px-3 py-2">Channel</th>
                       <th className="px-3 py-2">Status</th>
@@ -2301,7 +2301,7 @@ export function CustomerRelationshipHubDrawer({
                             className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
                           >
                             {tab === "transactions"
-                              ? "Open Transaction"
+                              ? "Open Transaction Record"
                               : "Open Order"}
                           </button>
                         </td>
@@ -2328,7 +2328,7 @@ export function CustomerRelationshipHubDrawer({
           {orderHistoryRows.length > 0 ? (
             <p className="text-center text-[11px] text-app-text-muted">
               Showing {orderHistoryRows.length} of {orderHistoryTotal}{" "}
-              {tab === "transactions" ? "history records" : "orders"}
+              {tab === "transactions" ? "Transaction Records" : "orders"}
             </p>
           ) : null}
         </div>

@@ -47,7 +47,7 @@ In POS, the trigger is intentionally tighter so it does not crowd the header. Th
 | **Customer** | Jump to the customer profile or send the customer into POS |
 | **Exact SKU** | Open the matching inventory/product target quickly |
 | **Product** | Find the right item when you know the product or variation |
-| **Transaction** | Open the matching transaction/order record |
+| **Transaction** | Open the matching Transaction Record |
 | **Shipment** | Jump to shipping details or tracking context |
 | **Wedding** | Open the wedding party |
 | **Alteration** | Jump to the alteration record |

@@ -21,11 +21,11 @@ Tax exemption is performed during the checkout process within the **Payment Ledg
 ## 🔎 Audit Trail & Reporting
 
 Every tax-exempt transaction is recorded with the following metadata:
-- **Exempt Flag**: Permanently set on the order record.
+- **Exempt Flag**: Permanently set on the Transaction Record.
 - **Reason**: The audit text provided at checkout.
 - **Operator**: The staff member who authorized the exemption (derived from the signed-in session).
 
-This data is available to managers in the **Back Office Reports** and the **Orders Workspace** for tax filing and internal audits.
+This data is available to managers in the **Back Office Reports** and **Transaction Records** for tax filing and internal audits.
 
 ---
 

@@ -31,8 +31,8 @@ Email and text flows **do not** use `receipt_thermal_mode`; they use standard HT
 
 ## Merged HTML
 
-- **`GET /api/orders/{order_id}/receipt.html`** — optional query:
-  - **`register_session_id`** — same auth rules as order read: BO staff with **`orders.view`**, or open register session with a positive allocation to the order.
+- **`GET /api/transactions/{transaction_id}/receipt.html`** — optional query:
+  - **`register_session_id`** — same auth rules as Transaction Record read: BO staff with **`orders.view`**, or open register session with a positive allocation to the transaction.
   - **`gift=1`** / **`true`** / **`yes`** — gift receipt merge (pricing suppressed in template merge).
   - **`order_item_ids`** — comma- or space-separated **`order_items.id`** (UUID) values; when present, only those lines appear on the merged receipt (must match at least one line or **400**).
 - Server loads **`receipt_studio_exported_html`**. If a legacy template exists, it runs **`merge_receipt_studio_html(tpl, order, cfg, gift)`**; otherwise it runs **`render_standard_receipt_html(order, cfg, gift)`**.
@@ -48,7 +48,7 @@ The top logo uses ReceiptLine's image property (`{image: base64-png}`) through t
 
 **ReceiptLine print preference:** The ESC/POS endpoint returns both `receiptline_markdown` (template-based) and `escpos_base64` (legacy structured fallback). The POS client prefers the ReceiptLine path, transforming it client-side for printing. The raw ESC/POS fallback uses a fixed layout and does not honor the operator's template customizations, logo image, or loyalty tokens — it exists solely as a safety net when the client-side ReceiptLine transform fails.
 
-**Thermal ZPL:** **`GET /api/orders/{order_id}/receipt.zpl`** supports the same **`gift`** and **`order_item_ids`** query parameters (full order is the default when omitted).
+**Thermal ESC/POS:** **`GET /api/transactions/{transaction_id}/receipt.escpos`** supports the same **`gift`** and **`order_item_ids`** query parameters (full Transaction Record is the default when omitted).
 
 **Customer-facing privacy:**
 - **Staff and Customer Privacy**: All participant names on customer receipts use **`receipt_privacy::mask_name_for_receipt`** to return **First Name + Last Initial** (e.g. "Christopher G."). Full names are strictly reserved for internal screens, analytical reports, and authenticated API contexts.
@@ -58,7 +58,7 @@ The top logo uses ReceiptLine's image property (`{image: base64-png}`) through t
 
 ## Email receipt (Podium, inline HTML)
 
-- **`POST /api/orders/{order_id}/receipt/send-email`** — JSON body optional **`to_email`**; if omitted, uses the customer email on the order. Optional **`gift`** (bool) and **`order_item_ids`** (UUID array; empty = all lines) — same semantics as the HTML route.
+- **`POST /api/transactions/{transaction_id}/receipt/send-email`** — JSON body optional **`to_email`**; if omitted, uses the customer email on the Transaction Record. Optional **`gift`** (bool) and **`order_item_ids`** (UUID array; empty = all lines) — same semantics as the HTML route.
 - Builds legacy merged HTML when a saved template exists; otherwise builds the standard receipt HTML fallback. The body is wrapped for Podium with **`wrap_receipt_fragment_for_podium_email_inline`** (a single styled **`<div>`**, not a full `<html>` document, so inboxes treat it as normal message HTML rather than a downloadable file).
 - Sends via **`send_podium_email_message`** → Podium **`POST /v4/messages`** with **`channel.type`: `email`**, **`subject`**, HTML **`body`**.
 - Needs **`RIVERSIDE_PODIUM_*`**, **`podium_sms_config.email_send_enabled`**, and **`location_uid`**. Failures surface as **502** with a Podium hint string.
@@ -67,7 +67,7 @@ The top logo uses ReceiptLine's image property (`{image: base64-png}`) through t
 
 ## Text receipt (Podium: MMS image or SMS text)
 
-- **`POST /api/orders/{order_id}/receipt/send-sms`** — JSON optional **`to_phone`**, optional **`png_base64`** (raw base64 PNG, no data-URL prefix), optional **`gift`** and **`order_item_ids`** (gift uses plain-text **`format_pos_gift_receipt_text_message`** when no PNG; MMS raster uses **`receipt.html`** with the same query params as the client).
+- **`POST /api/transactions/{transaction_id}/receipt/send-sms`** — JSON optional **`to_phone`**, optional **`png_base64`** (raw base64 PNG, no data-URL prefix), optional **`gift`** and **`order_item_ids`** (gift uses plain-text **`format_pos_gift_receipt_text_message`** when no PNG; MMS raster uses **`receipt.html`** with the same query params as the client).
 - **With `png_base64`:** decodes PNG (max **6 MiB** decoded), sends **`POST /v4/messages/attachment`** (multipart: JSON **`data`** + **`attachment`** file `receipt.png`) via **`send_podium_phone_message_with_png_attachment`**. Short caption text accompanies the image (MMS behavior depends on carrier / Podium). Response may include **`"mode": "mms_attachment"`**.
 - **Without image:** plain transactional body from **`receipt_plain_text`** (clamped length), **`send_podium_sms_message`**. Response **`"mode": "sms_text"`**.
 - **POS:** Text receipts can include a standard plain transactional body. Gift receipts use the selected gift line set when staff opens the gift receipt action.
@@ -78,7 +78,7 @@ Podium attachment endpoint is **rate-limited** (see Podium docs, typically **10 
 
 ## Related permissions and ops
 
-- Order read / receipt routes: **`docs/STAFF_PERMISSIONS.md`** (`orders.view` or register-session scoping).
+- Transaction Record receipt routes: **`docs/STAFF_PERMISSIONS.md`** (`orders.view` or register-session scoping).
 - Podium env and Settings → Integrations: **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, **`DEVELOPER.md`**.
 - **POS:** **`ReceiptSummaryModal`** — compact sale completion, standard print/send, receipt viewing, and separate **gift receipt** line pick for print/email/text when line items are present — **`docs/PLAN_PODIUM_REVIEWS.md`** for review invite on the same modal.
-- Reporting catalog entries for these paths: **`docs/AI_REPORTING_DATA_CATALOG.md`** (`/api/orders/*`, `/api/hardware/*`).
+- Reporting catalog entries for these paths: **`docs/AI_REPORTING_DATA_CATALOG.md`** (`/api/transactions/*`, `/api/hardware/*`).

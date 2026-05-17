@@ -206,9 +206,9 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await openBackofficeSidebarTab(page, "orders");
 
     await expect(page.getByText("Fulfillment Follow-Up")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(/Layaways stay separate\./i)).toBeVisible();
+    await expect(page.getByText(/Orders are unfulfilled Special, Custom, and Wedding work/i)).toBeVisible();
     await expect(page.getByRole("button", { name: "Open Orders" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Transaction History" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Transaction Records" })).toBeVisible();
 
     const orderRow = page.locator("tr", { hasText: order.displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 20_000 });

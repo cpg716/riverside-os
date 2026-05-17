@@ -472,6 +472,52 @@ async function attachOrderToWedding(
   return (await res.json()) as { id: string };
 }
 
+async function checkoutWeddingGroupPay(
+  request: Parameters<typeof test>[0]["request"],
+  options: {
+    sessionId: string;
+    sessionToken: string;
+    operatorStaffId: string;
+    payerCustomerId: string;
+    weddingMemberId: string;
+    amount: string;
+  },
+) {
+  return request.post(`${apiBase()}/api/transactions/checkout`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": options.sessionId,
+      "x-riverside-pos-session-token": options.sessionToken,
+    },
+    data: {
+      session_id: options.sessionId,
+      operator_staff_id: options.operatorStaffId,
+      primary_salesperson_id: options.operatorStaffId,
+      customer_id: options.payerCustomerId,
+      wedding_member_id: null,
+      payment_method: "cash",
+      total_price: "0.00",
+      amount_paid: options.amount,
+      checkout_client_id: crypto.randomUUID(),
+      items: [],
+      payment_splits: [
+        {
+          payment_method: "cash",
+          amount: options.amount,
+        },
+      ],
+      wedding_disbursements: [
+        {
+          wedding_member_id: options.weddingMemberId,
+          amount: options.amount,
+        },
+      ],
+    },
+    failOnStatusCode: false,
+  });
+}
+
 test.describe("Orders custom vs special contract", () => {
   test("known custom SKU canonicalizes subtype and persists as custom", async ({
     request,
@@ -818,6 +864,59 @@ test.describe("Orders custom vs special contract", () => {
     expect(
       specialOrders.items.some((row) => row.transaction_id === orderBody.transaction_id),
     ).toBeFalsy();
+  });
+
+  test("wedding group pay completes at register and routes deposit to member transaction", async ({
+    request,
+  }) => {
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const beneficiaryFixture = await seedOrderFixture(
+      request,
+      "single_valid",
+      "Orders Wedding Group Pay Target",
+    );
+    const payerFixture = await seedOrderFixture(
+      request,
+      "single_valid",
+      "Orders Wedding Group Pay Payer",
+    );
+
+    const orderCheckout = await checkoutOrder(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: beneficiaryFixture.customer.id,
+      sku: beneficiaryFixture.product.sku,
+      fulfillment: "special_order",
+      amountPaid: "0.00",
+    });
+    expect(orderCheckout.status()).toBe(200);
+    const orderBody = (await orderCheckout.json()) as CheckoutResponse;
+    const attachedMember = await attachOrderToWedding(
+      request,
+      orderBody.transaction_id,
+      "Groomsman",
+    );
+    const beforeDetail = await fetchTransactionDetail(request, orderBody.transaction_id);
+    const beforeBalanceCents = parseMoneyToCents(beforeDetail.balance_due ?? "0.00");
+
+    const groupPayCheckout = await checkoutWeddingGroupPay(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      payerCustomerId: payerFixture.customer.id,
+      weddingMemberId: attachedMember.id,
+      amount: "50.00",
+    });
+    expect(groupPayCheckout.status()).toBe(200);
+
+    const afterDetail = await fetchTransactionDetail(request, orderBody.transaction_id);
+    expect(afterDetail.financial_summary?.total_allocated_payments).toBe("50.00");
+    expect(afterDetail.financial_summary?.total_applied_deposit_amount).toBe("50.00");
+    expect(parseMoneyToCents(afterDetail.balance_due ?? "0.00")).toBe(
+      beforeBalanceCents - 5000,
+    );
   });
 
   test("special orders keep deposit balance and pickup status distinct", async ({

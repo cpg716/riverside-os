@@ -29,7 +29,7 @@ todos:
 **Use the same place you already use Studio: the embedded React app (Back Office),** reachable in the browser (PWA) and inside the **Tauri** desktop shell. You would **not** put the receipt designer on the public **`/shop`** storefront—that surface is for customers.
 
 - **Editing:** Staff open **Settings → Receipt Builder** as its **own section** (not nested under **General**). GrapesJS runs in the same React shell (PWA or Tauri webview).
-- **Printing:** Register still supports **ZPL-first** thermal from [`GET /api/orders/:id/receipt.zpl`](server/src/api/orders.rs) via [`printZplReceipt`](client/src/lib/printerBridge.ts). When **`receipt_thermal_mode`** is **`studio_html`**, merged HTML from Receipt Builder can feed **ESC/POS raster** or related paths — see [`docs/RECEIPT_BUILDER_AND_DELIVERY.md`](docs/RECEIPT_BUILDER_AND_DELIVERY.md) for the full matrix (**ZPL** / **escpos_raster** / **studio_html**).
+- **Printing:** Register receipt output is Transaction Record based, with ESC/POS from [`GET /api/transactions/:id/receipt.escpos`](server/src/api/transactions.rs) and HTML/email/text receipt views under `/api/transactions/:id/receipt/*`. See [`docs/RECEIPT_BUILDER_AND_DELIVERY.md`](docs/RECEIPT_BUILDER_AND_DELIVERY.md) for the current receipt matrix.
 
 ```mermaid
 flowchart LR
@@ -40,12 +40,12 @@ flowchart LR
     JSON[project_json or receipt_config blob]
   end
   subgraph printPath [Current production path]
-    RustZPL[receipt_zpl.rs build_receipt_zpl]
-    Endpoint[GET receipt.zpl]
+    RustReceipt[receipt_escpos.rs / receipt_studio_html.rs]
+    Endpoint[GET receipt.escpos / receipt.html]
     Bridge[Tauri or server TCP]
   end
   Studio --> JSON
-  RustZPL --> Endpoint --> Bridge
+  RustReceipt --> Endpoint --> Bridge
 ```
 
 ## What already exists (reuse)
@@ -54,7 +54,7 @@ flowchart LR
 |--------|----------|
 | Studio SDK embed pattern | [`StorePageStudioEditor.tsx`](client/src/components/settings/StorePageStudioEditor.tsx) — `StudioEditor`, `storage.type: "self"`, `studio:projectFiles` for HTML export |
 | Project type today | `project.type: "web"` — receipt work would switch or parameterize to **`document`** per [Studio document project docs](https://app.grapesjs.com/docs-sdk/project-types/document) |
-| Receipt content & ZPL | [`server/src/logic/receipt_zpl.rs`](server/src/logic/receipt_zpl.rs), wired from [`orders.rs`](server/src/api/orders.rs) |
+| Receipt content | [`server/src/logic/receipt_escpos.rs`](server/src/logic/receipt_escpos.rs), [`server/src/logic/receipt_studio_html.rs`](server/src/logic/receipt_studio_html.rs), wired from [`transactions.rs`](server/src/api/transactions.rs) |
 | Receipt settings JSONB | [`ReceiptConfig`](server/src/api/settings.rs) in `store_settings.receipt_config` |
 | Optional ESC/POS bridge | [`printEscPosReceipt`](client/src/lib/printerBridge.ts) — secondary path already present |
 | Settings navigation pattern | [`SettingsWorkspace.tsx`](client/src/components/settings/SettingsWorkspace.tsx) internal `tabs` + `settingsActiveSection` sync; main app sidebar list in [`Sidebar.tsx`](client/src/components/layout/Sidebar.tsx) `SIDEBAR_SUB_SECTIONS.settings` |
@@ -87,7 +87,7 @@ Treat **Receipt Builder** like **Online store** or **Printing Hub**: a **first-c
 
 4. **Save/load JSON** — Mirror the online store pattern: persist `editor.getProjectData()` (or your `onSave` payload) into **`store_settings.receipt_config`** (extend [`ReceiptConfig`](server/src/api/settings.rs)) **or** a small dedicated column/table if you want version history. Expose **GET/PATCH** next to existing receipt config routes.
 
-5. **Preview with live data** — At print time (or in a “Preview receipt” modal), merge **order payload** (same shape as [`ReceiptOrderForZpl`](server/src/logic/receipt_zpl.rs) or a shared DTO) into the template client-side or via a new **POST `/api/orders/:id/receipt-preview-html`** that returns rendered HTML for a hidden iframe.
+5. **Preview with live data** — At print time (or in a “Preview receipt” modal), merge the Transaction Record receipt payload (same shape as [`ReceiptOrder`](server/src/logic/receipt_shared.rs) or a shared DTO) into the template client-side or via a new **POST `/api/transactions/:id/receipt-preview-html`** that returns rendered HTML for a hidden iframe.
 
 ## Printing: the critical fork
 

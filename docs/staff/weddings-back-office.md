@@ -19,7 +19,7 @@ Use **Weddings** to manage **groups**, **money**, and **dates** for formalwear p
 1. **Weddings** → **Action Board**.
 2. Use **filters** (date, balance, role) if shown.
 3. Open a **card**; take the **next action** (schedule, mark fitted, link order).
-4. **Balance due** may appear on a row when the party has **open order balances** (party-level total; consult **Ledger** / **Orders** before quoting exact dollars).
+4. **Balance due** may appear on a row when the party has **open Transaction Record balances** (party-level total; consult **Ledger** / **Transaction Records** before quoting exact dollars).
 5. **Done** on a quick action uses the **emerald** completion style (same family as **Complete Sale** / **Post inventory**) — still confirm the right **pipeline step** before tapping.
 6. Follow **pipeline rules** your store trained — skipping states breaks reporting.
 
@@ -57,21 +57,21 @@ Common readiness labels:
 2. **Search** by name, event date, or ID.
 3. **Create party** → add **event date**, **location**, **notes**.
 4. **Add members** (groom, groomsmen, etc.) with **roles** and **outfit** types.
-5. **Link orders** when sales exist; balances flow from **orders**, not manual typing.
+5. **Link order lines** when sales exist; balances flow from **Transaction Records**, not manual typing.
 
-### Attaching Orders from Previous POS (v0.1.9)
-If a customer has an order from Counterpoint (legacy) that should belong to this wedding party:
+### Attaching Counterpoint Transaction Records (v0.1.9)
+If a customer has a Counterpoint Transaction Record or fulfillment line that should belong to this wedding party:
 1. Go to **Back Office** → **Orders**.
-2. Find the relevant order and open the detail view.
+2. Find the relevant Transaction Record or open order work and open the detail view.
 3. Click **Attach Wedding** in the action bar.
 4. Select the matching **Wedding Party** and **Member** to link them.
-5. Once linked, the order status and balances will reflect in the **Action Board** pipeline.
+5. Once linked, the fulfillment status and Transaction Record balances will reflect in the **Action Board** pipeline.
 
 ### Mid-season Counterpoint cutover
 
 If ROS starts while weddings are already in progress, managers should use the planned **Cutover Review** workflow before trusting party readiness.
 
-Plain rule: **do not retype money into Wedding Manager.** Counterpoint-synced Transaction Records carry the paid amount, balance, and line items. Staff only confirm which party/member owns each imported sale or order and where each item currently stands.
+Plain rule: **do not retype money into Wedding Manager.** Counterpoint-synced Transaction Records carry the paid amount, balance, and line items. Staff only confirm which party/member owns each imported sale or fulfillment line and where each item currently stands.
 
 Recommended review order:
 

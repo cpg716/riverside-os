@@ -97,8 +97,8 @@
 | GET | `/account/me` | Header **`Authorization: Bearer {token}`** — profile including address fields + **`customer_created_source`**. |
 | PATCH | `/account/me` | **`Bearer`** — JSON body: optional **`first_name`**, **`last_name`**, **`company_name`**, **`phone`**, **`address_line1`**, **`address_line2`**, **`city`**, **`state`**, **`postal_code`** (email is **not** editable here). |
 | POST | `/account/password` | **`Bearer`** — body **`current_password`**, **`new_password`** (Argon2, min **8**). |
-| GET | `/account/orders` | Same **`Bearer`** — paged order history (**`sale_channel`** included). |
-| GET | `/account/orders/{order_id}` | **`Bearer`** — read-only detail for that order **only if** **`orders.customer_id`** matches the token; strips **unit cost** and internal Shippo ids; includes **tracking** link when present. |
+| GET | `/account/orders` | Same **`Bearer`** — paged public web purchase history (**`sale_channel`** included). |
+| GET | `/account/orders/{order_id}` | **`Bearer`** — read-only public web Transaction Record detail only if **`transactions.customer_id`** matches the token; strips **unit cost** and internal Shippo ids; includes **tracking** link when present. |
 | GET | `/navigation` | Public header/footer navigation menus controlled from Online Store. |
 | GET | `/home-layout` | Public ROS-native homepage layout block config. |
 

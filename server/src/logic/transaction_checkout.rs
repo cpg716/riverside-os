@@ -677,11 +677,17 @@ fn build_payment_allocation_plan(
     current_transaction_id: Uuid,
     current_transaction_allocation: Decimal,
     order_payments: &[ResolvedOrderPayment],
+    allowed_unallocated_tender: Decimal,
 ) -> Result<Vec<PaymentAllocationPlan>, CheckoutError> {
     if current_transaction_allocation.round_dp(2) < Decimal::ZERO {
         if !order_payments.is_empty() {
             return Err(CheckoutError::InvalidPayload(
                 "refund allocation cannot target existing order payments".to_string(),
+            ));
+        }
+        if !allowed_unallocated_tender.round_dp(2).is_zero() {
+            return Err(CheckoutError::InvalidPayload(
+                "refund allocation cannot include party disbursements".to_string(),
             ));
         }
         let mut plan = Vec::new();
@@ -726,6 +732,7 @@ fn build_payment_allocation_plan(
         .map(|payment| payment.amount.round_dp(2))
         .unwrap_or(Decimal::ZERO);
     let mut plan = Vec::new();
+    let mut unallocated_tender = Decimal::ZERO;
 
     for (split_index, split) in payment_splits.iter().enumerate() {
         let mut split_remaining = split.amount.round_dp(2);
@@ -788,11 +795,7 @@ fn build_payment_allocation_plan(
             order_remaining = (order_remaining - amount).round_dp(2);
         }
 
-        if split_remaining > Decimal::ZERO {
-            return Err(CheckoutError::InvalidPayload(
-                "payment allocation plan has unallocated tender".to_string(),
-            ));
-        }
+        unallocated_tender += split_remaining;
     }
 
     let allocated_total: Decimal = plan.iter().map(|allocation| allocation.amount).sum();
@@ -803,6 +806,14 @@ fn build_payment_allocation_plan(
         return Err(CheckoutError::InvalidPayload(
             "payment allocation plan does not cover requested order payments".to_string(),
         ));
+    }
+    if unallocated_tender.round_dp(2) != allowed_unallocated_tender.round_dp(2) {
+        let message = if allowed_unallocated_tender.round_dp(2).is_zero() {
+            "payment allocation plan has unallocated tender"
+        } else {
+            "payment allocation plan does not match party disbursements"
+        };
+        return Err(CheckoutError::InvalidPayload(message.to_string()));
     }
 
     Ok(plan)
@@ -3709,7 +3720,14 @@ pub async fn execute_checkout(
         transaction_id,
         amount_toward_order,
         &order_payments,
+        d_total,
     )?;
+    let mut allocated_by_split = vec![Decimal::ZERO; payment_splits.len()];
+    for allocation in &allocation_plan {
+        if let Some(total) = allocated_by_split.get_mut(allocation.payment_split_index) {
+            *total = (*total + allocation.amount).round_dp(2);
+        }
+    }
     let mut order_payment_targets_to_recalc: HashSet<Uuid> = HashSet::new();
 
     if !payload.amount_paid.is_zero() {
@@ -3736,9 +3754,9 @@ pub async fn execute_checkout(
             }
         }
 
-        let mut main_tx_ids = Vec::new();
+        let mut payment_tx_ids_by_split: Vec<Option<Uuid>> = vec![None; payment_splits.len()];
 
-        for split in &mut payment_splits {
+        for (split_index, split) in payment_splits.iter_mut().enumerate() {
             if split.amount.is_zero() {
                 continue;
             }
@@ -3978,11 +3996,13 @@ pub async fn execute_checkout(
                 }
             }
 
-            main_tx_ids.push(payment_tx_id);
+            if let Some(slot) = payment_tx_ids_by_split.get_mut(split_index) {
+                *slot = Some(payment_tx_id);
+            }
 
             for allocation in allocation_plan
                 .iter()
-                .filter(|allocation| allocation.payment_split_index == main_tx_ids.len() - 1)
+                .filter(|allocation| allocation.payment_split_index == split_index)
             {
                 sqlx::query(
                     r#"
@@ -4008,7 +4028,64 @@ pub async fn execute_checkout(
         // --- WEDDING DISBURSEMENT LOGIC ---
         if let Some(disbursements) = &payload.wedding_disbursements {
             if !disbursements.is_empty() {
-                let payer_tx_id = main_tx_ids.first().copied().unwrap_or_else(Uuid::nil);
+                let mut disbursement_sources: Vec<(Uuid, Decimal)> = Vec::new();
+                for (split_index, split) in payment_splits.iter().enumerate() {
+                    let allocated = allocated_by_split
+                        .get(split_index)
+                        .copied()
+                        .unwrap_or(Decimal::ZERO);
+                    let remaining = (split.amount - allocated).round_dp(2);
+                    if remaining <= Decimal::ZERO {
+                        continue;
+                    }
+                    let payment_tx_id = payment_tx_ids_by_split
+                        .get(split_index)
+                        .and_then(|id| *id)
+                        .ok_or_else(|| {
+                            CheckoutError::InvalidPayload(
+                                "party disbursement source payment was not recorded".to_string(),
+                            )
+                        })?;
+                    disbursement_sources.push((payment_tx_id, remaining));
+                }
+                let source_total: Decimal = disbursement_sources
+                    .iter()
+                    .map(|(_, amount)| *amount)
+                    .sum::<Decimal>()
+                    .round_dp(2);
+                if source_total != d_total {
+                    return Err(CheckoutError::InvalidPayload(
+                        "party disbursement sources do not match disbursement total".to_string(),
+                    ));
+                }
+                let mut source_index = 0usize;
+
+                let mut take_disbursement_sources =
+                    |mut amount: Decimal| -> Result<Vec<(Uuid, Decimal)>, CheckoutError> {
+                        let mut chunks = Vec::new();
+                        amount = amount.round_dp(2);
+                        while amount > Decimal::ZERO {
+                            let Some((payment_tx_id, available)) =
+                                disbursement_sources.get_mut(source_index)
+                            else {
+                                return Err(CheckoutError::InvalidPayload(
+                                    "party disbursement source tender is insufficient".to_string(),
+                                ));
+                            };
+                            if *available <= Decimal::ZERO {
+                                source_index += 1;
+                                continue;
+                            }
+                            let chunk = (*available).min(amount).round_dp(2);
+                            chunks.push((*payment_tx_id, chunk));
+                            *available = (*available - chunk).round_dp(2);
+                            amount = (amount - chunk).round_dp(2);
+                            if *available <= Decimal::ZERO {
+                                source_index += 1;
+                            }
+                        }
+                        Ok(chunks)
+                    };
 
                 for d in disbursements {
                     if d.amount <= Decimal::ZERO {
@@ -4031,23 +4108,27 @@ pub async fn execute_checkout(
                     .await?;
 
                     if let Some((bene_transaction_id, party_id)) = bene_order {
-                        sqlx::query(
-                            r#"
-                            INSERT INTO payment_allocations (
-                                transaction_id, target_transaction_id, amount_allocated, metadata
+                        for (source_payment_tx_id, amount) in take_disbursement_sources(d.amount)? {
+                            sqlx::query(
+                                r#"
+                                INSERT INTO payment_allocations (
+                                    transaction_id, target_transaction_id, amount_allocated, metadata
+                                )
+                                VALUES ($1, $2, $3, $4)
+                                "#,
                             )
-                            VALUES ($1, $2, $3, $4)
-                            "#,
-                        )
-                        .bind(payer_tx_id)
-                        .bind(bene_transaction_id)
-                        .bind(d.amount)
-                        .bind(json!({
-                            "kind": "wedding_group_disbursement",
-                            "payer_member_id": payload.wedding_member_id
-                        }))
-                        .execute(&mut *tx)
-                        .await?;
+                            .bind(source_payment_tx_id)
+                            .bind(bene_transaction_id)
+                            .bind(amount)
+                            .bind(json!({
+                                "kind": "wedding_group_disbursement",
+                                "payer_member_id": payload.wedding_member_id,
+                                "wedding_member_id": d.wedding_member_id,
+                                "applied_deposit_amount": amount.to_string()
+                            }))
+                            .execute(&mut *tx)
+                            .await?;
+                        }
 
                         transaction_recalc::recalc_transaction_totals(&mut tx, bene_transaction_id)
                             .await
@@ -4087,6 +4168,7 @@ pub async fn execute_checkout(
                         .await?;
 
                         if let Some((bene_customer_id, bene_party_id)) = bene {
+                            let _source_chunks = take_disbursement_sources(d.amount)?;
                             let payer_name: Option<String> = if let Some(pc) = payload.customer_id {
                                 sqlx::query_scalar(
                                     r#"
@@ -4129,10 +4211,9 @@ pub async fn execute_checkout(
                             }
                             })?;
                         } else {
-                            tracing::warn!(
-                                wedding_member_id = %d.wedding_member_id,
-                                "Wedding disbursement skipped: member not found"
-                            );
+                            return Err(CheckoutError::InvalidPayload(
+                                "wedding disbursement target member was not found".to_string(),
+                            ));
                         }
                     }
                 }
@@ -4549,10 +4630,11 @@ mod tests {
         validate_checkout_item_quantity, validate_order_payment_against_target,
         validate_order_payment_shape, CheckoutAlterationIntake, CheckoutDone, CheckoutItem,
         CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget,
-        ResolvedOrderPayment, ResolvedPaymentSplit,
+        ResolvedOrderPayment, ResolvedPaymentSplit, WeddingDisbursement,
     };
     use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
     use crate::logic::corecard::{CoreCardFailureCode, CoreCardHostMutationResult};
+    use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
     use crate::models::{DbFulfillmentType, DbOrderStatus};
     use rust_decimal::Decimal;
     use serde_json::json;
@@ -5068,6 +5150,7 @@ mod tests {
             current_tx_id,
             Decimal::new(6000, 2),
             &order_payments,
+            Decimal::ZERO,
         )
         .unwrap();
 
@@ -5114,6 +5197,7 @@ mod tests {
             current_tx_id,
             Decimal::ZERO,
             &order_payments,
+            Decimal::ZERO,
         )
         .unwrap();
 
@@ -5131,6 +5215,25 @@ mod tests {
     }
 
     #[test]
+    fn transaction_checkout_allocation_plan_reserves_party_disbursement_tender() {
+        let current_tx_id = Uuid::new_v4();
+
+        let plan = build_payment_allocation_plan(
+            &[resolved_split(Decimal::new(12500, 2))],
+            current_tx_id,
+            Decimal::new(7500, 2),
+            &[],
+            Decimal::new(5000, 2),
+        )
+        .unwrap();
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].target_transaction_id, current_tx_id);
+        assert_eq!(plan[0].amount, Decimal::new(7500, 2));
+        assert!(!plan[0].is_existing_order_payment);
+    }
+
+    #[test]
     fn transaction_checkout_allocation_plan_allows_cash_rounded_refund() {
         let current_tx_id = Uuid::new_v4();
 
@@ -5139,6 +5242,7 @@ mod tests {
             current_tx_id,
             Decimal::new(-7125, 2),
             &[],
+            Decimal::ZERO,
         )
         .unwrap();
 
@@ -5327,6 +5431,85 @@ mod tests {
             .await?;
         sqlx::query("DELETE FROM staff WHERE id = $1")
             .bind(staff_id)
+            .execute(pool)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn cleanup_wedding_group_pay_checkout_test(
+        pool: &PgPool,
+        transaction_ids: &[Uuid],
+        session_id: Uuid,
+        staff_id: Uuid,
+        product_id: Uuid,
+        variant_id: Uuid,
+        category_id: Uuid,
+        party_id: Uuid,
+        member_id: Uuid,
+        beneficiary_customer_id: Uuid,
+        payer_customer_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            DELETE FROM payment_allocations
+            WHERE target_transaction_id = ANY($1)
+               OR transaction_id IN (
+                    SELECT id FROM payment_transactions WHERE session_id = $2
+               )
+            "#,
+        )
+        .bind(transaction_ids)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+        sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = ANY($1)")
+            .bind(transaction_ids)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM transactions WHERE id = ANY($1)")
+            .bind(transaction_ids)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM fulfillment_orders WHERE customer_id = $1 OR wedding_id = $2")
+            .bind(beneficiary_customer_id)
+            .bind(party_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM payment_transactions WHERE session_id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM register_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM wedding_members WHERE id = $1")
+            .bind(member_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM wedding_parties WHERE id = $1")
+            .bind(party_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM product_variants WHERE id = $1")
+            .bind(variant_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM categories WHERE id = $1")
+            .bind(category_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM staff WHERE id = $1")
+            .bind(staff_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM customers WHERE id = ANY($1)")
+            .bind(vec![beneficiary_customer_id, payer_customer_id])
             .execute(pool)
             .await?;
 
@@ -5594,6 +5777,404 @@ mod tests {
         )
         .await
         .expect("cleanup checkout persistence test");
+    }
+
+    #[tokio::test]
+    async fn execute_checkout_completes_wedding_group_pay_and_routes_deposit() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let staff_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        let category_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let party_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let sku = format!("E2E-WED-GROUP-PAY-{}", Uuid::new_v4().simple());
+        let register_lane: i16 = sqlx::query_scalar(
+            r#"
+            SELECT gs.lane::smallint
+            FROM generate_series(1, 99) AS gs(lane)
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM register_sessions rs
+                WHERE rs.is_open = TRUE AND rs.register_lane = gs.lane
+            )
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("find open register lane for checkout test");
+
+        sqlx::query(
+            r#"
+            INSERT INTO staff (
+                id, full_name, cashier_code, base_commission_rate,
+                role, max_discount_percent
+            )
+            VALUES ($1, $2, $3, $4, 'admin'::staff_role, $5)
+            "#,
+        )
+        .bind(staff_id)
+        .bind("Wedding Group Pay Checkout Regression Staff")
+        .bind(format!("W{}", &staff_id.simple().to_string()[0..8]))
+        .bind(Decimal::new(200, 4))
+        .bind(Decimal::new(10000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert staff");
+
+        sqlx::query(
+            r#"
+            INSERT INTO register_sessions (
+                id, opened_by, opening_float, is_open, register_lane, till_close_group_id
+            )
+            VALUES ($1, $2, 0, TRUE, $3, $4)
+            "#,
+        )
+        .bind(session_id)
+        .bind(staff_id)
+        .bind(register_lane)
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("insert register session");
+
+        sqlx::query(
+            r#"
+            INSERT INTO categories (id, name, is_clothing_footwear)
+            VALUES ($1, $2, FALSE)
+            "#,
+        )
+        .bind(category_id)
+        .bind(format!(
+            "Wedding Group Pay Regression {}",
+            category_id.simple()
+        ))
+        .execute(&pool)
+        .await
+        .expect("insert category");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, category_id, name, base_retail_price, base_cost)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(product_id)
+        .bind(category_id)
+        .bind("Wedding Group Pay Regression Product")
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert product");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand)
+            VALUES ($1, $2, $3, '{}'::jsonb, 0)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .execute(&pool)
+        .await
+        .expect("insert variant");
+
+        let suffix = Uuid::new_v4().simple().to_string();
+        let beneficiary_customer_id = insert_customer(
+            &pool,
+            InsertCustomerParams {
+                customer_code: None,
+                first_name: "Wedding".to_string(),
+                last_name: format!("Beneficiary {}", &suffix[0..8]),
+                company_name: None,
+                email: Some(format!("wed-beneficiary-{suffix}@example.test")),
+                phone: Some(format!("555{}", &suffix[0..7])),
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                date_of_birth: None,
+                anniversary_date: None,
+                custom_field_1: None,
+                custom_field_2: None,
+                custom_field_3: None,
+                custom_field_4: None,
+                marketing_email_opt_in: false,
+                marketing_sms_opt_in: false,
+                transactional_sms_opt_in: true,
+                transactional_email_opt_in: true,
+                customer_created_source: CustomerCreatedSource::Store,
+            },
+        )
+        .await
+        .expect("insert beneficiary customer");
+        let payer_customer_id = insert_customer(
+            &pool,
+            InsertCustomerParams {
+                customer_code: None,
+                first_name: "Wedding".to_string(),
+                last_name: format!("Payer {}", &suffix[0..8]),
+                company_name: None,
+                email: Some(format!("wed-payer-{suffix}@example.test")),
+                phone: Some(format!("556{}", &suffix[0..7])),
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                date_of_birth: None,
+                anniversary_date: None,
+                custom_field_1: None,
+                custom_field_2: None,
+                custom_field_3: None,
+                custom_field_4: None,
+                marketing_email_opt_in: false,
+                marketing_sms_opt_in: false,
+                transactional_sms_opt_in: true,
+                transactional_email_opt_in: true,
+                customer_created_source: CustomerCreatedSource::Store,
+            },
+        )
+        .await
+        .expect("insert payer customer");
+
+        sqlx::query(
+            r#"
+            INSERT INTO wedding_parties (id, party_name, groom_name, event_date, party_type, is_deleted)
+            VALUES ($1, $2, $3, $4, 'Wedding', FALSE)
+            "#,
+        )
+        .bind(party_id)
+        .bind("Wedding Group Pay Regression Party")
+        .bind("Regression Groom")
+        .bind(chrono::NaiveDate::from_ymd_opt(2027, 1, 10).unwrap())
+        .execute(&pool)
+        .await
+        .expect("insert wedding party");
+
+        sqlx::query(
+            r#"
+            INSERT INTO wedding_members (
+                id, wedding_party_id, customer_id, role, status, member_index
+            )
+            VALUES ($1, $2, $3, 'Groomsman', 'active', 1)
+            "#,
+        )
+        .bind(member_id)
+        .bind(party_id)
+        .bind(beneficiary_customer_id)
+        .execute(&pool)
+        .await
+        .expect("insert wedding member");
+
+        let order_payload = CheckoutRequest {
+            session_id,
+            operator_staff_id: staff_id,
+            primary_salesperson_id: Some(staff_id),
+            customer_id: Some(beneficiary_customer_id),
+            wedding_member_id: Some(member_id),
+            payment_method: "cash".to_string(),
+            total_price: Decimal::new(10000, 2),
+            amount_paid: Decimal::ZERO,
+            items: vec![CheckoutItem {
+                client_line_id: Some("wedding-order-line-1".to_string()),
+                line_type: None,
+                alteration_intake_id: None,
+                product_id,
+                variant_id,
+                fulfillment: DbFulfillmentType::WeddingOrder,
+                quantity: 1,
+                unit_price: Decimal::new(10000, 2),
+                original_unit_price: None,
+                price_override_reason: None,
+                unit_cost: Decimal::new(4000, 2),
+                state_tax: Decimal::ZERO,
+                local_tax: Decimal::ZERO,
+                salesperson_id: Some(staff_id),
+                discount_event_id: None,
+                gift_card_load_code: None,
+                custom_item_type: None,
+                custom_order_details: None,
+                is_rush: false,
+                need_by_date: None,
+                needs_gift_wrap: false,
+                order_lifecycle_status: None,
+            }],
+            alteration_intakes: vec![],
+            actor_name: Some("Wedding Group Pay Test".to_string()),
+            payment_splits: Some(vec![]),
+            wedding_disbursements: None,
+            order_payments: vec![],
+            checkout_client_id: Some(Uuid::new_v4()),
+            shipping_rate_quote_id: None,
+            fulfillment_mode: None,
+            ship_to: None,
+            target_transaction_id: None,
+            booked_at_local: None,
+            is_rush: false,
+            need_by_date: None,
+            is_tax_exempt: true,
+            tax_exempt_reason: Some("test tax-exempt checkout".to_string()),
+            rounding_adjustment: None,
+            final_cash_due: None,
+        };
+
+        let order_transaction_id = match execute_checkout(
+            &pool,
+            &reqwest::Client::new(),
+            &CoreCardConfig::from_env(),
+            &Arc::new(Mutex::new(CoreCardTokenCache::default())),
+            Decimal::ZERO,
+            order_payload,
+        )
+        .await
+        {
+            Ok(CheckoutDone::Completed { transaction_id, .. }) => transaction_id,
+            other => {
+                cleanup_wedding_group_pay_checkout_test(
+                    &pool,
+                    &[],
+                    session_id,
+                    staff_id,
+                    product_id,
+                    variant_id,
+                    category_id,
+                    party_id,
+                    member_id,
+                    beneficiary_customer_id,
+                    payer_customer_id,
+                )
+                .await
+                .expect("cleanup after order checkout failure");
+                panic!("wedding order checkout should complete: {other:?}");
+            }
+        };
+
+        let group_pay_payload = CheckoutRequest {
+            session_id,
+            operator_staff_id: staff_id,
+            primary_salesperson_id: Some(staff_id),
+            customer_id: Some(payer_customer_id),
+            wedding_member_id: None,
+            payment_method: "cash".to_string(),
+            total_price: Decimal::ZERO,
+            amount_paid: Decimal::new(5000, 2),
+            items: vec![],
+            alteration_intakes: vec![],
+            actor_name: Some("Wedding Group Pay Test".to_string()),
+            payment_splits: Some(vec![CheckoutPaymentSplit {
+                payment_method: "cash".to_string(),
+                amount: Decimal::new(5000, 2),
+                sub_type: None,
+                applied_deposit_amount: None,
+                gift_card_code: None,
+                check_number: None,
+                metadata: None,
+            }]),
+            wedding_disbursements: Some(vec![WeddingDisbursement {
+                wedding_member_id: member_id,
+                amount: Decimal::new(5000, 2),
+            }]),
+            order_payments: vec![],
+            checkout_client_id: Some(Uuid::new_v4()),
+            shipping_rate_quote_id: None,
+            fulfillment_mode: None,
+            ship_to: None,
+            target_transaction_id: None,
+            booked_at_local: None,
+            is_rush: false,
+            need_by_date: None,
+            is_tax_exempt: true,
+            tax_exempt_reason: Some("test tax-exempt checkout".to_string()),
+            rounding_adjustment: None,
+            final_cash_due: None,
+        };
+
+        let group_pay_transaction_id = match execute_checkout(
+            &pool,
+            &reqwest::Client::new(),
+            &CoreCardConfig::from_env(),
+            &Arc::new(Mutex::new(CoreCardTokenCache::default())),
+            Decimal::ZERO,
+            group_pay_payload,
+        )
+        .await
+        {
+            Ok(CheckoutDone::Completed { transaction_id, .. }) => transaction_id,
+            other => {
+                cleanup_wedding_group_pay_checkout_test(
+                    &pool,
+                    &[order_transaction_id],
+                    session_id,
+                    staff_id,
+                    product_id,
+                    variant_id,
+                    category_id,
+                    party_id,
+                    member_id,
+                    beneficiary_customer_id,
+                    payer_customer_id,
+                )
+                .await
+                .expect("cleanup after group pay checkout failure");
+                panic!("wedding group pay checkout should complete: {other:?}");
+            }
+        };
+
+        let (amount_paid, balance_due): (Decimal, Decimal) =
+            sqlx::query_as("SELECT amount_paid, balance_due FROM transactions WHERE id = $1")
+                .bind(order_transaction_id)
+                .fetch_one(&pool)
+                .await
+                .expect("fetch beneficiary transaction totals");
+        assert_eq!(amount_paid, Decimal::new(5000, 2));
+        assert_eq!(balance_due, Decimal::new(5000, 2));
+
+        let (allocated, applied_deposit): (Option<Decimal>, Option<Decimal>) = sqlx::query_as(
+            r#"
+            SELECT
+                COALESCE(SUM(amount_allocated), 0::numeric),
+                COALESCE(SUM((metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric)
+            FROM payment_allocations
+            WHERE target_transaction_id = $1
+            "#,
+        )
+        .bind(order_transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch beneficiary payment allocation totals");
+        assert_eq!(allocated.unwrap_or(Decimal::ZERO), Decimal::new(5000, 2));
+        assert_eq!(
+            applied_deposit.unwrap_or(Decimal::ZERO),
+            Decimal::new(5000, 2)
+        );
+
+        cleanup_wedding_group_pay_checkout_test(
+            &pool,
+            &[order_transaction_id, group_pay_transaction_id],
+            session_id,
+            staff_id,
+            product_id,
+            variant_id,
+            category_id,
+            party_id,
+            member_id,
+            beneficiary_customer_id,
+            payer_customer_id,
+        )
+        .await
+        .expect("cleanup wedding group pay checkout test");
     }
 
     #[test]

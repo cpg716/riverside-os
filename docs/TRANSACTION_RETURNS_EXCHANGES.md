@@ -37,7 +37,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 | List transactions | `GET /api/transactions?register_session_id=…` | Session `lifecycle_status = open`. |
 | Transaction detail | `GET /api/transactions/{id}?register_session_id=…` | Same + positive allocation from that session. |
 | Audit | `GET /api/transactions/{id}/audit?register_session_id=…` | Same. |
-| Receipt ZPL | `GET /api/transactions/{id}/receipt.zpl?register_session_id=…&mode=…` | Same. |
+| Receipt ESC/POS / HTML | `GET /api/transactions/{id}/receipt.escpos?register_session_id=…` or `GET /api/transactions/{id}/receipt.html?register_session_id=…` | Same. |
 | Pickup | `POST /api/transactions/{id}/pickup` body `{ "register_session_id": "…", … }` | Same. |
 | Line returns | `POST /api/transactions/{id}/returns` query `?register_session_id=…` | Same. |
 | Exchange link | `POST /api/transactions/{id}/exchange-link?register_session_id=…` | Same positive-allocation rule for **both** transactions being linked. |

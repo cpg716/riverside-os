@@ -155,7 +155,7 @@ function orderItemLines(
   if (hydrated?.error) return ["Could not load order items"];
   const summary = row.order_items_summary?.trim();
   if (summary) return summary.split(/\n|,\s+(?=\d+(?:\.\d+)?x\s)/i).map((line) => line.trim()).filter(Boolean);
-  return row.item_count > 0 ? ["Loading order items..."] : ["No order items on this transaction"];
+  return row.item_count > 0 ? ["Loading order items..."] : ["No open order items on this Transaction Record"];
 }
 
 function formatLifecycleStatusLabel(status: string | null | undefined) {
@@ -342,7 +342,7 @@ function openBespokeOrdersPrint(opts: {
           </div>
 
           <div class="items-title">Items Ordered</div>
-          <div class="items-list">${itemRows || `<div class="item-row muted">No order items on this transaction</div>`}</div>
+          <div class="items-list">${itemRows || `<div class="item-row muted">No open order items on this Transaction Record</div>`}</div>
 
           <div class="order-footer">
             <div class="staff-line">
@@ -1356,7 +1356,7 @@ export default function OrdersWorkspace({
 
   const orderStatCards = [
     {
-      label: "Visible Records",
+      label: viewPreset === "open" ? "Visible Orders" : "Transaction Records",
       value: orderIntegritySummary.visibleOrders,
       icon: ORDERS_ICON,
       tint: "ui-tint-info",
@@ -1410,9 +1410,9 @@ export default function OrdersWorkspace({
       toast("Order item names are still loading. Try Print again once the list finishes.", "info");
       return;
     }
-    const title = viewPreset === "open" ? "Open Orders List" : "Transaction History List";
+    const title = viewPreset === "open" ? "Open Orders List" : "Transaction Records List";
     const filters = [
-      `View: ${viewPreset === "open" ? "Open orders" : "Transaction history"}`,
+      `View: ${viewPreset === "open" ? "Open orders" : "Transaction records"}`,
       `Date: ${dateFilterLabel(datePreset, dateFrom, dateTo)}`,
       `Type: ${kindFilter === "all" ? "All" : orderKindLabel(kindFilter)}`,
       `Payment: ${paymentFilter === "all" ? "All" : paymentFilter}`,
@@ -1537,11 +1537,11 @@ export default function OrdersWorkspace({
                   Fulfillment Follow-Up
                 </p>
                 <p className="mt-1 text-sm font-semibold text-app-text">
-                  Special, Custom, and Wedding order work with transaction payment context. Layaways stay separate.
+                  Orders are unfulfilled Special, Custom, and Wedding work. Transaction Records hold the complete sale, including takeaways, gift cards, alterations, payments, and refunds.
                 </p>
               </div>
               <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {totalCount} records found
+                {totalCount} {viewPreset === "open" ? "orders" : "Transaction Records"} found
               </span>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -1575,7 +1575,7 @@ export default function OrdersWorkspace({
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by customer, phone, transaction number, or order number..."
+                  placeholder="Search by customer, phone, Transaction Record #, or fulfillment order #..."
                   className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
@@ -1584,7 +1584,7 @@ export default function OrdersWorkspace({
                 {(
                   [
                     { id: "open", label: "Open Orders" },
-                    { id: "all", label: "Transaction History" },
+                    { id: "all", label: "Transaction Records" },
                   ] satisfies Array<{ id: OrderViewPreset; label: string }>
                 ).map((preset) => {
                   const active = viewPreset === preset.id;
@@ -1611,7 +1611,7 @@ export default function OrdersWorkspace({
                   onClick={printOrdersList}
                   disabled={transactionRows.length === 0 || transactionsLoading || hasUnresolvedOrderItems}
                   className="flex items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-text disabled:cursor-not-allowed disabled:opacity-50"
-                  title={hasUnresolvedOrderItems ? "Order item names are still loading" : "Print current orders list"}
+                  title={hasUnresolvedOrderItems ? "Order item names are still loading" : viewPreset === "open" ? "Print current orders list" : "Print current Transaction Records list"}
                 >
                   <Printer size={16} />
                   {hasUnresolvedOrderItems ? "Loading Items" : "Print"}
@@ -1750,9 +1750,9 @@ export default function OrdersWorkspace({
               </colgroup>
               <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-3">
                 <tr>
-                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">ID / Date</th>
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Transaction / Date</th>
                   <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Customer</th>
-                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Order Items / Lifecycle</th>
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">{viewPreset === "open" ? "Order Items / Lifecycle" : "Sale Lines / Lifecycle"}</th>
                   <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Salesperson / Cashier</th>
                   <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Status</th>
                   <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Transaction Amounts</th>

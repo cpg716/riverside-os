@@ -7,7 +7,7 @@
 Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) integration in **two channels**:
 
 1. **Online Store** (**FUTURE** for label + paid-checkout binding) — Customer sees **real-time or cached rates** at cart (**estimate only** until checkout ships); **label purchase** and **tracking** after payment remain **roadmap**.
-2. **POS / Register** (**supported path**) — Staff attach **ship-to** orders with **quoted shipping** and **buy label** from register/orders/shipments.
+2. **POS / Register** (**supported path**) — Staff attach **ship-to** fulfillment work with **quoted shipping** and **buy label** from register/orders/shipments.
 
 **Related:** [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md) (web cart, Helcim, ship-to tax). **Shipped reference:** [`SHIPPING_AND_SHIPMENTS_HUB.md`](./SHIPPING_AND_SHIPMENTS_HUB.md). **Money:** `rust_decimal::Decimal` in ROS; Shippo returns string decimals — parse carefully at boundaries.
 
@@ -19,8 +19,8 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 - **Rates** from **from_address** (store warehouse / retail location) + **to_address** + **parcel** (weight + dimensions).
 - **Labels**: purchase through Shippo; persist **tracking URL**, **carrier**, **label PDF URL** (or Shippo object id for re-fetch).
 - **Web + POS** share **`logic/shippo.rs`** (no duplicated HTTP).
-- **Audit**: who bought the label, cost, linked `order_id`.
-- **Late-bound shipping $**: Many in-store orders **do not** have a final shipping charge at sale time (unknown weight, ship-later, or “we’ll quote when it’s packed”). ROS must support **adding or finalizing the shipping charge later**, including at **fulfillment transitions** (e.g. when staff marks items **ready to ship** or completes **pickup / delivered** steps in Back Office or POS (**Register** cart) — see **`mark_order_pickup`** in [`server/src/api/orders.rs`](../server/src/api/orders.rs)).
+- **Audit**: who bought the label, cost, linked `transaction_id` / shipment.
+- **Late-bound shipping $**: Many in-store Transaction Records with fulfillment work **do not** have a final shipping charge at sale time (unknown weight, ship-later, or “we’ll quote when it’s packed”). ROS must support **adding or finalizing the shipping charge later**, including at **fulfillment transitions** (e.g. when staff marks items **ready to ship** or completes **pickup / delivered** steps in Back Office or POS (**Register** cart) — see **`mark_transaction_pickup`** in [`server/src/api/transactions.rs`](../server/src/api/transactions.rs)).
 
 ## Non-goals (current phase)
 
@@ -46,13 +46,13 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 | Component | Role |
 |-----------|------|
 | **`server/src/logic/shippo.rs`** | `get_rates(...)`, `create_shipment(...)`, `purchase_label(...)`, parse responses → `Decimal` |
-| **`server/src/api/shippo.rs`** or nested under **`orders`** + **`store`** | Thin handlers; staff vs public auth split |
-| **`orders` / `order_shipments` schema** | Persist addresses, selected rate id, shipment id, tracking, **shipping_charge** passed to totals |
+| **`server/src/api/shipments.rs`** + **`store`** / POS shipping routes | Thin handlers; staff vs public auth split |
+| **`transactions` / `shipment` schema** | Persist addresses, selected rate id, shipment id, tracking, **shipping_charge** passed to totals |
 | **Webhook route** | `POST /api/integrations/shippo/webhook` and `POST /api/webhooks/shippo` — verify token/HMAC; update tracking state |
 
 ### Data model (migrations — illustrative)
 
-**Option A — columns on `orders`**
+**Option A — columns on `transactions`**
 
 - `fulfillment_method`: `pickup` | `ship` (enum or text).
 - `ship_to` **JSONB** (structured address).
@@ -60,13 +60,13 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 - `shippo_shipment_object_id`, `shippo_transaction_object_id` (or single transaction id).
 - `tracking_number`, `tracking_url_provider`, `shipping_label_url` (optional; prefer Shippo-hosted URL).
 
-**Option B — `order_shipments` table** (better if multi-package later)
+**Option B — `shipment` / transaction-linked shipment table** (better if multi-package later)
 
-- `order_id`, `direction` `outbound`, `to_address` jsonb, `parcel` jsonb, `selected_rate_id`, `label_purchased_at`, `shippo_*` ids, `amount_charged`, `label_cost`.
+- `transaction_id`, `direction` `outbound`, `to_address` jsonb, `parcel` jsonb, `selected_rate_id`, `label_purchased_at`, `shippo_*` ids, `amount_charged`, `label_cost`.
 
 **POS fee modeling**
 
-- Include **`shipping_amount_usd`** in **`orders.total_price`** / payment allocation the same way discounts are applied — **do not** use float intermediates.
+- Include **`shipping_amount_usd`** in **`transactions.total_price`** / payment allocation the same way discounts are applied — **do not** use float intermediates.
 - If today’s checkout only sums **product lines**, extend **`CheckoutRequest`** (or equivalent) with **`shipping_lines: [{ description, amount_usd }]`** validated server-side against **re-selected Shippo rate token** (see below).
 
 ### Anti-tamper: web checkout
@@ -74,15 +74,15 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 - Client must not invent shipping prices. Flow:
   1. `POST /api/store/shipping/rates` with **cart id** + **ship-to** → server builds parcel(s) from variant **weights** (require **weight on variant or product** — migration if missing).
   2. Response includes **opaque `rate_quote_id`** (server-stored, short TTL) bound to **amount + carrier + service level**.
-  3. `POST /api/store/checkout` includes **`rate_quote_id`**; server verifies and locks shipping into order totals before Helcim session.
+  3. `POST /api/store/checkout` includes **`rate_quote_id`**; server verifies and locks shipping into Transaction Record totals before Helcim session.
 
 ### POS flow
 
 1. Cashier attaches customer + items; taps **“Ship order”**.
 2. Enter/edit **ship-to** (or pull from **`customers`** address fields).
-3. **`POST /api/orders/{id}/shipping/rates`** or pre-checkout **`POST /api/pos/shipping/rates`** with **line items** → Shippo rates.
+3. **`POST /api/pos/shipping/rates`** pre-checkout, or **`POST /api/shipments/{id}/rates`** after a shipment row exists → Shippo rates.
 4. Cashier picks rate → server stores quote on **draft order** or passes into **`POST /checkout`** payload.
-5. **Optional** post-payment: **`POST /api/orders/{id}/shipping/buy-label`** — `orders.modify` + open register session rules as applicable.
+5. **Optional** post-payment: **`POST /api/shipments/{id}/purchase-label`** — `shipments.manage` + staff/register rules as applicable.
 
 ### Late-bound shipping (charge not known at order start)
 
@@ -90,14 +90,14 @@ Retail reality: staff often sell the order **before** they know **package weight
 
 | Scenario | Behavior |
 |----------|----------|
-| **Checkout without shipping $** | Order may complete with **`fulfillment_method = ship`** (or equivalent) and **`shipping_amount_usd = 0`** / unset, plus **ship_to** captured or deferred until packing. |
-| **Add charge when “ready”** | When moving lines toward **fulfillment** — e.g. marking **ready for delivery**, **packed**, or using the existing **pickup / mark fulfilled** flow — if the order is **ship** and shipping is still unset or zero, **prompt staff** (Back Office **Orders** + POS **Register**) to **Get Shippo rates → add shipping line** before or as part of that step. |
+| **Checkout without shipping $** | Transaction Record may complete with **`fulfillment_method = ship`** (or equivalent) and **`shipping_amount_usd = 0`** / unset, plus **ship_to** captured or deferred until packing. |
+| **Add charge when “ready”** | When moving lines toward **fulfillment** — e.g. marking **ready for delivery**, **packed**, or using the existing **pickup / mark fulfilled** flow — if the fulfillment work is **ship** and shipping is still unset or zero, **prompt staff** (Back Office **Orders** + POS **Register**) to **Get Shippo rates → add shipping line** before or as part of that step. |
 | **Order already paid** | Adding shipping increases **balance due**; require **`orders.modify`** (and Register rules) to **collect additional tender** or record **account charge**, then **`recalc_order_totals`** — same discipline as other post-sale adjustments. |
 | **Open / partial pay** | Apply quoted shipping before final payment; **`rate_quote_id`** or server-side re-quote at fulfillment time. |
 
 **UI principle:** Any surface that changes fulfillment state (“ready”, “pickup complete”, “ship this”) for a **ship** order should **gate** or **wizard-link** to **Add shipping** if `shipping_amount_usd` is missing or policy requires a label before dispatch.
 
-**Implementation note:** Wire explicitly to [`mark_order_pickup`](../server/src/api/orders.rs) callers (and parallel BO actions) so staff cannot mark a **ship** order fully fulfilled without either a configured **$0 ship** override (admin) or a **non-zero shipping line** + optional label workflow — product rules TBD per store.
+**Implementation note:** Wire explicitly to [`mark_transaction_pickup`](../server/src/api/transactions.rs) callers (and parallel BO actions) so staff cannot mark **ship** fulfillment work fully fulfilled without either a configured **$0 ship** override (admin) or a **non-zero shipping line** + optional label workflow — product rules TBD per store.
 
 ---
 
@@ -108,7 +108,7 @@ Retail reality: staff often sell the order **before** they know **package weight
 | Cart | Collect **ship-to** (validates with Shippo **address validation** if enabled — optional API). |
 | Rates | Show 3–5 options; display **delivery estimate** from Shippo. |
 | Checkout | Helcim total = merchandise + tax + **selected shipping** (from verified quote). |
-| After pay | Webhook creates order → **auto-purchase label** OR task queue **“pending label”** for Back Office batch print. |
+| After pay | Webhook creates Transaction Record + fulfillment work → **auto-purchase label** OR task queue **“pending label”** for Back Office batch print. |
 | Email | Include **tracking link** from Shippo/ carrier. |
 
 Tie-in with **§6 destination tax** in [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md): **ship-to** used for both **tax** and **rates**.
@@ -121,7 +121,7 @@ Tie-in with **§6 destination tax** in [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ON
 |---------|----------|
 | **[`Cart.tsx`](../client/src/components/pos/Cart.tsx)** or checkout drawer | **“Shipping”** action: modal for address + rate picker + preview of added **$** line (when known at sale time). |
 | **Order detail** ([`OrdersWorkspace.tsx`](../client/src/components/orders/OrdersWorkspace.tsx)) | For `fulfillment_method = ship`: **Add / edit shipping** anytime before dispatch (rates + line); tracking, **Reprint label**, **Buy label** if not yet purchased. |
-| **Fulfillment / pickup flows** | When staff mark items **ready** or **pickup / delivered** ([`mark_order_pickup`](../server/src/api/orders.rs)): if order ships and shipping not finalized, **offer or require** the Shippo quote → charge step (see **Late-bound shipping** above). |
+| **Fulfillment / pickup flows** | When staff mark items **ready** or **pickup / delivered** ([`mark_transaction_pickup`](../server/src/api/transactions.rs)): if fulfillment work ships and shipping not finalized, **offer or require** the Shippo quote → charge step (see **Late-bound shipping** above). |
 | **Permissions** | **`orders.modify`** for adding shipping to open order; **`orders.*`** + optional **`shipping.purchase_label`** if you want to restrict label spend. |
 
 ### Stock

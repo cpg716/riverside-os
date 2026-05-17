@@ -28,6 +28,7 @@ export type OperationsCenterNavigateTarget = {
     | "alterations"
     | "inventory"
     | "payments"
+    | "qbo"
     | "settings"
     | "customers"
     | "appointments"

@@ -48,7 +48,7 @@ Riverside OS hides **entire tabs** or **subsections** when your role does not in
 | **Hub** — timeline + **add note** | **customers.timeline** |
 | **Hub** — **Measurements** tab | **customers.measurements** |
 | **Customers → RMS charge** (R2S ledger report) | **customers.rms_charge** |
-| **Hub** — **Orders** tab (history) | **orders.view** |
+| **Hub** — **Transactions** tab and fulfillment-order views | **orders.view** |
 | **Staff → Team** (+ Add Staff / link profile) | **staff.edit** |
 | **Pick which register to attach to** when several are open; **list open registers** for satellite link | **register.session_attach** (see **[Till group / lanes](../TILL_GROUP_AND_REGISTER_OPEN.md)** and **[STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)**) |
 | **Run ROS Dev Center guarded actions** | **ops.dev_center.actions** |

@@ -9,8 +9,8 @@ Operational reference for **register** flows: loading customer transactions, par
 Shipping is a delivery method, not automatically an Order.
 
 - **Ship current sale**: staff can add shipping to an in-stock Register sale before payment. Checkout records `fulfillment_method = ship`, stores the quoted shipping amount/address snapshot, and creates a shipment registry row. The merchandise line can remain a current-sale/takeaway-style line; it does not become a Special/Custom/Wedding fulfillment order just because it ships.
-- **Ship existing order**: staff can ship an already-open transaction/order-style line from the Orders or Shipments workflow. This is fulfillment/release work against existing transaction lines.
-- **Pickup existing order**: staff use the pickup/release flow to mark open transaction lines fulfilled for in-store handoff.
+- **Ship existing order work**: staff can ship an already-open Special, Custom, or Wedding line from the Orders or Shipments workflow. This is fulfillment/release work against existing transaction lines.
+- **Pickup existing order work**: staff use the pickup/release flow to mark open transaction lines fulfilled for in-store handoff.
 
 The historical endpoint for marking lines fulfilled is still `POST /api/transactions/{transaction_id}/pickup`; staff-facing UI should distinguish **Release for Pickup** from **Shipping** even when shared fulfillment internals are reused.
 
@@ -37,19 +37,19 @@ Located in the **Cart toolbar** (next to Layaway toggle). Activates only when a 
 
 **Endpoint**: `GET /api/transactions?customer_id={customer_id}&register_session_id={session_id}`
 
-Returns the customer's order-style transaction records for register review. The button is labeled **Orders** because staff are managing open fulfillment/payment work, even though the server record remains the financial `transactions` ledger.
+Returns the customer's open Special, Custom, and Wedding fulfillment work for register review. The button is labeled **Orders** because staff are managing open fulfillment/payment work, while the complete sale remains the financial `transactions` ledger.
 
 ### Customer Orders Modal
 
-Displays the customer's open orders with:
+Displays the customer's open order work with:
 - Transaction total, balance due, status
 - Rush badge (if is_rush)
 - Due Date badge (if need_by_date within 4 days)
 
 Actions per order:
 - **View Lines** - View order line items
-- **Add Payment** - Attach a new payment to the existing order
-- **Copy Items** - Start a new register sale from unfulfilled lines without paying the original order
+- **Add Payment** - Attach a new payment to the linked Transaction Record
+- **Copy Items** - Start a new register sale from unfulfilled lines without paying the original Transaction Record
 
 ### Transaction Lines View
 

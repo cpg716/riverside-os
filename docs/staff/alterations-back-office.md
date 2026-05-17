@@ -30,11 +30,11 @@ The **Daily Alteration Schedule** shows all alteration work assigned to a select
 
 - **Current sale** means the garment came from a Register sale in progress or just checked out.
 - **Stock/catalog item** means the garment came from SKU lookup and is tracked for alteration only.
-- **Existing order** means the source garment is tied to an open/special/wedding/custom order line.
+- **Existing order** means the source garment is tied to an open Special, Wedding, or Custom fulfillment line.
 - **Past purchase** means the source garment came from transaction history and is not being sold again.
 - **Custom/manual item** means staff typed the garment description.
 
-Order numbers appear only as source context when the garment came from a transaction line. Do not use this workbench as an order dashboard.
+Order or Transaction Record numbers appear only as source context when the garment came from a transaction line. Do not use this workbench as an order dashboard.
 
 ### Move status
 

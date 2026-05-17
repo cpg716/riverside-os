@@ -50,13 +50,13 @@ If an item is shown as a checklist-only note, it is not linked to a sellable ROS
 
 ### Wedding orders in shared Orders screens
 
-Wedding orders also appear in the shared **Orders** views.
+Wedding order work also appears in the shared **Orders** views.
 
 - They should stay marked as **Wedding**, not a generic Order.
-- The order detail should show the linked **party**, **member role**, and **event date**.
+- The order detail should show the linked **party**, **member role**, **event date**, and parent Transaction Record context.
 - Deposits, group pay, and pickup follow-up should stay tied to the linked wedding member record.
 - A fully paid wedding order is not automatically ready for pickup. Staff still need to confirm measurements, receiving, and member readiness before handing anything over.
-- In POS order review, treat a wedding-linked order as a member follow-up step, not a generic open order.
+- In POS order review, treat a wedding-linked order as a member follow-up step, not a generic open order or the whole sale.
 - Register uses the same Wedding Manager source. If a member still needs measurements, use **Measure** so the line stays **Needs measurements** until the exact variation is selected.
 
 ## Helping a coworker

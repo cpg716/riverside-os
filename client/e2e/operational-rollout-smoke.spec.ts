@@ -490,10 +490,10 @@ test.describe("operational rollout smoke", () => {
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
 
-    await page.getByRole("button", { name: "Transaction History" }).click();
+    await page.getByRole("button", { name: "Transaction Records" }).click();
     await page
       .getByRole("textbox", {
-        name: /Search by customer, phone, transaction number, or order number/i,
+        name: /Search by customer, phone, Transaction Record #, or fulfillment order #/i,
       })
       .fill(displayId);
     const orderRow = page.locator("tr", { hasText: displayId }).first();
@@ -573,10 +573,10 @@ test.describe("operational rollout smoke", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
-    await page.getByRole("button", { name: "Transaction History" }).click();
+    await page.getByRole("button", { name: "Transaction Records" }).click();
     await page
       .getByRole("textbox", {
-        name: /Search by customer, phone, transaction number, or order number/i,
+        name: /Search by customer, phone, Transaction Record #, or fulfillment order #/i,
       })
       .fill(displayId);
 

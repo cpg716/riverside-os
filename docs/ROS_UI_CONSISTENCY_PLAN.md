@@ -46,7 +46,7 @@ Order of execution: **foundation → Back Office → POS → WM tree → QA** (s
 - [x] `ui-caution-text` / `ui-info-text` / `ui-positive-text` in `index.css`
 - [x] Phase production build + Playwright; visual snapshots.
 - [x] **Phase 6 (Dashboards):** Modernize OperationalHome and RegisterDashboard with "WowDash" system; standardize on `DashboardStatsCard` and `DashboardGridCard`.
-- [ ] **Phase 6 (Workspace Continuity):** Extend WowDash aesthetics to Customer Hub, Order History, and Settings.
+- [ ] **Phase 6 (Workspace Continuity):** Extend WowDash aesthetics to Customer Hub, Transaction Records, and Settings.
 - [ ] **Ongoing:** If you add dense typography or surfaces that bypassed the sweep, periodically grep `text-[7px]`, `text-[8px]`, and unjustified `bg-white` under `client/src/components/` (allowlist print, POS glass strips, importer inversion panel per Phase 5 notes below)
 
 ## Goals

@@ -2,7 +2,7 @@
 
 **Audience:** Sales support, managers.
 
-**Where in ROS:** Back Office → **Orders**. Views: **Open Fulfillment**, **Transaction History**.
+**Where in ROS:** Back Office → **Orders**. Views: **Open Orders**, **Transaction Records**.
 
 **Related permissions:** **orders.view** for tab. **orders.refund_process**, **orders.cancel**, **orders.modify**, **orders.void_sale** for destructive paths.
 
@@ -10,13 +10,13 @@
 
 ## How to use this area
 
-**Transaction Record** = financial sale record: payments, receipts, refunds, returns, balance, and audit. The visible transaction number starts with **TXN-**.
+**Transaction Record** = the complete sale: booked items, takeaways, gift cards, alterations, deposits, payments, receipts, refunds, returns, balance, and audit. The visible transaction number starts with **TXN-**.
 
-**Fulfillment Order** = fulfillment work for **Special**, **Custom**, or **Wedding** orders. Use the linked Transaction Record only for payment context.
+**Order** / **Fulfillment Order** = unfulfilled work for **Special**, **Custom**, or **Wedding** items. Use the linked Transaction Record for the complete sale and payment context.
 
 **Layaways** are separate. Do not treat a Layaway as an Order.
 
-**Open Fulfillment** = active Special, Custom, and Wedding order work. **Transaction History** = Transaction Record search for receipts, disputes, and CRM follow-up.
+**Open Orders** = active Special, Custom, and Wedding order work. **Transaction Records** = complete sale search for receipts, disputes, payments, refunds, and CRM follow-up.
 
 ### The Three Order Types
 
@@ -26,9 +26,9 @@
 
 ---
 
-## Open Fulfillment
+## Open Orders
 
-1. **Orders** → **Open Fulfillment**.
+1. **Orders** → **Open Orders**.
 2. Sort or filter by **date**, **customer**, **status** if available.
 3. Review the **Order Items / Lifecycle** column. Each ordered item appears on its own line with its current status: **NTBO**, **Ordered**, **Received**, **Ready for Pickup**, or **Picked Up**.
 4. Click record → verify **lines**, **balance due**, **customer** attachment.
@@ -47,11 +47,11 @@
 | **Ready for Pickup** | The item is ready for customer pickup or final release. |
 | **Picked Up** | The item was fulfilled through the pickup path. |
 
-## Transaction History
+## Transaction Records
 
-1. **Orders** → **Transaction History**.
+1. **Orders** → **Transaction Records**.
 2. Set **date range** first to avoid huge lists.
-3. Search **receipt**, **customer name**, **SKU** if fields exist.
+3. Search **Transaction Record #**, **receipt**, **customer name**, **SKU**, or **fulfillment order #** if fields exist.
 4. Open Transaction Record → **receipt** copy, **audit** timeline, or reprint per policy.
 
 ## Returns, refunds, exchanges

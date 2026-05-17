@@ -187,7 +187,7 @@ Completed in this pass:
 - Back Office mobile sidebar stacking was corrected (`client/src/components/layout/Sidebar.tsx`) so workspace content no longer intercepts sidebar taps on phone viewports.
 - `ShipmentsHubSection` now renders a compact mobile card list instead of forcing a table-first layout on phones/tablets, while preserving the desktop table view.
 - `InventoryControlBoard` now contains horizontal overflow inside the board shell, reduces rigid minimum widths on small screens, and keeps quick-pick controls usable with compact horizontal scrolling.
-- `CustomerRelationshipHubDrawer` now renders compact small-screen card layouts for transaction/order history and measurement archive rows, with existing table layouts preserved for desktop.
+- `CustomerRelationshipHubDrawer` now renders compact small-screen card layouts for Transaction Records, fulfillment-order history, and measurement archive rows, with existing table layouts preserved for desktop.
 - `StaffWorkspace` audit events now render compact card rows on small screens (`staff-audit-cards`) while preserving the desktop audit table (`staff-audit-table`), and audit/team filter controls now wrap without fixed-width crowding on phones.
 - `ReportsWorkspace` now renders compact card lists for row-based report outputs (`reports-detail-cards`) and row-object report outputs (`reports-detail-row-object-cards`) on small screens while preserving desktop tables.
 - `SchedulerWorkspace` search popover and week grid minimum widths were reduced for better phone/tablet horizontal fit.

@@ -35,12 +35,12 @@ This is narrower than the full **Orders** workspace. Use it to decide what needs
 
 1. Open **Operations** → **Pickup Queue**.
 2. Tap a metric card to filter the list.
-3. Open an order row to continue work in the order record.
+3. Open an order row to continue the fulfillment work and review the linked Transaction Record context.
 4. Use **Print Queue** if the floor needs a paper priority list.
 
 ## Operational detail
 
-Use Pickup Queue as a priority list, then complete the work from the source order or transaction record. Ready, rush, due-soon, and blocked labels are prompts for staff follow-up; they do not replace balance checks, fulfillment status, or customer communication notes. If the queue seems stale, refresh before calling customers.
+Use Pickup Queue as a priority list, then complete the work from the source order work or linked Transaction Record. Ready, rush, due-soon, and blocked labels are prompts for staff follow-up; they do not replace balance checks, fulfillment status, or customer communication notes. If the queue seems stale, refresh before calling customers.
 
 
 ## Tips

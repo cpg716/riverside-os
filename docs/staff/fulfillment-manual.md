@@ -51,7 +51,7 @@ The list shows individual orders ranked by their urgency level.
     *   🟡 **DUE SOON**: Priority for today's shift.
     *   🟢 **READY**: All items arrived/fulfilled.
     *   ⚪ **BLOCKED**: Requires manager review.
-*   **Quick Actions**: Click on the **Order #** or the **Open Order** button to jump directly into the order record to mark items as fulfilled, add notes, or process a payment.
+*   **Quick Actions**: Click on the **Order #** or the **Open Order** button to jump directly into the fulfillment work, mark items as fulfilled, add notes, or review payment context from the linked Transaction Record.
 *   **Lifecycle panel**: Use the order detail lifecycle note to confirm whether each ordered item is **NTBO**, **Ordered**, **Received**, **Ready for Pickup**, or **Picked Up**. Do not assume the entire order is ready because one item is ready.
 *   **Printed Open Orders list**: In **Orders**, use the filtered **Print** action when staff need a paper follow-up list. The printout lists each ordered item on its own line with its lifecycle status, plus customer contact details, salesperson, cashier, deposits, and balance.
 
@@ -60,4 +60,4 @@ The list shows individual orders ranked by their urgency level.
 2.  **Monitor the "Rush" status**: If a new Rush order appears, shift focus to order follow-up or processing for that item.
 3.  **Clean the "Blocked" queue daily**: Don't let orders sit for weeks without progress. If an item is delayed, add a note and update the customer.
 4.  **For Custom orders, confirm cost was entered on receipt before pickup**: Sale price is set at booking, but vendor cost should be in place before the order is fulfilled.
-5.  **Do not treat "Open in POS" as payment on the original order**: the POS order loader is for review and, when needed, copying unfulfilled lines into a new register sale. Keep the original order balance and pickup follow-up on the original order record.
+5.  **Do not treat "Open in POS" as payment on the original fulfillment work**: the POS order loader is for review and, when needed, copying unfulfilled lines into a new register sale. Keep the original balance and pickup follow-up on the linked Transaction Record and fulfillment work.

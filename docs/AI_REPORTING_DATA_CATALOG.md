@@ -14,7 +14,7 @@ This document lists **data sources** a **staff-facing, RBAC-gated** **natural la
 
 **AI never changes operational data:** NL reporting and any ROS-AI **data** path must be **read-only** with respect to **business / transactional** tables (orders, customers, inventory, payments, weddings, ledger, etc.). Executors may run **SELECT**-shaped (or equivalent read) logic already used by Insights; they must **not** INSERT/UPDATE/DELETE store data as a side effect of chat or interpret. **Saving a report spec** is **metadata** (how to re-run reads), not a mutation of source records—see [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) design principles.
 
-**Permissions (summary):** The **AI gateway** must enforce the **same** keys and composite auth patterns as the REST handlers. Prefer **`insights.view`** for analytics-shaped reads, **`settings.admin`** for backups/stats, **`orders.view`** for order detail, **`catalog.view`** / **`procurement.view`** for inventory and PO lists, **`weddings.view`** for wedding aggregates, and **`staff.view`** for roster/schedule. **Authoritative maintenance rules** — required keys per domain, drift policy, and spec mapping — are in **§ RBAC labeling contract** (do not rely on this paragraph alone when implementing executors).
+**Permissions (summary):** The **AI gateway** must enforce the **same** keys and composite auth patterns as the REST handlers. Prefer **`insights.view`** for analytics-shaped reads, **`settings.admin`** for backups/stats, **`orders.view`** for Transaction Record and order-fulfillment detail, **`catalog.view`** / **`procurement.view`** for inventory and PO lists, **`weddings.view`** for wedding aggregates, and **`staff.view`** for roster/schedule. **Authoritative maintenance rules** — required keys per domain, drift policy, and spec mapping — are in **§ RBAC labeling contract** (do not rely on this paragraph alone when implementing executors).
 
 **Note on `GET /api/insights/sales-pivot`:** The handler now **`require_staff_with_permission`** with **`insights.view`** (same as most other `/api/insights/*` reads). NL and BFF layers must still pass staff credentials.
 
@@ -40,7 +40,7 @@ This document lists **data sources** a **staff-facing, RBAC-gated** **natural la
 
 0. **Read-only operational data** — Catalogued routes used by NL executors are **GET** / read-shaped for a reason: the AI layer **must not** widen them into writes. Explicit POST actions, such as commission manual adjustments, stay **outside** autonomous AI execution—staff use normal UI/API with explicit confirmation.
 1. **Explicit permission keys** — When a handler uses `require_staff_with_permission`, document the **exact** key string from [`server/src/auth/permissions.rs`](../server/src/auth/permissions.rs) (e.g. **`insights.view`**, **`catalog.view`**). Use inline **`backticks`** in tables for machine-stable names.
-2. **Composite auth** — When a route uses **staff headers only**, **staff or open POS register session**, **per-order read auth**, or custom logic, say so explicitly (e.g. **“staff or POS session”**, **“same as order detail”**) so the AI executor reuses the **same middleware/helpers**, not a looser internal path.
+2. **Composite auth** — When a route uses **staff headers only**, **staff or open POS register session**, **per-transaction read auth**, or custom logic, say so explicitly (e.g. **“staff or POS session”**, **“same as Transaction Record detail”**) so the AI executor reuses the **same middleware/helpers**, not a looser internal path.
 3. **Admin-only, unauthenticated, M2M** — Mark **Admin role only** (e.g. legacy cost/margin-only surfaces), **no staff auth in handler today**, or **machine token (`COUNTERPOINT_SYNC_TOKEN`)** so implementers do not accidentally expose aggregates.
 4. **Drift control** — Any new **`GET`** (or read-shaped) route in `build_router` must update this doc **in the same PR** with access labeling. Sources marked **TBD** or missing keys stay **out of the executed whitelist** until fixed.
 5. **Spec ↔ catalog** — Each **versioned report spec** field (metric, `group_by`, backing route id) should **point at** one or more catalog rows; at execution time the server checks **every** permission attached to those rows (per **§13**). If a phrase implies a slice the user cannot access, return **403** or a **trimmed** spec — see plan.
@@ -50,7 +50,7 @@ This document lists **data sources** a **staff-facing, RBAC-gated** **natural la
 | Data domain | Typical permission / pattern | Where detailed |
 |-------------|------------------------------|----------------|
 | Insights / pivots | **`insights.view`** | §0 `/api/insights/*`, §1 |
-| Orders / refunds | **`orders.view`**, **`orders.refund_process`**; some reads need register session | §0 `/api/orders/*`, §2 |
+| Transaction Records / order fulfillment / refunds | **`orders.view`**, **`orders.refund_process`**; some reads need register session | §0 `/api/transactions/*`, §2 |
 | Register / sessions | **`register.reports`** + session rules | §0 `/api/sessions/*`, §2 |
 | Customers (browse, hub, …) | Authenticated **staff** or **open POS session** (`require_customer_access`) for many reads/creates; sensitive writes use **`customers.merge`**, **`customers_duplicate_review`**, **`customer_groups.manage`**, **`store_credit.manage`** | §0 `/api/customers/*`, §5–7 |
 | Catalog / products | **`catalog.view`**, **`catalog.edit`** (mutations) | §0 `/api/products/*`, §3 |
@@ -157,18 +157,18 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 
 **Existing Insights API not surfaced as Reports tiles:** **`loyalty-velocity`** is the main read-only candidate for a future curated Reports tile. **`commission-lines`** and **`commission-trace/{line_id}`** intentionally belong under **Staff → Commissions** drilldown. **`metabase-launch`**, **`commission-adjustments`**, and saved-view create/delete routes are shell or write actions, not passive reports.
 
-### `/api/orders/*`
+### `/api/transactions/*`
 
 | Method | Path | Notes |
 |--------|------|--------|
-| GET | `/api/orders/` | List/filter orders (**`orders.view`**). |
-| GET | `/api/orders/refunds/due` | Refund queue (**`orders.refund_process`**). |
-| GET | `/api/orders/{order_id}` | Order detail + lines + tenders (read auth: BO or register session). |
-| GET | `/api/orders/{order_id}/audit` | **`order_activity_log`** (see §7). |
-| GET | `/api/orders/{order_id}/receipt.zpl` | Receipt ZPL (reporting less common; label/reprint use case). Optional query **`gift`**, **`order_item_ids`** (subset lines). |
-| GET | `/api/orders/{order_id}/receipt.html` | Receipt HTML using a legacy saved template when present, otherwise standard receipt HTML. Same auth as order detail; optional **`register_session_id`**, **`gift`**, **`order_item_ids`**. |
-| POST | `/api/orders/{order_id}/receipt/send-email` | Podium **email** with inline receipt HTML body. Body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
-| POST | `/api/orders/{order_id}/receipt/send-sms` | Podium **SMS** or **MMS** (optional **`png_base64`**); body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
+| GET | `/api/transactions/` | List/filter Transaction Records. Open Orders views must mean unfulfilled Special, Custom, Wedding, and Counterpoint open-doc work (**`orders.view`**). |
+| GET | `/api/transactions/refunds/due` | Refund queue (**`orders.refund_process`**). |
+| GET | `/api/transactions/{transaction_id}` | Transaction Record detail + lines + tenders (read auth: BO or register session). |
+| GET | `/api/transactions/{transaction_id}/audit` | **`order_activity_log`** for the Transaction Record (see §7). |
+| GET | `/api/transactions/{transaction_id}/receipt.escpos` | Receipt ESC/POS payload (reporting less common; print/reprint use case). Optional query **`gift`**, **`order_item_ids`** (subset lines). |
+| GET | `/api/transactions/{transaction_id}/receipt.html` | Receipt HTML using a legacy saved template when present, otherwise standard receipt HTML. Same auth as transaction detail; optional **`register_session_id`**, **`gift`**, **`order_item_ids`**. |
+| POST | `/api/transactions/{transaction_id}/receipt/send-email` | Podium **email** with inline receipt HTML body. Body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
+| POST | `/api/transactions/{transaction_id}/receipt/send-sms` | Podium **SMS** or **MMS** (optional **`png_base64`**); body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
 
 ### `/api/sessions/*`
 
@@ -219,7 +219,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 
 ### `/api/customers/*`
 
-**Permission / access (typical GETs):** authenticated **staff** (Back Office headers) **or** **open POS register session** — base **`require_customer_access`** remains on browse/search/create and similar. **Relationship Hub–aligned routes** use **`require_staff_perm_or_pos_session`** with **`customers.hub_view`**, **`customers.hub_edit`** (**`PATCH`** profile), **`customers.timeline`**, **`customers.measurements`**, and **`orders.view`** for per-customer order history — see [**`docs/STAFF_PERMISSIONS.md`**](STAFF_PERMISSIONS.md). NL executors must not use a looser internal path. Mutations such as merge, duplicate review queue (list / enqueue / dismiss), groups, and store-credit adjust still use **`customers.merge`**, **`customers_duplicate_review`**, **`customer_groups.manage`**, **`store_credit.manage`**, etc., on their respective handlers.
+**Permission / access (typical GETs):** authenticated **staff** (Back Office headers) **or** **open POS register session** — base **`require_customer_access`** remains on browse/search/create and similar. **Relationship Hub–aligned routes** use **`require_staff_perm_or_pos_session`** with **`customers.hub_view`**, **`customers.hub_edit`** (**`PATCH`** profile), **`customers.timeline`**, **`customers.measurements`**, and **`orders.view`** for per-customer Transaction Records and scoped fulfillment-order work — see [**`docs/STAFF_PERMISSIONS.md`**](STAFF_PERMISSIONS.md). NL executors must not use a looser internal path. Mutations such as merge, duplicate review queue (list / enqueue / dismiss), groups, and store-credit adjust still use **`customers.merge`**, **`customers_duplicate_review`**, **`customer_groups.manage`**, **`store_credit.manage`**, etc., on their respective handlers.
 
 | Method | Path | Notes |
 |--------|------|--------|
@@ -230,7 +230,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | GET | `/api/customers/{id}/hub` | Relationship hub payload. |
 | GET | `/api/customers/{id}/profile` | Profile fields. |
 | GET | `/api/customers/{id}/timeline` | Merged activity (§7). |
-| GET | `/api/customers/{id}/order-history` | Orders for CRM. |
+| GET | `/api/customers/{id}/transaction-history` | Customer Transaction Records; pass `record_scope=orders` for unfulfilled Special, Custom, and Wedding order work. |
 | GET | `/api/customers/{id}/measurements` | Measurement vault. |
 | GET | `/api/customers/{id}/store-credit` | Store credit summary. |
 | GET | `/api/customers/{id}/weddings` | Linked wedding parties. |
@@ -442,16 +442,16 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 
 | Source | Route area | Typical permission | Useful fields / filters |
 |--------|------------|-------------------|-------------------------|
-| Order list / detail | `/api/orders/*` | [**`orders.view`**](docs/STAFF_PERMISSIONS.md) (+ modify/refund keys for writes) | Status, **booked_at**, **fulfilled_at**, **balance_due**, customer link, lines, tenders, returns |
-| **Order activity / audit** | `GET /api/orders/{order_id}/audit` | **`orders.view`** + same read auth as order (BO or register session) | **`order_activity_log`**: **event_kind**, **summary**, **metadata**, **created_at** (per order, last 100) |
-| Refund queue | `/api/orders/*` | **`orders.refund_process`** | Open refund work |
-| Customer order history | `/api/customers/{id}/order-history` | Customer + order read paths | Timeline for one customer |
+| Transaction Record list / detail | `/api/transactions/*` | [**`orders.view`**](docs/STAFF_PERMISSIONS.md) (+ modify/refund keys for writes) | Status, **booked_at**, **fulfilled_at**, **balance_due**, customer link, lines, tenders, returns |
+| **Transaction Record activity / audit** | `GET /api/transactions/{transaction_id}/audit` | **`orders.view`** + same read auth as transaction detail (BO or register session) | **`order_activity_log`**: **event_kind**, **summary**, **metadata**, **created_at** (per Transaction Record, last 100) |
+| Refund queue | `/api/transactions/*` | **`orders.refund_process`** | Open refund work |
+| Customer Transaction Record history | `/api/customers/{id}/transaction-history` | Customer + Transaction Record read paths | Transaction Records for one customer, with `record_scope=orders` for unfulfilled Special, Custom, and Wedding work |
 | Sessions / X-report | `/api/sessions/*` | Register session + **`register.reports`** patterns | Tender mix, session-level reconciliation |
 | Register metrics (attributed sales) | `GET /api/staff/self/register-metrics` | Staff auth; role-gated in logic | **line_count**, **attributed_gross**, store **calendar date** |
 
 **NL examples:** “Open orders with balance”, “Orders fulfilled Tuesday”, “Refunds pending”.
 
-**Implementation:** [`server/src/api/orders.rs`](../server/src/api/orders.rs), [`server/src/api/sessions.rs`](../server/src/api/sessions.rs), [`server/src/logic/register_staff_metrics.rs`](../server/src/logic/register_staff_metrics.rs).
+**Implementation:** [`server/src/api/transactions.rs`](../server/src/api/transactions.rs), [`server/src/api/sessions.rs`](../server/src/api/sessions.rs), [`server/src/logic/register_staff_metrics.rs`](../server/src/logic/register_staff_metrics.rs).
 
 ---
 
@@ -485,7 +485,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 | Core profile | `GET /api/customers/{id}`, `/profile` | Customer read | Identity, flags, marketing opt-in. |
 | Hub | `GET /api/customers/{id}/hub` | Customer read | Aggregated CRM hub payload. |
 | Timeline | `GET /api/customers/{id}/timeline` | Customer read | Activity stream (§7). |
-| Order history | `GET /api/customers/{id}/order-history` | Customer + [**`orders.view`**](docs/STAFF_PERMISSIONS.md) patterns | Receipt list for one person. |
+| Transaction Record history | `GET /api/customers/{id}/transaction-history` | Customer + [**`orders.view`**](docs/STAFF_PERMISSIONS.md) patterns | Complete Transaction Records for one person; `record_scope=orders` limits to unfulfilled Special, Custom, and Wedding work. |
 | Measurements | `GET /api/customers/{id}/measurements` | Customer read | Sizing vault. |
 | Store credit | `GET /api/customers/{id}/store-credit` | **`store_credit.manage`** / read rules | Liability snapshot. |
 | Weddings link | `GET /api/customers/{id}/weddings` | **`weddings.view`** | Parties tied to customer. |
@@ -555,9 +555,9 @@ AGENTS.md notes **customer timeline** emits only **business** milestones for som
 
 ### Order-level audit
 
-Already listed in **§2**: `GET /api/orders/{order_id}/audit` → **`order_activity_log`**.
+Already listed in **§2**: `GET /api/transactions/{transaction_id}/audit` → **`order_activity_log`**.
 
-Additional **structured** audit may live on **order lines** (e.g. **price_override_audit** in checkout payload) — expose only via **order detail** / **line** APIs if surfaced; do not invent SQL.
+Additional **structured** audit may live on **order lines** (e.g. **price_override_audit** in checkout payload) — expose only via **Transaction Record detail** / **line** APIs if surfaced; do not invent SQL.
 
 ### Category change audit
 
@@ -639,7 +639,7 @@ Additional **structured** audit may live on **order lines** (e.g. **price_overri
 
 These tables/views back the APIs above. **Do not** expose raw ad-hoc SQL to the LLM; use them to **name** dimensions when versioning report specs. **Access is never “by table” for staff** — map each spec dimension to **API routes** in §0–§10 and inherit **§ RBAC labeling contract** / **Quick reference** permissions from those routes (e.g. sales core → **`orders.view`** / **`insights.view`** depending on endpoint).
 
-- **Sales core:** `orders`, `order_items`, `payment_transactions`, `payment_allocations`, `order_return_lines`, `order_activity_log`, `order_attribution_audit` (where used)
+- **Sales core:** `transactions`, `transaction_lines`, `payment_transactions`, `payment_allocations`, `transaction_return_lines`, `order_activity_log`, `order_attribution_audit` (where used)
 - **Catalog:** `products`, `product_variants`, `categories`, `vendors`, `discount_events`, `discount_event_variants`, **`discount_event_usage`**
 - **Procurement:** `purchase_orders`, PO lines, receipts
 - **CRM:** `customers`, customer groups, measurements, `customer_timeline_notes`, store credit tables (see **`store_credit`** APIs)
@@ -669,7 +669,7 @@ When implementing Pillar 4, consider allowing **only** combinations like. **Each
 - **Time:** `from`, `to`, **`basis`**: sale vs pickup — **inherits** from chosen sales API (usually **`insights.view`** when backed by **`/api/insights/sales-pivot`**).
 - **Sales group_by:** brand, salesperson, category, customer, date — **`insights.view`** when backed by **`/api/insights/sales-pivot`**; **customer** grouping may imply **customer-identifying** output → ensure same gates as pivot + CRM rules.
 - **Metrics:** gross_revenue, tax_collected, order_count, line_units (pivot); **Admin-only** margin pivot adds **cost_of_goods**, **gross_margin**, **margin_percent**; commission buckets; register discrepancy; wedding health counts — **split by backing route**: pivot/commission/register/wedding rows each list their own keys (see §1).
-- **Orders / lines (non-pivot):** any spec that calls **`/api/orders/*`** — **`orders.view`** (+ session rules where the REST layer requires them).
+- **Transaction Records / order lines (non-pivot):** any spec that calls **`/api/transactions/*`** — **`orders.view`** (+ session rules where the REST layer requires them).
 - **Catalog / procurement:** control-board, PO list, vendor hub — **`catalog.view`** / **`procurement.view`** as in §3.
 - **Audit (optional v2):** staff_access_log recent window; per-order `order_activity_log`; per-customer timeline; category_audit_log — **separate** `required_permissions` per stream (**`staff.view_audit`**, **`orders.view`**, staff/POS customer access, **`catalog.view`**, etc.) and **export** policies aligned with Insights.
 
@@ -745,7 +745,7 @@ Train on mapping **utterances** → **first API** (after permissions):
 | “**RMS** / R2S **charge** export” | **`GET /api/insights/rms-charges`** | **`insights.view`** |
 | “RMS list on **customer**” | **`GET /api/customers/rms-charge/records`** | **`customers.rms_charge`** |
 | “**Best sellers** / dead stock / slow movers” | **`GET /api/insights/best-sellers`**, **`dead-stock`** | **`insights.view`** |
-| “Open **orders** / refund queue / one order detail” | **`GET /api/orders/`**, **`/refunds/due`**, **`/{id}`** | **`orders.view`** / **`orders.refund_process`** |
+| “Open **orders** / refund queue / one Transaction Record detail” | **`GET /api/transactions/`**, **`/refunds/due`**, **`/{id}`** | **`orders.view`** / **`orders.refund_process`** |
 
 ### 15.6 Metabase vs REST (when the model should answer which)
 

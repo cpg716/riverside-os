@@ -33,7 +33,7 @@ Back Office staff use the full workspace. POS staff only see the limited RMS-saf
 
 This workspace is not the general customer review drawer.
 
-If staff need to review the customer profile, messages, measurements, shipments, weddings, or non-RMS order history first, open the `Customer Relationship Hub`.
+If staff need to review the customer profile, messages, measurements, shipments, weddings, Transaction Records, or fulfillment-order work first, open the `Customer Relationship Hub`.
 
 Move here when the question becomes RMS-specific:
 

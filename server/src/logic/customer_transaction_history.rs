@@ -1,4 +1,4 @@
-//! Paged order list for a single customer (CRM hub).
+//! Paged Transaction Record and open Order lists for a single customer (CRM hub).
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -86,7 +86,12 @@ pub async fn query_customer_transaction_history(
             o.amount_paid,
             o.balance_due,
             COUNT(oi.id)::bigint AS item_count,
-            EXISTS(SELECT 1 FROM transaction_lines WHERE transaction_id = o.id AND fulfillment != 'takeaway') AS is_fulfillment_order,
+            EXISTS(
+                SELECT 1
+                FROM transaction_lines
+                WHERE transaction_id = o.id
+                  AND fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+            ) AS is_fulfillment_order,
             o.is_counterpoint_import,
             NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code,
             ps.full_name AS primary_salesperson_name,
@@ -126,9 +131,9 @@ pub async fn query_customer_transaction_history(
             qb.push(" AND o.counterpoint_doc_ref IS NULL ");
         }
         CustomerHistoryRecordScope::Orders => {
-            // Orders should show Counterpoint open docs plus ROS order-style activity.
+            // Orders are only unfulfilled fulfillment work: Special, Custom, Wedding, and Counterpoint open docs.
             qb.push(
-                " AND (o.counterpoint_doc_ref IS NOT NULL OR EXISTS(SELECT 1 FROM transaction_lines tl_scope WHERE tl_scope.transaction_id = o.id AND tl_scope.fulfillment != 'takeaway')) ",
+                " AND (o.counterpoint_doc_ref IS NOT NULL OR EXISTS(SELECT 1 FROM transaction_lines tl_scope WHERE tl_scope.transaction_id = o.id AND tl_scope.fulfillment::text IN ('special_order', 'custom', 'wedding_order'))) ",
             );
         }
     }

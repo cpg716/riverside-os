@@ -23,7 +23,7 @@ The "WowDash" aesthetic is the premium SaaS-inspired visual identity for Riversi
 - **Typography**: Standardizes on **Inter** (or **Outfit**) with a hierarchy that favors high-impact tracking for titles and clear, accessible weights for data.
 - **Shadows**: Soft, multi-layered shadows (`shadow-xl`) for elevated grid cards.
 - **Color Palette**: Uses curated HSL-tailored colors (Blue, Emerald, Orange, Rose, Purple) for functional signals rather than generic browser defaults.
-- **Transaction / Order Terminology**: Use **Transactions** for financial ledger history, tender evidence, refunds, and transaction details. Use **Orders** when staff are managing open fulfillment or pickup work at the register, even when the backing record is a transaction ledger row. Avoid ambiguous labels by naming the staff task clearly: **Customer Orders** for POS open-order review, **Transaction Details** for financial history.
+- **Transaction / Order Terminology**: Use **Transaction Records** for the complete sale: booked sale, takeaways, gift cards, alterations, deposits, payments, refunds, tender evidence, and financial history. Use **Orders** only for unfulfilled Special, Custom, and Wedding fulfillment work. Layaways stay Layaways. Avoid ambiguous labels by naming the staff task clearly: **Customer Orders** for POS open-order review, **Transaction Records** for whole-sale history, and **Order Items** only for the unfulfilled fulfillment lines inside a Transaction Record.
 
 ### Full-Width Workspace & Root Scrolling (v0.2.0+)
 Riverside OS has transitioned from a windowed/nested-scroll model to a **high-performance, full-width, and natively scrollable** layout.

@@ -89,7 +89,7 @@ interface ProductSearchGroup {
   matchedSkus: string[];
 }
 
-type SearchShortcutIntent = RosieSearchShortcutId;
+type SearchShortcutIntent = RosieSearchShortcutId | "transaction_records";
 
 interface SearchShortcut {
   intent: SearchShortcutIntent;
@@ -144,9 +144,17 @@ const SEARCH_SHORTCUTS: Record<SearchShortcutIntent, SearchShortcut> = {
     intent: "open_orders",
     key: "shortcut:open_orders",
     title: "Open Orders",
-    subtitle: "Go to the open orders workspace.",
+    subtitle: "Go to unfulfilled Special, Custom, and Wedding work.",
     tab: "orders",
     section: "open",
+  },
+  transaction_records: {
+    intent: "transaction_records",
+    key: "shortcut:transaction_records",
+    title: "Transaction Records",
+    subtitle: "Go to complete sale history and financial records.",
+    tab: "orders",
+    section: "all",
   },
   inventory_cleanup: {
     intent: "inventory_cleanup",
@@ -182,7 +190,7 @@ const SEARCH_SHORTCUTS: Record<SearchShortcutIntent, SearchShortcut> = {
   },
 };
 
-const ROSIE_SEARCH_SHORTCUT_IDS: SearchShortcutIntent[] = [
+const ROSIE_SEARCH_SHORTCUT_IDS: RosieSearchShortcutId[] = [
   "open_orders",
   "inventory_cleanup",
   "alterations_queue",
@@ -196,6 +204,22 @@ function buildSearchShortcuts(q: string, canNavigate: boolean): SearchShortcut[]
   if (!normalized) return [];
   const words = new Set(normalized.split(" "));
   const hasOrderWord = words.has("order") || words.has("orders");
+  const hasTransactionWord =
+    words.has("transaction") ||
+    words.has("transactions") ||
+    (words.has("sale") && words.has("history")) ||
+    (words.has("sales") && words.has("history"));
+  if (
+    hasTransactionWord &&
+    (words.has("record") ||
+      words.has("records") ||
+      words.has("history") ||
+      normalized === "transactions" ||
+      normalized === "transaction records" ||
+      normalized === "sales history")
+  ) {
+    return [SEARCH_SHORTCUTS.transaction_records];
+  }
   const wantsOpenOrders =
     hasOrderWord &&
     (words.has("open") ||
@@ -585,7 +609,7 @@ export default function GlobalCommandSearch({
     });
 
     requests.push({
-      source: "Orders",
+      source: "Transaction Records",
       run: fetch(
         `${baseUrl}/api/transactions?search=${encodeURIComponent(q)}&show_closed=true&limit=8&offset=0`,
         { headers: apiAuth() },
@@ -940,9 +964,7 @@ export default function GlobalCommandSearch({
               Search
             </p>
             <p className="truncate text-[11px] text-app-text-muted">
-              {isPosVariant
-                ? "Customers, orders, SKU, weddings"
-                : "Jump to customers..."}
+              {isPosVariant ? "Customers, orders, transactions, SKU" : "Jump to customers..."}
             </p>
           </div>
           <div className="hidden shrink-0 items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted shadow-sm xl:flex">
@@ -1001,7 +1023,7 @@ export default function GlobalCommandSearch({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={onSearchKeyDown}
-                  placeholder="Search customers, orders, inventory, weddings, shipments, alterations…"
+                  placeholder="Search customers, Transaction Records, orders, inventory, weddings…"
                   className="ui-input w-full rounded-2xl border-transparent bg-app-surface-2 py-4 pl-12 pr-4 text-sm font-medium focus:border-app-accent/40 focus:bg-app-surface"
                   aria-autocomplete="list"
                   aria-expanded={query.trim().length >= 2}
@@ -1050,7 +1072,7 @@ export default function GlobalCommandSearch({
                     Search Across Riverside
                   </p>
                   <p className="mt-2 max-w-lg text-sm font-medium text-app-text-muted">
-                    Use this to jump between customers, orders, inventory, weddings, shipments, and alterations when you know the person, SKU, code, or party name but not the section.
+                    Use this to jump between customers, Transaction Records, open orders, inventory, weddings, shipments, and alterations when you know the person, SKU, code, or party name but not the section.
                   </p>
                 </div>
               ) : loading ? (
@@ -1070,7 +1092,7 @@ export default function GlobalCommandSearch({
                   <p className="mt-2 max-w-lg text-sm font-medium text-app-text-muted">
                     {failedSources.length > 0
                       ? "Try again before treating this as no match. Some lookup sources did not respond."
-                      : "Try a broader name, order number, SKU, wedding party name, or shipment tracking value."}
+                      : "Try a broader name, Transaction Record #, order number, SKU, wedding party name, or shipment tracking value."}
                   </p>
                 </div>
               ) : (
@@ -1139,7 +1161,7 @@ export default function GlobalCommandSearch({
                     ))}
                   </ResultSection>
 
-                  <ResultSection title="Orders" visible={orderEntries.length > 0}>
+                  <ResultSection title="Transaction Records" visible={orderEntries.length > 0}>
                     {orderEntries.map(({ entry, index }) => (
                       <ResultButton
                         key={entry.key}
@@ -1155,7 +1177,7 @@ export default function GlobalCommandSearch({
                           </span>
                         </div>
                         <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          ROS &gt; Orders
+                          ROS &gt; Transaction Records
                         </span>
                         <span className="text-xs text-app-text-muted">
                           {entry.order.customer_name ??

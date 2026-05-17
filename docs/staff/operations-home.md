@@ -2,9 +2,9 @@
 
 **Audience:** Managers and staff with access to the Operations area.
 
-**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Daily Sales**, **Pickup Queue**, **Podium Inbox**, **Mailbox**, **Reviews**.
+**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Timeline**, **Daily Sales**, **Pickup Queue**, **Podium Inbox**, **Mailbox**, **Reviews**.
 
-**Related permissions:** **weddings.view** for wedding/compass blocks and the activity feed. **notifications.view** for bell. **tasks.complete** for task widgets. **customers.hub_view** for Podium Inbox and Mailbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **register.session_attach** for register close status. **orders.view** for Pickup Queue. **alterations.manage** for the alterations snapshot. Weather often needs no special permission.
+**Related permissions:** **weddings.view** for wedding/compass blocks, appointments, and the activity feed. **notifications.view** for bell and timeline alerts. **tasks.complete** for your task widgets, or **tasks.view_team** for team task visibility. **customers.hub_view** for Podium Inbox and Mailbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **register.session_attach** for register close status. **orders.view** for Pickup Queue and pickup timeline items. **alterations.manage** for the alterations snapshot and alteration due dates. **procurement.view** for receiving commitments. **physical_inventory.view** for count/reconcile sessions. **qbo.view** for accounting review items. Weather often needs no special permission.
 
 ---
 
@@ -30,6 +30,20 @@
 
 Use the full **Alterations Hub**, **Pickup Queue**, **Daily Sales**, or **Inventory Stock Guidance** when you need search, source filters, status movement, or sign-off. The Operations block is the fast triage snapshot.
 
+## Timeline
+
+1. **Operations** → **Timeline**.
+2. Use this as the store planning view for appointments, wedding readiness, pickup commitments, alteration due dates, staff follow-up tasks, receiving commitments, physical inventory sessions, QBO review items, register close work, and open operational alerts.
+3. Switch between **Agenda**, **Week**, **Month**, and **Workload** depending on the planning question:
+   - **Agenda** — fastest view for what is next.
+   - **Week** — staffing and workload planning.
+   - **Month** — deadline pressure and busy-day scanning.
+   - **Workload** — where operational pressure is coming from.
+4. Filter by **Today**, **Overdue**, **Manager**, **Appointments**, **Weddings**, **Pickups**, **Alterations**, **Tasks**, **QBO**, **Receiving**, **Inventory**, or **Alerts**.
+5. Click a timeline row to open the source workflow. Do not edit timeline rows directly; make changes in the scheduler, Wedding Manager, Pickup Queue, Alterations, Tasks, QBO, Inventory, or Notifications.
+
+If the Timeline says a source feed did not refresh, treat it as a partial view and open that source workspace before making staffing, customer, receiving, or accounting decisions.
+
 ## Daily Sales
 
 1. **Operations** → **Daily Sales**.
@@ -40,7 +54,7 @@ Use the full **Alterations Hub**, **Pickup Queue**, **Daily Sales**, or **Invent
 
 1. **Operations** → **Pickup Queue**.
 2. Requires **orders.view**. Use this to prioritize customer-ready orders, rush orders, due-soon work, and blocked follow-up.
-3. This is a triage queue for pickup/order follow-up, not the full Orders workspace. Open the row to continue work in the actual order record.
+3. This is a triage queue for pickup/order follow-up, not the full Orders workspace. Open the row to continue fulfillment work and review the linked Transaction Record context.
 
 ## Podium Inbox
 

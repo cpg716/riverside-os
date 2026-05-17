@@ -1113,7 +1113,7 @@ export default function Cart({
   }, [lines, disbursementMembers, orderPaymentLines, posShipping]);
 
   const isGiftCardOnlyCart = useMemo(() => lines.length > 0 && lines.every(l => !!l.gift_card_load_code), [lines]);
-  const hasCheckoutWork = lines.length > 0 || orderPaymentLines.length > 0;
+  const hasCheckoutWork = lines.length > 0 || orderPaymentLines.length > 0 || disbursementMembers.length > 0;
   const pendingReturnTender = useMemo(() => {
     const returnLines = lines.filter((line) => line.return_tender_original_transaction_id);
     if (returnLines.length === 0) return null;
@@ -2683,7 +2683,7 @@ export default function Cart({
              data-testid="pos-pay-button"
              disabled={!hasCheckoutWork || checkoutBusy}
              onClick={() => {
-               if (!hasCheckoutWork) return toast("Add at least one item or transaction payment before checking out.", "error");
+               if (!hasCheckoutWork) return toast("Add at least one item, transaction payment, or wedding group payment before checking out.", "error");
                 if (!ensureSaleCashier()) return;
                if (pendingReturnTender?.returnOnly) {
                  setCheckoutDrawerOpen(true);

@@ -48,7 +48,7 @@ Use the main Customers workspace and relationship hub when you need to review:
 - customer profile details
 - notes and timeline history
 - measurements
-- order history
+- Transaction Records and fulfillment-order history
 - shipment history
 - wedding linkage
 

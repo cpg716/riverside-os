@@ -1,4 +1,4 @@
-//! Paged order list SQL for Back Office and register-scoped reads.
+//! Paged Transaction Record and open Order list SQL for Back Office and register-scoped reads.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use meilisearch_sdk::client::Client as MeilisearchClient;
@@ -182,6 +182,22 @@ pub async fn query_paged_transactions(
     meilisearch: Option<&MeilisearchClient>,
 ) -> Result<PagedTransactionsResponse, sqlx::Error> {
     let search_trim = q.search.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let status_scope = q.status_scope.as_deref().map(str::trim);
+    let kind_filter = q.kind_filter.as_deref().map(str::trim);
+    let is_layaway_filter = kind_filter == Some("layaway");
+    let is_order_kind_filter = matches!(
+        kind_filter,
+        Some("special_order" | "custom" | "wedding_order")
+    );
+    let default_order_scope =
+        matches!(status_scope, Some("open")) || (status_scope.is_none() && !q.show_closed);
+    let list_line_filter = if is_layaway_filter {
+        "oi.fulfillment::text = 'layaway'"
+    } else if default_order_scope || is_order_kind_filter {
+        "oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')"
+    } else {
+        "oi.id IS NOT NULL"
+    };
 
     let meili_transaction_ids: Option<Vec<Uuid>> = if let Some(st) = search_trim {
         if let Some(c) = meilisearch {
@@ -235,7 +251,7 @@ pub async fn query_paged_transactions(
             COALESCE(BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')), false) AS is_fulfillment_order,
             ps.full_name AS primary_salesperson_name,
             NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code,
-            COUNT(oi.id) FILTER (WHERE oi.fulfillment::text <> 'takeaway')::bigint AS item_count,
+            COUNT(oi.id) FILTER (WHERE {list_line_filter})::bigint AS item_count,
             NULLIF(
                 string_agg(
                     CONCAT(
@@ -258,7 +274,7 @@ pub async fn query_paged_transactions(
                     ),
                     E'\n'
                     ORDER BY oi.id
-                ) FILTER (WHERE oi.fulfillment::text <> 'takeaway'),
+                ) FILTER (WHERE {list_line_filter}),
                 ''
             ) AS order_items_summary,
             COALESCE(
@@ -293,11 +309,11 @@ pub async fn query_paged_transactions(
                         END
                     )
                     ORDER BY oi.id
-                ) FILTER (WHERE oi.fulfillment::text <> 'takeaway'),
+                ) FILTER (WHERE {list_line_filter}),
                 '[]'::jsonb
             ) AS order_print_items,
-            (COALESCE(o.is_rush, false) OR COALESCE(BOOL_OR(oi.is_rush) FILTER (WHERE oi.fulfillment::text <> 'takeaway'), false)) AS is_rush,
-            COALESCE(MIN(oi.need_by_date) FILTER (WHERE oi.fulfillment::text <> 'takeaway'), o.need_by_date) AS need_by_date,
+            (COALESCE(o.is_rush, false) OR COALESCE(BOOL_OR(oi.is_rush) FILTER (WHERE {list_line_filter}), false)) AS is_rush,
+            COALESCE(MIN(oi.need_by_date) FILTER (WHERE {list_line_filter}), o.need_by_date) AS need_by_date,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'special_order'), false) AS has_special_order,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'wedding_order'), false) AS has_wedding_order,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'layaway'), false) AS has_layaway,
@@ -330,23 +346,27 @@ pub async fn query_paged_transactions(
         qb.push(" AND c.id IS NOT NULL "); // Only show orders with customers (not walk-ins)
     }
 
-    let status_scope = q.status_scope.as_deref().map(str::trim);
     let open_orders_predicate =
-        "(o.counterpoint_doc_ref IS NOT NULL OR EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text <> 'takeaway' AND tl.is_fulfilled = false))";
+        "(o.counterpoint_doc_ref IS NOT NULL OR EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order') AND tl.is_fulfilled = false))";
+    let open_work_predicate = if is_layaway_filter {
+        "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text = 'layaway' AND tl.is_fulfilled = false)"
+    } else {
+        open_orders_predicate
+    };
     match status_scope {
         Some("open") => {
             qb.push(" AND ");
-            qb.push(open_orders_predicate);
+            qb.push(open_work_predicate);
             qb.push(" ");
         }
         Some("closed") => {
             qb.push(" AND NOT ");
-            qb.push(open_orders_predicate);
+            qb.push(open_work_predicate);
             qb.push(" ");
         }
         _ if !q.show_closed => {
             qb.push(" AND ");
-            qb.push(open_orders_predicate);
+            qb.push(open_work_predicate);
             qb.push(" ");
         }
         _ => {}
@@ -422,11 +442,11 @@ pub async fn query_paged_transactions(
 
     qb.push(" GROUP BY o.id, c.id, c.customer_code, c.phone, c.email, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, op.full_name, ps.full_name, o.status ");
 
-    if let Some(kf) = &q.kind_filter {
+    if let Some(kf) = kind_filter {
         if let Some(clause) = kind_filter_having_clause(kf) {
             qb.push(clause);
         }
-    } else {
+    } else if default_order_scope {
         qb.push(" HAVING (o.wedding_member_id IS NOT NULL OR BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')) = true) ");
     }
 

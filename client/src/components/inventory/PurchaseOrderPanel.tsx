@@ -16,6 +16,7 @@ interface PurchaseOrder {
   status: string;
   vendor_name: string;
   po_kind?: string;
+  expected_at?: string | null;
 }
 
 interface WeddingNonInventoryItem {

@@ -17,7 +17,7 @@ The Shipping subsystem in Riverside OS is a unified hub that integrates with **S
 - **Staff Attribution**: All notes and state changes are recorded with the `staff_id` of the operator who performed the action.
 
 ## 3. Workflows & Lifecycle
-- **Unified Hub**: Accessible from the **Customer Relationship Hub**, providing a complete shipping history alongside the customer's order history.
+- **Unified Hub**: Accessible from the **Customer Relationship Hub**, providing a complete shipping history alongside the customer's Transaction Records and fulfillment-order work.
 - **Manual Shipments**: Provides a "Manual Mode" for store-to-store transfers or local deliveries where tracking numbers and postage are handled outside Shippo but need to be recorded for compliance.
 - **Postage Ledger**: Integrated with the system-wide ledger to ensure shipping costs are tracked against the correct orders for margin calculation.
 

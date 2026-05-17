@@ -33,7 +33,7 @@ Remaining **optional** hardening: Playwright / E2E refresh (**Appendix B.4**); p
 | `server/src/services/vendor_hub.rs` | `f64` for `avg_lead_time_days` | **OK** — operational lead time, not currency. |
 | `server/src/logic/weather.rs` | `f32` for temperature / precipitation | **OK** — environmental simulation, not money. |
 | `server/src/api/payments.rs` | `ToPrimitive::to_i64()` on `Decimal` | **OK** — converts USD `Decimal` to whole cents for Helcim `i64`; arithmetic stays in `Decimal` until conversion. |
-| `server/src/api/orders.rs` | `ToPrimitive::to_i64()` for refund cents | **OK** — same pattern as payments. |
+| `server/src/api/transactions.rs` | `ToPrimitive::to_i64()` for refund cents | **OK** — same pattern as payments. |
 | `server/src/logic/loyalty.rs` | `to_i64()` | **OK** — points / ledger integer paths, not currency floats. |
 | `server/src/logic/importer.rs` | `ToPrimitive` import + `to_i32()` on rounded `Decimal` | **OK** — quantity-like integers from `Decimal`, not `f64` money math. |
 
@@ -248,11 +248,11 @@ Matches documented lifecycle: reserved units leave both on hand and reserved whe
 |------|------|
 | `mod.rs` | `AppState`, `build_router()`, nests all route modules. |
 | `inventory.rs` | Scan, scan-resolve, batch-scan, intelligence; **partial** auth. |
-| `orders.rs` | Checkout, list/detail, pickup, refunds, returns, ZPL, attribution. |
+| `transactions.rs` | Checkout, list/detail, pickup, refunds, returns, receipts, attribution. |
 | `products.rs` | CRUD-ish catalog, control board, import, matrix, variants. |
 | `insights.rs` | Sales pivot (`group_by` incl. customer), commission, register history, tax audit, etc. |
 | `loyalty.rs` | Settings, eligible list, adjust, redeem, ledger. |
-| `customers.rs` | Search, browse, profile, hub, timeline, order-history, Lightspeed import. |
+| `customers.rs` | Search, browse, profile, hub, timeline, transaction-history, Lightspeed import. |
 | `sessions.rs` | Register open/close, X-report, reconciliation, cash adjustments. |
 | `weather.rs` | Forecast/history (read-only API). |
 | `qbo.rs` | OAuth-ish callback router, mappings, staging, sync. |
@@ -297,7 +297,7 @@ Matches documented lifecycle: reserved units leave both on hand and reserved whe
 | `lightspeed_customers.rs` | LS import batch in transaction. |
 | `counterpoint_sync.rs` | CP customer/inventory batch in transaction. |
 | `customer_hub.rs` | Hub stats, visit recency. |
-| `customer_order_history.rs` | Paged orders for one customer (booked-date filters). |
+| `customer_transaction_history.rs` | Paged Transaction Records for one customer (booked-date filters), with order-scope filtering for Special, Custom, and Wedding work. |
 | `wedding_party_display.rs` | SQL fragments / labels for parties. |
 | `weddings.rs` | Compass queries, activity insert helpers. |
 | `wedding_push.rs` | In-process event bus for SSE. |
@@ -409,23 +409,23 @@ Base URL prefix omitted; all paths are under **`/api/...`** as registered in `se
 |--------|------|--------|-------------|
 | * | `/sessions`, `/sessions/active`, `/sessions/{id}`, counts, review, publish, … | ✅ | Uses `PHYSICAL_INVENTORY_VIEW` / `PHYSICAL_INVENTORY_MUTATE` — verify every handler path (spot-check when implementing). |
 
-#### `/api/orders`
+#### `/api/transactions`
 
 | Method | Path | Status | Remediation |
 |--------|------|--------|-------------|
 | GET | `/` | ✅ | BO `orders.view` or register session scoping. |
 | GET | `/refunds/due` | ✅ | `orders.refund_process`. |
 | POST | `/checkout` | ✅ | `require_pos_register_session_for_checkout`. |
-| PATCH | `/{order_id}/attribution` | ✅ | Manager PIN + `orders.edit_attribution`. |
-| POST | `/{order_id}/pickup` | ✅ | BO `orders.modify` or register session + allocation rule. |
-| GET | `/{order_id}/audit` | ✅ | Same read model as order detail. |
-| POST | `/{order_id}/refunds/process` | ✅ | `orders.refund_process` + open session. |
-| POST | `/{order_id}/returns` | ✅ | Same as modify / register path. |
-| POST | `/{order_id}/exchange-link` | ✅ | `orders.modify`. |
-| POST | `/{order_id}/items` | ✅ | `orders.modify`. |
-| PATCH/DELETE | `/{order_id}/items/{order_item_id}` | ✅ | `orders.modify`. |
-| GET/PATCH | `/{order_id}` | ✅ | View vs cancel/modify split. |
-| GET | `/{order_id}/receipt.zpl` | ✅ | **`authorize_order_read_bo_or_register`** (same model as order read + optional `register_session_id`). |
+| PATCH | `/{transaction_id}/attribution` | ✅ | Manager PIN + `orders.edit_attribution`. |
+| POST | `/{transaction_id}/pickup` | ✅ | BO `orders.modify` or register session + allocation rule. |
+| GET | `/{transaction_id}/audit` | ✅ | Same read model as Transaction Record detail. |
+| POST | `/{transaction_id}/refunds/process` | ✅ | `orders.refund_process` + open session. |
+| POST | `/{transaction_id}/returns` | ✅ | Same as modify / register path. |
+| POST | `/{transaction_id}/exchange-link` | ✅ | `orders.modify`. |
+| GET/POST | `/{transaction_id}/items` | ✅ | `orders.view` / `orders.modify` split. |
+| PATCH/DELETE | `/{transaction_id}/items/{transaction_line_id}` | ✅ | `orders.modify`. |
+| GET/PATCH | `/{transaction_id}` | ✅ | View vs cancel/modify split. |
+| GET | `/{transaction_id}/receipt.escpos`, `/{transaction_id}/receipt.html` | ✅ | Transaction Record read model + optional `register_session_id`. |
 
 #### `/api/products`
 
