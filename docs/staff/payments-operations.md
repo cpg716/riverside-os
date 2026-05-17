@@ -213,6 +213,8 @@ Admins configure the public delivery URL and signing secret in **Settings → He
 
 For production, the public delivery URL must be reachable from the internet. If the store uses Cloudflare Tunnel, the tunnel service must be running on the host that can reach the ROS API. If Cloudflare shows a tunnel error such as `1033`, terminal approval/cancel webhooks cannot reach ROS even though ROS and the register may be open locally.
 
+Admins can confirm the public callback origin, tunnel helper, and Helcim webhook secret in **Settings → Remote Access → Edge & Webhook Access**. Use **Run Live Callback Check** to verify the configured public HTTPS route reaches this Riverside OS server before relying on terminal webhooks. After sending a Helcim dashboard test event, refresh the panel and confirm **Helcim provider delivery** shows a recent delivery timestamp. This panel is diagnostic only; Riverside does not change Cloudflare DNS, WAF, or cache settings from the app.
+
 Keep these two states separate during review:
 
 - **Webhook received by ROS** means a signed Helcim delivery reached ROS and was stored.

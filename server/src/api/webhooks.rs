@@ -5,7 +5,7 @@ use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
@@ -31,6 +31,28 @@ use crate::logic::podium_webhook::{
 
 const HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES: i64 = 10;
 const SHIPPO_WEBHOOK_SIGNATURE_HEADER: &str = "shippo-auth-signature";
+
+async fn get_edge_probe(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
+    let nonce = params.get("nonce").map(String::as_str).unwrap_or("").trim();
+    if nonce.len() < 8 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "ok": false,
+                "error": "missing probe nonce",
+            })),
+        )
+            .into_response();
+    }
+
+    Json(json!({
+        "ok": true,
+        "component": "riverside-edge-probe",
+        "nonce": nonce,
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
+    .into_response()
+}
 
 fn verify_shippo_webhook(
     headers: &HeaderMap,
@@ -1174,6 +1196,7 @@ async fn post_corecard_webhook(
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/edge-probe", get(get_edge_probe))
         .route("/podium", post(post_podium_webhook))
         .route("/card-events", post(post_helcim_webhook))
         .route("/helcim", post(post_helcim_webhook))

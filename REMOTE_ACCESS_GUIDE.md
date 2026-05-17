@@ -41,6 +41,23 @@ Only devices logged into *your* specific Tailscale account can see the server. I
 
 ---
 
+## Public HTTPS callbacks (Cloudflare Tunnel)
+
+Daily staff access should use the private Tailscale/LAN paths above. Public HTTPS access is only needed when an outside provider must call Riverside, such as Helcim terminal webhooks or Podium inbound messaging webhooks.
+
+If the store uses Cloudflare Tunnel for that public callback path:
+
+- Keep `cloudflared` installed and running as a supervised service on the server PC.
+- Set `RIVERSIDE_PUBLIC_BASE_URL` to the public origin, for example `https://ros.riversidemens.com`.
+- Optionally set `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` to the same hostname so Settings can warn when the local tunnel service is not detected.
+- In Riverside, open **Settings → Remote Access → Edge & Webhook Access** before go-live or after network maintenance. It should show the public host, callback URLs, webhook secret readiness, and whether the Cloudflare tunnel helper is detected.
+- Click **Run Live Callback Check** to confirm the configured public HTTPS route reaches this Riverside OS server through `/api/webhooks/edge-probe`. This is the fastest Cloudflare/Tunnel smoke test before checking provider dashboards.
+- After sending a Helcim or Podium dashboard test event, refresh the same panel. **Provider delivery** should show a recent delivery timestamp; that is the Riverside-side proof that the provider is actively configured to send to the public URL.
+
+Do not put staff browsers on the public callback URL unless operations explicitly chooses that topology. A Cloudflare tunnel error such as `1033` means provider callbacks cannot reach Riverside even if local POS screens are still open.
+
+---
+
 ## PWA: popup windows (`window.open`)
 
 Some flows open a **new browser tab or window** (labels, Z-reports, backup download URLs, a few CRM shortcuts). Mobile Safari and installed PWAs often **block popups** unless the open call runs directly from a **user gesture** (tap/click).

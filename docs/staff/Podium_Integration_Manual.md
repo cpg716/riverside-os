@@ -200,6 +200,8 @@ https://ros.riversidemens.com/api/webhooks/podium
 
 Do not give Podium a `localhost` webhook URL. Podium must reach Riverside from the internet, so local desktop/dev setups need Cloudflare Tunnel or an equivalent HTTPS tunnel running to the Riverside API. The same public host should also be registered as the OAuth callback host when Podium requires HTTPS redirects.
 
+Admins can check the current public callback origin, Podium webhook URL, signing-secret readiness, and local Cloudflare Tunnel helper in **Settings → Remote Access → Edge & Webhook Access**. Use **Run Live Callback Check** to verify the configured public HTTPS route reaches this Riverside OS server before relying on inbound messages. After sending a Podium dashboard test event, refresh the panel and confirm **Podium provider delivery** shows a recent delivery timestamp. This is a visibility check only; Riverside does not manage Cloudflare DNS or WAF rules.
+
 **Verification:** When **`RIVERSIDE_PODIUM_WEBHOOK_SECRET`** is set, Riverside verifies Podium’s **timestamp** and **signature** headers. **Never** enable **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`** outside local development.
 
 **CRM ingest:** Unless **`RIVERSIDE_PODIUM_INBOUND_DISABLED`** is set to a truthy value, verified deliveries are processed so messages can appear under **Customers** and fan out **notifications** (e.g. “New customer SMS”) to staff with **`notifications.view`**.

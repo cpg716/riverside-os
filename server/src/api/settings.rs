@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 use crate::api::AppState;
@@ -1230,6 +1231,450 @@ pub struct ShippoSettingsResponse {
     pub webhook_secret_configured: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct EdgeAccessStatusResponse {
+    pub public_base_url: Option<String>,
+    pub public_host: Option<String>,
+    pub public_https_configured: bool,
+    pub cloudflared_installed: bool,
+    pub cloudflared_launch_agent_configured: bool,
+    pub cloudflare_tunnel_hint_configured: bool,
+    pub helcim_webhook_secret_configured: bool,
+    pub podium_webhook_secret_configured: bool,
+    pub shippo_webhook_secret_configured: bool,
+    pub strict_production: bool,
+    pub helcim_webhook_url: Option<String>,
+    pub podium_webhook_url: Option<String>,
+    pub shippo_webhook_url: Option<String>,
+    pub helcim_provider_delivery: ProviderDeliveryProof,
+    pub podium_provider_delivery: ProviderDeliveryProof,
+    pub status: String,
+    pub warning_codes: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderDeliveryProof {
+    pub provider: String,
+    pub status: String,
+    pub recent_delivery_count: i64,
+    pub last_received_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_failure_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_failure_detail: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EdgeAccessProbeResponse {
+    pub status: String,
+    pub probe_url: Option<String>,
+    pub http_status: Option<u16>,
+    pub response_ms: Option<u64>,
+    pub checked_at: chrono::DateTime<chrono::Utc>,
+    pub message: String,
+    pub error: Option<String>,
+}
+
+fn nonempty_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn command_available(name: &str) -> bool {
+    let Some(paths) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&paths).any(|dir| {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return true;
+        }
+        #[cfg(windows)]
+        {
+            dir.join(format!("{name}.exe")).is_file()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    })
+}
+
+fn public_url_with_path(public_base_url: Option<&str>, path: &str) -> Option<String> {
+    public_base_url.map(|base| format!("{}{}", base.trim_end_matches('/'), path))
+}
+
+fn provider_delivery_proof(
+    provider: &str,
+    recent_delivery_count: i64,
+    last_received_at: Option<chrono::DateTime<chrono::Utc>>,
+    last_failure_at: Option<chrono::DateTime<chrono::Utc>>,
+    last_failure_detail: Option<String>,
+) -> ProviderDeliveryProof {
+    let (status, message) = if recent_delivery_count > 0 {
+        (
+            "verified_recent",
+            "A real provider delivery reached Riverside in the last 7 days.",
+        )
+    } else if last_received_at.is_some() {
+        (
+            "seen_before",
+            "A real provider delivery has reached Riverside before. Send a provider dashboard test event to confirm the current setup.",
+        )
+    } else if last_failure_at.is_some() {
+        (
+            "failure_only",
+            "Provider webhook attempts are reaching Riverside but being rejected. Check the signing secret and provider webhook settings.",
+        )
+    } else {
+        (
+            "no_delivery",
+            "No provider delivery has been recorded yet. Send a provider dashboard test event, then refresh this panel.",
+        )
+    };
+
+    ProviderDeliveryProof {
+        provider: provider.to_string(),
+        status: status.to_string(),
+        recent_delivery_count,
+        last_received_at,
+        last_failure_at,
+        last_failure_detail,
+        message: message.to_string(),
+    }
+}
+
+async fn load_helcim_provider_delivery(
+    state: &AppState,
+) -> Result<ProviderDeliveryProof, SettingsError> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        recent_delivery_count: i64,
+        last_received_at: Option<chrono::DateTime<chrono::Utc>>,
+        last_failure_at: Option<chrono::DateTime<chrono::Utc>>,
+        last_failure_detail: Option<String>,
+    }
+
+    let row: Row = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*) FILTER (
+                WHERE signature_valid = true
+                  AND received_at >= now() - interval '7 days'
+            )::bigint AS recent_delivery_count,
+            MAX(received_at) FILTER (WHERE signature_valid = true) AS last_received_at,
+            (
+                SELECT received_at
+                FROM helcim_event_log
+                WHERE provider = 'helcim'
+                  AND processing_status = 'failed'
+                ORDER BY received_at DESC
+                LIMIT 1
+            ) AS last_failure_at,
+            (
+                SELECT error_message
+                FROM helcim_event_log
+                WHERE provider = 'helcim'
+                  AND processing_status = 'failed'
+                  AND error_message IS NOT NULL
+                ORDER BY received_at DESC
+                LIMIT 1
+            ) AS last_failure_detail
+        FROM helcim_event_log
+        WHERE provider = 'helcim'
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(provider_delivery_proof(
+        "helcim",
+        row.recent_delivery_count,
+        row.last_received_at,
+        row.last_failure_at,
+        row.last_failure_detail,
+    ))
+}
+
+async fn load_podium_provider_delivery(
+    state: &AppState,
+) -> Result<ProviderDeliveryProof, SettingsError> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        recent_delivery_count: i64,
+        last_received_at: Option<chrono::DateTime<chrono::Utc>>,
+        last_failure_at: Option<chrono::DateTime<chrono::Utc>>,
+        last_failure_detail: Option<String>,
+    }
+
+    let row: Row = sqlx::query_as(
+        r#"
+        SELECT
+            (
+                SELECT COUNT(*)
+                FROM podium_webhook_delivery
+                WHERE received_at >= now() - interval '7 days'
+            )::bigint AS recent_delivery_count,
+            (SELECT MAX(received_at) FROM podium_webhook_delivery) AS last_received_at,
+            (
+                SELECT created_at
+                FROM podium_webhook_failure
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) AS last_failure_at,
+            (
+                SELECT reason
+                FROM podium_webhook_failure
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) AS last_failure_detail
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(provider_delivery_proof(
+        "podium",
+        row.recent_delivery_count,
+        row.last_received_at,
+        row.last_failure_at,
+        row.last_failure_detail,
+    ))
+}
+
+async fn get_edge_access_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<EdgeAccessStatusResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+
+    let public_base_url = nonempty_env("RIVERSIDE_PUBLIC_BASE_URL");
+    let public_host = public_base_url.as_deref().and_then(|value| {
+        url::Url::parse(value)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(str::to_string))
+    });
+    let public_https_configured = public_base_url
+        .as_deref()
+        .and_then(|value| url::Url::parse(value).ok())
+        .map(|parsed| parsed.scheme() == "https")
+        .unwrap_or(false);
+    let cloudflared_installed = command_available("cloudflared");
+    let cloudflared_launch_agent_configured = std::env::var("HOME")
+        .ok()
+        .map(|home| {
+            std::path::Path::new(&home)
+                .join("Library/LaunchAgents/com.cloudflare.riverside-helcim.plist")
+                .is_file()
+        })
+        .unwrap_or(false)
+        || std::path::Path::new("/Library/LaunchAgents/com.cloudflare.riverside-helcim.plist")
+            .is_file();
+    let cloudflare_tunnel_hint_configured = nonempty_env("RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME")
+        .is_some()
+        || public_host
+            .as_deref()
+            .map(|host| host.contains("riversidemens.com"))
+            .unwrap_or(false);
+    let helcim_webhook_secret_configured = nonempty_env("HELCIM_WEBHOOK_SECRET").is_some();
+    let podium_webhook_secret_configured = podium_webhook_secret_from_env().is_some();
+    let shippo_webhook_secret_configured = shippo_webhook_secret_from_env().is_some();
+    let strict_production = env_truthy("RIVERSIDE_STRICT_PRODUCTION");
+    let helcim_provider_delivery = load_helcim_provider_delivery(&state).await?;
+    let podium_provider_delivery = load_podium_provider_delivery(&state).await?;
+
+    let mut warning_codes = Vec::new();
+    if public_base_url.is_none() {
+        warning_codes.push("public_base_url_missing".to_string());
+    } else if !public_https_configured {
+        warning_codes.push("public_base_url_not_https".to_string());
+    }
+    if cloudflare_tunnel_hint_configured && !cloudflared_installed {
+        warning_codes.push("cloudflared_not_installed".to_string());
+    }
+    if cloudflare_tunnel_hint_configured && !cloudflared_launch_agent_configured {
+        warning_codes.push("cloudflared_service_not_detected".to_string());
+    }
+    if !helcim_webhook_secret_configured {
+        warning_codes.push("helcim_webhook_secret_missing".to_string());
+    }
+    if !podium_webhook_secret_configured {
+        warning_codes.push("podium_webhook_secret_missing".to_string());
+    }
+    if strict_production && !public_https_configured {
+        warning_codes.push("strict_production_without_public_https".to_string());
+    }
+
+    let status = if public_https_configured
+        && helcim_webhook_secret_configured
+        && podium_webhook_secret_configured
+        && (!cloudflare_tunnel_hint_configured
+            || (cloudflared_installed && cloudflared_launch_agent_configured))
+    {
+        "ready"
+    } else if public_base_url.is_some() {
+        "attention"
+    } else {
+        "local_only"
+    }
+    .to_string();
+
+    Ok(Json(EdgeAccessStatusResponse {
+        public_host,
+        public_https_configured,
+        cloudflared_installed,
+        cloudflared_launch_agent_configured,
+        cloudflare_tunnel_hint_configured,
+        helcim_webhook_secret_configured,
+        podium_webhook_secret_configured,
+        shippo_webhook_secret_configured,
+        strict_production,
+        helcim_webhook_url: public_url_with_path(
+            public_base_url.as_deref(),
+            "/api/webhooks/helcim",
+        ),
+        podium_webhook_url: public_url_with_path(
+            public_base_url.as_deref(),
+            "/api/webhooks/podium",
+        ),
+        shippo_webhook_url: public_url_with_path(
+            public_base_url.as_deref(),
+            "/api/webhooks/shippo",
+        ),
+        helcim_provider_delivery,
+        podium_provider_delivery,
+        public_base_url,
+        status,
+        warning_codes,
+    }))
+}
+
+async fn post_edge_access_probe(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<EdgeAccessProbeResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+
+    let checked_at = chrono::Utc::now();
+    let Some(public_base_url) = nonempty_env("RIVERSIDE_PUBLIC_BASE_URL") else {
+        return Ok(Json(EdgeAccessProbeResponse {
+            status: "not_configured".to_string(),
+            probe_url: None,
+            http_status: None,
+            response_ms: None,
+            checked_at,
+            message: "Set RIVERSIDE_PUBLIC_BASE_URL before running the live callback check."
+                .to_string(),
+            error: None,
+        }));
+    };
+
+    let Ok(parsed_base_url) = url::Url::parse(&public_base_url) else {
+        return Ok(Json(EdgeAccessProbeResponse {
+            status: "failed".to_string(),
+            probe_url: None,
+            http_status: None,
+            response_ms: None,
+            checked_at,
+            message: "The configured public base URL is not a valid URL.".to_string(),
+            error: Some("invalid_public_base_url".to_string()),
+        }));
+    };
+
+    if parsed_base_url.scheme() != "https" {
+        return Ok(Json(EdgeAccessProbeResponse {
+            status: "failed".to_string(),
+            probe_url: None,
+            http_status: None,
+            response_ms: None,
+            checked_at,
+            message: "The live callback check requires an HTTPS public base URL.".to_string(),
+            error: Some("public_base_url_not_https".to_string()),
+        }));
+    }
+
+    let nonce = Uuid::new_v4().to_string();
+    let probe_url = format!(
+        "{}/api/webhooks/edge-probe?nonce={nonce}",
+        public_base_url.trim_end_matches('/')
+    );
+    let started = Instant::now();
+    let request = state
+        .http_client
+        .get(&probe_url)
+        .header("cache-control", "no-store")
+        .header("x-riverside-edge-probe", &nonce);
+
+    let response_result = tokio::time::timeout(Duration::from_secs(8), request.send()).await;
+    let response = match response_result {
+        Ok(Ok(response)) => response,
+        Ok(Err(error)) => {
+            return Ok(Json(EdgeAccessProbeResponse {
+                status: "failed".to_string(),
+                probe_url: Some(probe_url),
+                http_status: None,
+                response_ms: Some(started.elapsed().as_millis() as u64),
+                checked_at,
+                message: "The public callback URL did not return a ROS edge probe response."
+                    .to_string(),
+                error: Some(error.to_string()),
+            }));
+        }
+        Err(_) => {
+            return Ok(Json(EdgeAccessProbeResponse {
+                status: "failed".to_string(),
+                probe_url: Some(probe_url),
+                http_status: None,
+                response_ms: Some(started.elapsed().as_millis() as u64),
+                checked_at,
+                message: "The public callback URL timed out before reaching ROS.".to_string(),
+                error: Some("probe_timeout".to_string()),
+            }));
+        }
+    };
+
+    let http_status = response.status();
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    let body = response.text().await.unwrap_or_default();
+    let parsed: Option<Value> = serde_json::from_str(&body).ok();
+    let probe_ok = http_status.is_success()
+        && parsed
+            .as_ref()
+            .and_then(|value| value.get("component"))
+            .and_then(Value::as_str)
+            == Some("riverside-edge-probe")
+        && parsed
+            .as_ref()
+            .and_then(|value| value.get("nonce"))
+            .and_then(Value::as_str)
+            == Some(nonce.as_str());
+
+    if probe_ok {
+        Ok(Json(EdgeAccessProbeResponse {
+            status: "passed".to_string(),
+            probe_url: Some(probe_url),
+            http_status: Some(http_status.as_u16()),
+            response_ms: Some(elapsed_ms),
+            checked_at,
+            message: "The configured public HTTPS callback path reached this Riverside OS server."
+                .to_string(),
+            error: None,
+        }))
+    } else {
+        Ok(Json(EdgeAccessProbeResponse {
+            status: "failed".to_string(),
+            probe_url: Some(probe_url),
+            http_status: Some(http_status.as_u16()),
+            response_ms: Some(elapsed_ms),
+            checked_at,
+            message: "The public callback URL responded, but it was not this ROS edge probe."
+                .to_string(),
+            error: Some("unexpected_probe_response".to_string()),
+        }))
+    }
+}
+
 fn shippo_settings_response(cfg: &StoreShippoConfig) -> ShippoSettingsResponse {
     ShippoSettingsResponse {
         enabled: cfg.enabled,
@@ -2129,6 +2574,8 @@ pub fn router() -> Router<AppState> {
             get(get_review_policy).patch(patch_review_policy),
         )
         .route("/remote-access/status", get(get_remote_access_status))
+        .route("/edge-access/status", get(get_edge_access_status))
+        .route("/edge-access/probe", post(post_edge_access_probe))
         .route("/remote-access/connect", post(post_remote_access_connect))
         .route(
             "/remote-access/disconnect",
