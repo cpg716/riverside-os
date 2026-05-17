@@ -97,7 +97,7 @@ Missing permission returns **403** with `{ "error": "missing permission", "permi
 ## See also
 
 - [`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md) — full RBAC matrix and operational notes  
-- [`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md) — **`shipments.*`**, Customers → Shipments, hub tab  
+- [`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md) — **`shipments.*`**, standalone Shipping workspace, customer hub Shipments tab
 - [`docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md`](CUSTOMERS_LIGHTSPEED_REFERENCE.md) — CRM feature parity  
 - [`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md) — browse / order-history paging  
 - [`AGENTS.md`](../AGENTS.md) — migrations **63**–**64** summary (hub keys + cashier duplicate/merge defaults)  

@@ -189,6 +189,130 @@ pub async fn ensure_task_instances(pool: &PgPool, staff_id: Uuid) -> Result<(), 
     Ok(())
 }
 
+/// Materialize due-soon recurring task instances for notification sweeps.
+///
+/// This keeps reminders from depending on a staff member opening Tasks first,
+/// while preserving the working-day guard used by the normal lazy path.
+pub async fn materialize_due_task_instances_between(
+    pool: &PgPool,
+    from_d: NaiveDate,
+    to_d: NaiveDate,
+) -> Result<(), TaskError> {
+    let mut pending: Vec<(Uuid, Uuid, Uuid, String, NaiveDate, Option<Uuid>, String)> = Vec::new();
+
+    let mut anchor = from_d;
+    while anchor <= to_d {
+        let rows: Vec<(
+            Uuid,
+            Uuid,
+            DbTaskRecurrence,
+            Option<Uuid>,
+            String,
+            Uuid,
+            DbStaffRole,
+        )> = sqlx::query_as(
+            r#"
+                SELECT
+                    ta.id,
+                    ta.template_id,
+                    ta.recurrence,
+                    ta.customer_id,
+                    t.title,
+                    s.id,
+                    s.role
+                FROM task_assignment ta
+                JOIN task_checklist_template t ON t.id = ta.template_id
+                JOIN staff s ON s.is_active = TRUE
+                  AND (
+                    (ta.assignee_kind = 'staff' AND ta.assignee_staff_id = s.id)
+                    OR (ta.assignee_kind = 'role' AND ta.assignee_role = s.role)
+                  )
+                WHERE ta.active = TRUE
+                  AND (ta.starts_on IS NULL OR ta.starts_on <= $1)
+                  AND (ta.ends_on IS NULL OR ta.ends_on >= $1)
+                "#,
+        )
+        .bind(anchor)
+        .fetch_all(pool)
+        .await?;
+
+        for (assignment_id, template_id, recurrence, customer_id, title, staff_id, role) in rows {
+            let period_key = period_key_for(recurrence, anchor);
+            let due_date = due_date_for(recurrence, anchor);
+            if due_date < from_d || due_date > to_d {
+                continue;
+            }
+            if matches!(role, DbStaffRole::Salesperson | DbStaffRole::SalesSupport) {
+                let working =
+                    crate::logic::staff_schedule::is_working_day(pool, staff_id, due_date)
+                        .await
+                        .map_err(TaskError::Database)?;
+                if !working {
+                    continue;
+                }
+            }
+            pending.push((
+                assignment_id,
+                template_id,
+                staff_id,
+                period_key,
+                due_date,
+                customer_id,
+                title,
+            ));
+        }
+
+        anchor += Duration::days(1);
+    }
+
+    let mut tx = pool.begin().await?;
+    for (assignment_id, template_id, staff_id, period_key, due_date, customer_id, title) in pending
+    {
+        let inserted_id: Option<Uuid> = sqlx::query_scalar(
+            r#"
+            INSERT INTO task_instance (
+                assignment_id, assignee_staff_id, period_key, due_date, status,
+                customer_id, title_snapshot
+            )
+            VALUES ($1, $2, $3, $4, 'open', $5, $6)
+            ON CONFLICT (assignment_id, assignee_staff_id, period_key) DO NOTHING
+            RETURNING id
+            "#,
+        )
+        .bind(assignment_id)
+        .bind(staff_id)
+        .bind(&period_key)
+        .bind(due_date)
+        .bind(customer_id)
+        .bind(&title)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(instance_id) = inserted_id else {
+            continue;
+        };
+
+        sqlx::query(
+            r#"
+            INSERT INTO task_instance_item (
+                task_instance_id, template_item_id, sort_order, label, required
+            )
+            SELECT $1, id, sort_order, label, required
+            FROM task_checklist_template_item
+            WHERE template_id = $2
+            ORDER BY sort_order
+            "#,
+        )
+        .bind(instance_id)
+        .bind(template_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(())
+}
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct TaskInstanceItemRow {
     pub id: Uuid,
@@ -714,27 +838,56 @@ pub struct CreateAssignmentPayload {
     pub ends_on: Option<NaiveDate>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateAssignmentPayload {
+    pub template_id: Uuid,
+    pub recurrence: DbTaskRecurrence,
+    #[serde(default)]
+    pub recurrence_config: Value,
+    pub assignee_kind: DbTaskAssigneeKind,
+    #[serde(default)]
+    pub assignee_staff_id: Option<Uuid>,
+    #[serde(default)]
+    pub assignee_role: Option<DbStaffRole>,
+    #[serde(default)]
+    pub customer_id: Option<Uuid>,
+    #[serde(default = "default_active")]
+    pub active: bool,
+    #[serde(default)]
+    pub starts_on: Option<NaiveDate>,
+    #[serde(default)]
+    pub ends_on: Option<NaiveDate>,
+}
+
 fn default_active() -> bool {
     true
+}
+
+fn validate_assignment_target(
+    assignee_kind: DbTaskAssigneeKind,
+    assignee_staff_id: Option<Uuid>,
+    assignee_role: Option<DbStaffRole>,
+) -> Result<(), TaskError> {
+    match assignee_kind {
+        DbTaskAssigneeKind::Staff if assignee_staff_id.is_none() => Err(TaskError::InvalidState(
+            "assignee_staff_id required for staff assignment".into(),
+        )),
+        DbTaskAssigneeKind::Role if assignee_role.is_none() => Err(TaskError::InvalidState(
+            "assignee_role required for role assignment".into(),
+        )),
+        _ => Ok(()),
+    }
 }
 
 pub async fn admin_create_assignment(
     pool: &PgPool,
     body: CreateAssignmentPayload,
 ) -> Result<Uuid, TaskError> {
-    match body.assignee_kind {
-        DbTaskAssigneeKind::Staff if body.assignee_staff_id.is_none() => {
-            return Err(TaskError::InvalidState(
-                "assignee_staff_id required for staff assignment".into(),
-            ));
-        }
-        DbTaskAssigneeKind::Role if body.assignee_role.is_none() => {
-            return Err(TaskError::InvalidState(
-                "assignee_role required for role assignment".into(),
-            ));
-        }
-        _ => {}
-    }
+    validate_assignment_target(
+        body.assignee_kind,
+        body.assignee_staff_id,
+        body.assignee_role,
+    )?;
 
     let id: Uuid = sqlx::query_scalar(
         r#"
@@ -762,6 +915,57 @@ pub async fn admin_create_assignment(
     Ok(id)
 }
 
+pub async fn admin_update_assignment(
+    pool: &PgPool,
+    assignment_id: Uuid,
+    body: UpdateAssignmentPayload,
+) -> Result<(), TaskError> {
+    validate_assignment_target(
+        body.assignee_kind,
+        body.assignee_staff_id,
+        body.assignee_role,
+    )?;
+
+    let rows = sqlx::query(
+        r#"
+        UPDATE task_assignment
+        SET
+            template_id = $1,
+            recurrence = $2,
+            recurrence_config = $3,
+            assignee_kind = $4,
+            assignee_staff_id = $5,
+            assignee_role = $6,
+            customer_id = $7,
+            active = $8,
+            starts_on = $9,
+            ends_on = $10,
+            updated_at = now()
+        WHERE id = $11
+        "#,
+    )
+    .bind(body.template_id)
+    .bind(body.recurrence)
+    .bind(body.recurrence_config)
+    .bind(body.assignee_kind)
+    .bind(body.assignee_staff_id)
+    .bind(body.assignee_role)
+    .bind(body.customer_id)
+    .bind(body.active)
+    .bind(body.starts_on)
+    .bind(body.ends_on)
+    .bind(assignment_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    if rows == 0 {
+        return Err(TaskError::NotFound);
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct AssignmentListRow {
     pub id: Uuid,
@@ -772,6 +976,9 @@ pub struct AssignmentListRow {
     pub assignee_staff_id: Option<Uuid>,
     pub assignee_role: Option<DbStaffRole>,
     pub customer_id: Option<Uuid>,
+    pub customer_display_name: Option<String>,
+    pub customer_code: Option<String>,
+    pub customer_phone: Option<String>,
     pub active: bool,
     pub starts_on: Option<NaiveDate>,
     pub ends_on: Option<NaiveDate>,
@@ -789,11 +996,15 @@ pub async fn admin_list_assignments(pool: &PgPool) -> Result<Vec<AssignmentListR
             ta.assignee_staff_id,
             ta.assignee_role,
             ta.customer_id,
+            NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), '') AS customer_display_name,
+            c.customer_code,
+            c.phone AS customer_phone,
             ta.active,
             ta.starts_on,
             ta.ends_on
         FROM task_assignment ta
         JOIN task_checklist_template t ON t.id = ta.template_id
+        LEFT JOIN customers c ON c.id = ta.customer_id
         ORDER BY ta.created_at DESC
         "#,
     )

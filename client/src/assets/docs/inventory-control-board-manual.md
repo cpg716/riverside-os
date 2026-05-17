@@ -51,9 +51,13 @@ Use the list first, then fix items in Product Hub.
 
 ## Inventory Cleanup Review
 
-Inventory Cleanup Review summarizes Counterpoint and Lightspeed reference cleanup signals. It explains whether cleanup is ready and which references or aliases are available.
+Inventory Cleanup Review is the cleanup launch area for catalog data-quality work. It shows the biggest safe cleanup queues and lets staff start the work from the card.
 
-This review is informational. Use Product Hub and Counterpoint Settings for the actual review and safe apply workflows.
+Use **Work missing categories** or **Work missing vendors** to filter the inventory list to the affected products. Open a product row from that filtered list and make the correction in Product Hub.
+
+If a Counterpoint/Lightspeed normalization candidate exists, use **Review next product** to open Product Hub for that product family. If the reference status says **Not ready**, rebuild Counterpoint aliases and import the Lightspeed reference from Settings > Counterpoint before treating the normalization counts as actionable.
+
+Use **Show diagnostics** only when you need the detailed reference counters. ROSIE insight is optional. If ROSIE is unavailable, the deterministic cleanup counts above it remain the source of truth.
 
 ## What to watch for
 

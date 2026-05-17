@@ -1,6 +1,6 @@
 # Register (POS) dashboard
 
-POS-Core surface for floor staff when a till session is open: **metrics, priority feed, notifications, wedding pulse, weather**, and a fast path to **Register (Cart)**. Admins continue to use **Back Office → Operations** ([`OperationalHome`](../client/src/components/operations/OperationalHome.tsx)) as their primary dashboard; this doc covers the **embedded POS** experience only.
+POS-Core surface for floor staff when a till session is open: **register status, priority feed, pickup pressure, alterations, tasks, inventory alerts, notifications, wedding pulse, weather**, and a fast path to **Register (Cart)**. Admins continue to use **Back Office → Operations** ([`OperationalHome`](../client/src/components/operations/OperationalHome.tsx)) as their primary dashboard; this doc covers the **embedded POS** experience only.
 
 ## Navigation and default tab
 
@@ -16,10 +16,10 @@ Re-designed in v0.2.0 using the **WowDash** layout system (`DashboardStatsCard` 
 
 | Block | Source | Notes |
 |-------|--------|-------|
-| **Performance Stats** | `GET /api/staff/self/register-metrics` | Use `DashboardStatsCard` with sparklines and color signals. |
-| **Priority Feed** | `MorningCompassQueue` ranker | Use `DashboardGridCard` framing; overdue pick/needs measure. |
-| **Active Personnel** | `today_floor_staff` | Integrated status signals. |
-| **Notifications** | Bell inbox sink | Short preview rows with immediate action labels. |
+| **Command cards** | Register session, `MorningCompassQueue`, tasks, notifications | Six compact source cards: Register, Priority Feed, Pickups, Alterations, Tasks, Inventory Alerts. Cards route to the source workspace when staff has access. |
+| **What Needs Action First** | `MorningCompassQueue` ranker | Action-first list. Wedding rows open member detail, tasks open task checklist, rush orders open the sale in Register, notifications open the bell inbox. |
+| **Wedding Pulse** | `GET /api/weddings/morning-compass` | Source-linked follow-up counts for measurements, orders, and overdue pickups. |
+| **Notifications** | Bell inbox sink | Short preview rows with **Mark read**, **Dismiss**, and **Open inbox**. Retired refund-review alerts are not surfaced. |
 
 | Block | Source | Permission / role |
 |-------|--------|-------------------|
@@ -63,7 +63,7 @@ System retention jobs still archive stale rows by age; user dismiss is immediate
 
 ## Predictive Priority Feed (Morning Compass)
 
-**Suggested next** (register default tab): ranked queue from wedding compass queues (overdue pickup → needs order → needs measure), **open tasks** (due / overdue weighting), and **notification** preview (critical kinds boosted). Managed via **`DashboardGridCard`** layout. Tapping a wedding row opens **[`CompassMemberDetailDrawer`](../client/src/components/operations/CompassMemberDetailDrawer.tsx)**; **Open full party** exits POS to the wedding workspace. Tasks open **`TaskChecklistDrawer`**; notifications open the bell inbox. Rules live in **[`client/src/lib/morningCompassQueue.ts`](../client/src/lib/morningCompassQueue.ts)** (client-side ranker; no ML). Operations **Operations Hub** uses the same queue with a wider limit. Product note: **[`docs/PLAN_MORNING_COMPASS_PREDICTIVE.md`](./PLAN_MORNING_COMPASS_PREDICTIVE.md)**.
+**Suggested next** (register default tab): ranked queue from wedding compass queues (overdue pickup → needs order → needs measure), **open tasks** (due / overdue weighting), **rush orders**, and **notification** preview (critical kinds boosted). Managed via **`DashboardGridCard`** layout. Tapping a wedding row opens **[`CompassMemberDetailDrawer`](../client/src/components/operations/CompassMemberDetailDrawer.tsx)**; **Open full party** exits POS to the wedding workspace. Tasks open **`TaskChecklistDrawer`**; rush orders open the transaction in **Register**; notifications open the bell inbox. Rules live in **[`client/src/lib/morningCompassQueue.ts`](../client/src/lib/morningCompassQueue.ts)** (client-side ranker; no ML). Operations **Operations Hub** uses the same queue with a wider limit. Product note: **[`docs/PLAN_MORNING_COMPASS_PREDICTIVE.md`](./PLAN_MORNING_COMPASS_PREDICTIVE.md)**.
 
 ## Related docs
 

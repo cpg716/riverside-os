@@ -23,7 +23,16 @@ type HealthStatus = "ready" | "review" | "degraded" | "blocked";
 type ChecklistMode = "open" | "close";
 
 export type OperationsCenterNavigateTarget = {
-  tab: "home" | "alterations" | "inventory" | "payments" | "settings" | "customers";
+  tab:
+    | "home"
+    | "alterations"
+    | "inventory"
+    | "payments"
+    | "settings"
+    | "customers"
+    | "appointments"
+    | "weddings"
+    | "staff";
   section?: string;
 };
 

@@ -2,7 +2,7 @@
 
 **Audience:** Sales and CRM staff.
 
-**Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **Layaways** (all-customer layaway workspace), **Shipments Hub** (all-customer shipping workspace), **RMS Charge** (all-customer private-label credit workspace), and **Duplicate Review** (all-customer profile review queue).
+**Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **Layaways** (all-customer layaway workspace), **RMS Charge** (all-customer private-label credit workspace), and **Duplicate Review** (all-customer profile review queue). Full-store shipment work now lives in the standalone **Shipping** workspace.
 
 **Related permissions:** Browse/search/create use general customer access. Some hub tabs and customer-related workspaces are role-limited. If a tab or action is missing, ask a manager to review your customer, Orders, Shipping, RMS Charge, or Duplicate Review access.
 
@@ -10,7 +10,7 @@
 
 ## How to use this area
 
-**All Customers** is the **searchable directory**. **Add Customer** opens the **drawer** form. The **Relationship hub** is scoped to the customer you opened: use it for this customer’s profile, messages, measurements, transaction records, fulfillment work, shipments, weddings, and related history. The sidebar workspaces are broader queues or operational tools across customers.
+**All Customers** is the **searchable directory**. **Add Customer** opens the **drawer** form. The **Relationship hub** is scoped to the customer you opened: use it for this customer’s profile, messages, measurements, transaction records, fulfillment work, shipments, weddings, and related history. Broader all-customer queues live in their own workspaces, such as **Shipping** and **RMS Charge**.
 
 ## All Customers
 
@@ -107,4 +107,4 @@ The same Add Customer intake is used from POS when staff search by a name, phone
 - [../CUSTOMERS_LIGHTSPEED_REFERENCE.md](../CUSTOMERS_LIGHTSPEED_REFERENCE.md)
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 
-**Last reviewed:** 2026-04-09 (Joint accounts added)
+**Last reviewed:** 2026-05-17 (Shipping moved to standalone workspace)

@@ -1,6 +1,19 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, MessageSquare, RefreshCw, Search, Send, UserPlus } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Mail,
+  MessageCircle,
+  MessageSquare,
+  Phone,
+  RefreshCw,
+  Search,
+  Send,
+  UserCircle,
+  UserPlus,
+} from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import type { Customer } from "../pos/CustomerSelector";
@@ -52,6 +65,20 @@ type UnmatchedConversation = {
   last_seen_at: string;
 };
 
+type PodiumMessageRow = {
+  id: string;
+  conversation_id: string;
+  podium_conversation_uid: string | null;
+  direction: string;
+  channel: string;
+  body: string;
+  staff_id: string | null;
+  staff_full_name: string | null;
+  podium_sender_uid: string | null;
+  podium_sender_name: string | null;
+  created_at: string;
+};
+
 type DirectSmsCustomerResult = {
   id: string;
   customer_code: string;
@@ -60,6 +87,47 @@ type DirectSmsCustomerResult = {
   phone: string | null;
   email: string | null;
 };
+
+function customerName(row: InboxRow) {
+  return `${row.first_name} ${row.last_name}`.trim() || "Customer";
+}
+
+function initials(row: InboxRow) {
+  const first = row.first_name.trim().charAt(0);
+  const last = row.last_name.trim().charAt(0);
+  return `${first}${last}`.toUpperCase() || "C";
+}
+
+function relativeTime(value: string | null | undefined) {
+  if (!value) return "Not yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not yet";
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function fullDateTime(value: string | null | undefined) {
+  if (!value) return "Not yet";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not yet";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function channelIcon(channel: string) {
+  return channel === "email" ? Mail : Phone;
+}
 
 export default function PodiumMessagingInboxSection({
   onOpenCustomerHub,
@@ -82,10 +150,13 @@ export default function PodiumMessagingInboxSection({
   const [health, setHealth] = useState<PodiumHealth | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [selectedRow, setSelectedRow] = useState<InboxRow | null>(null);
+  const [threadMessages, setThreadMessages] = useState<PodiumMessageRow[]>([]);
+  const [threadLoading, setThreadLoading] = useState(false);
   const [replyDraft, setReplyDraft] = useState("");
   const [replySubject, setReplySubject] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
   const [unmatchedRows, setUnmatchedRows] = useState<UnmatchedConversation[]>([]);
+  const [showUnmatched, setShowUnmatched] = useState(false);
   const [directCustomerSearch, setDirectCustomerSearch] = useState("");
   const [directCustomerResults, setDirectCustomerResults] = useState<DirectSmsCustomerResult[]>([]);
   const [directCustomer, setDirectCustomer] = useState<DirectSmsCustomerResult | null>(null);
@@ -177,6 +248,46 @@ export default function PodiumMessagingInboxSection({
     });
   }, [channelFilter, rows, search, triageFilter]);
 
+  useEffect(() => {
+    if (selectedRow && visibleRows.some((row) => row.conversation_id === selectedRow.conversation_id)) {
+      return;
+    }
+    setSelectedRow(visibleRows[0] ?? null);
+  }, [selectedRow, visibleRows]);
+
+  useEffect(() => {
+    if (!selectedRow) {
+      setThreadMessages([]);
+      return;
+    }
+    let cancelled = false;
+    const loadThread = async () => {
+      setThreadLoading(true);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/customers/${encodeURIComponent(selectedRow.customer_id)}/podium/messages`,
+          { headers: apiAuth(), cache: "no-store" },
+        );
+        if (!res.ok) {
+          if (!cancelled) setThreadMessages([]);
+          return;
+        }
+        const data = (await res.json()) as PodiumMessageRow[];
+        if (!cancelled) {
+          setThreadMessages(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        if (!cancelled) setThreadMessages([]);
+      } finally {
+        if (!cancelled) setThreadLoading(false);
+      }
+    };
+    void loadThread();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth, selectedRow]);
+
   const runSync = async () => {
     setSyncBusy(true);
     try {
@@ -251,7 +362,11 @@ export default function PodiumMessagingInboxSection({
       setReplyDraft("");
       setReplySubject("");
       await markRead(selectedRow);
+      const currentRow = selectedRow;
       await refresh();
+      if (currentRow) {
+        setSelectedRow(currentRow);
+      }
     } finally {
       setReplyBusy(false);
     }
@@ -344,22 +459,48 @@ export default function PodiumMessagingInboxSection({
     }
   };
 
+  const unreadCount = rows.filter((row) => row.unread).length;
+  const needsReplyCount = rows.filter((row) => row.needs_reply).length;
+  const selectedMessages =
+    selectedRow && threadMessages.length === 0 && selectedRow.snippet
+      ? [
+          {
+            id: `${selectedRow.conversation_id}-preview`,
+            conversation_id: selectedRow.conversation_id,
+            podium_conversation_uid: null,
+            direction: selectedRow.needs_reply ? "inbound" : "outbound",
+            channel: selectedRow.channel,
+            body: selectedRow.snippet ?? "",
+            staff_id: null,
+            staff_full_name: null,
+            podium_sender_uid: null,
+            podium_sender_name: null,
+            created_at: selectedRow.last_message_at,
+          } satisfies PodiumMessageRow,
+        ]
+      : threadMessages;
+  const SelectedChannelIcon = selectedRow ? channelIcon(selectedRow.channel) : MessageCircle;
+
   return (
-    <div className="ui-page flex flex-1 flex-col gap-4 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="mb-3 flex items-center gap-3">
+    <div className="ui-page flex flex-1 flex-col gap-5 p-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
+            Customer messaging
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <h1 className="text-3xl font-black tracking-tight text-app-text">
+              Podium Inbox
+            </h1>
             <IntegrationBrandLogo
               brand="podium"
-              className="inline-flex rounded-2xl border border-app-border bg-white px-3 py-2 shadow-sm"
-              imageClassName="h-8 w-auto object-contain"
+              kind="icon"
+              className="inline-flex rounded-xl border border-app-border bg-white p-2 shadow-sm"
+              imageClassName="h-5 w-5 object-contain"
             />
-            <h1 className="text-lg font-black uppercase tracking-tight text-app-text">
-              Inbox
-            </h1>
           </div>
-          <p className="text-xs text-app-text-muted">
-            Current Podium SMS and email conversations from matched customers.
+          <p className="mt-2 max-w-2xl text-sm font-semibold text-app-text-muted">
+            Review customer texts, reply in context, and open the customer record when a message needs follow-up.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -383,26 +524,25 @@ export default function PodiumMessagingInboxSection({
       </div>
 
       {health ? (
-        <div className="grid gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            ["Credentials", health.credentials_configured ? "Configured" : "Missing"],
-            ["Webhook", health.last_webhook_received_at ? new Date(health.last_webhook_received_at).toLocaleString() : "No delivery"],
-            ["Last message", health.last_message_at ? new Date(health.last_message_at).toLocaleString() : "None"],
-            ["Unmatched", `${health.unmatched_conversation_count} provider threads`],
-            ["Last failure", health.last_webhook_failure_at ? health.last_webhook_failure_reason ?? "Webhook rejected" : "None recorded"],
+            ["Conversations", `${rows.length}`],
+            ["Needs reply", `${needsReplyCount}`],
+            ["Unread", `${unreadCount}`],
+            ["Last sync", health.last_sync_at ? fullDateTime(health.last_sync_at) : health.last_message_at ? fullDateTime(health.last_message_at) : "Not synced"],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-lg bg-app-surface-2 px-3 py-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+            <div key={label} className="rounded-2xl border border-app-border bg-app-surface px-4 py-4 shadow-sm">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 {label}
               </p>
-              <p className="mt-1 font-bold text-app-text">{value}</p>
+              <p className="mt-2 text-2xl font-black text-app-text">{value}</p>
             </div>
           ))}
         </div>
       ) : null}
 
       {rows.length > 0 ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2 rounded-2xl border border-app-border bg-app-surface px-3 py-3 shadow-sm sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
             <Search
               size={14}
@@ -493,137 +633,182 @@ export default function PodiumMessagingInboxSection({
           </p>
         </div>
       ) : (
-        <div className="grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="overflow-hidden rounded-xl border border-app-border bg-app-surface">
-            <ul className="divide-y divide-app-border">
+        <div className="grid min-h-[620px] flex-1 gap-4 xl:grid-cols-[24rem_minmax(0,1fr)]">
+          <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
+            <div className="border-b border-app-border px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Conversations
+              </p>
+            </div>
+            <ul className="max-h-[640px] divide-y divide-app-border overflow-y-auto">
               {visibleRows.map((r) => (
                 <li key={r.conversation_id}>
-                  <div
-                    className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors hover:bg-app-surface-2/80 ${
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRow(r);
+                      setReplySubject("");
+                      setReplyDraft("");
+                    }}
+                    className={`flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-app-surface-2/80 ${
                       selectedRow?.conversation_id === r.conversation_id ? "bg-app-accent/8" : ""
                     }`}
                   >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <MessageSquare size={14} className="shrink-0 text-app-accent" aria-hidden />
+                    <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-app-accent/10 text-sm font-black text-app-accent">
+                      {initials(r)}
                       {r.unread ? (
-                        <span className="h-2 w-2 rounded-full bg-app-accent" aria-label="Unread" />
+                        <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-app-surface bg-app-accent" aria-label="Unread" />
                       ) : null}
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void openCustomer(r);
-                        }}
-                        className="rounded-md px-1 py-0.5 text-left font-black text-app-text underline decoration-app-accent/50 underline-offset-4 hover:text-app-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
-                        title="Open this customer in the Messages tab"
-                      >
-                        {r.first_name} {r.last_name}
-                      </button>
-                      <span className="font-mono text-[10px] text-app-text-muted">
-                        {r.customer_code}
-                      </span>
-                      <span className="rounded border border-app-border bg-app-surface-2 px-1.5 py-0.5 text-[9px] font-black uppercase text-app-text-muted">
-                        {r.channel}
-                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-start gap-2">
+                        <p className="min-w-0 flex-1 truncate text-sm font-black text-app-text">
+                          {customerName(r)}
+                        </p>
+                        <span className="shrink-0 text-[10px] font-bold text-app-text-muted">
+                          {relativeTime(r.last_message_at)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                        {(() => {
+                          const Icon = channelIcon(r.channel);
+                          return <Icon size={12} aria-hidden />;
+                        })()}
+                        <span>{r.channel}</span>
+                        <span>·</span>
+                        <span>{r.customer_code}</span>
+                      </div>
+                      {r.snippet ? (
+                        <p className="mt-1 line-clamp-2 text-xs font-semibold leading-relaxed text-app-text-muted">
+                          {r.snippet}
+                        </p>
+                      ) : null}
                       {r.needs_reply ? (
-                        <span className="rounded border border-app-warning/40 bg-app-warning/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-app-warning">
-                          Needs reply
+                        <span className="mt-2 inline-flex rounded-full border border-app-warning/40 bg-app-warning/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
+                          Reply needed
                         </span>
                       ) : null}
-                      <span className="ml-auto text-[10px] text-app-text-muted">
-                        {new Date(r.last_message_at).toLocaleString()}
-                      </span>
                     </div>
-                    {r.snippet ? (
-                      <p className="line-clamp-2 pl-[22px] text-xs text-app-text-muted">
-                        {r.snippet}
-                      </p>
-                    ) : null}
-                    <div className="flex flex-wrap gap-2 pl-[22px]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedRow(r);
-                          setReplySubject("");
-                          setReplyDraft("");
-                        }}
-                        className="mt-1 rounded-full border border-app-border px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted hover:border-app-accent/40 hover:text-app-accent"
-                      >
-                        Quick Reply
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void openCustomer(r);
-                        }}
-                        className="mt-1 rounded-full border border-app-accent/30 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white"
-                      >
-                        Open Messages
-                      </button>
-                    </div>
-                  </div>
+                  </button>
                 </li>
               ))}
             </ul>
           </div>
-          <aside className="rounded-xl border border-app-border bg-app-surface p-4">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
             {selectedRow ? (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Quick {selectedRow.channel === "email" ? "email" : "SMS"} reply
-                  </p>
-                  <h2 className="mt-1 text-sm font-black text-app-text">
-                    {selectedRow.first_name} {selectedRow.last_name}
-                  </h2>
-                  <p className="mt-1 text-xs text-app-text-muted">
-                    Last customer:{" "}
-                    {selectedRow.last_inbound_at
-                      ? new Date(selectedRow.last_inbound_at).toLocaleString()
-                      : "No inbound message"}
-                  </p>
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-app-border px-5 py-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-app-accent/10 text-base font-black text-app-accent">
+                      {initials(selectedRow)}
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="truncate text-lg font-black text-app-text">
+                        {customerName(selectedRow)}
+                      </h2>
+                      <p className="flex items-center gap-2 text-xs font-semibold text-app-text-muted">
+                        <SelectedChannelIcon size={13} aria-hidden />
+                        {selectedRow.channel === "email" ? "Email" : "Text message"} · Last activity {relativeTime(selectedRow.last_message_at)}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void openCustomer(selectedRow)}
+                    className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    <UserCircle size={14} aria-hidden />
+                    Open Customer
+                  </button>
                 </div>
-                {selectedRow.channel === "email" ? (
-                  <input
-                    value={replySubject}
-                    onChange={(event) => setReplySubject(event.target.value)}
-                    className="ui-input w-full px-3 py-2 text-sm"
-                    placeholder="Email subject"
-                  />
-                ) : null}
-                <textarea
-                  value={replyDraft}
-                  onChange={(event) => setReplyDraft(event.target.value)}
-                  className="ui-input min-h-32 w-full resize-y p-3 text-sm"
-                  placeholder={selectedRow.channel === "email" ? "Type an email reply..." : "Type an SMS reply..."}
-                />
-                <button
-                  type="button"
-                  onClick={() => void sendReply()}
-                  disabled={
-                    replyBusy ||
-                    !replyDraft.trim() ||
-                    (selectedRow.channel === "email" && !replySubject.trim())
-                  }
-                  className="ui-btn-primary inline-flex w-full items-center justify-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                >
-                  <Send size={13} aria-hidden />
-                  {replyBusy ? "Sending..." : selectedRow.channel === "email" ? "Send Email" : "Send SMS"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void openCustomer(selectedRow)}
-                  className="ui-btn-secondary w-full px-4 py-2 text-[10px] font-black uppercase tracking-widest"
-                >
-                  Open Messages Thread
-                </button>
-              </div>
+                <div className="flex min-h-[360px] flex-1 flex-col gap-3 overflow-y-auto bg-app-bg/40 px-5 py-5">
+                  {threadLoading ? (
+                    <p className="text-sm font-semibold text-app-text-muted">
+                      Loading conversation...
+                    </p>
+                  ) : selectedMessages.length > 0 ? (
+                    selectedMessages.map((message) => {
+                      const outbound = message.direction === "outbound";
+                      return (
+                        <div
+                          key={message.id}
+                          className={`flex ${outbound ? "justify-end" : "justify-start"}`}
+                        >
+                          <div
+                            className={`max-w-[78%] rounded-3xl px-4 py-3 text-sm shadow-sm ${
+                              outbound
+                                ? "rounded-br-md bg-app-accent text-white"
+                                : "rounded-bl-md border border-app-border bg-app-surface text-app-text"
+                            }`}
+                          >
+                            <p className="whitespace-pre-wrap leading-relaxed">{message.body}</p>
+                            <p
+                              className={`mt-2 text-[10px] font-semibold ${
+                                outbound ? "text-white/75" : "text-app-text-muted"
+                              }`}
+                            >
+                              {outbound
+                                ? message.staff_full_name ?? message.podium_sender_name ?? "Riverside"
+                                : customerName(selectedRow)}{" "}
+                              · {fullDateTime(message.created_at)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="flex flex-1 flex-col items-center justify-center text-center text-app-text-muted">
+                      <MessageCircle size={36} className="mb-3 opacity-70" aria-hidden />
+                      <p className="text-sm font-black text-app-text">
+                        No messages loaded for this conversation yet.
+                      </p>
+                      <p className="mt-1 max-w-sm text-xs font-semibold">
+                        Sync Podium or open the customer record if this thread needs more history.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div className="border-t border-app-border bg-app-surface px-5 py-4">
+                  {selectedRow.channel === "email" ? (
+                    <input
+                      value={replySubject}
+                      onChange={(event) => setReplySubject(event.target.value)}
+                      className="ui-input mb-2 w-full rounded-xl px-3 py-2 text-sm"
+                      placeholder="Email subject"
+                    />
+                  ) : null}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <textarea
+                      value={replyDraft}
+                      onChange={(event) => setReplyDraft(event.target.value)}
+                      className="ui-input min-h-20 flex-1 resize-y rounded-2xl p-3 text-sm"
+                      placeholder={selectedRow.channel === "email" ? "Type an email reply..." : "Type a text message..."}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void sendReply()}
+                      disabled={
+                        replyBusy ||
+                        !replyDraft.trim() ||
+                        (selectedRow.channel === "email" && !replySubject.trim())
+                      }
+                      className="ui-btn-primary inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50 sm:self-end"
+                    >
+                      <Send size={14} aria-hidden />
+                      {replyBusy ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                </div>
+              </>
             ) : (
-              <p className="text-sm text-app-text-muted">
-                Select a conversation for a quick reply.
-              </p>
+              <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-app-text-muted">
+                <MessageCircle size={40} className="mb-3 opacity-70" aria-hidden />
+                <p className="text-sm font-semibold">
+                  Select a conversation to read and reply.
+                </p>
+              </div>
             )}
-          </aside>
+          </section>
         </div>
       )}
 
@@ -788,37 +973,48 @@ export default function PodiumMessagingInboxSection({
       </div>
 
       {unmatchedRows.length > 0 ? (
-        <div className="rounded-xl border border-app-warning/30 bg-app-warning/10 px-4 py-3">
-          <div className="mb-2 flex items-start gap-2 text-sm text-app-text">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-app-warning" aria-hidden />
-            <div>
-              <p className="font-black">Unknown Podium senders</p>
-              <p className="text-xs font-semibold text-app-text-muted">
-                These synced provider threads are not matched to a ROS customer yet. Match by phone or email before treating them as customer history.
-              </p>
+        <div className="rounded-2xl border border-app-warning/30 bg-app-warning/10 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setShowUnmatched((value) => !value)}
+            className="flex w-full items-start justify-between gap-3 text-left text-sm text-app-text"
+          >
+            <span className="flex items-start gap-2">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-app-warning" aria-hidden />
+              <span>
+                <span className="block font-black">Unknown Podium senders</span>
+                <span className="block text-xs font-semibold text-app-text-muted">
+                  {unmatchedRows.length} synced threads need a matching customer before they become customer history.
+                </span>
+              </span>
+            </span>
+            {showUnmatched ? <ChevronUp size={18} aria-hidden /> : <ChevronDown size={18} aria-hidden />}
+          </button>
+          {showUnmatched ? (
+            <div className="mt-3">
+              <ul className="grid gap-2 lg:grid-cols-2">
+                {unmatchedRows.map((row) => (
+                  <li key={row.id} className="rounded-lg border border-app-warning/30 bg-app-surface px-3 py-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-black uppercase tracking-widest text-app-text-muted">
+                        {row.channel}
+                      </span>
+                      <span className="font-mono text-app-text">{row.identifier ?? "No identifier"}</span>
+                      <span className="ml-auto text-app-text-muted">
+                        {fullDateTime(row.last_seen_at)}
+                      </span>
+                    </div>
+                    {row.snippet ? (
+                      <p className="mt-1 line-clamp-1 text-app-text-muted">{row.snippet}</p>
+                    ) : null}
+                    <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                      Find or create the customer, then sync again.
+                    </p>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
-          <ul className="grid gap-2 lg:grid-cols-2">
-            {unmatchedRows.map((row) => (
-              <li key={row.id} className="rounded-lg border border-app-warning/30 bg-app-surface px-3 py-2 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-black uppercase tracking-widest text-app-text-muted">
-                    {row.channel}
-                  </span>
-                  <span className="font-mono text-app-text">{row.identifier ?? "No identifier"}</span>
-                  <span className="ml-auto text-app-text-muted">
-                    {new Date(row.last_seen_at).toLocaleString()}
-                  </span>
-                </div>
-                {row.snippet ? (
-                  <p className="mt-1 line-clamp-1 text-app-text-muted">{row.snippet}</p>
-                ) : null}
-                <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                  Use the identifier to find or create the customer, then sync again so the thread can attach.
-                </p>
-              </li>
-            ))}
-          </ul>
+          ) : null}
         </div>
       ) : null}
     </div>

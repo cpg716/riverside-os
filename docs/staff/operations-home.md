@@ -4,30 +4,31 @@
 
 **Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Daily Sales**, **Pickup Queue**, **Podium Inbox**, **Mailbox**, **Reviews**.
 
-**Related permissions:** **weddings.view** for wedding/compass blocks and the activity feed. **notifications.view** for bell. **tasks.complete** for task widgets. **customers.hub_view** for Podium Inbox and Mailbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **orders.view** for Pickup Queue. **alterations.manage** for the alterations snapshot. Weather often needs no special permission.
+**Related permissions:** **weddings.view** for wedding/compass blocks and the activity feed. **notifications.view** for bell. **tasks.complete** for task widgets. **customers.hub_view** for Podium Inbox and Mailbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **register.session_attach** for register close status. **orders.view** for Pickup Queue. **alterations.manage** for the alterations snapshot. Weather often needs no special permission.
 
 ---
 
 ## How to use this area
 
-**Operations Hub** is the **start-of-day** screen when you are in Back Office (not POS). **Dashboard** pulls together **what needs attention** (Action Board, alterations, floor team, weather) plus **sales performance trends** and a **recent activity feed**.
+**Operations Hub** is the **start-of-day** screen when you are in Back Office (not POS). **Dashboard** pulls together the KPI strip, **what changed today**, **what needs attention**, register close status, the Action Board, alterations, floor team, sales pace, weather, and a recent activity feed.
 
 ## Dashboard
 
 1. **Operations** → **Dashboard**.
 2. Scan blocks **top to bottom**:
-   - **Action Board** — ranked from weddings, tasks, and inbox (when your role allows).
-   - **Performance Metrics** — real-time sales revenue visualized with trend sparklines.
+   - **KPI strip** — sales, register close, pickup queue, alterations, inventory alerts, and attention pressure.
+   - **What Changed Today** — booked movement, pickups, appointments, and new wedding counts. Click a number to open its source workspace.
+   - **What Needs Attention** — blockers and warnings. Every row opens the source workflow.
+   - **Register Close** — open till groups, open sessions, and close-review pressure. Use **Daily Sales** for the full Z-close view.
+   - **Action Board** — ranked from weddings, tasks, rush orders, and inbox (when your role allows).
    - **Alterations** — overdue, due-today, ready pickup, and total open garment work from Register intake.
    - **Team on Floor** — from **Staff → Schedule** when configured.
-   - **Task List** — opens checklist items for you (**tasks.complete**).
-   - **Weather Hub** — customer and staffing context with condition signals.
-   - **Recent Activity** — live store and wedding events feed (**weddings.view**).
-3. Use shortcuts to **POS**, **Orders**, or **Weddings** if tiles exist.
+   - **Sales by Hour** and **Recent Activity** — sales pace and live store or wedding events.
+3. Treat the dashboard as a routing surface. Open the source workspace before making customer, inventory, close, or manager decisions.
 
 **If a block is missing:** assume **permission** or **not configured** before assuming a bug.
 
-Use the full **Alterations Hub** when you need search, source filters, or status movement. The Operations block is the fast triage snapshot.
+Use the full **Alterations Hub**, **Pickup Queue**, **Daily Sales**, or **Inventory Stock Guidance** when you need search, source filters, status movement, or sign-off. The Operations block is the fast triage snapshot.
 
 ## Daily Sales
 
@@ -77,6 +78,7 @@ Use the full **Alterations Hub** when you need search, source filters, or status
 | Wedding block missing | **weddings.view** | Role change |
 | Activity feed empty | Quiet period | Check **weddings.view** |
 | Bell badge stuck | Open inbox | Re-sign-in |
+| Register close card missing | Check **register.session_attach** | Manager role review |
 | Tasks empty | Open **My tasks** once (lazy materialization) | [STAFF_TASKS_AND_REGISTER_SHIFT.md](../STAFF_TASKS_AND_REGISTER_SHIFT.md) |
 
 ## When to get a manager
@@ -95,4 +97,4 @@ Use the full **Alterations Hub** when you need search, source filters, or status
 - [../STAFF_SCHEDULE_AND_CALENDAR.md](../STAFF_SCHEDULE_AND_CALENDAR.md)
 - [../WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md)
 
-**Last reviewed:** 2026-04-15 (v0.2.0 WowDash Pass)
+**Last reviewed:** 2026-05-17 (v0.60.0 Operations Dashboard pass)

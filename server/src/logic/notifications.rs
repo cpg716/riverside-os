@@ -113,7 +113,6 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "morning_alteration_due",
     "morning_low_stock",
     "morning_po_expected",
-    "morning_refund_queue",
     "morning_wedding_today",
     "negative_available_stock",
     "nuorder_sync_failed",
@@ -875,6 +874,7 @@ pub async fn list_inbox_for_staff(
             FROM staff_notification sn
             JOIN app_notification an ON an.id = sn.notification_id
             WHERE sn.staff_id = $1
+              AND an.kind <> 'morning_refund_queue'
               AND (
                 $2::text = 'all'
                 OR ($2::text = 'inbox' AND sn.archived_at IS NULL AND sn.completed_at IS NULL)
@@ -909,6 +909,7 @@ pub async fn list_inbox_for_staff(
             FROM staff_notification sn
             JOIN app_notification an ON an.id = sn.notification_id
             WHERE sn.staff_id = $1
+              AND an.kind <> 'morning_refund_queue'
               AND (
                 $2::text = 'all'
                 OR ($2::text = 'inbox' AND sn.archived_at IS NULL AND sn.completed_at IS NULL)
@@ -970,7 +971,9 @@ pub async fn unread_count_for_staff(pool: &PgPool, staff_id: Uuid) -> Result<i64
         r#"
         SELECT COUNT(*)::bigint
         FROM staff_notification sn
+        JOIN app_notification an ON an.id = sn.notification_id
         WHERE sn.staff_id = $1
+          AND an.kind <> 'morning_refund_queue'
           AND sn.read_at IS NULL
           AND sn.archived_at IS NULL
         "#,

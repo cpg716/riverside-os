@@ -6,9 +6,12 @@ import {
   ChevronRight,
   Cloud,
   CloudRain,
+  ClipboardCheck,
   Heart,
+  PackageCheck,
   ShoppingCart,
   Snowflake,
+  Scissors,
   Sun,
   Target,
   Zap,
@@ -22,6 +25,7 @@ import {
   buildMorningCompassQueue,
   compassBandLabel,
   type CompassActionRow,
+  type MorningCompassQueueItem,
   type RushOrderRow,
 } from "../../lib/morningCompassQueue";
 import {
@@ -32,6 +36,7 @@ import CompassMemberDetailDrawer from "../operations/CompassMemberDetailDrawer";
 import SalesByHourSnapshotCard from "../reports/SalesByHourSnapshotCard";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 import DashboardGridCard from "../ui/DashboardGridCard";
+import DashboardStatsCard from "../ui/DashboardStatsCard";
 
 const baseUrl = getBaseUrl();
 
@@ -91,6 +96,11 @@ export interface RegisterDashboardProps {
   cashierName: string | null;
   onGoToRegister: () => void;
   onGoToWeddings: () => void;
+  onGoToOrders?: () => void;
+  onGoToAlterations?: () => void;
+  onGoToInventory?: () => void;
+  onGoToTasks?: () => void;
+  onOpenOrderInRegister?: (orderId: string) => void;
   onOpenWeddingParty?: (partyId: string) => void;
   refreshSignal?: number;
 }
@@ -100,6 +110,11 @@ export default function RegisterDashboard({
   cashierName,
   onGoToRegister,
   onGoToWeddings,
+  onGoToOrders,
+  onGoToAlterations,
+  onGoToInventory,
+  onGoToTasks,
+  onOpenOrderInRegister,
   onOpenWeddingParty,
   refreshSignal = 0,
 }: RegisterDashboardProps) {
@@ -200,6 +215,20 @@ export default function RegisterDashboard({
   const headline = useMemo(() => roleHeadline(staffRole), [staffRole]);
   const canOpenWeddingManager =
     permissionsLoaded && hasPermission("wedding_manager.open");
+  const canOpenTasks = permissionsLoaded && hasPermission("tasks.complete");
+  const canOpenAlterations =
+    permissionsLoaded && hasPermission("alterations.manage");
+
+  const activeNotifications = useMemo(
+    () =>
+      notifications.filter(
+        (row) =>
+          !row.archived_at &&
+          !row.completed_at &&
+          row.kind !== "morning_refund_queue",
+      ),
+    [notifications],
+  );
 
   const suggestedQueue = useMemo(
     () => buildMorningCompassQueue({
@@ -208,10 +237,10 @@ export default function RegisterDashboard({
       needsMeasure: compass?.needs_measure ?? [],
       rushOrders: compass?.rush_orders ?? [],
       openTasks: taskOpen,
-      notifications,
+      notifications: activeNotifications,
       limit: 7,
     }),
-    [compass, taskOpen, notifications],
+    [activeNotifications, compass, taskOpen],
   );
 
   const todayWeather = forecast?.days?.[0];
@@ -220,20 +249,34 @@ export default function RegisterDashboard({
   const WxIcon = cond.includes("snow") ? Snowflake : cond.includes("rain") ? CloudRain : cond.includes("cloud") ? Cloud : Sun;
 
   const stats = compass?.stats;
+  const alterationAlerts = activeNotifications.filter((row) =>
+    semanticNotificationKind(row).includes("alteration"),
+  );
+  const inventoryAlerts = activeNotifications.filter((row) => {
+    const kind = semanticNotificationKind(row);
+    return (
+      kind.includes("low_stock") ||
+      kind.includes("negative_available_stock") ||
+      kind.startsWith("po_")
+    );
+  });
 
   return (
     <>
-      <div className="flex flex-1 flex-col gap-6 bg-app-bg p-6 lg:p-8 animate-in fade-in duration-500">
+      <div className="flex flex-1 flex-col gap-6 bg-app-bg p-4 animate-in fade-in duration-500 sm:p-6 lg:p-8">
         
         {/* Header Section */}
-        <div className="flex flex-wrap items-center justify-between gap-6">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight text-app-text">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="min-w-0 space-y-2">
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
+              Register command center
+            </p>
+            <h1 className="truncate text-3xl font-black tracking-tight text-app-text lg:text-4xl">
               {headline} <span className="text-app-text-muted font-medium mx-2">·</span> <span className="text-app-accent">{cashierName?.trim() || staffDisplayName.trim() || "User"}</span>
             </h1>
             <div className="flex items-center gap-2">
                <div className="h-2 w-2 rounded-full bg-app-success" />
-               <p className="text-xs font-medium text-app-text-muted">Register {registerOrdinal ?? "0"} · System Online</p>
+               <p className="text-xs font-bold text-app-text-muted">Register {registerOrdinal ?? "0"} · System Online</p>
             </div>
           </div>
 
@@ -249,18 +292,85 @@ export default function RegisterDashboard({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 mt-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+          <DashboardStatsCard
+            title="Register"
+            value={`#${registerOrdinal ?? "0"}`}
+            icon={ShoppingCart}
+            color="purple"
+            trend={{ value: "Open", isUp: true, label: "ready for sales" }}
+            className="min-h-[138px] p-4"
+            onClick={onGoToRegister}
+            ariaLabel="Open Register"
+          />
+          <DashboardStatsCard
+            title="Priority Feed"
+            value={suggestedQueue.length}
+            icon={Zap}
+            color={suggestedQueue.length > 0 ? "rose" : "green"}
+            trend={{
+              value: suggestedQueue.filter((item) => item.tier === "urgent").length,
+              isUp: suggestedQueue.length === 0,
+              label: "urgent items",
+            }}
+            className="min-h-[138px] p-4"
+          />
+          <DashboardStatsCard
+            title="Pickups"
+            value={stats?.overdue_pickups ?? 0}
+            icon={PackageCheck}
+            color={(stats?.overdue_pickups ?? 0) > 0 ? "rose" : "green"}
+            trend={{ value: stats?.rush_orders ?? 0, isUp: (stats?.overdue_pickups ?? 0) === 0, label: "rush orders" }}
+            className="min-h-[138px] p-4"
+            onClick={onGoToOrders}
+            ariaLabel="Open Orders"
+          />
+          <DashboardStatsCard
+            title="Alterations"
+            value={alterationAlerts.length}
+            icon={Scissors}
+            color={alterationAlerts.length > 0 ? "rose" : "green"}
+            trend={{ value: alterationAlerts.length, isUp: alterationAlerts.length === 0, label: "in inbox" }}
+            className="min-h-[138px] p-4"
+            onClick={canOpenAlterations ? onGoToAlterations : undefined}
+            ariaLabel="Open Alterations"
+          />
+          <DashboardStatsCard
+            title="Tasks"
+            value={taskOpen.length}
+            icon={ClipboardCheck}
+            color={taskOpen.length > 0 ? "orange" : "green"}
+            trend={{ value: taskOpen.filter((task) => task.due_date != null).length, isUp: taskOpen.length === 0, label: "dated" }}
+            className="min-h-[138px] p-4"
+            onClick={canOpenTasks ? onGoToTasks : undefined}
+            ariaLabel="Open Tasks"
+          />
+          <DashboardStatsCard
+            title="Inventory Alerts"
+            value={inventoryAlerts.length}
+            icon={Bell}
+            color={inventoryAlerts.length > 0 ? "orange" : "green"}
+            trend={{ value: activeNotifications.length, isUp: inventoryAlerts.length === 0, label: "total alerts" }}
+            className="min-h-[138px] p-4"
+            onClick={onGoToInventory ?? openDrawer}
+            ariaLabel="Open Inventory Alerts"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
            {/* Left Column: Priority Feed & Pulse */}
-           <div className="xl:col-span-8 space-y-8">
+           <div className="space-y-6 xl:col-span-8">
               <DashboardGridCard 
-                title="Priority Feed" 
-                subtitle="Items requiring transition"
+                title="What Needs Action First"
+                subtitle="Tap any row to open its source workflow"
                 icon={Zap}
+                actionLabel="Open Register"
+                onAction={onGoToRegister}
               >
                   {suggestedQueue.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 opacity-30 grayscale">
+                    <div className="flex flex-col items-center justify-center py-14 opacity-40 grayscale">
                       <Heart size={48} className="mb-4" strokeWidth={1} />
-                      <p className="text-sm font-bold uppercase tracking-widest text-app-text-muted">Order Cleared</p>
+                      <p className="text-sm font-bold uppercase tracking-widest text-app-text-muted">Floor queue clear</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -270,10 +380,11 @@ export default function RegisterDashboard({
                           onClick={() => {
                             if (item.kind === "wedding") setCompassDrawerRow(item.row);
                             else if (item.kind === "task") setTaskDrawerId(item.taskId);
+                            else if (item.kind === "rush_order") onOpenOrderInRegister?.(item.row.order_id);
                             else openDrawer();
                           }}
                           className={cn(
-                            "flex w-full items-center justify-between gap-6 p-4 rounded-2xl border transition-all active:scale-[0.98] group/item",
+                            "flex w-full items-center justify-between gap-4 rounded-2xl border p-4 transition-all active:scale-[0.98] group/item",
                             item.tier === "urgent" 
                               ? "bg-app-danger/[0.06] border-app-danger/15 hover:border-app-danger/35" 
                               : "bg-app-surface-2/72 border-app-border hover:border-app-accent/30"
@@ -288,14 +399,19 @@ export default function RegisterDashboard({
                              </div>
                              <div className="text-left min-w-0">
                                <p className="text-sm font-bold text-app-text truncate group-hover/item:text-app-accent transition-colors">
-                                 {item.kind === "wedding" ? `${item.row.customer_name} · ${compassBandLabel(item.band)}` : item.kind === "task" ? item.title : item.kind === "rush_order" ? `Rush: ${item.row.customer_name}` : item.id}
+                                 {queueItemTitle(item)}
                                </p>
                                <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
-                                 {item.kind === "wedding" ? `${item.row.party_name} · ${item.row.event_date}` : item.kind === "task" && item.dueDate ? item.dueDate : "General Protocol"}
+                                 {queueItemMeta(item)}
                                </p>
                              </div>
                           </div>
-                          <ChevronRight size={18} className="text-app-text-disabled group-hover/item:translate-x-1 group-hover/item:text-app-text transition-all" />
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="hidden text-[9px] font-black uppercase tracking-widest text-app-text-muted lg:inline">
+                              {queueItemAction(item)}
+                            </span>
+                            <ChevronRight size={18} className="text-app-text-disabled group-hover/item:translate-x-1 group-hover/item:text-app-text transition-all" />
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -304,7 +420,7 @@ export default function RegisterDashboard({
 
               <DashboardGridCard 
                 title="Wedding Pulse" 
-                subtitle="Registry activity and status"
+                subtitle="Open measurement, order, and pickup follow-up"
                 icon={Heart}
                 actionLabel={
                   canOpenWeddingManager ? "Open Wedding Manager" : undefined
@@ -312,8 +428,31 @@ export default function RegisterDashboard({
                 onAction={canOpenWeddingManager ? onGoToWeddings : undefined}
               >
                   {canOpenWeddingManager ? (
-                    <div className="p-12 text-center opacity-30 italic font-medium text-app-text-muted text-sm uppercase tracking-[0.2em]">
-                      Real-time wedding activity stream initializing...
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <button
+                        type="button"
+                        onClick={onGoToWeddings}
+                        className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition-all hover:border-app-accent/40 hover:bg-app-accent/5"
+                      >
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Needs measure</p>
+                        <p className="mt-2 text-3xl font-black text-app-text">{stats?.needs_measure ?? 0}</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onGoToWeddings}
+                        className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition-all hover:border-app-accent/40 hover:bg-app-accent/5"
+                      >
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Needs order</p>
+                        <p className="mt-2 text-3xl font-black text-app-text">{stats?.needs_order ?? 0}</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onGoToOrders}
+                        className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition-all hover:border-app-danger/40 hover:bg-app-danger/5"
+                      >
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">Overdue pickup</p>
+                        <p className="mt-2 text-3xl font-black text-app-danger">{stats?.overdue_pickups ?? 0}</p>
+                      </button>
                     </div>
                   ) : (
                     <div className="p-8 text-center">
@@ -331,7 +470,7 @@ export default function RegisterDashboard({
            </div>
 
            {/* Right Column: Performance & Environment */}
-           <div className="xl:col-span-4 space-y-8">
+           <div className="space-y-6 xl:col-span-4">
               {/* Environment Widget */}
               <DashboardGridCard title="Weather" icon={WxIcon}>
                  <div className="flex items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 px-4 py-4">
@@ -372,43 +511,50 @@ export default function RegisterDashboard({
 
               {/* Staff Pulse Cards */}
               {stats && (
-                <DashboardGridCard title="Performance" icon={Target}>
+                <DashboardGridCard title="Floor Pressure" icon={Target}>
                    <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3">
+                      <button type="button" onClick={onGoToWeddings} className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-left transition-all hover:border-app-accent/40">
                          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider mb-1">Measure</p>
                          <p className="text-2xl font-bold text-app-text">{stats.needs_measure}</p>
-                      </div>
-                      <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3">
+                      </button>
+                      <button type="button" onClick={onGoToWeddings} className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-left transition-all hover:border-app-accent/40">
                          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider mb-1">Order</p>
                          <p className="text-2xl font-bold text-app-text">{stats.needs_order}</p>
-                      </div>
-                      <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3">
+                      </button>
+                      <button type="button" onClick={onGoToOrders} className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-left transition-all hover:border-app-danger/40">
                          <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-app-danger">Overdue</p>
                          <p className="text-2xl font-bold text-app-danger">{stats.overdue_pickups}</p>
-                      </div>
-                      <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3">
+                      </button>
+                      <button type="button" onClick={onGoToOrders} className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-left transition-all hover:border-app-accent/40">
                          <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-app-accent">Rush</p>
                          <p className="text-2xl font-bold text-app-accent">{stats.rush_orders}</p>
-                      </div>
+                      </button>
                    </div>
                 </DashboardGridCard>
               )}
 
               {/* Notifications */}
-              {notifications.length > 0 && (
+              {activeNotifications.length > 0 && (
                 <DashboardGridCard
                   title="Notifications"
                   icon={Bell}
-                  actionLabel="Open notification"
+                  actionLabel="Open inbox"
                   onAction={openDrawer}
                 >
                    <div className="space-y-3">
-                      {notifications.slice(0, 3).map((r) => (
-                        <div key={r.staff_notification_id} className="p-3 rounded-xl border border-app-border hover:border-app-accent/30 transition-all cursor-pointer group/notif">
-                           <p className="text-xs font-bold text-app-text truncate group-hover/notif:text-app-accent">{r.title}</p>
-                           <div className="flex gap-3 mt-2">
-                              <button onClick={() => notifAction(r.staff_notification_id, "read")} className="text-[10px] font-bold text-app-accent">Mark as read</button>
-                              <button onClick={openDrawer} className="text-[10px] font-bold text-app-text-muted">Details</button>
+                      {activeNotifications.slice(0, 3).map((r) => (
+                        <div key={r.staff_notification_id} className="rounded-xl border border-app-border p-3 transition-all hover:border-app-accent/30 group/notif">
+                           <button type="button" onClick={openDrawer} className="w-full text-left">
+                             <p className="truncate text-xs font-bold text-app-text group-hover/notif:text-app-accent">{r.title}</p>
+                             <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
+                               {r.read_at ? "Reviewed" : "New"} · open inbox for source
+                             </p>
+                           </button>
+                           <div className="mt-2 flex gap-3">
+                              {!r.read_at ? (
+                                <button type="button" onClick={() => notifAction(r.staff_notification_id, "read")} className="text-[10px] font-bold text-app-accent">Mark read</button>
+                              ) : null}
+                              <button type="button" onClick={() => notifAction(r.staff_notification_id, "archive")} className="text-[10px] font-bold text-app-text-muted">Dismiss</button>
                            </div>
                         </div>
                       ))}
@@ -437,6 +583,47 @@ export default function RegisterDashboard({
       />
     </>
   );
+}
+
+function semanticNotificationKind(row: NotificationRow): string {
+  const link = row.deep_link;
+  if (link && typeof link === "object") {
+    const record = link as Record<string, unknown>;
+    const bundleKind = record.bundle_kind;
+    if (record.type === "notification_bundle" && typeof bundleKind === "string") {
+      return bundleKind.toLowerCase();
+    }
+  }
+  return row.kind.toLowerCase();
+}
+
+function queueItemTitle(item: MorningCompassQueueItem): string {
+  if (item.kind === "wedding") {
+    return `${item.row.customer_name} · ${compassBandLabel(item.band)}`;
+  }
+  if (item.kind === "task") return item.title;
+  if (item.kind === "rush_order") return `Rush order · ${item.row.customer_name}`;
+  return item.row.title;
+}
+
+function queueItemMeta(item: MorningCompassQueueItem): string {
+  if (item.kind === "wedding") {
+    return `${item.row.party_name} · ${item.row.event_date}`;
+  }
+  if (item.kind === "task") {
+    return item.dueDate ? `Task due ${item.dueDate}` : "Task checklist";
+  }
+  if (item.kind === "rush_order") {
+    return item.row.need_by_date ? `Needed by ${item.row.need_by_date}` : "Rush fulfillment";
+  }
+  return item.row.read_at ? "Notification reviewed" : "New notification";
+}
+
+function queueItemAction(item: MorningCompassQueueItem): string {
+  if (item.kind === "wedding") return "Review member";
+  if (item.kind === "task") return "Open task";
+  if (item.kind === "rush_order") return "Open sale";
+  return "Open inbox";
 }
 
 function cn(...inputs: (string | boolean | undefined | null | Record<string, boolean>)[]) {

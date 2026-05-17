@@ -12,10 +12,13 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::api::AppState;
-use crate::auth::permissions::{self, staff_has_permission, TASKS_MANAGE, TASKS_VIEW_TEAM};
+use crate::auth::permissions::{
+    self, staff_has_permission, TASKS_COMPLETE, TASKS_MANAGE, TASKS_VIEW_TEAM,
+};
 use crate::logic::tasks::{
     self, AssignmentListRow, CreateAssignmentPayload, CreateTemplatePayload, TaskError,
     TaskHistoryRow, TaskInstanceListRow, TeamTaskRow, TemplateItemRow, TemplateSummaryRow,
+    UpdateAssignmentPayload,
 };
 use crate::middleware::{self, StaffOrPosSession};
 use crate::models::DbStaffRole;
@@ -126,6 +129,18 @@ fn spawn_meilisearch_task_upsert(state: &AppState, task_id: Uuid) {
 }
 
 async fn may_manage_tasks(pool: &sqlx::PgPool, staff_id: Uuid) -> bool {
+    has_task_permission(pool, staff_id, TASKS_MANAGE).await
+}
+
+async fn may_complete_tasks(pool: &sqlx::PgPool, staff_id: Uuid) -> bool {
+    has_task_permission(pool, staff_id, TASKS_COMPLETE).await
+}
+
+async fn may_view_team_tasks(pool: &sqlx::PgPool, staff_id: Uuid) -> bool {
+    has_task_permission(pool, staff_id, TASKS_VIEW_TEAM).await
+}
+
+async fn has_task_permission(pool: &sqlx::PgPool, staff_id: Uuid, permission: &str) -> bool {
     let role: Option<DbStaffRole> =
         sqlx::query_scalar(r#"SELECT role FROM staff WHERE id = $1 AND is_active = TRUE"#)
             .bind(staff_id)
@@ -139,7 +154,7 @@ async fn may_manage_tasks(pool: &sqlx::PgPool, staff_id: Uuid) -> bool {
     let Ok(eff) = permissions::effective_permissions_for_staff(pool, staff_id, role).await else {
         return false;
     };
-    staff_has_permission(&eff, TASKS_MANAGE)
+    staff_has_permission(&eff, permission)
 }
 
 pub fn router() -> Router<AppState> {
@@ -167,6 +182,10 @@ pub fn router() -> Router<AppState> {
             get(admin_list_assignments).post(admin_create_assignment),
         )
         .route(
+            "/admin/assignments/{assignment_id}",
+            patch(admin_update_assignment),
+        )
+        .route(
             "/admin/assignments/{assignment_id}/active",
             patch(admin_set_assignment_active),
         )
@@ -180,8 +199,13 @@ async fn get_instance_detail_http(
     headers: HeaderMap,
 ) -> Result<Json<tasks::TaskInstanceDetail>, Response> {
     let actor = resolve_task_actor_staff_id(&state, &headers).await?;
-    let allow = may_manage_tasks(&state.db, actor).await;
-    tasks::get_instance_detail_any(&state.db, instance_id, actor, allow)
+    let can_manage = may_manage_tasks(&state.db, actor).await;
+    let can_complete = can_manage || may_complete_tasks(&state.db, actor).await;
+    let can_team = can_manage || may_view_team_tasks(&state.db, actor).await;
+    if !can_complete && !can_team {
+        return Err(map_task_err(TaskError::Forbidden));
+    }
+    tasks::get_instance_detail_any(&state.db, instance_id, actor, can_manage || can_team)
         .await
         .map_err(map_task_err)
         .map(Json)
@@ -192,6 +216,9 @@ async fn get_me(
     headers: HeaderMap,
 ) -> Result<Json<MeResponse>, Response> {
     let actor = resolve_task_actor_staff_id(&state, &headers).await?;
+    if !may_complete_tasks(&state.db, actor).await && !may_manage_tasks(&state.db, actor).await {
+        return Err(map_task_err(TaskError::Forbidden));
+    }
     let open = tasks::list_open_instances_for_staff(&state.db, actor)
         .await
         .map_err(map_task_err)?;
@@ -211,10 +238,20 @@ async fn patch_instance_item(
     Json(body): Json<PatchItemBody>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let actor = resolve_task_actor_staff_id(&state, &headers).await?;
-    let allow = may_manage_tasks(&state.db, actor).await;
-    tasks::set_instance_item_done(&state.db, instance_id, item_id, actor, body.done, allow)
-        .await
-        .map_err(map_task_err)?;
+    let can_manage = may_manage_tasks(&state.db, actor).await;
+    if !can_manage && !may_complete_tasks(&state.db, actor).await {
+        return Err(map_task_err(TaskError::Forbidden));
+    }
+    tasks::set_instance_item_done(
+        &state.db,
+        instance_id,
+        item_id,
+        actor,
+        body.done,
+        can_manage,
+    )
+    .await
+    .map_err(map_task_err)?;
     spawn_meilisearch_task_upsert(&state, instance_id);
     Ok(Json(json!({ "ok": true })))
 }
@@ -225,8 +262,11 @@ async fn post_complete_instance(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, Response> {
     let actor = resolve_task_actor_staff_id(&state, &headers).await?;
-    let allow = may_manage_tasks(&state.db, actor).await;
-    let done = tasks::try_complete_instance(&state.db, instance_id, actor, allow)
+    let can_manage = may_manage_tasks(&state.db, actor).await;
+    if !can_manage && !may_complete_tasks(&state.db, actor).await {
+        return Err(map_task_err(TaskError::Forbidden));
+    }
+    let done = tasks::try_complete_instance(&state.db, instance_id, actor, can_manage)
         .await
         .map_err(map_task_err)?;
     spawn_meilisearch_task_upsert(&state, instance_id);
@@ -299,6 +339,21 @@ async fn admin_create_assignment(
         .await
         .map_err(map_task_err)?;
     Ok(Json(json!({ "id": id })))
+}
+
+async fn admin_update_assignment(
+    State(state): State<AppState>,
+    Path(assignment_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<UpdateAssignmentPayload>,
+) -> Result<Json<serde_json::Value>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, TASKS_MANAGE)
+        .await
+        .map_err(map_gate_err)?;
+    tasks::admin_update_assignment(&state.db, assignment_id, body)
+        .await
+        .map_err(map_task_err)?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn admin_set_assignment_active(

@@ -960,9 +960,25 @@ pub async fn create_pickup(
     })
 }
 
+pub fn normalize_label_file_type(label_file_type: Option<&str>) -> Result<String, ShippoError> {
+    let normalized = label_file_type
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("PDF")
+        .replace('-', "_")
+        .to_ascii_uppercase();
+    match normalized.as_str() {
+        "PDF" | "PDF_4X6" | "PNG" | "ZPLII" => Ok(normalized),
+        _ => Err(ShippoError::InvalidAddress(
+            "Unsupported label style. Choose PDF, PDF_4X6, PNG, or ZPLII.".into(),
+        )),
+    }
+}
+
 pub async fn purchase_transaction_for_rate(
     http: &reqwest::Client,
     rate_object_id: &str,
+    label_file_type: Option<&str>,
 ) -> Result<PurchasedLabel, ShippoError> {
     let token = shippo_api_token_from_env()
         .ok_or_else(|| ShippoError::Api("SHIPPO_API_TOKEN not configured".into()))?;
@@ -973,9 +989,11 @@ pub async fn purchase_transaction_for_rate(
         ));
     }
 
+    let label_file_type = normalize_label_file_type(label_file_type)?;
+
     let body = json!({
         "rate": rate_object_id.trim(),
-        "label_file_type": "PDF",
+        "label_file_type": label_file_type,
         "async": false,
     });
 

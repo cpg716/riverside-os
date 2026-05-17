@@ -141,6 +141,7 @@ export default function ShipmentsHubSection({
   const [ratesBusy, setRatesBusy] = useState(false);
   const [labelPurchaseBusy, setLabelPurchaseBusy] = useState(false);
   const [labelRefundBusy, setLabelRefundBusy] = useState(false);
+  const [labelFileType, setLabelFileType] = useState("PDF_4X6");
   const [returnBusy, setReturnBusy] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchCandidates, setBatchCandidates] = useState<BatchCandidate[]>([]);
@@ -353,7 +354,11 @@ export default function ShipmentsHubSection({
     try {
       const res = await fetch(
         `${baseUrl}/api/shipments/${encodeURIComponent(detailId)}/purchase-label`,
-        { method: "POST", headers: { ...apiAuth() } },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify({ label_file_type: labelFileType }),
+        },
       );
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -377,7 +382,7 @@ export default function ShipmentsHubSection({
     } finally {
       setLabelPurchaseBusy(false);
     }
-  }, [apiAuth, baseUrl, canManage, detailId, loadList, openDetail, toast]);
+  }, [apiAuth, baseUrl, canManage, detailId, labelFileType, loadList, openDetail, toast]);
 
   const refundShippoLabel = useCallback(async () => {
     if (!detailId || !canManage) return;
@@ -1353,20 +1358,35 @@ export default function ShipmentsHubSection({
                             rel="noreferrer"
                             className="block truncate text-xs text-sky-600 underline"
                           >
-                            Open label PDF
+                            Open label
                           </a>
                         ) : null}
                         {rateRef && !txId ? (
-                          <button
-                            type="button"
-                            disabled={labelPurchaseBusy}
-                            onClick={() => void purchaseShippoLabel()}
-                            className="w-full rounded-xl border-b-8 border-emerald-800 bg-emerald-600 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg disabled:opacity-50"
-                          >
-                            {labelPurchaseBusy
-                              ? "Purchasing…"
-                              : "Buy label"}
-                          </button>
+                          <div className="space-y-2">
+                            <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              Label style
+                              <select
+                                value={labelFileType}
+                                onChange={(event) => setLabelFileType(event.target.value)}
+                                className="ui-input mt-1 h-9 w-full rounded-lg px-2 text-xs font-bold normal-case tracking-normal"
+                              >
+                                <option value="PDF_4X6">4x6 PDF label</option>
+                                <option value="PDF">Letter PDF</option>
+                                <option value="PNG">PNG image</option>
+                                <option value="ZPLII">Thermal ZPLII</option>
+                              </select>
+                            </label>
+                            <button
+                              type="button"
+                              disabled={labelPurchaseBusy}
+                              onClick={() => void purchaseShippoLabel()}
+                              className="w-full rounded-xl border-b-8 border-emerald-800 bg-emerald-600 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg disabled:opacity-50"
+                            >
+                              {labelPurchaseBusy
+                                ? "Purchasing…"
+                                : "Buy label"}
+                            </button>
+                          </div>
                         ) : null}
                         {txId ? (
                           <div className="space-y-1.5 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2">

@@ -535,7 +535,7 @@ function SectionButton({
 
 export default function PaymentsWorkspace({ activeSection = "overview", surface = "backoffice" }: Props) {
   const posSurface = surface === "pos";
-  const initialSection = posSurface ? "health" : isSection(activeSection) ? activeSection : "overview";
+  const initialSection = posSurface ? "transactions" : isSection(activeSection) ? activeSection : "overview";
   const [section, setSection] = useState<SectionId>(initialSection);
   const [data, setData] = useState<DashboardState>({
     overview: null,
@@ -593,7 +593,7 @@ export default function PaymentsWorkspace({ activeSection = "overview", surface 
   const canDepositAdjust = hasAnyPermission(["payments.deposit.adjust"]);
 
   useEffect(() => {
-    setSection(posSurface ? "health" : isSection(activeSection) ? activeSection : "overview");
+    setSection(posSurface ? "transactions" : isSection(activeSection) ? activeSection : "overview");
   }, [activeSection, posSurface]);
 
   const apiHeaders = useMemo(
@@ -658,9 +658,12 @@ export default function PaymentsWorkspace({ activeSection = "overview", surface 
     const today = todayYmd();
     try {
       if (posSurface) {
-        const [health, activeProvider] = await Promise.all([
+        const [health, activeProvider, transactions] = await Promise.all([
           getJson<EventsHealth>("/api/payments/providers/helcim/events/health"),
           getJson<ActiveProviderResponse>("/api/payments/providers/active"),
+          getJson<TransactionRow[]>(
+            `/api/payments/providers/helcim/transactions?date_from=${today}&date_to=${today}&limit=100`,
+          ),
         ]);
         const [terminalDevicesResult, cardTerminalsResult] = await Promise.all([
           getJson<unknown>("/api/payments/providers/helcim/terminal/devices?limit=100")
@@ -677,7 +680,7 @@ export default function PaymentsWorkspace({ activeSection = "overview", surface 
           unmatchedBatches: [],
           unmatchedDeposits: [],
           issues: [],
-          transactions: [],
+          transactions,
           runs: [],
           health,
           terminalDevices: extractArray<HelcimDevice>(terminalDevicesResult.body, ["devices", "data", "items", "results"]),
@@ -1308,7 +1311,7 @@ export default function PaymentsWorkspace({ activeSection = "overview", surface 
                 <h1 className="text-2xl font-black text-app-text">{posSurface ? "POS Payments" : "Payments"}</h1>
                 <p className="text-sm font-medium text-app-text-muted">
                   {posSurface
-                    ? "Card terminal status and review items for closing the register."
+                    ? "Today's card transactions, terminal status, and review items for closing the register."
                     : "Daily card activity, deposits, and items that need review."}
                 </p>
               </div>
@@ -1348,7 +1351,12 @@ export default function PaymentsWorkspace({ activeSection = "overview", surface 
           <SectionButton id="transactions" label="Transactions" active={section === "transactions"} onClick={setSection} />
           <SectionButton id="health" label="Health" badge={healthBadge} active={section === "health"} onClick={setSection} />
         </nav>
-        ) : null}
+        ) : (
+          <nav className="mt-5 flex gap-2 overflow-x-auto pb-1">
+            <SectionButton id="transactions" label="Today" active={section === "transactions"} onClick={setSection} />
+            <SectionButton id="health" label="Terminal Health" badge={healthBadge} active={section === "health"} onClick={setSection} />
+          </nav>
+        )}
       </header>
 
       <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
@@ -1399,6 +1407,8 @@ export default function PaymentsWorkspace({ activeSection = "overview", surface 
                 search={transactionSearch}
                 onSearch={setTransactionSearch}
                 onOpenPayment={openTransaction}
+                title={posSurface ? "Today's Transactions" : "Transactions"}
+                empty={posSurface ? "No card transactions recorded today." : "No payments found."}
               />
             )}
             {section === "health" && (
@@ -1820,14 +1830,24 @@ function TransactionsPanel({
   search,
   onSearch,
   onOpenPayment,
+  title = "Transactions",
+  empty = "No payments found.",
 }: {
   transactions: TransactionRow[];
   search: string;
   onSearch: (value: string) => void;
   onOpenPayment: (paymentId: string) => void;
+  title?: string;
+  empty?: string;
 }) {
   return (
     <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-black text-app-text">{title}</h2>
+        <p className="mt-1 text-sm font-semibold text-app-text-muted">
+          Review payment records and open any row for provider, batch, and reconciliation details.
+        </p>
+      </div>
       <label className="flex max-w-md items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text">
         <Search size={16} className="text-app-text-muted" />
         <input
@@ -1838,7 +1858,7 @@ function TransactionsPanel({
         />
       </label>
       <DataTable
-        empty="No payments found."
+        empty={empty}
         headers={["Amount", "Date", "Status", "Batch", "Fee status", "Match status"]}
         rows={transactions.map((transaction) => ({
           key: transaction.payment_transaction_id,

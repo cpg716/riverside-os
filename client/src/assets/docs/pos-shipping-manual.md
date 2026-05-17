@@ -57,7 +57,7 @@ Shipping **requires** a linked customer profile. Use the **Customer Selector** t
 Once a sale with shipping is completed, it appears in the **Shipments Hub**.
 
 ### Finding Shipments
-Navigate to **Operations → Shipments** or **Customers → Shipments** in the Back Office sidebar.
+Navigate to the standalone **Shipping** workspace in the Back Office sidebar, or open **Shipping** from the POS rail when working at a register.
 - **Filters**: Use the status filters (Pending, Shipped, Delivered) to manage your daily outgoing parcel queue.
 - **Search**: Search by Customer Name, Order ID, or Tracking Number.
 

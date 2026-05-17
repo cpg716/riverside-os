@@ -45,7 +45,7 @@ Use this panel when:
 
 ROSIE insight buttons do not run automatically when a screen opens. Staff choose when to request an explanation.
 
-If ROSIE is slow or unavailable, the insight request times out and returns to idle without blocking the workflow. The deterministic screen content stays visible and usable.
+If ROSIE is slow or unavailable, insight panels show a short unavailable note and return control without blocking the workflow. The deterministic screen content stays visible and usable.
 
 ## Voice behavior
 

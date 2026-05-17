@@ -497,19 +497,19 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
         isSelected ? "border-l-4 border-app-success bg-app-success/8" : "border-l-4 border-transparent"
       )}
     >
-        <td className="px-6 py-4">
+        <td className="px-4 py-4 align-top">
            <p className="text-[11px] font-black tracking-tight text-app-text mb-1">{row.display_id}</p>
            <p className="text-[9px] font-bold uppercase tracking-widest italic text-app-text-muted">
              {new Date(row.booked_at).toLocaleDateString()}
            </p>
         </td>
-        <td className="px-6 py-4">
-           <div className="flex items-center gap-3">
+        <td className="min-w-0 px-4 py-4 align-top">
+           <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-app-success/10 text-[10px] font-black text-app-success">
                 {row.customer_name?.[0] ?? row.counterpoint_customer_code?.[0] ?? "W"}
               </div>
-              <div>
-                <p className="text-[11px] font-bold text-app-text flex items-center gap-1.5">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 truncate text-[11px] font-bold text-app-text">
                   {row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`}
                   {row.party_name && <WEDDINGS_ICON size={10} className="text-app-danger" />}
                 </p>
@@ -534,7 +534,7 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
               </div>
            </div>
         </td>
-        <td className="px-6 py-4 max-w-[300px]">
+        <td className="min-w-0 px-4 py-4 align-top">
            <p className="text-[10px] font-black text-app-text">
              {visibleItemCount} item{visibleItemCount === 1 ? "" : "s"}
            </p>
@@ -569,7 +569,7 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
              </div>
            ) : null}
         </td>
-        <td className="px-6 py-4">
+        <td className="px-4 py-4 align-top">
           <p className="max-w-[180px] truncate text-[10px] font-black text-app-text">
             {row.primary_salesperson_name ?? "—"}
           </p>
@@ -577,7 +577,7 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
             Cashier: {row.operator_name ?? "—"}
           </p>
         </td>
-        <td className="px-6 py-4">
+        <td className="px-4 py-4 align-top">
            <span className={cn(
              "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border",
              row.counterpoint_customer_code
@@ -587,13 +587,14 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
              {formatOrderStatusLabel(row.status)}
            </span>
         </td>
-        <td className="px-6 py-4">
+        <td className="px-4 py-4 align-top">
           <p className="text-[11px] font-black text-app-text">{money(row.total_price)}</p>
           <p className="mt-1 text-[9px] font-bold text-app-text-muted">
             Deposits {money(row.amount_paid)}
           </p>
         </td>
-        <td className="px-6 py-4 text-right flex items-center justify-end gap-3">
+        <td className="px-4 py-4 text-right align-top">
+          <div className="flex items-center justify-end gap-2">
           <p className={cn("text-[11px] font-black", parseMoneyToCents(row.balance_due) > 0 ? "text-app-warning" : "text-app-text-disabled")}>
             {money(row.balance_due)}
           </p>
@@ -603,6 +604,7 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
            >
              Register
            </button>
+          </div>
         </td>
       </tr>
   );
@@ -1735,17 +1737,26 @@ export default function OrdersWorkspace({
               {renderTransactionListState("mobile")}
             </div>
 
-            <div className="hidden flex-1 custom-scrollbar overflow-x-auto xl:block">
-              <table className="w-full min-w-[960px] border-collapse text-left">
+            <div className="hidden flex-1 xl:block">
+              <table className="w-full table-fixed border-collapse text-left">
+              <colgroup>
+                <col className="w-[8%]" />
+                <col className="w-[21%]" />
+                <col className="w-[28%]" />
+                <col className="w-[13%]" />
+                <col className="w-[8%]" />
+                <col className="w-[11%]" />
+                <col className="w-[11%]" />
+              </colgroup>
               <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-3">
                 <tr>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Customer</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Order Items / Lifecycle</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Salesperson / Cashier</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Status</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Transaction Amounts</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted text-right">Balance</th>
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">ID / Date</th>
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Customer</th>
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Order Items / Lifecycle</th>
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Salesperson / Cashier</th>
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Status</th>
+                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Transaction Amounts</th>
+                  <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Balance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-border/40">

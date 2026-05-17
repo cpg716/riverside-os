@@ -45,7 +45,6 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "all", label: "All Customers" },
     { id: "add", label: "Add Customer" },
     { id: "layaways", label: "Layaways" },
-    { id: "ship", label: "Shipments Hub" },
     { id: "rms-charge", label: "RMS Charge" },
     { id: "duplicate-review", label: "Duplicate Review" },
   ],

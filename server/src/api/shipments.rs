@@ -38,6 +38,11 @@ pub struct RatesBody {
     pub customs_declaration_object_id: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize, Default)]
+pub struct PurchaseLabelBody {
+    pub label_file_type: Option<String>,
+}
+
 async fn list_shipments_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -121,11 +126,17 @@ async fn post_purchase_label(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    body: Option<Json<PurchaseLabelBody>>,
 ) -> Result<Json<serde_json::Value>, ShipmentsApiError> {
     let staff = middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_MANAGE)
         .await
         .map_err(map_perm)?;
-    let purchased = purchase_shipment_label(&state.db, &state.http_client, id, staff.id).await?;
+    let label_file_type = body
+        .as_ref()
+        .and_then(|Json(body)| body.label_file_type.as_deref());
+    let purchased =
+        purchase_shipment_label(&state.db, &state.http_client, id, staff.id, label_file_type)
+            .await?;
     Ok(Json(
         serde_json::to_value(purchased).unwrap_or_else(|_| json!({})),
     ))

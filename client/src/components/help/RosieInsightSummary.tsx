@@ -62,9 +62,9 @@ export default function RosieInsightSummary({
         },
         { headers: getHeaders?.() },
       );
-      setResponse(result.status === "available" ? result : null);
+      setResponse(result);
     } catch {
-      setResponse(null);
+      setResponse({ status: "unavailable", bullets: [] });
     } finally {
       setLoading(false);
     }
@@ -73,6 +73,9 @@ export default function RosieInsightSummary({
   if (!hasFacts) return null;
 
   const visibleBullets = response?.status === "available" ? response.bullets.slice(0, 3) : [];
+  const visibleActions =
+    response?.status === "available" ? (response.suggested_actions ?? []).slice(0, 3) : [];
+  const unavailable = response?.status === "unavailable";
 
   return (
     <div
@@ -98,6 +101,23 @@ export default function RosieInsightSummary({
             </li>
           ))}
         </ul>
+      ) : null}
+      {visibleActions.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {visibleActions.map((action) => (
+            <span
+              key={action.id}
+              className="rounded-full border border-app-border bg-app-surface-2 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted"
+            >
+              {action.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {unavailable ? (
+        <p className="mt-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-semibold text-app-text-muted">
+          ROSIE is not available right now. The deterministic facts above are still current.
+        </p>
       ) : null}
     </div>
   );

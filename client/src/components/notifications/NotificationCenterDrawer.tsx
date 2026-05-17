@@ -376,15 +376,15 @@ export default function NotificationCenterDrawer({
   const inboxReadIds = useMemo(() => bulkArchivableNotificationIds(rows), [rows]);
   const cleanupHint = useMemo(() => {
     if (inboxUnreadIds.length > 0 && inboxReadIds.length > 0) {
-      return "Mark new alerts read, then clear reviewed ones when you are done.";
+      return "Review new alerts, then clear the reviewed ones.";
     }
     if (inboxUnreadIds.length > 0) {
-      return "New alerts are waiting for a quick review.";
+      return "New alerts need review.";
     }
     if (inboxReadIds.length > 0) {
-      return "Reviewed alerts can move out of the way now.";
+      return "Reviewed alerts can be cleared.";
     }
-    return "You are caught up for now.";
+    return "Caught up for now.";
   }, [inboxReadIds.length, inboxUnreadIds.length]);
 
   const actionNeededRows = useMemo(
@@ -593,7 +593,7 @@ export default function NotificationCenterDrawer({
       isOpen={isOpen}
       onClose={onClose}
       title="Communications & Alerts"
-      subtitle="New alerts, earlier activity, and team announcements"
+      subtitle="Alerts, history, and announcements"
       panelMaxClassName="max-w-lg"
       noPadding
     >
@@ -630,7 +630,7 @@ export default function NotificationCenterDrawer({
         </div>
 
         {tab === "inbox" && rows.length > 0 ? (
-          <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-6 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="grid shrink-0 gap-3 border-b border-app-border bg-app-surface-2 px-6 py-3">
             <div className="min-w-0">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
                 Quick cleanup
@@ -639,12 +639,12 @@ export default function NotificationCenterDrawer({
                 {cleanupHint}
               </p>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="flex rounded-lg border border-app-border bg-app-surface p-0.5">
                 <button
                   type="button"
                   onClick={() => setInboxViewFilter("all")}
-                  className={`rounded-md px-2 py-1.5 text-[9px] font-black uppercase tracking-widest ${
+                  className={`flex-1 rounded-md px-2 py-1.5 text-[9px] font-black uppercase tracking-widest sm:flex-none ${
                     inboxViewFilter === "all"
                       ? "bg-app-accent text-white"
                       : "text-app-text-muted hover:text-app-text"
@@ -655,7 +655,7 @@ export default function NotificationCenterDrawer({
                 <button
                   type="button"
                   onClick={() => setInboxViewFilter("action")}
-                  className={`rounded-md px-2 py-1.5 text-[9px] font-black uppercase tracking-widest ${
+                  className={`flex-1 rounded-md px-2 py-1.5 text-[9px] font-black uppercase tracking-widest sm:flex-none ${
                     inboxViewFilter === "action"
                       ? "bg-app-accent text-white"
                       : "text-app-text-muted hover:text-app-text"

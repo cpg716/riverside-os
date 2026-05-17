@@ -2,7 +2,7 @@
 id: operations-operational-home
 title: "Operations Home"
 order: 1047
-summary: "Store-wide action board for daily changes, attention items, degraded feeds, and optional daily briefing."
+summary: "Store-wide command center for daily changes, source-linked attention items, register close status, and optional daily briefing."
 source: client/src/components/operations/OperationalHome.tsx
 last_scanned: 2026-05-10
 tags: operations, dashboard, action-board, triage, weddings, alterations
@@ -21,18 +21,19 @@ status: approved
 
 ## What this is
 
-Operations Home is the staff action board for the day. It keeps deterministic operational facts first: what changed, what needs attention, and where staff should go next.
+Operations Home is the staff command center for the day. It keeps deterministic operational facts first: what changed, what needs attention, whether registers are open or closing, and where staff should go next.
 
 ## How to use it
 
-1. Review **What Changed Today** for movement since the last shift.
-2. Review **What Needs Attention** for blockers and warnings.
-3. Follow the visible action links into the owning workflow.
-4. Use Daily Operational Briefing only after the deterministic cards are understood.
+1. Review the top KPI strip for sales, register close, pickup, alterations, inventory, and attention pressure.
+2. Review **What Changed Today** for movement since the last shift.
+3. Review **What Needs Attention** for blockers and warnings.
+4. Follow the card or row into the owning workflow before taking action.
+5. Use Daily Operational Briefing only after the deterministic cards are understood.
 
 ## What to check first
 
-Start with **What Changed Today** and **What Needs Attention**. These cards show current operational signals such as movement, blockers, warnings, weddings, alterations, pickups, and inventory work.
+Start with the KPI strip, then **What Changed Today** and **What Needs Attention**. These cards show current operational signals such as movement, register close status, blockers, warnings, weddings, alterations, pickups, and inventory work.
 
 Successful **no issues** states are different from failed feeds. If a feed cannot load, Operations Home shows a quiet degraded indicator instead of looking calm or empty.
 
@@ -50,7 +51,7 @@ Do not assume the store has no blockers just because a degraded feed is quiet.
 
 ## Operational detail
 
-Operations Home is the daily command surface. Use it to decide what needs attention first, then open the underlying workspace for the actual action. Treat cards and queues as summaries: if a count or row looks surprising, drill into the source record before making a customer promise or manager decision.
+Operations Home is the daily command surface. Use it to decide what needs attention first, then open the underlying workspace for the actual action. Treat cards and queues as summaries: if a count or row looks surprising, drill into the source record before making a customer promise, register close, inventory, or manager decision.
 
 
 ## What to watch for

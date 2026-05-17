@@ -33,7 +33,6 @@ import {
 } from "./CustomerRelationshipHubDrawer";
 import DuplicateReviewQueueSection from "./DuplicateReviewQueueSection";
 import RmsChargeAdminSection from "./RmsChargeAdminSection";
-import ShipmentsHubSection from "./ShipmentsHubSection";
 import LayawayWorkspace from "../pos/LayawayWorkspace";
 import DetailDrawer from "../layout/DetailDrawer";
 import FloatingBulkBar from "../ui/FloatingBulkBar";
@@ -853,28 +852,6 @@ export default function CustomersWorkspace({
       ) : null}
     </button>
   );
-
-  if (activeSection === "ship") {
-    if (!permissionsLoaded) {
-      return (
-        <div className="ui-page flex flex-1 items-center justify-center p-6 text-sm text-app-text-muted">
-          Loading…
-        </div>
-      );
-    }
-    if (!hasPermission("shipments.view")) {
-      return (
-        <div className="ui-page p-6">
-          <p className="text-sm text-app-text-muted">
-            You don&apos;t have access to the all-customer Shipments workspace.
-          </p>
-        </div>
-      );
-    }
-    return (
-      <ShipmentsHubSection onOpenTransactionInBackoffice={onOpenTransactionInBackoffice} />
-    );
-  }
 
   if (activeSection === "layaways") {
     return (

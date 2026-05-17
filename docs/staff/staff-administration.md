@@ -34,8 +34,8 @@ Use **Staff** for **people** (roster, PIN on profile, per-person access, per-per
 
 1. **Staff** → **Tasks** (sidebar subsection requires **tasks.complete**; inside the panel, **tasks.manage** is required to edit **templates** and assignments).
 2. **Templates:** define recurring steps (open, close, compliance).
-3. **Assignments:** map templates to roles or people.
-4. **Team board:** monitor open instances (**tasks.view_team** where applicable).
+3. **Assignments:** map templates to roles or people; use **Edit** to change recurrence, assignee, customer link, active status, or date window.
+4. **Team board:** monitor open instances and inspect checklist detail (**tasks.view_team** where applicable).
 
 Floor staff complete items in **POS → Tasks** or Operations widgets — see [pos-tasks.md](pos-tasks.md).
 

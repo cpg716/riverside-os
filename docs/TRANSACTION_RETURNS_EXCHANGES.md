@@ -65,8 +65,8 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 3. **UI**
    - **Transactions** workspace: refunds-due strip, **Process refund** modal (open register **`session_id`** from **`GET /api/sessions/current`** with **`mergedPosStaffHeaders(backofficeHeaders)`** so the call is authorized when the till is closed but Back Office is signed in). If there is **no** open till (**404**), the UI offers **Go to POS** ( **`RegisterGateContext`** ) so staff can enter POS and open or attach to a lane; with **multiple** open lanes, **`GET /current`** may return **409** — pick a session per **`docs/STAFF_PERMISSIONS.md`** / **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**. `backofficeHeaders` on all transaction fetches.
 
-4. **Admin notification**
-   - When the open queue is non-empty, **admin** staff receive a **once-per-store-local-day** summary (`morning_refund_queue`) in the bell inbox — **`docs/PLAN_NOTIFICATION_CENTER.md`**.
+4. **Admin visibility**
+   - Open refund queue items stay visible in the **Transactions** workspace. Riverside OS does **not** create a daily bell alert for refunds because refunds are expected to be handled in-person as part of the customer transaction workflow.
 
 ---
 

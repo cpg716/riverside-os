@@ -72,6 +72,9 @@ const ReportsWorkspace = lazy(
 const PaymentsWorkspace = lazy(
   () => import("./components/payments/PaymentsWorkspace"),
 );
+const ShipmentsHubSection = lazy(
+  () => import("./components/customers/ShipmentsHubSection"),
+);
 import {
   ROS_OPEN_REGISTER_FROM_WM,
   type RosOpenRegisterFromWmDetail,
@@ -1312,7 +1315,6 @@ function AppShell({
         activeTab === "tasks" ||
         activeTab === "rms-charge" ||
         activeTab === "podium-inbox" ||
-        activeTab === "shipping" ||
         activeTab === "layaways")
     ) {
       setPosMode(true);
@@ -2097,6 +2099,13 @@ function AppMainColumn({
                 }
                 if (activeTab === "payments") {
                   return <PaymentsWorkspace activeSection={activeSubSection} />;
+                }
+                if (activeTab === "shipping") {
+                  return (
+                    <ShipmentsHubSection
+                      onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+                    />
+                  );
                 }
                 if (
                   activeTab === "staff" &&

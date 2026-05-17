@@ -10,7 +10,7 @@
 
 ## How to use this screen
 
-This is your **shift overview** before you jump into the cart. Scan top-to-bottom: **your performance** (if your role shows them), **Priority Feed** (urgent weddings/tasks), **notifications**, and shortcuts back to **Register**.
+This is your **shift overview** before you jump into the cart. Scan top-to-bottom: the six command cards, **What Needs Action First**, **Wedding Pulse**, **weather / sales pace**, and **notifications**. Anything that looks actionable should take you back to the source workflow.
 
 ## When you land here
 
@@ -25,16 +25,16 @@ You see a message to **open the register**. Dashboard metrics tied to the sessio
 | Block | You use it to… | If missing |
 |-------|----------------|------------|
 | **Headline / role** | Confirm you are signed in as **Register Manager** or salesperson | Sign out/in |
-| **Performance Stats** | See your **lines / gross** visualized with trend lines | Normal for some roles — not a bug |
-| **Priority Feed** | See urgent wedding pickups, measurements, or order deadlines | Needs **weddings.view** |
+| **Command cards** | Jump to Register, pickups, alterations, tasks, inventory alerts, or the priority feed | Some cards require the matching permission |
+| **What Needs Action First** | Open urgent wedding pickups, measurements, tasks, rush orders, or inbox items | Needs matching source access |
 | **Task List** | Open your assigned checklist for the day | Needs **tasks.complete** |
-| **Recent Activity** | Observe real-time store events and team updates | Needs **notifications.view** |
+| **Notifications** | Review or dismiss inbox items without leaving the dashboard | Needs **notifications.view** |
 
 ## Common tasks
 
 ### Clear your notifications before shift
 
-1. Tap **Open inbox** or the **bell** (per UI).
+1. Tap **Open inbox** or the **bell**.
 2. If a row looks like a **summary** (e.g. many items in one line), **tap it** to expand; then work through **Read** → **Complete** or **Dismiss** (archive) per SOP.
 3. Do not **broadcast** — that is admin-only.
 
@@ -72,4 +72,4 @@ You see a message to **open the register**. Dashboard metrics tied to the sessio
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)
 - [../PLAN_NOTIFICATION_CENTER.md](../PLAN_NOTIFICATION_CENTER.md)
 
-**Last reviewed:** 2026-04-15 (v0.2.0 WowDash Update)
+**Last reviewed:** 2026-05-17 (v0.60.0 POS dashboard cleanup)

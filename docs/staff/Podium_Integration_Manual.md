@@ -34,8 +34,8 @@ Riverside does **not** recreate Podium’s full multi-user Inbox. Use Riverside 
 |------|---------------------|
 | **Settings → Integrations → Podium** (toggles, templates, widget, OAuth connect, readiness) | **`settings.admin`** |
 | **Settings → General → Review policy** (enable invites, default send/skip) | **`settings.admin`** |
-| **Operations → Podium Inbox** (thread list, unmatched queue, direct text composer) | **`customers.hub_view`** to view; **`customers.hub_edit`** to send or create a new contact |
-| **POS → Podium Inbox** (same shared inbox inside POS shell) | **`customers.hub_view`** to view; **`customers.hub_edit`** to send or create a new contact |
+| **Operations → Podium Inbox** (conversation list, message thread, reply composer, Send Text, unmatched queue) | **`customers.hub_view`** to view; **`customers.hub_edit`** to send or create a new contact |
+| **POS → Podium Inbox** (same shared conversation workspace inside POS shell) | **`customers.hub_view`** to view; **`customers.hub_edit`** to send or create a new contact |
 | **Customer Relationship Hub → Messages** (read thread) | **`customers.hub_view`** |
 | **Hub → Messages** (send SMS reply, save conversation link) | **`customers.hub_edit`** |
 | **Operations → Reviews** (invite/suppress tracking table) | **`reviews.view`** |
@@ -122,12 +122,19 @@ Staff **manual** replies from the hub still go through Podium when configured; f
 
 **Where:** Back Office → **Operations** (home) → **Podium Inbox**.
 
-The top **Send Text** composer supports two staff workflows:
+The inbox is a conversation workspace:
+
+- The left side shows recent Podium conversations with customer name, channel, latest message, timestamp, and needs-reply state.
+- Selecting a conversation opens the message thread on the right so staff can read the exchange in context and reply without leaving the inbox.
+- **Open Customer** jumps to the customer hub when staff need profile, order, or wedding context.
+- **Send Text** supports new outbound messages from the same workspace.
+
+**Send Text** supports two staff workflows:
 
 - Search and select a current customer, then send SMS to the phone on their profile.
 - Enter any phone number. If it is not already matched to a customer phone, Riverside requires **first name** and **last name**, creates a new customer with **Podium** as the source, sends the SMS, and records the outbound message on the new contact.
 
-The inbox also shows recent **Podium conversations** with snippets, unread/needs-reply state, and synced provider threads that need customer matching. **Open** a row to jump into that customer’s hub and continue in **Messages**.
+Unmatched provider threads are grouped under **Unknown Podium senders** so the main inbox stays focused on usable conversations. Match or create the customer, then sync again before treating the thread as customer history.
 
 Viewing requires **`customers.hub_view`**. Sending and new-contact creation require **`customers.hub_edit`**.
 

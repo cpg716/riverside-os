@@ -21,7 +21,7 @@
 1. POS → **Tasks**.
 2. Open the first **due** item.
 3. Check boxes **in order**; add **notes** if the template asks (e.g. “rack temp logged”).
-4. **Complete** the instance; confirm toast.
+4. When the drawer says required items are clear, tap **Complete checklist**; confirm toast.
 
 ### If you cannot finish today
 
@@ -58,4 +58,4 @@
 - [staff-administration.md](staff-administration.md)
 - [../STAFF_TASKS_AND_REGISTER_SHIFT.md](../STAFF_TASKS_AND_REGISTER_SHIFT.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-05-17

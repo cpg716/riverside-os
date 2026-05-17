@@ -1140,7 +1140,7 @@ async fn store_local_day_key(pool: &PgPool) -> Result<String, sqlx::Error> {
 }
 
 /// Admin-only digest: low stock (per tracked variant), weddings today, POs expected today,
-/// alterations due today, refund queue summary. Runs once per store-local day after the configured hour.
+/// alterations due today. Runs once per store-local day after the configured hour.
 pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> {
     let tz_name = load_store_timezone_name(pool).await?;
     let tz: Tz = tz_name.parse().unwrap_or(Tz::UTC);
@@ -1410,43 +1410,6 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
                 .await?;
     }
 
-    // --- Refund queue summary (admin)
-    let row: Option<(i64, rust_decimal::Decimal)> = sqlx::query_as(
-        r#"
-        SELECT COUNT(*)::bigint, COALESCE(SUM(amount_due - amount_refunded), 0)::numeric
-        FROM transaction_refund_queue
-        WHERE is_open = TRUE
-        "#,
-    )
-    .fetch_optional(pool)
-    .await?;
-
-    if let Some((cnt, amt)) = row {
-        if cnt > 0 {
-            let dedupe = format!("morning_refund_queue:{day_key}");
-            let title = format!("Refunds waiting ({cnt})");
-            let body = format!(
-                "Refund requests totaling ${} still need review in Orders.",
-                amt.round_dp(2)
-            );
-            let deep = json!({ "type": "orders", "subsection": "open" });
-            if let Some(nid) = insert_app_notification_deduped(
-                pool,
-                "morning_refund_queue",
-                &title,
-                &body,
-                deep,
-                "generator",
-                aud.clone(),
-                Some(&dedupe),
-            )
-            .await?
-            {
-                fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
-            }
-        }
-    }
-
     Ok(())
 }
 
@@ -1454,6 +1417,9 @@ async fn run_task_due_reminders(pool: &PgPool) -> Result<(), sqlx::Error> {
     let tz_name = load_store_timezone_name(pool).await?;
     let today = tasks::store_local_date(&tz_name);
     let tomorrow = today + ChronoDuration::days(1);
+    tasks::materialize_due_task_instances_between(pool, today, tomorrow)
+        .await
+        .map_err(|err| sqlx::Error::Protocol(err.to_string()))?;
     let rows = tasks::open_instances_due_between(pool, today, tomorrow).await?;
     let day_key = store_local_day_key(pool).await?;
     let mut by_assignee: HashMap<Uuid, Vec<tasks::DueInstanceRow>> = HashMap::new();

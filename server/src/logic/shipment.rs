@@ -561,6 +561,7 @@ pub async fn purchase_shipment_label(
     http: &reqwest::Client,
     shipment_id: Uuid,
     staff_id: Uuid,
+    label_file_type: Option<&str>,
 ) -> Result<shippo::PurchasedLabel, ShipmentError> {
     let row = get_shipment_detail(pool, shipment_id)
         .await?
@@ -588,7 +589,7 @@ pub async fn purchase_shipment_label(
             )
         })?;
 
-    let purchased = shippo::purchase_transaction_for_rate(http, rate_oid).await?;
+    let purchased = shippo::purchase_transaction_for_rate(http, rate_oid, label_file_type).await?;
 
     let mut tx = pool.begin().await?;
     sqlx::query(
@@ -648,6 +649,7 @@ pub async fn purchase_shipment_label(
             "transaction_id": purchased.shippo_transaction_object_id,
             "tracking_number": purchased.tracking_number,
             "label_url": purchased.shipping_label_url,
+            "label_file_type": shippo::normalize_label_file_type(label_file_type)?,
         }),
         Some(staff_id),
     )

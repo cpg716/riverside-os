@@ -72,13 +72,13 @@ Implementation: **`server/src/api/shipments.rs`**, **`server/src/logic/shipment.
 | **`shipments.view`** | admin, sales_support, salesperson | List/read hub, timeline, customer hub tab. |
 | **`shipments.manage`** | admin, sales_support only | Manual create, patch, rates, apply quote, staff notes. |
 
-Sidebar **Customers → Shipments** maps subsection permission **`customers:ship`** → **`shipments.view`** in **`BackofficeAuthContext`**.
+Sidebar **Shipping** maps tab permission **`shipping`** → **`shipments.view`** in **`BackofficeAuthPermissions`**.
 
 ---
 
 ## UI
 
-- **Customers → Shipments** (BO) — full-store list, filters, manual shipment modal, detail panel (rates, apply quote, buy/refund labels, create return-label workflow, status/tracking), **carrier handoff** panel for manifests/pickups, and **event timeline** (`ShipmentsHubSection.tsx`).
+- **Shipping** (Back Office) — full-store list, filters, manual shipment modal, detail panel (rates, apply quote, buy/refund labels with selectable label styles, create return-label workflow, status/tracking), **carrier handoff** panel for manifests/pickups, and **event timeline** (`ShipmentsHubSection.tsx`).
 - **POS Sidebar → Shipping** (Register) — mirrored access to the hub for floor staff and sales support.
 - **Relationship Hub → Shipments** (Joint) — same component with **`customerIdFilter`** for the open customer, available in both BO and POS.
 - **Relationship Hub → Interaction timeline** — append-only **`shipment_event`** rows for this customer appear as **`shipping`** entries (requires **`customers.timeline`**), with **`reference_type`** **`shipment`**. Staff with **`shipments.view`** can **click the summary** to jump to the **Shipments** tab with that shipment opened (detail + list).
@@ -92,6 +92,7 @@ Roadmap UI (orders workspace label buy, fulfillment gates) remains in **`PLAN_SH
 Implemented because it fits Riverside's current single-store workflow:
 
 - Live domestic rates and label purchase using the store origin.
+- Label purchase styles for `PDF_4X6`, `PDF`, `PNG`, and `ZPLII` so staff can choose 4x6, letter, image, or thermal-printer output before buying the label.
 - Settings-side Shippo connection/origin validation.
 - Rich address payloads (company, address line 2, phone, email, residential flag).
 - Multi-piece parcel payload support through the API for staff/admin tooling. The current register UI still uses the default parcel profile for normal counter work.

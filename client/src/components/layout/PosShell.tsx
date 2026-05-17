@@ -306,6 +306,15 @@ export default function PosShell({
                 cashierName={cashierName} 
                 onGoToRegister={() => setActivePosTab("register")} 
                 onGoToWeddings={() => setActivePosTab("weddings")} 
+                onGoToOrders={() => setActivePosTab("orders")}
+                onGoToAlterations={() => setActivePosTab("alterations")}
+                onGoToInventory={() => setActivePosTab("inventory")}
+                onGoToTasks={() => setActivePosTab("tasks")}
+                onOpenOrderInRegister={(orderId) => {
+                  setPendingPosTransactionId(orderId);
+                  clearPendingPosCustomer();
+                  setActivePosTab("register");
+                }}
                 onOpenWeddingParty={(partyId) => {
                   setActivePosTab("weddings");
                   onOpenWeddingParty?.(partyId);
@@ -487,7 +496,7 @@ export default function PosShell({
           {activePosTab === "payments" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Payments...</div>}>
-                <PaymentsWorkspace surface="pos" activeSection="health" />
+                <PaymentsWorkspace surface="pos" activeSection="transactions" />
               </Suspense>
             </div>
           )}

@@ -35,9 +35,9 @@ Three layers:
 
 - **Templates** — Reusable titles + ordered checklist lines (`required` flag).
 - **Assignments** — Template + **`task_recurrence`** (`daily` | `weekly` | `monthly` | `yearly`) + optional **`recurrence_config` JSON** + assignee **`staff`** (one `assignee_staff_id`) **or** **`role`** (all active staff with that `staff_role` at materialization time). Optional **`customer_id`**, **`starts_on` / `ends_on`**, **`active`**.
-- **Instances** — Created **on demand** when the assignee first hits **`GET /api/tasks/me`** (or any code path that calls **`ensure_task_instances`** in [`server/src/logic/tasks.rs`](../server/src/logic/tasks.rs)). **No row** is created for calendar days when the staff never loads tasks — they are **not** marked incomplete for days off.
+- **Instances** — Created **on demand** when the assignee first hits **`GET /api/tasks/me`** (or any code path that calls **`ensure_task_instances`** in [`server/src/logic/tasks.rs`](../server/src/logic/tasks.rs)). The notification sweep also pre-materializes **today/tomorrow due** instances so reminders do not depend on a staff member opening Tasks first. Working-day guards still apply, so staff are not penalized for days off.
 - **Period keys** — Store-local date from receipt timezone (`store_settings.receipt_config.timezone`): e.g. daily `YYYY-MM-DD`, weekly `YYYY-Www`, monthly `YYYY-MM`, yearly `YYYY`.
-- **Completion** — `PATCH /api/tasks/instances/{id}/items/{item_id}` with `{ "done": true|false }`; `POST /api/tasks/instances/{id}/complete` finalizes when all **required** items are done. Assignees may complete their own instances; staff with **`tasks.manage`** may complete on behalf of others.
+- **Completion** — `PATCH /api/tasks/instances/{id}/items/{item_id}` with `{ "done": true|false }`; `POST /api/tasks/instances/{id}/complete` finalizes when all **required** items are done. The shared checklist drawer shows progress and requires an explicit **Complete checklist** action after required items are checked. Assignees with **`tasks.complete`** may complete their own instances; staff with **`tasks.manage`** may complete on behalf of others.
 
 ---
 
@@ -45,8 +45,8 @@ Three layers:
 
 | Key | Typical use |
 |-----|-------------|
-| `tasks.manage` | Create templates/assignments, history, deactivate assignments; view any instance detail. **Admin** only (seeded). |
-| `tasks.view_team` | Open team board of all **open** instances with assignee avatars. **Admin** + **sales_support**. |
+| `tasks.manage` | Create templates/assignments, edit assignment target/recurrence/date window, history, deactivate assignments; view any instance detail and complete on behalf of others. **Admin** only (seeded). |
+| `tasks.view_team` | Open team board of all **open** instances with assignee avatars and read checklist detail for review. **Admin** + **sales_support**. |
 | `tasks.complete` | Sidebar **Staff → Tasks** subsection; Operations **My tasks** card; implied for **`GET /api/tasks/me`** and checklist mutations for self. Seeded for **admin**, **sales_support**, **salesperson**. |
 | `register.shift_handoff` | Change shift primary without closing drawer. Seeded all roles (migration **55**). |
 
@@ -61,12 +61,13 @@ Router: **`/api/tasks`** in [`server/src/api/tasks.rs`](../server/src/api/tasks.
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/api/tasks/me` | Staff **or** POS session; subject staff = BO authenticated id **or** **register primary** for the POS session. Materializes instances then returns **`open`** + **`completed_recent`**. |
-| GET | `/api/tasks/instances/{id}` | Detail + items; assignee **or** **`tasks.manage`**. |
+| GET | `/api/tasks/instances/{id}` | Detail + items; assignee with **`tasks.complete`**, **`tasks.view_team`**, or **`tasks.manage`**. Team viewers can inspect, but only assignee / manager can mutate. |
 | PATCH | `/api/tasks/instances/{id}/items/{item_id}` | Body `{ "done": boolean }`. |
 | POST | `/api/tasks/instances/{id}/complete` | Returns `{ "completed": true|false }`. |
 | GET/POST | `/api/tasks/admin/templates` | **`tasks.manage`**. |
 | GET | `/api/tasks/admin/templates/{id}/items` | **`tasks.manage`**. |
 | GET/POST | `/api/tasks/admin/assignments` | **`tasks.manage`**. |
+| PATCH | `/api/tasks/admin/assignments/{id}` | Full assignment edit: template, recurrence, assignee target, customer link, active flag, date window. **`tasks.manage`**. |
 | PATCH | `/api/tasks/admin/assignments/{id}/active` | Body `{ "active": boolean }`. |
 | GET | `/api/tasks/admin/team-open` | **`tasks.view_team`**. |
 | GET | `/api/tasks/admin/history` | Query `limit`, `offset`, optional `assignee_staff_id`. **`tasks.manage`**. |
@@ -90,7 +91,7 @@ Avatars: team board and history use **`staffAvatarUrl`** / **`assignee_avatar_ke
 
 ## Notifications
 
-Hourly generator **`run_task_due_reminders`** in [`server/src/logic/notifications_jobs.rs`](../server/src/logic/notifications_jobs.rs): for **materialized** open instances with **`due_date`** equal to **store-local today or tomorrow**, **upserts** one **`app_notification`** per assignee per store-local day, kind **`task_due_soon_bundle`**, **`notification_bundle`** payload (per-instance nested deep links; often **`staff_tasks`** + **`instance_id`**), fan-out to the assignee. Prior assignee bundles for that date are cleared then recreated. See [`docs/PLAN_NOTIFICATION_CENTER.md`](./PLAN_NOTIFICATION_CENTER.md).
+Hourly generator **`run_task_due_reminders`** in [`server/src/logic/notifications_jobs.rs`](../server/src/logic/notifications_jobs.rs): first pre-materializes active assignments due **store-local today or tomorrow** for working staff, then **upserts** one **`app_notification`** per assignee per store-local day, kind **`task_due_soon_bundle`**, **`notification_bundle`** payload (per-instance nested deep links; often **`staff_tasks`** + **`instance_id`**), fan-out to the assignee. Prior assignee bundles for that date are cleared then recreated. See [`docs/PLAN_NOTIFICATION_CENTER.md`](./PLAN_NOTIFICATION_CENTER.md).
 
 ---
 

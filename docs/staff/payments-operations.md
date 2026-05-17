@@ -2,13 +2,14 @@
 
 **Purpose:** Use ROS as the daily card-payment workspace. Helcim remains the card processor, but staff should use **Payments** to review activity, batches, issues, sync health, and actual bank deposits.
 
-Use this guide for **Back Office → Payments**. Use **Settings → Helcim** only for configuration/readiness checks and integration troubleshooting. Developer and integration contracts live in [`../HELCIM.md`](../HELCIM.md).
+Use this guide for **Back Office → Payments** and the POS **Payments** workspace. Use **Settings → Helcim** only for configuration/readiness checks and integration troubleshooting. Developer and integration contracts live in [`../HELCIM.md`](../HELCIM.md).
 
 ## Who should use it
 
 - Managers and bookkeepers checking card activity.
 - Staff responsible for end-of-day review.
 - Admins investigating processor differences, missing fees, or deposit mismatches.
+- POS staff who need to review today’s card transactions and terminal health before closing.
 
 Sensitive actions require these permissions:
 
@@ -42,6 +43,14 @@ Cards show:
 If Helcim has not provided a value, ROS shows **Fee not ready** or **Net not ready**. Do not treat a missing fee or net as `$0.00`. Fee/net readiness is a tracking signal, not a reason by itself to stop daily payment review.
 
 If there are no card payments yet, the tab shows **No payments yet today**. Run sync later after card activity begins.
+
+## POS Payments
+
+Use **POS → Payments** for same-day register review. It opens to **Today**, which lists the current day’s Helcim card transactions. Select a row to review the payment, provider reference, batch state, fee/net readiness, and related reconciliation history.
+
+Use **Terminal Health** from the same POS Payments screen when a terminal attempt, webhook update, or close-blocking card issue needs review before Z-close. POS Payments is read/review focused; it does not replace the checkout drawer for collecting money and does not change payment amounts.
+
+Managers and bookkeepers still use **Back Office → Payments** for broader batch, deposit, reconciliation, and sync work.
 
 ## Register card payments
 

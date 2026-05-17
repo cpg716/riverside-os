@@ -4,6 +4,8 @@ import {
   Activity,
   AlertCircle,
   ChevronRight,
+  CircleDollarSign,
+  ClipboardCheck,
   Target,
   TrendingUp,
   Zap,
@@ -101,6 +103,7 @@ type OperationalFeedKey =
   | "fulfillment"
   | "alterations"
   | "notifications"
+  | "registerSessions"
   | "morningCompass"
   | "activityFeed";
 
@@ -122,6 +125,16 @@ interface AlterationOpsRow {
   work_requested: string | null;
   source_type: string | null;
   created_at: string;
+}
+
+interface OpenRegisterSessionRow {
+  session_id: string;
+  register_lane: number;
+  register_ordinal: number;
+  cashier_name: string;
+  opened_at: string;
+  till_close_group_id: string;
+  lifecycle_status: string;
 }
 
 interface OperationalHomeProps {
@@ -235,10 +248,14 @@ function SummaryPill({
   label,
   value,
   tone = "default",
+  onClick,
+  ariaLabel,
 }: {
   label: string;
   value: string | number;
   tone?: "default" | "good" | "warn" | "danger";
+  onClick?: () => void;
+  ariaLabel?: string;
 }) {
   const toneClass =
     tone === "good"
@@ -249,15 +266,22 @@ function SummaryPill({
           ? "ui-tint-danger text-app-text"
           : "ui-tint-neutral text-app-text";
 
+  const Root = onClick ? "button" : "div";
+
   return (
-    <div className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${toneClass}`}>
+    <Root
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className={`min-w-0 rounded-2xl border px-4 py-3 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${onClick ? "transition-colors hover:border-app-input-border hover:bg-app-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30" : ""} ${toneClass}`}
+    >
       <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
         {label}
       </p>
       <p className="mt-1 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(1.15rem,1.6vw,1.5rem)] font-black leading-tight text-app-text">
         {value}
       </p>
-    </div>
+    </Root>
   );
 }
 
@@ -720,6 +744,39 @@ export default function OperationalHome({
     void loadNotifPreview();
   }, [loadNotifPreview, refreshSignal]);
 
+  const [openRegisterSessions, setOpenRegisterSessions] = useState<OpenRegisterSessionRow[]>([]);
+  const loadOpenRegisterSessions = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("register.session_attach")) {
+      setOpenRegisterSessions([]);
+      clearFeedLoadError("registerSessions");
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/sessions/list-open`, {
+        headers: taskAuth(),
+      });
+      if (!res.ok) throw new Error("register-sessions");
+      const data = (await res.json()) as OpenRegisterSessionRow[];
+      setOpenRegisterSessions(Array.isArray(data) ? data : []);
+      clearFeedLoadError("registerSessions");
+    } catch {
+      markFeedLoadError(
+        "registerSessions",
+        "Register close readiness could not refresh. Confirm open drawers from Daily Sales before closing.",
+      );
+    }
+  }, [
+    permissionsLoaded,
+    hasPermission,
+    taskAuth,
+    clearFeedLoadError,
+    markFeedLoadError,
+  ]);
+
+  useEffect(() => {
+    void loadOpenRegisterSessions();
+  }, [loadOpenRegisterSessions, refreshSignal]);
+
   const [compass, setCompass] = useState<MorningCompassBundle | null>(null);
   const [activityFeed, setActivityFeed] = useState<ActivityFeedEntry[]>([]);
   const [compassDrawerRow, setCompassDrawerRow] =
@@ -865,6 +922,20 @@ export default function OperationalHome({
     return stats;
   }, [fulfillmentQueue]);
 
+  const registerCloseStats = useMemo(() => {
+    const groups = new Set<string>();
+    let reconciling = 0;
+    for (const session of openRegisterSessions) {
+      groups.add(session.till_close_group_id);
+      if (session.lifecycle_status === "reconciling") reconciling += 1;
+    }
+    return {
+      openSessions: openRegisterSessions.length,
+      openDrawers: groups.size,
+      reconciling,
+    };
+  }, [openRegisterSessions]);
+
   const alterationStats = useMemo(() => {
     const stats = {
       totalOpen: 0,
@@ -936,11 +1007,27 @@ export default function OperationalHome({
         tone: "warn",
       });
     }
+    if (feedLoadErrors.registerSessions) {
+      items.push({
+        id: "register-close-feed",
+        label: "Register close status not refreshed",
+        detail: feedLoadErrors.registerSessions,
+        tone: "warn",
+      });
+    }
     if (feedLoadErrors.morningCompass) {
       items.push({
         id: "priorities-feed",
         label: "Morning priorities not refreshed",
         detail: feedLoadErrors.morningCompass,
+        tone: "warn",
+      });
+    }
+    if (registerCloseStats.reconciling > 0) {
+      items.push({
+        id: "register-close",
+        label: "Register close in progress",
+        detail: `${registerCloseStats.reconciling} open register session${registerCloseStats.reconciling === 1 ? " is" : "s are"} already reconciling. Finish that close before starting another.`,
         tone: "warn",
       });
     }
@@ -1010,10 +1097,12 @@ export default function OperationalHome({
     feedLoadErrors.fulfillment,
     feedLoadErrors.morningCompass,
     feedLoadErrors.notifications,
+    feedLoadErrors.registerSessions,
     feedLoadErrors.tasks,
     fulfillmentStats.blocked,
     fulfillmentStats.rush,
     lowStockNotifications,
+    registerCloseStats.reconciling,
     taskMeOpen.length,
   ]);
 
@@ -1148,6 +1237,36 @@ export default function OperationalHome({
       });
     }
 
+    if (feedLoadErrors.registerSessions) {
+      items.push({
+        id: "register-close",
+        label: "Register close",
+        detail: feedLoadErrors.registerSessions,
+        tone: "warn",
+      });
+    } else if (registerCloseStats.reconciling > 0) {
+      items.push({
+        id: "register-close",
+        label: "Register close",
+        detail: `${registerCloseStats.reconciling} register session${registerCloseStats.reconciling === 1 ? " is" : "s are"} already in close review.`,
+        tone: "warn",
+      });
+    } else if (registerCloseStats.openSessions > 0) {
+      items.push({
+        id: "register-close",
+        label: "Register close",
+        detail: `${registerCloseStats.openDrawers} till drawer${registerCloseStats.openDrawers === 1 ? "" : "s"} open across ${registerCloseStats.openSessions} register session${registerCloseStats.openSessions === 1 ? "" : "s"}.`,
+        tone: "default",
+      });
+    } else {
+      items.push({
+        id: "register-close",
+        label: "Register close",
+        detail: "No open register sessions are currently waiting on close review.",
+        tone: "good",
+      });
+    }
+
     if (feedLoadErrors.notifications) {
       items.push({
         id: "inventory-alerts",
@@ -1197,15 +1316,19 @@ export default function OperationalHome({
       });
     }
 
-    return items.slice(0, 3);
+    return items.slice(0, 4);
   }, [
     activeNotifications.length,
     feedLoadErrors.fulfillment,
     feedLoadErrors.notifications,
+    feedLoadErrors.registerSessions,
     feedLoadErrors.tasks,
     fulfillmentStats.blocked,
     fulfillmentStats.ready,
     lowStockNotifications,
+    registerCloseStats.openDrawers,
+    registerCloseStats.openSessions,
+    registerCloseStats.reconciling,
     taskMeOpen.length,
   ]);
 
@@ -1232,6 +1355,11 @@ export default function OperationalHome({
           id: "fulfillment-summary",
           label: `Pickup queue: ${fulfillmentStats.total} pending, ${fulfillmentStats.ready} ready, ${fulfillmentStats.blocked} blocked, ${fulfillmentStats.rush} rush.`,
           severity: fulfillmentStats.blocked > 0 || fulfillmentStats.rush > 0 ? "warn" : "default",
+        },
+        {
+          id: "register-close-summary",
+          label: `Register close: ${registerCloseStats.openSessions} open sessions, ${registerCloseStats.openDrawers} till drawers, ${registerCloseStats.reconciling} reconciling.`,
+          severity: registerCloseStats.reconciling > 0 ? "warn" : "default",
         },
         {
           id: "alterations-summary",
@@ -1271,6 +1399,9 @@ export default function OperationalHome({
       fulfillmentStats.total,
       issueNotifications.length,
       lowStockNotifications.length,
+      registerCloseStats.openDrawers,
+      registerCloseStats.openSessions,
+      registerCloseStats.reconciling,
       suggestedMorningQueue.length,
       taskMeOpen.length,
       todayDecisionTakeaways,
@@ -1288,6 +1419,22 @@ export default function OperationalHome({
     feedLoadErrors.notifications;
 
   const openOperationalSignal = useCallback((id: string) => {
+    if (id.includes("daily-sales") || id.includes("sales")) {
+      onNavigateMetric?.({ tab: "home", section: "daily-sales" });
+      return;
+    }
+    if (id.includes("register-close")) {
+      onNavigateMetric?.({ tab: "home", section: "daily-sales" });
+      return;
+    }
+    if (id.includes("appointment")) {
+      onNavigateMetric?.({ tab: "appointments", section: "scheduler" });
+      return;
+    }
+    if (id.includes("wedding")) {
+      onNavigateMetric?.({ tab: "weddings" });
+      return;
+    }
     if (id.includes("alteration")) {
       onNavigateMetric?.({ tab: "alterations", section: "queue" });
       return;
@@ -1427,12 +1574,18 @@ export default function OperationalHome({
   }
 
   const renderDashboard = () => (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      
-      <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-3xl font-bold tracking-tight text-app-text">Operations Overview</h2>
-          <p className="text-sm font-medium text-app-text-muted">Real-time snapshots of your store operations</p>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="max-w-3xl space-y-2">
+          <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
+            Back Office Command Center
+          </p>
+          <h2 className="text-3xl font-black tracking-tight text-app-text">
+            Operations Dashboard
+          </h2>
+          <p className="text-sm font-semibold leading-relaxed text-app-text-muted">
+            Start here: sales movement, open drawers, pickup pressure, tailoring due dates, inventory alerts, and staff follow-up all route back to their source workspace.
+          </p>
         </div>
         <div className="flex w-full justify-start lg:w-auto lg:justify-end">
           <WeatherDashboardWidget refreshSignal={refreshSignal} compact />
@@ -1443,450 +1596,536 @@ export default function OperationalHome({
         <FeedDegradedNotice message="Some operational feeds did not refresh. Review the marked sections before treating the dashboard as clear." />
       ) : null}
 
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-6">
-         <DashboardStatsCard
-           title="Today's Sales"
-           value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary ? money(todaySummary.net_sales) : "$0.00"}
-           icon={TrendingUp}
-           sparklineData={salesHistory}
-           trend={{
-             value: todaySummary?.sales_count ?? 0,
-             isUp: true,
-             label: "sales today",
-           }}
-           color="blue"
-           onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
-           ariaLabel="Open Daily Sales"
-         />
-         <DashboardStatsCard
-           title="Pending Orders"
-           value={feedLoadErrors.fulfillment ? "Not loaded" : fulfillmentStats.total}
-           icon={ShoppingBag}
-           trend={{
-             value: fulfillmentStats.ready,
-             isUp: true,
-             label: "ready for pickup",
-           }}
-           color="purple"
-           onClick={() => onNavigateMetric?.({ tab: "home", section: "fulfillment" })}
-           ariaLabel="Open Pickup Queue"
-         />
-         <DashboardStatsCard
-           title="Alterations"
-           value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.totalOpen}
-           icon={Scissors}
-           trend={{
-             value: alterationStats.ready,
-             isUp: true,
-             label: "ready for pickup",
-           }}
-           color="blue"
-           onClick={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
-           ariaLabel="Open Alterations Queue"
-         />
-         <DashboardStatsCard
-           title="Low Stock Alerts"
-           value={feedLoadErrors.notifications ? "Not loaded" : lowStockNotifications.length}
-           icon={Ruler}
-           trend={{
-             value: issueNotifications.length,
-             isUp: false,
-             label: "issue alerts",
-           }}
-           color="orange"
-           onClick={() => onNavigateMetric?.({ tab: "inventory", section: "intelligence" })}
-           ariaLabel="Open Inventory Stock Guidance"
-         />
-         <DashboardStatsCard
-           title="Needs Attention"
-           value={hasFeedLoadErrors ? "Review" : Math.max(topIssues.length, activeNotifications.length)}
-           icon={AlertCircle}
-           trend={{
-             value: activeNotifications.length,
-             isUp: false,
-             label: "open inbox items",
-           }}
-           color="rose"
-           onClick={() => onNavigateMetric?.({ tab: "home", section: "inbox" })}
-           ariaLabel="Open Podium Inbox"
-         />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <DashboardGridCard
-          title="What Changed Today"
-          subtitle="Today’s store movement, translated into plain-language takeaways"
-          icon={TrendingUp}
-          className="xl:col-span-5"
-        >
-          {feedLoadErrors.todaySummary || feedLoadErrors.salesHistory ? (
-            <FeedDegradedNotice
-              message={
-                feedLoadErrors.todaySummary ??
-                feedLoadErrors.salesHistory ??
-                "Today’s movement could not refresh."
-              }
-            />
-          ) : null}
-          <div className="grid grid-cols-2 gap-3">
-            <SummaryPill
-              label="Net sales"
-              value={
-                feedLoadErrors.todaySummary
-                  ? "Not loaded"
-                  : todaySummary
-                    ? money(todaySummary.net_sales)
-                    : "$0.00"
-              }
-              tone="good"
-            />
-            <SummaryPill
-              label="Sales count"
-              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.sales_count ?? 0}
-            />
-            <SummaryPill
-              label="Pickups"
-              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.pickup_count ?? 0}
-            />
-            <SummaryPill
-              label="Online orders"
-              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.online_order_count ?? 0}
-            />
-            <SummaryPill
-              label="Appointments"
-              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.appointment_count ?? 0}
-            />
-            <SummaryPill
-              label="New weddings"
-              value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.new_wedding_parties_count ?? 0}
-            />
-          </div>
-          <div className="mt-4 space-y-3">
-            {todayDecisionTakeaways.length === 0 ? (
-              <div className="ui-panel px-4 py-3 text-sm font-semibold text-app-text-muted">
-                Today&apos;s reporting feeds have not posted enough activity yet to summarize movement.
-              </div>
-            ) : (
-              todayDecisionTakeaways.map((item) => (
-                <div
-                  key={item.id}
-                  className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${
-                    item.tone === "good"
-                      ? "border-app-success/16 bg-app-success/10"
-                      : item.tone === "warn"
-                        ? "border-app-warning/16 bg-app-warning/10"
-                        : item.tone === "danger"
-                          ? "border-app-danger/16 bg-app-danger/10"
-                          : "border-app-border bg-app-surface-3"
-                  }`}
-                >
-                  <p className="text-xs font-black text-app-text">{item.label}</p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">
-                    {item.detail}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-          <RosieInsightSummary
-            surface="daily_operational_briefing"
-            title="Today at Riverside"
-            facts={dailyBriefingFacts}
-            getHeaders={taskAuth}
-          />
-        </DashboardGridCard>
-
-        <SalesByHourSnapshotCard
-          authHeaders={taskAuth}
-          canLoad={
-            permissionsLoaded &&
-            (hasPermission("register.reports") || hasPermission("insights.view"))
-          }
-          refreshSignal={refreshSignal}
-          className="xl:col-span-3"
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+        <DashboardStatsCard
+          title="Today's Sales"
+          value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary ? money(todaySummary.net_sales) : "$0.00"}
+          icon={CircleDollarSign}
+          sparklineData={salesHistory}
+          trend={{
+            value: todaySummary?.sales_count ?? 0,
+            isUp: true,
+            label: "sales today",
+          }}
+          color="blue"
+          className="min-h-[142px] p-4"
+          onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+          ariaLabel="Open Daily Sales"
         />
-
-        <DashboardGridCard
-          title="What Needs Attention"
-          subtitle="The shortest list of problems that need a decision first"
-          icon={Target}
-          className="xl:col-span-4"
-        >
-          {topIssues.length === 0 ? (
-            <div className="py-12 text-center text-sm font-semibold text-app-text-muted">
-              No priority issues are active right now.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {topIssues.map((issue) => (
-                <button
-                  type="button"
-                  key={issue.id}
-                  onClick={() => openOperationalSignal(issue.id)}
-                  className={`w-full rounded-2xl border px-4 py-3 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] transition-colors hover:border-app-input-border hover:bg-app-surface-3 ${
-                    issue.tone === "danger"
-                      ? "border-app-danger/16 bg-app-danger/10"
-                      : issue.tone === "warn"
-                        ? "border-app-warning/16 bg-app-warning/10"
-                        : "border-app-border bg-app-surface-3"
-                  }`}
-                >
-                  <p className="text-xs font-black text-app-text">
-                    {issue.label}
-                  </p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">
-                    {issue.detail}
-                  </p>
-                </button>
-              ))}
-            </div>
-          )}
-        </DashboardGridCard>
-
-        <DashboardGridCard
-          title="Top Issues"
-          subtitle="What the current queue, inventory, and inbox numbers mean"
-          icon={Zap}
-          className="xl:col-span-3"
-        >
-          <div className="space-y-3">
-            {decisionTakeaways.map((item) => (
-              <button
-                type="button"
-                key={item.id}
-                onClick={() => openOperationalSignal(item.id)}
-                className={`w-full rounded-2xl border px-4 py-3 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] transition-colors hover:border-app-input-border hover:bg-app-surface-3 ${
-                  item.tone === "good"
-                    ? "border-app-success/16 bg-app-success/10"
-                    : item.tone === "warn"
-                      ? "border-app-warning/16 bg-app-warning/10"
-                      : item.tone === "danger"
-                        ? "border-app-danger/16 bg-app-danger/10"
-                        : "border-app-border bg-app-surface-3"
-                }`}
-              >
-                <p className="text-xs font-black text-app-text">{item.label}</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">
-                  {item.detail}
-                </p>
-              </button>
-            ))}
-          </div>
-        </DashboardGridCard>
-      </div>
-
-      <div data-testid="operations-alterations-section">
-        <DashboardGridCard
+        <DashboardStatsCard
+          title="Register Close"
+          value={feedLoadErrors.registerSessions ? "Not loaded" : registerCloseStats.openDrawers}
+          icon={ClipboardCheck}
+          trend={{
+            value: registerCloseStats.reconciling,
+            isUp: false,
+            label: "in close review",
+          }}
+          color={registerCloseStats.reconciling > 0 ? "orange" : "green"}
+          className="min-h-[142px] p-4"
+          onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+          ariaLabel="Open Register Close Review"
+        />
+        <DashboardStatsCard
+          title="Pickup Queue"
+          value={feedLoadErrors.fulfillment ? "Not loaded" : fulfillmentStats.total}
+          icon={ShoppingBag}
+          trend={{
+            value: fulfillmentStats.ready,
+            isUp: true,
+            label: "ready for pickup",
+          }}
+          color="purple"
+          className="min-h-[142px] p-4"
+          onClick={() => onNavigateMetric?.({ tab: "home", section: "fulfillment" })}
+          ariaLabel="Open Pickup Queue"
+        />
+        <DashboardStatsCard
           title="Alterations"
-          subtitle="Garment work that needs tailoring attention or pickup movement"
+          value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.totalOpen}
           icon={Scissors}
-        >
-          {feedLoadErrors.alterations ? (
-            <FeedDegradedNotice message={feedLoadErrors.alterations} />
-          ) : null}
-          <div className="grid gap-3 md:grid-cols-4">
-            <SummaryPill
-              label="Overdue"
-              value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.overdue}
-              tone={alterationStats.overdue > 0 ? "danger" : "default"}
-            />
-            <SummaryPill
-              label="Due today"
-              value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.dueToday}
-              tone={alterationStats.dueToday > 0 ? "warn" : "default"}
-            />
-            <SummaryPill
-              label="Ready pickup"
-              value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.ready}
-              tone={alterationStats.ready > 0 ? "good" : "default"}
-            />
-            <SummaryPill
-              label="Total open"
-              value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.totalOpen}
-            />
-          </div>
-          {feedLoadErrors.alterations ? null : alterationAttentionRows.length === 0 ? (
-            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface-3 px-4 py-5 text-sm font-semibold text-app-text-muted">
-              No due, overdue, or ready alteration work is active right now.
-            </div>
-          ) : (
-            <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-              {alterationAttentionRows.map((row) => {
-                const isOverdue = isAlterationOverdue(row);
-                const isDueToday = isAlterationDueToday(row);
-                const statusLabel = isOverdue
-                  ? "Overdue"
-                  : isDueToday
-                    ? "Due today"
-                    : row.status === "ready"
-                      ? "Ready"
-                      : row.status.replace(/_/g, " ");
-                return (
-                  <div
-                    key={row.id}
-                    className="rounded-2xl border border-app-border bg-app-surface-3 px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)]"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-app-text">
-                          {alterationCustomerName(row)}
-                        </p>
-                        <p className="mt-1 truncate text-xs font-semibold text-app-text-muted">
-                          {row.item_description || "Garment not specified"}
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${
-                          isOverdue
-                            ? "border-app-danger/20 bg-app-danger/10 text-app-danger"
-                            : isDueToday
-                              ? "border-app-warning/20 bg-app-warning/10 text-app-warning"
-                              : "border-app-success/20 bg-app-success/10 text-app-success"
-                        }`}
-                      >
-                        {statusLabel}
-                      </span>
-                    </div>
-                    <p className="mt-2 line-clamp-2 text-[11px] font-medium leading-relaxed text-app-text-muted">
-                      {row.work_requested || "Work details not specified"}
-                    </p>
-                    <div className="mt-3 flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      <span>{alterationSourceLabel(row.source_type)}</span>
-                      <span>{row.due_at ? new Date(row.due_at).toLocaleDateString() : "No due date"}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </DashboardGridCard>
+          trend={{
+            value: alterationStats.ready,
+            isUp: true,
+            label: "ready",
+          }}
+          color="blue"
+          className="min-h-[142px] p-4"
+          onClick={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
+          ariaLabel="Open Alterations Queue"
+        />
+        <DashboardStatsCard
+          title="Inventory Alerts"
+          value={feedLoadErrors.notifications ? "Not loaded" : lowStockNotifications.length}
+          icon={Ruler}
+          trend={{
+            value: issueNotifications.length,
+            isUp: false,
+            label: "issue alerts",
+          }}
+          color="orange"
+          className="min-h-[142px] p-4"
+          onClick={() => onNavigateMetric?.({ tab: "inventory", section: "intelligence" })}
+          ariaLabel="Open Inventory Stock Guidance"
+        />
+        <DashboardStatsCard
+          title="Needs Attention"
+          value={hasFeedLoadErrors ? "Review" : Math.max(topIssues.length, activeNotifications.length)}
+          icon={AlertCircle}
+          trend={{
+            value: activeNotifications.length,
+            isUp: false,
+            label: "open inbox items",
+          }}
+          color="rose"
+          className="min-h-[142px] p-4"
+          onClick={() => onNavigateMetric?.({ tab: "home", section: "inbox" })}
+          ariaLabel="Open Podium Inbox"
+        />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        
-        {/* Main Priorities */}
-        <div className="xl:col-span-8 space-y-6">
+      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-12">
+        <div className="space-y-6 xl:col-span-8">
+          <DashboardGridCard
+            title="What Changed Today"
+            subtitle="Booked activity, appointments, pickups, and weddings with source links"
+            icon={TrendingUp}
+            actionLabel="Daily Sales"
+            onAction={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+          >
+            {feedLoadErrors.todaySummary || feedLoadErrors.salesHistory ? (
+              <FeedDegradedNotice
+                message={
+                  feedLoadErrors.todaySummary ??
+                  feedLoadErrors.salesHistory ??
+                  "Today’s movement could not refresh."
+                }
+              />
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <SummaryPill
+                label="Net sales"
+                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary ? money(todaySummary.net_sales) : "$0.00"}
+                tone="good"
+                onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                ariaLabel="Open Daily Sales"
+              />
+              <SummaryPill
+                label="Sales count"
+                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.sales_count ?? 0}
+                onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                ariaLabel="Open Daily Sales"
+              />
+              <SummaryPill
+                label="Pickups"
+                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.pickup_count ?? 0}
+                onClick={() => onNavigateMetric?.({ tab: "home", section: "fulfillment" })}
+                ariaLabel="Open Pickup Queue"
+              />
+              <SummaryPill
+                label="Online orders"
+                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.online_order_count ?? 0}
+                onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                ariaLabel="Open Daily Sales"
+              />
+              <SummaryPill
+                label="Appointments"
+                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.appointment_count ?? 0}
+                onClick={() => onNavigateMetric?.({ tab: "appointments", section: "scheduler" })}
+                ariaLabel="Open Scheduler"
+              />
+              <SummaryPill
+                label="New weddings"
+                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.new_wedding_parties_count ?? 0}
+                onClick={() => onNavigateMetric?.({ tab: "weddings" })}
+                ariaLabel="Open Weddings"
+              />
+            </div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {todayDecisionTakeaways.length === 0 ? (
+                <div className="ui-panel px-4 py-3 text-sm font-semibold text-app-text-muted">
+                  Today&apos;s reporting feeds have not posted enough activity yet to summarize movement.
+                </div>
+              ) : (
+                todayDecisionTakeaways.map((item) => (
+                  <button
+                    type="button"
+                    key={item.id}
+                    onClick={() => openOperationalSignal(item.id)}
+                    className={`rounded-2xl border px-4 py-3 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] transition-colors hover:border-app-input-border hover:bg-app-surface-3 ${
+                      item.tone === "good"
+                        ? "border-app-success/16 bg-app-success/10"
+                        : item.tone === "warn"
+                          ? "border-app-warning/16 bg-app-warning/10"
+                          : item.tone === "danger"
+                            ? "border-app-danger/16 bg-app-danger/10"
+                            : "border-app-border bg-app-surface-3"
+                    }`}
+                  >
+                    <p className="text-xs font-black text-app-text">{item.label}</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">{item.detail}</p>
+                  </button>
+                ))
+              )}
+            </div>
+            <RosieInsightSummary
+              surface="daily_operational_briefing"
+              title="Today at Riverside"
+              facts={dailyBriefingFacts}
+              getHeaders={taskAuth}
+            />
+          </DashboardGridCard>
+
           <DashboardGridCard
             title="Action Board"
-            subtitle="Today's priority tasks and follow-ups"
+            subtitle="Highest-priority source records from weddings, tasks, rush orders, and inbox"
             icon={Zap}
           >
             {actionBoardLoadError ? (
-               <FeedDegradedNotice message={actionBoardLoadError} />
+              <FeedDegradedNotice message={actionBoardLoadError} />
             ) : suggestedMorningQueue.length === 0 ? (
-               <div className="py-20 text-center opacity-30">
-                  <Target size={48} className="mx-auto mb-4" />
-                  <p className="font-semibold">All priorities cleared</p>
-               </div>
+              <div className="py-16 text-center text-sm font-semibold text-app-text-muted">
+                <Target size={42} className="mx-auto mb-4 opacity-25" />
+                All priorities cleared.
+              </div>
             ) : (
-               <div className="grid grid-cols-1 gap-3">
-                  {suggestedMorningQueue.slice(0, 8).map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        if (item.kind === "wedding") setCompassDrawerRow(item.row);
-                        else if (item.kind === "task") setTaskDrawerId(item.taskId);
-                        else openDrawer();
-                      }}
-                      className="flex items-center justify-between p-4 rounded-xl border border-app-border bg-app-surface-2 hover:bg-app-surface-3 transition-all"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-lg border",
-                          item.tier === 'urgent' ? "bg-app-danger/10 border-app-danger/20 text-app-danger" : "bg-app-accent/10 border-app-accent/20 text-app-accent"
-                        )}>
-                           <Zap size={16} />
-                        </div>
-                        <div className="text-left">
-                           <p className="text-sm font-bold text-app-text">
-                              {item.kind === "wedding" ? `${item.row.customer_name} · ${compassBandLabel(item.band)}` : item.kind === "task" ? item.title : item.kind === "rush_order" ? `Rush: ${item.row.customer_name}` : item.row.title}
-                           </p>
-                           <p className="text-[10px] font-medium text-app-text-muted">
-                              {item.kind === "wedding" ? `${item.row.party_name} · ${item.row.event_date}` : item.kind === "task" && item.dueDate ? `Due: ${item.dueDate}` : 'General Status'}
-                           </p>
-                        </div>
+              <div className="grid grid-cols-1 gap-3">
+                {suggestedMorningQueue.slice(0, 8).map((item) => (
+                  <button
+                    type="button"
+                    key={item.id}
+                    onClick={() => {
+                      if (item.kind === "wedding") setCompassDrawerRow(item.row);
+                      else if (item.kind === "task") setTaskDrawerId(item.taskId);
+                      else if (item.kind === "rush_order") onOpenTransactionInBackoffice(item.row.order_id);
+                      else openDrawer();
+                    }}
+                    className="flex items-center justify-between rounded-xl border border-app-border bg-app-surface-2 p-4 text-left transition-colors hover:bg-app-surface-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-4">
+                      <div
+                        className={cn(
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
+                          item.tier === "urgent"
+                            ? "border-app-danger/20 bg-app-danger/10 text-app-danger"
+                            : "border-app-accent/20 bg-app-accent/10 text-app-accent",
+                        )}
+                      >
+                        <Zap size={16} />
                       </div>
-                      <ChevronRight size={18} className="text-app-text-muted opacity-40" />
-                    </button>
-                  ))}
-               </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-app-text">
+                          {item.kind === "wedding"
+                            ? `${item.row.customer_name} · ${compassBandLabel(item.band)}`
+                            : item.kind === "task"
+                              ? item.title
+                              : item.kind === "rush_order"
+                                ? `Rush order · ${item.row.customer_name}`
+                                : item.row.title}
+                        </p>
+                        <p className="truncate text-[10px] font-medium text-app-text-muted">
+                          {item.kind === "wedding"
+                            ? `${item.row.party_name} · ${item.row.event_date}`
+                            : item.kind === "task" && item.dueDate
+                              ? `Due: ${item.dueDate}`
+                              : item.kind === "rush_order"
+                                ? `${money(item.row.total_price)} · need by ${item.row.need_by_date ?? "not set"}`
+                                : "Notification source"}
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight size={18} className="shrink-0 text-app-text-muted opacity-40" />
+                  </button>
+                ))}
+              </div>
             )}
           </DashboardGridCard>
 
-          {/* Activity Feed */}
+          <div data-testid="operations-alterations-section">
+            <DashboardGridCard
+              title="Alterations"
+              subtitle="Due, overdue, and ready garments with a direct route to the tailoring queue"
+              icon={Scissors}
+              actionLabel="Open Queue"
+              onAction={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
+            >
+              {feedLoadErrors.alterations ? (
+                <FeedDegradedNotice message={feedLoadErrors.alterations} />
+              ) : null}
+              <div className="grid gap-3 md:grid-cols-4">
+                <SummaryPill
+                  label="Overdue"
+                  value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.overdue}
+                  tone={alterationStats.overdue > 0 ? "danger" : "default"}
+                  onClick={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
+                  ariaLabel="Open Alterations Queue"
+                />
+                <SummaryPill
+                  label="Due today"
+                  value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.dueToday}
+                  tone={alterationStats.dueToday > 0 ? "warn" : "default"}
+                  onClick={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
+                  ariaLabel="Open Alterations Queue"
+                />
+                <SummaryPill
+                  label="Ready pickup"
+                  value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.ready}
+                  tone={alterationStats.ready > 0 ? "good" : "default"}
+                  onClick={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
+                  ariaLabel="Open Alterations Queue"
+                />
+                <SummaryPill
+                  label="Total open"
+                  value={feedLoadErrors.alterations ? "Not loaded" : alterationStats.totalOpen}
+                  onClick={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
+                  ariaLabel="Open Alterations Queue"
+                />
+              </div>
+              {feedLoadErrors.alterations ? null : alterationAttentionRows.length === 0 ? (
+                <div className="mt-4 rounded-2xl border border-app-border bg-app-surface-3 px-4 py-5 text-sm font-semibold text-app-text-muted">
+                  No due, overdue, or ready alteration work is active right now.
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  {alterationAttentionRows.map((row) => {
+                    const isOverdue = isAlterationOverdue(row);
+                    const isDueToday = isAlterationDueToday(row);
+                    const statusLabel = isOverdue
+                      ? "Overdue"
+                      : isDueToday
+                        ? "Due today"
+                        : row.status === "ready"
+                          ? "Ready"
+                          : row.status.replace(/_/g, " ");
+                    return (
+                      <button
+                        type="button"
+                        key={row.id}
+                        onClick={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
+                        className="rounded-2xl border border-app-border bg-app-surface-3 px-4 py-3 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] transition-colors hover:border-app-input-border hover:bg-app-surface-2"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-black text-app-text">{alterationCustomerName(row)}</p>
+                            <p className="mt-1 truncate text-xs font-semibold text-app-text-muted">
+                              {row.item_description || "Garment not specified"}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${
+                              isOverdue
+                                ? "border-app-danger/20 bg-app-danger/10 text-app-danger"
+                                : isDueToday
+                                  ? "border-app-warning/20 bg-app-warning/10 text-app-warning"
+                                  : "border-app-success/20 bg-app-success/10 text-app-success"
+                            }`}
+                          >
+                            {statusLabel}
+                          </span>
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-[11px] font-medium leading-relaxed text-app-text-muted">
+                          {row.work_requested || "Work details not specified"}
+                        </p>
+                        <div className="mt-3 flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          <span>{alterationSourceLabel(row.source_type)}</span>
+                          <span>{row.due_at ? new Date(row.due_at).toLocaleDateString() : "No due date"}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </DashboardGridCard>
+          </div>
+
           <DashboardGridCard
             title="Recent Activity"
-            subtitle="Store floor and order events"
+            subtitle="Store floor and wedding events"
             icon={Activity}
           >
-            <div className="space-y-6">
-               {feedLoadErrors.activityFeed ? (
-                 <FeedDegradedNotice message={feedLoadErrors.activityFeed} />
-               ) : activityFeed.length === 0 ? (
-                 <div className="py-12 text-center text-sm font-semibold text-app-text-muted">
-                   No recent activity has posted yet.
-                 </div>
-               ) : activityFeed.slice(0, 10).map((act) => (
-                 <div key={act.id} className="flex gap-4 group/act">
-                   <div className="mt-1">
-                      <div className="h-8 w-8 rounded-full bg-app-accent/10 flex items-center justify-center text-app-accent">
-                         <Users size={14} />
-                      </div>
-                   </div>
-                   <div className="flex-1 space-y-1">
-                      <p className="text-xs font-bold text-app-text group-hover/act:text-app-accent transition-colors">
-                        {act.actor_name} <span className="font-medium text-app-text-muted">performed</span> {act.action_type.replace(/_/g, ' ')}
-                      </p>
-                      <p className="text-[10px] text-app-text-muted leading-relaxed">{act.description}</p>
-                      <p className="text-[9px] font-bold text-app-text-muted/60">{new Date(act.created_at).toLocaleTimeString()}</p>
-                   </div>
-                 </div>
-               ))}
+            <div className="space-y-5">
+              {feedLoadErrors.activityFeed ? (
+                <FeedDegradedNotice message={feedLoadErrors.activityFeed} />
+              ) : activityFeed.length === 0 ? (
+                <div className="py-12 text-center text-sm font-semibold text-app-text-muted">
+                  No recent activity has posted yet.
+                </div>
+              ) : activityFeed.slice(0, 8).map((act) => (
+                <div key={act.id} className="flex gap-4">
+                  <div className="mt-1">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-app-accent/10 text-app-accent">
+                      <Users size={14} />
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-xs font-bold text-app-text">
+                      {act.actor_name} <span className="font-medium text-app-text-muted">performed</span> {act.action_type.replace(/_/g, " ")}
+                    </p>
+                    <p className="line-clamp-2 text-[10px] leading-relaxed text-app-text-muted">{act.description}</p>
+                    <p className="text-[9px] font-bold text-app-text-muted/60">{new Date(act.created_at).toLocaleTimeString()}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </DashboardGridCard>
         </div>
 
-        {/* Floor Management */}
-        <div className="xl:col-span-4 space-y-6">
-           <DashboardGridCard
-             title="Team on Floor"
-             subtitle="Active personnel status"
-             icon={Users}
-           >
-              <div
-                className={cn(
-                  "space-y-4 pr-1",
-                  (compass?.today_floor_staff ?? []).length > 10 && "max-h-[640px] overflow-y-auto",
-                )}
-              >
-                 {feedLoadErrors.morningCompass ? (
-                    <FeedDegradedNotice message={feedLoadErrors.morningCompass} />
-                 ) : (compass?.today_floor_staff ?? []).length === 0 ? (
-                    <div className="py-12 text-center opacity-30 italic text-xs font-semibold">No staff scheduled for today</div>
-                 ) : (
-                   compass?.today_floor_staff?.map((staff) => (
-                      <div key={staff.id} className="flex items-center justify-between p-3 rounded-xl bg-app-bg/30">
-                         <div className="flex items-center gap-3">
-                            <img src={staffAvatarUrl(staff.avatar_key)} className="h-8 w-8 rounded-lg bg-app-accent/20" alt="" />
-                            <div>
-                               <p className="text-xs font-bold text-app-text">{staff.full_name}</p>
-                               <div className="flex items-center gap-1.5">
-                                 <p className="text-[9px] font-medium text-app-text-muted">{floorRoleLabel(staff.role)}</p>
-                                 {staff.shift_label && (
-                                   <>
-                                     <span className="text-[9px] text-app-text-muted opacity-40">·</span>
-                                     <span className="text-[9px] font-black text-app-accent uppercase tracking-tighter">{staff.shift_label}</span>
-                                   </>
-                                 )}
-                               </div>
-                            </div>
-                         </div>
-                         <div className={cn("h-2 w-2 rounded-full", staff.shift_label?.toLowerCase().includes("off") ? "bg-app-danger/30" : "bg-app-success")} />
-                      </div>
-                   ))
-                 )}
+        <div className="space-y-6 xl:col-span-4">
+          <DashboardGridCard
+            title="What Needs Attention"
+            subtitle="Decision list; every row opens the source workflow"
+            icon={Target}
+            actionLabel="Inbox"
+            onAction={openDrawer}
+          >
+            {topIssues.length === 0 ? (
+              <div className="py-10 text-center text-sm font-semibold text-app-text-muted">
+                No priority issues are active right now.
               </div>
-           </DashboardGridCard>
+            ) : (
+              <div className="space-y-3">
+                {topIssues.map((issue) => (
+                  <button
+                    type="button"
+                    key={issue.id}
+                    onClick={() => openOperationalSignal(issue.id)}
+                    className={`w-full rounded-2xl border px-4 py-3 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] transition-colors hover:border-app-input-border hover:bg-app-surface-3 ${
+                      issue.tone === "danger"
+                        ? "border-app-danger/16 bg-app-danger/10"
+                        : issue.tone === "warn"
+                          ? "border-app-warning/16 bg-app-warning/10"
+                          : "border-app-border bg-app-surface-3"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black text-app-text">{issue.label}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">{issue.detail}</p>
+                      </div>
+                      <ChevronRight size={16} className="mt-0.5 shrink-0 text-app-text-muted opacity-40" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </DashboardGridCard>
+
+          <DashboardGridCard
+            title="Register Close"
+            subtitle="Open drawers and close-review pressure"
+            icon={ClipboardCheck}
+            actionLabel="Daily Sales"
+            onAction={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+          >
+            {feedLoadErrors.registerSessions ? (
+              <FeedDegradedNotice message={feedLoadErrors.registerSessions} />
+            ) : null}
+            <div className="grid grid-cols-3 gap-3">
+              <SummaryPill
+                label="Drawers"
+                value={feedLoadErrors.registerSessions ? "—" : registerCloseStats.openDrawers}
+                tone={registerCloseStats.reconciling > 0 ? "warn" : "default"}
+                onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                ariaLabel="Open Register Reports"
+              />
+              <SummaryPill
+                label="Sessions"
+                value={feedLoadErrors.registerSessions ? "—" : registerCloseStats.openSessions}
+                onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                ariaLabel="Open Register Reports"
+              />
+              <SummaryPill
+                label="Closing"
+                value={feedLoadErrors.registerSessions ? "—" : registerCloseStats.reconciling}
+                tone={registerCloseStats.reconciling > 0 ? "warn" : "good"}
+                onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                ariaLabel="Open Register Reports"
+              />
+            </div>
+            <div className="mt-4 space-y-2">
+              {openRegisterSessions.slice(0, 4).map((session) => (
+                <button
+                  type="button"
+                  key={session.session_id}
+                  onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                  className="flex w-full items-center justify-between rounded-xl border border-app-border bg-app-surface-3 px-3 py-2 text-left transition-colors hover:border-app-input-border hover:bg-app-surface-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-black text-app-text">
+                      Register #{session.register_lane} · {session.cashier_name}
+                    </p>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-app-text-muted">
+                      {session.lifecycle_status.replace(/_/g, " ")}
+                    </p>
+                  </div>
+                  <ChevronRight size={15} className="shrink-0 text-app-text-muted opacity-40" />
+                </button>
+              ))}
+              {!feedLoadErrors.registerSessions && openRegisterSessions.length === 0 ? (
+                <div className="rounded-xl border border-app-border bg-app-surface-3 px-3 py-4 text-sm font-semibold text-app-text-muted">
+                  No open register sessions right now.
+                </div>
+              ) : null}
+            </div>
+          </DashboardGridCard>
+
+          <SalesByHourSnapshotCard
+            authHeaders={taskAuth}
+            canLoad={
+              permissionsLoaded &&
+              (hasPermission("register.reports") || hasPermission("insights.view"))
+            }
+            refreshSignal={refreshSignal}
+          />
+
+          <DashboardGridCard
+            title="Team on Floor"
+            subtitle="Published schedule roster for today"
+            icon={Users}
+            actionLabel="Staff"
+            onAction={() => onNavigateMetric?.({ tab: "staff", section: "schedule" })}
+          >
+            <div
+              className={cn(
+                "space-y-3 pr-1",
+                (compass?.today_floor_staff ?? []).length > 10 && "max-h-[520px] overflow-y-auto",
+              )}
+            >
+              {feedLoadErrors.morningCompass ? (
+                <FeedDegradedNotice message={feedLoadErrors.morningCompass} />
+              ) : (compass?.today_floor_staff ?? []).length === 0 ? (
+                <div className="py-10 text-center text-xs font-semibold text-app-text-muted">
+                  No staff scheduled for today.
+                </div>
+              ) : (
+                compass?.today_floor_staff?.map((staff) => (
+                  <button
+                    type="button"
+                    key={staff.id}
+                    onClick={() => onNavigateMetric?.({ tab: "staff", section: "schedule" })}
+                    className="flex w-full items-center justify-between rounded-xl bg-app-bg/30 p-3 text-left transition-colors hover:bg-app-surface-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <img src={staffAvatarUrl(staff.avatar_key)} className="h-8 w-8 shrink-0 rounded-lg bg-app-accent/20" alt="" />
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-bold text-app-text">{staff.full_name}</p>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <p className="truncate text-[9px] font-medium text-app-text-muted">{floorRoleLabel(staff.role)}</p>
+                          {staff.shift_label && (
+                            <>
+                              <span className="text-[9px] text-app-text-muted opacity-40">·</span>
+                              <span className="truncate text-[9px] font-black uppercase tracking-tighter text-app-accent">{staff.shift_label}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={cn("h-2 w-2 shrink-0 rounded-full", staff.shift_label?.toLowerCase().includes("off") ? "bg-app-danger/30" : "bg-app-success")} />
+                  </button>
+                ))
+              )}
+            </div>
+          </DashboardGridCard>
         </div>
       </div>
     </div>

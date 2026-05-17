@@ -76,7 +76,7 @@ If runtime code, env notes, or workstation setup drift from this file, this file
 
 ### Insight summaries
 - Shared ROSIE insight summaries use the OpenAI-compatible `llama-server` endpoint configured by `RIVERSIDE_LLAMA_UPSTREAM`.
-- Gemma 4 E4B can spend the response budget in `reasoning_content` and return empty `message.content`; ROSIE insight summaries require usable `message.content`.
+- Gemma 4 E4B can spend the response budget in `reasoning_content` and return empty `message.content`; ROSIE insight summaries require usable `message.content`, and the UI shows a visible unavailable note when the summary cannot be produced.
 - Start the local Gemma Host for insight work with reasoning disabled:
 
 ```bash

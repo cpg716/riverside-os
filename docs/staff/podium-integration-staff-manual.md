@@ -29,8 +29,8 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 | Surface | What you should see | Main actions |
 |---------|---------------------|--------------|
 | **Settings → Integrations → Podium** | Readiness line, toggles, templates, widget box | Admins: turn channels on, edit templates, **Save**; **Connect Podium** when IT says to refresh the token. |
-| **Operations → Podium Inbox** | Send Text composer, unmatched Podium queue, recent threads | Send a text to a current customer or a new phone number; open a row → customer hub; **Refresh** if the list looks stale. |
-| **POS → Podium Inbox** | Same shared inbox inside the POS shell | Send a text without leaving POS; open a row → POS Customers with **Messages** focused. |
+| **Operations → Podium Inbox** | Conversation list, message thread, reply composer, Send Text composer, unmatched Podium queue | Read the thread, reply in context, open the customer record, send a text to a current customer or a new phone number, and **Refresh** if the list looks stale. |
+| **POS → Podium Inbox** | Same shared inbox inside the POS shell | Read/reply without leaving POS; open the customer record when the conversation needs profile or order follow-up. |
 | **Customer hub → Messages** | Thread + compose | Read history; send **SMS**; optional Podium conversation **URL** field for deep links. |
 | **POS → Receipt summary** | Text receipt and review controls | Send text receipt if the customer wants it; optional **review invite** checkbox per store defaults. |
 | **Notification Center** | “New customer SMS” rows | Open item → deep link toward **Customers** / **Messages** when configured. |
@@ -75,19 +75,22 @@ If the authorization page says the Client ID and redirect URI do not match, regi
 ### Staff: use the SMS inbox list
 
 1. **Operations** → **Podium Inbox**.
-2. Use **Send Text** to search/select a current customer or enter a phone number.
-3. If the phone number is not already a customer, enter the customer’s **first** and **last** name before sending. Riverside creates the new contact and records the outbound message.
-4. Find an existing thread; click to open their profile / hub.
-5. Use **Refresh** after you know a new message arrived if the row does not update. Refresh asks Podium for the current conversation list and brings back multiple pages when needed, so recent provider conversations should not be hidden behind old synced rows.
+2. Use the left conversation list to select a customer thread. The message thread opens on the right with customer and Riverside replies separated like a text conversation.
+3. Reply from the composer at the bottom of the open thread. Email replies require a subject; SMS replies do not.
+4. Use **Open Customer** when the conversation needs profile, transaction, fulfillment, or wedding follow-up.
+5. Use **Send Text** when you need to start a new staff-initiated text. Search/select a current customer or enter a phone number.
+6. If the phone number is not already a customer, enter the customer’s **first** and **last** name before sending. Riverside creates the new contact and records the outbound message.
+7. Use **Refresh** after you know a new message arrived if the row does not update. Refresh asks Podium for the current conversation list and brings back multiple pages when needed, so recent provider conversations should not be hidden behind old synced rows.
+8. Use **Unknown Podium senders** only when matching provider threads to customers. The list is collapsed by default because it is cleanup work, not the normal conversation queue.
 
 **Permission:** Viewing requires **`customers.hub_view`**. Sending or creating the new contact requires **`customers.hub_edit`**.
 
 ### Staff: use the SMS inbox list from POS
 
 1. **POS** → **Podium Inbox**.
-2. Use **Send Text** for a current customer or a new phone number. New phone numbers require first and last name before sending.
-3. Review the shared thread list without leaving the register shell.
-4. Open a row to switch into **POS → Customers** with the customer **Messages** tab focused.
+2. Select a customer thread, read the message history, and reply from the conversation composer without leaving the register shell.
+3. Use **Open Customer** when the message requires a profile, order, fulfillment, or wedding lookup.
+4. Use **Send Text** for a current customer or a new phone number. New phone numbers require first and last name before sending.
 
 **Permission:** **`customers.hub_view`**.
 

@@ -40,7 +40,13 @@ type AssignmentRow = {
   assignee_kind: string;
   assignee_staff_id: string | null;
   assignee_role: string | null;
+  customer_id: string | null;
+  customer_display_name: string | null;
+  customer_code: string | null;
+  customer_phone: string | null;
   active: boolean;
+  starts_on: string | null;
+  ends_on: string | null;
 };
 type TeamRow = {
   instance_id: string;
@@ -122,6 +128,11 @@ export default function StaffTasksPanel({
   const [asgStaff, setAsgStaff] = useState("");
   const [asgRole, setAsgRole] = useState("salesperson");
   const [asgCustomerId, setAsgCustomerId] = useState("");
+  const [asgCustomerLabel, setAsgCustomerLabel] = useState("");
+  const [asgStartsOn, setAsgStartsOn] = useState("");
+  const [asgEndsOn, setAsgEndsOn] = useState("");
+  const [asgActive, setAsgActive] = useState(true);
+  const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState("");
   const [teamSearch, setTeamSearch] = useState("");
 
@@ -207,6 +218,16 @@ export default function StaffTasksPanel({
     );
   }, [team, teamSearch]);
 
+  const assignmentCustomerLabel = (assignment: AssignmentRow) => {
+    const name = assignment.customer_display_name?.trim();
+    const pieces = [
+      name && name.length > 0 ? name : null,
+      assignment.customer_code,
+      assignment.customer_phone,
+    ].filter(Boolean);
+    return pieces.length > 0 ? pieces.join(" · ") : null;
+  };
+
   const createTemplate = async () => {
     const title = tplTitle.trim();
     if (!title) {
@@ -238,7 +259,35 @@ export default function StaffTasksPanel({
     }
   };
 
-  const createAssignment = async () => {
+  const resetAssignmentForm = () => {
+    setEditingAssignmentId(null);
+    setAsgTemplate("");
+    setAsgRecurrence("daily");
+    setAsgKind("role");
+    setAsgStaff("");
+    setAsgRole("salesperson");
+    setAsgCustomerId("");
+    setAsgCustomerLabel("");
+    setAsgStartsOn("");
+    setAsgEndsOn("");
+    setAsgActive(true);
+  };
+
+  const editAssignment = (assignment: AssignmentRow) => {
+    setEditingAssignmentId(assignment.id);
+    setAsgTemplate(assignment.template_id);
+    setAsgRecurrence(assignment.recurrence);
+    setAsgKind(assignment.assignee_kind === "staff" ? "staff" : "role");
+    setAsgStaff(assignment.assignee_staff_id ?? "");
+    setAsgRole(assignment.assignee_role ?? "salesperson");
+    setAsgCustomerId(assignment.customer_id ?? "");
+    setAsgCustomerLabel(assignmentCustomerLabel(assignment) ?? "");
+    setAsgStartsOn(assignment.starts_on ?? "");
+    setAsgEndsOn(assignment.ends_on ?? "");
+    setAsgActive(assignment.active);
+  };
+
+  const saveAssignment = async () => {
     if (!asgTemplate) {
       toast("Pick a template.", "error");
       return;
@@ -248,7 +297,7 @@ export default function StaffTasksPanel({
       recurrence: asgRecurrence,
       recurrence_config: {},
       assignee_kind: asgKind,
-      active: true,
+      active: asgActive,
     };
     if (asgKind === "staff") {
       if (!asgStaff) {
@@ -261,17 +310,30 @@ export default function StaffTasksPanel({
     }
     const cust = asgCustomerId.trim();
     if (cust.length > 0) body.customer_id = cust;
+    if (asgStartsOn) body.starts_on = asgStartsOn;
+    if (asgEndsOn) body.ends_on = asgEndsOn;
     try {
-      const res = await fetch(`${baseUrl}/api/tasks/admin/assignments`, {
-        method: "POST",
+      const url = editingAssignmentId
+        ? `${baseUrl}/api/tasks/admin/assignments/${encodeURIComponent(editingAssignmentId)}`
+        : `${baseUrl}/api/tasks/admin/assignments`;
+      const res = await fetch(url, {
+        method: editingAssignmentId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", ...backofficeHeaders() },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Create failed");
-      toast("Assignment created.", "success");
+      if (!res.ok) throw new Error(editingAssignmentId ? "Update failed" : "Create failed");
+      toast(editingAssignmentId ? "Assignment updated." : "Assignment created.", "success");
+      resetAssignmentForm();
       void refreshAdmin();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Create failed", "error");
+      toast(
+        e instanceof Error
+          ? e.message
+          : editingAssignmentId
+            ? "Update failed"
+            : "Create failed",
+        "error",
+      );
     }
   };
 
@@ -448,7 +510,20 @@ export default function StaffTasksPanel({
             </section>
 
             <section className="rounded-xl border border-app-border bg-app-surface-2 p-4">
-              <h3 className="mb-3 text-sm font-black text-app-text">New assignment</h3>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-black text-app-text">
+                  {editingAssignmentId ? "Edit assignment" : "New assignment"}
+                </h3>
+                {editingAssignmentId ? (
+                  <button
+                    type="button"
+                    onClick={resetAssignmentForm}
+                    className="ui-btn-secondary text-xs"
+                  >
+                    Cancel edit
+                  </button>
+                ) : null}
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-[10px] font-black uppercase text-app-text-muted">
                   Template
@@ -521,27 +596,72 @@ export default function StaffTasksPanel({
                   ))}
                 </select>
               )}
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block text-[10px] font-black uppercase text-app-text-muted">
+                  Starts on
+                  <input
+                    type="date"
+                    className="ui-input mt-1 w-full"
+                    value={asgStartsOn}
+                    onChange={(e) => setAsgStartsOn(e.target.value)}
+                  />
+                </label>
+                <label className="block text-[10px] font-black uppercase text-app-text-muted">
+                  Ends on
+                  <input
+                    type="date"
+                    className="ui-input mt-1 w-full"
+                    value={asgEndsOn}
+                    onChange={(e) => setAsgEndsOn(e.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-app-text">
+                <input
+                  type="checkbox"
+                  checked={asgActive}
+                  onChange={(e) => setAsgActive(e.target.checked)}
+                />
+                Assignment active
+              </label>
               <div className="mt-3">
                 <label className="block text-[10px] font-black uppercase text-app-text-muted mb-1">
                   Link Customer (optional)
                 </label>
                 <CustomerSearchInput 
-                  onSelect={(c) => setAsgCustomerId(c.id)}
-                  placeholder="Search customer to link…"
+                  onSelect={(c) => {
+                    setAsgCustomerId(c.id);
+                    setAsgCustomerLabel(
+                      `${c.first_name} ${c.last_name}${c.customer_code ? ` · ${c.customer_code}` : ""}`,
+                    );
+                  }}
+                  placeholder={asgCustomerId ? "Search to replace linked customer…" : "Search customer to link…"}
                   className="w-full"
                 />
                 {asgCustomerId && (
-                  <p className="mt-1 text-[10px] text-emerald-600 font-bold">
-                    Linked: {asgCustomerId}
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <p className="text-[10px] font-bold text-emerald-600">
+                      Linked: {asgCustomerLabel || "Selected customer"}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAsgCustomerId("");
+                        setAsgCustomerLabel("");
+                      }}
+                      className="text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 )}
               </div>
               <button
                 type="button"
-                onClick={() => void createAssignment()}
+                onClick={() => void saveAssignment()}
                 className="ui-btn-primary mt-3"
               >
-                Create assignment
+                {editingAssignmentId ? "Save assignment" : "Create assignment"}
               </button>
             </section>
 
@@ -553,22 +673,36 @@ export default function StaffTasksPanel({
                     key={a.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-app-border px-3 py-2 text-sm"
                   >
-                    <div>
-                      <span className="font-semibold text-app-text">{a.template_title}</span>
-                      <span className="ml-2 text-app-text-muted">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-app-text">{a.template_title}</p>
+                      <p className="text-xs text-app-text-muted">
                         {a.recurrence} ·{" "}
                         {a.assignee_kind === "staff"
-                          ? "individual"
+                          ? roster.find((staff) => staff.id === a.assignee_staff_id)?.full_name ?? "individual"
                           : a.assignee_role ?? "role"}
-                      </span>
+                        {a.starts_on ? ` · starts ${a.starts_on}` : ""}
+                        {a.ends_on ? ` · ends ${a.ends_on}` : ""}
+                        {a.customer_id
+                          ? ` · ${assignmentCustomerLabel(a) ?? "linked customer"}`
+                          : ""}
+                      </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void toggleAssignment(a.id, !a.active)}
-                      className="ui-btn-secondary text-xs"
-                    >
-                      {a.active ? "Deactivate" : "Activate"}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => editAssignment(a)}
+                        className="ui-btn-secondary text-xs"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void toggleAssignment(a.id, !a.active)}
+                        className="ui-btn-secondary text-xs"
+                      >
+                        {a.active ? "Deactivate" : "Activate"}
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>

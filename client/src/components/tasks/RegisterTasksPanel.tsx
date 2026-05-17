@@ -31,17 +31,28 @@ export default function RegisterTasksPanel() {
   );
   const [me, setMe] = useState<MeJson | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!hasTaskAuth()) {
       setMe(null);
+      setLoadError("Sign in or open a register session to view shift tasks.");
       return;
     }
+    setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${baseUrl}/api/tasks/me`, { headers: auth() });
-      if (res.ok) setMe((await res.json()) as MeJson);
+      if (!res.ok) {
+        setLoadError("Shift tasks could not refresh.");
+        return;
+      }
+      setMe((await res.json()) as MeJson);
     } catch {
-      /* ignore */
+      setLoadError("Shift tasks could not refresh.");
+    } finally {
+      setLoading(false);
     }
   }, [auth, hasTaskAuth]);
 
@@ -65,7 +76,38 @@ export default function RegisterTasksPanel() {
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {!me?.open?.length ? (
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-app-border bg-app-surface px-3 py-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Open
+            </p>
+            <p className="mt-1 text-2xl font-black text-app-text">
+              {me?.open?.length ?? 0}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="rounded-xl border border-app-border bg-app-surface px-3 py-3 text-left transition-colors hover:border-app-accent/40"
+          >
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Refresh
+            </p>
+            <p className="mt-1 text-sm font-bold text-app-text">
+              {loading ? "Refreshing..." : "Reload shift tasks"}
+            </p>
+          </button>
+        </div>
+
+        {loadError ? (
+          <p className="mb-3 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 py-2 text-sm font-semibold text-app-danger">
+            {loadError}
+          </p>
+        ) : null}
+
+        {loading && !me ? (
+          <p className="text-sm text-app-text-muted">Loading shift tasks...</p>
+        ) : !me?.open?.length ? (
           <p className="text-sm text-app-text-muted">No open tasks for this shift primary.</p>
         ) : (
           <ul className="space-y-2">

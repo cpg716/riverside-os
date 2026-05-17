@@ -2970,7 +2970,7 @@ async fn list_helcim_operations_transactions(
     headers: HeaderMap,
     Query(query): Query<HelcimOperationsListQuery>,
 ) -> Result<Json<Vec<HelcimOperationsTransactionRow>>, PaymentError> {
-    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
+    require_payment_permission_or_pos_staff(&state, &headers, PAYMENTS_VIEW, &[]).await?;
     let rows = load_helcim_transaction_rows(&state, &query, None).await?;
     Ok(Json(rows))
 }
@@ -2980,7 +2980,7 @@ async fn get_helcim_operations_transaction_detail(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<HelcimOperationsTransactionDetailResponse>, PaymentError> {
-    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
+    require_payment_permission_or_pos_staff(&state, &headers, PAYMENTS_VIEW, &[]).await?;
     let payment_uuid = Uuid::parse_str(id.trim()).ok();
     let provider_transaction_id = payment_uuid
         .is_none()

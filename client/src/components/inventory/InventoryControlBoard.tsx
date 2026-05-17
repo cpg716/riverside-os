@@ -405,6 +405,7 @@ export default function InventoryControlBoard({
   const [webOnly, setWebOnly] = useState(false);
   const [readinessFilter, setReadinessFilter] =
     useState<ReadinessFilter | null>(null);
+  const [showCleanupDiagnostics, setShowCleanupDiagnostics] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [hubSeedTitle, setHubSeedTitle] = useState("");
@@ -1738,36 +1739,133 @@ export default function InventoryControlBoard({
                   Inventory Cleanup Review
                 </p>
                 <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                  Counterpoint Sync prepares references. Product Hub handles review and safe applies.
+                  Work the cleanup queue from here. Reference-based product cleanup opens in Product Hub; missing fields open the filtered inventory list.
                 </p>
               </div>
-              {cleanupCandidateProductId ? (
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
-                  onClick={() => {
-                    setHubProductId(cleanupCandidateProductId);
-                    setHubSeedTitle(cleanupCandidateProductName);
-                  }}
+                  onClick={() => openReadinessFilter("missing_category")}
+                  className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
                 >
-                  Review next product
+                  Work missing categories
                 </button>
-              ) : null}
-            </div>
-            <ul className="mt-4 space-y-2 text-sm font-semibold text-app-text">
-              {cleanupReviewItems.map((item) => (
-                <li
-                  key={item}
-                  className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2"
+                <button
+                  type="button"
+                  onClick={() => openReadinessFilter("missing_vendor")}
+                  className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
                 >
-                  {item}
-                </li>
-              ))}
-            </ul>
+                  Work missing vendors
+                </button>
+                {cleanupCandidateProductId ? (
+                  <button
+                    type="button"
+                    className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    onClick={() => {
+                      setHubProductId(cleanupCandidateProductId);
+                      setHubSeedTitle(cleanupCandidateProductName);
+                    }}
+                  >
+                    Review next product
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setShowCleanupDiagnostics((value) => !value)}
+                  className="ui-btn-ghost px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                >
+                  {showCleanupDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-4">
+              <button
+                type="button"
+                onClick={() => openReadinessFilter("missing_category")}
+                className="ui-metric-cell ui-tint-warning px-3 py-3 text-left transition-all hover:border-app-accent hover:bg-app-surface-3 focus:outline-none focus:ring-2 focus:ring-app-accent/30"
+              >
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Missing category
+                </p>
+                <p className="mt-1 text-2xl font-black tabular-nums text-app-text">
+                  {cleanupSummary.products_missing_category}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  Click to filter and edit in Product Hub.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => openReadinessFilter("missing_vendor")}
+                className="ui-metric-cell ui-tint-warning px-3 py-3 text-left transition-all hover:border-app-accent hover:bg-app-surface-3 focus:outline-none focus:ring-2 focus:ring-app-accent/30"
+              >
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Missing vendor
+                </p>
+                <p className="mt-1 text-2xl font-black tabular-nums text-app-text">
+                  {cleanupSummary.products_missing_primary_vendor}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  Click to filter and assign vendors.
+                </p>
+              </button>
+              <div className="ui-metric-cell ui-tint-neutral px-3 py-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Product cleanup
+                </p>
+                <p className="mt-1 text-2xl font-black tabular-nums text-app-text">
+                  {cleanupSummary.products_needing_normalization}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  {cleanupCandidateProductId
+                    ? "Ready for Product Hub review."
+                    : cleanupSummary.cleanup_ready
+                      ? "No Product Hub candidate is queued."
+                      : "Needs Counterpoint/Lightspeed references first."}
+                </p>
+              </div>
+              <div className="ui-metric-cell ui-tint-neutral px-3 py-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Reference status
+                </p>
+                <p className="mt-1 text-sm font-black text-app-text">
+                  {cleanupSummary.cleanup_ready ? "Ready" : "Not ready"}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  {cleanupSummary.cleanup_ready
+                    ? "Counterpoint and Lightspeed references are available."
+                    : "Rebuild Counterpoint aliases and import Lightspeed in Settings > Counterpoint."}
+                </p>
+              </div>
+            </div>
+            {showCleanupDiagnostics ? (
+              <ul className="mt-4 space-y-2 text-sm font-semibold text-app-text">
+                {cleanupReviewItems.map((item) => (
+                  <li
+                    key={item}
+                    className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2"
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <RosieInsightSummary
               surface="product_cleanup_review"
               title="Product Cleanup Review"
               mode="explain"
+              allowedActions={[
+                {
+                  id: "work_missing_categories",
+                  label: "Work missing categories",
+                  target: "inventory.readiness.missing_category",
+                },
+                {
+                  id: "work_missing_vendors",
+                  label: "Work missing vendors",
+                  target: "inventory.readiness.missing_vendor",
+                },
+              ]}
               getHeaders={apiAuth}
               facts={{
                 title: "Product Cleanup Review",
