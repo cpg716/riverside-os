@@ -8858,11 +8858,16 @@ pub async fn execute_counterpoint_ticket_batch(
             r#"
             INSERT INTO transactions (
                 customer_id, counterpoint_ticket_ref,
-                is_counterpoint_import, status, booked_at, total_price,
+                is_counterpoint_import, status, booked_at, business_date, fulfilled_at, total_price,
                 amount_paid, balance_due, processed_by_staff_id,
                 primary_salesperson_id, notes
             )
-            VALUES ($1, $2, TRUE, $3::order_status, $4, $5, $6, $7, $8, $9, $10)
+            VALUES (
+                $1, $2, TRUE, $3::order_status, $4,
+                ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                CASE WHEN $3::order_status = 'fulfilled'::order_status THEN $4 ELSE NULL END,
+                $5, $6, $7, $8, $9, $10
+            )
             RETURNING id
             "#,
         )
@@ -8906,9 +8911,13 @@ pub async fn execute_counterpoint_ticket_batch(
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payment_transactions (
-                    payer_id, category, payment_method, amount, created_at, metadata
+                    payer_id, category, payment_method, amount, created_at, effective_date, metadata
                 )
-                VALUES ($1, 'retail_sale', $2, $3, $4, $5)
+                VALUES (
+                    $1, 'retail_sale', $2, $3, $4,
+                    ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                    $5
+                )
                 RETURNING id
                 "#,
             )
@@ -8966,9 +8975,12 @@ pub async fn execute_counterpoint_ticket_batch(
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payment_transactions (
-                    payer_id, category, payment_method, amount, created_at
+                    payer_id, category, payment_method, amount, created_at, effective_date
                 )
-                VALUES ($1, 'retail_sale', 'gift_card', $2, $3)
+                VALUES (
+                    $1, 'retail_sale', 'gift_card', $2, $3,
+                    ($3 AT TIME ZONE reporting.effective_store_timezone())::date
+                )
                 RETURNING id
                 "#,
             )
@@ -8998,13 +9010,17 @@ pub async fn execute_counterpoint_ticket_batch(
                 transaction_id, product_id, variant_id, salesperson_id, fulfillment,
                 quantity, unit_price, unit_cost,
                 state_tax, local_tax, applied_spiff, calculated_commission,
+                is_fulfilled, fulfilled_at,
                 counterpoint_reason_code
             )
             SELECT
                 u.tid, u.pid, u.vid, u.sid, 'takeaway'::fulfillment_type,
-                u.qty, u.price, u.cost, 0, 0, 0, 0, u.reason
-            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::numeric[], $6::numeric[], $7::numeric[], $8::text[])
+                u.qty, u.price, u.cost, 0, 0, 0, 0,
+                TRUE, t.booked_at,
+                u.reason
+            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::int[], $6::numeric[], $7::numeric[], $8::text[])
               AS u(tid, pid, vid, sid, qty, price, cost, reason)
+            INNER JOIN transactions t ON t.id = u.tid
             "#,
         )
         .bind(&bulk_line_txn_ids)
@@ -9141,8 +9157,8 @@ pub async fn execute_counterpoint_store_credit_opening_batch(
 
 fn order_status_for_cp_open_doc(
     cp_status: Option<&str>,
-    total_price: Decimal,
-    amount_paid: Decimal,
+    _total_price: Decimal,
+    _amount_paid: Decimal,
 ) -> &'static str {
     let flag = cp_status
         .map(|s| s.trim().to_uppercase())
@@ -9150,12 +9166,7 @@ fn order_status_for_cp_open_doc(
     if flag.contains("VOID") || flag.contains("CANCEL") || flag == "V" {
         return "cancelled";
     }
-    let balance = total_price - amount_paid;
-    if balance <= Decimal::ZERO {
-        "fulfilled"
-    } else {
-        "open"
-    }
+    "open"
 }
 
 fn fulfillment_type_for_cp_doc_typ(doc_typ: Option<&str>) -> &'static str {
@@ -9411,10 +9422,14 @@ pub async fn execute_counterpoint_open_doc_batch(
             INSERT INTO transactions (
                 customer_id, counterpoint_ticket_ref, counterpoint_doc_ref,
                 is_counterpoint_import,
-                status, booked_at, total_price, amount_paid, balance_due,
+                status, booked_at, business_date, total_price, amount_paid, balance_due,
                 processed_by_staff_id, primary_salesperson_id
             )
-            VALUES ($1, NULL, $2, TRUE, $3::order_status, $4, $5, $6, $7, $8, $9)
+            VALUES (
+                $1, NULL, $2, TRUE, $3::order_status, $4,
+                ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                $5, $6, $7, $8, $9
+            )
             RETURNING id
             "#,
         )
@@ -9480,9 +9495,13 @@ pub async fn execute_counterpoint_open_doc_batch(
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payment_transactions (
-                    payer_id, category, payment_method, amount, created_at, metadata
+                    payer_id, category, payment_method, amount, created_at, effective_date, metadata
                 )
-                VALUES ($1, 'retail_sale', $2, $3, $4, $5)
+                VALUES (
+                    $1, 'retail_sale', $2, $3, $4,
+                    ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                    $5
+                )
                 RETURNING id
                 "#,
             )
@@ -12103,6 +12122,18 @@ mod tests {
     }
 
     #[test]
+    fn counterpoint_open_docs_stay_open_until_cancelled() {
+        assert_eq!(
+            order_status_for_cp_open_doc(None, Decimal::new(4000, 2), Decimal::new(4000, 2)),
+            "open"
+        );
+        assert_eq!(
+            order_status_for_cp_open_doc(Some("VOID"), Decimal::new(4000, 2), Decimal::ZERO),
+            "cancelled"
+        );
+    }
+
+    #[test]
     fn ros_currency_matches_storage_precision() {
         assert!(ros_currency_matches(
             Some(Decimal::new(118450, 4)),
@@ -12519,6 +12550,51 @@ mod tests {
                 ),
             ]
         );
+
+        let transaction_dates_and_status: (String, bool, bool) = sqlx::query_as(
+            r#"
+            SELECT status::text, business_date IS NOT NULL, fulfilled_at IS NOT NULL
+            FROM transactions
+            WHERE counterpoint_ticket_ref = $1
+            "#,
+        )
+        .bind(&ticket_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("load imported ticket status and dates");
+        assert_eq!(
+            transaction_dates_and_status,
+            ("fulfilled".to_string(), true, true)
+        );
+
+        let line_lifecycle: (bool, bool) = sqlx::query_as(
+            r#"
+            SELECT bool_and(tl.is_fulfilled), bool_and(tl.fulfilled_at IS NOT NULL)
+            FROM transaction_lines tl
+            INNER JOIN transactions t ON t.id = tl.transaction_id
+            WHERE t.counterpoint_ticket_ref = $1
+            "#,
+        )
+        .bind(&ticket_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("load imported ticket line lifecycle");
+        assert_eq!(line_lifecycle, (true, true));
+
+        let payment_dates_populated: bool = sqlx::query_scalar(
+            r#"
+            SELECT bool_and(pt.effective_date IS NOT NULL)
+            FROM payment_allocations pa
+            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            INNER JOIN transactions t ON t.id = pa.target_transaction_id
+            WHERE t.counterpoint_ticket_ref = $1
+            "#,
+        )
+        .bind(&ticket_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("check imported payment effective dates");
+        assert!(payment_dates_populated);
 
         let unresolved_unmapped_issue_count: i64 = sqlx::query_scalar(
             r#"
