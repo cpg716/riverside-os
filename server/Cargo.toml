@@ -50,7 +50,12 @@ ring = "0.17"
 chrono-tz = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-opendal = { version = "0.55.0", features = ["services-s3"] }
+opendal = { version = "0.55.0", features = [
+    "services-dropbox",
+    "services-gdrive",
+    "services-onedrive",
+    "services-s3",
+] }
 tokio-cron-scheduler = "0.15.1"
 ammonia = "4"
 jsonwebtoken = "9"

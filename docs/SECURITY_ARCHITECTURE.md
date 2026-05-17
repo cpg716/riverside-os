@@ -30,7 +30,8 @@ The ROS backend is engineered for resilience and memory safety.
 ### Storage & Encryption
 - **Local Database**: All primary records reside in a local PostgreSQL instance.
 - **Docker-Fallback Backups**: If the host tool fails, ROS uses an internal containerized backup engine to ensure data capture.
-- **Encrypted Cloud Backups**: Backup snapshots are compressed and encrypted before being transmitted to off-site S3 storage.
+- **Encrypted Backup Archives**: When enabled, backup snapshots are written as authenticated encrypted `.dump.enc` files before cloud upload or replication. The restore key is `RIVERSIDE_BACKUP_ENCRYPTION_KEY`; losing that key makes encrypted snapshots unrecoverable.
+- **Off-Site Backup Providers**: Backups can be sent directly to S3-compatible storage, OneDrive, Google Drive, or Dropbox, and can also be replicated to verified mounted folders such as NAS paths, SMB shares, mapped drives, external drives, or cloud desktop sync folders.
 
 ### Audit Logging
 - ROS maintains an internal `staff_access_logs` table that records high-impact actions (price overrides, manual inventory adjustments, remote access toggles) along with the performing Staff ID and timestamp.

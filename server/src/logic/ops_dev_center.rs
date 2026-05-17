@@ -14,7 +14,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 
 use crate::auth::permissions::OPS_DEV_CENTER_VIEW;
-use crate::logic::backups::BackupManager;
+use crate::logic::backups::{BackupManager, BackupSettings};
 use crate::logic::help_corpus;
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::integration_credentials;
@@ -2104,7 +2104,15 @@ async fn action_backup_trigger_local(pool: &PgPool) -> GuardedActionResult {
     }
 
     let manager = BackupManager::new(database_url);
-    match manager.create_backup().await {
+    let settings_raw: Value =
+        sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| json!({}));
+    let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
+    match manager.create_backup_with_settings(&settings).await {
         Ok(filename) => {
             if let Err(e) = crate::logic::backups::record_local_backup_success(pool).await {
                 tracing::error!(error = %e, "record_local_backup_success");

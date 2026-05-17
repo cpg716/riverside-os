@@ -107,6 +107,10 @@ export interface BackupSettings {
   cloud_bucket_name: string;
   cloud_region: string;
   cloud_endpoint: string;
+  cloud_provider?: string;
+  cloud_root?: string;
+  replication_targets?: string[];
+  encryption_enabled?: boolean;
   backup_dir?: string;
   backup_dir_configured?: boolean;
   backup_dir_explicit_required?: boolean;
@@ -396,6 +400,10 @@ export default function SettingsWorkspace({
       cloud_bucket_name: backupCfg.cloud_bucket_name,
       cloud_region: backupCfg.cloud_region,
       cloud_endpoint: backupCfg.cloud_endpoint,
+      cloud_provider: backupCfg.cloud_provider ?? "s3",
+      cloud_root: backupCfg.cloud_root ?? "",
+      replication_targets: backupCfg.replication_targets ?? [],
+      encryption_enabled: backupCfg.encryption_enabled ?? false,
     };
     setBusy(true);
     try {
@@ -905,6 +913,26 @@ export default function SettingsWorkspace({
                               </span>
                             </label>
                             <div className="space-y-3 opacity-60">
+                              <select
+                                value={backupCfg.cloud_provider ?? "s3"}
+                                onChange={(e) =>
+                                  setBackupCfg({
+                                    ...backupCfg,
+                                    cloud_provider: e.target.value,
+                                  })
+                                }
+                                className="ui-input w-full text-[11px] font-bold"
+                                disabled={!backupCfg.cloud_storage_enabled}
+                              >
+                                <option value="s3">
+                                  S3 / Backblaze / Cloudflare
+                                </option>
+                                <option value="onedrive">OneDrive</option>
+                                <option value="google_drive">
+                                  Google Drive
+                                </option>
+                                <option value="dropbox">Dropbox</option>
+                              </select>
                               <input
                                 placeholder="S3 Bucket"
                                 value={backupCfg.cloud_bucket_name}
@@ -929,6 +957,30 @@ export default function SettingsWorkspace({
                                 className="ui-input w-full text-[11px] font-bold"
                                 disabled={!backupCfg.cloud_storage_enabled}
                               />
+                              <input
+                                placeholder="Endpoint for S3-compatible storage"
+                                value={backupCfg.cloud_endpoint}
+                                onChange={(e) =>
+                                  setBackupCfg({
+                                    ...backupCfg,
+                                    cloud_endpoint: e.target.value,
+                                  })
+                                }
+                                className="ui-input w-full text-[11px] font-bold"
+                                disabled={!backupCfg.cloud_storage_enabled}
+                              />
+                              <input
+                                placeholder="Cloud folder path"
+                                value={backupCfg.cloud_root ?? ""}
+                                onChange={(e) =>
+                                  setBackupCfg({
+                                    ...backupCfg,
+                                    cloud_root: e.target.value,
+                                  })
+                                }
+                                className="ui-input w-full text-[11px] font-bold"
+                                disabled={!backupCfg.cloud_storage_enabled}
+                              />
                             </div>
                             <IntegrationCredentialsCard
                               baseUrl={baseUrl}
@@ -946,8 +998,82 @@ export default function SettingsWorkspace({
                                   label: "S3 secret key",
                                   help: "Hidden after save.",
                                 },
+                                {
+                                  key: "cloud_access_token",
+                                  label: "Cloud access token",
+                                  help: "For OneDrive, Google Drive, or Dropbox when using a short-lived token.",
+                                },
+                                {
+                                  key: "cloud_refresh_token",
+                                  label: "Cloud refresh token",
+                                  help: "Preferred for OneDrive, Google Drive, or Dropbox automation.",
+                                },
+                                {
+                                  key: "cloud_client_id",
+                                  label: "Cloud client ID",
+                                  help: "Required with a refresh token.",
+                                },
+                                {
+                                  key: "cloud_client_secret",
+                                  label: "Cloud client secret",
+                                  help: "Required with refresh tokens for Dropbox and Google Drive; optional for some OneDrive app types.",
+                                },
                               ]}
                             />
+                            <label className="flex items-center gap-3 cursor-pointer group">
+                              <div
+                                className={`relative inline-flex h-6 w-12 items-center rounded-full transition-colors ${(backupCfg.encryption_enabled ?? false) ? "bg-emerald-600 shadow-lg shadow-emerald-500/20" : "bg-app-border"}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={backupCfg.encryption_enabled ?? false}
+                                  onChange={(e) =>
+                                    setBackupCfg({
+                                      ...backupCfg,
+                                      encryption_enabled: e.target.checked,
+                                    })
+                                  }
+                                  className="sr-only"
+                                />
+                                <span
+                                  className={`inline-block h-4 w-4 transform rounded-full bg-app-surface shadow-sm transition-transform ${(backupCfg.encryption_enabled ?? false) ? "translate-x-7" : "translate-x-1"}`}
+                                />
+                              </div>
+                              <span className="text-xs font-black uppercase tracking-tight text-app-text group-hover:text-emerald-600 transition-colors">
+                                Encrypt Backup Archives
+                              </span>
+                            </label>
+                            <p className="text-[10px] font-bold uppercase leading-relaxed text-app-text-muted opacity-70">
+                              Requires RIVERSIDE_BACKUP_ENCRYPTION_KEY on the
+                              server. Encrypted snapshots restore only when
+                              that key is available.
+                            </p>
+                            <label className="block">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Replication Folders
+                              </span>
+                              <textarea
+                                value={(backupCfg.replication_targets ?? []).join(
+                                  "\n",
+                                )}
+                                onChange={(e) =>
+                                  setBackupCfg({
+                                    ...backupCfg,
+                                    replication_targets: e.target.value
+                                      .split(/\r?\n/)
+                                      .map((line) => line.trim())
+                                      .filter(Boolean),
+                                  })
+                                }
+                                placeholder="One mounted or synced folder per line"
+                                className="ui-input mt-2 min-h-28 w-full font-mono text-[11px] font-bold leading-relaxed"
+                              />
+                              <p className="mt-2 text-[10px] font-bold uppercase leading-relaxed text-app-text-muted opacity-70">
+                                Use synced cloud folders, mapped drives, NAS
+                                mounts, or external drives. Each copy is
+                                verified after write.
+                              </p>
+                            </label>
                           </div>
                         </div>
                       </section>

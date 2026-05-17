@@ -97,9 +97,11 @@ Typical areas (labels may group differently by build):
 ### Backups
 
 - **List** backups; **create** manual backup before risky upgrades.
-- **Download** to secure storage only.
+- **Download** to secure storage only. Treat downloaded snapshots as sensitive customer and financial data.
 - **Restore** is **destructive** — manager + SOP only.
-- **Cloud sync** config (if enabled) lives in backup settings JSON.
+- **Cloud sync** can send backups to S3-compatible storage, OneDrive, Google Drive, or Dropbox when credentials are configured.
+- **Replication folders** copy verified backups to mounted/synced folders such as NAS shares, mapped Windows drives, external drives, or cloud desktop sync folders.
+- **Encrypted archives** require the server recovery key. Do not enable encryption until `RIVERSIDE_BACKUP_ENCRYPTION_KEY` is recorded in the approved recovery bundle.
 
 ### Database
 

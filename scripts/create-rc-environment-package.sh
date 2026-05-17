@@ -60,8 +60,19 @@ copy_if_exists "deployment/windows/riverside-deployment.config.json" "deployment
 copy_if_exists "deployment/windows/deployment-package.manifest.json" "deployment/windows/deployment-package.manifest.json"
 
 latest_backup=""
-if compgen -G "$repo_root/server/backups/*.dump" > /dev/null; then
-  latest_backup="$(ls -t "$repo_root"/server/backups/*.dump | head -n 1)"
+backup_source_dir="$repo_root/server/backups"
+if [[ -f "$repo_root/server/.env" ]]; then
+  configured_backup_dir="$(awk -F= '$1 == "RIVERSIDE_BACKUP_DIR" { print $2 }' "$repo_root/server/.env" 2>/dev/null | tail -n 1 | sed -e 's/^"//' -e 's/"$//')"
+  if [[ -n "$configured_backup_dir" ]]; then
+    if [[ "$configured_backup_dir" = /* ]]; then
+      backup_source_dir="$configured_backup_dir"
+    else
+      backup_source_dir="$repo_root/$configured_backup_dir"
+    fi
+  fi
+fi
+if compgen -G "$backup_source_dir/*.dump" > /dev/null; then
+  latest_backup="$(ls -t "$backup_source_dir"/*.dump | head -n 1)"
   mkdir -p "$bundle_dir/repo/server/backups"
   cp -p "$latest_backup" "$bundle_dir/repo/server/backups/$(basename "$latest_backup")"
 fi

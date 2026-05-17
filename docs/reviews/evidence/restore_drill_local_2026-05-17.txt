@@ -1,0 +1,26 @@
+Riverside OS local restore drill evidence
+Date: 2026-05-17
+Source backup: server/backups/backup_20260517_020000.dump
+Target database: riverside_restore_drill_20260517_181129
+Restore method: docker exec riverside-os-db pg_restore -U postgres -d riverside_restore_drill_20260517_181129 --no-owner --no-privileges
+Result: restore command exited 0
+
+Restored database smoke checks:
+
+table_count=211
+transaction_count=56095
+product_variant_count=405487
+
+Schema contract:
+
+scripts/validate_schema_contract.sh exited 0 with "Schema contract OK."
+
+Temporary API boot:
+
+Command used DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_restore_drill_20260517_181129 and RIVERSIDE_HTTP_BIND=127.0.0.1:43310.
+GET /api/staff/list-for-pos returned JSON array length 69.
+Result: restored database booted through the API.
+
+Cleanup:
+
+Temporary database riverside_restore_drill_20260517_181129 was dropped after the drill.

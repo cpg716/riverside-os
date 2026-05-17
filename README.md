@@ -97,6 +97,9 @@ Environment variables:
 | `HELCIM_WEBHOOK_SECRET` | unset | Optional deployment fallback for Helcim webhook signing secret. Required for production Helcim terminal webhooks when Helcim can reach a public ROS API URL such as `https://ros.riversidemens.com/api/webhooks/helcim`. If that URL is served through Cloudflare Tunnel, `cloudflared` must run as a supervised host service. |
 | `RIVERSIDE_CREDENTIALS_KEY` | unset | Root encryption key for Backoffice-managed integration credentials, including QBO client credentials and OAuth tokens. Must be non-default and at least 32 characters before credentials can be saved. `QBO_TOKEN_ENC_KEY` remains accepted as a transitional fallback. |
 | `RIVERSIDE_BACKUP_DIR` | `backups` | Local backup directory. Strict production requires this to be set to an absolute, durable path; Settings and ROS Dev Center show the effective path. |
+| `RIVERSIDE_BACKUP_ENCRYPTION_KEY` | unset | Required when Settings → Backups enables encrypted archives. Must be preserved outside Git and outside the database; losing it makes `.dump.enc` backups unrecoverable. |
+| `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | unset | S3-compatible off-site backup credentials. Routine credentials may be saved through Backoffice Settings. |
+| `BACKUP_CLOUD_ACCESS_TOKEN` / `BACKUP_CLOUD_REFRESH_TOKEN` / `BACKUP_CLOUD_CLIENT_ID` / `BACKUP_CLOUD_CLIENT_SECRET` | unset | Direct OneDrive, Google Drive, or Dropbox backup credentials. Prefer refresh token + client ID for scheduled backups. |
 | `VITE_API_BASE` | unset → same-origin in browser/PWA, else `http://127.0.0.1:3000` fallback for non-HTTP shells | API origin for client; set explicitly for production when UI and API are on different origins |
 | `VITE_STOREFRONT_EMBEDS` | _(unset)_ | When **`true`**, loads **`GET /api/public/storefront-embeds`** once (Podium widget when configured) — public storefront builds only — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
 | `VITE_PODIUM_OAUTH_REDIRECT_URI` | _(unset)_ | Optional. Override Podium OAuth callback URL (must match Podium app); default is **`${origin}/callback`** — **`client/.env.example`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
@@ -128,7 +131,7 @@ Environment variables:
 
 Helcim POS uses the terminal hardware path for **Card Reader**, phone-order **Manual Card** keyed entry, and terminal refunds. HelcimPay.js remains the public web-checkout/browser-hosted path, not the local POS manual-entry path.
 
-Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, configured Helcim credentials through Backoffice Settings, an absolute **`RIVERSIDE_BACKUP_DIR`**, and a non-default **`RIVERSIDE_CREDENTIALS_KEY`** before integration credentials can be saved. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory.
+Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, configured Helcim credentials through Backoffice Settings, an absolute **`RIVERSIDE_BACKUP_DIR`**, and a non-default **`RIVERSIDE_CREDENTIALS_KEY`** before integration credentials can be saved. If encrypted backups are enabled, **`RIVERSIDE_BACKUP_ENCRYPTION_KEY`** is also mandatory and must be included in the secure recovery bundle. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory.
 
 ## Quality checks
 

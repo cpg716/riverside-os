@@ -13,7 +13,7 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{Error as SqlxError, FromRow};
+use sqlx::{Error as SqlxError, FromRow, Postgres, Transaction};
 use std::ops::DerefMut;
 use thiserror::Error;
 use uuid::Uuid;
@@ -39,6 +39,7 @@ use crate::logic::receipt_escpos;
 use crate::logic::receipt_plain_text;
 use crate::logic::receipt_shared;
 use crate::logic::receipt_studio_html;
+use crate::logic::store_credit;
 use crate::logic::suit_component_swap::{self, SuitSwapInput, SuitSwapOutcome};
 use crate::logic::transaction_recalc;
 use crate::logic::transaction_returns::{self, ReturnLineInput};
@@ -350,12 +351,36 @@ pub struct TransactionDetailResponse {
     pub review_invite_sent_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_invite_suppressed_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub void_record: Option<TransactionVoidDetail>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct TransactionFinancialSummary {
     pub total_allocated_payments: Decimal,
     pub total_applied_deposit_amount: Decimal,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct TransactionVoidDetail {
+    pub id: Uuid,
+    pub transaction_id: Uuid,
+    pub original_status: DbOrderStatus,
+    pub original_total_price: Decimal,
+    pub original_amount_paid: Decimal,
+    pub original_balance_due: Decimal,
+    pub register_session_id: Option<Uuid>,
+    pub voided_by_staff_id: Option<Uuid>,
+    pub voided_by_staff_name: Option<String>,
+    pub manager_staff_id: Uuid,
+    pub manager_staff_name: Option<String>,
+    pub reason: String,
+    pub reversal_status: String,
+    pub refundable_amount: Decimal,
+    pub refund_queue_id: Option<Uuid>,
+    pub tender_summary: serde_json::Value,
+    pub inventory_summary: serde_json::Value,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -575,6 +600,7 @@ mod tests {
             store_send_review_invite_by_default: false,
             review_invite_sent_at: None,
             review_invite_suppressed_at: None,
+            void_record: None,
         }
     }
 
@@ -948,6 +974,27 @@ pub struct RefundQueueRow {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct VoidTransactionRequest {
+    pub register_session_id: Uuid,
+    pub manager_staff_id: Uuid,
+    pub manager_pin: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VoidTransactionResponse {
+    pub status: String,
+    pub transaction_id: Uuid,
+    pub void_record_id: Uuid,
+    pub reversal_status: String,
+    pub refundable_amount: Decimal,
+    pub refund_queue_id: Option<Uuid>,
+    pub tender_summary: serde_json::Value,
+    pub inventory_summary: serde_json::Value,
+    pub detail: TransactionDetailResponse,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ProcessRefundRequest {
     pub session_id: Uuid,
     pub payment_method: String,
@@ -1063,6 +1110,7 @@ pub fn router() -> Router<AppState> {
             post(post_transaction_review_invite),
         )
         .route("/{transaction_id}/audit", get(get_transaction_audit))
+        .route("/{transaction_id}/void", post(post_transaction_void))
         .route("/{transaction_id}/refunds/process", post(process_refund))
         .route(
             "/{transaction_id}/exchange-settlement",
@@ -2047,6 +2095,395 @@ async fn list_refunds_due(
     Ok(Json(rows))
 }
 
+#[derive(Debug, FromRow)]
+struct VoidReturnCandidate {
+    transaction_line_id: Uuid,
+    quantity_remaining: i32,
+    fulfillment: DbFulfillmentType,
+    is_fulfilled: bool,
+}
+
+async fn load_void_return_candidates(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+) -> Result<Vec<VoidReturnCandidate>, TransactionError> {
+    let rows = sqlx::query_as::<_, VoidReturnCandidate>(
+        r#"
+        SELECT
+            oi.id AS transaction_line_id,
+            GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity_remaining,
+            oi.fulfillment,
+            oi.is_fulfilled
+        FROM transaction_lines oi
+        LEFT JOIN (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ) orl ON orl.transaction_line_id = oi.id
+        WHERE oi.transaction_id = $1
+          AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
+        ORDER BY oi.id
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows)
+}
+
+async fn load_void_record(
+    pool: &sqlx::PgPool,
+    transaction_id: Uuid,
+) -> Result<Option<TransactionVoidDetail>, TransactionError> {
+    let row = sqlx::query_as::<_, TransactionVoidDetail>(
+        r#"
+        SELECT
+            v.id,
+            v.transaction_id,
+            v.original_status,
+            v.original_total_price,
+            v.original_amount_paid,
+            v.original_balance_due,
+            v.register_session_id,
+            v.voided_by_staff_id,
+            voided.full_name AS voided_by_staff_name,
+            v.manager_staff_id,
+            manager.full_name AS manager_staff_name,
+            v.reason,
+            v.reversal_status,
+            v.refundable_amount,
+            v.refund_queue_id,
+            v.tender_summary,
+            v.inventory_summary,
+            v.created_at
+        FROM transaction_void_records v
+        LEFT JOIN staff voided ON voided.id = v.voided_by_staff_id
+        LEFT JOIN staff manager ON manager.id = v.manager_staff_id
+        WHERE v.transaction_id = $1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+async fn post_transaction_void(
+    State(state): State<AppState>,
+    Path(transaction_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<VoidTransactionRequest>,
+) -> Result<Json<VoidTransactionResponse>, TransactionError> {
+    let voiding_staff =
+        middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
+            .await
+            .map_err(map_perm_err)?;
+
+    if body.reason.trim().len() < 3 {
+        return Err(TransactionError::InvalidPayload(
+            "void reason is required".to_string(),
+        ));
+    }
+
+    let manager =
+        pins::authenticate_staff_by_id(&state.db, body.manager_staff_id, Some(&body.manager_pin))
+            .await
+            .map_err(|_| {
+                TransactionError::InvalidPayload("Manager Access was not approved".to_string())
+            })?;
+    if manager.role != crate::models::DbStaffRole::Admin {
+        return Err(TransactionError::Forbidden(
+            "Manager Access required to void a completed transaction".to_string(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+    let session_open: Option<bool> = sqlx::query_scalar(
+        r#"
+        SELECT lifecycle_status = 'open'
+        FROM register_sessions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(body.register_session_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if session_open != Some(true) {
+        return Err(TransactionError::InvalidPayload(
+            "register session is not open".to_string(),
+        ));
+    }
+
+    let header: Option<(
+        Option<Uuid>,
+        DbOrderStatus,
+        Decimal,
+        Decimal,
+        Decimal,
+        Option<Uuid>,
+    )> = sqlx::query_as(
+        r#"
+        SELECT
+            customer_id,
+            status,
+            COALESCE(total_price, 0)::numeric(14,2),
+            COALESCE(amount_paid, 0)::numeric(14,2),
+            COALESCE(balance_due, 0)::numeric(14,2),
+            operator_id
+        FROM transactions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some((
+        customer_id,
+        original_status,
+        original_total,
+        amount_paid,
+        balance_due,
+        _operator_id,
+    )) = header
+    else {
+        return Err(TransactionError::NotFound);
+    };
+
+    if original_status == DbOrderStatus::Cancelled {
+        return Err(TransactionError::InvalidPayload(
+            "cancelled transactions cannot be voided".to_string(),
+        ));
+    }
+
+    let existing_void: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM transaction_void_records WHERE transaction_id = $1 FOR UPDATE",
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if existing_void.is_some() {
+        return Err(TransactionError::InvalidPayload(
+            "transaction is already voided".to_string(),
+        ));
+    }
+
+    let candidates = load_void_return_candidates(&mut tx, transaction_id).await?;
+    let restock_units: i32 = candidates
+        .iter()
+        .filter(|line| line.fulfillment == DbFulfillmentType::Takeaway && line.is_fulfilled)
+        .map(|line| line.quantity_remaining)
+        .sum();
+
+    if !candidates.is_empty() {
+        let return_lines = candidates
+            .iter()
+            .map(|line| ReturnLineInput {
+                transaction_line_id: line.transaction_line_id,
+                quantity: line.quantity_remaining,
+                reason: Some("void".to_string()),
+                restock: Some(line.fulfillment == DbFulfillmentType::Takeaway && line.is_fulfilled),
+            })
+            .collect::<Vec<_>>();
+        transaction_returns::apply_transaction_returns_in_tx(
+            &mut tx,
+            transaction_id,
+            Some(manager.id),
+            return_lines,
+        )
+        .await
+        .map_err(|e| match e {
+            transaction_returns::TransactionReturnError::Db(d) => TransactionError::Database(d),
+            transaction_returns::TransactionReturnError::BadRequest(m) => {
+                TransactionError::InvalidPayload(m)
+            }
+        })?;
+    }
+
+    let tender_summary: serde_json::Value = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(jsonb_agg(
+            jsonb_build_object(
+                'payment_method', method,
+                'amount', amount::text,
+                'payment_provider', payment_provider,
+                'gift_card_code', gift_card_code
+            )
+            ORDER BY method
+        ), '[]'::jsonb)
+        FROM (
+            SELECT
+                pt.payment_method AS method,
+                SUM(pa.amount_allocated)::numeric(14,2) AS amount,
+                MAX(pt.payment_provider) AS payment_provider,
+                MAX(NULLIF(TRIM(pt.metadata->>'gift_card_code'), '')) AS gift_card_code
+            FROM payment_allocations pa
+            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            WHERE pa.target_transaction_id = $1
+              AND pa.amount_allocated > 0
+            GROUP BY pt.payment_method
+        ) tenders
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let inventory_summary = json!({
+        "returned_line_count": candidates.len(),
+        "restocked_units": restock_units,
+        "restock_rule": "takeaway lines that were fulfilled are returned to stock; order-style lines are not restocked"
+    });
+
+    sqlx::query(
+        r#"
+        UPDATE transactions
+        SET status = 'cancelled'::order_status,
+            total_price = 0,
+            balance_due = -COALESCE(amount_paid, 0)
+        WHERE id = $1
+        "#,
+    )
+    .bind(transaction_id)
+    .execute(&mut *tx)
+    .await?;
+
+    loyalty_logic::reverse_order_accrual_in_tx(&mut tx, transaction_id)
+        .await
+        .map_err(TransactionError::Database)?;
+
+    let current_paid: Decimal = sqlx::query_scalar(
+        "SELECT COALESCE(amount_paid, 0)::numeric(14,2) FROM transactions WHERE id = $1",
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let refundable_amount = if current_paid > Decimal::ZERO {
+        current_paid.round_dp(2)
+    } else {
+        Decimal::ZERO
+    };
+    let mut refund_queue_id: Option<Uuid> = None;
+    let reversal_status = if refundable_amount > Decimal::ZERO {
+        let queue_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO transaction_refund_queue (transaction_id, customer_id, amount_due, reason)
+            VALUES ($1, $2, $3, 'Transaction void; refund/reversal required')
+            ON CONFLICT (transaction_id) WHERE (is_open = true)
+            DO UPDATE SET
+                amount_due = transaction_refund_queue.amount_refunded + EXCLUDED.amount_due,
+                reason = transaction_refund_queue.reason || '; Transaction void; refund/reversal required'
+            RETURNING id
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(customer_id)
+        .bind(refundable_amount)
+        .fetch_one(&mut *tx)
+        .await?;
+        refund_queue_id = Some(queue_id);
+        "pending_refund"
+    } else {
+        "no_refund_due"
+    };
+
+    let void_record_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO transaction_void_records (
+            transaction_id,
+            original_status,
+            original_total_price,
+            original_amount_paid,
+            original_balance_due,
+            register_session_id,
+            voided_by_staff_id,
+            manager_staff_id,
+            reason,
+            reversal_status,
+            refundable_amount,
+            refund_queue_id,
+            tender_summary,
+            inventory_summary
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        RETURNING id
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(original_status)
+    .bind(original_total)
+    .bind(amount_paid)
+    .bind(balance_due)
+    .bind(body.register_session_id)
+    .bind(voiding_staff.id)
+    .bind(manager.id)
+    .bind(body.reason.trim())
+    .bind(reversal_status)
+    .bind(refundable_amount)
+    .bind(refund_queue_id)
+    .bind(&tender_summary)
+    .bind(&inventory_summary)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    insert_transaction_activity_log_tx(
+        &mut tx,
+        transaction_id,
+        customer_id,
+        "transaction_voided",
+        &format!("Transaction voided; reversal status: {reversal_status}"),
+        json!({
+            "void_record_id": void_record_id,
+            "voided_by_staff_id": voiding_staff.id,
+            "manager_staff_id": manager.id,
+            "register_session_id": body.register_session_id,
+            "reason": body.reason.trim(),
+            "refundable_amount": refundable_amount,
+            "refund_queue_id": refund_queue_id,
+            "tender_summary": tender_summary,
+            "inventory_summary": inventory_summary,
+            "original_status": original_status,
+            "original_total_price": original_total,
+            "original_amount_paid": amount_paid,
+            "original_balance_due": balance_due,
+        }),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        manager.id,
+        "pos_transaction_void",
+        json!({
+            "transaction_id": transaction_id,
+            "void_record_id": void_record_id,
+            "register_session_id": body.register_session_id,
+            "refundable_amount": refundable_amount,
+            "reason": body.reason.trim(),
+        }),
+    )
+    .await;
+
+    spawn_meilisearch_transaction_upsert(&state, transaction_id);
+    let detail = load_transaction_detail(&state.db, transaction_id).await?;
+    Ok(Json(VoidTransactionResponse {
+        status: "voided".to_string(),
+        transaction_id,
+        void_record_id,
+        reversal_status: reversal_status.to_string(),
+        refundable_amount,
+        refund_queue_id,
+        tender_summary,
+        inventory_summary,
+        detail,
+    }))
+}
+
 async fn process_refund(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
@@ -2201,6 +2638,42 @@ async fn process_refund(
         }
     }
 
+    if method_l.contains("store_credit") {
+        let customer_id = refund.customer_id.ok_or_else(|| {
+            TransactionError::InvalidPayload(
+                "store credit refunds require a customer on the transaction".to_string(),
+            )
+        })?;
+        let balance_after = store_credit::credit_refund_in_tx(
+            &mut tx,
+            customer_id,
+            exact_refund_amount,
+            transaction_id,
+            "transaction_refund",
+        )
+        .await
+        .map_err(|e| match e {
+            store_credit::StoreCreditError::Database(d) => TransactionError::Database(d),
+            store_credit::StoreCreditError::NotFound => TransactionError::InvalidPayload(
+                "customer store credit account was not found".to_string(),
+            ),
+            store_credit::StoreCreditError::InsufficientBalance => {
+                TransactionError::InvalidPayload(
+                    "store credit balance would become negative".to_string(),
+                )
+            }
+            store_credit::StoreCreditError::ReasonRequired => TransactionError::InvalidPayload(
+                "store credit refund reason is required".to_string(),
+            ),
+        })?;
+        if let Some(object) = refund_metadata.as_object_mut() {
+            object.insert(
+                "store_credit_balance_after".to_string(),
+                json!(balance_after),
+            );
+        }
+    }
+
     let mut provider_payment_id: Option<String> = None;
     let mut provider_transaction_id: Option<String> = None;
     let mut provider_status: Option<String> = None;
@@ -2209,7 +2682,7 @@ async fn process_refund(
     let mut card_brand: Option<String> = None;
     let mut card_last4: Option<String> = None;
 
-    if method_l.contains("card") || method_l.contains("helcim") {
+    if (method_l.contains("card") || method_l.contains("helcim")) && !method_l.contains("gift") {
         // Query all positive Helcim charges on this transaction with per-card remaining capacity.
         // Prior refunds are attributed to their source card via the `original_provider_transaction_id`
         // metadata field written on every Helcim refund payment_transactions row.
@@ -2394,6 +2867,22 @@ async fn process_refund(
                     .execute(&mut *tx)
                     .await?;
                 }
+
+                let void_close =
+                    (refund.amount_refunded + exact_refund_amount) >= corrected_amount_due;
+                sqlx::query(
+                    r#"
+                    UPDATE transaction_void_records
+                    SET reversal_status = CASE WHEN $2 THEN 'completed' ELSE 'pending_refund' END,
+                        refund_queue_id = COALESCE(refund_queue_id, $3)
+                    WHERE transaction_id = $1
+                    "#,
+                )
+                .bind(transaction_id)
+                .bind(void_close)
+                .bind(refund.id)
+                .execute(&mut *tx)
+                .await?;
 
                 tx.commit().await?;
 
@@ -2701,6 +3190,20 @@ async fn process_refund(
 
     sqlx::query(
         r#"
+        UPDATE transaction_void_records
+        SET reversal_status = CASE WHEN $2 THEN 'completed' ELSE 'pending_refund' END,
+            refund_queue_id = COALESCE(refund_queue_id, $3)
+        WHERE transaction_id = $1
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(close)
+    .bind(refund.id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
         UPDATE transactions
         SET amount_paid = amount_paid - $1,
             rounding_adjustment = COALESCE(rounding_adjustment, 0) + $2
@@ -2784,7 +3287,7 @@ async fn process_exchange_settlement(
             ));
         }
         let method_l = remainder.payment_method.to_lowercase();
-        if method_l.contains("card") || method_l.contains("helcim") {
+        if (method_l.contains("card") || method_l.contains("helcim")) && !method_l.contains("gift") {
             return Err(TransactionError::InvalidPayload(
                 "card refund remainders must use the original provider refund flow".to_string(),
             ));
@@ -3047,6 +3550,41 @@ async fn process_exchange_settlement(
                 );
                 object.insert("sub_type".to_string(), json!(canonical_sub_type));
                 object.insert("balance_after".to_string(), json!(refund_plan.new_balance));
+            }
+        }
+        if method_l.contains("store_credit") {
+            let customer_id = refund.customer_id.ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "store credit refunds require a customer on the transaction".to_string(),
+                )
+            })?;
+            let balance_after = store_credit::credit_refund_in_tx(
+                &mut tx,
+                customer_id,
+                refund_remainder_amount,
+                transaction_id,
+                "exchange_refund_remainder",
+            )
+            .await
+            .map_err(|e| match e {
+                store_credit::StoreCreditError::Database(d) => TransactionError::Database(d),
+                store_credit::StoreCreditError::NotFound => TransactionError::InvalidPayload(
+                    "customer store credit account was not found".to_string(),
+                ),
+                store_credit::StoreCreditError::InsufficientBalance => {
+                    TransactionError::InvalidPayload(
+                        "store credit balance would become negative".to_string(),
+                    )
+                }
+                store_credit::StoreCreditError::ReasonRequired => TransactionError::InvalidPayload(
+                    "store credit refund reason is required".to_string(),
+                ),
+            })?;
+            if let Some(object) = refund_metadata.as_object_mut() {
+                object.insert(
+                    "store_credit_balance_after".to_string(),
+                    json!(balance_after),
+                );
             }
         }
         if let Some(object) = refund_metadata.as_object_mut() {
@@ -4011,6 +4549,7 @@ pub(crate) async fn load_transaction_detail(
     } else {
         (false, "escpos".to_string())
     };
+    let void_record = load_void_record(pool, transaction_id).await?;
 
     Ok(TransactionDetailResponse {
         transaction_id: h.id,
@@ -4057,6 +4596,7 @@ pub(crate) async fn load_transaction_detail(
         store_send_review_invite_by_default: review_pol.send_review_invite_by_default,
         review_invite_sent_at: h.review_invite_sent_at,
         review_invite_suppressed_at: h.review_invite_suppressed_at,
+        void_record,
     })
 }
 

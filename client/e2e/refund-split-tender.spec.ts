@@ -36,6 +36,21 @@ type TransactionArtifacts = {
   }>;
 };
 
+type TransactionDetail = {
+  transaction_id: string;
+  status: string;
+  amount_paid: string;
+  balance_due: string;
+  items: Array<{ transaction_line_id: string; sku: string; quantity: number; quantity_returned: number }>;
+  void_record?: {
+    id: string;
+    reversal_status: string;
+    refundable_amount: string;
+    tender_summary: Array<{ payment_method: string; amount: string; gift_card_code?: string | null }>;
+    inventory_summary: { returned_line_count?: number; restocked_units?: number };
+  };
+};
+
 function moneyToCents(value: string | number | undefined | null): number {
   if (value == null) return 0;
   const str = String(value).trim();
@@ -62,6 +77,7 @@ async function doCheckout(
     fixture: SeedFixtureResponse;
     amountPaid?: string;
     paymentMethod?: string;
+    paymentSplits?: Array<{ payment_method: string; amount: string }>;
   },
 ): Promise<CheckoutResponse & { grossStr: string }> {
   const { grossStr } = getGrossTotal(options.fixture);
@@ -96,7 +112,7 @@ async function doCheckout(
           salesperson_id: options.operatorStaffId,
         },
       ],
-      payment_splits: [{ payment_method: options.paymentMethod ?? "cash", amount: amountToPay }],
+      payment_splits: options.paymentSplits ?? [{ payment_method: options.paymentMethod ?? "cash", amount: amountToPay }],
       order_payments: [],
       is_tax_exempt: false,
       tax_exempt_reason: null,
@@ -106,6 +122,42 @@ async function doCheckout(
   const bodyText = await res.text();
   expect(res.status(), `checkout failed: ${bodyText.slice(0, 500)}`).toBe(200);
   return { ...JSON.parse(bodyText), grossStr };
+}
+
+async function doVoid(
+  request: APIRequestContext,
+  options: {
+    transactionId: string;
+    sessionId: string;
+    sessionToken: string;
+    managerStaffId: string;
+    managerPin?: string;
+    reason?: string;
+  },
+): Promise<{ status: number; body: unknown }> {
+  const res = await request.post(apiUrl(`/api/transactions/${options.transactionId}/void`), {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+      "x-riverside-pos-session-id": options.sessionId,
+      "x-riverside-pos-session-token": options.sessionToken,
+    },
+    data: {
+      register_session_id: options.sessionId,
+      manager_staff_id: options.managerStaffId,
+      manager_pin: options.managerPin ?? "1234",
+      reason: options.reason ?? "E2E manager-approved transaction void",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  let body = {};
+  try {
+    body = JSON.parse(bodyText);
+  } catch {
+    body = { raw: bodyText };
+  }
+  return { status: res.status(), body };
 }
 
 async function doReturn(
@@ -136,6 +188,7 @@ async function doRefund(
     sessionId: string;
     amount: string;
     paymentMethod?: string;
+    giftCardCode?: string;
     managerStaffId?: string;
     managerPin?: string;
     managerReason?: string;
@@ -147,6 +200,7 @@ async function doRefund(
       session_id: options.sessionId,
       payment_method: options.paymentMethod ?? "cash",
       amount: options.amount,
+      gift_card_code: options.giftCardCode,
       manager_staff_id: options.managerStaffId,
       manager_pin: options.managerPin,
       manager_reason: options.managerReason,
@@ -194,7 +248,270 @@ async function getTransactionLines(request: APIRequestContext, transactionId: st
   return data.items;
 }
 
+async function getTransactionDetail(request: APIRequestContext, transactionId: string): Promise<TransactionDetail> {
+  const res = await request.get(apiUrl(`/api/transactions/${transactionId}`), {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 500)).toBe(200);
+  return JSON.parse(bodyText) as TransactionDetail;
+}
+
 test.describe("refund split-tender capacity contract", () => {
+  test("cash transaction void records audit state, restocks eligible lines, and opens refund workflow", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Void Cash Reversal");
+
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+    });
+
+    const voidResult = await doVoid(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      managerStaffId: operatorStaffId,
+      reason: "Customer requested same-day full void before leaving the store",
+    });
+    expect(voidResult.status, JSON.stringify(voidResult.body)).toBe(200);
+
+    const detail = await getTransactionDetail(request, checkout.transaction_id);
+    expect(detail.status.toLowerCase()).toBe("cancelled");
+    expect(detail.void_record?.reversal_status).toBe("pending_refund");
+    expect(moneyToCents(detail.void_record?.refundable_amount)).toBe(moneyToCents(checkout.grossStr));
+    expect(detail.items[0]?.quantity_returned).toBe(detail.items[0]?.quantity);
+    expect(detail.void_record?.inventory_summary.restocked_units).toBe(1);
+
+    const queue = (await getRefundsDue(request)).find((r) => r.transaction_id === checkout.transaction_id);
+    expect(queue?.is_open).toBe(true);
+    expect(moneyToCents(queue?.amount_due)).toBe(moneyToCents(checkout.grossStr));
+
+    const refund = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "cash",
+    });
+    expect(refund.status, JSON.stringify(refund.body)).toBe(200);
+
+    const settled = await getTransactionDetail(request, checkout.transaction_id);
+    expect(settled.void_record?.reversal_status).toBe("completed");
+    expect(moneyToCents(settled.amount_paid)).toBe(0);
+  });
+
+  test("split tender void preserves tender breakdown and caps the refund queue to paid credit", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Void Split Tender");
+    const { grossStr, grossCents } = getGrossTotal(fixture);
+    const cashCents = 2500;
+    const cardCents = grossCents - cashCents;
+
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+      amountPaid: grossStr,
+      paymentMethod: "split",
+      paymentSplits: [
+        { payment_method: "cash", amount: "25.00" },
+        { payment_method: "card_present", amount: (cardCents / 100).toFixed(2) },
+      ],
+    });
+
+    const voidResult = await doVoid(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      managerStaffId: operatorStaffId,
+      reason: "Split tender void certification",
+    });
+    expect(voidResult.status, JSON.stringify(voidResult.body)).toBe(200);
+
+    const detail = await getTransactionDetail(request, checkout.transaction_id);
+    const tenderMethods = (detail.void_record?.tender_summary ?? []).map((row) => row.payment_method).sort();
+    expect(tenderMethods).toEqual(["card_present", "cash"]);
+
+    const queue = (await getRefundsDue(request)).find((r) => r.transaction_id === checkout.transaction_id);
+    expect(moneyToCents(queue?.amount_due)).toBe(grossCents);
+  });
+
+  test("void requires Manager Access before any reversal state is written", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Void Manager Required");
+
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+    });
+
+    const denied = await doVoid(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      managerStaffId: operatorStaffId,
+      managerPin: "0000",
+      reason: "Invalid manager pin should not void",
+    });
+    expect(denied.status).toBe(400);
+
+    const detail = await getTransactionDetail(request, checkout.transaction_id);
+    expect(detail.status.toLowerCase()).not.toBe("cancelled");
+    expect(detail.void_record).toBeFalsy();
+  });
+
+  test("void after a completed refund records no additional refund due", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Void Already Refunded");
+
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+    });
+    const lines = await getTransactionLines(request, checkout.transaction_id);
+    await doReturn(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      lineId: lines[0]!.transaction_line_id,
+      qty: 1,
+    });
+    const refund = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "cash",
+    });
+    expect(refund.status, JSON.stringify(refund.body)).toBe(200);
+
+    const voidResult = await doVoid(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      managerStaffId: operatorStaffId,
+      reason: "Administrative void after full refund was completed",
+    });
+    expect(voidResult.status, JSON.stringify(voidResult.body)).toBe(200);
+
+    const detail = await getTransactionDetail(request, checkout.transaction_id);
+    expect(detail.void_record?.reversal_status).toBe("no_refund_due");
+    expect(moneyToCents(detail.void_record?.refundable_amount)).toBe(0);
+  });
+
+  test("store credit refund from a void credits the customer ledger", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Void Store Credit");
+
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+    });
+    const voidResult = await doVoid(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      managerStaffId: operatorStaffId,
+      reason: "Customer accepted store credit for voided sale",
+    });
+    expect(voidResult.status, JSON.stringify(voidResult.body)).toBe(200);
+
+    const refund = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "store_credit",
+    });
+    expect(refund.status, JSON.stringify(refund.body)).toBe(200);
+
+    const creditRes = await request.get(apiUrl(`/api/customers/${fixture.customer.id}/store-credit`), {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    });
+    const creditBodyText = await creditRes.text();
+    expect(creditRes.status(), creditBodyText.slice(0, 500)).toBe(200);
+    const credit = JSON.parse(creditBodyText) as {
+      balance: string;
+      ledger: Array<{ amount: string; reason: string; transaction_id: string | null }>;
+    };
+    expect(moneyToCents(credit.balance)).toBe(moneyToCents(checkout.grossStr));
+    expect(credit.ledger.some((row) => row.reason === "transaction_refund" && row.transaction_id === checkout.transaction_id)).toBe(true);
+  });
+
+  test("gift card refund from a void records gift card reversal evidence", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Void Gift Card");
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+      paymentMethod: "cash",
+    });
+
+    const giftCardCode = `E2E-VOID-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const cardIssue = await request.post(apiUrl("/api/gift-cards/issue-promo"), {
+      headers: { ...staffHeaders(), "Content-Type": "application/json" },
+      data: {
+        code: giftCardCode,
+        amount: "1.00",
+        event_name: "E2E void refund certification",
+        customer_id: fixture.customer.id,
+      },
+      failOnStatusCode: false,
+    });
+    const issueBody = await cardIssue.text();
+    expect(cardIssue.status(), issueBody.slice(0, 500)).toBe(200);
+
+    const voidResult = await doVoid(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      managerStaffId: operatorStaffId,
+      reason: "Customer selected gift card refund for voided sale",
+    });
+    expect(voidResult.status, JSON.stringify(voidResult.body)).toBe(200);
+
+    const refund = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "gift_card",
+      giftCardCode,
+    });
+    expect(refund.status, JSON.stringify(refund.body)).toBe(200);
+
+    const artifacts = await getArtifacts(request, checkout.transaction_id);
+    const giftRefund = artifacts.payment_rows.find(
+      (row) =>
+        row.payment_method === "gift_card" &&
+        row.metadata.kind === "order_refund" &&
+        row.metadata.gift_card_code === giftCardCode,
+    );
+    expect(giftRefund).toBeTruthy();
+  });
+
   test("cash partial refunds accumulate correctly in the refund queue", async ({ request }) => {
     test.setTimeout(60_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);

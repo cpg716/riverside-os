@@ -148,7 +148,7 @@ As of v0.2.1, allowed action keys are:
 
 Unknown keys are rejected and API returns the current allow-list.
 
-`backup.trigger_local` writes to the effective `RIVERSIDE_BACKUP_DIR` location. Runtime Diagnostics exposes the backup directory path and flags whether the host is using an explicit production-safe path or the local development fallback.
+`backup.trigger_local` writes to the effective `RIVERSIDE_BACKUP_DIR` location using the same backup settings as the scheduler, including encrypted archives when enabled. Runtime Diagnostics exposes the backup directory path and flags whether the host is using an explicit production-safe path or the local development fallback.
 
 `ops.retention_cleanup` applies the configured station and resolved-alert retention windows. It is guarded and audited like other Dev Center mutations.
 

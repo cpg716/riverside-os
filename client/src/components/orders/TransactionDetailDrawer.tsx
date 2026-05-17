@@ -114,6 +114,25 @@ export interface TransactionDrawerDetail {
   is_tax_exempt?: boolean;
   tax_exempt_reason?: string | null;
   register_session_id?: string | null;
+  void_record?: {
+    id: string;
+    original_status: string;
+    original_total_price: string;
+    original_amount_paid: string;
+    original_balance_due: string;
+    voided_by_staff_name?: string | null;
+    manager_staff_name?: string | null;
+    reason: string;
+    reversal_status: string;
+    refundable_amount: string;
+    refund_queue_id?: string | null;
+    tender_summary?: Array<{ payment_method?: string; amount?: string }> | null;
+    inventory_summary?: {
+      returned_line_count?: number;
+      restocked_units?: number;
+    } | null;
+    created_at: string;
+  } | null;
 }
 
 export interface TransactionDrawerAudit {
@@ -201,6 +220,8 @@ function formatAuditKind(kind: string): string {
       return "Refund processed";
     case "refund_queued":
       return "Refund queued";
+    case "transaction_voided":
+      return "Transaction voided";
     case "status_change":
       return "Status update";
     case "line_return":
@@ -1086,9 +1107,11 @@ export default function TransactionDetailDrawer({
           className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
             detail.status === "fulfilled"
               ? "success"
-              : parseMoneyToCents(detail.balance_due) > 0
-                ? "warning"
-                : "neutral",
+              : detail.status === "cancelled"
+                ? "rose"
+                : parseMoneyToCents(detail.balance_due) > 0
+                  ? "warning"
+                  : "neutral",
           )}`}
         >
           {formatStatusLabel(detail.status)}
@@ -1392,6 +1415,87 @@ export default function TransactionDetailDrawer({
                 </div>
               </div>
             </section>
+
+            {detail.void_record ? (
+              <section className="rounded-2xl border border-app-danger/25 bg-app-danger/8 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck size={16} className="text-app-danger" />
+                      <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
+                        Void Record
+                      </h3>
+                    </div>
+                    <p className="mt-2 text-[12px] font-semibold text-app-text-muted">
+                      This Transaction Record was voided, not deleted. Refund or reversal evidence
+                      remains traceable through the refund workflow and payment rows.
+                    </p>
+                  </div>
+                  <span
+                    className={`w-fit rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${badgeClassName(
+                      detail.void_record.reversal_status === "completed" ||
+                        detail.void_record.reversal_status === "no_refund_due"
+                        ? "success"
+                        : "warning",
+                    )}`}
+                  >
+                    {detail.void_record.reversal_status.replace(/_/g, " ")}
+                  </span>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border border-app-border/70 bg-app-surface px-3 py-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Refundable
+                    </p>
+                    <p className="mt-1 font-mono text-sm font-black text-app-danger">
+                      {fmtMoney(detail.void_record.refundable_amount)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-app-border/70 bg-app-surface px-3 py-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Original Total
+                    </p>
+                    <p className="mt-1 font-mono text-sm font-black text-app-text">
+                      {fmtMoney(detail.void_record.original_total_price)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-app-border/70 bg-app-surface px-3 py-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Restocked Units
+                    </p>
+                    <p className="mt-1 font-mono text-sm font-black text-app-text">
+                      {detail.void_record.inventory_summary?.restocked_units ?? 0}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Approved By
+                    </p>
+                    <p className="mt-1 text-[12px] font-semibold text-app-text">
+                      {detail.void_record.manager_staff_name ?? "Manager Access"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Voided At
+                    </p>
+                    <p className="mt-1 text-[12px] font-semibold text-app-text">
+                      {new Date(detail.void_record.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Reason
+                  </p>
+                  <p className="mt-2 text-[12px] font-semibold text-app-text">
+                    {detail.void_record.reason}
+                  </p>
+                </div>
+              </section>
+            ) : null}
 
             {readinessCheck ? (
               <section className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">

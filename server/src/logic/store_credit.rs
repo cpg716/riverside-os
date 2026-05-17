@@ -137,6 +137,79 @@ pub async fn apply_checkout_redemption(
     Ok(())
 }
 
+pub async fn credit_refund_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    customer_id: Uuid,
+    amount: Decimal,
+    transaction_id: Uuid,
+    reason: &str,
+) -> Result<Decimal, StoreCreditError> {
+    if amount <= Decimal::ZERO {
+        return fetch_summary_from_tx(tx, customer_id)
+            .await
+            .map(|summary| summary.balance)
+            .map_err(Into::into);
+    }
+
+    let reason = reason.trim();
+    if reason.is_empty() {
+        return Err(StoreCreditError::ReasonRequired);
+    }
+
+    let account_id = ensure_account(tx, customer_id).await?;
+
+    let balance: Decimal =
+        sqlx::query_scalar("SELECT balance FROM store_credit_accounts WHERE id = $1 FOR UPDATE")
+            .bind(account_id)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    let new_bal = balance + amount;
+
+    sqlx::query("UPDATE store_credit_accounts SET balance = $1, updated_at = now() WHERE id = $2")
+        .bind(new_bal)
+        .bind(account_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO store_credit_ledger (account_id, amount, balance_after, reason, transaction_id)
+        VALUES ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(account_id)
+    .bind(amount)
+    .bind(new_bal)
+    .bind(reason)
+    .bind(transaction_id)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(new_bal)
+}
+
+async fn fetch_summary_from_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    customer_id: Uuid,
+) -> Result<StoreCreditSummary, sqlx::Error> {
+    let bal: Option<Decimal> = sqlx::query_scalar(
+        r#"
+        SELECT sca.balance
+        FROM store_credit_accounts sca
+        WHERE sca.customer_id = $1
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    Ok(StoreCreditSummary {
+        balance: bal.unwrap_or(Decimal::ZERO),
+        ledger: Vec::new(),
+    })
+}
+
 pub async fn adjust_balance(
     pool: &PgPool,
     customer_id: Uuid,

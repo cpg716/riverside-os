@@ -68,6 +68,26 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 4. **Admin visibility**
    - Open refund queue items stay visible in the **Transactions** workspace. Riverside OS does **not** create a daily bell alert for refunds because refunds are expected to be handled in-person as part of the customer transaction workflow.
 
+## POS transaction voids
+
+- **`POST /api/transactions/{id}/void`**
+  Body: `{ "register_session_id", "manager_staff_id", "manager_pin", "reason" }`
+  Requires an open register session, **`orders.refund_process`**, and Manager Access.
+
+- **Rules**
+  - A void is never a delete. The original Transaction Record, payment rows, receipt references, timestamps, and audit feed remain visible.
+  - The transaction is moved to the existing cancelled reporting state for booked/revenue exclusion, while `transaction_void_records` stores the first-class void record, original totals, approving manager, register session, tender summary, refund queue link, and inventory impact.
+  - Remaining active lines are recorded through `transaction_return_lines` with reason `void`. Fulfilled takeaway lines restock; special/custom/wedding/layaway order-style lines do not silently restock.
+  - Loyalty accrual is reversed during the void.
+  - Refund/reversal remains capped by paid credit. If a paid balance remains, the void opens or updates `transaction_refund_queue`; if the transaction was already fully refunded, the void record is marked `no_refund_due`.
+  - Actual money movement still uses the existing refund processor so cash, card/Helcim, split tender, gift card, and store credit reversals write negative payment evidence and reconciliation-safe ledger rows.
+
+- **POS UI**
+  - Register → Daily Sales → Activity exposes **Void** beside the receipt action.
+  - The modal explains customer/payment history retention, refund queue impact, inventory handling, and accounting handoff before requiring Manager Access.
+  - Completion tells staff whether a refund workflow was opened or no paid balance remained.
+  - Back Office Transaction Record shows the void record, reversal status, original total, refundable amount, Manager Access approver, reason, and restock impact for review.
+
 ---
 
 ## Line-level returns
@@ -121,6 +141,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 | `24_performance_and_integrity.sql` | Partial unique index: one **open** queue row per `transaction_id` |
 | `36_orders_rbac_permissions.sql` | Seeds for `orders.*` keys on `staff_role_permission` |
 | `37_order_returns_and_exchange.sql` | `transaction_return_lines`, `transactions.exchange_group_id` |
+| `034_transaction_void_records.sql` | Append-only POS void records and reversal-state tracking |
 
 ---
 

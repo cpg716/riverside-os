@@ -67,5 +67,32 @@ else
     echo -e "${GREEN}[PASS] Meilisearch API Key is configured.${NC}"
 fi
 
+# 6. Backup Directory Audit
+BACKUP_DIR=$(grep "RIVERSIDE_BACKUP_DIR" "$ENV_FILE" | cut -d'=' -f2 | sed -e 's/^"//' -e 's/"$//')
+if [ -z "$BACKUP_DIR" ]; then
+    echo -e "${RED}[FAIL] RIVERSIDE_BACKUP_DIR is not set. Production backups need an explicit durable directory.${NC}"
+elif [[ "$BACKUP_DIR" != /* ]]; then
+    echo -e "${RED}[FAIL] RIVERSIDE_BACKUP_DIR must be an absolute path for production: $BACKUP_DIR${NC}"
+elif [ ! -d "$BACKUP_DIR" ]; then
+    echo -e "${RED}[FAIL] RIVERSIDE_BACKUP_DIR does not exist: $BACKUP_DIR${NC}"
+elif [ ! -w "$BACKUP_DIR" ]; then
+    echo -e "${RED}[FAIL] RIVERSIDE_BACKUP_DIR is not writable: $BACKUP_DIR${NC}"
+else
+    echo -e "${GREEN}[PASS] RIVERSIDE_BACKUP_DIR is explicit and writable.${NC}"
+fi
+
+BACKUP_ENCRYPTION_ENABLED=0
+if command -v psql >/dev/null 2>&1 && [[ -n "$DB_URL" ]]; then
+    BACKUP_ENCRYPTION_ENABLED=$(psql "$DB_URL" -Atc "SELECT COALESCE(backup_settings->>'encryption_enabled', 'false') FROM store_settings WHERE id = 1;" 2>/dev/null || echo 0)
+fi
+BACKUP_ENC_KEY=$(grep "RIVERSIDE_BACKUP_ENCRYPTION_KEY" "$ENV_FILE" | cut -d'=' -f2 | sed -e 's/^"//' -e 's/"$//')
+if [[ "$BACKUP_ENCRYPTION_ENABLED" == "true" && ${#BACKUP_ENC_KEY} -lt 32 ]]; then
+    echo -e "${RED}[FAIL] Backup archive encryption is enabled but RIVERSIDE_BACKUP_ENCRYPTION_KEY is missing or too short.${NC}"
+elif [[ "$BACKUP_ENCRYPTION_ENABLED" == "true" ]]; then
+    echo -e "${GREEN}[PASS] Backup archive encryption key is configured.${NC}"
+else
+    echo -e "${YELLOW}[WARN] Backup archive encryption is not enabled in store settings.${NC}"
+fi
+
 echo "==========================================="
 echo "   Audit Complete."

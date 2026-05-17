@@ -39,18 +39,30 @@ pub async fn apply_transaction_returns(
     staff_id: Option<Uuid>,
     lines: Vec<ReturnLineInput>,
 ) -> Result<(), TransactionReturnError> {
+    let mut tx = pool.begin().await?;
+    apply_transaction_returns_in_tx(&mut tx, transaction_id, staff_id, lines).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Transaction-bound return recording for flows that must bundle return/restock,
+/// totals, refund queue, and a parent workflow audit row in one commit.
+pub async fn apply_transaction_returns_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    staff_id: Option<Uuid>,
+    lines: Vec<ReturnLineInput>,
+) -> Result<(), TransactionReturnError> {
     if lines.is_empty() {
         return Err(TransactionReturnError::BadRequest(
             "no return lines".to_string(),
         ));
     }
 
-    let mut tx = pool.begin().await?;
-
     let status: Option<String> =
         sqlx::query_scalar("SELECT status::text FROM transactions WHERE id = $1 FOR UPDATE")
             .bind(transaction_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?;
 
     let Some(status) = status else {
@@ -67,7 +79,7 @@ pub async fn apply_transaction_returns(
     let customer_id: Option<Uuid> =
         sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
             .bind(transaction_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?
             .flatten();
 
@@ -99,7 +111,7 @@ pub async fn apply_transaction_returns(
         )
         .bind(line.transaction_line_id)
         .bind(transaction_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
 
         let Some((
@@ -127,7 +139,7 @@ pub async fn apply_transaction_returns(
             ));
         }
 
-        let already = returned_qty_for_item(&mut tx, oid).await?;
+        let already = returned_qty_for_item(tx, oid).await?;
         let remaining = sold_qty - already;
         if line.quantity > remaining {
             return Err(TransactionReturnError::BadRequest(format!(
@@ -153,7 +165,7 @@ pub async fn apply_transaction_returns(
             )
             .bind(line.quantity)
             .bind(variant_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?
             .rows_affected()
         } else {
@@ -174,7 +186,7 @@ pub async fn apply_transaction_returns(
         .bind(line.reason.as_deref().unwrap_or("return"))
         .bind(restock)
         .bind(staff_id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?;
 
         if restock && restock_affected > 0 {
@@ -192,13 +204,13 @@ pub async fn apply_transaction_returns(
             .bind(format!(
                 "Restocked return stock increment for transaction {transaction_id}"
             ))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         }
 
         if is_fulfilled && line_commission > Decimal::ZERO {
             crate::logic::commission_events::insert_return_adjustment_event(
-                &mut tx,
+                tx,
                 crate::logic::commission_events::ReturnCommissionAdjustment {
                     transaction_id,
                     transaction_line_id: oid,
@@ -220,7 +232,7 @@ pub async fn apply_transaction_returns(
             "#,
         )
         .bind(product_id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?;
 
         if !excludes_loyalty {
@@ -228,15 +240,15 @@ pub async fn apply_transaction_returns(
         }
     }
 
-    transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
+    transaction_recalc::recalc_transaction_totals(tx, transaction_id)
         .await
         .map_err(TransactionReturnError::Db)?;
 
     if refund_add > Decimal::ZERO {
-        let refundable_credit = refundable_credit_due(&mut tx, transaction_id).await?;
+        let refundable_credit = refundable_credit_due(tx, transaction_id).await?;
         if refundable_credit > Decimal::ZERO {
             sync_refund_queue_row(
-                &mut tx,
+                tx,
                 transaction_id,
                 customer_id,
                 refundable_credit,
@@ -249,7 +261,7 @@ pub async fn apply_transaction_returns(
     if loyalty_subtotal > Decimal::ZERO {
         if let Some(cid) = customer_id {
             loyalty::clawback_points_for_returned_subtotal_in_tx(
-                &mut tx,
+                tx,
                 transaction_id,
                 cid,
                 loyalty_subtotal,
@@ -268,10 +280,9 @@ pub async fn apply_transaction_returns(
     .bind(customer_id)
     .bind(format!("Return recorded (${refund_add})"))
     .bind(json!({ "refund_subtotal": refund_add.to_string(), "line_count": lines.len() }))
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
-    tx.commit().await?;
     Ok(())
 }
 

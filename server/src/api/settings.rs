@@ -529,7 +529,12 @@ async fn create_backup(
 ) -> Result<Json<Value>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
     let manager = BackupManager::new(state.database_url.clone());
-    let filename = match manager.create_backup().await {
+    let settings_raw: Value =
+        sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
+            .fetch_one(&state.db)
+            .await?;
+    let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
+    let filename = match manager.create_backup_with_settings(&settings).await {
         Ok(f) => f,
         Err(e) => {
             let msg = e.to_string();
@@ -543,6 +548,45 @@ async fn create_backup(
     };
     if let Err(e) = crate::logic::backups::record_local_backup_success(&state.db).await {
         tracing::error!(error = e.to_string(), "record_local_backup_success");
+    }
+
+    let offsite_enabled = settings.cloud_storage_enabled
+        || settings
+            .replication_targets
+            .iter()
+            .any(|target| !target.trim().is_empty());
+    if offsite_enabled {
+        let cloud_result = manager.sync_to_cloud(&filename, &settings).await;
+        let replica_result = manager.replicate_to_targets(&filename, &settings).await;
+        match (cloud_result, replica_result) {
+            (Ok(_), Ok(_)) => {
+                if let Err(e) = crate::logic::backups::record_cloud_backup_success(&state.db).await
+                {
+                    tracing::error!(error = e.to_string(), "record_cloud_backup_success");
+                }
+            }
+            (cloud, replica) => {
+                let detail = format!(
+                    "Off-site backup failed. Cloud: {}; Replication: {}",
+                    cloud
+                        .err()
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "ok".to_string()),
+                    replica
+                        .err()
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "ok".to_string())
+                );
+                if let Err(e) =
+                    crate::logic::backups::record_cloud_backup_failure(&state.db, &detail).await
+                {
+                    tracing::error!(error = e.to_string(), "record_cloud_backup_failure");
+                }
+                return Err(SettingsError::Backup(format!(
+                    "Local backup created as {filename}, but off-site copy failed: {detail}"
+                )));
+            }
+        }
     }
     Ok(Json(json!({ "filename": filename })))
 }

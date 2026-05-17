@@ -1,15 +1,26 @@
 use anyhow::{Context, Result};
 use chrono::{Local, Utc};
-use opendal::{services::S3, Operator};
+use opendal::{
+    services::{Dropbox, Gdrive, Onedrive, S3},
+    Operator,
+};
+use ring::aead::{self, Aad, LessSafeKey, UnboundKey};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{error, info};
+use uuid::Uuid;
 
 const BACKUP_DIR_ENV: &str = "RIVERSIDE_BACKUP_DIR";
+const BACKUP_ENCRYPTION_KEY_ENV: &str = "RIVERSIDE_BACKUP_ENCRYPTION_KEY";
+const ENCRYPTED_BACKUP_EXTENSION: &str = ".dump.enc";
+const ENCRYPTED_BACKUP_MAGIC: &[u8] = b"ROSBAK1";
+const BACKUP_ENCRYPTION_KEY_MIN_LEN: usize = 32;
 const RESTORE_SCHEMA_PRE_CLEAN_SQL: &str = r#"
 DROP SCHEMA IF EXISTS reporting CASCADE;
 DROP SCHEMA IF EXISTS public CASCADE;
@@ -212,6 +223,14 @@ pub struct BackupSettings {
     pub cloud_bucket_name: String,
     pub cloud_region: String,
     pub cloud_endpoint: String,
+    #[serde(default = "default_cloud_provider")]
+    pub cloud_provider: String,
+    #[serde(default)]
+    pub cloud_root: String,
+    #[serde(default)]
+    pub replication_targets: Vec<String>,
+    #[serde(default)]
+    pub encryption_enabled: bool,
 }
 
 impl Default for BackupSettings {
@@ -223,8 +242,16 @@ impl Default for BackupSettings {
             cloud_bucket_name: "".to_string(),
             cloud_region: "us-east-1".to_string(),
             cloud_endpoint: "".to_string(),
+            cloud_provider: default_cloud_provider(),
+            cloud_root: "".to_string(),
+            replication_targets: Vec::new(),
+            encryption_enabled: false,
         }
     }
+}
+
+fn default_cloud_provider() -> String {
+    "s3".to_string()
 }
 
 pub struct BackupManager {
@@ -307,7 +334,7 @@ impl BackupManager {
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("dump") {
+            if path.is_file() && is_backup_archive_path(&path) {
                 let metadata = entry.metadata()?;
                 let created = metadata.created().unwrap_or_else(|_| {
                     metadata.modified().unwrap_or(std::time::SystemTime::now())
@@ -337,7 +364,7 @@ impl BackupManager {
             || trimmed.contains('/')
             || trimmed.contains('\\')
             || trimmed.contains("..")
-            || !trimmed.ends_with(".dump")
+            || !is_backup_archive_name(trimmed)
         {
             return Err(anyhow::anyhow!(
                 "Backup file is not in the local backup catalog"
@@ -359,6 +386,11 @@ impl BackupManager {
 
     /// Perform a backup using pg_dump.
     pub async fn create_backup(&self) -> Result<String> {
+        self.create_backup_with_settings(&BackupSettings::default())
+            .await
+    }
+
+    pub async fn create_backup_with_settings(&self, settings: &BackupSettings) -> Result<String> {
         let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
         let filename = format!("backup_{timestamp}.dump");
         let output_path = self.backup_dir.join(&filename);
@@ -411,6 +443,7 @@ impl BackupManager {
                 match docker_out {
                     Ok(d_out) if d_out.status.success() => {
                         fs::write(&output_path, d_out.stdout)?;
+                        let filename = self.finalize_backup_archive(filename, settings)?;
                         info!("Backup successful via Docker fallback: {}", filename);
                         return Ok(filename);
                     }
@@ -432,8 +465,30 @@ impl BackupManager {
             return Err(anyhow::anyhow!("pg_dump failed: {detail}"));
         }
 
+        let filename = self.finalize_backup_archive(filename, settings)?;
         info!("Database backup completed successfully: {}", filename);
         Ok(filename)
+    }
+
+    fn finalize_backup_archive(
+        &self,
+        filename: String,
+        settings: &BackupSettings,
+    ) -> Result<String> {
+        if !settings.encryption_enabled {
+            return Ok(filename);
+        }
+        let plaintext_path = self.backup_dir.join(&filename);
+        let encrypted_filename = format!("{filename}.enc");
+        let encrypted_path = self.backup_dir.join(&encrypted_filename);
+        encrypt_backup_file(&plaintext_path, &encrypted_path)?;
+        fs::remove_file(&plaintext_path).with_context(|| {
+            format!(
+                "Encrypted backup was created but plaintext cleanup failed: {}",
+                plaintext_path.to_string_lossy()
+            )
+        })?;
+        Ok(encrypted_filename)
     }
 
     /// Restore a database from a backup using pg_restore.
@@ -443,8 +498,19 @@ impl BackupManager {
         if !input_path.exists() {
             return Err(anyhow::anyhow!("Backup file not found"));
         }
+        let mut decrypted_temp: Option<RestoreTemp> = None;
+        let restore_path = if is_encrypted_backup_name(filename) {
+            let tmp = self
+                .backup_dir
+                .join(format!("{filename}.restore-{}.tmp", Uuid::new_v4()));
+            decrypt_backup_file(&input_path, &tmp)?;
+            decrypted_temp = Some(RestoreTemp { path: tmp.clone() });
+            tmp
+        } else {
+            input_path.clone()
+        };
 
-        info!("Starting database restore from {:?}", input_path);
+        info!("Starting database restore from {:?}", restore_path);
 
         // -c: Clean (drop) database objects before recreating them.
         // -d: Connect to database.
@@ -456,7 +522,7 @@ impl BackupManager {
             .arg("--clean")
             .arg("--if-exists")
             .arg("--no-owner")
-            .arg(&input_path);
+            .arg(&restore_path);
 
         let out = cmd
             .stdout(Stdio::null())
@@ -471,7 +537,7 @@ impl BackupManager {
 
             // Read the local file into memory or stream it.
             // For a 5MB-20MB dump, reading to memory is safe for this context.
-            let dump_data = fs::read(&input_path)?;
+            let dump_data = fs::read(&restore_path)?;
 
             // Fallback attempt: docker exec -i riverside-os-db pg_restore -U postgres -d riverside_os ...
             let mut d_cmd = Command::new("docker");
@@ -509,6 +575,7 @@ impl BackupManager {
                 info!("Database restoration successful via Docker fallback");
                 self.apply_post_restore_schema_repairs().await?;
                 self.validate_schema_after_restore().await?;
+                drop(decrypted_temp);
                 return Ok(());
             } else {
                 let d_err = String::from_utf8_lossy(&d_out.stderr);
@@ -571,6 +638,7 @@ impl BackupManager {
                     info!("Database restoration successful via Docker schema pre-clean fallback");
                     self.apply_post_restore_schema_repairs().await?;
                     self.validate_schema_after_restore().await?;
+                    drop(decrypted_temp);
                     return Ok(());
                 }
 
@@ -586,6 +654,7 @@ impl BackupManager {
         info!("Database restoration completed successfully");
         self.apply_post_restore_schema_repairs().await?;
         self.validate_schema_after_restore().await?;
+        drop(decrypted_temp);
         Ok(())
     }
 
@@ -673,7 +742,7 @@ impl BackupManager {
 
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("dump") {
+            if path.is_file() && is_backup_archive_path(&path) {
                 let metadata = entry.metadata().await?;
                 let modified: chrono::DateTime<Utc> = metadata.modified()?.into();
 
@@ -704,32 +773,17 @@ impl BackupManager {
     /// - BACKUP_S3_ACCESS_KEY
     /// - BACKUP_S3_SECRET_KEY
     pub async fn sync_to_cloud(&self, filename: &str, settings: &BackupSettings) -> Result<()> {
-        if !settings.cloud_storage_enabled || settings.cloud_bucket_name.is_empty() {
+        if !settings.cloud_storage_enabled {
             return Ok(());
         }
-
-        let access_key = std::env::var("BACKUP_S3_ACCESS_KEY")
-            .context("BACKUP_S3_ACCESS_KEY must be set for cloud integration")?;
-        let secret_key = std::env::var("BACKUP_S3_SECRET_KEY")
-            .context("BACKUP_S3_SECRET_KEY must be set for cloud integration")?;
-
-        let mut builder = S3::default();
-        builder = builder.bucket(&settings.cloud_bucket_name);
-        builder = builder.region(&settings.cloud_region);
-        builder = builder.access_key_id(&access_key);
-        builder = builder.secret_access_key(&secret_key);
-
-        if !settings.cloud_endpoint.is_empty() {
-            builder = builder.endpoint(&settings.cloud_endpoint);
-        }
-
-        let op = Operator::new(builder)?.finish();
+        let op = cloud_operator(settings)?;
         let file_path = self.listed_backup_path(filename)?;
         let contents = tokio::fs::read(&file_path).await?;
 
         info!(
-            "Cloud Sync: Uploading {} to bucket {}",
-            filename, settings.cloud_bucket_name
+            provider = %settings.cloud_provider,
+            "Cloud Sync: Uploading {}",
+            filename
         );
 
         op.write(filename, contents).await?;
@@ -740,6 +794,265 @@ impl BackupManager {
         );
 
         Ok(())
+    }
+
+    pub async fn replicate_to_targets(
+        &self,
+        filename: &str,
+        settings: &BackupSettings,
+    ) -> Result<usize> {
+        let source = self.listed_backup_path(filename)?;
+        let source_hash = sha256_file(&source)?;
+        let source_size = fs::metadata(&source)?.len();
+        let mut copied = 0usize;
+
+        for target in settings
+            .replication_targets
+            .iter()
+            .map(|target| target.trim())
+            .filter(|target| !target.is_empty())
+        {
+            let target_dir = PathBuf::from(target);
+            tokio::fs::create_dir_all(&target_dir)
+                .await
+                .with_context(|| format!("Backup replication target is not writable: {target}"))?;
+            if !target_dir.is_dir() {
+                return Err(anyhow::anyhow!(
+                    "Backup replication target is not a directory: {target}"
+                ));
+            }
+
+            let final_path = target_dir.join(filename);
+            let temp_path = target_dir.join(format!("{filename}.tmp"));
+            if temp_path.exists() {
+                tokio::fs::remove_file(&temp_path).await?;
+            }
+            tokio::fs::copy(&source, &temp_path)
+                .await
+                .with_context(|| format!("Failed to copy backup into {target}"))?;
+
+            let file = tokio::fs::OpenOptions::new()
+                .read(true)
+                .open(&temp_path)
+                .await?;
+            file.sync_all().await?;
+            drop(file);
+
+            let copied_size = fs::metadata(&temp_path)?.len();
+            if copied_size != source_size || sha256_file(&temp_path)? != source_hash {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(anyhow::anyhow!(
+                    "Backup replication verification failed for {target}"
+                ));
+            }
+
+            tokio::fs::rename(&temp_path, &final_path).await?;
+            copied += 1;
+        }
+
+        Ok(copied)
+    }
+}
+
+fn required_env(key: &str) -> Result<String> {
+    std::env::var(key)
+        .map(|value| value.trim().to_string())
+        .ok()
+        .filter(|value| !value.is_empty())
+        .with_context(|| format!("{key} must be set for cloud backup integration"))
+}
+
+fn optional_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn cloud_operator(settings: &BackupSettings) -> Result<Operator> {
+    match settings.cloud_provider.trim().to_ascii_lowercase().as_str() {
+        "" | "s3" | "s3_compatible" => {
+            if settings.cloud_bucket_name.trim().is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Cloud backup is enabled but the bucket name is blank"
+                ));
+            }
+            let access_key = required_env("BACKUP_S3_ACCESS_KEY")?;
+            let secret_key = required_env("BACKUP_S3_SECRET_KEY")?;
+            let mut builder = S3::default();
+            builder = builder.bucket(settings.cloud_bucket_name.trim());
+            builder = builder.region(settings.cloud_region.trim());
+            builder = builder.access_key_id(&access_key);
+            builder = builder.secret_access_key(&secret_key);
+            if !settings.cloud_endpoint.trim().is_empty() {
+                builder = builder.endpoint(settings.cloud_endpoint.trim());
+            }
+            Ok(Operator::new(builder)?.finish())
+        }
+        "dropbox" => {
+            let mut builder = Dropbox::default().root(settings.cloud_root.trim());
+            if let Some(access_token) = optional_env("BACKUP_CLOUD_ACCESS_TOKEN") {
+                builder = builder.access_token(&access_token);
+            }
+            if let Some(refresh_token) = optional_env("BACKUP_CLOUD_REFRESH_TOKEN") {
+                builder = builder.refresh_token(&refresh_token);
+                builder = builder.client_id(&required_env("BACKUP_CLOUD_CLIENT_ID")?);
+                builder = builder.client_secret(&required_env("BACKUP_CLOUD_CLIENT_SECRET")?);
+            }
+            require_cloud_oauth_material("Dropbox")?;
+            Ok(Operator::new(builder)?.finish())
+        }
+        "google_drive" | "gdrive" => {
+            let mut builder = Gdrive::default().root(settings.cloud_root.trim());
+            if let Some(access_token) = optional_env("BACKUP_CLOUD_ACCESS_TOKEN") {
+                builder = builder.access_token(&access_token);
+            }
+            if let Some(refresh_token) = optional_env("BACKUP_CLOUD_REFRESH_TOKEN") {
+                builder = builder.refresh_token(&refresh_token);
+                builder = builder.client_id(&required_env("BACKUP_CLOUD_CLIENT_ID")?);
+                builder = builder.client_secret(&required_env("BACKUP_CLOUD_CLIENT_SECRET")?);
+            }
+            require_cloud_oauth_material("Google Drive")?;
+            Ok(Operator::new(builder)?.finish())
+        }
+        "onedrive" | "one_drive" => {
+            let mut builder = Onedrive::default().root(settings.cloud_root.trim());
+            if let Some(access_token) = optional_env("BACKUP_CLOUD_ACCESS_TOKEN") {
+                builder = builder.access_token(&access_token);
+            }
+            if let Some(refresh_token) = optional_env("BACKUP_CLOUD_REFRESH_TOKEN") {
+                builder = builder.refresh_token(&refresh_token);
+                builder = builder.client_id(&required_env("BACKUP_CLOUD_CLIENT_ID")?);
+                if let Some(client_secret) = optional_env("BACKUP_CLOUD_CLIENT_SECRET") {
+                    builder = builder.client_secret(&client_secret);
+                }
+            }
+            require_cloud_oauth_material("OneDrive")?;
+            Ok(Operator::new(builder)?.finish())
+        }
+        other => Err(anyhow::anyhow!(
+            "Unsupported cloud backup provider: {other}"
+        )),
+    }
+}
+
+fn require_cloud_oauth_material(provider: &str) -> Result<()> {
+    if optional_env("BACKUP_CLOUD_ACCESS_TOKEN").is_some() {
+        return Ok(());
+    }
+    if optional_env("BACKUP_CLOUD_REFRESH_TOKEN").is_some()
+        && optional_env("BACKUP_CLOUD_CLIENT_ID").is_some()
+    {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!(
+        "{provider} backup requires BACKUP_CLOUD_ACCESS_TOKEN or BACKUP_CLOUD_REFRESH_TOKEN plus BACKUP_CLOUD_CLIENT_ID"
+    ))
+}
+
+fn sha256_file(path: &PathBuf) -> Result<String> {
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 1024 * 64];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn is_encrypted_backup_name(filename: &str) -> bool {
+    filename.ends_with(ENCRYPTED_BACKUP_EXTENSION)
+}
+
+fn is_backup_archive_name(filename: &str) -> bool {
+    filename.ends_with(".dump") || is_encrypted_backup_name(filename)
+}
+
+fn is_backup_archive_path(path: &PathBuf) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(is_backup_archive_name)
+        .unwrap_or(false)
+}
+
+fn backup_encryption_key() -> Result<LessSafeKey> {
+    let raw = std::env::var(BACKUP_ENCRYPTION_KEY_ENV).with_context(|| {
+        format!("{BACKUP_ENCRYPTION_KEY_ENV} must be set when backup encryption is enabled")
+    })?;
+    let trimmed = raw.trim();
+    if trimmed.len() < BACKUP_ENCRYPTION_KEY_MIN_LEN {
+        return Err(anyhow::anyhow!(
+            "{BACKUP_ENCRYPTION_KEY_ENV} must be at least {BACKUP_ENCRYPTION_KEY_MIN_LEN} characters"
+        ));
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(trimmed.as_bytes());
+    let material = hasher.finalize();
+    let unbound = UnboundKey::new(&aead::CHACHA20_POLY1305, material.as_slice())
+        .map_err(|_| anyhow::anyhow!("failed to initialize backup encryption key"))?;
+    Ok(LessSafeKey::new(unbound))
+}
+
+fn encrypt_backup_file(source: &PathBuf, destination: &PathBuf) -> Result<()> {
+    let key = backup_encryption_key()?;
+    let nonce_uuid = Uuid::new_v4();
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes.copy_from_slice(&nonce_uuid.as_bytes()[..12]);
+    let nonce = aead::Nonce::assume_unique_for_key(nonce_bytes);
+    let mut body = fs::read(source)?;
+    key.seal_in_place_append_tag(nonce, Aad::from(ENCRYPTED_BACKUP_MAGIC), &mut body)
+        .map_err(|_| anyhow::anyhow!("failed to encrypt backup archive"))?;
+
+    let temp_path = destination.with_extension("tmp");
+    let mut packed =
+        Vec::with_capacity(ENCRYPTED_BACKUP_MAGIC.len() + nonce_bytes.len() + body.len());
+    packed.extend_from_slice(ENCRYPTED_BACKUP_MAGIC);
+    packed.extend_from_slice(&nonce_bytes);
+    packed.extend_from_slice(&body);
+    fs::write(&temp_path, packed)?;
+    fs::rename(&temp_path, destination)?;
+    Ok(())
+}
+
+fn decrypt_backup_file(source: &PathBuf, destination: &PathBuf) -> Result<()> {
+    let key = backup_encryption_key()?;
+    let packed = fs::read(source)?;
+    let header_len = ENCRYPTED_BACKUP_MAGIC.len() + 12;
+    if packed.len() <= header_len || !packed.starts_with(ENCRYPTED_BACKUP_MAGIC) {
+        return Err(anyhow::anyhow!(
+            "encrypted backup archive has an invalid header"
+        ));
+    }
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes.copy_from_slice(&packed[ENCRYPTED_BACKUP_MAGIC.len()..header_len]);
+    let mut body = packed[header_len..].to_vec();
+    let plaintext = key
+        .open_in_place(
+            aead::Nonce::assume_unique_for_key(nonce_bytes),
+            Aad::from(ENCRYPTED_BACKUP_MAGIC),
+            &mut body,
+        )
+        .map_err(|_| anyhow::anyhow!("failed to decrypt backup archive"))?;
+
+    let temp_path = destination.with_extension("tmp");
+    fs::write(&temp_path, plaintext)?;
+    fs::rename(&temp_path, destination)?;
+    Ok(())
+}
+
+struct RestoreTemp {
+    path: PathBuf,
+}
+
+impl Drop for RestoreTemp {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_file(&self.path) {
+            tracing::warn!(error = %error, path = %self.path.to_string_lossy(), "failed to remove decrypted restore temp file");
+        }
     }
 }
 
@@ -777,6 +1090,21 @@ mod tests {
     }
 
     #[test]
+    fn listed_backup_path_accepts_cataloged_encrypted_dump() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        File::create(tmp.path().join("backup_20260425_120000.dump.enc")).expect("backup file");
+        let manager = BackupManager {
+            backup_dir: tmp.path().to_path_buf(),
+            database_url: "postgres://example".to_string(),
+        };
+
+        let path = manager
+            .listed_backup_path("backup_20260425_120000.dump.enc")
+            .expect("listed path");
+        assert_eq!(path, tmp.path().join("backup_20260425_120000.dump.enc"));
+    }
+
+    #[test]
     fn restore_schema_pre_clean_drops_app_schemas_before_replay() {
         assert!(RESTORE_SCHEMA_PRE_CLEAN_SQL.contains("DROP SCHEMA IF EXISTS public CASCADE"));
         assert!(RESTORE_SCHEMA_PRE_CLEAN_SQL.contains("CREATE SCHEMA public"));
@@ -791,6 +1119,98 @@ mod tests {
         assert!(repo_root
             .join("scripts/validate_schema_contract.sh")
             .exists());
+    }
+
+    #[test]
+    fn backup_settings_default_old_json_has_no_replication_targets() {
+        let raw = serde_json::json!({
+            "auto_cleanup_days": 30,
+            "schedule_cron": "0 2 * * *",
+            "cloud_storage_enabled": false,
+            "cloud_bucket_name": "",
+            "cloud_region": "us-east-1",
+            "cloud_endpoint": ""
+        });
+        let settings: BackupSettings = serde_json::from_value(raw).expect("settings");
+        assert!(settings.replication_targets.is_empty());
+        assert!(!settings.encryption_enabled);
+        assert_eq!(settings.cloud_provider, "s3");
+        assert!(settings.cloud_root.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cloud_sync_requires_bucket_when_enabled() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        File::create(tmp.path().join("backup_20260425_120000.dump")).expect("backup file");
+        let manager = BackupManager {
+            backup_dir: tmp.path().to_path_buf(),
+            database_url: "postgres://example".to_string(),
+        };
+        let settings = BackupSettings {
+            cloud_storage_enabled: true,
+            ..BackupSettings::default()
+        };
+
+        let err = manager
+            .sync_to_cloud("backup_20260425_120000.dump", &settings)
+            .await
+            .expect_err("blank bucket should fail");
+        assert!(err.to_string().contains("bucket name is blank"));
+    }
+
+    #[tokio::test]
+    async fn replicate_to_targets_copies_and_verifies_dump() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let replica = tempfile::tempdir().expect("replica");
+        fs::write(
+            tmp.path().join("backup_20260425_120000.dump"),
+            b"riverside backup",
+        )
+        .expect("backup file");
+        let manager = BackupManager {
+            backup_dir: tmp.path().to_path_buf(),
+            database_url: "postgres://example".to_string(),
+        };
+        let settings = BackupSettings {
+            replication_targets: vec![replica.path().to_string_lossy().into_owned()],
+            ..BackupSettings::default()
+        };
+
+        let copied = manager
+            .replicate_to_targets("backup_20260425_120000.dump", &settings)
+            .await
+            .expect("replication");
+
+        assert_eq!(copied, 1);
+        assert_eq!(
+            fs::read(replica.path().join("backup_20260425_120000.dump")).expect("copy"),
+            b"riverside backup"
+        );
+    }
+
+    #[test]
+    fn encrypted_backup_round_trip_restores_plaintext() {
+        std::env::set_var(
+            BACKUP_ENCRYPTION_KEY_ENV,
+            "test-backup-encryption-key-material-32-plus",
+        );
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("backup_20260425_120000.dump");
+        let encrypted = tmp.path().join("backup_20260425_120000.dump.enc");
+        let restored = tmp.path().join("restored.dump");
+        fs::write(&source, b"riverside encrypted backup").expect("source");
+
+        encrypt_backup_file(&source, &encrypted).expect("encrypt");
+        assert_ne!(
+            fs::read(&encrypted).expect("encrypted"),
+            b"riverside encrypted backup"
+        );
+
+        decrypt_backup_file(&encrypted, &restored).expect("decrypt");
+        assert_eq!(
+            fs::read(&restored).expect("restored"),
+            b"riverside encrypted backup"
+        );
     }
 }
 

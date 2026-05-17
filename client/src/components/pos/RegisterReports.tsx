@@ -19,10 +19,13 @@ import {
   User,
   Clock,
   Search,
+  ShieldAlert,
 } from "lucide-react";
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
+import PosVoidTransactionModal, { type PosVoidTransactionTarget } from "./PosVoidTransactionModal";
 import ProductHubDrawer from "../inventory/ProductHubDrawer";
 import { openProfessionalDailySalesPrint, openProfessionalZReportPrint } from "./zReportPrint";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
 
@@ -252,6 +255,21 @@ function activityTransactionId(row: RegisterActivityItem): string | null {
   return row.transaction_id ?? row.order_id ?? null;
 }
 
+function activityVoidTarget(row: RegisterActivityItem): PosVoidTransactionTarget | null {
+  const transactionId = activityTransactionId(row);
+  if (!transactionId) return null;
+  return {
+    transactionId,
+    receiptLabel: row.short_id || transactionId.slice(0, 8),
+    customerLabel: row.customer_name || "Walk-in Customer",
+    amountLabel: row.transaction_total
+      ? `$${row.transaction_total}`
+      : row.amount_label || row.sales_total || "$0.00",
+    paymentSummary: row.payment_summary,
+    fulfillmentLabel: activityFulfillmentLabel(row),
+  };
+}
+
 function activitySearchText(row: RegisterActivityItem): string {
   return [
     row.title,
@@ -408,8 +426,11 @@ export default function RegisterReports({
   const [activitySearch, setActivitySearch] = useState("");
 
   const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
   const apiAuth = useCallback(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
   const selectedSummary = reportBasis === "booked" ? summaryBooked : summary;
+  const [voidTarget, setVoidTarget] = useState<PosVoidTransactionTarget | null>(null);
+  const [voidBusy, setVoidBusy] = useState(false);
 
   const buildActivityParams = useCallback((basis: "booked" | "fulfilled" = reportBasis) => {
     const params = new URLSearchParams();
@@ -666,6 +687,60 @@ export default function RegisterReports({
     a.click();
   };
 
+  const submitVoidTransaction = useCallback(
+    async (args: { managerStaffId: string; managerPin: string; reason: string }) => {
+      if (!voidTarget) return false;
+      if (!sessionId) {
+        toast("Open or attach to a register before voiding a completed transaction.", "error");
+        return false;
+      }
+      setVoidBusy(true);
+      try {
+        const res = await fetch(`${baseUrl}/api/transactions/${voidTarget.transactionId}/void`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...apiAuth(),
+          },
+          body: JSON.stringify({
+            register_session_id: sessionId,
+            manager_staff_id: args.managerStaffId,
+            manager_pin: args.managerPin,
+            reason: args.reason,
+          }),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => ({}))) as { error?: string };
+          toast(payload.error || "Transaction void could not be completed.", "error");
+          return false;
+        }
+        const payload = (await res.json()) as {
+          reversal_status?: string;
+          refundable_amount?: string;
+        };
+        const amount = payload.refundable_amount ? `$${payload.refundable_amount}` : "the paid balance";
+        toast(
+          payload.reversal_status === "no_refund_due"
+            ? "Transaction voided. No refund balance remains."
+            : `Transaction voided. Refund workflow opened for ${amount}.`,
+          "success",
+        );
+        setVoidTarget(null);
+        const bookedData = await fetchSummary("booked");
+        if (bookedData) setSummaryBooked(bookedData);
+        const fulfilledData = await fetchSummary("fulfilled");
+        if (fulfilledData) setSummary(fulfilledData);
+        return true;
+      } catch {
+        toast("Transaction void is unavailable. Try again or call a manager.", "error");
+        return false;
+      } finally {
+        setVoidBusy(false);
+      }
+    },
+    [apiAuth, fetchSummary, sessionId, toast, voidTarget],
+  );
+
   return (
     <div className="flex flex-1 flex-col bg-app-bg p-4 sm:p-6">
       <ReceiptSummaryModal
@@ -674,6 +749,15 @@ export default function RegisterReports({
         baseUrl={baseUrl}
         registerSessionId={sessionId}
         getAuthHeaders={apiAuth}
+      />
+      <PosVoidTransactionModal
+        open={!!voidTarget}
+        target={voidTarget}
+        busy={voidBusy}
+        onClose={() => {
+          if (!voidBusy) setVoidTarget(null);
+        }}
+        onVoid={submitVoidTransaction}
       />
 
       {/* Header */}
@@ -987,12 +1071,23 @@ export default function RegisterReports({
                             </div>
                           </div>
                           
-                          <div className="mt-4 pt-4 border-t border-app-border/40">
+                          <div className="mt-4 grid gap-2 border-t border-app-border/40 pt-4">
 	                             <button type="button" onClick={() => {
                                 const transactionId = activityTransactionId(row);
                                 if (transactionId) setReceiptOrderId(transactionId);
                               }} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white">
                                 <Receipt size={14} /> Receipt
+                             </button>
+                             <button
+                               type="button"
+                               onClick={() => {
+                                 const target = activityVoidTarget(row);
+                                 if (target) setVoidTarget(target);
+                               }}
+                               disabled={!activityTransactionId(row)}
+                               className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 py-2 text-sm font-black text-app-danger shadow-sm transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                             >
+                               <ShieldAlert size={14} /> Void
                              </button>
                           </div>
                         </div>

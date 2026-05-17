@@ -215,6 +215,26 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "BACKUP_S3_SECRET_KEY",
     },
     IntegrationCredentialMapping {
+        integration_key: "backups",
+        credential_key: "cloud_access_token",
+        env_key: "BACKUP_CLOUD_ACCESS_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "backups",
+        credential_key: "cloud_refresh_token",
+        env_key: "BACKUP_CLOUD_REFRESH_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "backups",
+        credential_key: "cloud_client_id",
+        env_key: "BACKUP_CLOUD_CLIENT_ID",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "backups",
+        credential_key: "cloud_client_secret",
+        env_key: "BACKUP_CLOUD_CLIENT_SECRET",
+    },
+    IntegrationCredentialMapping {
         integration_key: "nuorder",
         credential_key: "consumer_key",
         env_key: "RIVERSIDE_NUORDER_CONSUMER_KEY",
