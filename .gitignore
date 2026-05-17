@@ -44,6 +44,15 @@ client/.env.pwa.local
 client/.env.register
 client/.env.register.local
 docs/.auth
+client/.env
+client/.env.local
+client/.env.development.local
+
+# Local deployment configs may contain production secrets.
+deployment/windows/riverside-deployment.config.json
+deployment/windows/deployment-package.manifest.json
+deployment/windows/deployment-manager.log
+riverside-os-secure-deployment-bundles/
 
 # --- IDEs / Editors ---
 .vscode/*

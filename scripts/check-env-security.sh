@@ -24,7 +24,7 @@ if [ -z "$CORS" ]; then
 elif [ "$CORS" == "*" ]; then
     echo -e "${RED}[FAIL] RIVERSIDE_CORS_ORIGINS is set to '*'. This is insecure for production!${NC}"
 else
-    echo -e "${GREEN}[PASS] RIVERSIDE_CORS_ORIGINS is defined: $CORS${NC}"
+    echo -e "${GREEN}[PASS] RIVERSIDE_CORS_ORIGINS is defined.${NC}"
 fi
 
 # 2. Bind Interface Audit
@@ -34,7 +34,7 @@ if [ -z "$BIND" ]; then
 elif [ "$BIND" == "0.0.0.0" ]; then
     echo -e "${YELLOW}[WARN] RIVERSIDE_HTTP_BIND is 0.0.0.0. Ensure firewall (Tailscale/OrbStack) is active.${NC}"
 else
-    echo -e "${GREEN}[PASS] RIVERSIDE_HTTP_BIND is set to: $BIND${NC}"
+    echo -e "${GREEN}[PASS] RIVERSIDE_HTTP_BIND is set.${NC}"
 fi
 
 # 3. Database URL Audit
@@ -48,7 +48,15 @@ HELCIM=$(grep "HELCIM_API_TOKEN" "$ENV_FILE" | cut -d'=' -f2)
 if [[ -n "$HELCIM" && "$HELCIM" != "replace_me" && "$HELCIM" != "dummy" ]]; then
     echo -e "${GREEN}[PASS] HELCIM_API_TOKEN is configured.${NC}"
 else
-    echo -e "${RED}[FAIL] HELCIM_API_TOKEN appears invalid or missing.${NC}"
+    HELCIM_DB_COUNT=0
+    if command -v psql >/dev/null 2>&1 && [[ -n "$DB_URL" ]]; then
+        HELCIM_DB_COUNT=$(psql "$DB_URL" -Atc "SELECT count(*) FROM integration_credentials WHERE integration_key = 'helcim';" 2>/dev/null || echo 0)
+    fi
+    if [[ "$HELCIM_DB_COUNT" =~ ^[0-9]+$ && "$HELCIM_DB_COUNT" -gt 0 ]]; then
+        echo -e "${GREEN}[PASS] Helcim credentials are configured in the encrypted credential store.${NC}"
+    else
+        echo -e "${RED}[FAIL] Helcim credentials appear invalid or missing.${NC}"
+    fi
 fi
 
 # 5. Meilisearch Audit
