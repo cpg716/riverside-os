@@ -715,6 +715,13 @@ export default function RosOperationsCenter({
     }),
     [readinessChecklist],
   );
+  const actionItems = useMemo(
+    () =>
+      derived.categories
+        .filter((category) => category.status !== "ready" || category.stale || category.blockerCount > 0)
+        .sort((a, b) => statusRank(b.status) - statusRank(a.status)),
+    [derived.categories],
+  );
 
   const copySnapshot = useCallback(async () => {
     try {
@@ -732,14 +739,11 @@ export default function RosOperationsCenter({
         <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-text-muted">
-              Store operations command center
+              Settings / System readiness
             </p>
             <h2 className="mt-2 text-3xl font-black tracking-tight text-app-text">
               ROS Operations Center
             </h2>
-            <p className="mt-2 max-w-3xl text-sm font-semibold leading-relaxed text-app-text-muted">
-              Centralized readiness, degraded-state visibility, and safe next actions. Source workflows remain in their original workspaces.
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -770,12 +774,12 @@ export default function RosOperationsCenter({
                 <h3 className="mt-1 text-2xl font-black">{statusLabel(derived.overallStatus)}</h3>
                 <p className="mt-1 text-sm font-semibold opacity-85">
                   {derived.overallStatus === "blocked"
-                    ? "Store open readiness has blockers. Review the marked categories before relying on normal operations."
+                    ? "Resolve the marked items before relying on normal operations."
                     : derived.overallStatus === "degraded"
-                      ? "Some operational data could not refresh. Showing last loaded operational data where available."
+                      ? "Some sources did not refresh. Use the links below to verify source workflows."
                       : derived.overallStatus === "review"
-                        ? "Operations can continue, but review the highlighted categories before treating the day as clear."
-                        : "Core operational checks are clear from the loaded sources."}
+                        ? "Review the highlighted items before treating the day as clear."
+                        : "Core checks are clear from the loaded sources."}
                 </p>
               </div>
             </div>
@@ -799,17 +803,73 @@ export default function RosOperationsCenter({
         </section>
 
         <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
+                Resolve queue
+              </p>
+              <h3 className="mt-1 text-xl font-black text-app-text">
+                {actionItems.length > 0 ? `${actionItems.length} item${actionItems.length === 1 ? "" : "s"} need action` : "All linked sources clear"}
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              Refresh Sources
+            </button>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {actionItems.length > 0 ? (
+              actionItems.map((category) => {
+                const Icon = category.Icon;
+                return (
+                  <button
+                    key={`action-${category.id}`}
+                    type="button"
+                    onClick={() => onNavigate(category.target)}
+                    className={`flex min-h-24 items-center gap-3 rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${cardClass(category.status)}`}
+                  >
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-current/20 bg-app-surface/70">
+                      <Icon size={20} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-black text-app-text">{category.title}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${statusClass(category.status)}`}>
+                          {statusLabel(category.status)}
+                        </span>
+                      </span>
+                      <span className="mt-1 block text-xs font-semibold text-app-text-muted">
+                        {category.nextAction}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                      Resolve
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="rounded-xl border border-app-success/30 bg-app-success/10 p-4 text-sm font-black text-app-success lg:col-span-2">
+                No blockers, stale sources, or review items are loaded.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
-                Store open/close checklist
+                Open / close check
               </p>
               <h3 className="mt-1 text-xl font-black text-app-text">
                 {checklistMode === "open" ? "Open Store" : "Close Store"} readiness
               </h3>
-              <p className="mt-1 text-sm font-semibold text-app-text-muted">
-                Guided review using the same loaded health sources. No checklist item changes source workflows.
-              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               {(["open", "close"] as const).map((mode) => (
@@ -885,9 +945,6 @@ export default function RosOperationsCenter({
                     </span>
                   </div>
                   <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 px-3 py-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      Checklist guidance
-                    </p>
                     <p className="mt-1 text-xs font-semibold text-app-text">
                       {guidance} {category.nextAction}
                     </p>
@@ -898,7 +955,7 @@ export default function RosOperationsCenter({
                     aria-label={`Review ${category.title} source workflow`}
                     className="mt-3 inline-flex min-h-9 items-center rounded-lg border border-app-border bg-app-bg px-3 text-[9px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
                   >
-                    Review Source
+                    {category.status === "ready" ? "Open Source" : "Resolve Source"}
                   </button>
                 </article>
               );
@@ -921,7 +978,7 @@ export default function RosOperationsCenter({
                     </div>
                     <div>
                       <h3 className="text-base font-black text-app-text">{category.title}</h3>
-                      <p className="mt-1 text-sm font-semibold leading-relaxed text-app-text-muted">
+                      <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
                         {category.summary}
                       </p>
                     </div>
@@ -946,17 +1003,12 @@ export default function RosOperationsCenter({
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-xl border border-app-border bg-app-bg/50 p-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Next safe action</p>
-                  <p className="mt-1 text-sm font-semibold text-app-text">{category.nextAction}</p>
-                </div>
-
                 <button
                   type="button"
                   onClick={() => onNavigate(category.target)}
                   className="mt-4 inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
                 >
-                  {category.buttonLabel}
+                  {category.status === "ready" ? category.buttonLabel : "Resolve / Review"}
                 </button>
               </article>
             );
@@ -996,15 +1048,28 @@ export default function RosOperationsCenter({
             <div className="flex items-center gap-2">
               <ClipboardCheck size={18} className="text-app-accent" />
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Support Snapshot
+                Support
               </h3>
             </div>
             <p className="mt-3 text-sm font-semibold leading-relaxed text-app-text-muted">
-              Copy a concise operational snapshot before calling support. It includes versions, blockers, stale sources, and safe next actions.
+              Copy the current status for support, or open deeper diagnostics and guarded actions.
             </p>
-            <pre className="mt-4 max-h-72 overflow-auto rounded-xl border border-app-border bg-app-bg/70 p-3 text-[10px] text-app-text-muted whitespace-pre-wrap">
-              {supportSnapshot}
-            </pre>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => void copySnapshot()}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
+              >
+                <Copy size={14} /> {snapshotCopied ? "Copied" : "Copy Snapshot"}
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate({ tab: "settings", section: "ros-dev-center" })}
+                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
+              >
+                Open Diagnostics
+              </button>
+            </div>
           </div>
         </section>
       </div>

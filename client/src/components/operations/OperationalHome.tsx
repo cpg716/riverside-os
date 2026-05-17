@@ -37,9 +37,7 @@ import MailboxOperationsSection from "./MailboxOperationsSection";
 import RegisterReports from "../pos/RegisterReports";
 import FulfillmentCommandCenter from "./FulfillmentCommandCenter";
 import ReviewsOperationsSection from "./ReviewsOperationsSection";
-import RosOperationsCenter, {
-  type OperationsCenterNavigateTarget,
-} from "./RosOperationsCenter";
+import type { OperationsCenterNavigateTarget } from "./RosOperationsCenter";
 import SalesByHourSnapshotCard from "../reports/SalesByHourSnapshotCard";
 import type { Customer } from "../pos/CustomerSelector";
 import {
@@ -1333,15 +1331,6 @@ export default function OperationalHome({
           )}
         </div>
       </div>
-    );
-  }
-
-  if (activeSection === "ops-center") {
-    return (
-      <RosOperationsCenter
-        refreshSignal={refreshSignal}
-        onNavigate={(target) => onNavigateMetric?.(target)}
-      />
     );
   }
 

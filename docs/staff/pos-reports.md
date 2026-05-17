@@ -12,7 +12,7 @@
 
 **Reports** answers **“How is this drawer doing right now?”** — tender buckets, expected vs actual cash context, and mid-shift checks. It is **not** **Back Office → Insights**, which opens **Metabase** for store-wide analytics. Deep pivots and dashboards are built in Metabase (see [insights-back-office.md](insights-back-office.md)).
 
-**Z-Reports (Unified):** **Register #1** is the canonical closing lane. Running **close / Z** on lane #1 automatically aggregates data from satellite lanes (**#2 iPad**, **#3 Back Office**) into a single professional audit document. Mid-shift "X-Reports" have been deprecated; use the live **Register Dashboard** for mid-shift reads — see **[Till group](../TILL_GROUP_AND_REGISTER_OPEN.md)**.
+**Z-Reports (Unified):** **Register #1** is the canonical closing lane. Running **close / Z** on lane #1 automatically aggregates data from satellite lanes (**#2 iPad**, **#3 Back Office**) into a single professional audit document. The close flow is three pages: **Cash**, **Checks**, then **Z-Report**. Canceling before the final page does not close the drawer. Mid-shift "X-Reports" have been deprecated; use the live **Register Dashboard** for mid-shift reads — see **[Till group](../TILL_GROUP_AND_REGISTER_OPEN.md)**.
 
 ## Common tasks
 
@@ -33,7 +33,8 @@
 
 1. Runner-up reads **Reports** with closing lead.
 2. Confirm **no open carts** before trusting session totals.
-3. Follow **Z / close** procedure in **Sessions** or manager workflow.
+3. Follow **Z / close** on **Register #1**. If card review blocks close, use the close-drawer **Review** action or **POS → Payments** to record the terminal outcome before finalizing.
+4. The final Z-report includes cash/check review, lane tenders, QBO journal-entry preview, and non-sale inventory activity such as Receiving, RTV, Damaged, Physical Count, and Adjustments.
 
 ## Helping a coworker
 
@@ -46,6 +47,7 @@
 |--------|-------------------|---------------|
 | Empty / 403 | **register.reports** + session | Manager uses BO path |
 | Totals don’t match cart | Complete or **park** open sales | — |
+| Card review blocks close | Use **Review** in Z-close or **POS → Payments** and record the terminal outcome | Manager checks Back Office Payments → Health if the issue still remains |
 | Stale timestamp | **Refresh** | Network |
 | Two sessions confused | **Session ordinal** on report header | Lead identifies correct drawer |
 
@@ -64,4 +66,4 @@
 - [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-05-17

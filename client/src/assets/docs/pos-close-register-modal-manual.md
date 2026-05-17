@@ -29,15 +29,18 @@ Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** au
 - Closing Register #1 will automatically reconcile and close all satellite lanes in a single audit transaction.
 
 ## The Reconciliation Flow
-1. **Count Cash**: Enter the total physical cash in the drawer (including the base float).
-2. **Review Tenders**: Compare the provided totals for Card, Gift Card, and R2S charges against your terminal reports.
-3. **Verify Discrepancies**: If current totals don't match, review the **Daily Sales** history before finalizing.
-4. **Finalize Z-Report**: Tap **Close Register & Print Z-Report**.
+1. **Cash**: Count bills and coins by denomination, or enter one drawer total.
+2. **Checks**: Confirm every check number and amount.
+3. **Z-Report**: Review totals, add required notes, then tap **Close & Print Z-Report**.
+
+If a card terminal outcome blocks close, use **Review** in the closing workflow or **POS → Payments** to record the outcome before continuing.
 
 ## Professional Z-Report
 Upon closing, a professional, full-page **Z-Audit Report** is generated. 
 - **Audit Grade**: Replaces legacy thermal strips with high-fidelity Letter/A4 documents.
 - **Reporting Station**: The header confirms the assigned printer name for accountability.
+- **QBO Preview**: Shows the journal-entry breakdown staged for QuickBooks review.
+- **Inventory Activity**: Lists non-sale inventory moves for the day, including Receiving, RTV, Damaged, Physical Count, and Adjustments.
 - **Routing**: This report prints automatically to your **Report Station** (System Printer).
 
 ## Recovery and escalation

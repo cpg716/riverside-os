@@ -57,6 +57,7 @@ export default function PosSidebar({
       { id: "inventory", label: "Inventory", icon: getAppIcon(APP_NAV_ICON_NAMES.inventory) }, // catalog.view is usually a baseline for catalog discovery
       { id: "orders", label: "Orders", icon: getAppIcon(APP_NAV_ICON_NAMES.orders), permission: "orders.view" },
       { id: "reports", label: "Reports", icon: getAppIcon(APP_NAV_ICON_NAMES.reports), permission: "insights.view" },
+      { id: "payments", label: "Payments", icon: getAppIcon(APP_NAV_ICON_NAMES.payments) },
       { id: "gift-cards", label: "Gift Cards", icon: getAppIcon(APP_NAV_ICON_NAMES["gift-cards"]), permission: "gift_cards.manage" },
       { id: "loyalty", label: "Loyalty", icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty), permissionsAny: ["loyalty.program_settings", "loyalty.adjust_points"] },
       { id: "layaways", label: "Layaways", icon: getAppIcon(APP_NAV_ICON_NAMES.layaways) }, // customer-hub access usually includes layaways

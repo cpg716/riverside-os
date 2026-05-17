@@ -529,13 +529,13 @@ pub async fn propose_daily_journal(
             p.category_id,
             c.name AS category_name,
             it.tx_type::text,
-            SUM((it.unit_cost * it.quantity_delta)::numeric(14, 2)) AS total_value
+            SUM(((COALESCE(it.unit_cost, 0) + COALESCE(it.landed_cost_component, 0)) * it.quantity_delta)::numeric(14, 2)) AS total_value
         FROM inventory_transactions it
         INNER JOIN product_variants pv ON pv.id = it.variant_id
         INNER JOIN products p ON p.id = pv.product_id
         LEFT JOIN categories c ON c.id = p.category_id
         WHERE (it.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
-          AND it.tx_type::text IN ('adjustment', 'damaged', 'return_to_vendor', 'physical_inventory')
+          AND it.tx_type::text IN ('po_receipt', 'adjustment', 'damaged', 'return_to_vendor', 'physical_inventory')
         GROUP BY p.category_id, c.name, it.tx_type::text
         "#,
     )
@@ -554,6 +554,11 @@ pub async fn propose_daily_journal(
             .unwrap_or_else(|| "_uncategorized".to_string());
 
         let (fallback_key, debit_internal, memo_prefix) = match itx.tx_type.as_str() {
+            "po_receipt" => (
+                Some("INV_RECEIVING_CLEARING"),
+                "INV_RECEIVING_CLEARING",
+                "Receiving",
+            ),
             "damaged" => (Some("INV_SHRINKAGE"), "INV_SHRINKAGE", "Inventory Damage"),
             "return_to_vendor" => (
                 Some("INV_RTV_CLEARING"),

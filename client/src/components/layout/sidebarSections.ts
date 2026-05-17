@@ -34,7 +34,6 @@ export interface SubItem {
 export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
   home: [
     { id: "dashboard", label: "Dashboard" },
-    { id: "ops-center", label: "Operations Center" },
     { id: "daily-sales", label: "Daily Sales" },
     { id: "fulfillment", label: "Pickup Queue" },
     { id: "inbox", label: "Podium Inbox" },
@@ -151,6 +150,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "help-center", label: "Help Center" },
     { id: "rosie", label: "ROSIE" },
     { id: "bug-reports", label: "Bug Reports" },
+    { id: "ros-operations-center", label: "ROS Operations Center" },
     { id: "ros-dev-center", label: "ROS Dev Center" },
   ],
   shipping: [],

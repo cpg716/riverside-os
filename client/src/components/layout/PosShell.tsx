@@ -18,6 +18,7 @@ import PodiumMessagingInboxSection from "../customers/PodiumMessagingInboxSectio
 const LoyaltyWorkspace = lazy(() => import("../loyalty/LoyaltyWorkspace"));
 const ShipmentsHubSection = lazy(() => import("../customers/ShipmentsHubSection"));
 const SettingsWorkspace = lazy(() => import("../settings/SettingsWorkspace"));
+const PaymentsWorkspace = lazy(() => import("../payments/PaymentsWorkspace"));
 
 const OrdersWorkspace = lazy(() => import("../orders/OrdersWorkspace"));
 const ProcurementHub = lazy(() => import("../pos/ProcurementHub"));
@@ -483,6 +484,13 @@ export default function PosShell({
             </div>
           )}
           {activePosTab === "reports" && <RegisterReports sessionId={sessionId} />}
+          {activePosTab === "payments" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Payments...</div>}>
+                <PaymentsWorkspace surface="pos" activeSection="health" />
+              </Suspense>
+            </div>
+          )}
           {activePosTab === "gift-cards" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Gift Card Hub...</div>}>

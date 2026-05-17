@@ -135,6 +135,37 @@ async fn require_payment_permission_any(
     Ok(staff)
 }
 
+async fn require_payment_permission_or_pos_staff(
+    state: &AppState,
+    headers: &HeaderMap,
+    permission: &'static str,
+    fallback_permissions: &'static [&'static str],
+) -> Result<Option<AuthenticatedStaff>, PaymentError> {
+    match require_payment_permission_any(state, headers, permission, fallback_permissions).await {
+        Ok(staff) => Ok(Some(staff)),
+        Err(permission_error) => {
+            if !matches!(
+                &permission_error,
+                PaymentError::Forbidden(_) | PaymentError::Unauthorized(_)
+            ) {
+                return Err(permission_error);
+            }
+            match middleware::require_staff_or_pos_register_session(state, headers).await {
+                Ok(middleware::StaffOrPosSession::Staff(staff)) => Ok(Some(staff)),
+                Ok(middleware::StaffOrPosSession::PosSession { .. }) => {
+                    tracing::info!(
+                        requested_permission = %permission,
+                        fallback_permissions = ?fallback_permissions,
+                        "Payments POS staff fallback authorized"
+                    );
+                    Ok(None)
+                }
+                Err(_) => Err(permission_error),
+            }
+        }
+    }
+}
+
 impl IntoResponse for PaymentError {
     fn into_response(self) -> Response {
         let (status, msg) = match self {
@@ -3176,7 +3207,7 @@ async fn get_helcim_events_health(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<HelcimEventsHealthResponse>, PaymentError> {
-    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
+    require_payment_permission_or_pos_staff(&state, &headers, PAYMENTS_VIEW, &[]).await?;
     #[derive(sqlx::FromRow)]
     struct HealthRow {
         recent_event_count: i64,
@@ -3262,6 +3293,12 @@ async fn get_helcim_events_health(
                 )
             )
           )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM helcim_terminal_recovery_actions hra
+              WHERE hra.source_kind = 'payment_provider_attempt'
+                AND hra.source_id = ppa.id
+          )
         ORDER BY
             CASE
                 WHEN ppa.status = 'pending' THEN 0
@@ -3299,6 +3336,12 @@ async fn get_helcim_events_health(
                 AND event_type IN ('cardTransaction', 'terminalCancel')
                 AND received_at >= now() - interval '7 days'
             )
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM helcim_terminal_recovery_actions hra
+              WHERE hra.source_kind = 'helcim_event'
+                AND hra.source_id = helcim_event_log.id
           )
         ORDER BY received_at DESC
         LIMIT 25
@@ -3498,7 +3541,7 @@ async fn create_helcim_terminal_recovery_action(
     let action = normalize_helcim_recovery_action(&payload.action)?;
     let staff = match action.as_str() {
         "reviewed" | "noted" => {
-            require_payment_permission_any(
+            require_payment_permission_or_pos_staff(
                 &state,
                 &headers,
                 PAYMENTS_RECONCILE_REVIEW,
@@ -3507,7 +3550,7 @@ async fn create_helcim_terminal_recovery_action(
             .await?
         }
         _ => {
-            require_payment_permission_any(
+            require_payment_permission_or_pos_staff(
                 &state,
                 &headers,
                 PAYMENTS_RECONCILE_RESOLVE,
@@ -3543,7 +3586,7 @@ async fn create_helcim_terminal_recovery_action(
     .bind(payload.source_id)
     .bind(&action)
     .bind(note.as_deref())
-    .bind(staff.id)
+    .bind(staff.as_ref().map(|actor| actor.id))
     .bind(metadata)
     .fetch_one(&state.db)
     .await
@@ -3669,7 +3712,7 @@ async fn list_helcim_card_terminals(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, PaymentError> {
-    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
+    require_payment_permission_or_pos_staff(&state, &headers, PAYMENTS_VIEW, &[]).await?;
     let config = helcim::HelcimConfig::from_env();
     helcim::list_card_terminals(&state.http_client, &config)
         .await
@@ -3682,7 +3725,7 @@ async fn list_helcim_devices(
     headers: HeaderMap,
     Query(query): Query<HelcimDevicesQuery>,
 ) -> Result<Json<Value>, PaymentError> {
-    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
+    require_payment_permission_or_pos_staff(&state, &headers, PAYMENTS_VIEW, &[]).await?;
     let config = helcim::HelcimConfig::from_env();
     let query = helcim::HelcimDevicesQuery {
         code: query.code,
@@ -3700,7 +3743,7 @@ async fn get_helcim_device(
     headers: HeaderMap,
     Path(code): Path<String>,
 ) -> Result<Json<Value>, PaymentError> {
-    require_payment_permission(&state, &headers, PAYMENTS_VIEW).await?;
+    require_payment_permission_or_pos_staff(&state, &headers, PAYMENTS_VIEW, &[]).await?;
     let config = helcim::HelcimConfig::from_env();
     helcim::get_device(&state.http_client, &config, &code)
         .await
@@ -3713,7 +3756,7 @@ async fn ping_helcim_device(
     headers: HeaderMap,
     Path(code): Path<String>,
 ) -> Result<Json<HelcimDeviceActionResponse>, PaymentError> {
-    require_payment_permission(&state, &headers, PAYMENTS_SYNC).await?;
+    require_payment_permission_or_pos_staff(&state, &headers, PAYMENTS_SYNC, &[]).await?;
     let config = helcim::HelcimConfig::from_env();
     let normalized = code.trim().to_ascii_uppercase();
     let response = helcim::ping_device(&state.http_client, &config, &normalized)

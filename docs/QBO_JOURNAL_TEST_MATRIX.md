@@ -52,16 +52,20 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 
 ## Ledger mapping fallbacks (inventory / COGS)
 
-Suit **component swap** cost-delta lines and some **return-day restock** paths use `ledger_mapping` fallbacks when category-specific accounts are not set:
+Suit **component swap** cost-delta lines, operational inventory moves, and some **return-day restock** paths use `ledger_mapping` fallbacks when category-specific accounts are not set:
 
 | Fallback key | Role |
 |--------------|------|
-| **`INV_ASSET`** | Debit/credit inventory asset for restock and swap net cost moves |
+| **`INV_ASSET`** | Debit/credit inventory asset for restock, receiving, adjustment, and swap net cost moves |
 | **`COGS_DEFAULT`** | Offset COGS side for swap cost delta when used with **`INV_ASSET`** |
+| **`INV_RECEIVING_CLEARING`** | Credit side for received inventory before vendor bill/AP posting |
+| **`INV_RTV_CLEARING`** | Debit/credit side for return-to-vendor inventory moves |
+| **`INV_SHRINKAGE`** | Expense side for damaged or shrinkage inventory moves |
 
 Staging checklist:
 
 - [ ] **`INV_ASSET`** mapped in **`ledger_mappings`** before relying on restock or swap inventory lines  
+- [ ] **`INV_RECEIVING_CLEARING`** mapped before relying on PO receiving lines in the daily journal
 - [ ] **`COGS_DEFAULT`** mapped for swap COGS offset when swaps occur on the journal date  
 - [ ] If **propose** shows a warning about **`INV_ASSET`** missing on a return day with restock COGS, add the mapping and re-propose  
 

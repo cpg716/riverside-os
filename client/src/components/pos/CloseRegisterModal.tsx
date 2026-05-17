@@ -45,6 +45,9 @@ interface OverrideSummary {
 interface Reconciliation {
   report_type?: string;
   session_id: string;
+  qbo_activity_date?: string;
+  qbo_journal?: QboJournalProposal | null;
+  qbo_journal_error?: string | null;
   opening_float: string;
   net_cash_adjustments?: string;
   expected_cash: string;
@@ -54,7 +57,45 @@ interface Reconciliation {
   manual_drawer_opens?: ManualDrawerOpenLine[];
   override_summary?: OverrideSummary[];
   transactions: TransactionLine[];
+  inventory_activity?: InventoryActivityLine[];
   unresolved_helcim_attempts?: HelcimCloseReviewAttempt[];
+}
+
+interface QboJournalProposal {
+  activity_date: string;
+  business_timezone: string;
+  generated_at: string;
+  lines: QboJournalLine[];
+  warnings: string[];
+  totals: {
+    debits: string;
+    credits: string;
+    balanced: boolean;
+  };
+}
+
+interface QboJournalLine {
+  qbo_account_id: string;
+  qbo_account_name: string;
+  debit: string;
+  credit: string;
+  memo: string;
+}
+
+interface InventoryActivityLine {
+  id: string;
+  created_at: string;
+  tx_type: string;
+  sku: string;
+  product_name: string;
+  category_name?: string | null;
+  quantity_delta: number;
+  unit_cost?: string | null;
+  value_delta: string;
+  reference_table?: string | null;
+  reference_id?: string | null;
+  notes?: string | null;
+  staff_name?: string | null;
 }
 
 interface HelcimCloseReviewAttempt {
@@ -69,11 +110,13 @@ interface HelcimCloseReviewAttempt {
 }
 
 interface TransactionLine {
-  transaction_id: string;
+  payment_transaction_id?: string;
+  transaction_id?: string;
   created_at: string;
   payment_method: string;
   amount: string;
-  order_id: string | null;
+  check_number?: string | null;
+  order_id?: string | null;
   transaction_display_id?: string | null;
   transaction_status?: string | null;
   transaction_total?: string | null;
@@ -125,27 +168,92 @@ type DenomKey =
   | "c5"
   | "c1";
 
-const DENOMS: { key: DenomKey; label: string; value: number }[] = [
-  { key: "c100", label: "$100", value: 100 },
-  { key: "c50", label: "$50", value: 50 },
-  { key: "c20", label: "$20", value: 20 },
-  { key: "c10", label: "$10", value: 10 },
-  { key: "c5", label: "$5", value: 5 },
-  { key: "c1", label: "$1", value: 1 },
+type CoinDenomKey =
+  | "coin100"
+  | "coin50"
+  | "coin25"
+  | "coin10"
+  | "coin5"
+  | "coin1";
+
+type EntryTarget =
+  | { mode: "count"; group: "bill"; key: DenomKey }
+  | { mode: "count"; group: "coin"; key: CoinDenomKey }
+  | { mode: "money"; key: "fullDrawerTotal" };
+
+interface CheckReviewEntry {
+  checkNumber: string;
+  amount: string;
+  confirmed: boolean;
+}
+
+type HelcimCloseReviewAction =
+  | "reviewed"
+  | "resolved_no_action"
+  | "provider_charge_confirmed"
+  | "duplicate_suspected"
+  | "refund_required";
+
+const HELCIM_CLOSE_REVIEW_ACTIONS: { value: HelcimCloseReviewAction; label: string }[] = [
+  { value: "reviewed", label: "Reviewed" },
+  { value: "resolved_no_action", label: "No charge / no action" },
+  { value: "provider_charge_confirmed", label: "Charge confirmed" },
+  { value: "duplicate_suspected", label: "Duplicate suspected" },
+  { value: "refund_required", label: "Refund needed" },
+];
+
+const DENOMS: { key: DenomKey; label: string; valueCents: number }[] = [
+  { key: "c100", label: "$100", valueCents: 10000 },
+  { key: "c50", label: "$50", valueCents: 5000 },
+  { key: "c20", label: "$20", valueCents: 2000 },
+  { key: "c10", label: "$10", valueCents: 1000 },
+  { key: "c5", label: "$5", valueCents: 500 },
+  { key: "c1", label: "$1", valueCents: 100 },
+];
+
+const COIN_DENOMS: { key: CoinDenomKey; label: string; valueCents: number }[] = [
+  { key: "coin100", label: "$1", valueCents: 100 },
+  { key: "coin50", label: "50c", valueCents: 50 },
+  { key: "coin25", label: "25c", valueCents: 25 },
+  { key: "coin10", label: "10c", valueCents: 10 },
+  { key: "coin5", label: "5c", valueCents: 5 },
+  { key: "coin1", label: "1c", valueCents: 1 },
 ];
 
 const REGISTER_CLOSE_STEPS = [
   {
     id: "count",
-    label: "Blind count",
-    hint: "Count the drawer before you see system totals.",
+    label: "Cash",
+    hint: "Count drawer.",
+  },
+  {
+    id: "checks",
+    label: "Checks",
+    hint: "Verify checks.",
   },
   {
     id: "report",
-    label: "Review & finalize",
-    hint: "Compare the count, add notes if needed, then close the shift.",
+    label: "Z-Report",
+    hint: "Close and print.",
   },
 ] as const;
+
+function parseCountInput(value: string): number {
+  const clean = value.trim();
+  if (clean === "") return 0;
+  const parsed = Number.parseInt(clean, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function normalizeCountInput(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits === "") return "0";
+  return digits.replace(/^0+(?=\d)/, "");
+}
+
+function paymentLineId(line: TransactionLine): string {
+  return line.payment_transaction_id ?? line.transaction_id ?? `${line.created_at}-${line.payment_method}-${line.amount}`;
+}
 
 function mapCloseSessionError(message: string): string {
   const normalized = message.trim().toLowerCase();
@@ -185,7 +293,7 @@ export default function CloseRegisterModal({
     return /^\d{4}$/.test(c) ? c : null;
   }, [staffCode]);
 
-  const [step, setStep] = useState<"count" | "report">("count");
+  const [step, setStep] = useState<"count" | "checks" | "report">("count");
   const [actualCash, setActualCash] = useState("");
   const [notes, setNotes] = useState("");
   const [closingComments, setClosingComments] = useState("");
@@ -203,8 +311,24 @@ export default function CloseRegisterModal({
       c1: "0",
     }),
   );
-  const [coinSupplement, setCoinSupplement] = useState("");
+  const [coinCounts, setCoinCounts] = useState<Record<CoinDenomKey, string>>(
+    () => ({
+      coin100: "0",
+      coin50: "0",
+      coin25: "0",
+      coin10: "0",
+      coin5: "0",
+      coin1: "0",
+    }),
+  );
   const [fullDrawerTotal, setFullDrawerTotal] = useState("");
+  const [activeEntry, setActiveEntry] = useState<EntryTarget | null>(null);
+  const [freshEntry, setFreshEntry] = useState(false);
+  const [checkReview, setCheckReview] = useState<Record<string, CheckReviewEntry>>({});
+  const [activeHelcimReviewId, setActiveHelcimReviewId] = useState<string | null>(null);
+  const [helcimReviewAction, setHelcimReviewAction] = useState<HelcimCloseReviewAction>("reviewed");
+  const [helcimReviewNote, setHelcimReviewNote] = useState("");
+  const [helcimReviewSubmitting, setHelcimReviewSubmitting] = useState(false);
   const [showFinalConfirm, setShowFinalConfirm] = useState(false);
   const [offlineQueueSummary, setOfflineQueueSummary] = useState<CheckoutQueueSummary>({
     totalCount: 0,
@@ -234,21 +358,25 @@ export default function CloseRegisterModal({
     })();
   }, [sessionId, baseUrl, jsonAuthHeaders, reconcileCashierCode, registerLane]);
 
+  const refreshReconciliation = useCallback(async () => {
+    const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/reconciliation`, {
+      headers: mergedPosStaffHeaders(backofficeHeaders),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as Reconciliation;
+    setRecon(data);
+    return data;
+  }, [backofficeHeaders, baseUrl, sessionId]);
+
   useEffect(() => {
     if (registerLane != null && registerLane !== 1) return;
     if (!reconcileCashierCode) return;
     let cancelled = false;
     setReconError(null);
-    fetch(`${baseUrl}/api/sessions/${sessionId}/reconciliation`, {
-      headers: mergedPosStaffHeaders(backofficeHeaders),
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? `HTTP ${res.status}`);
-        }
-        return res.json() as Promise<Reconciliation>;
-      })
+    refreshReconciliation()
       .then((data) => {
         if (!cancelled) setRecon(data);
       })
@@ -259,7 +387,7 @@ export default function CloseRegisterModal({
         }
       });
     return () => { cancelled = true; };
-  }, [sessionId, baseUrl, backofficeHeaders, registerLane, reconcileCashierCode]);
+  }, [refreshReconciliation, registerLane, reconcileCashierCode]);
 
   const refreshOfflineQueueSummary = useCallback(async () => {
     const summary = await getCheckoutQueueSummary();
@@ -276,14 +404,23 @@ export default function CloseRegisterModal({
     return () => window.removeEventListener("queue_changed", handleQueueChanged);
   }, [refreshOfflineQueueSummary]);
 
-  const denominationTotal = useMemo(() => {
+  const billTotalCents = useMemo(() => {
     let t = 0;
     for (const d of DENOMS) {
-      const n = Number.parseInt(denomCounts[d.key] || "0", 10);
-      if (Number.isFinite(n) && n >= 0) t += n * d.value;
+      t += parseCountInput(denomCounts[d.key]) * d.valueCents;
     }
     return t;
   }, [denomCounts]);
+
+  const coinTotalCents = useMemo(() => {
+    let t = 0;
+    for (const d of COIN_DENOMS) {
+      t += parseCountInput(coinCounts[d.key]) * d.valueCents;
+    }
+    return t;
+  }, [coinCounts]);
+
+  const denominationTotalCents = billTotalCents + coinTotalCents;
 
   const blockForOfflineQueue = useCallback(async () => {
     const summary = await refreshOfflineQueueSummary();
@@ -321,41 +458,148 @@ export default function CloseRegisterModal({
     return `Card payment review required before Z-close: ${parts.join(", ")}. Review the terminal result, then record or void the attempt before closing.`;
   }, [unresolvedHelcimAttempts]);
 
+  const checkPayments = useMemo(
+    () =>
+      (recon?.transactions ?? []).filter(
+        (line) => line.payment_method.trim().toLowerCase() === "check",
+      ),
+    [recon?.transactions],
+  );
+
+  useEffect(() => {
+    setCheckReview((prev) => {
+      const next: Record<string, CheckReviewEntry> = {};
+      for (const line of checkPayments) {
+        const id = paymentLineId(line);
+        next[id] = prev[id] ?? {
+          checkNumber: line.check_number ?? "",
+          amount: centsToFixed2(parseMoneyToCents(line.amount)),
+          confirmed: false,
+        };
+      }
+      return next;
+    });
+  }, [checkPayments]);
+
+  const checksReady = useMemo(
+    () =>
+      checkPayments.every((line) => {
+        const review = checkReview[paymentLineId(line)];
+        return (
+          review?.confirmed === true &&
+          review.checkNumber.trim() !== "" &&
+          parseMoneyToCents(review.amount) === parseMoneyToCents(line.amount)
+        );
+      }),
+    [checkPayments, checkReview],
+  );
+
   const blockForHelcimReview = useCallback(() => {
     if (!helcimReviewMessage) return false;
     toast(helcimReviewMessage, "error");
     return true;
   }, [helcimReviewMessage, toast]);
 
+  const recordHelcimCloseReview = useCallback(async (attemptId: string) => {
+    if (helcimReviewSubmitting) return;
+    if (helcimReviewAction !== "reviewed" && !helcimReviewNote.trim()) {
+      toast("Add a note for this card review outcome.", "error");
+      return;
+    }
+    setHelcimReviewSubmitting(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/helcim-close-review/${attemptId}`, {
+        method: "POST",
+        headers: jsonAuthHeaders(),
+        body: JSON.stringify({
+          action: helcimReviewAction,
+          note: helcimReviewNote.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Card review could not be recorded.");
+      }
+      setActiveHelcimReviewId(null);
+      setHelcimReviewAction("reviewed");
+      setHelcimReviewNote("");
+      await refreshReconciliation();
+      toast("Card review cleared for Z-close.", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Card review could not be recorded.", "error");
+    } finally {
+      setHelcimReviewSubmitting(false);
+    }
+  }, [
+    baseUrl,
+    helcimReviewAction,
+    helcimReviewNote,
+    helcimReviewSubmitting,
+    jsonAuthHeaders,
+    refreshReconciliation,
+    sessionId,
+    toast,
+  ]);
+
+  const applyKeypadInput = (token: string) => {
+    if (!activeEntry) return;
+    const update = (current: string, money: boolean) => {
+      if (token === "clear") return money ? "" : "0";
+      if (token === "back") {
+        const next = freshEntry ? "" : current.slice(0, -1);
+        return next === "" ? (money ? "" : "0") : next;
+      }
+      if (token === "." && !money) return current;
+      if (token === "." && current.includes(".")) return current;
+      const base = freshEntry || (!money && current === "0") ? "" : current;
+      return `${base}${token}`;
+    };
+
+    if (activeEntry.mode === "money") {
+      setFullDrawerTotal((current) => update(current, true));
+      setFreshEntry(false);
+      return;
+    }
+    if (activeEntry.group === "bill") {
+      setDenomCounts((prev) => ({
+        ...prev,
+        [activeEntry.key]: update(prev[activeEntry.key], false),
+      }));
+      setFreshEntry(false);
+      return;
+    }
+    setCoinCounts((prev) => ({
+      ...prev,
+      [activeEntry.key]: update(prev[activeEntry.key], false),
+    }));
+    setFreshEntry(false);
+  };
+
+  const activeEntryLabel = useMemo(() => {
+    if (!activeEntry) return "Tap a field";
+    if (activeEntry.mode === "money") return "Drawer total";
+    const source = activeEntry.group === "bill" ? DENOMS : COIN_DENOMS;
+    return source.find((d) => d.key === activeEntry.key)?.label ?? "Count";
+  }, [activeEntry]);
+
   const handleBlindCountSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const bills = denominationTotal;
-    const coinCents =
-      coinSupplement.trim() === ""
-        ? 0
-        : Math.max(0, parseMoneyToCents(coinSupplement));
     const fullDrawerCents =
       fullDrawerTotal.trim() === ""
         ? null
         : parseMoneyToCents(fullDrawerTotal);
-    const hasPieces =
-      DENOMS.some(
-        (d) => Number.parseInt(denomCounts[d.key] || "0", 10) > 0,
-      ) || coinCents > 0;
-    let totalCents: number | null = null;
-    if (hasPieces) totalCents = Math.round(bills * 100) + coinCents;
-    else if (
-      fullDrawerCents !== null &&
-      fullDrawerCents >= 0 &&
-      fullDrawerTotal.trim() !== ""
-    )
-      totalCents = fullDrawerCents;
+    const totalCents =
+      fullDrawerCents !== null && fullDrawerTotal.trim() !== ""
+        ? fullDrawerCents
+        : denominationTotalCents > 0
+          ? denominationTotalCents
+          : null;
     if (totalCents == null || totalCents < 0) return;
     void (async () => {
       if (await blockForOfflineQueue()) return;
       if (blockForHelcimReview()) return;
       setActualCash(centsToFixed2(totalCents));
-      setStep("report");
+      setStep("checks");
     })();
   };
 
@@ -385,12 +629,64 @@ export default function CloseRegisterModal({
     closeOnEscape: !loading && !showFinalConfirm,
   });
 
-  const buildClosingNotesForReport = () => {
+  const buildClosingNotesForReport = useCallback(() => {
     const countEditNote = countEditReason.trim()
       ? `Count edit note: ${countEditReason.trim()}`
       : "";
-    return [notes.trim(), countEditNote].filter(Boolean).join("\n");
-  };
+    const checkReviewNote = checkPayments.length > 0
+      ? `Check review: ${checkPayments.map((line) => {
+          const review = checkReview[paymentLineId(line)];
+          return `#${review?.checkNumber.trim() || "missing"} $${centsToFixed2(parseMoneyToCents(line.amount))}`;
+        }).join(", ")}`
+      : "";
+    return [notes.trim(), countEditNote, checkReviewNote].filter(Boolean).join("\n");
+  }, [checkPayments, checkReview, countEditReason, notes]);
+
+  const openCurrentZReportPrint = useCallback((currentRecon: Reconciliation | null = recon) => {
+    if (!currentRecon) return;
+    const currentExpectedCents = parseMoneyToCents(currentRecon.expected_cash);
+    const currentActualCents = parseMoneyToCents(actualCash);
+    const currentOpeningCents = parseMoneyToCents(currentRecon.opening_float);
+    const currentNetAdjCents = parseMoneyToCents(currentRecon.net_cash_adjustments ?? "0");
+    const currentCashSalesCents = currentExpectedCents - currentOpeningCents - currentNetAdjCents;
+    const closingNotesForReport = buildClosingNotesForReport();
+    openProfessionalZReportPrint({
+      title: "Z-Report",
+      sessionId: currentRecon.session_id,
+      registerOrdinal,
+      cashierLabel: cashierName,
+      openedAt: null,
+      openingCents: currentOpeningCents,
+      cashSalesCents: currentCashSalesCents,
+      netAdjustmentsCents: currentNetAdjCents,
+      expectedCents: currentExpectedCents,
+      actualCents: currentActualCents,
+      discrepancyCents: currentActualCents - currentExpectedCents,
+      closingNotes: closingNotesForReport || null,
+      closingComments: closingComments.trim() || null,
+      tenders: currentRecon.tenders,
+      overrideSummary: currentRecon.override_summary ?? [],
+      tendersByLane: currentRecon.tenders_by_lane,
+      manualDrawerOpens: currentRecon.manual_drawer_opens ?? [],
+      qboActivityDate: currentRecon.qbo_activity_date ?? currentRecon.qbo_journal?.activity_date ?? null,
+      qboJournal: currentRecon.qbo_journal ?? null,
+      qboJournalError: currentRecon.qbo_journal_error ?? null,
+      inventoryActivity: currentRecon.inventory_activity ?? [],
+      transactions: currentRecon.transactions.map((t) => ({
+        created_at: t.created_at,
+        payment_method: t.payment_method,
+        amount: t.amount,
+        customer_name: t.customer_name,
+        transaction_display_id: t.transaction_display_id,
+        transaction_status: t.transaction_status,
+        transaction_total: t.transaction_total,
+        transaction_paid: t.transaction_paid,
+        transaction_balance_due: t.transaction_balance_due,
+        items: t.items ?? [],
+        register_lane: t.register_lane ?? 1,
+      })),
+    });
+  }, [actualCash, buildClosingNotesForReport, cashierName, closingComments, recon, registerOrdinal]);
 
   const handleFinalClose = async () => {
     setShowFinalConfirm(false);
@@ -418,6 +714,7 @@ export default function CloseRegisterModal({
           "Failed to close session";
         throw new Error(mapCloseSessionError(errorMessage));
       }
+      openCurrentZReportPrint(recon);
       onCloseComplete();
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : "Failed to close session", "error");
@@ -425,7 +722,7 @@ export default function CloseRegisterModal({
     }
   };
 
-  const renderWorkflowSummary = (currentStep: "count" | "report") => {
+  const renderWorkflowSummary = (currentStep: "count" | "checks" | "report") => {
     const currentIndex = REGISTER_CLOSE_STEPS.findIndex(
       (stepItem) => stepItem.id === currentStep,
     );
@@ -435,15 +732,16 @@ export default function CloseRegisterModal({
         : null;
 
     return (
-      <div className="ui-panel ui-tint-neutral space-y-3 p-4">
-        <div className="grid gap-2 sm:grid-cols-2">
+      <div className="rounded-2xl border border-app-border bg-app-surface/70 p-3">
+        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Close steps</p>
+        <div className="grid gap-2">
           {REGISTER_CLOSE_STEPS.map((stepItem, index) => {
             const isCurrent = stepItem.id === currentStep;
             const isComplete = index < currentIndex;
             return (
               <div
                 key={stepItem.id}
-                className={`rounded-xl border px-3 py-3 ${
+                className={`rounded-xl border px-3 py-2 ${
                   isCurrent
                     ? "border-app-accent bg-app-accent/10 text-app-text"
                     : isComplete
@@ -454,29 +752,19 @@ export default function CloseRegisterModal({
                 <p className="text-[10px] font-black uppercase tracking-widest opacity-75">
                   Step {index + 1}
                 </p>
-                <p className="mt-1 text-xs font-black uppercase tracking-wide text-current">
+                <p className="mt-0.5 text-[11px] font-black uppercase tracking-wide text-current">
                   {stepItem.label}
                 </p>
-                <p className="mt-1 text-[11px] leading-relaxed opacity-80">
+                <p className="mt-0.5 text-[10px] font-semibold opacity-80">
                   {stepItem.hint}
                 </p>
               </div>
             );
           })}
         </div>
-        <div className="ui-metric-cell ui-tint-info px-3 py-3 text-xs text-app-text-muted">
-          <p className="text-[10px] font-black uppercase tracking-widest">
-            Current stage
-          </p>
-          <p className="mt-1 font-bold text-app-text">
-            {REGISTER_CLOSE_STEPS[currentIndex]?.label}
-          </p>
-          <p className="mt-1 leading-relaxed">
-            {nextStep
-              ? `Next: ${nextStep.label}. ${nextStep.hint}`
-              : "Next: finalize the shared drawer from Register #1. This single Z-close finishes every open lane in the till group once the reconciliation summary and notes are complete."}
-          </p>
-        </div>
+        <p className="mt-2 text-[11px] font-bold text-app-text-muted">
+          {nextStep ? `Next: ${nextStep.label}` : "Next: print Z-Report"}
+        </p>
       </div>
     );
   };
@@ -484,32 +772,20 @@ export default function CloseRegisterModal({
   const renderOfflineQueueBlocker = () => {
     if (offlineQueueSummary.totalCount === 0) return null;
     return (
-      <div className="ui-panel ui-tint-danger p-4 text-xs text-app-text-muted">
+      <div className="ui-panel ui-tint-danger p-3 text-xs text-app-text-muted">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-            Checkout recovery required
+            Checkout recovery
           </p>
           <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">
-            Owner: manager
+            Manager
           </span>
         </div>
-        <p className="mt-1 leading-relaxed">
-          {offlineQueueSummary.blockedCount > 0
-            ? `${offlineQueueSummary.blockedCount} completed checkout${offlineQueueSummary.blockedCount === 1 ? "" : "s"} need manager recovery.`
-            : null}
-          {offlineQueueSummary.pendingCount > 0
-            ? ` ${offlineQueueSummary.pendingCount} completed checkout${offlineQueueSummary.pendingCount === 1 ? "" : "s"} still need to sync.`
-            : null}
-          {" "}Resolve these before closing so the Z report includes every completed sale.
+        <p className="mt-1 font-semibold">
+          {offlineQueueSummary.blockedCount > 0 ? `${offlineQueueSummary.blockedCount} need recovery.` : ""}
+          {offlineQueueSummary.pendingCount > 0 ? ` ${offlineQueueSummary.pendingCount} still syncing.` : ""}
+          {" "}Resolve before close.
         </p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          {["Open the checkout recovery item", "Resolve or sync each sale", "Return here and retry close"].map((step, index) => (
-            <div key={step} className="rounded-xl border border-app-danger/20 bg-app-surface/80 px-3 py-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-app-danger">Step {index + 1}</p>
-              <p className="mt-1 font-bold text-app-text">{step}</p>
-            </div>
-          ))}
-        </div>
       </div>
     );
   };
@@ -517,34 +793,64 @@ export default function CloseRegisterModal({
   const renderHelcimReviewBlocker = () => {
     if (!helcimReviewMessage) return null;
     return (
-      <div className="ui-panel ui-tint-danger p-4 text-xs text-app-text-muted">
+      <div className="ui-panel ui-tint-danger p-3 text-xs text-app-text-muted">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
-            Card payment needs review
+            Card review
           </p>
-          <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">
-            Owner: manager
-          </span>
+          <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger">POS review</span>
         </div>
-        <p className="mt-1 leading-relaxed">{helcimReviewMessage}</p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <p className="mt-1 font-semibold">
+          Clear {unresolvedHelcimAttempts.length} terminal outcome{unresolvedHelcimAttempts.length === 1 ? "" : "s"} before close.
+        </p>
+        <div className="mt-2 space-y-2">
           {unresolvedHelcimAttempts.slice(0, 4).map((attempt) => (
-            <p key={attempt.id} className="rounded-xl border border-app-border bg-app-surface/70 px-3 py-2 font-semibold text-app-text">
-              Register #{attempt.register_lane} · ${centsToFixed2(Math.abs(attempt.amount_cents))} · {
-                attempt.review_reason === "approved_not_recorded"
-                  ? "Approved, not recorded"
-                  : attempt.review_reason === "waiting_on_terminal"
-                    ? "Waiting on terminal"
-                    : "Outcome unresolved"
-              }
-            </p>
-          ))}
-        </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          {["Go to Payments > Health", "Record, void, or release the attempt", "Return here and retry close"].map((step, index) => (
-            <div key={step} className="rounded-xl border border-app-danger/20 bg-app-surface/80 px-3 py-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-app-danger">Step {index + 1}</p>
-              <p className="mt-1 font-bold text-app-text">{step}</p>
+            <div key={attempt.id} className="rounded-2xl border border-app-border bg-app-surface/80 p-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-black text-app-text">
+                  Reg #{attempt.register_lane} · ${centsToFixed2(Math.abs(attempt.amount_cents))} · {
+                    attempt.review_reason === "approved_not_recorded"
+                      ? "Approved"
+                      : attempt.review_reason === "waiting_on_terminal"
+                        ? "Waiting"
+                        : "Review"
+                  }
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveHelcimReviewId((current) => current === attempt.id ? null : attempt.id)}
+                  className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text"
+                >
+                  Review
+                </button>
+              </div>
+              {activeHelcimReviewId === attempt.id ? (
+                <div className="mt-3 grid gap-2">
+                  <select
+                    value={helcimReviewAction}
+                    onChange={(event) => setHelcimReviewAction(event.target.value as HelcimCloseReviewAction)}
+                    className="ui-input w-full px-3 py-2 text-xs font-bold"
+                  >
+                    {HELCIM_CLOSE_REVIEW_ACTIONS.map((action) => (
+                      <option key={action.value} value={action.value}>{action.label}</option>
+                    ))}
+                  </select>
+                  <textarea
+                    value={helcimReviewNote}
+                    onChange={(event) => setHelcimReviewNote(event.target.value)}
+                    placeholder={helcimReviewAction === "reviewed" ? "Optional note" : "Required note"}
+                    className="ui-input min-h-16 w-full p-3 text-xs"
+                  />
+                  <button
+                    type="button"
+                    disabled={helcimReviewSubmitting || (helcimReviewAction !== "reviewed" && !helcimReviewNote.trim())}
+                    onClick={() => void recordHelcimCloseReview(attempt.id)}
+                    className="ui-btn-primary py-2 text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                  >
+                    Clear Card Review
+                  </button>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -637,14 +943,10 @@ export default function CloseRegisterModal({
   }
 
   if (step === "count") {
-    const hasBillCounts = DENOMS.some(d => Number.parseInt(denomCounts[d.key] || "0", 10) > 0);
-    const coinOk =
-      coinSupplement.trim() !== "" &&
-      Number.isFinite(parseMoneyToCents(coinSupplement));
     const fullOk =
       fullDrawerTotal.trim() !== "" &&
       Number.isFinite(parseMoneyToCents(fullDrawerTotal));
-    const canSubmitDenom = hasBillCounts || coinOk || fullOk;
+    const canSubmitDenom = denominationTotalCents > 0 || fullOk;
 
     return createPortal(
       <div className="ui-overlay-backdrop !z-[200]">
@@ -660,19 +962,19 @@ export default function CloseRegisterModal({
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal relative max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-5xl sm:rounded-3xl"
+          className="ui-modal relative max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-[92rem] sm:rounded-3xl"
         >
           <div className="ui-modal-header flex items-center justify-between">
             <div className="flex gap-2">
               <span className="ui-pill ui-status-warn">Reconciling</span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Step 1 of 2</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Step 1 of 3</span>
             </div>
             <h2 id={titleId} className="text-sm font-black text-app-text uppercase tracking-widest">
               End of Shift
             </h2>
           </div>
-          <div className="ui-modal-body grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-            <div className="space-y-4">
+          <div className="ui-modal-body grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)_420px]">
+            <div className="space-y-3">
               {registerLane != null ? (
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Register #{registerLane}
@@ -680,42 +982,138 @@ export default function CloseRegisterModal({
                 </p>
               ) : null}
               {renderWorkflowSummary("count")}
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Review
+              </p>
               {renderOfflineQueueBlocker()}
               {renderHelcimReviewBlocker()}
-              <p className="rounded-2xl border border-app-border bg-app-surface/70 px-4 py-3 text-xs font-semibold text-app-text-muted">
-                Count the drawer without looking at the expected cash. Use the bill helper, or enter one full drawer total.
+              <p className="rounded-2xl border border-app-border bg-app-surface/70 px-3 py-2 text-[11px] font-bold text-app-text-muted">
+                Blind count. Enter denominations or one total.
               </p>
             </div>
 
-            <form onSubmit={handleBlindCountSubmit} className="space-y-4">
-              <div className="ui-panel ui-tint-neutral p-4">
-                <p className="mb-3 text-[10px] font-black uppercase text-app-text-muted tracking-widest">Bill count</p>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {DENOMS.map((d) => (
-                    <label key={d.key} className="flex flex-col gap-1 text-[10px] font-bold text-app-text-muted">
-                      {d.label}
-                      <input type="number" min={0} value={denomCounts[d.key]} onChange={e => setDenomCounts(prev => ({ ...prev, [d.key]: e.target.value }))} className="ui-input w-full p-2 text-center font-mono" />
-                    </label>
+            <form onSubmit={handleBlindCountSubmit} className="contents">
+              <div className="space-y-3">
+                <div className="ui-panel ui-tint-neutral p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-black uppercase text-app-text-muted tracking-widest">Bills</p>
+                    <p className="font-mono text-sm font-black text-app-success">${centsToFixed2(billTotalCents)}</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {DENOMS.map((d) => {
+                      const active = activeEntry?.mode === "count" && activeEntry.group === "bill" && activeEntry.key === d.key;
+                      return (
+                        <label key={d.key} className="flex flex-col gap-1 text-[10px] font-bold text-app-text-muted">
+                          {d.label}
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={denomCounts[d.key]}
+                            onFocus={(event) => {
+                              setActiveEntry({ mode: "count", group: "bill", key: d.key });
+                              setFreshEntry(true);
+                              event.currentTarget.select();
+                            }}
+                            onChange={e => {
+                              setFreshEntry(false);
+                              setDenomCounts(prev => ({ ...prev, [d.key]: normalizeCountInput(e.target.value) }));
+                            }}
+                            className={`ui-input w-full p-3 text-center font-mono text-lg ${active ? "border-app-accent ring-2 ring-app-accent/20" : ""}`}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="ui-panel ui-tint-neutral p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-black uppercase text-app-text-muted tracking-widest">Coins</p>
+                    <p className="font-mono text-sm font-black text-app-success">${centsToFixed2(coinTotalCents)}</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {COIN_DENOMS.map((d) => {
+                      const active = activeEntry?.mode === "count" && activeEntry.group === "coin" && activeEntry.key === d.key;
+                      return (
+                        <label key={d.key} className="flex flex-col gap-1 text-[10px] font-bold text-app-text-muted">
+                          {d.label}
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={coinCounts[d.key]}
+                            onFocus={(event) => {
+                              setActiveEntry({ mode: "count", group: "coin", key: d.key });
+                              setFreshEntry(true);
+                              event.currentTarget.select();
+                            }}
+                            onChange={e => {
+                              setFreshEntry(false);
+                              setCoinCounts(prev => ({ ...prev, [d.key]: normalizeCountInput(e.target.value) }));
+                            }}
+                            className={`ui-input w-full p-3 text-center font-mono text-lg ${active ? "border-app-accent ring-2 ring-app-accent/20" : ""}`}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="ui-panel ui-tint-neutral p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Drawer total instead</label>
+                    <p className="font-mono text-sm font-black text-app-text">${centsToFixed2(denominationTotalCents)}</p>
+                  </div>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={fullDrawerTotal}
+                    onFocus={(event) => {
+                      setActiveEntry({ mode: "money", key: "fullDrawerTotal" });
+                      setFreshEntry(true);
+                      event.currentTarget.select();
+                    }}
+                    onChange={e => {
+                      setFreshEntry(false);
+                      setFullDrawerTotal(e.target.value.replace(/[^\d.]/g, ""));
+                    }}
+                    className={`ui-input w-full p-4 text-center font-mono text-3xl ${activeEntry?.mode === "money" ? "border-app-accent ring-2 ring-app-accent/20" : ""}`}
+                    placeholder="---"
+                  />
+                </div>
+              </div>
+
+              <div className="ui-panel ui-tint-neutral flex min-h-[520px] flex-col gap-3 p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Keypad</p>
+                  <p className="rounded-full bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">{activeEntryLabel}</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"].map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => applyKeypadInput(key)}
+                      disabled={!activeEntry || (key === "." && activeEntry.mode !== "money")}
+                      className="rounded-xl border border-app-border bg-app-surface px-3 py-5 text-2xl font-black text-app-text shadow-sm disabled:opacity-30"
+                    >
+                      {key === "back" ? "Back" : key}
+                    </button>
                   ))}
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                  <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">
-                    Coins & rolled coin
-                    <input type="number" step="0.01" min={0} value={coinSupplement} onChange={e => setCoinSupplement(e.target.value)} className="ui-input mt-1 w-full p-3 font-mono text-center" placeholder="0.00" />
-                  </label>
-                  <p className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-right font-mono text-lg font-black text-app-text">
-                    Bills <span className="text-app-success">${centsToFixed2(Math.round(denominationTotal * 100))}</span>
+                <button type="button" onClick={() => applyKeypadInput("clear")} disabled={!activeEntry} className="ui-btn-secondary py-3 text-xs font-black uppercase tracking-widest">
+                  Clear
+                </button>
+                <div className="mt-auto rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Counted</p>
+                  <p className="font-mono text-2xl font-black text-app-text">
+                    ${centsToFixed2(fullOk ? parseMoneyToCents(fullDrawerTotal) : denominationTotalCents)}
                   </p>
                 </div>
               </div>
 
-              <div className="ui-panel ui-tint-neutral p-4">
-                <label className="mb-2 block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Or enter full drawer total</label>
-                <input type="number" step="0.01" value={fullDrawerTotal} onChange={e => setFullDrawerTotal(e.target.value)} className="ui-input w-full p-4 text-center font-mono text-2xl" placeholder="---" />
-              </div>
-              <div className="sticky bottom-0 -mx-4 flex gap-3 border-t border-app-border bg-app-surface/95 px-4 py-3 backdrop-blur">
+              <div className="sticky bottom-0 -mx-4 flex gap-3 border-t border-app-border bg-app-surface/95 px-4 py-3 backdrop-blur lg:col-span-2 lg:col-start-2">
                 <button type="button" onClick={internalCancel} className="ui-btn-secondary flex-1 py-3">Cancel</button>
-                <button type="submit" disabled={!canSubmitDenom} className="ui-btn-primary flex-1 py-3 text-sm font-black">Verify Count</button>
+                <button type="submit" disabled={!canSubmitDenom} className="ui-btn-primary flex-1 py-3 text-sm font-black">Next: Checks</button>
               </div>
             </form>
           </div>
@@ -794,13 +1192,164 @@ export default function CloseRegisterModal({
   const cashSalesCents = expectedCents - openingCents - netAdjCents;
   const needsNote =
     Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
-  const closingNotesForReport = buildClosingNotesForReport();
   const closeBlockers = [
     offlineQueueSummary.totalCount > 0 ? "Checkout recovery" : null,
     helcimReviewMessage ? "Card payment review" : null,
+    checkPayments.length > 0 && !checksReady ? "Check review" : null,
     needsNote && notes.trim() === "" ? "Cash discrepancy note" : null,
   ].filter(Boolean);
   const closeReady = closeBlockers.length === 0;
+
+  if (step === "checks") {
+    return createPortal(
+      <div className="ui-overlay-backdrop !z-[200]">
+        <button
+          type="button"
+          className="absolute inset-0 bg-black/50"
+          onClick={() => void internalCancel()}
+          aria-label="Close"
+        />
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          className="ui-modal relative flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-4xl sm:rounded-3xl"
+        >
+          <div className="ui-modal-header flex items-center justify-between">
+            <div className="flex gap-2">
+              <span className="ui-pill ui-status-warn">Reconciling</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Step 2 of 3</span>
+            </div>
+            <h2 id={titleId} className="text-sm font-black uppercase tracking-widest text-app-text">
+              Check Review
+            </h2>
+          </div>
+          <div className="ui-modal-body flex-1 overflow-y-auto space-y-4">
+            {renderWorkflowSummary("checks")}
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+              <div className="ui-panel ui-tint-neutral p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Checks taken
+                  </p>
+                  <p className="font-mono text-lg font-black text-app-text">
+                    {checkPayments.length}
+                  </p>
+                </div>
+
+                {checkPayments.length === 0 ? (
+                  <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-8 text-center">
+                    <p className="text-sm font-black text-app-text">No checks this shift</p>
+                    <p className="mt-1 text-xs font-semibold text-app-text-muted">Continue to final review.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {checkPayments.map((line, index) => {
+                      const id = paymentLineId(line);
+                      const review = checkReview[id] ?? {
+                        checkNumber: line.check_number ?? "",
+                        amount: centsToFixed2(parseMoneyToCents(line.amount)),
+                        confirmed: false,
+                      };
+                      const amountMatches = parseMoneyToCents(review.amount) === parseMoneyToCents(line.amount);
+                      const numberReady = review.checkNumber.trim() !== "";
+                      return (
+                        <div key={id} className="rounded-2xl border border-app-border bg-app-surface p-3">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              Check {index + 1}
+                            </p>
+                            <p className="font-mono text-sm font-black text-app-text">
+                              ${centsToFixed2(parseMoneyToCents(line.amount))}
+                            </p>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              Check #
+                              <input
+                                value={review.checkNumber}
+                                onChange={(event) =>
+                                  setCheckReview((prev) => ({
+                                    ...prev,
+                                    [id]: { ...review, checkNumber: event.target.value, confirmed: false },
+                                  }))
+                                }
+                                className="ui-input mt-1 w-full p-3 font-mono text-sm"
+                              />
+                            </label>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              Amount
+                              <input
+                                value={review.amount}
+                                onChange={(event) =>
+                                  setCheckReview((prev) => ({
+                                    ...prev,
+                                    [id]: { ...review, amount: event.target.value.replace(/[^\d.]/g, ""), confirmed: false },
+                                  }))
+                                }
+                                className={`ui-input mt-1 w-full p-3 text-right font-mono text-sm ${amountMatches ? "" : "border-app-danger"}`}
+                                inputMode="decimal"
+                              />
+                            </label>
+                            <label className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-black uppercase tracking-widest ${review.confirmed ? "border-app-success/30 bg-app-success/10 text-app-success" : "border-app-border bg-app-surface-2 text-app-text-muted"}`}>
+                              <input
+                                type="checkbox"
+                                checked={review.confirmed}
+                                disabled={!amountMatches || !numberReady}
+                                onChange={(event) =>
+                                  setCheckReview((prev) => ({
+                                    ...prev,
+                                    [id]: { ...review, confirmed: event.target.checked },
+                                  }))
+                                }
+                              />
+                              Confirm
+                            </label>
+                          </div>
+                          {!amountMatches || !numberReady ? (
+                            <p className="mt-2 text-[10px] font-bold text-app-danger">
+                              {numberReady ? "Amount must match the recorded check payment." : "Check number required."}
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="ui-panel ui-tint-info flex flex-col justify-between gap-3 p-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Check total</p>
+                  <p className="mt-1 font-mono text-2xl font-black text-app-text">
+                    ${centsToFixed2(checkPayments.reduce((sum, line) => sum + parseMoneyToCents(line.amount), 0))}
+                  </p>
+                </div>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Match paper checks to ROS before closing.
+                </p>
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 -mx-1 flex gap-3 border-t border-app-border bg-app-surface/95 px-1 py-4 backdrop-blur">
+              <button type="button" onClick={() => void internalCancel()} className="ui-btn-secondary flex-1 py-3">
+                Cancel
+              </button>
+              <button type="button" onClick={() => setStep("count")} className="ui-btn-secondary flex-1 py-3">
+                Back
+              </button>
+              <button type="button" onClick={() => setStep("report")} disabled={!checksReady} className="ui-btn-primary flex-1 py-3 text-sm font-black">
+                Next: Z-Report
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>,
+      root,
+    );
+  }
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
@@ -822,51 +1371,18 @@ export default function CloseRegisterModal({
           <div>
             <div className="mb-1 flex items-center gap-2">
               <span className="ui-pill ui-status-warn">Reconciling</span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Step 2 of 2</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Step 3 of 3</span>
             </div>
             <h2 id={titleId} className="text-xl font-black text-app-text">
-              Shift Reconciliation
+              Z-Report
             </h2>
           </div>
           <button
             type="button"
-            onClick={() =>
-              openProfessionalZReportPrint({
-                title: "Z-Report",
-                sessionId: recon.session_id,
-                registerOrdinal,
-                cashierLabel: cashierName,
-                openedAt: null,
-                openingCents,
-                cashSalesCents,
-                netAdjustmentsCents: netAdjCents,
-                expectedCents,
-                actualCents,
-                discrepancyCents,
-                closingNotes: closingNotesForReport || null,
-                closingComments: closingComments.trim() || null,
-                tenders: recon.tenders,
-                overrideSummary: recon.override_summary ?? [],
-                tendersByLane: recon.tenders_by_lane,
-                manualDrawerOpens: recon.manual_drawer_opens ?? [],
-                transactions: recon.transactions.map((t) => ({
-                  created_at: t.created_at,
-                  payment_method: t.payment_method,
-                  amount: t.amount,
-                  customer_name: t.customer_name,
-                  transaction_display_id: t.transaction_display_id,
-                  transaction_status: t.transaction_status,
-                  transaction_total: t.transaction_total,
-                  transaction_paid: t.transaction_paid,
-                  transaction_balance_due: t.transaction_balance_due,
-                  items: t.items ?? [],
-                  register_lane: t.register_lane ?? 1,
-                })),
-              })
-            }
+            onClick={() => openCurrentZReportPrint()}
             className="ui-btn-secondary border-app-accent/20 px-4 py-2 text-app-accent shadow-sm"
           >
-            Print Z-Report (Full Page)
+            Preview Print
           </button>
         </div>
 
@@ -889,16 +1405,8 @@ export default function CloseRegisterModal({
             </div>
             <p className="mt-1 text-sm font-semibold">
               {closeReady
-                ? "Cash count, checkout recovery, and card review are clear. Finalize when notes are correct."
+                ? "Cash and payment reviews are clear."
                 : `Before closing: ${closeBlockers.join(", ")}.`}
-            </p>
-            <p className="mt-2 text-xs font-bold opacity-85">
-              {closeReady
-                ? "Review any late refunds or recovery notes before final close so the shift handoff stays clear."
-                : "Use the action cards below to clear each item, then retry close."}
-              {closeReady
-                ? " After close, accounting can confirm the QuickBooks status from the QBO workspace."
-                : ""}
             </p>
           </div>
           {renderOfflineQueueBlocker()}
@@ -1063,7 +1571,7 @@ export default function CloseRegisterModal({
                   </thead>
                   <tbody className="divide-y divide-app-border/30">
                     {recon.transactions.map((t) => (
-                      <tr key={t.transaction_id}>
+                      <tr key={paymentLineId(t)}>
                         <td className="px-2 py-1.5 font-mono text-app-text-muted whitespace-nowrap">
                           {new Date(t.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </td>
@@ -1091,15 +1599,16 @@ export default function CloseRegisterModal({
 
           <div className="sticky bottom-0 -mx-1 flex gap-3 border-t border-app-border bg-app-surface/95 px-1 py-4 backdrop-blur">
             <button type="button" onClick={() => void internalCancel()} disabled={loading} className="ui-btn-secondary flex-1 py-4 text-sm font-bold">Cancel</button>
-            <button type="button" onClick={() => setShowFinalConfirm(true)} disabled={loading || (needsNote && notes.trim() === '')} className="ui-btn-primary flex-1 py-4 text-sm font-black shadow-lg shadow-app-accent/20">Finalize & Close Shift</button>
+            <button type="button" onClick={() => setStep("checks")} disabled={loading} className="ui-btn-secondary flex-1 py-4 text-sm font-bold">Back</button>
+            <button type="button" onClick={() => setShowFinalConfirm(true)} disabled={loading || !closeReady} className="ui-btn-primary flex-1 py-4 text-sm font-black shadow-lg shadow-app-accent/20">Close & Print Z-Report</button>
           </div>
         </div>
       </div>
       <ConfirmationModal
         isOpen={showFinalConfirm}
-        title="Close till shift?"
-        message="This closes every open register lane in this till shift, finalizes the shared Z report, and clears POS tokens on those lanes. This cannot be undone."
-        confirmLabel="Close Shift"
+        title="Close and print?"
+        message="This closes the till group, creates the Z-Report, and opens print."
+        confirmLabel="Close & Print"
         variant="danger"
         onConfirm={() => void handleFinalClose()}
         onClose={() => setShowFinalConfirm(false)}

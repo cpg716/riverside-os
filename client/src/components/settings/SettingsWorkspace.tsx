@@ -69,6 +69,9 @@ import IntegrationBrandLogo, { type IntegrationBrand } from "../ui/IntegrationBr
 import RemoteAccessPanel from "./RemoteAccessPanel";
 import RegisterSettings from "../pos/RegisterSettings";
 import StaffProfilePanel from "./StaffProfilePanel";
+import RosOperationsCenter, {
+  type OperationsCenterNavigateTarget,
+} from "../operations/RosOperationsCenter";
 import RosDevCenterPanel from "./RosDevCenterPanel";
 import RosieSettingsPanel from "./RosieSettingsPanel";
 import UpdateManagerPanel from "./UpdateManagerPanel";
@@ -127,6 +130,7 @@ interface SettingsWorkspaceProps {
   onBugReportsDeepLinkConsumed?: () => void;
   onOpenQbo?: () => void;
   onSettingsSectionNavigate?: (sectionId: string) => void;
+  onNavigateOperationsTarget?: (target: OperationsCenterNavigateTarget) => void;
   // POS Specific
   posSessionId?: string | null;
   posCashierCode?: string | null;
@@ -187,6 +191,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   "help-center": "Help Center content, manuals, and staff guidance publishing.",
   rosie: "ROSIE assistant settings and runtime behavior.",
   "bug-reports": "Bug reports, captured incidents, and diagnostics triage.",
+  "ros-operations-center": "Operational readiness, problem routing, and support snapshot.",
   "ros-dev-center": "Developer operations, runtime health, and guarded actions.",
 };
 
@@ -239,6 +244,7 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   "help-center": BookOpen,
   rosie: Bot,
   "bug-reports": Bug,
+  "ros-operations-center": Gauge,
   "ros-dev-center": Code2,
 };
 
@@ -250,6 +256,7 @@ export default function SettingsWorkspace({
   onBugReportsDeepLinkConsumed,
   onOpenQbo,
   onSettingsSectionNavigate,
+  onNavigateOperationsTarget,
   posSessionId,
   posCashierCode,
   posLifecycleStatus,
@@ -267,6 +274,16 @@ export default function SettingsWorkspace({
       ? "hub"
       : requestedActiveTab;
   const navigateToTab = onNavigateToTab ?? onSettingsSectionNavigate;
+  const navigateOperationsTarget = useCallback(
+    (target: OperationsCenterNavigateTarget) => {
+      if (target.tab === "settings") {
+        navigateToTab?.(target.section ?? "ros-operations-center");
+        return;
+      }
+      onNavigateOperationsTarget?.(target);
+    },
+    [navigateToTab, onNavigateOperationsTarget],
+  );
 
   // Settings State
   const [backupCfg, setBackupCfg] = useState<BackupSettings | null>(null);
@@ -1211,6 +1228,10 @@ export default function SettingsWorkspace({
                 onDeepLinkConsumed={onBugReportsDeepLinkConsumed}
               />
             )}
+            {activeTab === "ros-operations-center" &&
+              hasPermission("ops.dev_center.view") && (
+                <RosOperationsCenter onNavigate={navigateOperationsTarget} />
+              )}
             {activeTab === "ros-dev-center" &&
               hasPermission("ops.dev_center.view") && (
                 <RosDevCenterPanel

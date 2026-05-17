@@ -7,8 +7,9 @@ Operational and engineering reference for **migration 66** (register lanes) and 
 - **`register_sessions.register_lane`**: physical terminal label (**1: Main**, **2: iPad**, **3: Back Office**). Range restricted to 1–3. Each open lane is its own row with its own `session_id` and **`pos_api_token`**.
 - **`register_sessions.till_close_group_id`**: links all lanes that share one till shift. **Register #1 (Main)** opening **automatically creates** sessions for **#2 (iPad)** and **#3 (Back Office)** with zero float, sharing one `till_close_group_id`. Satellites do not need to be opened separately.
 - **Cash drawer math (Z)**: **Opening float**, **paid in/out**, and **expected/actual cash** apply only to **lane 1**. **Cash tenders** on any lane in the group **sum** into that one expected cash figure.
-- **Z-close**: Only from **register 1** in the UI. **`close_session`** closes **every open** session in the same **`till_close_group_id`** in one database transaction with a shared **`z_report_json`**. Satellite lanes have **no** separate “Close register” button in POS. **Parked carts (migration 68):** any **`pos_parked_sale`** rows still **parked** for lanes in that till group are marked **deleted** when the group Z-closes — see **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
-- **Reconciliation / Z payload**: Combined **`tenders`**, **`tenders_by_lane`**, and **`transactions`** include **`register_lane`** (and optional **`register_session_id`**) for print and audit.
+- **Z-close**: Only from **register 1** in the UI. **`close_session`** closes **every open** session in the same **`till_close_group_id`** in one database transaction with a shared **`z_report_json`**. Satellite lanes have **no** separate “Close register” button in POS. The three-page close flow (**Cash → Checks → Z-Report**) can be canceled before finalization without closing the drawer. **Parked carts (migration 68):** any **`pos_parked_sale`** rows still **parked** for lanes in that till group are marked **deleted** when the group Z-closes — see **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+- **Card close review**: Helcim terminal outcomes that would block Z-close can be reviewed from the POS close flow. Recording an outcome creates a **`helcim_terminal_recovery_actions`** audit row and removes the attempt from the Z-close blocker list; it does not create a payment, refund, or ledger mutation.
+- **Reconciliation / Z payload**: Combined **`tenders`**, **`tenders_by_lane`**, **`transactions`**, **QBO journal preview**, and non-sale **`inventory_activity`** include **`register_lane`** (and optional **`register_session_id`**) for print and audit.
 
 ## APIs (pointers)
 
@@ -22,8 +23,8 @@ Operational and engineering reference for **migration 66** (register lanes) and 
 |------|----------|
 | **`RegisterOverlay.tsx`** | Satellite lanes: **`list-open`**, link to open **#1**. **Admin**: if **#1** is not open, **choose** “open #1 myself” vs “another terminal opens #1” (with **Check again**). **Admin** default lane **#3** (Back Office Hub) when **#1** is already open. |
 | **`PosShell.tsx`** | **Close Register** only for **lane 1** (or unknown lane). |
-| **`CloseRegisterModal.tsx`** | Combined drawer copy, **by-lane** tenders, transaction table with **Register #**; authenticated fetches (**`mergedPosStaffHeaders`**). |
-| **`zReportPrint.ts`** | **Professional Audit Reports**: Decoupled from receipt hardware. Aggregated 3-lane reports use high-fidelity Letter/A4 layout, Inter/JetBrains fonts, and explicit "Assigned Printer" metadata. |
+| **`CloseRegisterModal.tsx`** | Three-page Cash / Checks / Z-Report close, POS card review actions, combined drawer copy, **by-lane** tenders, transaction table with **Register #**; authenticated fetches (**`mergedPosStaffHeaders`**). |
+| **`zReportPrint.ts`** | **Professional Audit Reports**: Decoupled from receipt hardware. Aggregated 3-lane reports use high-fidelity Letter/A4 layout, Inter/JetBrains fonts, explicit "Assigned Printer" metadata, QBO journal preview, and non-sale inventory activity. |
 | **`RegisterGateContext`**, **`RegisterRequiredModal`** | **Orders** refund (and similar): **Go to Register** when **`GET /api/sessions/current`** fails. |
 | **`App.tsx`** | **`RegisterGateProvider`**; Back Office close modal only when attached lane is **1** (or unknown). |
 
@@ -38,4 +39,4 @@ Operational and engineering reference for **migration 66** (register lanes) and 
 - `migrations/legacy_prelaunch_history/66_register_session_lanes.sql`, `migrations/legacy_prelaunch_history/67_register_till_close_group.sql`
 - `scripts/ros_migration_build_probes.sql` — probes through the **latest** numbered migration (**97** as of this repo; see **`DEVELOPER.md`**)
 
-**Last reviewed:** 2026-04-05
+**Last reviewed:** 2026-05-17

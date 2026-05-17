@@ -10,6 +10,7 @@ export type PosTabId =
   | "weddings"
   | "alterations"
   | "reports"
+  | "payments"
   | "gift-cards"
   | "loyalty"
   | "layaways"
@@ -37,6 +38,7 @@ export const POS_SIDEBAR_SUB_SECTIONS: Record<PosTabId, PosSubItem[]> = {
   weddings: [],
   alterations: [],
   reports: [],
+  payments: [],
   "gift-cards": [],
   loyalty: [],
   layaways: [],

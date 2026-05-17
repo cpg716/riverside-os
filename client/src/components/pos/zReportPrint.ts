@@ -20,6 +20,42 @@ export interface ZReportManualDrawerOpenRow {
   created_at: string;
 }
 
+export interface ZReportQboJournalLine {
+  qbo_account_id: string;
+  qbo_account_name: string;
+  debit: string;
+  credit: string;
+  memo: string;
+}
+
+export interface ZReportQboJournal {
+  activity_date: string;
+  business_timezone: string;
+  generated_at: string;
+  lines: ZReportQboJournalLine[];
+  warnings: string[];
+  totals: {
+    debits: string;
+    credits: string;
+    balanced: boolean;
+  };
+}
+
+export interface ZReportInventoryActivityRow {
+  created_at: string;
+  tx_type: string;
+  sku: string;
+  product_name: string;
+  category_name?: string | null;
+  quantity_delta: number;
+  unit_cost?: string | null;
+  value_delta: string;
+  reference_table?: string | null;
+  reference_id?: string | null;
+  notes?: string | null;
+  staff_name?: string | null;
+}
+
 type ZReportAuditItem = {
   name: string;
   sku: string;
@@ -86,6 +122,23 @@ function fulfillmentLabel(value: string | null | undefined): string {
   }
 }
 
+function inventoryTxLabel(value: string | null | undefined): string {
+  switch ((value ?? "").trim()) {
+    case "po_receipt":
+      return "Receiving";
+    case "return_to_vendor":
+      return "Return to Vendor";
+    case "damaged":
+      return "Damaged";
+    case "physical_inventory":
+      return "Physical Count";
+    case "adjustment":
+      return "Adjustment";
+    default:
+      return reportLabel(value);
+  }
+}
+
 export function openProfessionalZReportPrint(opts: {
   title: string;
   sessionId: string;
@@ -105,6 +158,10 @@ export function openProfessionalZReportPrint(opts: {
   /** Per-lane tender breakdown when multiple registers share one till shift. */
   tendersByLane?: { register_lane: number; tenders: ZReportTenderRow[] }[];
   manualDrawerOpens?: ZReportManualDrawerOpenRow[];
+  qboActivityDate?: string | null;
+  qboJournal?: ZReportQboJournal | null;
+  qboJournalError?: string | null;
+  inventoryActivity?: ZReportInventoryActivityRow[];
   /** Optional payment lines for audit trail. */
   transactions?: {
     created_at: string;
@@ -208,6 +265,48 @@ export function openProfessionalZReportPrint(opts: {
               <td>${escapeReportHtml(reportLabel(t.payment_method))}<br><span class="muted">${escapeReportHtml(totals || "Paid at register")}</span></td>
               <td class="money">${formatReportMoney(t.amount)}</td>
               <td><strong>${escapeReportHtml(t.customer_name || "Walk-in")}</strong><br><span class="muted">${escapeReportHtml(notes || "No item detail recorded")}</span></td>
+            </tr>`;
+          })
+          .join("")
+      : "";
+
+  const qboJournalRows =
+    opts.qboJournal && opts.qboJournal.lines.length > 0
+      ? opts.qboJournal.lines
+          .map((line) => `<tr>
+            <td><strong>${escapeReportHtml(line.qbo_account_name)}</strong><br><span class="muted mono">${escapeReportHtml(line.qbo_account_id)}</span></td>
+            <td>${escapeReportHtml(line.memo)}</td>
+            <td class="money">${parseMoneyToCents(line.debit) !== 0 ? formatReportMoney(line.debit) : ""}</td>
+            <td class="money">${parseMoneyToCents(line.credit) !== 0 ? formatReportMoney(line.credit) : ""}</td>
+          </tr>`)
+          .join("")
+      : "";
+
+  const qboWarnings = opts.qboJournal?.warnings?.length
+    ? opts.qboJournal.warnings.map((warning) => `<li>${escapeReportHtml(warning)}</li>`).join("")
+    : "";
+
+  const inventoryActivityRows =
+    opts.inventoryActivity && opts.inventoryActivity.length > 0
+      ? opts.inventoryActivity
+          .map((row) => {
+            const tm = new Date(row.created_at).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+            const detail = [
+              row.category_name,
+              row.notes,
+              row.reference_table ? `${row.reference_table}${row.reference_id ? ` ${row.reference_id.slice(0, 8)}` : ""}` : null,
+            ].filter(Boolean).join(" · ");
+            return `<tr>
+              <td>${escapeReportHtml(tm)}</td>
+              <td>${escapeReportHtml(inventoryTxLabel(row.tx_type))}</td>
+              <td><strong>${escapeReportHtml(row.product_name)}</strong><br><span class="muted mono">${escapeReportHtml(row.sku)}</span></td>
+              <td class="center mono">${row.quantity_delta > 0 ? "+" : ""}${row.quantity_delta}</td>
+              <td class="money">${row.unit_cost ? formatReportMoney(row.unit_cost) : "—"}</td>
+              <td class="money">${formatReportMoney(row.value_delta)}</td>
+              <td>${escapeReportHtml(row.staff_name || "System")}<br><span class="muted">${escapeReportHtml(detail || "No detail")}</span></td>
             </tr>`;
           })
           .join("")
@@ -337,6 +436,31 @@ export function openProfessionalZReportPrint(opts: {
       <h2>Closing Notes</h2>
       ${closingNotes ? `<p class="stat-label">Internal Shift Notes</p><div style="border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;white-space:pre-wrap;">${escapeReportHtml(closingNotes)}</div>` : ""}
       ${closingComments ? `<p class="stat-label" style="margin-top:10px;">Closing Comments</p><div style="border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;white-space:pre-wrap;">${escapeReportHtml(closingComments)}</div>` : ""}
+    </div>
+  ` : ""}
+
+  ${inventoryActivityRows ? `
+    <div style="margin-top: 14px; break-inside: avoid;">
+      <h2>Inventory Activity (Non-Sale)</h2>
+      <table style="font-size: 8.2px;">
+        <thead><tr><th>Time</th><th>Type</th><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:right">Unit Cost</th><th style="text-align:right">Value</th><th>Staff / Detail</th></tr></thead>
+        <tbody>${inventoryActivityRows}</tbody>
+      </table>
+    </div>
+  ` : ""}
+
+  ${qboJournalRows || opts.qboJournalError ? `
+    <div style="margin-top: 14px; break-inside: avoid;">
+      <h2>QBO Journal Entry Preview</h2>
+      ${opts.qboJournalError ? `<div style="border:1px solid #fecaca;background:#fef2f2;border-radius:8px;color:#991b1b;font-weight:700;padding:8px 10px;">${escapeReportHtml(opts.qboJournalError)}</div>` : ""}
+      ${qboJournalRows ? `
+        <p class="muted" style="margin:0 0 5px;">Activity Date: <strong>${escapeReportHtml(opts.qboActivityDate ?? opts.qboJournal?.activity_date ?? "—")}</strong> · Debits ${formatReportMoney(opts.qboJournal?.totals.debits ?? "0")} · Credits ${formatReportMoney(opts.qboJournal?.totals.credits ?? "0")} · ${opts.qboJournal?.totals.balanced ? "Balanced" : "Needs review"}</p>
+        <table style="font-size: 8.2px;">
+          <thead><tr><th>Account</th><th>Memo</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th></tr></thead>
+          <tbody>${qboJournalRows}</tbody>
+        </table>
+      ` : ""}
+      ${qboWarnings ? `<ul class="muted" style="margin:6px 0 0 14px;padding:0;">${qboWarnings}</ul>` : ""}
     </div>
   ` : ""}
 

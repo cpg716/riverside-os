@@ -39,7 +39,7 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 1. **Staging** → sort by **date** or **status**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
 3. After **Z-Close**, ROS stages the daily journal for that business date. If the pending row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.
-4. Open a row → **drilldown** to lines; fix **unmapped** SKUs, shipping income, liability, clearing, or fallback accounts **before** approve.
+4. Open a row → **drilldown** to lines; fix **unmapped** SKUs, shipping income, liability, clearing, or fallback accounts **before** approve. Operational inventory moves can now appear in the same journal preview: Receiving, Return to Vendor, Damaged, Physical Count, and Adjustments.
 5. Before approving a day with disputed fulfillment, loyalty, commission, tax, or receipt totals, confirm `reporting.transaction_status_integrity` has no ROS register issues for that window. Do not approve around a status mismatch until pickup / shipment workflow or IT repair resolves it.
 6. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
 7. **Approve** only when totals match **ROS** expectations for that close.
@@ -63,6 +63,7 @@ Before pilot accounting relies on QBO posting, run these scenarios in the QBO sa
 | Exchange with replacement sale | Return and replacement effects are understandable and traceable. | |
 | Deposit/open balance activity | Deposit liability and relief behavior matches the transaction detail. | |
 | Shipping income | Shipping income maps to the configured account. | |
+| Operational inventory moves | Receiving, RTV, Damaged, Physical Count, and Adjustments appear with the expected inventory / clearing / shrinkage mapping. | |
 | Warning-bearing journal | Accounting reviews warnings before approval; warnings are not ignored because the journal balances. | |
 | Failed sync and retry | Failed row remains visible, error is assigned, and retry does not create an unexplained duplicate. | |
 | Duplicate-post check | Re-sync/retry uses the existing staging row/request path and does not create a second QBO journal for the same approved row. | |

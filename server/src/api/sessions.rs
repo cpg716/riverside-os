@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -232,11 +232,31 @@ pub struct OverrideSummaryRow {
     pub total_delta: Decimal,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct InventoryActivityLine {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub tx_type: String,
+    pub sku: String,
+    pub product_name: String,
+    pub category_name: Option<String>,
+    pub quantity_delta: i32,
+    pub unit_cost: Option<Decimal>,
+    pub value_delta: Decimal,
+    pub reference_table: Option<String>,
+    pub reference_id: Option<Uuid>,
+    pub notes: Option<String>,
+    pub staff_name: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ReconciliationResponse {
     pub report_type: &'static str,
     /// Unique session ID for the reconciliation report.
     pub session_id: Uuid,
+    pub qbo_activity_date: NaiveDate,
+    pub qbo_journal: Option<crate::logic::qbo_journal::JournalProposal>,
+    pub qbo_journal_error: Option<String>,
     pub opening_float: Decimal,
     pub net_cash_adjustments: Decimal,
     pub expected_cash: Decimal,
@@ -248,6 +268,7 @@ pub struct ReconciliationResponse {
     pub manual_drawer_opens: Vec<ManualDrawerOpenLine>,
     pub override_summary: Vec<OverrideSummaryRow>,
     pub transactions: Vec<TransactionLine>,
+    pub inventory_activity: Vec<InventoryActivityLine>,
     pub unresolved_helcim_attempts: Vec<HelcimCloseReviewAttempt>,
 }
 
@@ -271,6 +292,7 @@ pub struct TransactionLine {
     pub created_at: DateTime<Utc>,
     pub payment_method: String,
     pub amount: Decimal,
+    pub check_number: Option<String>,
     pub ledger_transaction_id: Option<Uuid>,
     pub transaction_display_id: Option<String>,
     pub transaction_status: Option<String>,
@@ -325,6 +347,12 @@ pub struct CloseSessionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct HelcimCloseReviewRequest {
+    pub action: String,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct BeginReconcileRequest {
     /// Set to `true` when staff enters the blind-count / Z flow (optional audit step).
     #[serde(default)]
@@ -362,6 +390,7 @@ struct TransactionLineRow {
     created_at: DateTime<Utc>,
     payment_method: String,
     amount: Decimal,
+    check_number: Option<String>,
     ledger_transaction_id: Option<Uuid>,
     transaction_display_id: Option<String>,
     transaction_status: Option<String>,
@@ -447,6 +476,10 @@ pub fn router() -> Router<AppState> {
         .route("/{session_id}/adjustments", post(post_cash_adjustment))
         .route("/{session_id}/drawer-opens", post(post_manual_drawer_open))
         .route("/{session_id}/begin-reconcile", post(begin_reconcile))
+        .route(
+            "/{session_id}/helcim-close-review/{attempt_id}",
+            post(post_helcim_close_review),
+        )
         .route("/{session_id}/close", post(close_session))
 }
 
@@ -1112,6 +1145,12 @@ async fn unresolved_helcim_attempts_for_sessions(
                   )
               )
           )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM helcim_terminal_recovery_actions hra
+              WHERE hra.source_kind = 'payment_provider_attempt'
+                AND hra.source_id = ppa.id
+          )
         ORDER BY ppa.created_at ASC
         "#,
     )
@@ -1167,6 +1206,12 @@ async fn unresolved_helcim_attempts_for_sessions_in_tx(
                   )
               )
           )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM helcim_terminal_recovery_actions hra
+              WHERE hra.source_kind = 'payment_provider_attempt'
+                AND hra.source_id = ppa.id
+          )
         ORDER BY ppa.created_at ASC
         "#,
     )
@@ -1212,6 +1257,117 @@ fn unresolved_helcim_close_message(attempts: &[HelcimCloseReviewAttempt]) -> Str
         "Helcim payment review required before Z-close: {}. Resolve in the checkout or Payments Health so the Z report includes every card outcome.",
         parts.join(", ")
     )
+}
+
+fn normalize_helcim_close_review_action(value: &str) -> Result<String, SessionError> {
+    match value.trim() {
+        "reviewed"
+        | "resolved_no_action"
+        | "provider_charge_confirmed"
+        | "duplicate_suspected"
+        | "refund_required" => Ok(value.trim().to_string()),
+        _ => Err(SessionError::InvalidPayload(
+            "Unsupported card review action.".to_string(),
+        )),
+    }
+}
+
+async fn post_helcim_close_review(
+    State(state): State<AppState>,
+    Path((session_id, attempt_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    Json(payload): Json<HelcimCloseReviewRequest>,
+) -> Result<Json<serde_json::Value>, SessionError> {
+    let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_session_gate_err)?;
+    let authenticated_staff_id = match auth {
+        middleware::StaffOrPosSession::Staff(staff) => Some(staff.id),
+        middleware::StaffOrPosSession::PosSession {
+            session_id: auth_session_id,
+        } => {
+            if auth_session_id != session_id {
+                return Err(SessionError::InvalidPayload(
+                    "Card review session does not match this register.".to_string(),
+                ));
+            }
+            None
+        }
+    };
+
+    let action = normalize_helcim_close_review_action(&payload.action)?;
+    let note = payload
+        .note
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if action != "reviewed" && note.is_none() {
+        return Err(SessionError::InvalidPayload(
+            "A note is required for this card review outcome.".to_string(),
+        ));
+    }
+
+    #[derive(FromRow)]
+    struct AttemptCtx {
+        opened_by: Uuid,
+        shift_primary_staff_id: Option<Uuid>,
+    }
+
+    let ctx: Option<AttemptCtx> = sqlx::query_as(
+        r#"
+        SELECT rs.opened_by, rs.shift_primary_staff_id
+        FROM payment_provider_attempts ppa
+        INNER JOIN register_sessions rs ON rs.id = ppa.register_session_id
+        INNER JOIN register_sessions requested
+            ON requested.till_close_group_id = rs.till_close_group_id
+        WHERE ppa.id = $1
+          AND ppa.provider = 'helcim'
+          AND requested.id = $2
+          AND requested.is_open = true
+          AND rs.is_open = true
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let Some(ctx) = ctx else {
+        return Err(SessionError::InvalidPayload(
+            "Card review item is not attached to this open till group.".to_string(),
+        ));
+    };
+
+    let actor_staff_id = authenticated_staff_id
+        .or(ctx.shift_primary_staff_id)
+        .unwrap_or(ctx.opened_by);
+
+    sqlx::query(
+        r#"
+        INSERT INTO helcim_terminal_recovery_actions (
+            source_kind,
+            source_id,
+            action,
+            note,
+            actor_staff_id,
+            metadata
+        )
+        VALUES ('payment_provider_attempt', $1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(&action)
+    .bind(note.as_deref())
+    .bind(actor_staff_id)
+    .bind(json!({
+        "source": "pos_z_close",
+        "register_session_id": session_id,
+    }))
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(json!({ "status": "recorded" })))
 }
 
 async fn build_reconciliation(
@@ -1424,6 +1580,7 @@ async fn build_reconciliation(
             pt.created_at,
             pt.payment_method,
             pt.amount,
+            pt.check_number,
             pa.target_transaction_id AS ledger_transaction_id,
             o.display_id AS transaction_display_id,
             o.status::text AS transaction_status,
@@ -1487,6 +1644,7 @@ async fn build_reconciliation(
         WHERE pt.session_id = ANY($1)
         GROUP BY
             pt.id, pt.session_id, rs.register_lane, pt.created_at, pt.payment_method, pt.amount,
+            pt.check_number,
             pa.target_transaction_id, o.display_id, o.status, o.total_price, o.amount_paid,
             o.balance_due, c.first_name, c.last_name
         ORDER BY pt.created_at DESC
@@ -1506,6 +1664,7 @@ async fn build_reconciliation(
             created_at: row.created_at,
             payment_method: row.payment_method,
             amount: row.amount,
+            check_number: row.check_number,
             ledger_transaction_id: row.ledger_transaction_id,
             transaction_display_id: row.transaction_display_id,
             transaction_status: row.transaction_status,
@@ -1522,10 +1681,66 @@ async fn build_reconciliation(
     let expected_cash = opening_float + total_cash_sales + net_cash_adjustments;
     let unresolved_helcim_attempts =
         unresolved_helcim_attempts_for_sessions(db, &payment_session_ids).await?;
+    let qbo_activity_date =
+        crate::logic::register_day_activity::store_local_date_for_utc(db, Utc::now()).await?;
+    let inventory_activity: Vec<InventoryActivityLine> = sqlx::query_as(
+        r#"
+        SELECT
+            it.id,
+            it.created_at,
+            it.tx_type::text AS tx_type,
+            COALESCE(NULLIF(TRIM(pv.sku), ''), 'SKU') AS sku,
+            COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Item') AS product_name,
+            c.name AS category_name,
+            it.quantity_delta,
+            it.unit_cost,
+            ROUND(
+                ((COALESCE(it.unit_cost, 0) + COALESCE(it.landed_cost_component, 0)) * it.quantity_delta::numeric),
+                2
+            )::numeric AS value_delta,
+            it.reference_table,
+            it.reference_id,
+            it.notes,
+            COALESCE(NULLIF(TRIM(s.full_name), ''), s.cashier_code) AS staff_name
+        FROM inventory_transactions it
+        INNER JOIN product_variants pv ON pv.id = it.variant_id
+        INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN staff s ON s.id = it.created_by
+        WHERE (it.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+          AND it.tx_type::text IN (
+              'po_receipt',
+              'adjustment',
+              'damaged',
+              'return_to_vendor',
+              'physical_inventory'
+          )
+        ORDER BY it.created_at DESC, it.id DESC
+        LIMIT 300
+        "#,
+    )
+    .bind(qbo_activity_date)
+    .fetch_all(db)
+    .await?;
+    let (qbo_journal, qbo_journal_error) =
+        match crate::logic::qbo_journal::propose_daily_journal(db, qbo_activity_date).await {
+            Ok(proposal) => (Some(proposal), None),
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    activity_date = %qbo_activity_date,
+                    "QBO journal proposal unavailable for Z-report preview"
+                );
+                (None, Some(error.to_string()))
+            }
+        };
 
     Ok(ReconciliationResponse {
         report_type,
         session_id: response_session_id,
+        qbo_activity_date,
+        qbo_journal,
+        qbo_journal_error,
         opening_float,
         net_cash_adjustments,
         expected_cash,
@@ -1535,6 +1750,7 @@ async fn build_reconciliation(
         manual_drawer_opens,
         override_summary,
         transactions,
+        inventory_activity,
         unresolved_helcim_attempts,
     })
 }
@@ -1986,6 +2202,10 @@ async fn close_session(
         serde_json::to_value(&recon.tenders_by_lane).unwrap_or(serde_json::Value::Null);
     let transactions_val =
         serde_json::to_value(&recon.transactions).unwrap_or(serde_json::Value::Null);
+    let qbo_journal_val =
+        serde_json::to_value(&recon.qbo_journal).unwrap_or(serde_json::Value::Null);
+    let inventory_activity_val =
+        serde_json::to_value(&recon.inventory_activity).unwrap_or(serde_json::Value::Null);
 
     let z_snapshot = json!({
         "report_type": "z_report",
@@ -2000,6 +2220,10 @@ async fn close_session(
         "tenders": recon.tenders,
         "tenders_by_lane": tenders_by_lane_val,
         "transactions": transactions_val,
+        "qbo_activity_date": recon.qbo_activity_date,
+        "qbo_journal": qbo_journal_val,
+        "qbo_journal_error": recon.qbo_journal_error,
+        "inventory_activity": inventory_activity_val,
         "cash_adjustments": recon.cash_adjustments,
         "manual_drawer_opens": recon.manual_drawer_opens,
         "override_summary": recon.override_summary,

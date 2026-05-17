@@ -355,6 +355,7 @@ type DashboardState = {
 
 type Props = {
   activeSection?: string;
+  surface?: "backoffice" | "pos";
 };
 
 function todayYmd(): string {
@@ -532,8 +533,9 @@ function SectionButton({
   );
 }
 
-export default function PaymentsWorkspace({ activeSection = "overview" }: Props) {
-  const initialSection = isSection(activeSection) ? activeSection : "overview";
+export default function PaymentsWorkspace({ activeSection = "overview", surface = "backoffice" }: Props) {
+  const posSurface = surface === "pos";
+  const initialSection = posSurface ? "health" : isSection(activeSection) ? activeSection : "overview";
   const [section, setSection] = useState<SectionId>(initialSection);
   const [data, setData] = useState<DashboardState>({
     overview: null,
@@ -573,12 +575,12 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     (keys: string[]) => permissionsLoaded && keys.some((key) => hasPermission(key)),
     [hasPermission, permissionsLoaded],
   );
-  const canSync = hasAnyPermission(["payments.sync"]);
-  const canReconcileReview = hasAnyPermission([
+  const canSync = !posSurface && hasAnyPermission(["payments.sync"]);
+  const canReconcileReview = posSurface || hasAnyPermission([
     "payments.reconcile.review",
     "payments.reconcile",
   ]);
-  const canReconcileResolve = hasAnyPermission([
+  const canReconcileResolve = posSurface || hasAnyPermission([
     "payments.reconcile.resolve",
     "payments.reconcile",
   ]);
@@ -591,8 +593,8 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
   const canDepositAdjust = hasAnyPermission(["payments.deposit.adjust"]);
 
   useEffect(() => {
-    setSection(isSection(activeSection) ? activeSection : "overview");
-  }, [activeSection]);
+    setSection(posSurface ? "health" : isSection(activeSection) ? activeSection : "overview");
+  }, [activeSection, posSurface]);
 
   const apiHeaders = useMemo(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -655,6 +657,36 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     setError(null);
     const today = todayYmd();
     try {
+      if (posSurface) {
+        const [health, activeProvider] = await Promise.all([
+          getJson<EventsHealth>("/api/payments/providers/helcim/events/health"),
+          getJson<ActiveProviderResponse>("/api/payments/providers/active"),
+        ]);
+        const [terminalDevicesResult, cardTerminalsResult] = await Promise.all([
+          getJson<unknown>("/api/payments/providers/helcim/terminal/devices?limit=100")
+            .then((body) => ({ body, error: null as string | null }))
+            .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Device status could not load." })),
+          getJson<unknown>("/api/payments/providers/helcim/terminal/card-terminals")
+            .then((body) => ({ body, error: null as string | null }))
+            .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Card terminal status could not load." })),
+        ]);
+        setData({
+          overview: null,
+          batches: [],
+          deposits: [],
+          unmatchedBatches: [],
+          unmatchedDeposits: [],
+          issues: [],
+          transactions: [],
+          runs: [],
+          health,
+          terminalDevices: extractArray<HelcimDevice>(terminalDevicesResult.body, ["devices", "data", "items", "results"]),
+          cardTerminals: extractArray<HelcimCardTerminal>(cardTerminalsResult.body, ["cardTerminals", "card_terminals", "data", "items", "results"]),
+          terminalRouting: activeProvider.helcim_terminal_routing ?? null,
+          terminalError: terminalDevicesResult.error ?? cardTerminalsResult.error,
+        });
+        return;
+      }
       const [overview, batches, deposits, unmatchedBatches, unmatchedDeposits, issues, transactions, runs, health, activeProvider] = await Promise.all([
         getJson<OverviewResponse>(
           `/api/payments/providers/helcim/operations/overview?date_from=${today}&date_to=${today}`,
@@ -705,7 +737,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     } finally {
       setLoading(false);
     }
-  }, [getJson]);
+  }, [getJson, posSurface]);
 
   useEffect(() => {
     void refresh();
@@ -1256,7 +1288,12 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
     data.deposits.reduce((total, deposit) => total + deposit.open_issue_count, 0) +
     data.unmatchedBatches.length +
     data.unmatchedDeposits.length;
-  const healthBadge = (lastError ? 1 : 0) + (data.health?.failed_event_count ?? 0);
+  const healthBadge =
+    (posSurface || !lastError ? 0 : 1) +
+    (data.health?.failed_event_count ?? 0) +
+    (data.health?.unmatched_event_count ?? 0) +
+    (data.health?.terminal_review_attempts.length ?? 0) +
+    (data.health?.terminal_review_events.length ?? 0);
 
   return (
     <div className="flex flex-1 flex-col bg-app-bg">
@@ -1268,13 +1305,16 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
                 <CreditCard size={22} aria-hidden />
               </div>
               <div>
-                <h1 className="text-2xl font-black text-app-text">Payments</h1>
+                <h1 className="text-2xl font-black text-app-text">{posSurface ? "POS Payments" : "Payments"}</h1>
                 <p className="text-sm font-medium text-app-text-muted">
-                  Daily card activity, deposits, and items that need review.
+                  {posSurface
+                    ? "Card terminal status and review items for closing the register."
+                    : "Daily card activity, deposits, and items that need review."}
                 </p>
               </div>
             </div>
           </div>
+          {!posSurface ? (
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -1297,7 +1337,9 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
               Sync Fees
             </button>
           </div>
+          ) : null}
         </div>
+        {!posSurface ? (
         <nav className="mt-5 flex gap-2 overflow-x-auto pb-1">
           <SectionButton id="overview" label="Overview" active={section === "overview"} onClick={setSection} />
           <SectionButton id="batches" label="Batches" active={section === "batches"} onClick={setSection} />
@@ -1306,6 +1348,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
           <SectionButton id="transactions" label="Transactions" active={section === "transactions"} onClick={setSection} />
           <SectionButton id="health" label="Health" badge={healthBadge} active={section === "health"} onClick={setSection} />
         </nav>
+        ) : null}
       </header>
 
       <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
@@ -1360,6 +1403,7 @@ export default function PaymentsWorkspace({ activeSection = "overview" }: Props)
             )}
             {section === "health" && (
               <HealthPanel
+                surface={surface}
                 overview={data.overview}
                 runs={data.runs}
                 health={data.health}
@@ -1814,6 +1858,7 @@ function TransactionsPanel({
 }
 
 function HealthPanel({
+  surface = "backoffice",
   overview,
   runs,
   health,
@@ -1834,6 +1879,7 @@ function HealthPanel({
   onPingDevice,
   onRecordRecoveryAction,
 }: {
+  surface?: "backoffice" | "pos";
   overview: OverviewResponse | null;
   runs: SettlementRun[];
   health: EventsHealth | null;
@@ -1859,20 +1905,22 @@ function HealthPanel({
     note: string,
   ) => Promise<void>;
 }) {
+  const posSurface = surface === "pos";
   const terminalReviewAttempts = health?.terminal_review_attempts ?? [];
   const terminalReviewEvents = health?.terminal_review_events ?? [];
   const terminalReviewAttemptCount = terminalReviewAttempts.length;
   const paymentAlertCount =
-    (lastError ? 1 : 0) +
+    (posSurface || !lastError ? 0 : 1) +
     (health?.failed_event_count ?? 0) +
     (health?.unmatched_event_count ?? 0) +
     terminalReviewAttemptCount +
-    depositAlertCount +
-    reconciliationAlertCount;
+    (posSurface ? 0 : depositAlertCount + reconciliationAlertCount);
   const lastChecked =
-    runs[0]?.completed_at ?? runs[0]?.started_at ?? health?.last_event_at ?? overview?.last_fee_sync;
+    (posSurface ? null : runs[0]?.completed_at ?? runs[0]?.started_at) ??
+    health?.last_event_at ??
+    overview?.last_fee_sync;
   const alertRows = [
-    lastError
+    !posSurface && lastError
       ? {
           label: "Sync failed",
           detail: lastError.error_message ?? "The latest batch sync needs review.",
@@ -1900,14 +1948,14 @@ function HealthPanel({
           tone: "warning" as const,
         }
       : null,
-    reconciliationAlertCount > 0
+    !posSurface && reconciliationAlertCount > 0
       ? {
           label: "Payment issues need review",
           detail: `${reconciliationAlertCount} payment issue(s) are open.`,
           tone: "warning" as const,
         }
       : null,
-    depositAlertCount > 0
+    !posSurface && depositAlertCount > 0
       ? {
           label: "Deposit needs review",
           detail: `${depositAlertCount} deposit item(s) need review.`,
@@ -1918,25 +1966,40 @@ function HealthPanel({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Helcim Connection" value={overview?.helcim_api_active ? "Connected" : "Not active"} tone={overview?.helcim_api_active ? "good" : "warning"} />
-        <MetricCard label="Last Sync" value={runs[0] ? shortDateTime(runs[0].started_at) : "Not ready"} note={staffLabel(runs[0]?.status)} />
-        <MetricCard label="Last Success" value={lastSuccess ? shortDateTime(lastSuccess.completed_at ?? lastSuccess.started_at) : "Not ready"} />
-        <MetricCard label="Last Error" value={lastError?.error_message ?? "Clear"} tone={lastError ? "warning" : "good"} />
-      </div>
+      {posSurface ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Terminal Routing" value={terminalRouting ? "Loaded" : "Not ready"} tone={terminalRouting ? "good" : "warning"} />
+          <MetricCard label="Needs Review" value={`${terminalReviewAttemptCount + terminalReviewEvents.length}`} tone={terminalReviewAttemptCount + terminalReviewEvents.length > 0 ? "warning" : "good"} />
+          <MetricCard label="Recent Updates" value={`${health?.recent_event_count ?? 0}`} />
+          <MetricCard label="Last Update" value={shortDateTime(health?.last_event_at)} />
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Helcim Connection" value={overview?.helcim_api_active ? "Connected" : "Not active"} tone={overview?.helcim_api_active ? "good" : "warning"} />
+          <MetricCard label="Last Sync" value={runs[0] ? shortDateTime(runs[0].started_at) : "Not ready"} note={staffLabel(runs[0]?.status)} />
+          <MetricCard label="Last Success" value={lastSuccess ? shortDateTime(lastSuccess.completed_at ?? lastSuccess.started_at) : "Not ready"} />
+          <MetricCard label="Last Error" value={lastError?.error_message ?? "Clear"} tone={lastError ? "warning" : "good"} />
+        </div>
+      )}
       <div className="rounded-lg border border-app-border bg-app-surface p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-lg font-black text-app-text">Payment Alerts</h2>
             <p className="mt-1 text-sm font-semibold text-app-text-muted">
-              Last checked {shortDateTime(lastChecked)}. Alerts do not close issues or change payment totals.
+              {posSurface
+                ? `Last checked ${shortDateTime(lastChecked)}. Resolve card review items before closing.`
+                : `Last checked ${shortDateTime(lastChecked)}. Alerts do not close issues or change payment totals.`}
             </p>
           </div>
           <StatusPill value={paymentAlertCount > 0 ? "Needs Review" : "Clear"} />
         </div>
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {alertRows.length === 0 ? (
-            <EmptyState title="No payment alerts right now" body="Payments, deposits, and updates are clear right now." compact />
+            <EmptyState
+              title="No payment alerts right now"
+              body={posSurface ? "Card updates and terminal attempts are clear." : "Payments, deposits, and updates are clear right now."}
+              compact
+            />
           ) : (
             alertRows.map((alert) => (
               <div
@@ -1962,7 +2025,7 @@ function HealthPanel({
           <MetricCard label="No Action Needed" value={`${health?.ignored_event_count ?? 0}`} />
           <MetricCard label="Last Update" value={shortDateTime(health?.last_event_at)} />
         </div>
-        {(health?.failed_event_count ?? 0) > 0 ? (
+        {!posSurface && (health?.failed_event_count ?? 0) > 0 ? (
           <div className="mt-4 flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-semibold text-app-text-muted sm:flex-row sm:items-center sm:justify-between">
             <span>{health?.last_failed_message ?? "A Helcim payment update failed and can be replayed."}</span>
             <button
@@ -1994,7 +2057,9 @@ function HealthPanel({
           <div>
             <h2 className="text-lg font-black text-app-text">Helcim Terminal Review</h2>
             <p className="mt-1 text-sm font-semibold text-app-text-muted">
-              These rows are read-only. They do not record payments, close checkouts, or reconcile provider activity.
+              {posSurface
+                ? "Verify the terminal result, choose the outcome, then record the review."
+                : "These rows are read-only. They do not record payments, close checkouts, or reconcile provider activity."}
             </p>
           </div>
           <StatusPill value={terminalReviewAttemptCount + terminalReviewEvents.length > 0 ? "Needs Review" : "Clear"} />
@@ -2083,7 +2148,9 @@ function HealthPanel({
           <div>
             <h2 className="text-lg font-black text-app-text">Terminal Control</h2>
             <p className="mt-1 text-sm font-semibold text-app-text-muted">
-              Device codes come from Helcim API mode. Ping checks whether the device is listening.
+              {posSurface
+                ? "Check configured terminal routing and device status."
+                : "Device codes come from Helcim API mode. Ping checks whether the device is listening."}
             </p>
           </div>
           <StatusPill value={terminalError ? "Needs Review" : terminalDevices.length > 0 ? "Ready" : "Not Ready"} />
@@ -2140,8 +2207,8 @@ function HealthPanel({
                         <button
                           type="button"
                           onClick={() => onPingDevice(code)}
-                          disabled={!canSync || !code}
-                          title={!canSync ? "You do not have permission to perform this action" : undefined}
+                          disabled={(!posSurface && !canSync) || !code}
+                          title={!posSurface && !canSync ? "You do not have permission to perform this action" : undefined}
                           className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-black uppercase tracking-widest text-app-text disabled:opacity-50"
                         >
                           Ping
@@ -2174,6 +2241,7 @@ function HealthPanel({
           </section>
         </div>
       </div>
+      {!posSurface ? (
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={onSyncBatches} disabled={!canSync} title={!canSync ? "You do not have permission to perform this action" : undefined} className="rounded-lg bg-app-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
           Sync Batches
@@ -2182,6 +2250,7 @@ function HealthPanel({
           Sync Fees
         </button>
       </div>
+      ) : null}
     </div>
   );
 }

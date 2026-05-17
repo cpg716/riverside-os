@@ -39,9 +39,11 @@
 
 1. Finish or park sales per policy — no abandoned tenders.
 2. Run **close / Z** on **Register #1** when your store uses a **till group** (satellite **#2+** lanes do not have their own Z-close in POS — one **Z** closes every lane in the shift).
-3. **Professional Z-Report**: The closing report will automatically route to your assigned **Report Station** (Full-Page/Audit) rather than the receipt printer.
-4. **Cash:** count and reconcile per **dual control** SOP; discrepancies → manager immediately ([STORE-SOP-TEMPLATE.md](STORE-SOP-TEMPLATE.md)).
-5. **Close register** in software when SOP says (may differ from simply exiting POS).
+3. **Cash:** count bills and coins by denomination, or enter one drawer total.
+4. **Checks:** confirm each check number and dollar amount before moving to final review.
+5. **Card review:** if a Helcim terminal outcome blocks close, use **Review** inside the close flow, or go to **POS → Payments**, verify the terminal result, choose the outcome, and record it. Staff do not need Back Office Payments access for this daily close step.
+6. **Professional Z-Report**: the closing report routes to your assigned **Report Station** (Full-Page/Audit), includes the QBO journal-entry preview, and lists non-sale inventory moves for the business date such as Receiving, RTV, Damaged, Physical Count, and Adjustments.
+7. **Close register** only on the final **Close & Print Z-Report** page. **Cancel** on any earlier page exits the workflow without closing the drawer.
 
 ---
 
@@ -55,6 +57,7 @@
 ## When to stop and get a manager
 
 - **Cash** over/short beyond tolerance.
+- Unclear **card terminal** outcome after checking the terminal receipt / Helcim evidence.
 - **Void** or **refund** outside your training.
 - Repeated **500** errors during close — [ERROR-AND-TOAST-GUIDE.md](ERROR-AND-TOAST-GUIDE.md).
 
@@ -66,4 +69,4 @@
 - [working-offline.md](working-offline.md)
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-05-17

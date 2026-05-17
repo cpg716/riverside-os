@@ -573,6 +573,7 @@ function App() {
           "nuorder",
           "counterpoint",
           "remote-access",
+          "ros-operations-center",
           "ros-dev-center",
           "rosie",
           "online-store",
@@ -2138,6 +2139,12 @@ function AppMainColumn({
                         onOpenOnlineStore={() => {
                           setActiveTab("online-store");
                           setActiveSubSection("dashboard");
+                        }}
+                        onNavigateOperationsTarget={(target) => {
+                          setActiveTab(target.tab);
+                          if (target.section) {
+                            setActiveSubSection(target.section);
+                          }
                         }}
                       />
                   );
