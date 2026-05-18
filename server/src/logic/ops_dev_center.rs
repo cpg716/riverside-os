@@ -1400,7 +1400,7 @@ async fn upsert_open_alert(
 }
 
 pub async fn ping_db(pool: &PgPool) -> bool {
-    sqlx::query_scalar::<_, i64>("SELECT 1")
+    sqlx::query_scalar::<_, i64>("SELECT 1::bigint")
         .fetch_one(pool)
         .await
         .map(|_| true)

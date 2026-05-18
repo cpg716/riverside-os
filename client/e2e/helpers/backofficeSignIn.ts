@@ -214,12 +214,20 @@ export async function clearBackofficeSession(page: Page): Promise<void> {
 
 async function waitForBackofficeShellReady(page: Page, message: string): Promise<void> {
   const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
+  const appShellState = page.getByTestId("app-shell-state");
   await expect(page.getByText(/loading riverside/i)).not.toBeVisible({
     timeout: 30_000,
   });
   await expect
     .poll(
       async () =>
+        (await appShellState
+          .evaluate((el) => {
+            const activeTab = el.getAttribute("data-active-tab");
+            const rect = el.getBoundingClientRect();
+            return Boolean(activeTab) && rect.width > 0 && rect.height > 0;
+          })
+          .catch(() => false)) ||
         (await page
           .getByRole("heading", { name: /operations overview/i })
           .isVisible()
