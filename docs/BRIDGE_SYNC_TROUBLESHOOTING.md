@@ -48,9 +48,19 @@ If a specific entity (e.g., `inventory` or `tickets`) gets stuck:
 
 ## 4. Bridge Environment Secrets
 Ensure these values in `counterpoint-bridge/.env` are intact:
-- `ROS_BASE_URL`: Should be `http://127.0.0.1:3000` (local) or your Tailscale IP (remote).
-- `COUNTERPOINT_SYNC_TOKEN`: Must match the server secret.
+- `ROS_BASE_URL`: should point to the Riverside Backoffice / Server PC API, for example `http://10.64.70.196:3000`. Do not point this at PostgreSQL or the Counterpoint SQL host unless that same machine is also running Riverside Server.
+- `COUNTERPOINT_SYNC_TOKEN`: must exactly match the token loaded by Riverside Server.
 - `SQL_REQUEST_TIMEOUT_MS`: Default is `600000` (10 minutes). Increase this if you are syncing more than 50k tickets.
+
+### health 503
+
+- **What it means**: Riverside Server is reachable, but no Counterpoint sync token is configured on the Riverside side.
+- **Resolution**: On the Backoffice / Server PC, save the token in **Settings → Counterpoint**, or run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package and restart Riverside Server.
+
+### health 401
+
+- **What it means**: Riverside Server has a token, but the bridge sent a different token or no token.
+- **Resolution**: On the Backoffice / Server PC, run `Set-CounterpointBridgeToken.cmd` from the Windows deployment package and paste the exact `COUNTERPOINT_SYNC_TOKEN` from `C:\counterpoint-bridge\.env`. Then close and restart the bridge.
 
 ---
 *Version: 0.1.8 - April 2026*

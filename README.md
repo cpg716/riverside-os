@@ -1,8 +1,8 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.60.0 is the production release build for the store rollout model: Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and Windows laptop PWA/optional Tauri clients. It carries forward the v0.50 GOLD certification baseline and adds the latest register close, operational readiness, Podium, QBO/reporting, Help/ROSIE, deployment, and recovery hardening.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.60.1 is the production hotfix release for the store rollout model: Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and Windows laptop PWA/optional Tauri clients. It carries forward the v0.60.0 deployment baseline and tightens host selection, printer readiness, updater, Help/ROSIE, deployment, and recovery hardening.
 
-Current Version: **v0.60.0** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.60.1** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 
@@ -174,8 +174,8 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm 
 Current CI note:
 
 - The POS UI subset (`phase2-tender-ui`, `pos-golden`, `tax-exempt-and-helcim-branding`, and the UI-open path in `exchange-wizard`) is back in the release gate. The old `ROS_QUARANTINE_UNSTABLE_POS_E2E=1` quarantine has been removed after adding explicit POS readiness contracts.
-- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, QBO, Payments Operations, register reconciliation, high-risk API, intelligence/finance, and visual baseline contracts. The v0.60.0 release certification evidence is recorded in [`docs/releases/v0.60.0-certification.md`](docs/releases/v0.60.0-certification.md), carrying forward the v0.50 GOLD certification baseline and adding the current release validation results.
-- See [`docs/releases/v0.60.0-certification.md`](docs/releases/v0.60.0-certification.md), [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md), [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md), and [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md).
+- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, QBO, Payments Operations, register reconciliation, high-risk API, intelligence/finance, and visual baseline contracts. The v0.60.1 release notes are recorded in [`docs/releases/v0.60.1-release-notes.md`](docs/releases/v0.60.1-release-notes.md), carrying forward the v0.60.0 certification baseline and adding the current deployment hotfix validation results.
+- See [`docs/releases/v0.60.1-release-notes.md`](docs/releases/v0.60.1-release-notes.md), [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md), [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md), and [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md).
 
 For complete pre-release validation (service boot order, lint/build gates, and E2E checklist), see **`docs/RELEASE_QA_CHECKLIST.md`**.
 

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Version = "0.60.0",
+  [string]$Version = "0.60.1",
   [string]$OutputDir = "$PSScriptRoot\..\..\dist\deployment",
   [string]$ServerBinaryPath = "$PSScriptRoot\..\..\server\target\release\riverside-server.exe",
   [string]$ClientDistPath = "$PSScriptRoot\..\..\client\dist",

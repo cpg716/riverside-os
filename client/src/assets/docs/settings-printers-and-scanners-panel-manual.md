@@ -36,7 +36,7 @@ Use this panel when opening a new lane, replacing a printer, checking scanner in
 5. Enter the reports printer target when the workstation uses a dedicated reports bridge.
 6. In POS, use **Print test** to send a short Epson test receipt.
 7. Use **Open drawer** only when you need a manual drawer open. Enter a reason and the acting staff member's **Access PIN** so the event is recorded for the Z-report.
-8. Use **Check connection** for the receipt printer in the Riverside desktop app.
+8. Use **Check connection** for the receipt printer. The desktop app checks the printer directly; PWA/browser mode asks the Riverside server to check the printer IP and port.
 9. Focus the scanner test field and scan a barcode to confirm HID keyboard input is reaching ROS.
 
 ## Recovery and escalation
@@ -51,7 +51,7 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 - Manual drawer opens require an Access PIN, a reason, and are listed on the Z-report.
 - The POS Register Hardware view shows the active receipt address, cash drawer state, and Zebra tag target at the top of the page.
 - Item tags print directly to the configured Zebra 2844/ZPL station when the station can be reached; ROS opens tag preview only when direct dispatch is unavailable.
-- Browser/PWA mode can save the same settings and can use server-side network printing when the API host can reach the printer. Installed-printer dropdowns and live local readiness checks run in the desktop app.
+- Browser/PWA mode can save the same settings and can use server-side network printing when the API host can reach the printer. Receipt checks in PWA/browser mode verify the server-to-printer TCP path; installed-printer dropdowns and Windows printer checks run in the desktop app.
 - USB scanner hardware on PC and Bluetooth scanner hardware on iPad/phone should be configured as HID keyboard input with an Enter suffix.
 
 ## What happens next

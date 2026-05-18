@@ -18,6 +18,8 @@ RiversideOS-v0.60.0-Windows-Deployment/
   Start-RiversideDeployment.ps1
   install-server.ps1
   install-register.ps1
+  Repair-RiversideCredentialsKey.cmd
+  Set-CounterpointBridgeToken.cmd
   riverside-deployment.config.example.json
   server/riverside-server.exe
   client-dist/
@@ -71,6 +73,8 @@ The Deployment Manager keeps the password work inside the installer flow:
 - **New PostgreSQL admin password**: if PostgreSQL is installed by the manager and the field is blank or placeholder, the manager generates a password and writes it to `riverside-deployment.config.json`.
 - **Riverside database password**: generated automatically if left blank or still set to a placeholder. It is saved to `riverside-deployment.config.json` and written to `C:\RiversideOS\server\.env`.
 - **Riverside app secret**: generated automatically if left blank, too short, or still set to a placeholder.
+- **Integration credential encryption key**: written as `RIVERSIDE_CREDENTIALS_KEY` in `C:\RiversideOS\server\.env` and the Windows machine environment. This must be present before Backoffice Settings can save Helcim, QBO, Counterpoint, or other encrypted integration credentials.
+- **Counterpoint bridge sync token**: generated when blank and written as `COUNTERPOINT_SYNC_TOKEN`. The same value must also be placed in `C:\counterpoint-bridge\.env` on the Counterpoint host.
 - **Register and Back Office station settings**: written automatically to `C:\ProgramData\RiversideOS\station-config.json`.
 
 Generated Riverside passwords intentionally use URL-safe letters and numbers so PostgreSQL connection strings do not break on characters like `#`, `@`, or `%`.
@@ -87,6 +91,11 @@ The same Deployment Manager handles later maintenance:
 - **Server uninstall**: removes the server scheduled task, firewall rule, and app files. It keeps the database, backups, and logs by default.
 
 Server, Windows app, and PWA/web files are one release. After any update, open **Settings → Updates** and confirm it shows the expected **Riverside version**. If it shows **Update incomplete**, finish the matching server or workstation update before using that station for production work.
+
+Hotfix/support actions included in v0.60.0 packages:
+
+- **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.
+- **`Set-CounterpointBridgeToken.cmd`** prompts for the exact `COUNTERPOINT_SYNC_TOKEN` from the Counterpoint bridge `.env`, writes that same token to the Riverside server environment, and restarts the server. Use this when the Counterpoint bridge reaches Riverside but fails with `health 401`.
 
 Manual fallback:
 
@@ -136,6 +145,11 @@ The script:
 The Backoffice / Server desktop app also has a local recovery path: if it opens on the server PC, is pointed at `localhost` / `127.0.0.1`, and the roster check cannot reach the API, it asks Windows to start the installed `Riverside OS Server` scheduled task and then retries the roster check. If the task is missing, run **Repair** from the Deployment Manager instead of manually creating a different task name.
 
 PostgreSQL and `psql.exe` must be installed or referenced by `server.database.psqlPath`. The Deployment Manager can find common PostgreSQL installs and write the path into the config.
+
+API host rule:
+
+- On the **Backoffice / Server PC**, the Riverside desktop API host should be `http://127.0.0.1:3000`.
+- On **Register #1**, **Back Office Workstation**, and iPad/PWA devices, the API host should be the server PC LAN address with port 3000, for example `http://10.64.70.196:3000`.
 
 ## Register #1 install
 

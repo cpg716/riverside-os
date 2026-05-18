@@ -27,6 +27,12 @@ pub struct PrintRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PrinterCheckRequest {
+    pub ip: String,
+    pub port: u16,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct PngToEscposRequest {
     pub png_base64: String,
 }
@@ -65,7 +71,48 @@ impl IntoResponse for HardwareError {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/print", post(handle_print))
+        .route("/check-printer", post(handle_check_printer))
         .route("/escpos-from-png", post(handle_escpos_from_png))
+}
+
+async fn handle_check_printer(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<PrinterCheckRequest>,
+) -> Result<Response, HardwareError> {
+    middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_hw_session)?;
+
+    let addr = format!("{}:{}", payload.ip.trim(), payload.port);
+    if payload.ip.trim().is_empty() {
+        return Err(HardwareError::BadRequest(
+            "Printer address is not configured.".to_string(),
+        ));
+    }
+
+    match tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&addr)).await {
+        Ok(Ok(_stream)) => {
+            tracing::info!("Thermal Hub: Printer readiness confirmed at {}", addr);
+            Ok((StatusCode::OK, Json(json!({"status": "reachable"}))).into_response())
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "Thermal Hub: Printer readiness failed at {}", addr);
+            Ok((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error": format!("Connection refused: {}", e)})),
+            )
+                .into_response())
+        }
+        Err(_) => {
+            tracing::warn!("Thermal Hub: Printer readiness timeout for {}", addr);
+            Ok((
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(json!({"error": "Printer connection timeout"})),
+            )
+                .into_response())
+        }
+    }
 }
 
 async fn handle_print(

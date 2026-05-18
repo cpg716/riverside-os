@@ -32,14 +32,17 @@ Use this gate to select the current staff identity and enter the correct **Acces
 
 ## API Host Settings
 
-Use **API Host Settings** only when this device needs to point at a different Riverside host URL, such as:
+Use **API Host Settings** only when this device needs to point at a different Riverside host URL. The menu shows known host choices first, and the text field still allows a manually typed IP or DNS name.
 
+- **Backoffice / Server direct** on the server PC
 - the dedicated host machine on your local network
 - the store's Tailscale remote-access URL when this device is off-site
 
 Example values:
 
+- `http://127.0.0.1:3000` on the Backoffice / Server PC
 - `http://ros-host.local:3000`
+- `http://10.64.70.196:3000`
 - `https://ros-host.tailnet.ts.net`
 
 ## Notes

@@ -36,6 +36,8 @@ Use this panel to verify facts. ROSIE can explain displayed facts only; it does 
 
 The bridge status shows whether the Counterpoint workstation bridge is reachable, online, offline, or degraded. If bridge controls are not reachable on this workstation, use **Reconnect to Bridge** or review the bridge host before continuing.
 
+The Bridge sync token saved in this panel must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env` on the Counterpoint host. If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If the bridge console shows `health 401`, run `Set-CounterpointBridgeToken.cmd` on the server PC and paste the exact bridge `.env` token. If it shows `health 503`, Riverside Server does not have a Counterpoint token configured yet.
+
 ## Post-import verification
 
 Post-import verification appears before sign-off reconciliation. It shows import proof such as bridge rows sent, ROS rows landed, missing landed proof, count matches, lower ROS counts, and bridge-only entities.

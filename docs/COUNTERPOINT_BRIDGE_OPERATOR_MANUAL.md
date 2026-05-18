@@ -43,6 +43,12 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
 
    Never log the token. Routine ROS-side token updates belong in Backoffice Settings; the bridge `.env` is still required because the bridge runs outside ROS.
 
+   If Settings refuses to save credentials with a `RIVERSIDE_CREDENTIALS_KEY` warning, run **`Repair-RiversideCredentialsKey.cmd`** from the Windows deployment package on the Backoffice / Server PC, then reopen Settings and save the token again.
+
+   If the bridge console shows `health 401`, Riverside has a token but the bridge is sending a different one. Run **`Set-CounterpointBridgeToken.cmd`** on the Backoffice / Server PC and paste the exact token from `C:\counterpoint-bridge\.env`, then restart the bridge.
+
+   If the bridge console shows `health 503`, Riverside does not have a Counterpoint sync token configured. Save the token in Settings or run **Repair** / **`Repair-RiversideCredentialsKey.cmd`** on the server PC.
+
 3. **Network**: from the Counterpoint PC, `ROS_BASE_URL` must reach the machine **running the HTTP API** (e.g. `http://192.168.x.x:3000`), not the Postgres port.
 
 4. **Large batches**: default request body limit is **256 MiB** unless overridden by `RIVERSIDE_MAX_BODY_BYTES` (see `server/src/main.rs`). If imports fail with payload errors, raise the limit and restart the server.
@@ -63,8 +69,6 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
    | `COUNTERPOINT_SYNC_TOKEN` | **Exact match** to the token saved in **Settings → Integrations → Counterpoint**. |
 
 5. Run **`START_BRIDGE.cmd`** or `node index.mjs`.
-
-6. **`node index.mjs discover`** (or **`DISCOVER_SCHEMA.cmd`**) — read-only schema probe; no ROS token strictly required for discover-only; use to align `CP_*_QUERY` with your CP/Counterpoint build.
 
 6. **`node index.mjs discover`** (or **`DISCOVER_SCHEMA.cmd`**) — read-only schema probe; no ROS token strictly required for discover-only; use to align `CP_*_QUERY` with your CP/Counterpoint build.
 
@@ -236,7 +240,7 @@ From repo root, pack a fresh zip:
 
    (Or your hosted equivalent: run new `migrations/NN_*.sql` in order and insert ledger rows per your procedure.)
 
-3. Confirm the token saved in **Settings → Integrations → Counterpoint** matches the bridge `.env`.
+3. Confirm the token saved in **Settings → Integrations → Counterpoint** matches the bridge `.env`. If there is any doubt, run **`Set-CounterpointBridgeToken.cmd`** on the Backoffice / Server PC and paste the token currently shown in `C:\counterpoint-bridge\.env`.
 4. **Smoke test** (replace token and host):
 
    ```bash

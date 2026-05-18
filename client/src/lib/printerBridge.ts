@@ -287,15 +287,26 @@ export async function checkReceiptPrinterConnection(
   const ip = target.ip.trim();
   const port = target.port;
   if (!ip) {
-    throw new Error("Receipt printer address is not configured for this station.");
+    throw new Error("Printer address is not configured for this station.");
   }
   if (!Number.isFinite(port) || port <= 0) {
-    throw new Error("Receipt printer port is invalid for this station.");
+    throw new Error("Printer port is invalid for this station.");
   }
   if (!isTauri()) {
-    throw new Error(
-      "Printer readiness checks are available only in the Riverside desktop app.",
-    );
+    const baseUrl = getBaseUrl();
+    const res = await fetch(`${baseUrl}/api/hardware/check-printer`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...sessionPollAuthHeaders(),
+      },
+      body: JSON.stringify({ ip, port }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error || "Server-side printer readiness check failed");
+    }
+    return;
   }
   try {
     await invoke("check_printer_connection", { ip, port });

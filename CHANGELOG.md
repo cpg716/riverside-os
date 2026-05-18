@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.60.1] - 2026-05-18
+### Changed
+- Added known-host selection to the sign-in **API Host Settings** flow while preserving manual IP/URL entry for Register and PWA setup.
+- Bumped release metadata to `0.60.1` across package, server, Tauri, and deployment-package defaults for the updater hotfix lane.
+
+### Fixed
+- Added a server-side printer readiness endpoint so PWA/browser receipt stations can verify the server-to-printer TCP path before checkout.
+- Updated printer settings so network receipt and Zebra tag checks use the same direct readiness path in browser/PWA and desktop contexts.
+- Updated staff Help content for API host setup and PWA receipt-printer readiness behavior.
+
 ## [0.60.0] — 2026-05-17
 ### Added
 - Added Windows desktop app recovery for the Backoffice / Server PC: when the local API is unreachable on sign-in, the app can start the installed `Riverside OS Server` scheduled task and retry the staff roster check.

@@ -159,10 +159,6 @@ export default function PrintersAndScannersPanel({
     setTesting(printer.key);
     try {
       if (printer.key === "receipt") {
-        if (!isTauri()) {
-          toast("Receipt settings saved. Live printer checks run in the Riverside desktop app.", "success");
-          return;
-        }
         await checkReceiptPrinterConnection(resolvePrinterTarget("receipt"));
       } else {
         const mode = values[printer.modeStorageKey] === "system" ? "system" : "network";
@@ -174,6 +170,11 @@ export default function PrintersAndScannersPanel({
         const ip = values[printer.ipStorageKey]?.trim();
         if (!ip) {
           throw new Error(`${printer.label} address is not configured.`);
+        }
+        if (printer.key === "tag") {
+          await checkReceiptPrinterConnection(resolvePrinterTarget("tag"));
+          toast(`${printer.label} responded.`, "success");
+          return;
         }
         toast(`${printer.label} saved. Live readiness checks are currently for receipt printers.`, "success");
         return;

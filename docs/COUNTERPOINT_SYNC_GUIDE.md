@@ -71,6 +71,8 @@ COUNTERPOINT_SYNC_TOKEN=your-long-random-secret-here
 
 This token authenticates every bridge request. **Never log this token.** Routine ROS-side token updates belong in Backoffice Settings; the bridge host keeps its own `.env` because it runs outside ROS.
 
+If Backoffice Settings refuses to save the token with `RIVERSIDE_CREDENTIALS_KEY must be set`, run **`Repair-RiversideCredentialsKey.cmd`** from the Windows deployment package on the Backoffice / Server PC. The repair writes the credential encryption key into the installed server `.env` and Windows machine environment, then restarts the Riverside server task.
+
 ### 2c. Verify the health endpoint
 
 ```bash
@@ -729,7 +731,8 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 | Symptom | Check |
 |---------|-------|
 | Bridge shows **OFFLINE** in Settings | Is the Node.js process running on the CP host? Is the network path open (firewall on port 3000)? |
-| `invalid or missing sync token` | Token in bridge `.env` must **exactly** match the Counterpoint sync token saved in Backoffice Settings |
+| `health 503` from bridge startup | Riverside Server does not have `COUNTERPOINT_SYNC_TOKEN` configured. Save the token in Settings or run `Repair-RiversideCredentialsKey.cmd` on the server PC. |
+| `health 401` or `invalid or missing sync token` | Token in bridge `.env` must **exactly** match the Counterpoint sync token loaded by Riverside. Run `Set-CounterpointBridgeToken.cmd` on the server PC and paste the exact token from `C:\counterpoint-bridge\.env`. |
 | `Connection refused` from bridge | ROS server not running, or firewall blocking port 3000 from the CP host |
 | `invalid object name` on SQL | Check `Database=` in `SQL_CONNECTION_STRING` — must be the Counterpoint company DB, not `master` |
 | Customers sync but email is missing | Email was on another customer in ROS (unique constraint); check `email_conflicts` in the response |

@@ -17,6 +17,12 @@ interface InstalledServerStartStatus {
   message: string;
 }
 
+interface ApiHostOption {
+  label: string;
+  url: string;
+  helper: string;
+}
+
 function isLoopbackServerUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -61,6 +67,27 @@ function normalizeApiBase(value: string): string {
   }
 }
 
+function getBrowserOriginOption(): ApiHostOption | null {
+  if (typeof window === "undefined") return null;
+  const { origin, protocol } = window.location;
+  if (protocol !== "http:" && protocol !== "https:") return null;
+  return {
+    label: "This browser address",
+    url: origin.replace(/\/$/, ""),
+    helper: "Use when this app was opened from the Riverside server URL.",
+  };
+}
+
+function uniqueHostOptions(options: ApiHostOption[]): ApiHostOption[] {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    const key = normalizeApiBase(option.url);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /**
  * Blocks the Back Office shell until a valid 4-digit staff credential is stored.
  * Independent of the register: POS / checkout still require an open session where enforced.
@@ -92,6 +119,39 @@ export default function BackofficeSignInGate({
   const [showServerSetup, setShowServerSetup] = useState(false);
   const [tempUrl, setTempUrl] = useState(serverUrl);
   const [serverStartupNotice, setServerStartupNotice] = useState<string | null>(null);
+
+  const apiHostOptions = useMemo(() => {
+    const current = normalizeApiBase(serverUrl);
+    const browserOrigin = getBrowserOriginOption();
+    return uniqueHostOptions([
+      ...(current
+        ? [
+            {
+              label: "Current saved host",
+              url: current,
+              helper: "The host this device is using right now.",
+            },
+          ]
+        : []),
+      {
+        label: isBackofficeServerStation()
+          ? "Backoffice / Server direct"
+          : "This PC local server",
+        url: "http://127.0.0.1:3000",
+        helper: "Use only on the Backoffice / Server PC.",
+      },
+      {
+        label: "Default app host",
+        url: DEFAULT_BASE_URL,
+        helper: "The packaged default or same-origin Riverside host.",
+      },
+      ...(browserOrigin ? [browserOrigin] : []),
+    ]);
+  }, [serverUrl]);
+
+  const selectedApiHost = apiHostOptions.find(
+    (option) => normalizeApiBase(option.url) === normalizeApiBase(tempUrl),
+  );
 
   const isTailscaleRemote = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -373,6 +433,30 @@ export default function BackofficeSignInGate({
             <div className="text-center space-y-2">
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">API Host Configuration</h3>
               <p className="text-[10px] font-medium text-app-text-muted">Point this device to the Riverside URL for the host machine it should use: the local-network host URL when this device is in the shop, or the store's Tailscale remote-access URL when this device is off-site.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Known servers</label>
+              <select
+                value={selectedApiHost?.url ?? ""}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setTempUrl(e.target.value);
+                  }
+                }}
+                className="w-full bg-app-bg border border-app-border rounded-xl px-4 py-3 text-xs font-bold text-app-text outline-none focus:border-app-accent"
+              >
+                <option value="">Type a server below</option>
+                {apiHostOptions.map((option) => (
+                  <option key={option.url} value={option.url}>
+                    {option.label} - {option.url}
+                  </option>
+                ))}
+              </select>
+              {selectedApiHost ? (
+                <p className="text-[10px] font-semibold leading-relaxed text-app-text-muted">
+                  {selectedApiHost.helper}
+                </p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">API Base URL</label>
