@@ -60,10 +60,9 @@ fn validate_sync_token(
         .ok()
         .map(|token| token.trim().to_string())
         .filter(|token| !token.is_empty());
-    let expected = state
-        .counterpoint_sync_token
+    let expected = env_token
         .as_deref()
-        .or(env_token.as_deref());
+        .or(state.counterpoint_sync_token.as_deref());
     let Some(expected) = expected else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,

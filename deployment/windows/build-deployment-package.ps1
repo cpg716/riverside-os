@@ -97,6 +97,10 @@ Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\repair-bootstrap-admin.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\reset-riverside-database.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Reset-RiversideDatabase.cmd" $packageRoot -Force
+Copy-Item "$PSScriptRoot\repair-server-credentials-key.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Repair-RiversideCredentialsKey.cmd" $packageRoot -Force
+Copy-Item "$PSScriptRoot\set-counterpoint-bridge-token.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Set-CounterpointBridgeToken.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\riverside-deployment.config.example.json" $packageRoot -Force

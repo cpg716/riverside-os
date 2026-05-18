@@ -371,6 +371,21 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist) {
   Set-Content -Path $Path -Value $lines -Encoding UTF8
 }
 
+function Set-MachineEnvironmentFromServerConfig($Config) {
+  $server = $Config.server
+  [Environment]::SetEnvironmentVariable("RIVERSIDE_CREDENTIALS_KEY", "$($server.storeCustomerJwtSecret)", "Machine")
+  [Environment]::SetEnvironmentVariable("RIVERSIDE_STORE_CUSTOMER_JWT_SECRET", "$($server.storeCustomerJwtSecret)", "Machine")
+  if ($server.environment) {
+    foreach ($prop in $server.environment.PSObject.Properties) {
+      $name = "$($prop.Name)"
+      $value = "$($prop.Value)"
+      if (($name -eq "COUNTERPOINT_SYNC_TOKEN") -and -not [string]::IsNullOrWhiteSpace($value)) {
+        [Environment]::SetEnvironmentVariable($name, $value, "Machine")
+      }
+    }
+  }
+}
+
 function Get-MigrationSortKey($File) {
   if ($File.Name -match '^(\d+)([a-zA-Z]?)_') {
     return "{0:D6}-{1}-{2}" -f [int]$Matches[1], $Matches[2], $File.Name
@@ -580,6 +595,7 @@ try {
 
 $envPath = Join-Path $serverDir ".env"
 Write-ServerEnv $envPath $config $databaseUrl $clientDist
+Set-MachineEnvironmentFromServerConfig $config
 
 if (-not $SkipFirewall) {
   Ensure-RiversideFirewallRule $server.firewallRuleName $serverPort
