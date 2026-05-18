@@ -86,6 +86,7 @@ New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\server" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\client-dist" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\migrations" | Out-Null
+New-Item -ItemType Directory -Force -Path "$packageRoot\seeds" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\register" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\updater" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\docs" | Out-Null
@@ -94,12 +95,16 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\release-docs" | Out-Null
 Copy-Item "$PSScriptRoot\install-server.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\repair-bootstrap-admin.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\reset-riverside-database.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Reset-RiversideDatabase.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\riverside-deployment.config.example.json" $packageRoot -Force
 Copy-Item $ServerBinaryPath "$packageRoot\server\riverside-server.exe" -Force
 Copy-Item "$ClientDistPath\*" "$packageRoot\client-dist" -Recurse -Force
 Copy-Item "$repoRoot\migrations\*.sql" "$packageRoot\migrations" -Force
+Copy-Item "$repoRoot\scripts\seeds\seed_core_required.sql" "$packageRoot\seeds" -Force
+Copy-Item "$repoRoot\scripts\seeds\seed_rbac.sql" "$packageRoot\seeds" -Force
 Copy-Item "$repoRoot\docs\*" "$packageRoot\release-docs" -Recurse -Force
 
 $manifest = @{

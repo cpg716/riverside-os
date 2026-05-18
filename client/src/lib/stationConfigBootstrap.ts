@@ -49,6 +49,34 @@ function applyPrinter(prefix: string, printer: PrinterStationConfig | undefined)
   return changed;
 }
 
+function isLoopbackApiBase(value: string | null | undefined) {
+  const cleaned = value?.trim();
+  if (!cleaned) return false;
+  try {
+    const parsed = new URL(cleaned);
+    return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeApiBase(value: string | null | undefined) {
+  let cleaned = value?.trim() ?? "";
+  if (!cleaned) return "";
+  if (!cleaned.startsWith("http")) {
+    cleaned = `http://${cleaned}`;
+  }
+  try {
+    const parsed = new URL(cleaned);
+    if (parsed.protocol === "http:" && !parsed.port) {
+      parsed.port = "3000";
+    }
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return cleaned.replace(/\/$/, "");
+  }
+}
+
 export async function applyInstallerStationConfig() {
   if (!isTauri() || typeof window === "undefined") return;
 
@@ -58,10 +86,15 @@ export async function applyInstallerStationConfig() {
   if (!config?.register) return;
 
   const hash = JSON.stringify(config.register);
-  if (window.localStorage.getItem(APPLIED_HASH_KEY) === hash) return;
 
   let changed = false;
-  changed = setIfChanged("ros_api_base_override", config.register.apiBase) || changed;
+  const stationLabel = config.register.stationLabel?.trim();
+  const apiBase = normalizeApiBase(config.register.apiBase);
+  const shouldApplyApiBase =
+    stationLabel === "Backoffice / Server" || !isLoopbackApiBase(apiBase);
+  if (shouldApplyApiBase) {
+    changed = setIfChanged("ros_api_base_override", apiBase) || changed;
+  }
   changed = setIfChanged("ros.station.label", config.register.stationLabel) || changed;
   changed =
     setBoolIfChanged("ros.hardware.cashDrawer.enabled", config.register.cashDrawerEnabled) ||

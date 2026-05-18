@@ -30,8 +30,35 @@ function isWindowsDesktop(): boolean {
   return typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent);
 }
 
+function isBackofficeServerStation(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem("ros.station.label") === "Backoffice / Server";
+}
+
 function shouldAutoStartLocalServer(serverUrl: string): boolean {
-  return isTauri() && isWindowsDesktop() && isLoopbackServerUrl(serverUrl);
+  return (
+    isTauri() &&
+    isWindowsDesktop() &&
+    isBackofficeServerStation() &&
+    isLoopbackServerUrl(serverUrl)
+  );
+}
+
+function normalizeApiBase(value: string): string {
+  let url = value.trim();
+  if (url && !url.startsWith("http")) {
+    url = `http://${url}`;
+  }
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" && !parsed.port) {
+      parsed.port = "3000";
+    }
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return url.replace(/\/$/, "");
+  }
 }
 
 /**
@@ -73,13 +100,7 @@ export default function BackofficeSignInGate({
   }, []);
 
   const saveServerUrl = () => {
-    let url = tempUrl.trim();
-    if (url && !url.startsWith("http")) {
-      url = `http://${url}`;
-    }
-    if (url && url.endsWith("/")) {
-      url = url.slice(0, -1);
-    }
+    const url = normalizeApiBase(tempUrl);
     
     if (url === DEFAULT_BASE_URL) {
       localStorage.removeItem("ros_api_base_override");

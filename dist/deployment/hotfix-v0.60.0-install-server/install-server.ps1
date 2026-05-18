@@ -106,14 +106,6 @@ function Invoke-PsqlFile($PsqlPath, $DatabaseUrl, $FilePath) {
   }
 }
 
-function Invoke-PsqlScalar($PsqlPath, $DatabaseUrl, [string]$Sql) {
-  $result = & $PsqlPath $DatabaseUrl -tAc $Sql
-  if ($LASTEXITCODE -ne 0) {
-    throw "psql scalar query failed. $($result -join "`n")"
-  }
-  return (($result -join "").Trim())
-}
-
 function Invoke-PsqlAdmin($PsqlPath, $Db, $Sql) {
   $env:PGPASSWORD = $Db.adminPassword
   try {
@@ -306,7 +298,6 @@ function Test-RiversideApiReady([string]$BaseUrl, [int]$Port) {
     $content = "$($response.Content)".TrimStart()
     return $response.StatusCode -eq 200 -and ($content.StartsWith("[") -or $content.StartsWith("{"))
   } catch {
-    Write-Host "API check is not ready yet: $($_.Exception.Message)"
     return $false
   }
 }
@@ -323,41 +314,19 @@ function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
   throw "Riverside OS Server did not pass the API check at $BaseUrl/api/staff/list-for-pos."
 }
 
-function Ensure-RiversideFirewallRule([string]$DisplayName, [int]$Port) {
-  Remove-NetFirewallRule -DisplayName $DisplayName -ErrorAction SilentlyContinue
-  New-NetFirewallRule `
-    -DisplayName $DisplayName `
-    -Direction Inbound `
-    -Protocol TCP `
-    -LocalPort $Port `
-    -Action Allow `
-    -Profile Any | Out-Null
-}
-
 function Escape-SqlLiteral([string]$Value) {
   return $Value.Replace("'", "''")
 }
 
 function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist) {
   $server = $Config.server
-  $environmentMode = if ([bool]$server.strictProduction) { "production" } else { "development" }
-  $corsOrigins = @($server.corsOrigins) |
-    Where-Object { $null -ne $_ -and "$_".Trim() -ne "" } |
-    ForEach-Object { "$_".Trim() }
-  foreach ($requiredOrigin in @("http://tauri.localhost", "https://tauri.localhost")) {
-    if ($corsOrigins -notcontains $requiredOrigin) {
-      $corsOrigins += $requiredOrigin
-    }
-  }
   $lines = @(
     "DATABASE_URL=$DatabaseUrl",
     "FRONTEND_DIST=$FrontendDist",
     "RIVERSIDE_HTTP_BIND=$($server.httpBind)",
-    "RIVERSIDE_MODE=$environmentMode",
     "RIVERSIDE_STRICT_PRODUCTION=$($server.strictProduction.ToString().ToLowerInvariant())",
-    "RIVERSIDE_CORS_ORIGINS=$(($corsOrigins -join ','))",
-    "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET=$($server.storeCustomerJwtSecret)",
-    "RIVERSIDE_CREDENTIALS_KEY=$($server.storeCustomerJwtSecret)"
+    "RIVERSIDE_CORS_ORIGINS=$(($server.corsOrigins -join ','))",
+    "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET=$($server.storeCustomerJwtSecret)"
   )
 
   if ($server.environment) {
@@ -433,36 +402,6 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
   }
 }
 
-function Apply-SeedFiles($PsqlPath, $DatabaseUrl, $SeedsDir) {
-  $requiredSeeds = @(
-    "seed_core_required.sql",
-    "seed_rbac.sql"
-  )
-
-  foreach ($seedName in $requiredSeeds) {
-    $seedPath = Join-Path $SeedsDir $seedName
-    if (-not (Test-Path $seedPath)) {
-      throw "Missing required seed file: $seedPath. Rebuild the deployment package or copy the seeds folder into the package root."
-    }
-
-    Write-Host "Apply seed $seedName"
-    try {
-      Invoke-PsqlFile $PsqlPath $DatabaseUrl $seedPath
-    } catch {
-      throw "Seed failed: $seedName. $($_.Exception.Message)"
-    }
-  }
-}
-
-function Set-DatabaseEnvironmentMode($PsqlPath, $DatabaseUrl, [bool]$StrictProduction) {
-  $mode = if ($StrictProduction) { "production" } else { "development" }
-  Invoke-Psql $PsqlPath $DatabaseUrl "UPDATE store_settings SET environment_mode = '$mode' WHERE id = 1;"
-  $actualMode = Invoke-PsqlScalar $PsqlPath $DatabaseUrl "SELECT environment_mode FROM store_settings WHERE id = 1;"
-  if ($actualMode -ne $mode) {
-    throw "Could not stamp database environment_mode as '$mode'. Current value: '$actualMode'."
-  }
-}
-
 Assert-Admin
 if (-not (Test-Path $ConfigPath)) {
   throw "Config file not found: $ConfigPath. Copy riverside-deployment.config.example.json to riverside-deployment.config.json and fill it in."
@@ -485,7 +424,6 @@ $logDir = Join-Path $installRoot "logs"
 $packageServerExe = Join-Path $PSScriptRoot "server\riverside-server.exe"
 $packageDist = Join-Path $PSScriptRoot "client-dist"
 $packageMigrations = Join-Path $PSScriptRoot "migrations"
-$packageSeeds = Join-Path $PSScriptRoot "seeds"
 $packageReleaseDocs = Join-Path $PSScriptRoot "release-docs"
 
 foreach ($dir in @($installRoot, $serverDir, $clientDist, $releaseDir, $backupDir, $logDir)) {
@@ -501,9 +439,6 @@ if (-not (Test-Path $packageDist)) {
 if (-not (Test-Path $packageMigrations)) {
   throw "Missing migrations folder in package: $packageMigrations"
 }
-if (-not (Test-Path $packageSeeds)) {
-  throw "Missing seeds folder in package: $packageSeeds"
-}
 
 $taskName = "Riverside OS Server"
 $serverPort = [int](($server.httpBind -split ":")[-1])
@@ -516,8 +451,6 @@ Copy-Item "$packageDist\*" $clientDist -Recurse -Force
 Confirm-InstalledClientVersion $clientDist $config.releaseVersion $packageManifest.sourceGitShort
 Remove-Item "$releaseDir\migrations" -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item $packageMigrations (Join-Path $releaseDir "migrations") -Recurse -Force
-Remove-Item "$releaseDir\seeds" -Recurse -Force -ErrorAction SilentlyContinue
-Copy-Item $packageSeeds (Join-Path $releaseDir "seeds") -Recurse -Force
 if (Test-Path $packageReleaseDocs) {
   Remove-Item "$releaseDir\docs" -Recurse -Force -ErrorAction SilentlyContinue
   Copy-Item $packageReleaseDocs (Join-Path $releaseDir "docs") -Recurse -Force
@@ -563,8 +496,6 @@ if (-not $SkipMigrations) {
   $env:PGPASSWORD = $db.appPassword
   try {
     Apply-Migrations $psql $databaseUrl (Join-Path $releaseDir "migrations")
-    Apply-SeedFiles $psql $databaseUrl (Join-Path $releaseDir "seeds")
-    Set-DatabaseEnvironmentMode $psql $databaseUrl ([bool]$server.strictProduction)
   } finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
   }
@@ -582,7 +513,7 @@ $envPath = Join-Path $serverDir ".env"
 Write-ServerEnv $envPath $config $databaseUrl $clientDist
 
 if (-not $SkipFirewall) {
-  Ensure-RiversideFirewallRule $server.firewallRuleName $serverPort
+  New-NetFirewallRule -DisplayName $server.firewallRuleName -Direction Inbound -Protocol TCP -LocalPort $serverPort -Action Allow -Profile Private -ErrorAction SilentlyContinue | Out-Null
 }
 
 $serverExe = Join-Path $serverDir "riverside-server.exe"

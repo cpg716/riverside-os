@@ -120,8 +120,8 @@ export async function printZplReceipt(
       throw new Error("Choose an installed printer for this station.");
     }
     return invoke("print_raw_to_system_printer_b64", {
-      printer_name: target.printerName,
-      payload_b64: asciiToBase64(payload),
+      printerName: target.printerName,
+      payloadB64: asciiToBase64(payload),
     });
   }
 
@@ -172,8 +172,8 @@ export async function printRawEscPosBase64(
       throw new Error("Choose an installed printer for this station.");
     }
     await invoke("print_raw_to_system_printer_b64", {
-      printer_name: target.printerName,
-      payload_b64: payloadB64,
+      printerName: target.printerName,
+      payloadB64: payloadB64,
     });
     return;
   }
@@ -204,7 +204,7 @@ export async function printRawEscPosBase64(
     await invoke("print_escpos_binary_b64", {
       ip: target.ip,
       port: target.port,
-      payload_b64: payloadB64,
+      payloadB64: payloadB64,
     });
   } catch (err) {
     console.error("Hardware Bridge Error: raw ESC/POS print failed:", err);
@@ -228,8 +228,8 @@ export async function printEscPosReceipt(
     const init = "\x1b@";
     const cut = "\x1dVA\0";
     return invoke("print_raw_to_system_printer_b64", {
-      printer_name: target.printerName,
-      payload_b64: asciiToBase64(`${init}${payload}\n\n\n\n${cut}`),
+      printerName: target.printerName,
+      payloadB64: asciiToBase64(`${init}${payload}\n\n\n\n${cut}`),
     });
   }
 
@@ -276,7 +276,7 @@ export async function checkReceiptPrinterConnection(
       );
     }
     try {
-      await invoke("check_system_printer", { printer_name: target.printerName });
+      await invoke("check_system_printer", { printerName: target.printerName });
       return;
     } catch (err) {
       console.error("Hardware Bridge Error: installed printer check failed:", err);
