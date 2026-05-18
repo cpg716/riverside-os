@@ -23,6 +23,17 @@ pub enum TaskError {
     InvalidState(String),
 }
 
+type PendingTaskInstance = (Uuid, Uuid, Uuid, String, NaiveDate, Option<Uuid>, String);
+type DueTaskAssignment = (
+    Uuid,
+    Uuid,
+    DbTaskRecurrence,
+    Option<Uuid>,
+    String,
+    Uuid,
+    DbStaffRole,
+);
+
 pub async fn load_store_timezone_name(pool: &PgPool) -> Result<String, sqlx::Error> {
     let raw: Option<Value> =
         sqlx::query_scalar("SELECT receipt_config FROM store_settings WHERE id = 1 LIMIT 1")
@@ -198,19 +209,11 @@ pub async fn materialize_due_task_instances_between(
     from_d: NaiveDate,
     to_d: NaiveDate,
 ) -> Result<(), TaskError> {
-    let mut pending: Vec<(Uuid, Uuid, Uuid, String, NaiveDate, Option<Uuid>, String)> = Vec::new();
+    let mut pending: Vec<PendingTaskInstance> = Vec::new();
 
     let mut anchor = from_d;
     while anchor <= to_d {
-        let rows: Vec<(
-            Uuid,
-            Uuid,
-            DbTaskRecurrence,
-            Option<Uuid>,
-            String,
-            Uuid,
-            DbStaffRole,
-        )> = sqlx::query_as(
+        let rows: Vec<DueTaskAssignment> = sqlx::query_as(
             r#"
                 SELECT
                     ta.id,

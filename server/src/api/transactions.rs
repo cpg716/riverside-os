@@ -2198,6 +2198,15 @@ async fn post_transaction_void(
     }
 
     let mut tx = state.db.begin().await?;
+    type VoidTransactionHeader = (
+        Option<Uuid>,
+        DbOrderStatus,
+        Decimal,
+        Decimal,
+        Decimal,
+        Option<Uuid>,
+    );
+
     let session_open: Option<bool> = sqlx::query_scalar(
         r#"
         SELECT lifecycle_status = 'open'
@@ -2215,14 +2224,7 @@ async fn post_transaction_void(
         ));
     }
 
-    let header: Option<(
-        Option<Uuid>,
-        DbOrderStatus,
-        Decimal,
-        Decimal,
-        Decimal,
-        Option<Uuid>,
-    )> = sqlx::query_as(
+    let header: Option<VoidTransactionHeader> = sqlx::query_as(
         r#"
         SELECT
             customer_id,

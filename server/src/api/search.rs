@@ -621,8 +621,7 @@ fn op_hit(
     domain: impl Into<String>,
     title: impl Into<String>,
     subtitle: impl Into<String>,
-    route_tab: impl Into<String>,
-    route_section: Option<&str>,
+    route: (&str, Option<&str>),
     transaction_id: Option<Uuid>,
     occurred_at: Option<DateTime<Utc>>,
 ) -> UniversalOperationalHit {
@@ -631,8 +630,8 @@ fn op_hit(
         domain: domain.into(),
         title: title.into(),
         subtitle: subtitle.into(),
-        route_tab: route_tab.into(),
-        route_section: route_section.map(str::to_string),
+        route_tab: route.0.to_string(),
+        route_section: route.1.map(str::to_string),
         transaction_id,
         occurred_at,
     }
@@ -739,8 +738,7 @@ async fn search_appointments(
                 "Scheduler",
                 title,
                 subtitle,
-                "appointments",
-                Some("scheduler"),
+                ("appointments", Some("scheduler")),
                 None,
                 starts_at,
             )
@@ -832,8 +830,7 @@ async fn search_tasks(
                 "Tasks",
                 title,
                 subtitle,
-                "tasks",
-                None,
+                ("tasks", None),
                 None,
                 None,
             )
@@ -882,8 +879,7 @@ async fn search_qbo_logs(
                     .filter(|part| !part.trim().is_empty())
                     .collect::<Vec<_>>()
                     .join(" · "),
-                "qbo",
-                Some("history"),
+                ("qbo", Some("history")),
                 None,
                 row.get::<Option<DateTime<Utc>>, _>("updated_at"),
             )
@@ -938,8 +934,7 @@ async fn search_receiving_events(
                     .filter(|part| !part.trim().is_empty())
                     .collect::<Vec<_>>()
                     .join(" · "),
-                "inventory",
-                Some("receiving"),
+                ("inventory", Some("receiving")),
                 None,
                 row.get::<Option<DateTime<Utc>>, _>("received_at"),
             )
@@ -998,8 +993,7 @@ async fn search_physical_inventory_sessions(
                 .filter(|part| !part.trim().is_empty())
                 .collect::<Vec<_>>()
                 .join(" · "),
-                "inventory",
-                Some("physical"),
+                ("inventory", Some("physical")),
                 None,
                 row.get::<Option<DateTime<Utc>>, _>("last_saved_at"),
             )
@@ -1069,8 +1063,7 @@ async fn search_gift_cards(
                 .filter(|part| !part.trim().is_empty())
                 .collect::<Vec<_>>()
                 .join(" · "),
-                "gift-cards",
-                Some("inventory"),
+                ("gift-cards", Some("inventory")),
                 None,
                 row.get::<Option<DateTime<Utc>>, _>("created_at"),
             )
@@ -1142,8 +1135,7 @@ async fn search_loyalty(
                 .filter(|part| !part.trim().is_empty())
                 .collect::<Vec<_>>()
                 .join(" · "),
-                "loyalty",
-                Some("history"),
+                ("loyalty", Some("history")),
                 row.get::<Option<Uuid>, _>("transaction_id"),
                 row.get::<Option<DateTime<Utc>>, _>("created_at"),
             )
@@ -1190,8 +1182,7 @@ async fn search_notifications(
                     .filter(|part| !part.trim().is_empty())
                     .collect::<Vec<_>>()
                     .join(" · "),
-                "podium-inbox",
-                None,
+                ("podium-inbox", None),
                 None,
                 row.get::<Option<DateTime<Utc>>, _>("created_at"),
             )
@@ -1261,8 +1252,7 @@ async fn search_payments(
                 .filter(|part| !part.trim().is_empty())
                 .collect::<Vec<_>>()
                 .join(" · "),
-                "orders",
-                Some("all"),
+                ("orders", Some("all")),
                 row.get::<Option<Uuid>, _>("target_transaction_id"),
                 row.get::<Option<DateTime<Utc>>, _>("occurred_at"),
             )

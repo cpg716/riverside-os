@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::fs;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{error, info};
@@ -972,7 +972,7 @@ fn is_backup_archive_name(filename: &str) -> bool {
     filename.ends_with(".dump") || is_encrypted_backup_name(filename)
 }
 
-fn is_backup_archive_path(path: &PathBuf) -> bool {
+fn is_backup_archive_path(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .map(is_backup_archive_name)
