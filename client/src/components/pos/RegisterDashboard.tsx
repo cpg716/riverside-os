@@ -361,7 +361,7 @@ export default function RegisterDashboard({
            {/* Left Column: Priority Feed & Pulse */}
            <div className="space-y-6 xl:col-span-8">
               <DashboardGridCard 
-                title="What Needs Action First"
+                title="Priority Feed"
                 subtitle="Tap any row to open its source workflow"
                 icon={Zap}
                 actionLabel="Open Register"

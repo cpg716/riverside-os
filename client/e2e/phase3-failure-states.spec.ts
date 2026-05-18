@@ -79,15 +79,14 @@ test.describe("Phase 3 failure-state coverage", () => {
   });
 
   test("purchase orders warn when a refresh fails after rows loaded", async ({ page }) => {
-    let purchaseOrderListCalls = 0;
+    let failPurchaseOrderRefresh = false;
     await mockInventoryPaperworkShell(page);
     await page.route("**/api/purchase-orders", async (route) => {
       if (route.request().method() !== "GET") {
         await route.fallback();
         return;
       }
-      purchaseOrderListCalls += 1;
-      if (purchaseOrderListCalls === 1) {
+      if (!failPurchaseOrderRefresh) {
         await route.fulfill({
           status: 200,
           contentType: "application/json",
@@ -104,6 +103,15 @@ test.describe("Phase 3 failure-state coverage", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openInventoryReceiveStock(page);
+
+    await expect(page.getByRole("cell", { name: READY_PO.po_number })).toBeVisible({
+      timeout: 20_000,
+    });
+
+    failPurchaseOrderRefresh = true;
+    const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
+    await mainNav.getByRole("button", { name: /^order stock$/i }).click();
+    await mainNav.getByRole("button", { name: /^receive stock$/i }).click();
 
     await expect(page.getByRole("cell", { name: READY_PO.po_number })).toBeVisible({
       timeout: 20_000,

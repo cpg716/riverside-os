@@ -546,7 +546,7 @@ export default function PodiumMessagingInboxSection({
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <h1 className="text-3xl font-black tracking-tight text-app-text">
-              Podium Inbox
+              Inbox
             </h1>
             <IntegrationBrandLogo
               brand="podium"
@@ -556,7 +556,7 @@ export default function PodiumMessagingInboxSection({
             />
           </div>
           <p className="mt-2 max-w-2xl text-sm font-semibold text-app-text-muted">
-            Review customer texts, reply in context, and open the customer record when a message needs follow-up.
+            Current Podium SMS and email conversations from matched customers. Review messages, reply in context, and open the customer record when a message needs follow-up.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

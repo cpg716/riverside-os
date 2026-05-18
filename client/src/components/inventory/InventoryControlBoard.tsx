@@ -405,7 +405,7 @@ export default function InventoryControlBoard({
   const [webOnly, setWebOnly] = useState(false);
   const [readinessFilter, setReadinessFilter] =
     useState<ReadinessFilter | null>(null);
-  const [showCleanupDiagnostics, setShowCleanupDiagnostics] = useState(false);
+  const [showCleanupDiagnostics, setShowCleanupDiagnostics] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [hubSeedTitle, setHubSeedTitle] = useState("");

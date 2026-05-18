@@ -33,6 +33,7 @@ import {
 } from "./CustomerRelationshipHubDrawer";
 import DuplicateReviewQueueSection from "./DuplicateReviewQueueSection";
 import RmsChargeAdminSection from "./RmsChargeAdminSection";
+import ShipmentsHubSection from "./ShipmentsHubSection";
 import LayawayWorkspace from "../pos/LayawayWorkspace";
 import DetailDrawer from "../layout/DetailDrawer";
 import FloatingBulkBar from "../ui/FloatingBulkBar";
@@ -852,6 +853,16 @@ export default function CustomersWorkspace({
       ) : null}
     </button>
   );
+
+  if (activeSection === "shipments") {
+    return (
+      <div className="ui-page flex h-full flex-col overflow-hidden">
+        <ShipmentsHubSection
+          onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+        />
+      </div>
+    );
+  }
 
   if (activeSection === "layaways") {
     return (

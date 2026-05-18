@@ -1840,7 +1840,7 @@ export default function OperationalHome({
             Back Office Command Center
           </p>
           <h2 className="text-3xl font-black tracking-tight text-app-text">
-            Operations Dashboard
+            Operations Overview
           </h2>
           <p className="text-sm font-semibold leading-relaxed text-app-text-muted">
             Start here: sales movement, open drawers, pickup pressure, tailoring due dates, inventory alerts, and staff follow-up all route back to their source workspace.
@@ -1949,7 +1949,7 @@ export default function OperationalHome({
             title="What Changed Today"
             subtitle="Booked activity, appointments, pickups, and weddings with source links"
             icon={TrendingUp}
-            actionLabel="Daily Sales"
+            actionLabel="Open Reports"
             onAction={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
           >
             {feedLoadErrors.todaySummary || feedLoadErrors.salesHistory ? (
@@ -2273,7 +2273,7 @@ export default function OperationalHome({
             title="Register Close"
             subtitle="Open drawers and close-review pressure"
             icon={ClipboardCheck}
-            actionLabel="Daily Sales"
+            actionLabel="Open Reports"
             onAction={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
           >
             {feedLoadErrors.registerSessions ? (

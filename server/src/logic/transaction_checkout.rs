@@ -4130,6 +4130,15 @@ pub async fn execute_checkout(
                             .await?;
                         }
 
+                        sqlx::query(
+                            "UPDATE transactions SET amount_paid = amount_paid + $1 WHERE id = $2",
+                        )
+                        .bind(d.amount)
+                        .bind(bene_transaction_id)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(CheckoutError::Database)?;
+
                         transaction_recalc::recalc_transaction_totals(&mut tx, bene_transaction_id)
                             .await
                             .map_err(CheckoutError::Database)?;

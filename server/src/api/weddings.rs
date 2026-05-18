@@ -581,12 +581,18 @@ pub struct AppointmentsQuery {
 }
 
 fn parse_datetime(s: &str) -> Result<chrono::DateTime<chrono::Utc>, WeddingError> {
-    chrono::DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-        .or_else(|_| {
-            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").map(|ndt| ndt.and_utc())
-        })
-        .map_err(|_| WeddingError::BadRequest("Invalid date format".into()))
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Ok(dt.with_timezone(&chrono::Utc));
+    }
+    if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
+        return Ok(ndt.and_utc());
+    }
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        if let Some(ndt) = date.and_hms_opt(0, 0, 0) {
+            return Ok(ndt.and_utc());
+        }
+    }
+    Err(WeddingError::BadRequest("Invalid date format".into()))
 }
 
 #[derive(Debug, Deserialize)]

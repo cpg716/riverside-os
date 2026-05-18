@@ -251,13 +251,20 @@ test.describe("Alterations safety", () => {
   test("garment workbench groups by due status and labels source garments", async ({
     page,
   }) => {
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-    const future = new Date(today);
-    future.setDate(today.getDate() + 3);
-    const isoAtNoon = (date: Date) =>
-      new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0).toISOString();
+    const browserDates = await page.evaluate(() => {
+      const isoAtLocalNoon = (offsetDays: number) => {
+        const date = new Date();
+        date.setDate(date.getDate() + offsetDays);
+        date.setHours(12, 0, 0, 0);
+        return date.toISOString();
+      };
+      return {
+        yesterday: isoAtLocalNoon(-1),
+        today: isoAtLocalNoon(0),
+        future: isoAtLocalNoon(3),
+        createdAt: new Date().toISOString(),
+      };
+    });
     const base = {
       customer_id: "11111111-1111-4111-8111-111111111111",
       customer_first_name: "Avery",
@@ -271,14 +278,14 @@ test.describe("Alterations safety", () => {
       charge_amount: null,
       intake_channel: "standalone",
       source_snapshot: null,
-      created_at: today.toISOString(),
+      created_at: browserDates.createdAt,
     };
     const rows: AlterationRow[] = [
       {
         ...base,
         id: "11111111-1111-4111-8111-111111111101",
         status: "in_work",
-        due_at: isoAtNoon(yesterday),
+        due_at: browserDates.yesterday,
         source_type: "past_transaction_line",
         item_description: "Charcoal tuxedo pants",
         work_requested: "Hem pants",
@@ -291,7 +298,7 @@ test.describe("Alterations safety", () => {
         ...base,
         id: "11111111-1111-4111-8111-111111111102",
         status: "intake",
-        due_at: isoAtNoon(today),
+        due_at: browserDates.today,
         source_type: "current_cart_item",
         item_description: "Current sale suit jacket",
         work_requested: "Shorten sleeves",
@@ -301,7 +308,7 @@ test.describe("Alterations safety", () => {
         ...base,
         id: "11111111-1111-4111-8111-111111111103",
         status: "ready",
-        due_at: isoAtNoon(future),
+        due_at: browserDates.future,
         source_type: "catalog_item",
         item_description: "Stock navy blazer",
         work_requested: "Press and tag",
@@ -321,7 +328,7 @@ test.describe("Alterations safety", () => {
         ...base,
         id: "11111111-1111-4111-8111-111111111105",
         status: "in_work",
-        due_at: isoAtNoon(future),
+        due_at: browserDates.future,
         source_type: "past_transaction_line",
         item_description: "Open order vest",
         work_requested: "Let out back",

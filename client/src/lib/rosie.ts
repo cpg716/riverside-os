@@ -1185,6 +1185,9 @@ async function rosieChatCompletionsStream(
     const json = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(json.error ?? `ROSIE stream failed with HTTP ${response.status}`);
   }
+  if (response.headers.get("content-type")?.includes("application/json")) {
+    return (await response.json()) as RosieChatCompletionResponse;
+  }
   if (!response.body) {
     throw new Error("ROSIE stream did not return a readable response body.");
   }
@@ -1357,7 +1360,7 @@ function buildGroundedHelpUserPrompt(
         .join("\n"),
     )
     .join("\n\n---\n\n");
-  const suggestedActions = context.suggested_actions
+  const suggestedActions = (context.suggested_actions ?? [])
     .slice(0, 5)
     .map((action, index) =>
       [
@@ -1409,7 +1412,15 @@ async function fetchRosieToolContext(
     throw new Error(message);
   }
 
-  return json as RosieToolContextResponse;
+  const context = json as RosieToolContextResponse;
+  return {
+    ...context,
+    sources: Array.isArray(context.sources) ? context.sources : [],
+    tool_results: Array.isArray(context.tool_results) ? context.tool_results : [],
+    suggested_actions: Array.isArray(context.suggested_actions)
+      ? context.suggested_actions
+      : [],
+  };
 }
 
 function extractRosieCompletionAnswer(
@@ -1623,7 +1634,7 @@ export async function askRosieGroundedHelp(
     answer,
     sources: context.sources,
     tool_results: context.tool_results,
-    suggested_actions: context.suggested_actions,
+    suggested_actions: context.suggested_actions ?? [],
     completion,
   };
 }
@@ -1720,7 +1731,7 @@ export async function askRosieGroundedHelpStream(
     answer,
     sources: context.sources,
     tool_results: context.tool_results,
-    suggested_actions: context.suggested_actions,
+    suggested_actions: context.suggested_actions ?? [],
     completion,
   };
 }

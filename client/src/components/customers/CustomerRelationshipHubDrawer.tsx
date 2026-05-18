@@ -2007,7 +2007,7 @@ export function CustomerRelationshipHubDrawer({
           {tabBtn("profile", "Profile")}
           {tabBtn("messages", "Messages")}
           {canShipmentsView ? tabBtn("shipments", "Shipping") : null}
-          {canOrdersView ? tabBtn("transactions", "Transactions") : null}
+          {canOrdersView ? tabBtn("transactions", "History") : null}
           {canOrdersView ? tabBtn("orders", "Orders") : null}
           {canOrdersView ? tabBtn("layaways", "Layaways") : null}
           {canAlterationsView ? tabBtn("alterations", "Alterations") : null}
@@ -2026,7 +2026,7 @@ export function CustomerRelationshipHubDrawer({
             </h3>
             <p className="mb-3 text-xs text-app-text-muted">
               {tab === "transactions"
-                ? "Complete sale records for this customer, including takeaways, gift cards, alterations, payments, refunds, and order payments."
+                ? "Customer notes, visits, and past purchases stay together here. Complete sale records include takeaways, gift cards, alterations, payments, refunds, and order payments."
                 : "Open and recent special orders, custom work, and wedding items for this customer."}{" "}
               Showing {customer.first_name} {customer.last_name} ·{" "}
               {customer.customer_code}

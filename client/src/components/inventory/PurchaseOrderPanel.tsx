@@ -72,6 +72,8 @@ interface PurchaseOrderDetail {
 type PurchaseOrderPanelMode = "order" | "receive";
 
 const baseUrl = getBaseUrl();
+let cachedPurchaseOrders: PurchaseOrder[] = [];
+let cachedPurchaseOrdersLoaded = false;
 
 function dateDisplay(value?: string | null): string {
   if (!value) return "";
@@ -175,11 +177,24 @@ export default function PurchaseOrderPanel({
       const list = Array.isArray(data) ? data : [];
       ordersLoadedOnce.current = true;
       lastLoadedOrders.current = list;
+      cachedPurchaseOrders = list;
+      cachedPurchaseOrdersLoaded = true;
       setOrders(list);
       if (!selectedPo && list.length > 0) setSelectedPo(list[0].id);
     } catch {
       const hasStaleRows =
-        ordersLoadedOnce.current && lastLoadedOrders.current.length > 0;
+        (ordersLoadedOnce.current && lastLoadedOrders.current.length > 0) ||
+        (cachedPurchaseOrdersLoaded && cachedPurchaseOrders.length > 0);
+      if (hasStaleRows) {
+        const staleRows =
+          lastLoadedOrders.current.length > 0
+            ? lastLoadedOrders.current
+            : cachedPurchaseOrders;
+        lastLoadedOrders.current = staleRows;
+        ordersLoadedOnce.current = true;
+        setOrders(staleRows);
+        if (!selectedPo && staleRows.length > 0) setSelectedPo(staleRows[0].id);
+      }
       setOrdersShowingStale(hasStaleRows);
       setOrdersLoadError(
         hasStaleRows
