@@ -95,6 +95,12 @@ type DrawerMode = "browse" | "ask" | "conversation";
 
 export type HelpCenterDrawerMode = DrawerMode;
 
+export type HelpCenterInitialTarget = {
+  query: string;
+  manualId: string;
+  sectionSlug: string;
+};
+
 const PINNED_HELP_MANUAL_ORDER = new Map(
   [
     "pos",
@@ -450,10 +456,12 @@ export default function HelpCenterDrawer({
   isOpen,
   onClose,
   openMode = "browse",
+  initialTarget = null,
 }: {
   isOpen: boolean;
   onClose: () => void;
   openMode?: HelpCenterDrawerMode;
+  initialTarget?: HelpCenterInitialTarget | null;
 }) {
   const [imageLightbox, setImageLightbox] = useState<HelpImageLightbox | null>(null);
   const closeLightbox = useCallback(() => setImageLightbox(null), []);
@@ -559,6 +567,19 @@ export default function HelpCenterDrawer({
       cancelled = true;
     };
   }, [isOpen, apiAuth, openMode]);
+
+  useEffect(() => {
+    if (!isOpen || !initialTarget) return;
+    setDrawerMode("browse");
+    setSearchQ(initialTarget.query);
+    setDebouncedQ(initialTarget.query);
+    setActiveManualId(initialTarget.manualId);
+    setResultRows(null);
+    setScrollTarget({
+      manualId: initialTarget.manualId,
+      slug: initialTarget.sectionSlug,
+    });
+  }, [initialTarget, isOpen]);
 
   useEffect(() => {
     if (!rosieBusy) {

@@ -33,6 +33,7 @@ pub mod public_api;
 pub mod purchase_orders;
 pub mod qbo;
 pub mod reviews;
+pub mod search;
 pub mod sessions;
 pub mod settings;
 pub mod shipments;
@@ -131,6 +132,7 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/loyalty", loyalty::router())
         .nest("/api/mailbox", mailbox::router())
         .nest("/api/reviews", reviews::router())
+        .nest("/api/search", search::router())
         .nest("/api/notifications", notifications::router())
         .nest("/api/ops", ops::router())
         .nest("/api/order-lifecycle", order_lifecycle::router())

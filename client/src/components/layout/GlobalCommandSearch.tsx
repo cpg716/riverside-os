@@ -17,19 +17,13 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import type { SidebarTabId } from "./sidebarSections";
-import {
-  requestRosieSearchIntent,
-  type RosieSearchShortcutId,
-} from "../../lib/rosie";
 
 function cn(...inputs: Array<string | false | null | undefined>) {
   return twMerge(clsx(inputs));
 }
 
 const baseUrl = getBaseUrl();
-const GLOBAL_SEARCH_CUSTOMER_PAGE = 40;
 const GLOBAL_SEARCH_PRODUCT_CAP = 8;
-const GLOBAL_SEARCH_CONTROL_BOARD_LIMIT = 48;
 
 interface ControlBoardRow {
   variant_id: string;
@@ -81,6 +75,26 @@ interface AlterationSearchHit {
   due_at: string | null;
 }
 
+interface HelpSearchHit {
+  id: string;
+  manual_id: string;
+  manual_title: string;
+  section_slug: string;
+  section_heading: string;
+  excerpt: string;
+}
+
+interface OperationalSearchHit {
+  id: string;
+  domain: string;
+  title: string;
+  subtitle: string;
+  route_tab: SidebarTabId;
+  route_section: string | null;
+  transaction_id: string | null;
+  occurred_at: string | null;
+}
+
 interface ProductSearchGroup {
   productId: string;
   sku: string;
@@ -89,7 +103,25 @@ interface ProductSearchGroup {
   matchedSkus: string[];
 }
 
-type SearchShortcutIntent = RosieSearchShortcutId | "transaction_records";
+type SearchShortcutIntent =
+  | "open_orders"
+  | "transaction_records"
+  | "inventory_cleanup"
+  | "alterations_queue"
+  | "pickup_queue"
+  | "daily_sales"
+  | "help_center"
+  | "rosie"
+  | "qbo_failed"
+  | "receiving"
+  | "physical_inventory"
+  | "gift_cards"
+  | "loyalty"
+  | "appointments"
+  | "reports"
+  | "register_close"
+  | "podium_inbox"
+  | "meilisearch_status";
 
 interface SearchShortcut {
   intent: SearchShortcutIntent;
@@ -108,6 +140,8 @@ type SearchResultEntry =
   | { kind: "product"; key: string; product: ProductSearchGroup }
   | { kind: "wedding"; key: string; wedding: WeddingSearchHit }
   | { kind: "alteration"; key: string; alteration: AlterationSearchHit }
+  | { kind: "help"; key: string; help: HelpSearchHit }
+  | { kind: "operational"; key: string; operational: OperationalSearchHit }
   | { kind: "shortcut"; key: string; shortcut: SearchShortcut };
 
 interface GlobalCommandSearchProps {
@@ -120,15 +154,9 @@ interface GlobalCommandSearchProps {
   onSearchOpenShipment?: (shipmentId: string) => void;
   onSearchOpenWeddingParty?: (partyId: string) => void;
   onSearchOpenAlteration?: (alterationId: string) => void;
+  onSearchOpenHelp?: (query: string, manualId: string, sectionSlug: string) => void;
   onNavigateToTab?: (tab: SidebarTabId, section?: string) => void;
   variant?: "backoffice" | "pos";
-}
-
-function looksLikeSku(q: string): boolean {
-  const t = q.trim();
-  if (t.length < 2 || t.length > 64) return false;
-  if (/\s/.test(t)) return false;
-  return /^[A-Za-z0-9][A-Za-z0-9._\-/]*$/.test(t);
 }
 
 function normalizedShortcutQuery(q: string): string {
@@ -137,6 +165,20 @@ function normalizedShortcutQuery(q: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ");
+}
+
+interface UniversalSearchResponse {
+  sources_failed?: string[];
+  customers?: Customer[];
+  sku_hit?: { sku: string; name: string } | null;
+  products?: ControlBoardRow[];
+  orders?: OrderSearchHit[];
+  shipments?: ShipmentSearchHit[];
+  weddings?: WeddingSearchHit[];
+  alterations?: AlterationSearchHit[];
+  help_hits?: HelpSearchHit[];
+  operational_hits?: OperationalSearchHit[];
+  shortcuts?: { intent: SearchShortcutIntent }[];
 }
 
 const SEARCH_SHORTCUTS: Record<SearchShortcutIntent, SearchShortcut> = {
@@ -188,15 +230,100 @@ const SEARCH_SHORTCUTS: Record<SearchShortcutIntent, SearchShortcut> = {
     tab: "home",
     section: "daily-sales",
   },
+  help_center: {
+    intent: "help_center",
+    key: "shortcut:help_center",
+    title: "Help Center",
+    subtitle: "Open operational manuals and recovery procedures.",
+    tab: "settings",
+    section: "help-center",
+  },
+  rosie: {
+    intent: "rosie",
+    key: "shortcut:rosie",
+    title: "ROSIE",
+    subtitle: "Open governed operational assistance.",
+    tab: "settings",
+    section: "rosie",
+  },
+  qbo_failed: {
+    intent: "qbo_failed",
+    key: "shortcut:qbo_failed",
+    title: "QBO Sync History",
+    subtitle: "Review failed journals and accounting sync issues.",
+    tab: "qbo",
+    section: "history",
+  },
+  receiving: {
+    intent: "receiving",
+    key: "shortcut:receiving",
+    title: "Receive Stock",
+    subtitle: "Open receiving and interrupted stock intake work.",
+    tab: "inventory",
+    section: "receiving",
+  },
+  physical_inventory: {
+    intent: "physical_inventory",
+    key: "shortcut:physical_inventory",
+    title: "Count/Reconcile",
+    subtitle: "Open physical inventory mismatch review.",
+    tab: "inventory",
+    section: "physical",
+  },
+  gift_cards: {
+    intent: "gift_cards",
+    key: "shortcut:gift_cards",
+    title: "Gift Cards",
+    subtitle: "Open gift card balances, issuance, and issue review.",
+    tab: "gift-cards",
+    section: "inventory",
+  },
+  loyalty: {
+    intent: "loyalty",
+    key: "shortcut:loyalty",
+    title: "Loyalty",
+    subtitle: "Open reward history, eligibility, and adjustments.",
+    tab: "loyalty",
+    section: "history",
+  },
+  appointments: {
+    intent: "appointments",
+    key: "shortcut:appointments",
+    title: "Scheduler",
+    subtitle: "Open appointments and calendar work.",
+    tab: "appointments",
+    section: "scheduler",
+  },
+  reports: {
+    intent: "reports",
+    key: "shortcut:reports",
+    title: "Reports",
+    subtitle: "Open operational and financial reporting.",
+    tab: "reports",
+  },
+  register_close: {
+    intent: "register_close",
+    key: "shortcut:register_close",
+    title: "Register Close",
+    subtitle: "Open register operations and close/reconciliation work.",
+    tab: "register",
+  },
+  podium_inbox: {
+    intent: "podium_inbox",
+    key: "shortcut:podium_inbox",
+    title: "Podium Inbox",
+    subtitle: "Open customer messages and reviews.",
+    tab: "podium-inbox",
+  },
+  meilisearch_status: {
+    intent: "meilisearch_status",
+    key: "shortcut:meilisearch_status",
+    title: "Meilisearch Status",
+    subtitle: "Open search index health and rebuild controls.",
+    tab: "settings",
+    section: "meilisearch",
+  },
 };
-
-const ROSIE_SEARCH_SHORTCUT_IDS: RosieSearchShortcutId[] = [
-  "open_orders",
-  "inventory_cleanup",
-  "alterations_queue",
-  "pickup_queue",
-  "daily_sales",
-];
 
 function buildSearchShortcuts(q: string, canNavigate: boolean): SearchShortcut[] {
   if (!canNavigate) return [];
@@ -234,13 +361,13 @@ function buildSearchShortcuts(q: string, canNavigate: boolean): SearchShortcut[]
 
 function mergeSearchShortcuts(
   deterministic: SearchShortcut[],
-  rosieShortcutIds: SearchShortcutIntent[],
+  backendShortcutIds: SearchShortcutIntent[],
 ): SearchShortcut[] {
   const seen = new Set(deterministic.map((shortcut) => shortcut.intent));
-  const rosieShortcuts = rosieShortcutIds
+  const backendShortcuts = backendShortcutIds
     .map((id) => SEARCH_SHORTCUTS[id])
     .filter((shortcut) => shortcut && !seen.has(shortcut.intent));
-  return [...deterministic, ...rosieShortcuts];
+  return [...deterministic, ...backendShortcuts];
 }
 
 function groupProductRows(
@@ -317,6 +444,7 @@ export default function GlobalCommandSearch({
   onSearchOpenShipment,
   onSearchOpenWeddingParty,
   onSearchOpenAlteration,
+  onSearchOpenHelp,
   onNavigateToTab,
   variant = "backoffice",
 }: GlobalCommandSearchProps) {
@@ -330,7 +458,9 @@ export default function GlobalCommandSearch({
   const [shipments, setShipments] = useState<ShipmentSearchHit[]>([]);
   const [weddings, setWeddings] = useState<WeddingSearchHit[]>([]);
   const [alterations, setAlterations] = useState<AlterationSearchHit[]>([]);
-  const [rosieShortcutIds, setRosieShortcutIds] = useState<SearchShortcutIntent[]>([]);
+  const [helpHits, setHelpHits] = useState<HelpSearchHit[]>([]);
+  const [operationalHits, setOperationalHits] = useState<OperationalSearchHit[]>([]);
+  const [backendShortcutIds, setBackendShortcutIds] = useState<SearchShortcutIntent[]>([]);
   const [failedSources, setFailedSources] = useState<string[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [commandHintVisible, setCommandHintVisible] = useState(false);
@@ -355,7 +485,9 @@ export default function GlobalCommandSearch({
     setShipments([]);
     setWeddings([]);
     setAlterations([]);
-    setRosieShortcutIds([]);
+    setHelpHits([]);
+    setOperationalHits([]);
+    setBackendShortcutIds([]);
     setFailedSources([]);
     setLoading(false);
   }, []);
@@ -375,9 +507,9 @@ export default function GlobalCommandSearch({
     () =>
       mergeSearchShortcuts(
         buildSearchShortcuts(query, Boolean(onNavigateToTab)),
-        rosieShortcutIds,
+        backendShortcutIds,
       ),
-    [onNavigateToTab, query, rosieShortcutIds],
+    [backendShortcutIds, onNavigateToTab, query],
   );
 
   const resultEntries = useMemo<SearchResultEntry[]>(
@@ -408,6 +540,16 @@ export default function GlobalCommandSearch({
         key: `shipment:${shipment.id}`,
         shipment,
       })),
+      ...helpHits.slice(0, 6).map((help) => ({
+        kind: "help" as const,
+        key: `help:${help.id}`,
+        help,
+      })),
+      ...operationalHits.slice(0, 8).map((operational) => ({
+        kind: "operational" as const,
+        key: `operational:${operational.domain}:${operational.id}`,
+        operational,
+      })),
       ...products.map((product) => ({
         kind: "product" as const,
         key: `product:${product.productId}`,
@@ -429,7 +571,18 @@ export default function GlobalCommandSearch({
         shortcut,
       })),
     ],
-    [alterations, customers, orders, products, shipments, shortcuts, skuHit, weddings],
+    [
+      alterations,
+      customers,
+      helpHits,
+      operationalHits,
+      orders,
+      products,
+      shipments,
+      shortcuts,
+      skuHit,
+      weddings,
+    ],
   );
 
   const indexedEntries = useMemo(
@@ -507,6 +660,28 @@ export default function GlobalCommandSearch({
       ),
     [indexedEntries],
   );
+  const helpEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is { entry: Extract<SearchResultEntry, { kind: "help" }>; index: number } =>
+          item.entry.kind === "help",
+      ),
+    [indexedEntries],
+  );
+  const operationalEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is {
+          entry: Extract<SearchResultEntry, { kind: "operational" }>;
+          index: number;
+        } => item.entry.kind === "operational",
+      ),
+    [indexedEntries],
+  );
   const shortcutEntries = useMemo(
     () =>
       indexedEntries.filter(
@@ -522,7 +697,7 @@ export default function GlobalCommandSearch({
 
   const runSearch = useCallback(async (raw: string) => {
     const q = raw.trim();
-    if (q.length < 2) {
+    const clearResults = () => {
       setCustomers([]);
       setSkuHit(null);
       setProducts([]);
@@ -530,184 +705,52 @@ export default function GlobalCommandSearch({
       setShipments([]);
       setWeddings([]);
       setAlterations([]);
-      setRosieShortcutIds([]);
+      setHelpHits([]);
+      setOperationalHits([]);
+      setBackendShortcutIds([]);
       setFailedSources([]);
+    };
+
+    if (q.length < 2) {
+      clearResults();
       setLoading(false);
       return;
     }
 
     activeSearchQueryRef.current = q;
     setLoading(true);
-    setCustomers([]);
-    setSkuHit(null);
-    setProducts([]);
-    setOrders([]);
-    setShipments([]);
-    setWeddings([]);
-    setAlterations([]);
-    setRosieShortcutIds([]);
-    setFailedSources([]);
-    const requests: Array<{ source: string; run: Promise<void> }> = [];
-    let exactSkuFound = false;
-    const resultCounts = {
-      customers: 0,
-      orders: 0,
-      products: 0,
-      shipments: 0,
-      weddings: 0,
-      alterations: 0,
-    };
-
-    requests.push({
-      source: "Customers",
-      run: fetch(
-        `${baseUrl}/api/customers/search?q=${encodeURIComponent(q)}&limit=${GLOBAL_SEARCH_CUSTOMER_PAGE}&offset=0`,
-        { headers: apiAuth() },
-      ).then(async (res) => {
-        if (!res.ok) {
-          throw new Error("Customer search failed");
-        }
-        const data = (await res.json()) as Customer[];
-        resultCounts.customers = data.length;
-        setCustomers(data);
-      }),
-    });
-
-    if (looksLikeSku(q) || q.length >= 3) {
-      requests.push({
-        source: "Exact SKU",
-        run: fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
-          headers: apiAuth(),
-        }).then(async (res) => {
-          if (res.ok) {
-            const data = (await res.json()) as { sku: string; name: string };
-            exactSkuFound = true;
-            setSkuHit({ sku: data.sku, name: data.name });
-            return;
-          }
-          if (res.status !== 404) {
-            throw new Error("Exact SKU lookup failed");
-          }
-        }),
-      });
-    }
-
-    requests.push({
-      source: "Inventory",
-      run: fetch(
-        `${baseUrl}/api/products/control-board?search=${encodeURIComponent(q)}&parent_rank_first=true&limit=${GLOBAL_SEARCH_CONTROL_BOARD_LIMIT}`,
-        { headers: apiAuth() },
-      ).then(async (res) => {
-        if (!res.ok) {
-          throw new Error("Inventory search failed");
-        }
-        const data = (await res.json()) as { rows: ControlBoardRow[] };
-        const grouped = groupProductRows(data.rows ?? [], GLOBAL_SEARCH_PRODUCT_CAP);
-        resultCounts.products = grouped.length;
-        setProducts(grouped);
-      }),
-    });
-
-    requests.push({
-      source: "Transaction Records",
-      run: fetch(
-        `${baseUrl}/api/transactions?search=${encodeURIComponent(q)}&show_closed=true&limit=8&offset=0`,
-        { headers: apiAuth() },
-      ).then(async (res) => {
-        if (!res.ok) {
-          throw new Error("Order search failed");
-        }
-        const data = (await res.json()) as { items?: OrderSearchHit[] };
-        const items = data.items ?? [];
-        resultCounts.orders = items.length;
-        setOrders(items);
-      }),
-    });
-
-    requests.push({
-      source: "Shipping",
-      run: fetch(`${baseUrl}/api/shipments?search=${encodeURIComponent(q)}&limit=8`, {
-        headers: apiAuth(),
-      }).then(async (res) => {
-        if (!res.ok) {
-          throw new Error("Shipping search failed");
-        }
-        const data = (await res.json()) as { items?: ShipmentSearchHit[] };
-        const items = data.items ?? [];
-        resultCounts.shipments = items.length;
-        setShipments(items);
-      }),
-    });
-
-    requests.push({
-      source: "Weddings",
-      run: fetch(
-        `${baseUrl}/api/weddings/parties?search=${encodeURIComponent(q)}&page=1&limit=8`,
-        { headers: apiAuth() },
-      ).then(async (res) => {
-        if (!res.ok) {
-          throw new Error("Wedding search failed");
-        }
-        const data = (await res.json()) as { data?: WeddingSearchHit[] };
-        const items = data.data ?? [];
-        resultCounts.weddings = items.length;
-        setWeddings(items);
-      }),
-    });
-
-    requests.push({
-      source: "Alterations",
-      run: fetch(`${baseUrl}/api/alterations?search=${encodeURIComponent(q)}`, {
-        headers: apiAuth(),
-      }).then(async (res) => {
-        if (!res.ok) {
-          throw new Error("Alterations search failed");
-        }
-        const data = (await res.json()) as AlterationSearchHit[];
-        const items = data.filter((row) => row.status !== "picked_up").slice(0, 8);
-        resultCounts.alterations = items.length;
-        setAlterations(items);
-      }),
-    });
+    clearResults();
 
     try {
-      const settled = await Promise.allSettled(requests.map(({ run }) => run));
-      const failed = settled.flatMap((result, index) =>
-        result.status === "rejected" ? [requests[index]?.source ?? "Search"] : [],
-      );
-      if (activeSearchQueryRef.current === q) {
-        setFailedSources(failed);
-      }
-    } finally {
-      setLoading(false);
-    }
-
-    if (!onNavigateToTab || q.length < 3 || activeSearchQueryRef.current !== q) return;
-    try {
-      const response = await requestRosieSearchIntent(
-        {
-          query: q,
-          available_shortcuts: ROSIE_SEARCH_SHORTCUT_IDS.map((id) => ({
-            id,
-            label: SEARCH_SHORTCUTS[id].title,
-            description: SEARCH_SHORTCUTS[id].subtitle,
-          })),
-          deterministic_context: {
-            exact_sku_found: exactSkuFound,
-            result_counts: resultCounts,
-          },
-        },
+      const res = await fetch(
+        `${baseUrl}/api/search/universal?q=${encodeURIComponent(q)}&limit=8`,
         { headers: apiAuth() },
       );
+      if (!res.ok) throw new Error("Universal search failed");
+      const data = (await res.json()) as UniversalSearchResponse;
       if (activeSearchQueryRef.current === q) {
-        setRosieShortcutIds(response.status === "available" ? response.shortcut_ids : []);
+        setCustomers(data.customers ?? []);
+        setSkuHit(data.sku_hit ?? null);
+        setProducts(groupProductRows(data.products ?? [], GLOBAL_SEARCH_PRODUCT_CAP));
+        setOrders(data.orders ?? []);
+        setShipments(data.shipments ?? []);
+        setWeddings(data.weddings ?? []);
+        setAlterations((data.alterations ?? []).filter((row) => row.status !== "picked_up"));
+        setHelpHits(data.help_hits ?? []);
+        setOperationalHits(data.operational_hits ?? []);
+        setBackendShortcutIds((data.shortcuts ?? []).map((shortcut) => shortcut.intent));
+        setFailedSources(data.sources_failed ?? []);
       }
     } catch {
       if (activeSearchQueryRef.current === q) {
-        setFailedSources((prev) => [...prev, "Search shortcuts"]);
+        setFailedSources(["Universal Search"]);
+      }
+    } finally {
+      if (activeSearchQueryRef.current === q) {
+        setLoading(false);
       }
     }
-  }, [apiAuth, onNavigateToTab]);
+  }, [apiAuth]);
 
   const openPalette = useCallback((seed = "") => {
     setOpen(true);
@@ -725,7 +768,9 @@ export default function GlobalCommandSearch({
       setShipments([]);
       setWeddings([]);
       setAlterations([]);
-      setRosieShortcutIds([]);
+      setHelpHits([]);
+      setOperationalHits([]);
+      setBackendShortcutIds([]);
       setFailedSources([]);
       setLoading(false);
       return;
@@ -854,6 +899,20 @@ export default function GlobalCommandSearch({
     onSearchOpenAlteration?.(alterationId);
   };
 
+  const pickHelp = (hit: HelpSearchHit) => {
+    closePalette();
+    onSearchOpenHelp?.(query.trim(), hit.manual_id, hit.section_slug);
+  };
+
+  const pickOperational = (hit: OperationalSearchHit) => {
+    closePalette();
+    if (hit.transaction_id) {
+      onSearchOpenOrder?.(hit.transaction_id);
+      return;
+    }
+    onNavigateToTab?.(hit.route_tab, hit.route_section ?? undefined);
+  };
+
   const pickShortcut = (shortcut: SearchShortcut) => {
     closePalette();
     onNavigateToTab?.(shortcut.tab, shortcut.section);
@@ -889,6 +948,12 @@ export default function GlobalCommandSearch({
         return;
       case "alteration":
         pickAlteration(entry.alteration.id);
+        return;
+      case "help":
+        pickHelp(entry.help);
+        return;
+      case "operational":
+        pickOperational(entry.operational);
         return;
       case "shortcut":
         pickShortcut(entry.shortcut);
@@ -1218,6 +1283,53 @@ export default function GlobalCommandSearch({
                             .join(" ") || "No customer"}
                           {entry.shipment.dest_summary ? ` · ${entry.shipment.dest_summary}` : ""}
                           {entry.shipment.carrier ? ` · ${entry.shipment.carrier}` : ""}
+                        </span>
+                      </ResultButton>
+                    ))}
+                  </ResultSection>
+
+                  <ResultSection title="Help & Procedures" visible={helpEntries.length > 0}>
+                    {helpEntries.map(({ entry, index }) => (
+                      <ResultButton
+                        key={entry.key}
+                        index={index}
+                        highlightIndex={highlightIndex}
+                        onMouseEnter={() => setHighlightIndex(index)}
+                        onClick={() => pickHelp(entry.help)}
+                      >
+                        <span className="font-semibold text-app-text">{entry.help.manual_title}</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          ROS &gt; Help Center &gt; {entry.help.section_heading}
+                        </span>
+                        <span className="line-clamp-2 text-xs text-app-text-muted">
+                          {entry.help.excerpt}
+                        </span>
+                      </ResultButton>
+                    ))}
+                  </ResultSection>
+
+                  <ResultSection title="Operational Records" visible={operationalEntries.length > 0}>
+                    {operationalEntries.map(({ entry, index }) => (
+                      <ResultButton
+                        key={entry.key}
+                        index={index}
+                        highlightIndex={highlightIndex}
+                        onMouseEnter={() => setHighlightIndex(index)}
+                        onClick={() => pickOperational(entry.operational)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-app-text">
+                            {entry.operational.title}
+                          </span>
+                          <span className="rounded-full border border-app-border/70 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            {entry.operational.domain}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          ROS &gt; {entry.operational.domain}
+                        </span>
+                        <span className="line-clamp-2 text-xs text-app-text-muted">
+                          {entry.operational.subtitle || "Open the related workflow"}
                         </span>
                       </ResultButton>
                     ))}

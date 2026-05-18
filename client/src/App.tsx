@@ -85,6 +85,7 @@ import { useShellBackdropDepth } from "./components/layout/ShellBackdropContextL
 import BackofficeSignInGate from "./components/layout/BackofficeSignInGate";
 import RegisterSessionBootstrap from "./components/layout/RegisterSessionBootstrap";
 import HelpCenterDrawer, {
+  type HelpCenterInitialTarget,
   type HelpCenterDrawerMode,
 } from "./components/help/HelpCenterDrawer";
 import BugReportFlow from "./components/bug-report/BugReportFlow";
@@ -1324,6 +1325,8 @@ function AppShell({
   const { staffCode, permissionsLoaded, permissions } = useBackofficeAuth();
   const [helpDrawerMode, setHelpDrawerMode] =
     useState<HelpCenterDrawerMode>("browse");
+  const [helpDrawerInitialTarget, setHelpDrawerInitialTarget] =
+    useState<HelpCenterInitialTarget | null>(null);
   const isAuthenticated = !!(staffCode.trim() && permissionsLoaded && permissions.length > 0);
   useEffect(() => {
     // Shell entry tabs should reconcile their owning mode if the parent tab and mode drift.
@@ -1588,6 +1591,7 @@ function AppShell({
       <HelpCenterDrawer
         isOpen={helpDrawerOpen}
         openMode={helpDrawerMode}
+        initialTarget={helpDrawerInitialTarget}
         onClose={() => setHelpDrawerOpen(false)}
       />
 
@@ -1662,16 +1666,23 @@ function AppShell({
           enterBackofficeShell("alterations");
           setAlterationsDeepLinkId(alterationId);
         }}
+        onSearchOpenHelp={(query: string, manualId: string, sectionSlug: string) => {
+          setHelpDrawerInitialTarget({ query, manualId, sectionSlug });
+          setHelpDrawerMode("browse");
+          setHelpDrawerOpen(true);
+        }}
         searchVariant={posMode ? "pos" : "backoffice"}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         shellReturnLabel={shellReturnLabel}
         onShellReturn={onShellReturn}
         isRegisterOpen={isRegisterOpen}
         onOpenHelp={() => {
+          setHelpDrawerInitialTarget(null);
           setHelpDrawerMode("browse");
           setHelpDrawerOpen(true);
         }}
         onOpenRosie={() => {
+          setHelpDrawerInitialTarget(null);
           setHelpDrawerMode("conversation");
           setHelpDrawerOpen(true);
         }}
