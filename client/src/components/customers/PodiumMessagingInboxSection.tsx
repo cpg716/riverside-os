@@ -176,6 +176,8 @@ export default function PodiumMessagingInboxSection({
   const [directSearchBusy, setDirectSearchBusy] = useState(false);
   const [directSendBusy, setDirectSendBusy] = useState(false);
   const autoProviderPullKeyRef = useRef<string | null>(null);
+  const refreshInFlightRef = useRef(false);
+  const refreshSeqRef = useRef(0);
 
   const loadHealth = useCallback(async () => {
     try {
@@ -205,26 +207,40 @@ export default function PodiumMessagingInboxSection({
   }, [apiAuth]);
 
   const refresh = useCallback(async (opts?: { background?: boolean }) => {
-    if (!opts?.background) setLoading(true);
+    const background = Boolean(opts?.background);
+    if (background && refreshInFlightRef.current) return;
+    const seq = refreshSeqRef.current + 1;
+    refreshSeqRef.current = seq;
+    refreshInFlightRef.current = true;
+    if (!background) setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/customers/podium/messaging-inbox?limit=80`, {
         headers: apiAuth(),
         cache: "no-store",
       });
       if (!res.ok) {
-        setLoadError("Could not refresh Podium inbox.");
+        if (seq === refreshSeqRef.current) {
+          setLoadError("Could not refresh Podium inbox.");
+        }
         return;
       }
       const data = (await res.json()) as InboxRow[];
-      setRows(Array.isArray(data) ? data : []);
-      setLoadError(null);
-      setLastLoadedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
-      void loadHealth();
-      void loadUnmatched();
+      if (seq === refreshSeqRef.current) {
+        setRows(Array.isArray(data) ? data : []);
+        setLoadError(null);
+        setLastLoadedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+        void loadHealth();
+        void loadUnmatched();
+      }
     } catch {
-      setLoadError("Could not refresh Podium inbox.");
+      if (seq === refreshSeqRef.current) {
+        setLoadError("Could not refresh Podium inbox.");
+      }
     } finally {
-      if (!opts?.background) setLoading(false);
+      if (seq === refreshSeqRef.current) {
+        refreshInFlightRef.current = false;
+        if (!background) setLoading(false);
+      }
     }
   }, [apiAuth, loadHealth, loadUnmatched]);
 

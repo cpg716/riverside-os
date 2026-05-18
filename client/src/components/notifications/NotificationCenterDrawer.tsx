@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { 
   ArrowRight, 
   ChevronRight, 
@@ -301,8 +301,14 @@ export default function NotificationCenterDrawer({
     title: string;
     detail: string;
   } | null>(null);
+  const loadInFlightRef = useRef(false);
+  const loadSeqRef = useRef(0);
 
   const load = useCallback(async (silent = false) => {
+    if (silent && loadInFlightRef.current) return;
+    const seq = loadSeqRef.current + 1;
+    loadSeqRef.current = seq;
+    loadInFlightRef.current = true;
     if (!silent) setLoading(true);
     try {
       const q =
@@ -311,13 +317,21 @@ export default function NotificationCenterDrawer({
         headers: apiAuth(),
       });
       if (!res.ok) throw new Error("load");
-      setRows((await res.json()) as NotificationRow[]);
-      setLoadError(null);
+      const nextRows = (await res.json()) as NotificationRow[];
+      if (seq === loadSeqRef.current) {
+        setRows(nextRows);
+        setLoadError(null);
+      }
     } catch {
-      setLoadError("Could not refresh notifications.");
-      if (!silent) toast("Could not load notifications.", "error");
+      if (seq === loadSeqRef.current) {
+        setLoadError("Could not refresh notifications.");
+        if (!silent) toast("Could not load notifications.", "error");
+      }
     } finally {
-      if (!silent) setLoading(false);
+      if (seq === loadSeqRef.current) {
+        loadInFlightRef.current = false;
+        if (!silent) setLoading(false);
+      }
     }
   }, [apiAuth, tab, toast]);
 

@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -41,6 +42,7 @@ export function NotificationCenterProvider({
   const [unread, setUnread] = useState(0);
   const [podiumInboxUnread, setPodiumInboxUnread] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const unreadRefreshInFlightRef = useRef(false);
 
   const refreshUnread = useCallback(async () => {
     if (!canView || !canReachApi) {
@@ -48,6 +50,8 @@ export function NotificationCenterProvider({
       setPodiumInboxUnread(0);
       return;
     }
+    if (unreadRefreshInFlightRef.current) return;
+    unreadRefreshInFlightRef.current = true;
     try {
       const res = await fetch(`${baseUrl}/api/notifications/unread-count`, {
         headers: apiAuth(),
@@ -63,6 +67,8 @@ export function NotificationCenterProvider({
       );
     } catch {
       /* ignore */
+    } finally {
+      unreadRefreshInFlightRef.current = false;
     }
   }, [apiAuth, canReachApi, canView]);
 
@@ -72,7 +78,11 @@ export function NotificationCenterProvider({
 
   useEffect(() => {
     if (!canView || !canReachApi) return;
-    const t = window.setInterval(() => void refreshUnread(), 30_000);
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refreshUnread();
+      }
+    }, 30_000);
     return () => window.clearInterval(t);
   }, [canReachApi, canView, refreshUnread]);
 
