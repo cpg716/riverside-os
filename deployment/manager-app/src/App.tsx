@@ -301,12 +301,12 @@ export default function App() {
                 <span className="text-xs font-semibold">Logs</span>
               </button>
               <button 
-                onClick={() => executeInline('Get-ChildItem -Path .', 'Check Package')}
+                onClick={() => executeScript('audit-system.ps1')}
                 disabled={isExecuting}
                 className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex flex-col items-center justify-center gap-1 group"
               >
                 <SearchCheck className="w-5 h-5 text-zinc-400 group-hover:text-brand-500" />
-                <span className="text-xs font-semibold">Check</span>
+                <span className="text-xs font-semibold">Audit</span>
               </button>
             </div>
 
@@ -324,8 +324,8 @@ export default function App() {
               </div>
               <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
             </button>
-            <button 
-              onClick={() => executeInline('if (Test-Path "server\\seed.sql") { & (Get-Command psql.exe).Source -U postgres -d riverside_os -f "server\\seed.sql" } else { Write-Host "No seed.sql found in package." }', 'Seed Database')}
+             <button 
+              onClick={() => executeInline('$psql = Get-Command psql.exe -ErrorAction SilentlyContinue; $psqlPath = if ($psql) { $psql.Source } else { \'psql.exe\' }; if (Test-Path \'seeds\') { & $psqlPath -U postgres -d riverside_os -f \'seeds/seed_core_required.sql\'; & $psqlPath -U postgres -d riverside_os -f \'seeds/seed_rbac.sql\'; Write-Host \'Database seeded successfully.\' } else { Write-Host \'No seeds directory found.\' }', 'Seed Database')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
             >

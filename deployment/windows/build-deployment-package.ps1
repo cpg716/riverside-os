@@ -112,6 +112,8 @@ Copy-Item "$PSScriptRoot\Start-RiversideDeployment.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Install-RosieAiStack.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Install-RosieAiStack.cmd" $packageRoot -Force
+Copy-Item "$PSScriptRoot\audit-system.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Audit-System.cmd" $packageRoot -Force
 if (Test-Path $ManagerBinaryPath) {
   Copy-Item $ManagerBinaryPath "$packageRoot\RiversideOS-Deployment-Manager.exe" -Force
   Write-Host "Packaged RiversideOS-Deployment-Manager.exe"
