@@ -180,12 +180,32 @@ const InsightsSettingsPanel: React.FC = () => {
             baseUrl={baseUrl}
             integrationKey="insights"
             title="Insights Credentials"
-            description="Save the Metabase handoff secret here. Riverside uses it only to create short-lived report access tokens."
+            description="Save Metabase access credentials here. Riverside uses these only for silent shared-auth handoff and short-lived SSO tokens — never exposed to staff."
             fields={[
               {
                 key: "metabase_jwt_secret",
                 label: "Metabase JWT secret",
-                help: "Required when automated Insights SSO is enabled.",
+                help: "Required only when automated Insights SSO is enabled (paid Metabase plans).",
+              },
+              {
+                key: "metabase_admin_email",
+                label: "Metabase Admin email",
+                help: "Admin-class Metabase account email for silent shared-auth fallback (OSS).",
+              },
+              {
+                key: "metabase_admin_password",
+                label: "Metabase Admin password",
+                help: "Admin-class Metabase account password. Encrypted at rest.",
+              },
+              {
+                key: "metabase_staff_email",
+                label: "Metabase Staff email",
+                help: "Staff-class Metabase account email for restricted reporting access.",
+              },
+              {
+                key: "metabase_staff_password",
+                label: "Metabase Staff password",
+                help: "Staff-class Metabase account password. Encrypted at rest.",
               },
             ]}
             onSaved={load}

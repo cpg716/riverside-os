@@ -12,6 +12,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { GRAPESJS_STUDIO_LICENSE_KEY } from "../../lib/grapesjsStudioLicense";
 import type { StoreStudioApi } from "./StorePageStudioEditor";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 const StorePageStudioEditor = lazy(() => import("./StorePageStudioEditor"));
 
@@ -307,6 +308,21 @@ export default function OnlineStoreSettingsPanel({
           </p>
         </div>
       ) : null}
+
+      <IntegrationCredentialsCard
+        baseUrl={baseUrl}
+        integrationKey="online_store"
+        title="Online Store Security"
+        description="The JWT signing secret secures customer account sessions at /shop. Must be at least 32 characters. Generate with: openssl rand -base64 48"
+        fields={[
+          {
+            key: "customer_jwt_secret",
+            label: "Customer account JWT secret",
+            help: "Required in production. Loaded at server startup — restart the server after saving.",
+          },
+        ]}
+        onSaved={() => undefined}
+      />
 
       {mode === "all" ? (
         <div className="flex gap-2">

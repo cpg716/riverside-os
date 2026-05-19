@@ -254,6 +254,37 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         credential_key: "user_secret",
         env_key: "RIVERSIDE_NUORDER_USER_SECRET",
     },
+    // Metabase silent shared-auth fallback (OSS, no JWT SSO).
+    // Credentials are loaded at startup and set into the environment so
+    // insights.rs can read them via std::env::var without code changes.
+    IntegrationCredentialMapping {
+        integration_key: "insights",
+        credential_key: "metabase_admin_email",
+        env_key: "RIVERSIDE_METABASE_ADMIN_EMAIL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "insights",
+        credential_key: "metabase_admin_password",
+        env_key: "RIVERSIDE_METABASE_ADMIN_PASSWORD",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "insights",
+        credential_key: "metabase_staff_email",
+        env_key: "RIVERSIDE_METABASE_STAFF_EMAIL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "insights",
+        credential_key: "metabase_staff_password",
+        env_key: "RIVERSIDE_METABASE_STAFF_PASSWORD",
+    },
+    // Online store customer account JWT signing secret.
+    // Loaded at startup into RIVERSIDE_STORE_CUSTOMER_JWT_SECRET so
+    // resolve_store_customer_jwt_secret() in launcher.rs picks it up.
+    IntegrationCredentialMapping {
+        integration_key: "online_store",
+        credential_key: "customer_jwt_secret",
+        env_key: "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET",
+    },
 ];
 
 #[derive(Debug, Error)]
