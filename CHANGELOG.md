@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## [0.60.1] - 2026-05-18
+## [0.60.1] - 2026-05-19
 ### Changed
 - Added known-host selection to the sign-in **API Host Settings** flow while preserving manual IP/URL entry for Register and PWA setup.
 - Bumped release metadata to `0.60.1` across package, server, Tauri, and deployment-package defaults for the updater hotfix lane.
+- Renamed the Bug Reports "Download for Codex" action to **Download AI diagnostic** so it is tool-agnostic.
 
 ### Fixed
 - Added a server-side printer readiness endpoint so PWA/browser receipt stations can verify the server-to-printer TCP path before checkout.
 - Updated printer settings so network receipt and Zebra tag checks use the same direct readiness path in browser/PWA and desktop contexts.
 - Updated staff Help content for API host setup and PWA receipt-printer readiness behavior.
+- Fixed ROSIE showing as unavailable on production: `server/src/launcher.rs` now calls `ensure_rosie_upstream_from_local_llama()` at startup to auto-set `RIVERSIDE_LLAMA_UPSTREAM` from `RIVERSIDE_LLAMA_HOST:RIVERSIDE_LLAMA_PORT` (default `127.0.0.1:8080`), bridging the Tauri-managed sidecar with the Axum ROSIE proxy for satellite clients.
+- Fixed default LLM model path mismatch: both the server and Tauri sidecar now look for the **Gemma 4 E2B** model (matching `MODEL_PIN.json`) under `%LOCALAPPDATA%\riverside-os\rosie\` on Windows and `~/Library/Application Support/riverside-os/rosie/` on macOS — previously the code looked for the non-existent E4B variant.
+- Wired the ROSIE AI stack into `install-server.ps1`: server installation now automatically downloads the pinned Gemma E2B GGUF (SHA256-verified), installs `sherpa-onnx` via `uv`, and fetches SenseVoice STT and Kokoro TTS models. Writes `RIVERSIDE_LLAMA_*` into the server `.env`. Supports `-SkipRosieSetup` for air-gapped installs.
+- Added `MODEL_PIN.json` to the deployment package (`build-deployment-package.ps1`) so the installer can resolve the pinned model without hardcoded fallback values.
+- Added `Install-RosieAiStack.ps1` / `Install-RosieAiStack.cmd` to the server hotfix package: a standalone ROSIE setup tool for existing Server PCs that downloads all required models and patches the running `.env` without a full server reinstall.
 
 ## [0.60.0] — 2026-05-17
 ### Added

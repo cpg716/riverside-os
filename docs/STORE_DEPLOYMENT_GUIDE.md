@@ -118,6 +118,7 @@ Use this checklist for the Windows PC that owns the store database and API:
    - If using a store-specific Windows service instead, record the exact start/stop command in the store deployment log and do not expect desktop app auto-start recovery to control that service.
 9. Open the app from the server PC browser and confirm staff sign-in, **Settings → General → About this build**, **Settings → Updates**, and **Settings → Remote Access**.
 10. If this PC is also the **Shop Host**, start **Shop Host** from **Settings → Remote Access** and smoke-test a second device on the same network before opening.
+11. Confirm the ROSIE AI stack is available by checking the **Bug Reports** panel or triggering an AI action (requires the installer to have downloaded the local model successfully).
 
 #### 3.1.2 Public webhooks and Cloudflare Tunnel
 
