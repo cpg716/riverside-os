@@ -105,6 +105,8 @@ Copy-Item "$PSScriptRoot\set-counterpoint-bridge-token.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Set-CounterpointBridgeToken.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.cmd" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Install-RosieAiStack.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Install-RosieAiStack.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\riverside-deployment.config.example.json" $packageRoot -Force
 Copy-Item $ServerBinaryPath "$packageRoot\server\riverside-server.exe" -Force
 Copy-Item "$ClientDistPath\*" "$packageRoot\client-dist" -Recurse -Force
