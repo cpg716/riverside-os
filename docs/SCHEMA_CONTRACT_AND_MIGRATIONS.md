@@ -48,6 +48,10 @@ The only active migration files in `migrations/` are:
 | `030_podium_staff_identity_mapping.sql` | Podium staff identity mapping |
 | `031_checkout_takeaway_loyalty_backfill.sql` | Checkout takeaway loyalty backfill |
 | `032_transaction_status_integrity.sql` | Transaction status integrity tracking |
+| `033_qbo_inventory_receiving_clearing.sql` | QBO inventory receiving clearing account support |
+| `034_transaction_void_records.sql` | POS transaction void audit and reversal tracking |
+| `035_backup_resilience_settings.sql` | Backup and resilience settings |
+| `036_financial_date_and_counterpoint_integrity.sql` | Financial date and Counterpoint integrity hardening |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 

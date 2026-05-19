@@ -97,6 +97,8 @@ Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\repair-bootstrap-admin.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\reset-riverside-database.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Reset-RiversideDatabase.cmd" $packageRoot -Force
+Copy-Item "$PSScriptRoot\apply-riverside-migrations.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Apply-RiversideMigrations.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\repair-server-credentials-key.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Repair-RiversideCredentialsKey.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\set-counterpoint-bridge-token.ps1" $packageRoot -Force
@@ -192,6 +194,10 @@ Manual fallback:
 
 The Register installer writes C:\ProgramData\RiversideOS\station-config.json.
 The desktop app imports that file on first launch and saves the API/printer settings for the station.
+
+Database-only repair:
+
+- If the app starts but a screen reports a missing relation/table, double-click Apply-RiversideMigrations.cmd from the release package. It applies pending schema migrations without replacing the server, web bundle, or desktop app.
 
 If the updater folder is present, keep those files with the release:
 

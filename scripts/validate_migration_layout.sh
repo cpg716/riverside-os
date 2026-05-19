@@ -37,6 +37,10 @@ expected=(
   "030_podium_staff_identity_mapping.sql"
   "031_checkout_takeaway_loyalty_backfill.sql"
   "032_transaction_status_integrity.sql"
+  "033_qbo_inventory_receiving_clearing.sql"
+  "034_transaction_void_records.sql"
+  "035_backup_resilience_settings.sql"
+  "036_financial_date_and_counterpoint_integrity.sql"
 )
 
 active=()
@@ -90,4 +94,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-032 only."
+echo "Migration layout OK: active baseline 001-036."

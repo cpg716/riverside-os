@@ -80,7 +80,7 @@ Until the process is stopped, do not replace the binary or the static `dist` tre
 
 ### 5.3 Apply database migrations
 
-Fresh installs and pre-launch reset builds use the schema-contract baseline in `migrations/001_core_identity_staff.sql` through `migrations/032_transaction_status_integrity.sql`. Migration filenames are tracked in **`public.ros_schema_migrations`**. **Never** skip the ledger inserts: the apply scripts record each applied filename.
+Fresh installs and pre-launch reset builds use the schema-contract baseline in `migrations/001_core_identity_staff.sql` through `migrations/036_financial_date_and_counterpoint_integrity.sql`. Migration filenames are tracked in **`public.ros_schema_migrations`**. **Never** skip the ledger inserts: the apply scripts record each applied filename.
 
 Seed data is separate from schema. Apply the release-approved seed set after migrations; for a normal install that means `scripts/seeds/seed_core_required.sql` and `scripts/seeds/seed_rbac.sql`. Local development can additionally apply `scripts/seeds/seed_dev.sql`; E2E uses `scripts/seeds/seed_e2e.sql`.
 
