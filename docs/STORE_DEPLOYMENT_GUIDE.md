@@ -77,7 +77,7 @@ This is the current repo/deployment status to verify before a live install:
 
 Before installing the two Windows PCs and PWA devices for production use, publish one complete Riverside release and record its release/run URL in the deployment log. The Windows app, server API, and PWA/web app files must all report the same Riverside version.
 
-For a near-turnkey Windows setup package, use [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOWS_INSTALLER_PACKAGE.md). That package automates the Server PC install, migration apply, startup task, firewall rule, Register #1 desktop install, station API base, and printer settings import.
+For a near-turnkey Windows setup package, use the graphical **Deployment Manager** (see [`DEPLOYMENT_MANAGER.md`](DEPLOYMENT_MANAGER.md)) or follow the script parameters in [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOWS_INSTALLER_PACKAGE.md). The deployment manager automates the Server PC install, migration apply, startup task, firewall rule, Register #1 desktop install, station API base, and printer settings import.
 
 ### Till shift: Register #1 and satellite lanes
 
@@ -97,7 +97,7 @@ The app supports **multiple open register terminals** sharing one **till close g
 
 Use this checklist for the Windows PC that owns the store database and API:
 
-**Automated path:** build the Windows deployment package and run **`install-server.ps1`** as Administrator on the Server PC. See [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOWS_INSTALLER_PACKAGE.md).
+**Automated path:** Build the Windows deployment package, run **`Start-RiversideDeployment.cmd`** as Administrator on the Server PC, and select the **Backoffice / Server** target (see [`DEPLOYMENT_MANAGER.md`](DEPLOYMENT_MANAGER.md)).
 
 1. Install **PostgreSQL 16** (or a vetted hosted/local PostgreSQL 16 equivalent) and create the Riverside database/user.
 2. Install or place the **`riverside-server.exe`** release binary in a stable folder, for example `C:\RiversideOS\server\`.
@@ -474,6 +474,7 @@ Work with your installer or Epson docs for the TM-m30III static IP/DHCP reservat
 
 ## 8. Related documentation
 
+- [`DEPLOYMENT_MANAGER.md`](DEPLOYMENT_MANAGER.md) — Graphical Deployment Manager, audits, resets, and credential logic.
 - [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) — Tailscale, phones, laptops.
 - [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) — PWA vs Tauri builds, CORS, offline, QA sign-off.
 - [`docs/RELEASE_QA_CHECKLIST.md`](RELEASE_QA_CHECKLIST.md) — release validation gates, E2E policy, canonical visual workflow.

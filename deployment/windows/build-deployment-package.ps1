@@ -153,7 +153,8 @@ foreach ($doc in @(
   "docs\PWA_AND_REGISTER_DEPLOYMENT_TASKS.md",
   "docs\HARDWARE_MANAGEMENT.md",
   "docs\LOCAL_UPDATE_PROTOCOL.md",
-  "docs\WINDOWS_INSTALLER_PACKAGE.md"
+  "docs\WINDOWS_INSTALLER_PACKAGE.md",
+  "docs\DEPLOYMENT_MANAGER.md"
 )) {
   $source = Join-Path $repoRoot $doc
   if (Test-Path $source) {
