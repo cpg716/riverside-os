@@ -361,7 +361,7 @@ test("Ask ROSIE voice input reuses the normal text flow and plays speech on the 
           base_url: "http://127.0.0.1:8080",
           host: "127.0.0.1",
           port: "8080",
-          model_name: "Gemma 4 E4B",
+          model_name: "Gemma 4 E2B",
           model_path: "/host/models/gemma.gguf",
           model_present: true,
           sidecar_binary_present: true,

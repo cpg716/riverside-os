@@ -17,7 +17,7 @@ LLAMA_BIN="${RIVERSIDE_LLAMA_BIN:-$ROOT_DIR/client/src-tauri/binaries/llama-serv
 LLAMA_HOST="${RIVERSIDE_LLAMA_HOST:-127.0.0.1}"
 LLAMA_PORT="${RIVERSIDE_LLAMA_PORT:-8080}"
 LLAMA_URL="http://${LLAMA_HOST}:${LLAMA_PORT}"
-LLAMA_MODEL_PATH="${RIVERSIDE_LLAMA_MODEL_PATH:-$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf}"
+LLAMA_MODEL_PATH="${RIVERSIDE_LLAMA_MODEL_PATH:-$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e2b/google_gemma-4-E2B-it-Q4_K_M.gguf}"
 LLAMA_EXTRA_ARGS="${RIVERSIDE_LLAMA_EXTRA_ARGS:-}"
 
 ROSIE_SPEECH_PYTHON="${RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH:-$HOME/.local/share/uv/tools/sherpa-onnx/bin/python}"

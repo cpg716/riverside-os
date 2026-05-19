@@ -33,9 +33,9 @@ If runtime code, env notes, or workstation setup drift from this file, this file
 
 ### 1. LLM
 - Runtime: Host-based `llama.cpp` `llama-server`
-- Model family: Gemma 4 E4B
-- Expected file: `google_gemma-4-E4B-it-Q4_K_M.gguf`
-- Default Host path: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf`
+- Model family: Gemma 4 E2B
+- Expected file: `google_gemma-4-E2B-it-Q4_K_M.gguf`
+- Default Host path: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e2b/google_gemma-4-E2B-it-Q4_K_M.gguf`
 - Desktop path: Tauri direct/local via `rosie_llama_*`
 - Server fallback path: `POST /api/help/rosie/v1/chat/completions`
 - Approval status: Approved production default
@@ -76,7 +76,7 @@ If runtime code, env notes, or workstation setup drift from this file, this file
 
 ### Insight summaries
 - Shared ROSIE insight summaries use the OpenAI-compatible `llama-server` endpoint configured by `RIVERSIDE_LLAMA_UPSTREAM`.
-- Gemma 4 E4B can spend the response budget in `reasoning_content` and return empty `message.content`; ROSIE insight summaries require usable `message.content`, and the UI shows a visible unavailable note when the summary cannot be produced.
+- Gemma 4 E2B can spend the response budget in `reasoning_content` and return empty `message.content`; ROSIE insight summaries require usable `message.content`, and the UI shows a visible unavailable note when the summary cannot be produced.
 - Start the local Gemma Host for insight work with reasoning disabled:
 
 ```bash
@@ -84,7 +84,7 @@ RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server
 ```
 
 - Confirm `GET /health` returns `200`.
-- Confirm `GET /v1/models` reports `google_gemma-4-E4B-it-Q4_K_M.gguf`.
+- Confirm `GET /v1/models` reports `google_gemma-4-E2B-it-Q4_K_M.gguf`.
 - Confirm `POST /api/help/rosie/v1/insight-summary` returns `status: "available"` with 1-3 bullets for a deterministic fact payload.
 - If the model is healthy but the insight response is still `unavailable`, check for empty `message.content` caused by reasoning output.
 - ROSIE request payloads also set `chat_template_kwargs.enable_thinking=false` and `reasoning=false` so direct API calls do not burn the response budget on hidden reasoning.
@@ -124,7 +124,7 @@ RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server
 - `scripts/verify_rosie_local_stack.sh` local verification helper
 
 ## Verified Now
-- Gemma 4 E4B local Host runtime can load through the existing ROSIE runtime path.
+- Gemma 4 E2B local Host runtime can load through the existing ROSIE runtime path.
 - SenseVoice can transcribe local speech into the normal Ask ROSIE text path.
 - Kokoro can speak ROSIE text responses after the governed ROSIE flow completes.
 

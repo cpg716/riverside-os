@@ -10,7 +10,7 @@ Use that file for approval status, fallback policy, and Host expectations.
 The approved production Host stack is:
 
 - LLM runtime: `llama.cpp` `llama-server`
-- LLM model: Gemma 4 E4B
+- LLM model: Gemma 4 E2B
 - STT: SenseVoice Small via Sherpa-ONNX
 - TTS: Kokoro-82M via Sherpa-ONNX
 
@@ -19,7 +19,7 @@ Fallback-only paths remain supported where the Host stack file says they are all
 ## Pinned local asset expectations
 
 - `RIVERSIDE_LLAMA_MODEL_PATH`
-  - default: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf`
+  - default: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e2b/google_gemma-4-E2B-it-Q4_K_M.gguf`
 - `RIVERSIDE_SENSEVOICE_MODEL_DIR`
   - default: `~/Library/Application Support/riverside-os/rosie/stt/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`
 - `RIVERSIDE_KOKORO_MODEL_DIR`

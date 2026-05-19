@@ -84,7 +84,7 @@ wait_for_rosie_health() {
 ARCH="$(rosie_arch)"
 PLATFORM_SUFFIX="$(rosie_platform_suffix)"
 DEFAULT_LLAMA_BIN="$ROOT/client/src-tauri/binaries/llama-server-${ARCH}-${PLATFORM_SUFFIX}"
-DEFAULT_LLAMA_MODEL_PATH="$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf"
+DEFAULT_LLAMA_MODEL_PATH="$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e2b/google_gemma-4-E2B-it-Q4_K_M.gguf"
 
 load_env_default "RIVERSIDE_LLAMA_UPSTREAM"
 load_env_default "RIVERSIDE_DEV_AUTOSTART_ROSIE_HOST"
