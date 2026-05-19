@@ -113,6 +113,57 @@ async fn run_deployment_script(app: AppHandle, script_name: String) -> Result<()
     }
 }
 
+#[tauri::command]
+async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result<(), String> {
+    let mut child = Command::new("powershell")
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-Command")
+        .arg(&script_content)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn powershell: {}", e))?;
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let _ = app_clone.emit("deployment-log", LogMessage { level: "info".to_string(), text: line });
+        }
+    });
+
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let _ = app_clone.emit("deployment-log", LogMessage { level: "error".to_string(), text: line });
+        }
+    });
+
+    let status = child.wait().await.map_err(|e| format!("Failed to wait: {}", e))?;
+    
+    let _ = app.emit("deployment-log", LogMessage {
+        level: if status.success() { "success".to_string() } else { "error".to_string() },
+        text: format!("Command exited with status: {}", status),
+    });
+
+    if status.success() { Ok(()) } else { Err(format!("Exited with {}", status)) }
+}
+
+#[tauri::command]
+async fn open_logs() -> Result<(), String> {
+    Command::new("explorer")
+        .arg("C:\\RiversideOS\\logs")
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -120,7 +171,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_deployment_config,
             write_deployment_config,
-            run_deployment_script
+            run_deployment_script,
+            run_inline_powershell,
+            open_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

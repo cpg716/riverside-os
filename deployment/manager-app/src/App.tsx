@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Tool, Wrench, RefreshCw, Trash2, Key } from 'lucide-react';
+import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Tool, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -65,6 +65,25 @@ export default function App() {
     
     try {
       await invoke('run_deployment_script', { scriptName });
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
+    } finally {
+      setIsExecuting(false);
+      unlisten();
+    }
+  };
+
+  const executeInline = async (command: string, description: string) => {
+    if (isExecuting) return;
+    setIsExecuting(true);
+    setLogs([{ level: 'info', text: `Executing: ${description}...` }]);
+
+    const unlisten = await listen<LogMessage>('deployment-log', (event) => {
+      setLogs(prev => [...prev, event.payload]);
+    });
+    
+    try {
+      await invoke('run_inline_powershell', { scriptContent: command });
     } catch (e) {
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
     } finally {
@@ -251,9 +270,46 @@ export default function App() {
         </div>
       ) : (
         /* MAINTENANCE TAB */
-        <div className="w-full max-w-4xl glass-panel p-8 grid grid-cols-12 gap-8">
-          <div className="col-span-5 space-y-4 border-r pr-8">
+        <div className="w-full max-w-5xl glass-panel p-8 grid grid-cols-12 gap-8">
+          <div className="col-span-5 space-y-4 border-r pr-8 max-h-[500px] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900">
+              <Power className="w-5 h-5 text-brand-600" /> Server Control
+            </h2>
+            <div className="grid grid-cols-2 gap-2 mb-6">
+              <button 
+                onClick={() => executeInline('Start-ScheduledTask -TaskName "Riverside OS Server"', 'Start Server')}
+                disabled={isExecuting}
+                className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex flex-col items-center justify-center gap-1 group"
+              >
+                <Power className="w-5 h-5 text-zinc-400 group-hover:text-brand-500" />
+                <span className="text-xs font-semibold">Start</span>
+              </button>
+              <button 
+                onClick={() => executeInline('Stop-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue; Stop-Process -Name "riverside-server" -Force -ErrorAction SilentlyContinue; Start-ScheduledTask -TaskName "Riverside OS Server"', 'Restart Server')}
+                disabled={isExecuting}
+                className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex flex-col items-center justify-center gap-1 group"
+              >
+                <RotateCw className="w-5 h-5 text-zinc-400 group-hover:text-brand-500" />
+                <span className="text-xs font-semibold">Restart</span>
+              </button>
+              <button 
+                onClick={() => invoke('open_logs')}
+                className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all flex flex-col items-center justify-center gap-1 group"
+              >
+                <FolderOpen className="w-5 h-5 text-zinc-400 group-hover:text-brand-500" />
+                <span className="text-xs font-semibold">Logs</span>
+              </button>
+              <button 
+                onClick={() => executeInline('Get-ChildItem -Path .', 'Check Package')}
+                disabled={isExecuting}
+                className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex flex-col items-center justify-center gap-1 group"
+              >
+                <SearchCheck className="w-5 h-5 text-zinc-400 group-hover:text-brand-500" />
+                <span className="text-xs font-semibold">Check</span>
+              </button>
+            </div>
+
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
               <Tool className="w-5 h-5 text-brand-600" /> Utility Scripts
             </h2>
             <button 
