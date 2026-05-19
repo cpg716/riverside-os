@@ -118,6 +118,22 @@ RiversideOS v0.60.2 introduces the Tauri-based Deployment Manager GUI and automa
 - **Start Fresh (Factory Reset)**: The "Start Fresh" maintenance action triggers `reset-riverside-database.ps1` with `-StartFresh`, executing database drop/recreate, migration apply, and core seeding silently in a single click (suppressing interactive WinForms MessageBox prompts).
 - **CI/CD Compilation Caching**: Uses `swatinem/rust-cache` to cache Rust dependencies across three distinct compilation scopes (`client/src-tauri`, `server`, and `deployment/manager-app/src-tauri`), reducing CI compilation time from 35+ minutes to ~8 minutes.
 
+### v0.60.0 ROSIE Local AI Copilot, Universal Search & Backdating
+
+RiversideOS v0.60.0 introduces the ROSIE Local AI Copilot stack, integrated aggregate search endpoints, and official backdating of POS transactions.
+
+- **ROSIE Local Copilot Stack**: Powered by a local **Gemma** LLM model running on the shop Server PC (`docs/ROS_GEMMA_WORKER.md`) and served via background AI routes (`docs/ROSIE_HOST_STACK.md`). Operates under the strict guidelines of the **ROSIE Operating Contract** (`docs/ROSIE_OPERATING_CONTRACT.md`), mandating no raw SQL, no RBAC bypass, server-side parameter validation, and user confirmations for data modifications.
+- **Aggregated Help Indexing**: Automatically builds staff help manuals index by reading `docs/staff/CORPUS.manifest.json` configured using the `RIVERSIDE_REPO_ROOT` environment variable. Trigger reindexing with `POST /api/ai/admin/reindex-docs`.
+- **Universal Search Aggregator**: Exposes `/api/search/aggregate` to query Customers CRM, catalog inventory, alterations, active weddings, and help articles in a single aggregated backend call, replacing client-side multi-threaded search calls.
+- **Register Transaction Backdating**: POS terminal checkouts support explicit transaction date overrides (`booked_at`). Backdating properly adjusts payment allocations, commission calculations, revenue recognition, and downstream QBO accounting entries.
+
+### v0.3.5 Cash Rounding & CoreCredit Financing
+
+RiversideOS v0.3.5 introduces cash rounding logic and consumer line-of-credit (CoreCard/CoreCredit) integrations.
+
+- **Cash Rounding**: Cash transactions at POS checkout dynamically apply Sweden-style cash rounding (to nearest $0.05 or custom denominator) calculated to prevent sub-penny differences.
+- **CoreCard / CoreCredit**: Integrated store credit card and financing lines for checkout payment allocations. CoreCard validation setups must follow the checklist in `docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md` for sandbox and live deployments.
+
 ### v0.3.0 Operational Perfection
 
 RiversideOS v0.3.0 is a refinement release focused on operator clarity, trust, and efficiency rather than new modules.
@@ -266,6 +282,8 @@ The main shell component is the central hub of Riverside OS. It manages global s
 - Tax calculations must remain mathematically consistent with the server source of truth
 - **Variable Shadowing**: Never shadow the outer `transaction_id` (Retail Sale) with an inner `transaction_id` (Payment/Movement) in checkout handlers. This prevents Foreign Key violations in `payment_allocations`.
 - **Tax Category Casing**: Always treat `tax_category` (e.g., "Clothing") as case-insensitive during $110 exemption evaluation.
+- **Cash Rounding Integrity**: Cash rounding offsets (`cash_rounding_offset`) must be calculated as a separate payment ledger entry. Do not subtract or add rounding values to the base product price, shipping, or tax lines.
+- **Register Drawer Reconciliation**: Float calculations and drawer closing receipts must list cash rounding offsets as a separate column/field to avoid daily drawer reconciliation discrepancy reports.
 
 ### Transactions vs. Fulfillment Orders (Terminology)
 
@@ -354,16 +372,20 @@ cargo sqlx prepare --workspace
  - **Profile Parity**: Changing a staff member's **Role** in the Back Office profile MUST automatically synchronize their **`staff_permission`** set and **`max_discount_percent`** from the new role's template.
  - **Manual Overrides**: The synchronization logic must attempt to preserve existing manual user overrides while ensuring the staff member attains the mandatory baseline of their new role.
  
- ### Codex & ROSIE Invariants (v0.3.2+)
+ ### Codex & ROSIE Invariants (v0.60.0+)
  - **Mode Enforcement**:
-   - IMPLEMENT mode is default and MUST NOT perform full audits
-   - AUDIT mode is required for end-to-end tracing
+   - IMPLEMENT mode is default and MUST NOT perform full audits.
+   - AUDIT mode is required for end-to-end tracing.
  - **Audit Mandate (AUDIT mode only)**:
-   - When explicitly requested, trace behavior end-to-end
-   - Identify real (not theoretical) issues
-   - Propose the smallest correct fix
- - **ROSIE Safety Rails**:
-   - When touching AI features (ROSIE), the agent MUST strictly follow the **ROSIE Rules** in **`codex_prompt_template.md`** (No raw SQL, no RBAC bypass, server-validated tool execution, and user-confirmed mutations).
+   - When explicitly requested, trace behavior end-to-end.
+   - Identify real (not theoretical) issues.
+   - Propose the smallest correct fix.
+ - **ROSIE Safety & Execution Rails**:
+   - **No Direct SQL Execution**: AI tools/features must never bypass the service layer or write direct sql commands against the DB. All database changes must flow through numbered migrations and established repository modules.
+   - **No RBAC / Authorization Bypass**: All API operations triggered or suggested by the AI must undergo server-side role and permission validation (`useStaffPermissions`, `require_staff_with_permission` middleware).
+   - **Server-Validated Executions**: Do not trust client-side parameters. Verify product prices, discount limits, and tax exemptions against database states on the server side.
+   - **User Confirmation Mandate**: Any write action or mutation (e.g. applying a custom discount, modifying shift availability, or updating wedding party links) suggested or initiated by the AI must display an explicit manual confirmation dialog/modal to the operator before committing.
+   - **Upstream Connection Rules**: The local Gemma worker resolves AI requests locally; any remote failovers must respect the configured `RIVERSIDE_LLAMA_UPSTREAM` endpoint.
 
 ---
 
@@ -436,6 +458,9 @@ Do not decrement `stock_on_hand` at checkout for `DbFulfillmentType::Order` (Spe
 | Register manager dashboard                   | `client/src/components/pos/RegisterDashboard.tsx`, `PosShell.tsx`, `PosSidebar.tsx`, related server staff metrics                                                  |
 | Till group / multi-lane register             | `server/src/api/sessions.rs`, `client/src/components/pos/RegisterOverlay.tsx`, `CloseRegisterModal.tsx`, register gate context                                     |
 | Parked sales / RMS charges                   | `server/src/logic/pos_parked_sales.rs`, `server/src/logic/pos_rms_charge.rs`, `server/src/api/pos*.rs`, `client/src/components/pos/*`, `RmsChargeAdminSection.tsx` |
+| Universal Search Aggregator                  | `server/src/api/search.rs`, `server/src/logic/search_aggregator.rs`, `client/src/components/layout/GlobalSearchDrawer.tsx`                                          |
+| CoreCard / Store Credit Integration          | `server/src/logic/corecard.rs`, `server/src/api/corecard.rs`, POS payment panels                                                                                   |
+| Deployment Manager GUI                      | `deployment/manager-app/src/`, `deployment/manager-app/src-tauri/`                                                                                                  |
 | Shell / layout / drawers                     | `client/src/components/layout/`                                                                                                                                    |
 | Unified Engine / Host Mode                   | `client/src-tauri/src/unified_server.rs`, `server/src/launcher.rs`                                                                                                 |
 | Customers CRM / Hub                          | `client/src/components/customers/`                                                                                                                                 |
@@ -768,6 +793,28 @@ cd client && npm run build
 npm run dev
 ```
 
+### Help System Manuals Reindexing
+
+```bash
+# Capture screenshots for manual pages
+npm run generate:help:screenshots
+# Scan components for context-aware help keys
+npm run generate:help:components:rescan
+# Re-compile local HELP corpus JSON
+npm run generate:help:refresh
+```
+
+### Deployment Manager Local Compilation
+
+```bash
+cd deployment/manager-app
+npm install
+# Dev mode run
+npm run tauri:dev
+# Compile elevated Windows installer GUI executable
+npm run tauri:build
+```
+
 ### Local services
 
 ```bash
@@ -934,6 +981,14 @@ Use this section as a repo map and extended reference, not as the primary source
 - `REMOTE_ACCESS_GUIDE.md`
 - `docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`
 - `docs/DEPLOYMENT_MANAGER.md`
+- `docs/ROSIE_OPERATING_CONTRACT.md`
+- `docs/ROS_GEMMA_WORKER.md`
+- `docs/ROSIE_HOST_STACK.md`
+- `docs/ROS_AI_HELP_CORPUS.md`
+- `docs/CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`
+- `docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md`
+- `docs/CASH_ROUNDING_OPERATIONS.md`
+- `docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`
 - `INVENTORY_GUIDE.md`
 - `BACKUP_RESTORE_GUIDE.md`
 - `docs/MAINTENANCE_AND_LIFECYCLE_GUIDE.md`
