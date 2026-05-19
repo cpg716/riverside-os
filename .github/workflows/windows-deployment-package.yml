@@ -57,6 +57,13 @@ jobs:
           toolchain: "1.88"
           components: clippy, rustfmt
 
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            client/src-tauri -> target
+            server -> target
+            deployment/manager-app/src-tauri -> target
+
       - name: Install client dependencies
         working-directory: client
         run: npm ci
