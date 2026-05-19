@@ -108,6 +108,16 @@ RiversideOS v0.3.4 introduces a refined scheduling model focused on privacy, mul
 - **Highlighter Authority**: 
   - Solid Yellow (`#fff176`) is the authoritative color for the manual highlighter tool, used to emphasize specific shifts for printing.
 
+### v0.60.2 Deployment Manager & Diagnostics
+
+RiversideOS v0.60.2 introduces the Tauri-based Deployment Manager GUI and automated system audits to replace fragmented installation scripts.
+
+- **Tauri-Based GUI Interface**: All workstation installs, updates, and maintenance use `RiversideOS-Deployment-Manager.exe` (run elevated via `Start-RiversideDeployment.cmd`).
+- **System Pre-Flight Audit**: The "Audit" dashboard action runs `audit-system.ps1` to perform deep system health checks (admin rights, PostgreSQL connectivity, schema/migration status, server task running state, API ping `/api/version`, machine environment variables, and print routing).
+- **Zero-Config Credentials**: Deployment scripts auto-resolve PostgreSQL trust authentication or common defaults, auto-generate JWT and app secrets on the fly, and persist them to `riverside-deployment.config.json`.
+- **Start Fresh (Factory Reset)**: The "Start Fresh" maintenance action triggers `reset-riverside-database.ps1` with `-StartFresh`, executing database drop/recreate, migration apply, and core seeding silently in a single click (suppressing interactive WinForms MessageBox prompts).
+- **CI/CD Compilation Caching**: Uses `swatinem/rust-cache` to cache Rust dependencies across three distinct compilation scopes (`client/src-tauri`, `server`, and `deployment/manager-app/src-tauri`), reducing CI compilation time from 35+ minutes to ~8 minutes.
+
 ### v0.3.0 Operational Perfection
 
 RiversideOS v0.3.0 is a refinement release focused on operator clarity, trust, and efficiency rather than new modules.
@@ -161,6 +171,7 @@ Then read the domain doc most relevant to the task.
 - **Shipping / Shippo** — `docs/SHIPPING_AND_SHIPMENTS_HUB.md`
 - **Online store** — `docs/ONLINE_STORE.md`
 - **Counterpoint bridge / sync** — `docs/COUNTERPOINT_SYNC_GUIDE.md`, `docs/PLAN_COUNTERPOINT_ROS_SYNC.md`
+- **Deployment Manager & Setup** — `docs/DEPLOYMENT_MANAGER.md`, `docs/WINDOWS_INSTALLER_PACKAGE.md`
 - **UI conventions** — `docs/CLIENT_UI_CONVENTIONS.md`, `docs/ROS_UI_CONSISTENCY_PLAN.md`
 - **Staff manuals impacted by workflow changes** — `docs/staff/README.md`
 
@@ -922,6 +933,7 @@ Use this section as a repo map and extended reference, not as the primary source
 - `docs/BRIDGE_SYNC_TROUBLESHOOTING.md`
 - `REMOTE_ACCESS_GUIDE.md`
 - `docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`
+- `docs/DEPLOYMENT_MANAGER.md`
 - `INVENTORY_GUIDE.md`
 - `BACKUP_RESTORE_GUIDE.md`
 - `docs/MAINTENANCE_AND_LIFECYCLE_GUIDE.md`
