@@ -6,7 +6,9 @@ param(
   [string]$ClientDistPath = "$PSScriptRoot\..\..\client\dist",
   [string]$RegisterBundlePath = "$PSScriptRoot\..\..\client\src-tauri\target\release\bundle",
   [string]$UpdaterDistPath = "$PSScriptRoot\..\..\client\updater-dist",
-  [switch]$AllowMissingRegisterBundle
+  [string]$ManagerBinaryPath = "$PSScriptRoot\..\manager-app\src-tauri\target\release\riverside-deployment-manager.exe",
+  [switch]$AllowMissingRegisterBundle,
+  [switch]$AllowMissingManagerBinary
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,6 +80,9 @@ if (-not (Test-Path $ClientDistPath)) {
 if (-not (Test-Path $RegisterBundlePath) -and -not $AllowMissingRegisterBundle) {
   throw "Register bundle not found: $RegisterBundlePath. Build it first with npm --prefix client run tauri:build, or pass -AllowMissingRegisterBundle."
 }
+if (-not (Test-Path $ManagerBinaryPath) -and -not $AllowMissingManagerBinary) {
+  throw "Manager binary not found: $ManagerBinaryPath. Build it first with cd deployment/manager-app && npx tauri build, or pass -AllowMissingManagerBinary."
+}
 
 Assert-ClientDistMatchesSource $ClientDistPath $Version $gitShort
 
@@ -107,6 +112,10 @@ Copy-Item "$PSScriptRoot\Start-RiversideDeployment.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideDeployment.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Install-RosieAiStack.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Install-RosieAiStack.cmd" $packageRoot -Force
+if (Test-Path $ManagerBinaryPath) {
+  Copy-Item $ManagerBinaryPath "$packageRoot\RiversideOS-Deployment-Manager.exe" -Force
+  Write-Host "Packaged RiversideOS-Deployment-Manager.exe"
+}
 Copy-Item "$PSScriptRoot\riverside-deployment.config.example.json" $packageRoot -Force
 Copy-Item $ServerBinaryPath "$packageRoot\server\riverside-server.exe" -Force
 Copy-Item "$ClientDistPath\*" "$packageRoot\client-dist" -Recurse -Force

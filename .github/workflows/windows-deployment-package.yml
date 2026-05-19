@@ -164,6 +164,13 @@ jobs:
         shell: pwsh
         run: cargo build --release --manifest-path server/Cargo.toml
 
+      - name: Build Deployment Manager binary
+        shell: pwsh
+        run: |
+          cd deployment/manager-app
+          npm ci
+          npx tauri build
+
       - name: Assemble deployment package
         shell: pwsh
         run: |
@@ -173,7 +180,8 @@ jobs:
             -ServerBinaryPath ".\server\target\release\riverside-server.exe" `
             -ClientDistPath ".\client\dist" `
             -RegisterBundlePath ".\client\src-tauri\target\release\bundle" `
-            -UpdaterDistPath ".\client\updater-dist"
+            -UpdaterDistPath ".\client\updater-dist" `
+            -ManagerBinaryPath ".\deployment\manager-app\src-tauri\target\release\riverside-deployment-manager.exe"
           Get-ChildItem dist/deployment/*.zip | ForEach-Object {
             "Deployment package: $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
           }
