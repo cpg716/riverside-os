@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Tool, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link } from 'lucide-react';
+import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -14,6 +14,7 @@ export default function App() {
   const [role, setRole] = useState<'server' | 'register'>('server');
   
   // Config state
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [config, setConfig] = useState<any>({});
   const [serverIp, setServerIp] = useState('127.0.0.1');
   const [dbPassword, setDbPassword] = useState('');
@@ -351,7 +352,7 @@ export default function App() {
             </button>
 
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
-              <Tool className="w-5 h-5 text-brand-600" /> Utility Scripts
+              <Cpu className="w-5 h-5 text-brand-600" /> Utility Scripts
             </h2>
             <button 
               onClick={() => executeScript('Install-RosieAiStack.ps1')}
