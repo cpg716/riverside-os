@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 //! Paged Transaction Record and open Order list SQL for Back Office and register-scoped reads.
 
 use chrono::{DateTime, NaiveDate, Utc};

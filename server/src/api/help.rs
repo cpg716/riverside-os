@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 //! In-app help: Meilisearch search (`ros_help`), bundled manuals with DB policy overrides, admin editor.
 
 use std::collections::HashSet;

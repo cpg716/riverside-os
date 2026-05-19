@@ -5446,6 +5446,7 @@ mod tests {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn cleanup_wedding_group_pay_checkout_test(
         pool: &PgPool,
         transaction_ids: &[Uuid],

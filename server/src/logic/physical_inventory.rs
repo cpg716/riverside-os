@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 //! Physical Inventory business logic: session management, stock snapshots, review calculation, and publish.
 
 use anyhow::{anyhow, Context, Result};

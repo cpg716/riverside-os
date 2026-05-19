@@ -651,7 +651,7 @@ mod tests {
         assert!(matches!(
             validate_po_line_vendor_linkage(&pool, po_vendor_id, variant_id).await,
             Err(PurchaseOrderError::InvalidPayload(message))
-            if message.starts_with(&format!("sku {} is linked to a different primary vendor", sku))
+            if message.starts_with(&format!("sku {sku} is linked to a different primary vendor"))
         ));
     }
 }

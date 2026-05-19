@@ -3939,7 +3939,7 @@ mod tests {
         assert!(matches!(
             ensure_skus_do_not_exist(&pool, &[sku.to_lowercase()]).await,
             Err(ProductError::InvalidPayload(message))
-            if message == format!("sku already exists: {}", sku)
+            if message == format!("sku already exists: {sku}")
         ));
     }
 

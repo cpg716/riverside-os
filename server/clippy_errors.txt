@@ -1,0 +1,387 @@
+    Checking riverside-server v0.60.1 (/Users/cpg/riverside-os/server)
+error: items after a test module
+    --> src/api/help.rs:336:1
+     |
+336  |   mod tests {
+     |   ^^^^^^^^^
+...
+1147 |   fn excerpt_from_body(body: &str, max: usize) -> String {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1159 |   fn map_hit(h: HelpSearchHit) -> HelpSearchHitOut {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1171 |   fn sanitize_excerpt(text: &str, max: usize) -> String {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1175 |   fn scrub_sensitive_economics_for_non_admin(value: &mut Value) {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1208 |   fn rosie_sanitize_tool_result_for_viewer(mut result: Value, viewer: &HelpViewer) -> Value {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1215 |   fn question_tokens(question: &str) -> impl Iterator<Item = String> + '_ {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1223 |   fn parse_dates_from_question(question: &str) -> Option<(NaiveDate, NaiveDate)> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1274 |   fn default_reporting_window() -> (NaiveDate, NaiveDate) {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1279 |   fn parse_basis_from_question(question: &str) -> &'static str {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1293 |   fn parse_sales_group_by(question: &str) -> &'static str {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1308 |   fn infer_reporting_request(question: &str) -> Option<RosieReportingRunRequest> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1413 |   fn extract_uuid_token(question: &str) -> Option<Uuid> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1426 |   fn infer_wedding_actions_window(question: &str) -> Option<i64> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1447 |   fn infer_operational_tool_requests(question: &str, headers: &HeaderMap) -> Vec<(String, Value)> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1505 |   fn action(id: &str, label: &str, description: &str, target: &str) -> RosieSuggestedActionOut {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1514 |   fn workflow_playbooks(question: &str) -> Vec<Value> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1677 |   fn suggested_actions_from_playbook(playbook: &Value) -> Vec<RosieSuggestedActionOut> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1697 |   fn repo_root() -> PathBuf {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1704 |   fn help_manifest_script_path() -> PathBuf {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1711 |   fn help_screenshot_script_path() -> PathBuf {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1718 | / async fn rosie_intelligence_status(
+1719 | |     State(state): State<AppState>,
+1720 | |     headers: HeaderMap,
+1721 | | ) -> Result<Json<RosieIntelligenceStatusOut>, Response> {
+     | |_______________________________________________________^
+...
+1729 | / async fn rosie_intelligence_refresh(
+1730 | |     State(state): State<AppState>,
+1731 | |     headers: HeaderMap,
+1732 | |     Json(body): Json<RosieIntelligenceRefreshBody>,
+1733 | | ) -> Result<Json<RosieIntelligenceRefreshOut>, Response> {
+     | |________________________________________________________^
+...
+1825 |   async fn run_command_capture(mut cmd: Command) -> Result<AdminOpsRunOut, Response> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1843 |   async fn build_rosie_intelligence_status(state: &AppState) -> RosieIntelligenceStatusOut {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1863 |   async fn load_help_reindex_time(pool: &sqlx::PgPool) -> Option<chrono::DateTime<Utc>> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1872 |   struct HelpViewer {
+     |   ^^^^^^^^^^^^^^^^^
+...
+1878 | / async fn resolve_help_viewer(
+1879 | |     state: &AppState,
+1880 | |     headers: &HeaderMap,
+1881 | | ) -> Result<HelpViewer, Response> {
+     | |_________________________________^
+...
+1929 |   pub fn router() -> Router<AppState> {
+     |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1986 | / async fn rosie_product_catalog_analysis(
+1987 | |     State(state): State<AppState>,
+1988 | |     headers: HeaderMap,
+1989 | |     Json(body): Json<RosieProductCatalogAnalyzeRequest>,
+1990 | | ) -> Result<Json<Value>, Response> {
+     | |__________________________________^
+...
+1995 | / async fn rosie_product_catalog_suggestion(
+1996 | |     State(state): State<AppState>,
+1997 | |     headers: HeaderMap,
+1998 | |     Json(body): Json<RosieProductCatalogSuggestRequest>,
+1999 | | ) -> Result<Json<Value>, Response> {
+     | |__________________________________^
+...
+2004 | / async fn search_help(
+2005 | |     State(state): State<AppState>,
+2006 | |     headers: HeaderMap,
+2007 | |     Query(q): Query<HelpSearchQuery>,
+2008 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+2063 | / async fn list_manuals(
+2064 | |     State(state): State<AppState>,
+2065 | |     headers: HeaderMap,
+2066 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+2081 | / async fn get_manual(
+2082 | |     State(state): State<AppState>,
+2083 | |     headers: HeaderMap,
+2084 | |     Path(manual_id): Path<String>,
+2085 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+2112 | / async fn rosie_chat_completions(
+2113 | |     State(state): State<AppState>,
+2114 | |     headers: HeaderMap,
+2115 | |     Json(body): Json<Value>,
+2116 | | ) -> Result<Response, Response> {
+     | |_______________________________^
+...
+2182 | / async fn post_rosie_insight_summary(
+2183 | |     State(state): State<AppState>,
+2184 | |     headers: HeaderMap,
+2185 | |     Json(body): Json<rosie_insight_summary::RosieInsightSummaryRequest>,
+2186 | | ) -> Result<Json<rosie_insight_summary::RosieInsightSummaryResponse>, Response> {
+     | |_______________________________________________________________________________^
+...
+2243 | / async fn post_rosie_search_intent(
+2244 | |     State(state): State<AppState>,
+2245 | |     headers: HeaderMap,
+2246 | |     Json(body): Json<rosie_search_intent::RosieSearchIntentRequest>,
+2247 | | ) -> Result<Json<rosie_search_intent::RosieSearchIntentResponse>, Response> {
+     | |___________________________________________________________________________^
+...
+2305 | / async fn rosie_runtime_status(
+2306 | |     State(state): State<AppState>,
+2307 | |     headers: HeaderMap,
+2308 | | ) -> Result<Json<rosie_speech::RosieHostRuntimeStatus>, Response> {
+     | |_________________________________________________________________^
+...
+2323 | / async fn rosie_voice_transcribe(
+2324 | |     State(state): State<AppState>,
+2325 | |     headers: HeaderMap,
+2326 | |     Json(body): Json<RosieVoiceTranscribeRequest>,
+2327 | | ) -> Result<Json<RosieVoiceTranscribeResponse>, Response> {
+     | |_________________________________________________________^
+...
+2342 | / async fn rosie_voice_speak(
+2343 | |     State(state): State<AppState>,
+2344 | |     headers: HeaderMap,
+2345 | |     Json(body): Json<RosieVoiceSpeakRequest>,
+2346 | | ) -> Result<Json<RosieVoiceMessageResponse>, Response> {
+     | |______________________________________________________^
+...
+2376 | / async fn rosie_voice_synthesize(
+2377 | |     State(state): State<AppState>,
+2378 | |     headers: HeaderMap,
+2379 | |     Json(body): Json<RosieVoiceSpeakRequest>,
+2380 | | ) -> Result<Json<RosieVoiceSynthesizeResponse>, Response> {
+     | |_________________________________________________________^
+...
+2409 | / async fn rosie_voice_stop(
+2410 | |     State(state): State<AppState>,
+2411 | |     headers: HeaderMap,
+2412 | | ) -> Result<Json<RosieVoiceMessageResponse>, Response> {
+     | |______________________________________________________^
+...
+2427 | / async fn rosie_voice_status(
+2428 | |     State(state): State<AppState>,
+2429 | |     headers: HeaderMap,
+2430 | | ) -> Result<Json<RosieVoiceStatusResponse>, Response> {
+     | |_____________________________________________________^
+...
+2445 | / async fn rosie_tool_context(
+2446 | |     State(state): State<AppState>,
+2447 | |     headers: HeaderMap,
+2448 | |     Json(body): Json<RosieToolContextRequest>,
+2449 | | ) -> Result<Json<RosieToolContextResponse>, Response> {
+     | |_____________________________________________________^
+...
+2918 | / async fn admin_get_manual(
+2919 | |     State(state): State<AppState>,
+2920 | |     headers: HeaderMap,
+2921 | |     Path(manual_id): Path<String>,
+2922 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+2981 | / async fn admin_list_manuals(
+2982 | |     State(state): State<AppState>,
+2983 | |     headers: HeaderMap,
+2984 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+3014 | / async fn admin_put_manual(
+3015 | |     State(state): State<AppState>,
+3016 | |     headers: HeaderMap,
+3017 | |     Path(manual_id): Path<String>,
+3018 | |     Json(body): Json<PutHelpManualPolicyBody>,
+3019 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+3060 | / async fn admin_delete_manual(
+3061 | |     State(state): State<AppState>,
+3062 | |     headers: HeaderMap,
+3063 | |     Path(manual_id): Path<String>,
+3064 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+3083 | / async fn admin_ops_status(
+3084 | |     State(state): State<AppState>,
+3085 | |     headers: HeaderMap,
+3086 | | ) -> Result<Json<AdminOpsStatusOut>, Response> {
+     | |______________________________________________^
+...
+3131 | / async fn admin_ops_generate_manifest(
+3132 | |     State(state): State<AppState>,
+3133 | |     headers: HeaderMap,
+3134 | |     Json(body): Json<GenerateManifestBody>,
+3135 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+3189 | / async fn admin_ops_aidocs_coverage(
+3190 | |     State(state): State<AppState>,
+3191 | |     headers: HeaderMap,
+3192 | |     Json(body): Json<AidocsCoverageBody>,
+3193 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+3232 | / async fn admin_ops_capture_screenshots(
+3233 | |     State(state): State<AppState>,
+3234 | |     headers: HeaderMap,
+3235 | |     Json(body): Json<CaptureHelpScreenshotsBody>,
+3236 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+...
+3315 | / async fn admin_ops_reindex_search(
+3316 | |     State(state): State<AppState>,
+3317 | |     headers: HeaderMap,
+3318 | |     Json(body): Json<ReindexSearchBody>,
+3319 | | ) -> Result<Json<serde_json::Value>, Response> {
+     | |______________________________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_test_module
+     = note: `-D clippy::items-after-test-module` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::items_after_test_module)]`
+     = help: move the items to before the test module was defined
+
+error: variables can be used directly in the `format!` string
+    --> src/api/products.rs:3942:27
+     |
+3942 |             if message == format!("sku already exists: {}", sku)
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+     = note: `-D clippy::uninlined-format-args` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::uninlined_format_args)]`
+help: change this to
+     |
+3942 -             if message == format!("sku already exists: {}", sku)
+3942 +             if message == format!("sku already exists: {sku}")
+     |
+
+error: variables can be used directly in the `format!` string
+   --> src/api/purchase_orders.rs:654:37
+    |
+654 |             if message.starts_with(&format!("sku {} is linked to a different primary vendor", sku))
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+help: change this to
+    |
+654 -             if message.starts_with(&format!("sku {} is linked to a different primary vendor", sku))
+654 +             if message.starts_with(&format!("sku {sku} is linked to a different primary vendor"))
+    |
+
+error: items after a test module
+   --> src/launcher.rs:668:1
+    |
+668 | mod tests {
+    | ^^^^^^^^^
+...
+679 | async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+790 | async fn perform_weather_backfill(state: &AppState) -> Result<(), anyhow::Error> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_test_module
+    = help: move the items to before the test module was defined
+
+error: items after a test module
+    --> src/logic/backups.rs:1060:1
+     |
+1060 | mod tests {
+     | ^^^^^^^^^
+...
+1217 | const BACKUP_FAILURE_DETAIL_MAX: usize = 500;
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1218 |
+1219 | fn clip_backup_detail(s: &str) -> String {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1229 | pub async fn record_local_backup_success(pool: &PgPool) -> Result<(), sqlx::Error> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1244 | pub async fn record_local_backup_failure(pool: &PgPool, detail: &str) -> Result<(), sqlx::Error> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1262 | pub async fn record_cloud_backup_success(pool: &PgPool) -> Result<(), sqlx::Error> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1278 | pub async fn record_cloud_backup_failure(pool: &PgPool, detail: &str) -> Result<(), sqlx::Error> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_test_module
+     = help: move the items to before the test module was defined
+
+error: items after a test module
+   --> src/logic/physical_inventory.rs:811:1
+    |
+811 | mod tests {
+    | ^^^^^^^^^
+...
+965 | async fn try_resolve(pool: &PgPool, code: &str, field: &str) -> Result<Option<ScanResolveResult>> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_test_module
+    = help: move the items to before the test module was defined
+
+error: this function has too many arguments (11/7)
+    --> src/logic/transaction_checkout.rs:5449:5
+     |
+5449 | /     async fn cleanup_wedding_group_pay_checkout_test(
+5450 | |         pool: &PgPool,
+5451 | |         transaction_ids: &[Uuid],
+5452 | |         session_id: Uuid,
+...    |
+5460 | |         payer_customer_id: Uuid,
+5461 | |     ) -> Result<(), sqlx::Error> {
+     | |________________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
+     = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: items after a test module
+   --> src/logic/transaction_list.rs:530:1
+    |
+530 |   mod tests {
+    |   ^^^^^^^^^
+...
+573 | / pub async fn query_pipeline_stats(
+574 | |     pool: &sqlx::PgPool,
+575 | | ) -> Result<TransactionPipelineStats, sqlx::Error> {
+    | |__________________________________________________^
+...
+647 | / pub async fn query_fulfillment_queue(
+648 | |     pool: &sqlx::PgPool,
+649 | | ) -> Result<Vec<FulfillmentItem>, sqlx::Error> {
+    | |______________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#items_after_test_module
+    = help: move the items to before the test module was defined
+
+error: could not compile `riverside-server` (lib test) due to 8 previous errors

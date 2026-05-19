@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 use crate::api::{build_router, AppState};
 use crate::logic::backups::{
     record_cloud_backup_failure, record_cloud_backup_success, record_local_backup_failure,
@@ -204,10 +206,8 @@ fn ensure_rosie_upstream_from_local_llama() {
         // Already configured — respect whatever was set (e.g. a dedicated GPU machine).
         return;
     }
-    let host =
-        std::env::var("RIVERSIDE_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port =
-        std::env::var("RIVERSIDE_LLAMA_PORT").unwrap_or_else(|_| "8080".to_string());
+    let host = std::env::var("RIVERSIDE_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = std::env::var("RIVERSIDE_LLAMA_PORT").unwrap_or_else(|_| "8080".to_string());
     let upstream = format!("http://{}:{}", host.trim(), port.trim());
     std::env::set_var("RIVERSIDE_LLAMA_UPSTREAM", &upstream);
     tracing::info!(
