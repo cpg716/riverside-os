@@ -1,9 +1,78 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+
+interface LogMessage {
+  level: string;
+  text: string;
+}
 
 export default function App() {
   const [step, setStep] = useState(1);
   const [role, setRole] = useState<'server' | 'register'>('server');
+  
+  // Config state
+  const [config, setConfig] = useState<any>({});
+  const [serverIp, setServerIp] = useState('127.0.0.1');
+  const [dbPassword, setDbPassword] = useState('');
+  
+  // Execution state
+  const [logs, setLogs] = useState<LogMessage[]>([]);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll logs
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
+
+  // Load config on mount
+  useEffect(() => {
+    invoke<string>('read_deployment_config').then((json) => {
+      try {
+        const parsed = JSON.parse(json);
+        setConfig(parsed);
+        if (parsed?.server?.database?.adminPassword) {
+          setDbPassword(parsed.server.database.adminPassword);
+        }
+      } catch (e) {
+        console.error("Failed to parse config:", e);
+      }
+    });
+  }, []);
+
+  const handleContinueToExec = async () => {
+    // Update config before executing
+    const newConfig = { ...config };
+    if (!newConfig.server) newConfig.server = {};
+    if (!newConfig.server.database) newConfig.server.database = {};
+    newConfig.server.database.adminPassword = dbPassword;
+    
+    await invoke('write_deployment_config', { config: JSON.stringify(newConfig) });
+    setStep(3);
+    executeDeployment();
+  };
+
+  const executeDeployment = async () => {
+    setIsExecuting(true);
+    setLogs([{ level: 'info', text: 'Starting deployment process...' }]);
+
+    const unlisten = await listen<LogMessage>('deployment-log', (event) => {
+      setLogs(prev => [...prev, event.payload]);
+    });
+
+    const script = role === 'server' ? 'install-server.ps1' : 'install-register.ps1';
+    
+    try {
+      await invoke('run_deployment_script', { scriptName: script });
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Deployment failed: ${e}` }]);
+    } finally {
+      setIsExecuting(false);
+      unlisten();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col items-center py-12 px-4">
@@ -80,16 +149,28 @@ export default function App() {
           {step === 2 && (
             <div className="flex-1">
               <h2 className="text-xl font-bold mb-6">Network & Database Configuration</h2>
-              {/* Fake config inputs for the mockup */}
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-zinc-700 mb-1">Server IP Address</label>
-                  <input type="text" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" defaultValue="127.0.0.1" />
+                  <input 
+                    type="text" 
+                    value={serverIp}
+                    onChange={(e) => setServerIp(e.target.value)}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" 
+                  />
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-zinc-700 mb-1">PostgreSQL Admin Password</label>
-                  <input type="password" className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" defaultValue="***********" />
-                </div>
+                {role === 'server' && (
+                  <div>
+                    <label className="block text-sm font-semibold text-zinc-700 mb-1">PostgreSQL Admin Password</label>
+                    <input 
+                      type="password" 
+                      value={dbPassword}
+                      onChange={(e) => setDbPassword(e.target.value)}
+                      placeholder="Leave blank to auto-generate"
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" 
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -97,30 +178,58 @@ export default function App() {
           {step === 3 && (
             <div className="flex-1 flex flex-col">
               <h2 className="text-xl font-bold mb-6">Installing Updates...</h2>
-              <div className="flex-1 bg-zinc-900 rounded-xl p-4 font-mono text-sm text-zinc-300 overflow-y-auto">
+              <div className="flex-1 bg-zinc-900 rounded-xl p-4 font-mono text-sm text-zinc-300 overflow-y-auto max-h-[350px]">
                 <div className="flex items-center gap-2 mb-2 text-zinc-500">
                   <Terminal className="w-4 h-4" /> Live Execution Logs
                 </div>
-                <div className="space-y-1">
-                  <p className="text-blue-400">[INFO] Starting Riverside Deployment Manager</p>
-                  <p className="text-zinc-300">[1/4] Checking PostgreSQL installation...</p>
-                  <p className="text-green-400">      PostgreSQL is installed.</p>
-                  <p className="text-zinc-300">[2/4] Downloading ROSIE AI assets...</p>
-                  <p className="text-yellow-400">      Model already present.</p>
-                  <p className="text-zinc-300">[3/4] Copying server binaries...</p>
-                  <p className="text-brand-400 animate-pulse">_</p>
+                <div className="space-y-1 pb-4">
+                  {logs.map((log, i) => (
+                    <p key={i} className={`whitespace-pre-wrap ${
+                      log.level === 'error' ? 'text-red-400' : 
+                      log.level === 'success' ? 'text-green-400' : 
+                      'text-zinc-300'
+                    }`}>
+                      {log.text}
+                    </p>
+                  ))}
+                  {isExecuting && <p className="text-brand-400 animate-pulse">_</p>}
+                  <div ref={logsEndRef} />
                 </div>
               </div>
             </div>
           )}
 
+          {step === 4 && (
+            <div className="flex-1 flex flex-col items-center justify-center text-center">
+              <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6">
+                <CheckCircle className="w-10 h-10" />
+              </div>
+              <h2 className="text-2xl font-bold mb-2">Deployment Complete!</h2>
+              <p className="text-zinc-500 max-w-md">The Riverside OS {role} has been successfully installed and configured. You may now close this window.</p>
+            </div>
+          )}
+
           <div className="mt-8 pt-6 border-t flex justify-end">
-            <button 
-              onClick={() => setStep(s => Math.min(4, s + 1))}
-              className="px-6 py-2.5 bg-brand-600 text-white font-semibold rounded-lg hover:bg-brand-700 flex items-center gap-2 shadow-sm"
-            >
-              {step === 3 ? 'Finish' : 'Continue'} <ChevronRight className="w-4 h-4" />
-            </button>
+            {step === 1 && (
+              <button onClick={() => setStep(2)} className="px-6 py-2.5 bg-brand-600 text-white font-semibold rounded-lg hover:bg-brand-700 flex items-center gap-2 shadow-sm">
+                Continue <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+            {step === 2 && (
+              <button onClick={handleContinueToExec} className="px-6 py-2.5 bg-brand-600 text-white font-semibold rounded-lg hover:bg-brand-700 flex items-center gap-2 shadow-sm">
+                Apply & Install <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+            {step === 3 && !isExecuting && (
+              <button onClick={() => setStep(4)} className="px-6 py-2.5 bg-brand-600 text-white font-semibold rounded-lg hover:bg-brand-700 flex items-center gap-2 shadow-sm">
+                Finish <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+            {step === 4 && (
+              <button onClick={() => window.close()} className="px-6 py-2.5 bg-zinc-200 text-zinc-800 font-semibold rounded-lg hover:bg-zinc-300 flex items-center gap-2">
+                Close
+              </button>
+            )}
           </div>
         </div>
       </div>
