@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [string]$ConfigPath = ""
+  [string]$ConfigPath = "",
+  [switch]$StartFresh
 )
 
 $ErrorActionPreference = "Stop"
@@ -156,12 +157,15 @@ try {
     throw "server.database.databaseName is blank in the deployment config."
   }
 
-  $confirm = [System.Windows.Forms.MessageBox]::Show(
-    "This will delete and recreate only the Riverside database '$databaseName'. Use this only during a fresh failed install before store data exists. PostgreSQL itself will stay installed. Continue?",
-    "Reset Riverside database",
-    "YesNo",
-    "Warning"
-  )
+  $confirm = "Yes"
+  if (-not $StartFresh) {
+    $confirm = [System.Windows.Forms.MessageBox]::Show(
+      "This will delete and recreate only the Riverside database '$databaseName'. Use this only during a fresh failed install before store data exists. PostgreSQL itself will stay installed. Continue?",
+      "Reset Riverside database",
+      "YesNo",
+      "Warning"
+    )
+  }
   if ($confirm -ne "Yes") {
     Write-Host "Reset cancelled."
     exit 0
@@ -192,13 +196,31 @@ CREATE DATABASE "$quotedDatabase"
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
   }
 
-  [System.Windows.Forms.MessageBox]::Show(
-    "Riverside database reset complete. The database was recreated as UTF8. Reopen Start-RiversideDeployment.cmd and run Backoffice / Server Install.",
-    "Reset complete",
-    "OK",
-    "Information"
-  ) | Out-Null
+  if ($StartFresh) {
+    Write-Host "Start Fresh option active. Finding migrations and seeds..."
+    $migrationsDir = Join-Path $PSScriptRoot "migrations"
+    if (-not (Test-Path $migrationsDir)) {
+      $migrationsDir = "C:\RiversideOS\release\migrations"
+    }
+    $migrationsScript = Join-Path $PSScriptRoot "apply-riverside-migrations.ps1"
+    if (Test-Path $migrationsScript) {
+      Write-Host "Applying database migrations..."
+      & $migrationsScript -ConfigPath $ConfigPath -MigrationsDir $migrationsDir -ApplySeeds
+      Write-Host "Database recreated, migrated, and seeded successfully! Ready for use." -ForegroundColor Green
+    } else {
+      throw "apply-riverside-migrations.ps1 not found in $PSScriptRoot"
+    }
+  } else {
+    [System.Windows.Forms.MessageBox]::Show(
+      "Riverside database reset complete. The database was recreated as UTF8. Reopen Start-RiversideDeployment.cmd and run Backoffice / Server Install.",
+      "Reset complete",
+      "OK",
+      "Information"
+    ) | Out-Null
+  }
 } catch {
-  [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Reset failed", "OK", "Error") | Out-Null
+  if (-not $StartFresh) {
+    [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Reset failed", "OK", "Error") | Out-Null
+  }
   throw
 }

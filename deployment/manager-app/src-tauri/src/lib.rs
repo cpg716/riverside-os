@@ -43,7 +43,7 @@ async fn write_deployment_config(config: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn run_deployment_script(app: AppHandle, script_name: String) -> Result<(), String> {
+async fn run_deployment_script(app: AppHandle, script_name: String, args: Option<Vec<String>>) -> Result<(), String> {
     let script_path = {
         let mut path = env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
         path.pop();
@@ -63,12 +63,20 @@ async fn run_deployment_script(app: AppHandle, script_name: String) -> Result<()
         return Err(format!("Script not found: {}", script_path.display()));
     }
 
-    let mut child = Command::new("powershell")
-        .arg("-NoProfile")
-        .arg("-ExecutionPolicy")
-        .arg("Bypass")
-        .arg("-File")
-        .arg(script_path.to_str().unwrap())
+    let mut cmd = Command::new("powershell");
+    cmd.arg("-NoProfile")
+       .arg("-ExecutionPolicy")
+       .arg("Bypass")
+       .arg("-File")
+       .arg(script_path.to_str().unwrap());
+
+    if let Some(arguments) = args {
+        for arg in arguments {
+            cmd.arg(arg);
+        }
+    }
+
+    let mut child = cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

@@ -55,17 +55,17 @@ export default function App() {
     executeScript(role === 'server' ? 'install-server.ps1' : 'install-register.ps1');
   };
 
-  const executeScript = async (scriptName: string) => {
+  const executeScript = async (scriptName: string, args?: string[]) => {
     if (isExecuting) return;
     setIsExecuting(true);
-    setLogs([{ level: 'info', text: `Executing ${scriptName}...` }]);
+    setLogs([{ level: 'info', text: `Executing ${scriptName}${args ? ' ' + args.join(' ') : ''}...` }]);
 
     const unlisten = await listen<LogMessage>('deployment-log', (event) => {
       setLogs(prev => [...prev, event.payload]);
     });
     
     try {
-      await invoke('run_deployment_script', { scriptName });
+      await invoke('run_deployment_script', { scriptName, args });
     } catch (e) {
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
     } finally {
@@ -337,16 +337,16 @@ export default function App() {
             </button>
             <button 
               onClick={() => {
-                if(confirm('Are you sure you want to completely DESTROY the database? This cannot be undone.')) {
-                  executeScript('reset-riverside-database.ps1');
+                if(confirm('Are you sure you want to completely START FRESH? This will clear the DB, seed the proper start data, and set it up like new. This cannot be undone.')) {
+                  executeScript('reset-riverside-database.ps1', ['-StartFresh']);
                 }
               }}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex items-center justify-between group"
             >
               <div>
-                <h3 className="font-semibold text-sm text-red-600">Factory Reset Database</h3>
-                <p className="text-xs text-red-400/80 mt-1">Destroys all data and applies clean migrations.</p>
+                <h3 className="font-semibold text-sm text-red-600">Start Fresh (Factory Reset)</h3>
+                <p className="text-xs text-red-400/80 mt-1">Clears the DB, runs migrations, seeds core data, and sets it up like new.</p>
               </div>
               <Trash2 className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
             </button>
