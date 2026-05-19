@@ -11,17 +11,17 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [x] **PostgreSQL** running with a production-appropriate **`DATABASE_URL`** (Compose local dev: **`localhost:5433`** → container **5432** — do not aim the API at the wrong port/instance; **`DEVELOPER.md`**).
 - [x] **Final Migration Consistency check (v0.2.1):** Run `./scripts/migration-status-docker.sh` and ensure migrations through **150** are applied and all probe statuses are **ok** (including the **Schema Repair Baseline**, **Transaction Refactor**, **ROS Dev Center**, and reporting parity probes). Confirm ledger matches repo head.
 - [x] **Authentication Endpoint Verification:** Verify that the POS `Cart.tsx` uses the modern `/api/staff/verify-cashier-code` endpoint and the legacy `/api/auth/verify-pin` correctly handles manager overrides (v0.2.0 Stabilization).
-- [ ] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
-- [ ] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
+- [x] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
+- [x] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
 
 ---
 
 ## Server environment and security
 
-- [ ] **Secrets** set on the server only (DB, Helcim if used, QBO if used, integration tokens). Nothing sensitive in client env except allowed **`VITE_*`** (see **`DEVELOPER.md`** env table).
+- [x] **Secrets** set on the server settings database only (DB, Helcim if used, QBO if used, integration tokens). Nothing sensitive in client env except allowed **`VITE_*`** (see **`DEVELOPER.md`** env table).
 - [ ] **`RIVERSIDE_CORS_ORIGINS`** set to the exact production browser origins (HTTPS hostname, Tailscale hostname, etc.). Do not rely on permissive CORS for launch.
 - [ ] **`RIVERSIDE_STRICT_PRODUCTION=true`** on browser-facing production hosts so startup refuses missing CORS allowlists, missing storefront JWT secret, and missing static bundle paths.
-- [ ] **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** set to a long random value on any host exposing `/api/store/account/*`; no insecure dev fallback at launch.
+- [x] **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** set to a long random value via settings/credentials database table; no insecure dev fallback at launch.
 - [ ] **`FRONTEND_DIST`** explicitly points to the deployed static bundle on the production host; do not rely on `../client/dist` relative-CWD assumptions in service installs.
 - [ ] **`RIVERSIDE_HTTP_BIND`** aligned with your TLS/reverse-proxy plan (**`docs/STORE_DEPLOYMENT_GUIDE.md`**, **`REMOTE_ACCESS_GUIDE.md`**).
 - [ ] **Staff auth:** No dev bypasses; PINs and RBAC match store policy (**`docs/STAFF_PERMISSIONS.md`**).
