@@ -9,7 +9,8 @@ on:
         default: "Riverside POS update"
 
 permissions:
-  contents: read
+  contents: write
+
 
 jobs:
   build-package:
@@ -186,3 +187,17 @@ jobs:
         with:
           name: tauri-windows-updater-dist
           path: client/updater-dist/
+
+      - name: Publish deployment package to GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content "client/package.json" | ConvertFrom-Json).version
+          $tag = "v$version"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "Riverside POS $tag" --notes "Riverside POS Release"
+          }
+          gh release upload $tag dist/deployment/*.zip --clobber
+
