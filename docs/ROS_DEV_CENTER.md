@@ -235,5 +235,5 @@ Migration discipline:
 - `docs/PLAN_BUG_REPORTS.md`
 - `docs/PLAN_NOTIFICATION_CENTER.md`
 - `docs/HARDWARE_MANAGEMENT.md`
-- `docs/DEPLOYMENT_GUIDE_V0_2_1.md`
+- `docs/STORE_DEPLOYMENT_GUIDE.md`
 - `docs/UNIFIED_ENGINE_AND_HOST_MODE.md`

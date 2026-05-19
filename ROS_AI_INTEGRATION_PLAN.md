@@ -10,7 +10,7 @@ isProject: false
 
 > **Browser / PDF note:** If you opened this from a Markdown preview that hides YAML, the first lines above are **frontmatter** stating this file is a **retirement pointer** for the **removed** in-app stack, not an active build spec for new DB AI tables.
 >
-> **Ground truth:** Migration **`78_retire_ros_ai_tables.sql`** removed **`ai_doc_chunk`**, **`ai_saved_report`**, **`vector`**, and **`ai_assist` / `ai_reports`**. Staff help ships as **Help Center** + **`GET /api/help/search`** (migration **79**, **`PLAN_HELP_CENTER.md`**, **`docs/MANUAL_CREATION.md`**). **`docs/API_AI.md`** describes a **historical** `/api/ai/*` contract — **no** such router on a DB past **78**.
+> **Ground truth:** Migration **`78_retire_ros_ai_tables.sql`** removed **`ai_doc_chunk`**, **`ai_saved_report`**, **`vector`**, and **`ai_assist` / `ai_reports`**. Staff help ships as **Help Center** + **`GET /api/help/search`** (migration **79**, **`PLAN_HELP_CENTER.md`**, **`docs/MANUAL_CREATION.md`**). **`docs/RETIRED_DOCUMENT_SUMMARIES.md`** summarizes the retired `/api/ai/*` contract — **no** such router on a DB past **78**.
 
 ## Current product (what to build on)
 
@@ -50,7 +50,7 @@ From **`migrations/legacy_prelaunch_history/78_retire_ros_ai_tables.sql`**:
 
 The repository previously shipped an optional **llama-server** + **ros-gemma** worker, hybrid RAG over **`ai_doc_chunk`** (FTS + trigram + 384-d embeddings), **`RosAiDrawer`**, and **`POST /api/ai/help`** plus NL reporting primitives. That stack was intentionally retired; the long-form design doc that lived at this path described that architecture.
 
-**Archived detail** that may still be useful as *ideas only*: [`docs/API_AI.md`](docs/API_AI.md), [`docs/ROS_AI_HELP_CORPUS.md`](docs/ROS_AI_HELP_CORPUS.md), [`docs/ROS_GEMMA_WORKER.md`](docs/ROS_GEMMA_WORKER.md), and git history for removed **`server/src/api/ai.rs`** / **`logic/ai_*`** modules.
+**Archived detail** that may still be useful as *ideas only*: [`docs/RETIRED_DOCUMENT_SUMMARIES.md`](docs/RETIRED_DOCUMENT_SUMMARIES.md) (summarized), [`docs/ROS_AI_HELP_CORPUS.md`](docs/ROS_AI_HELP_CORPUS.md), [`docs/ROS_GEMMA_WORKER.md`](docs/ROS_GEMMA_WORKER.md), and git history for removed **`server/src/api/ai.rs`** / **`logic/ai_*`** modules.
 
 ---
 

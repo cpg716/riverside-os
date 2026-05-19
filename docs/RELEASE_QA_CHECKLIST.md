@@ -276,4 +276,4 @@ This is a release gate, not optional.
 
 ---
 
-**Last reviewed:** 2026-04-21
+**Last reviewed:** 2026-05-19 for v0.60.2

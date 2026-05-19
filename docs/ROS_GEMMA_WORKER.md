@@ -52,6 +52,6 @@ Server-side: **`AI_ENABLED`**, **`AI_BASE_URL`**, **`AI_MOCK`**, **`AI_WORKER_*`
 
 ## See also
 
-- [`docs/API_AI.md`](API_AI.md) — **`/api/ai/*`**
+- [`docs/RETIRED_DOCUMENT_SUMMARIES.md`](RETIRED_DOCUMENT_SUMMARIES.md) — Summary of retired AI API
 - [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md) — staff doc RAG / embeddings (separate from this worker’s GGUF LLM)
 - [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md)

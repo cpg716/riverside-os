@@ -235,14 +235,12 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/CLIENT_UI_CONVENTIONS.md` | React primitives, modal a11y, shell wiring | Devs / agents |
 | `docs/CUSTOMER_HUB_AND_RBAC.md` | Joint accounts, financial redirection, CRM RBAC | Devs / ops |
 | `docs/UNIFIED_ENGINE_AND_HOST_MODE.md` | **Unified Hybrid Architecture** (v0.2.1+), Host Mode, and updates | Everyone |
-| `docs/DEPLOYMENT_GUIDE_V0_2_1.md` | Installation and production setup for the Unified Model | Ops / Devs |
 | `docs/ROS_DEV_CENTER.md` | ROS Dev Center architecture, API contracts, operations, and hardening model | Devs / ops |
 | `INVENTORY_GUIDE.md` | Scanning engine, physical inventory sessions | Ops / devs |
 | `BACKUP_RESTORE_GUIDE.md` | Maintenance, backups, cloud sync | Ops |
 | `Riverside_OS_Master_Specification.md` | Product requirements and vocabulary | Product / devs |
 | `docs/RETIRED_DOCUMENT_SUMMARIES.md` | Ledger of removed docs | Maintainers |
 | `docs/INTELLIGENCE_LAYER_GUIDE.md` | Proactive risk & replenishment engines (logic, UI, API) | Developers / ops |
-| `docs/PLAN_POST_V0.1.2_EVOLUTION.md` | Strategic growth (MTM Center, Alteration Forecast) | Product / Devs |
 | `docs/CASH_ROUNDING_OPERATIONS.md` | Swedish Rounding rules, cash checkout logic, and QBO mapping | Ops / devs |
 | `client/src/assets/docs/lockout-manual.md` | Restoration steps for locked-out staff and admins | Everyone |
 

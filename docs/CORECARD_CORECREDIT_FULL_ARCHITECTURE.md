@@ -481,10 +481,4 @@ Important rule:
 
 ## Historical Implementation Notes
 
-The implementation history remains documented in:
-
-- [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_PHASE1.md`](./CORECARD_CORECREDIT_PHASE1.md)
-- [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_PHASE2.md`](./CORECARD_CORECREDIT_PHASE2.md)
-- [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_PHASE3.md`](./CORECARD_CORECREDIT_PHASE3.md)
-
-Those files now serve as phase history. This document is the operational architecture reference.
+The implementation history is retired and summarized in [`RETIRED_DOCUMENT_SUMMARIES.md`](./RETIRED_DOCUMENT_SUMMARIES.md). This document is the operational architecture reference.
