@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Tool, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck } from 'lucide-react';
+import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Tool, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -310,6 +310,47 @@ export default function App() {
             </div>
 
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
+              <Database className="w-5 h-5 text-brand-600" /> Database & Migrations
+            </h2>
+            <button 
+              onClick={() => executeScript('apply-riverside-migrations.ps1')}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm">Apply Migrations</h3>
+                <p className="text-xs text-zinc-500 mt-1">Runs any pending PostgreSQL schema updates safely.</p>
+              </div>
+              <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
+            </button>
+            <button 
+              onClick={() => executeInline('if (Test-Path "server\\seed.sql") { & (Get-Command psql.exe).Source -U postgres -d riverside_os -f "server\\seed.sql" } else { Write-Host "No seed.sql found in package." }', 'Seed Database')}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm">Seed Database</h3>
+                <p className="text-xs text-zinc-500 mt-1">Injects initial test or production baseline data.</p>
+              </div>
+              <ArrowDownToLine className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
+            </button>
+            <button 
+              onClick={() => {
+                if(confirm('Are you sure you want to completely DESTROY the database? This cannot be undone.')) {
+                  executeScript('reset-riverside-database.ps1');
+                }
+              }}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm text-red-600">Factory Reset Database</h3>
+                <p className="text-xs text-red-400/80 mt-1">Destroys all data and applies clean migrations.</p>
+              </div>
+              <Trash2 className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
+            </button>
+
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
               <Tool className="w-5 h-5 text-brand-600" /> Utility Scripts
             </h2>
             <button 
@@ -322,6 +363,17 @@ export default function App() {
                 <p className="text-xs text-zinc-500 mt-1">Re-downloads Gemma LLM and updates Voice dependencies.</p>
               </div>
               <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
+            </button>
+            <button 
+              onClick={() => executeScript('set-counterpoint-bridge-token.ps1')}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm">Sync Counterpoint Bridge</h3>
+                <p className="text-xs text-zinc-500 mt-1">Regenerate and map the CP Bridge sync tokens.</p>
+              </div>
+              <Link className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
             </button>
             <button 
               onClick={() => executeScript('repair-server-credentials-key.ps1')}
@@ -344,21 +396,6 @@ export default function App() {
                 <p className="text-xs text-zinc-500 mt-1">Ensures a master administrator account exists.</p>
               </div>
               <Key className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
-            </button>
-            <button 
-              onClick={() => {
-                if(confirm('Are you sure you want to completely DESTROY the database? This cannot be undone.')) {
-                  executeScript('reset-riverside-database.ps1');
-                }
-              }}
-              disabled={isExecuting}
-              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex items-center justify-between group"
-            >
-              <div>
-                <h3 className="font-semibold text-sm text-red-600">Factory Reset Database</h3>
-                <p className="text-xs text-red-400/80 mt-1">Destroys all data and applies clean migrations.</p>
-              </div>
-              <Trash2 className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
             </button>
           </div>
           <div className="col-span-7 flex flex-col min-h-[400px]">
