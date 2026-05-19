@@ -101,10 +101,17 @@ export function describePrinterTarget(target: HardwarePrinterTarget) {
   return `${target.ip}:${target.port}`;
 }
 
+function requireSystemPrinterName(target: Extract<HardwarePrinterTarget, { mode: "system" }>) {
+  const printerName = typeof target.printerName === "string" ? target.printerName.trim() : "";
+  if (!printerName) {
+    throw new Error("Choose an installed printer for this station.");
+  }
+  return printerName;
+}
+
 /**
- * Thermal print bridge: Tauri uses native TCP; browser/PWA tries server `/api/hardware/print`,
- * then `window.open` fallback. PWA note: popup blockers may block the blank window unless the
- * print action runs directly from a user gesture; prefer Tauri or server print on iPad/mobile.
+ * Thermal print bridge: Tauri uses native TCP; browser/PWA uses the ROS server
+ * `/api/hardware/print` path so receipt/tag hardware bypasses browser printing.
  */
 export async function printZplReceipt(
   payload: string,
@@ -116,37 +123,28 @@ export async function printZplReceipt(
     if (!isTauri()) {
       throw new Error("Installed printer selection is available only in the Riverside desktop app.");
     }
-    if (!target.printerName) {
-      throw new Error("Choose an installed printer for this station.");
-    }
+    const printerName = requireSystemPrinterName(target);
     return invoke("print_raw_to_system_printer_b64", {
-      printerName: target.printerName,
+      printerName,
       payloadB64: asciiToBase64(payload),
     });
   }
 
-  // If we're not running inside the Tauri shell (e.g. dev browser)
-  // we must fallback to the classic window.open print method.
   if (!isTauri()) {
     const baseUrl = getBaseUrl();
-    try {
-      const res = await fetch(`${baseUrl}/api/hardware/print`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...sessionPollAuthHeaders(),
-        },
-        body: JSON.stringify({ ip: target.ip, port: target.port, payload })
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Server-side print dispatch failed");
-      }
-      return;
-    } catch (e) {
-      console.warn("Server Print Fallback Failed, trying browser print:", e);
-      return fallbackBrowserPrint(payload);
+    const res = await fetch(`${baseUrl}/api/hardware/print`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...sessionPollAuthHeaders(),
+      },
+      body: JSON.stringify({ ip: target.ip, port: target.port, payload }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error || "Server-side ZPL dispatch failed");
     }
+    return;
   }
 
   try {
@@ -168,11 +166,9 @@ export async function printRawEscPosBase64(
     if (!isTauri()) {
       throw new Error("Installed printer selection is available only in the Riverside desktop app.");
     }
-    if (!target.printerName) {
-      throw new Error("Choose an installed printer for this station.");
-    }
+    const printerName = requireSystemPrinterName(target);
     await invoke("print_raw_to_system_printer_b64", {
-      printerName: target.printerName,
+      printerName,
       payloadB64: payloadB64,
     });
     return;
@@ -222,37 +218,30 @@ export async function printEscPosReceipt(
     if (!isTauri()) {
       throw new Error("Installed printer selection is available only in the Riverside desktop app.");
     }
-    if (!target.printerName) {
-      throw new Error("Choose an installed printer for this station.");
-    }
+    const printerName = requireSystemPrinterName(target);
     const init = "\x1b@";
     const cut = "\x1dVA\0";
     return invoke("print_raw_to_system_printer_b64", {
-      printerName: target.printerName,
+      printerName,
       payloadB64: asciiToBase64(`${init}${payload}\n\n\n\n${cut}`),
     });
   }
 
   if (!isTauri()) {
     const baseUrl = getBaseUrl();
-    try {
-      const res = await fetch(`${baseUrl}/api/hardware/print`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...sessionPollAuthHeaders(),
-        },
-        body: JSON.stringify({ ip: target.ip, port: target.port, payload })
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Server-side print dispatch failed");
-      }
-      return;
-    } catch (e) {
-      console.warn("Server Print Fallback Failed, trying browser print:", e);
-      return fallbackBrowserPrint(payload);
+    const res = await fetch(`${baseUrl}/api/hardware/print`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...sessionPollAuthHeaders(),
+      },
+      body: JSON.stringify({ ip: target.ip, port: target.port, payload }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error || "Server-side ESC/POS dispatch failed");
     }
+    return;
   }
 
   try {
@@ -267,16 +256,14 @@ export async function checkReceiptPrinterConnection(
   target: HardwarePrinterTarget = resolvePrinterTarget("receipt"),
 ) {
   if (target.mode === "system") {
-    if (!target.printerName) {
-      throw new Error("Choose an installed receipt printer for this station.");
-    }
+    const printerName = requireSystemPrinterName(target);
     if (!isTauri()) {
       throw new Error(
         "Installed printer checks are available only in the Riverside desktop app.",
       );
     }
     try {
-      await invoke("check_system_printer", { printerName: target.printerName });
+      await invoke("check_system_printer", { printerName });
       return;
     } catch (err) {
       console.error("Hardware Bridge Error: installed printer check failed:", err);
@@ -313,24 +300,6 @@ export async function checkReceiptPrinterConnection(
   } catch (err) {
     console.error("Hardware Bridge Error: printer readiness check failed:", err);
     throw new Error(String(err), { cause: err });
-  }
-}
-
-/** Legacy print method for Chrome/Safari Fallback */
-function fallbackBrowserPrint(payload: string) {
-  const w = window.open("", "_blank");
-  if (w) {
-    const pre = w.document.createElement("pre");
-    pre.style.whiteSpace = "pre-wrap";
-    pre.style.fontSize = "11px";
-    pre.style.padding = "12px";
-    pre.textContent = payload;
-    w.document.body.appendChild(pre);
-
-    // Optional: auto-trigger browser print dialog
-    // setTimeout(() => w.print(), 200);
-  } else {
-    throw new Error("Popup blocker blocked fallback receipt");
   }
 }
 

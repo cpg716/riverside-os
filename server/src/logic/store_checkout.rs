@@ -222,7 +222,7 @@ fn helcim_ready() -> ProviderReadiness {
     let web_enabled = env_truthy("HELCIM_WEB_CHECKOUT_ENABLED");
     let mut missing_config = Vec::new();
     if !api_configured {
-        missing_config.push("HELCIM_API_TOKEN is not configured".to_string());
+        missing_config.push("Helcim API token is not saved in Backoffice Settings.".to_string());
     }
     if !web_enabled {
         missing_config.push("HELCIM_WEB_CHECKOUT_ENABLED is not enabled".to_string());
@@ -235,7 +235,7 @@ fn helcim_ready() -> ProviderReadiness {
         detail: if api_configured && web_enabled {
             "HelcimPay.js web checkout is ready.".to_string()
         } else {
-            "HelcimPay.js needs HELCIM_API_TOKEN and HELCIM_WEB_CHECKOUT_ENABLED before public customers can use it.".to_string()
+            "HelcimPay.js needs a saved Helcim API token in Backoffice Settings and web checkout enabled before public customers can use it.".to_string()
         },
         missing_config,
     }

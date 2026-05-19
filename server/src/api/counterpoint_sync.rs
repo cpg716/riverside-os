@@ -67,7 +67,7 @@ fn validate_sync_token(
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({
-                "error": "counterpoint sync is not configured (set COUNTERPOINT_SYNC_TOKEN)"
+                "error": "Counterpoint bridge token is not saved in Backoffice Settings."
             })),
         ));
     };

@@ -9,6 +9,8 @@ use std::str::FromStr;
 
 pub const RATE_QUOTE_TTL_MINUTES: i64 = 15;
 const SHIPPO_API_VERSION: &str = "2018-02-08";
+const SHIPPO_TOKEN_MISSING_SETTINGS_MESSAGE: &str =
+    "Shippo API token is not saved in Backoffice Settings.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShippoError {
@@ -523,12 +525,11 @@ pub async fn store_shipping_rates(
     let (normalized, stub) = if use_live {
         if !eff.api_token_configured {
             return Err(ShippoError::Api(
-                "Shippo API token is required when live rates are enabled".into(),
+                SHIPPO_TOKEN_MISSING_SETTINGS_MESSAGE.into(),
             ));
         }
-        let token = shippo_api_token_from_env().ok_or_else(|| {
-            ShippoError::Api("Shippo API token is required when live rates are enabled".into())
-        })?;
+        let token = shippo_api_token_from_env()
+            .ok_or_else(|| ShippoError::Api(SHIPPO_TOKEN_MISSING_SETTINGS_MESSAGE.into()))?;
         let rates = fetch_live_rates(
             http,
             &token,
@@ -634,7 +635,7 @@ pub async fn validate_address(
     address: &ShippoAddressFields,
 ) -> Result<ShippoAddressValidationResult, ShippoError> {
     let token = shippo_api_token_from_env()
-        .ok_or_else(|| ShippoError::Api("Shippo API token is not configured".into()))?;
+        .ok_or_else(|| ShippoError::Api(SHIPPO_TOKEN_MISSING_SETTINGS_MESSAGE.into()))?;
     if address.street1.trim().is_empty()
         || address.city.trim().is_empty()
         || address.state.trim().is_empty()
@@ -722,7 +723,7 @@ pub async fn request_label_refund(
     transaction_object_id: &str,
 ) -> Result<ShippoRefundResult, ShippoError> {
     let token = shippo_api_token_from_env()
-        .ok_or_else(|| ShippoError::Api("Shippo API token is not configured".into()))?;
+        .ok_or_else(|| ShippoError::Api(SHIPPO_TOKEN_MISSING_SETTINGS_MESSAGE.into()))?;
     let transaction = transaction_object_id.trim();
     if transaction.is_empty() {
         return Err(ShippoError::InvalidAddress(
@@ -806,7 +807,7 @@ pub async fn create_manifest(
     from: &ShippoAddressFields,
 ) -> Result<ShippoManifestResult, ShippoError> {
     let token = shippo_api_token_from_env()
-        .ok_or_else(|| ShippoError::Api("Shippo API token is not configured".into()))?;
+        .ok_or_else(|| ShippoError::Api(SHIPPO_TOKEN_MISSING_SETTINGS_MESSAGE.into()))?;
     let carrier_account = carrier_account.trim();
     if carrier_account.is_empty() {
         return Err(ShippoError::InvalidAddress(
@@ -876,7 +877,7 @@ pub async fn create_pickup(
     pickup: &PickupLocationInput,
 ) -> Result<ShippoPickupResult, ShippoError> {
     let token = shippo_api_token_from_env()
-        .ok_or_else(|| ShippoError::Api("Shippo API token is not configured".into()))?;
+        .ok_or_else(|| ShippoError::Api(SHIPPO_TOKEN_MISSING_SETTINGS_MESSAGE.into()))?;
     let carrier_account = carrier_account.trim();
     if carrier_account.is_empty() {
         return Err(ShippoError::InvalidAddress(
@@ -981,7 +982,7 @@ pub async fn purchase_transaction_for_rate(
     label_file_type: Option<&str>,
 ) -> Result<PurchasedLabel, ShippoError> {
     let token = shippo_api_token_from_env()
-        .ok_or_else(|| ShippoError::Api("SHIPPO_API_TOKEN not configured".into()))?;
+        .ok_or_else(|| ShippoError::Api(SHIPPO_TOKEN_MISSING_SETTINGS_MESSAGE.into()))?;
     if rate_object_id.trim().is_empty() {
         return Err(ShippoError::InvalidAddress(
             "no Shippo rate on file — refresh live rates and apply a quote (stub quotes cannot buy labels)"

@@ -331,13 +331,20 @@ impl HelcimConfig {
             api_token_configured && terminal_1_device_configured && terminal_2_device_configured;
 
         if !simulator_enabled && !api_token_configured {
-            missing_config.push("HELCIM_API_TOKEN is not configured".to_string());
+            missing_config
+                .push("Helcim API token is not saved in Backoffice Settings.".to_string());
         }
         if !simulator_enabled && !terminal_1_device_configured {
-            missing_config.push("HELCIM_TERMINAL_1_DEVICE_CODE is not configured".to_string());
+            missing_config.push(
+                "Helcim Register #1 terminal device code is not saved in Backoffice Settings."
+                    .to_string(),
+            );
         }
         if !simulator_enabled && !terminal_2_device_configured {
-            missing_config.push("HELCIM_TERMINAL_2_DEVICE_CODE is not configured".to_string());
+            missing_config.push(
+                "Helcim Register #2 terminal device code is not saved in Backoffice Settings."
+                    .to_string(),
+            );
         }
         HelcimConfigStatus {
             enabled: self.enabled(),
@@ -902,7 +909,7 @@ pub async fn fetch_card_transaction(
 ) -> Result<HelcimCardTransaction, String> {
     let token = config
         .api_token()
-        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!(
         "{}/card-transactions/{transaction_id}",
         config.api_base_url()
@@ -980,7 +987,7 @@ pub async fn ping_device(
     let code = normalized_device_code(code)?;
     let token = config
         .api_token()
-        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!("{}/devices/{code}/ping", config.api_base_url());
     let response = http
         .get(&url)
@@ -1069,7 +1076,7 @@ pub async fn delete_customer_card(
 ) -> Result<(), String> {
     let token = config
         .api_token()
-        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!(
         "{}/customers/{customer_id}/cards/{card_id}",
         config.api_base_url()
@@ -1095,7 +1102,7 @@ pub async fn set_customer_card_default(
 ) -> Result<Value, String> {
     let token = config
         .api_token()
-        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!(
         "{}/customers/{customer_id}/cards/{card_id}/default",
         config.api_base_url()
@@ -1205,7 +1212,7 @@ pub async fn start_terminal_refund(
 ) -> Result<HelcimAcceptedPurchaseResponse, String> {
     let token = config
         .api_token()
-        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!(
         "{}/devices/{device_code}/payment/refund",
         config.api_base_url()
@@ -1237,7 +1244,7 @@ pub async fn initialize_helcim_pay(
 ) -> Result<HelcimPayInitializeResponse, String> {
     let token = config
         .api_token()
-        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!("{}/helcim-pay/initialize", config.api_base_url());
     let response = http
         .post(&url)
@@ -1266,7 +1273,7 @@ async fn send_payment_request<T: Serialize + ?Sized>(
 ) -> Result<HelcimCardTransaction, String> {
     let token = config
         .api_token()
-        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!("{}/{}", config.api_base_url(), path);
     let response = http
         .post(&url)
@@ -1295,7 +1302,7 @@ async fn send_get_request(
 ) -> Result<Value, String> {
     let token = config
         .api_token()
-        .ok_or_else(|| "HELCIM_API_TOKEN is not configured".to_string())?;
+        .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!("{}/{}", config.api_base_url(), path);
     let response = http
         .get(&url)

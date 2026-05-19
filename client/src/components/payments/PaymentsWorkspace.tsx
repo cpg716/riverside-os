@@ -716,7 +716,7 @@ export default function PaymentsWorkspace({ activeSection = "overview", surface 
               .catch((err) => ({ body: null, error: err instanceof Error ? err.message : "Card terminal status could not load." })),
           ])
         : [
-            { body: null, error: "HELCIM_API_TOKEN is not configured" },
+            { body: null, error: "Helcim API token is not saved in Backoffice Settings." },
             { body: null, error: null },
           ];
       const terminalError = terminalDevicesResult.error ?? cardTerminalsResult.error;

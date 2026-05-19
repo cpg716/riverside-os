@@ -884,7 +884,7 @@ pub async fn runtime_diagnostics_snapshot(
     } else if shippo.store.live_rates_enabled {
         (
             "Stub fallback".to_string(),
-            "Live rates are enabled in settings, but SHIPPO_API_TOKEN is missing so rate quotes fall back to stub data.".to_string(),
+            "Live rates are enabled in settings, but the Shippo API token is not saved in Backoffice Settings so rate quotes fall back to stub data.".to_string(),
             "warning".to_string(),
         )
     } else {
