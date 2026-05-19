@@ -24,6 +24,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
 # ---- Admin guard ----
 $identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -135,7 +136,8 @@ if ($SkipVoiceTools) {
 } else {
   Write-Host "[2/4] sherpa-onnx Python runtime..."
 
-  $uvCmd = (Get-Command uv.exe -ErrorAction SilentlyContinue)?.Source
+  $uvCmdObj = Get-Command uv.exe -ErrorAction SilentlyContinue
+  $uvCmd = if ($uvCmdObj) { $uvCmdObj.Source } else { $null }
   if (-not $uvCmd) {
     $uvLocal = Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe"
     if (Test-Path $uvLocal) {

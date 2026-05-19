@@ -423,7 +423,12 @@ function Install-RosieStack($PackageRoot) {
     try {
       $headers = @{}
       if ($env:HF_TOKEN) { $headers["Authorization"] = "Bearer $env:HF_TOKEN" }
+      
+      $oldProgress = $ProgressPreference
+      $ProgressPreference = 'SilentlyContinue'
       Invoke-WebRequest -Uri $modelUrl -OutFile $modelDest -Headers $headers -UseBasicParsing
+      $ProgressPreference = $oldProgress
+
       $gotHash = (Get-FileHash -Algorithm SHA256 -Path $modelDest).Hash.ToLowerInvariant()
       if ($gotHash -ne $pin.sha256.ToLowerInvariant()) {
         Remove-Item $modelDest -Force
