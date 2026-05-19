@@ -124,12 +124,59 @@ $defaultMigrationCandidates = @(
 $resolvedMigrationsDir = Resolve-ExistingPath $defaultMigrationCandidates "migrations folder"
 
 $config = Get-Content $resolvedConfigPath -Raw | ConvertFrom-Json
+
+function New-RiversideSecret([int]$Length) {
+  $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  $random = New-Object System.Random
+  $result = ""
+  for ($i = 0; $i -lt $Length; $i++) {
+    $result += $chars[$random.Next(0, $chars.Length)]
+  }
+  return $result
+}
+
+function Test-PlaceholderSecret([string]$Value) {
+  if ([string]::IsNullOrWhiteSpace($Value)) { return $true }
+  return $Value -match "replace-" -or $Value -eq "password" -or $Value -eq "placeholder"
+}
+
+$configModified = $false
+
+if (Test-PlaceholderSecret $config.server.storeCustomerJwtSecret) {
+  $config.server.storeCustomerJwtSecret = New-RiversideSecret 32
+  $configModified = $true
+}
+
+if (Test-PlaceholderSecret $config.server.database.appPassword) {
+  $config.server.database.appPassword = New-RiversideSecret 24
+  $configModified = $true
+}
+
+if ($configModified) {
+  $configJson = $config | ConvertTo-Json -Depth 8
+  Set-Content -Path $resolvedConfigPath -Value $configJson -Encoding UTF8
+  Write-Host "Auto-resolved credentials inside $resolvedConfigPath." -ForegroundColor Green
+}
+
 $db = $config.server.database
 $psql = $db.psqlPath
 
 if ([string]::IsNullOrWhiteSpace($psql) -or -not (Test-Path $psql)) {
-  throw "PostgreSQL psql.exe path is missing or invalid in deployment config: $psql"
+  $cmd = Get-Command psql.exe -ErrorAction SilentlyContinue
+  if ($cmd) {
+    $psql = $cmd.Source
+  } else {
+    $matches = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter psql.exe -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
+    if ($matches) {
+      $psql = $matches[0].FullName
+    }
+  }
 }
+
+if ([string]::IsNullOrWhiteSpace($psql) -or -not (Test-Path $psql)) {
+  throw "PostgreSQL psql.exe path is missing or invalid. Set server.database.psqlPath in the config."
+}
+
 if ([string]::IsNullOrWhiteSpace($db.appPassword)) {
   throw "Riverside database password is blank in deployment config."
 }

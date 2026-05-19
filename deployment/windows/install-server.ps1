@@ -630,6 +630,84 @@ if (-not (Test-Path $ConfigPath)) {
 }
 
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+
+function New-RiversideSecret([int]$Length) {
+  $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  $random = New-Object System.Random
+  $result = ""
+  for ($i = 0; $i -lt $Length; $i++) {
+    $result += $chars[$random.Next(0, $chars.Length)]
+  }
+  return $result
+}
+
+function Test-PlaceholderSecret([string]$Value) {
+  if ([string]::IsNullOrWhiteSpace($Value)) { return $true }
+  return $Value -match "replace-" -or $Value -eq "password" -or $Value -eq "placeholder"
+}
+
+$configModified = $false
+
+if (Test-PlaceholderSecret $config.server.storeCustomerJwtSecret) {
+  $config.server.storeCustomerJwtSecret = New-RiversideSecret 32
+  $configModified = $true
+  Write-Host "Auto-generated secure JWT secret." -ForegroundColor Green
+}
+
+if (Test-PlaceholderSecret $config.server.database.appPassword) {
+  $config.server.database.appPassword = New-RiversideSecret 24
+  $configModified = $true
+  Write-Host "Auto-generated secure database app password." -ForegroundColor Green
+}
+
+if (Test-PlaceholderSecret $config.server.database.adminPassword) {
+  $dbHost = $config.server.database.host
+  $dbPort = $config.server.database.port
+  $dbUser = $config.server.database.adminUser
+  
+  Write-Host "PostgreSQL admin password is empty/placeholder. Checking local connection..."
+  $tcpClient = New-Object System.Net.Sockets.TcpClient
+  $connect = $tcpClient.BeginConnect($dbHost, $dbPort, $null, $null)
+  $success = $connect.AsyncWaitHandle.WaitOne(1000, $false)
+  if ($success) {
+    $tcpClient.EndConnect($connect)
+    $tcpClient.Close()
+    
+    $psqlCmd = Get-Command psql.exe -ErrorAction SilentlyContinue
+    $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
+      $matches = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter psql.exe -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
+      if ($matches) { $matches[0].FullName } else { "psql.exe" }
+    }
+    
+    $env:PGPASSWORD = ""
+    $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
+    $env:PGPASSWORD = $null
+    
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "PostgreSQL trust authentication detected (no password required)." -ForegroundColor Green
+      $config.server.database.adminPassword = ""
+      $configModified = $true
+    } else {
+      foreach ($pwd in @("postgres", "admin", "password")) {
+        $env:PGPASSWORD = $pwd
+        $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
+        $env:PGPASSWORD = $null
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "Auto-detected PostgreSQL admin password: '$pwd'" -ForegroundColor Green
+          $config.server.database.adminPassword = $pwd
+          $configModified = $true
+          break
+        }
+      }
+    }
+  }
+}
+
+if ($configModified) {
+  $configJson = $config | ConvertTo-Json -Depth 8
+  Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
+  Write-Host "Auto-saved resolved credentials and passwords to $ConfigPath." -ForegroundColor Green
+}
 $packageManifestPath = Join-Path $PSScriptRoot "deployment-package.manifest.json"
 $packageManifest = $null
 if (Test-Path $packageManifestPath) {
