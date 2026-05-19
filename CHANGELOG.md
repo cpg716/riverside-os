@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.60.2] - 2026-05-19
+### Added
+- **Modernized Deployment Manager**: Rebuilt the legacy WinForms/PowerShell deployment manager as a robust, interactive React + Tauri desktop application.
+  - **Installation Wizard**: Added a step-by-step UI for choosing station roles (Server vs. Register) and configuring network/database credentials via WowDash design tokens.
+  - **Live Execution Streaming**: Decoupled deployment execution from the UI, streaming stdout/stderr directly from the classic PowerShell installation scripts into a live terminal block.
+  - **Maintenance & Repair Dashboard**: Restored and expanded all legacy deployment utility functions into a dedicated tab.
+    - **Server Control**: Start, Restart, Open Logs, and Check Package utilities.
+    - **Database & Migrations**: Apply Migrations, Seed Database, and Factory Reset triggers.
+    - **Utility Scripts**: Force ROSIE AI Updates, Sync Counterpoint Bridge, Repair Credentials, and Bootstrap Admin accounts.
+  - **Zero-Friction Updates**: Included an inline PowerShell executor to enable rapid invocation of ad-hoc diagnostic scripts directly from the UI.
+
 ## [0.60.1] - 2026-05-19
 ### Changed
 - Added known-host selection to the sign-in **API Host Settings** flow while preserving manual IP/URL entry for Register and PWA setup.
