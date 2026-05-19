@@ -113,6 +113,17 @@ Copy-Item "$repoRoot\scripts\seeds\seed_core_required.sql" "$packageRoot\seeds" 
 Copy-Item "$repoRoot\scripts\seeds\seed_rbac.sql" "$packageRoot\seeds" -Force
 Copy-Item "$repoRoot\docs\*" "$packageRoot\release-docs" -Recurse -Force
 
+# ROSIE AI stack manifest — install-server.ps1 reads this to download the pinned model.
+New-Item -ItemType Directory -Force -Path "$packageRoot\rosie" | Out-Null
+$modelPinSource = Join-Path $repoRoot "tools\ros-gemma\MODEL_PIN.json"
+if (Test-Path $modelPinSource) {
+  Copy-Item $modelPinSource "$packageRoot\rosie\MODEL_PIN.json" -Force
+  Write-Host "Packaged ROSIE MODEL_PIN.json"
+} else {
+  Write-Warning "tools/ros-gemma/MODEL_PIN.json not found; ROSIE model download will be skipped during server install."
+}
+
+
 $manifest = @{
   releaseVersion = $Version
   sourceGitShort = $gitShort

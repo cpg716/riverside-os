@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::auth::permissions::OPS_DEV_CENTER_VIEW;
 use crate::logic::backups::{BackupManager, BackupSettings};
+use crate::logic::bug_reports;
 use crate::logic::help_corpus;
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::integration_credentials;
@@ -69,6 +70,8 @@ pub struct StationRow {
     pub last_seen_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub online: bool,
+    pub station_lifecycle: String,
+    pub actionable: bool,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -125,6 +128,7 @@ pub struct OpsHealthSnapshot {
     pub open_alerts: i64,
     pub stations_online: i64,
     pub stations_offline: i64,
+    pub stations_stale: i64,
     pub pending_bug_reports: i64,
 }
 
@@ -308,6 +312,11 @@ fn backup_overdue_hours() -> i64 {
 
 fn now_online_cutoff() -> DateTime<Utc> {
     Utc::now() - Duration::minutes(5)
+}
+
+fn station_offline_alert_cutoff() -> DateTime<Utc> {
+    let hours = env_i64_range("RIVERSIDE_OPS_STATION_OFFLINE_ALERT_HOURS", 24, 1, 168);
+    Utc::now() - Duration::hours(hours)
 }
 
 fn normalize_label(s: &str) -> String {
@@ -975,6 +984,9 @@ pub async fn runtime_diagnostics_snapshot(
     } else {
         "Local development is using the relative backups/ fallback.".to_string()
     };
+    let retention = ops_retention_config_from_env();
+    let station_alert_hours =
+        env_i64_range("RIVERSIDE_OPS_STATION_OFFLINE_ALERT_HOURS", 24, 1, 168);
 
     Ok(RuntimeDiagnosticsSnapshot {
         generated_at: Utc::now(),
@@ -1043,6 +1055,16 @@ pub async fn runtime_diagnostics_snapshot(
                 } else {
                     "warning".to_string()
                 },
+            },
+            RuntimeDiagnosticItem {
+                key: "station_lifecycle".to_string(),
+                label: "Station Lifecycle".to_string(),
+                value: format!("{station_alert_hours}h alert window"),
+                detail: format!(
+                    "Offline stations alert for {station_alert_hours} hours, then remain as stale fleet history until {} day retention cleanup.",
+                    retention.station_retention_days
+                ),
+                severity: "info".to_string(),
             },
         ],
     })
@@ -1197,6 +1219,35 @@ async fn emit_open_alert_notifications(
     if signal.rule.channel_sms {
         let _ = log_delivery_row(pool, signal.alert_id, "sms", None, "queued", None, None).await;
     }
+    Ok(())
+}
+
+async fn record_open_alert_error_event(
+    pool: &PgPool,
+    signal: &OpenAlertSignal,
+    server_log_snapshot: &str,
+) -> Result<(), sqlx::Error> {
+    let message = format!("{}: {}", signal.title, signal.body);
+    let meta = json!({
+        "source": "ops_alert_event",
+        "ops_alert_id": signal.alert_id,
+        "rule_key": signal.rule.rule_key.as_str(),
+        "dedupe_key": signal.dedupe_key.as_str(),
+        "title": signal.title.as_str(),
+        "body": signal.body.as_str(),
+        "severity": signal.severity.as_str(),
+    });
+    bug_reports::upsert_server_error_event(
+        pool,
+        &format!("ops_alert_event:{}", signal.alert_id),
+        &message,
+        "server_ops_alert",
+        &signal.severity,
+        Some("/settings/ros-dev-center"),
+        &meta,
+        server_log_snapshot,
+    )
+    .await?;
     Ok(())
 }
 
@@ -1480,6 +1531,8 @@ pub async fn upsert_station_heartbeat(
 pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error> {
     let retention = ops_retention_config_from_env();
     let retention_cutoff = Utc::now() - Duration::days(retention.station_retention_days);
+    let online_cutoff = now_online_cutoff();
+    let actionable_cutoff = station_offline_alert_cutoff();
     let rows = sqlx::query_as::<_, StationRow>(
         r#"
         SELECT
@@ -1494,13 +1547,20 @@ pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error
             last_update_install_at,
             last_seen_at,
             updated_at,
-            (last_seen_at >= $1) AS online
+            (last_seen_at >= $1) AS online,
+            CASE
+                WHEN last_seen_at >= $1 THEN 'online'
+                WHEN last_seen_at >= $2 THEN 'recently_offline'
+                ELSE 'stale'
+            END AS station_lifecycle,
+            (last_seen_at >= $2) AS actionable
         FROM ops_station_heartbeat
-        WHERE last_seen_at >= $2
-        ORDER BY last_seen_at DESC
+        WHERE last_seen_at >= $3
+        ORDER BY (last_seen_at >= $1) DESC, (last_seen_at >= $2) DESC, last_seen_at DESC
         "#,
     )
-    .bind(now_online_cutoff())
+    .bind(online_cutoff)
+    .bind(actionable_cutoff)
     .bind(retention_cutoff)
     .fetch_all(pool)
     .await?;
@@ -1508,6 +1568,7 @@ pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error
 }
 
 pub async fn list_alerts(pool: &PgPool) -> Result<Vec<AlertEventRow>, sqlx::Error> {
+    let actionable_cutoff = station_offline_alert_cutoff();
     let rows = sqlx::query_as::<_, AlertEventRow>(
         r#"
         SELECT
@@ -1524,14 +1585,24 @@ pub async fn list_alerts(pool: &PgPool) -> Result<Vec<AlertEventRow>, sqlx::Erro
             acked_by_staff_id,
             resolved_at,
             resolved_by_staff_id
-        FROM ops_alert_event
+        FROM ops_alert_event a
         WHERE status IN ('open', 'acked')
+          AND (
+              rule_key <> 'station_offline'
+              OR EXISTS (
+                  SELECT 1
+                  FROM ops_station_heartbeat s
+                  WHERE a.dedupe_key = 'station_offline:' || s.station_key
+                    AND s.last_seen_at >= $1
+              )
+          )
         ORDER BY
             CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
             last_seen_at DESC
         LIMIT 500
         "#,
     )
+    .bind(actionable_cutoff)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -1851,6 +1922,7 @@ pub async fn evaluate_alerts_from_health(
     pool: &PgPool,
     integrations: &[IntegrationHealthItem],
     stations: &[StationRow],
+    server_log_snapshot: &str,
 ) -> Result<(), sqlx::Error> {
     let overdue_hours = backup_overdue_hours();
     let mut opened_signals: Vec<OpenAlertSignal> = Vec::new();
@@ -1961,7 +2033,7 @@ pub async fn evaluate_alerts_from_health(
         let _ = resolve_rule_alerts(pool, "counterpoint_sync_stale", &[]).await?;
     }
 
-    for s in stations.iter().filter(|s| !s.online) {
+    for s in stations.iter().filter(|s| !s.online && s.actionable) {
         let dedupe = format!("station_offline:{}", s.station_key);
         station_open_dedupes.push(dedupe.clone());
         let body = format!(
@@ -1984,6 +2056,15 @@ pub async fn evaluate_alerts_from_health(
     let _ = resolve_rule_alerts(pool, "station_offline", &station_open_dedupes).await?;
 
     for signal in &opened_signals {
+        if let Err(e) = record_open_alert_error_event(pool, signal, server_log_snapshot).await {
+            tracing::error!(
+                error = %e,
+                alert_event_id = %signal.alert_id,
+                rule_key = signal.rule.rule_key.as_str(),
+                "failed to record ops alert as staff error event"
+            );
+        }
+
         if let Err(e) = emit_open_alert_notifications(pool, signal).await {
             tracing::error!(
                 error = %e,
@@ -2010,10 +2091,11 @@ pub async fn evaluate_alerts_from_health(
 pub async fn health_snapshot(
     pool: &PgPool,
     meilisearch_configured: bool,
+    server_log_snapshot: &str,
 ) -> Result<OpsHealthSnapshot, sqlx::Error> {
     let integrations = collect_integrations(pool, meilisearch_configured).await?;
     let stations = list_stations(pool).await?;
-    evaluate_alerts_from_health(pool, &integrations, &stations).await?;
+    evaluate_alerts_from_health(pool, &integrations, &stations, server_log_snapshot).await?;
 
     let open_alerts: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM ops_alert_event WHERE status IN ('open', 'acked')",
@@ -2022,7 +2104,14 @@ pub async fn health_snapshot(
     .await?;
 
     let stations_online = stations.iter().filter(|s| s.online).count() as i64;
-    let stations_offline = stations.iter().filter(|s| !s.online).count() as i64;
+    let stations_offline = stations
+        .iter()
+        .filter(|s| !s.online && s.actionable)
+        .count() as i64;
+    let stations_stale = stations
+        .iter()
+        .filter(|s| !s.online && !s.actionable)
+        .count() as i64;
 
     let pending_bug_reports: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM staff_bug_report WHERE status = 'pending'::bug_report_status",
@@ -2039,6 +2128,7 @@ pub async fn health_snapshot(
         open_alerts,
         stations_online,
         stations_offline,
+        stations_stale,
         pending_bug_reports,
     })
 }

@@ -1,7 +1,7 @@
 //! Persistence for in-app staff bug reports.
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -272,6 +272,76 @@ pub async fn insert_staff_error_event(
     .bind(client_meta)
     .bind(server_log_snapshot)
     .fetch_one(pool)
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_server_error_event(
+    pool: &PgPool,
+    server_dedupe_key: &str,
+    message: &str,
+    event_source: &str,
+    severity: &str,
+    route: Option<&str>,
+    client_meta: &Value,
+    server_log_snapshot: &str,
+) -> Result<Uuid, sqlx::Error> {
+    let mut meta = client_meta.as_object().cloned().unwrap_or_else(Map::new);
+    meta.insert(
+        "server_dedupe_key".to_string(),
+        json!(server_dedupe_key.trim()),
+    );
+    let meta = Value::Object(meta);
+
+    if let Some(id) = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT id
+        FROM staff_error_event
+        WHERE event_source = $1
+          AND client_meta->>'server_dedupe_key' = $2
+          AND lower(coalesce(status, 'pending')) = 'pending'
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(event_source)
+    .bind(server_dedupe_key.trim())
+    .fetch_optional(pool)
+    .await?
+    {
+        sqlx::query(
+            r#"
+            UPDATE staff_error_event
+            SET
+                message = $2,
+                severity = $3,
+                route = $4,
+                client_meta = $5,
+                server_log_snapshot = $6
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(message)
+        .bind(severity)
+        .bind(route)
+        .bind(&meta)
+        .bind(server_log_snapshot)
+        .execute(pool)
+        .await?;
+        return Ok(id);
+    }
+
+    insert_staff_error_event(
+        pool,
+        None,
+        message,
+        event_source,
+        severity,
+        route,
+        &meta,
+        server_log_snapshot,
+    )
     .await
 }
 

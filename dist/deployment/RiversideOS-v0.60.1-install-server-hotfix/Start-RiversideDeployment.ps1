@@ -308,6 +308,129 @@ function Test-HttpReady([string]$Url) {
   }
 }
 
+function Get-ServerInstallRoot {
+  try {
+    $config = Read-DeploymentConfig
+    if ($config.server.installRoot) {
+      return "$($config.server.installRoot)"
+    }
+  } catch {
+    # Status checks should stay usable even before config is finalized.
+  }
+  return "C:\RiversideOS"
+}
+
+function Get-PackageVersionText {
+  $manifest = Read-PackageManifest
+  if ($manifest -and $manifest.releaseVersion) {
+    return "$($manifest.releaseVersion)"
+  }
+  try {
+    $config = Read-DeploymentConfig
+    if ($config.releaseVersion) {
+      return "$($config.releaseVersion)"
+    }
+  } catch {
+    return "unknown"
+  }
+  return "unknown"
+}
+
+function Get-ServerApiBaseForStatus {
+  if ($serverRadio.Checked) {
+    return "http://127.0.0.1:3000"
+  }
+  if ($apiBaseText.Text.Trim()) {
+    return Normalize-ApiBase $apiBaseText.Text
+  }
+  return "http://127.0.0.1:3000"
+}
+
+function Get-RiversideServerTaskStatus {
+  $task = Get-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
+  if (-not $task) {
+    return "missing"
+  }
+  return "$($task.State)"
+}
+
+function Get-InstalledServerVersion([string]$BaseUrl) {
+  try {
+    $response = Invoke-WebRequest -Uri "$BaseUrl/api/version" -UseBasicParsing -TimeoutSec 4
+    if ($response.StatusCode -ne 200) {
+      return "unreachable"
+    }
+    $body = $response.Content | ConvertFrom-Json
+    if ($body.version) {
+      return "$($body.version)"
+    }
+    return "unknown"
+  } catch {
+    return "unreachable"
+  }
+}
+
+function Refresh-ServerManagerStatus {
+  try {
+    $apiBase = Get-ServerApiBaseForStatus
+    $taskState = Get-RiversideServerTaskStatus
+    $packageVersion = Get-PackageVersionText
+    $installedVersion = Get-InstalledServerVersion $apiBase
+
+    $serverTaskValue.Text = $taskState
+    $serverApiValue.Text = $apiBase
+    $serverInstalledValue.Text = $installedVersion
+    $serverPackageValue.Text = $packageVersion
+
+    if ($installedVersion -eq "unreachable") {
+      $serverVerdictValue.Text = "Server unreachable. Use Start Server, Restart Server, or Repair Server."
+      return
+    }
+    if ($packageVersion -ne "unknown" -and $installedVersion -ne $packageVersion) {
+      $serverVerdictValue.Text = "Server update required. Run Update This Server PC."
+      return
+    }
+    if ($taskState -eq "missing") {
+      $serverVerdictValue.Text = "Server task missing. Run Repair Server."
+      return
+    }
+    $serverVerdictValue.Text = "Server version and package match."
+  } catch {
+    $serverVerdictValue.Text = "Could not refresh server status: $($_.Exception.Message)"
+  }
+}
+
+function Start-RiversideServerFromManager {
+  $task = Get-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
+  if (-not $task) {
+    throw "Riverside OS Server task is missing. Run Backoffice / Server Repair."
+  }
+  Add-Log "Starting Riverside OS Server task..."
+  Start-ScheduledTask -TaskName "Riverside OS Server"
+  Start-Sleep -Seconds 2
+  Refresh-ServerManagerStatus
+}
+
+function Restart-RiversideServerFromManager {
+  Add-Log "Restarting Riverside OS Server task..."
+  Stop-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 1
+  foreach ($process in Get-Process -Name "riverside-server" -ErrorAction SilentlyContinue) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+  }
+  Start-RiversideServerFromManager
+}
+
+function Open-RiversideServerLogs {
+  $installRoot = Get-ServerInstallRoot
+  $logDir = Join-Path $installRoot "logs"
+  if (Test-Path $logDir) {
+    Invoke-Item $logDir
+    return
+  }
+  Invoke-Item $installRoot
+}
+
 function Normalize-ApiBase([string]$Value) {
   $url = "$Value".Trim()
   if (-not $url) {
@@ -343,6 +466,11 @@ function Set-RoleControlState {
   }
   if ($serverMode) {
     $apiBaseText.Enabled = $true
+    $updateButton.Text = "Update This Server PC"
+    $repairButton.Text = "Repair Server"
+  } else {
+    $updateButton.Text = "Update This PC"
+    $repairButton.Text = "Repair Settings"
   }
 }
 
@@ -470,7 +598,7 @@ function Save-FormToConfig {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Riverside OS Deployment Manager"
-$form.Size = New-Object System.Drawing.Size(820, 700)
+$form.Size = New-Object System.Drawing.Size(820, 805)
 $form.StartPosition = "CenterScreen"
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 
@@ -643,39 +771,123 @@ $reportPrinterCombo.Size = New-Object System.Drawing.Size(150, 28)
 $reportPrinterCombo.Visible = $false
 $workstationGroup.Controls.Add($reportPrinterCombo)
 
+$serverStatusGroup = New-Object System.Windows.Forms.GroupBox
+$serverStatusGroup.Text = "Server manager"
+$serverStatusGroup.Location = New-Object System.Drawing.Point(20, 385)
+$serverStatusGroup.Size = New-Object System.Drawing.Size(760, 112)
+$form.Controls.Add($serverStatusGroup)
+
+$serverTaskLabel = New-Object System.Windows.Forms.Label
+$serverTaskLabel.Text = "Task"
+$serverTaskLabel.Location = New-Object System.Drawing.Point(16, 28)
+$serverTaskLabel.Size = New-Object System.Drawing.Size(70, 22)
+$serverStatusGroup.Controls.Add($serverTaskLabel)
+
+$serverTaskValue = New-Object System.Windows.Forms.Label
+$serverTaskValue.Text = "not checked"
+$serverTaskValue.Location = New-Object System.Drawing.Point(90, 28)
+$serverTaskValue.Size = New-Object System.Drawing.Size(120, 22)
+$serverStatusGroup.Controls.Add($serverTaskValue)
+
+$serverInstalledLabel = New-Object System.Windows.Forms.Label
+$serverInstalledLabel.Text = "Installed"
+$serverInstalledLabel.Location = New-Object System.Drawing.Point(220, 28)
+$serverInstalledLabel.Size = New-Object System.Drawing.Size(70, 22)
+$serverStatusGroup.Controls.Add($serverInstalledLabel)
+
+$serverInstalledValue = New-Object System.Windows.Forms.Label
+$serverInstalledValue.Text = "not checked"
+$serverInstalledValue.Location = New-Object System.Drawing.Point(295, 28)
+$serverInstalledValue.Size = New-Object System.Drawing.Size(110, 22)
+$serverStatusGroup.Controls.Add($serverInstalledValue)
+
+$serverPackageLabel = New-Object System.Windows.Forms.Label
+$serverPackageLabel.Text = "Package"
+$serverPackageLabel.Location = New-Object System.Drawing.Point(415, 28)
+$serverPackageLabel.Size = New-Object System.Drawing.Size(70, 22)
+$serverStatusGroup.Controls.Add($serverPackageLabel)
+
+$serverPackageValue = New-Object System.Windows.Forms.Label
+$serverPackageValue.Text = "not checked"
+$serverPackageValue.Location = New-Object System.Drawing.Point(490, 28)
+$serverPackageValue.Size = New-Object System.Drawing.Size(110, 22)
+$serverStatusGroup.Controls.Add($serverPackageValue)
+
+$serverApiLabel = New-Object System.Windows.Forms.Label
+$serverApiLabel.Text = "API"
+$serverApiLabel.Location = New-Object System.Drawing.Point(16, 56)
+$serverApiLabel.Size = New-Object System.Drawing.Size(70, 22)
+$serverStatusGroup.Controls.Add($serverApiLabel)
+
+$serverApiValue = New-Object System.Windows.Forms.Label
+$serverApiValue.Text = "not checked"
+$serverApiValue.Location = New-Object System.Drawing.Point(90, 56)
+$serverApiValue.Size = New-Object System.Drawing.Size(280, 22)
+$serverStatusGroup.Controls.Add($serverApiValue)
+
+$serverVerdictValue = New-Object System.Windows.Forms.Label
+$serverVerdictValue.Text = "Use Refresh Server Status before server update or repair."
+$serverVerdictValue.Location = New-Object System.Drawing.Point(16, 82)
+$serverVerdictValue.Size = New-Object System.Drawing.Size(560, 22)
+$serverStatusGroup.Controls.Add($serverVerdictValue)
+
+$refreshServerButton = New-Object System.Windows.Forms.Button
+$refreshServerButton.Text = "Refresh Server Status"
+$refreshServerButton.Location = New-Object System.Drawing.Point(600, 24)
+$refreshServerButton.Size = New-Object System.Drawing.Size(145, 28)
+$serverStatusGroup.Controls.Add($refreshServerButton)
+
+$startServerButton = New-Object System.Windows.Forms.Button
+$startServerButton.Text = "Start Server"
+$startServerButton.Location = New-Object System.Drawing.Point(600, 54)
+$startServerButton.Size = New-Object System.Drawing.Size(145, 28)
+$serverStatusGroup.Controls.Add($startServerButton)
+
+$restartServerButton = New-Object System.Windows.Forms.Button
+$restartServerButton.Text = "Restart Server"
+$restartServerButton.Location = New-Object System.Drawing.Point(600, 84)
+$restartServerButton.Size = New-Object System.Drawing.Size(145, 28)
+$serverStatusGroup.Controls.Add($restartServerButton)
+
+$openLogsButton = New-Object System.Windows.Forms.Button
+$openLogsButton.Text = "Open Logs"
+$openLogsButton.Location = New-Object System.Drawing.Point(475, 54)
+$openLogsButton.Size = New-Object System.Drawing.Size(115, 28)
+$serverStatusGroup.Controls.Add($openLogsButton)
+
 $checkButton = New-Object System.Windows.Forms.Button
-$checkButton.Text = "Check"
-$checkButton.Location = New-Object System.Drawing.Point(20, 390)
+$checkButton.Text = "Check Package"
+$checkButton.Location = New-Object System.Drawing.Point(20, 510)
 $checkButton.Size = New-Object System.Drawing.Size(120, 42)
 $form.Controls.Add($checkButton)
 
 $installButton = New-Object System.Windows.Forms.Button
 $installButton.Text = "Install"
-$installButton.Location = New-Object System.Drawing.Point(150, 390)
+$installButton.Location = New-Object System.Drawing.Point(150, 510)
 $installButton.Size = New-Object System.Drawing.Size(120, 42)
 $form.Controls.Add($installButton)
 
 $updateButton = New-Object System.Windows.Forms.Button
-$updateButton.Text = "Update"
-$updateButton.Location = New-Object System.Drawing.Point(280, 390)
+$updateButton.Text = "Update This PC"
+$updateButton.Location = New-Object System.Drawing.Point(280, 510)
 $updateButton.Size = New-Object System.Drawing.Size(120, 42)
 $form.Controls.Add($updateButton)
 
 $repairButton = New-Object System.Windows.Forms.Button
 $repairButton.Text = "Repair"
-$repairButton.Location = New-Object System.Drawing.Point(410, 390)
+$repairButton.Location = New-Object System.Drawing.Point(410, 510)
 $repairButton.Size = New-Object System.Drawing.Size(120, 42)
 $form.Controls.Add($repairButton)
 
 $uninstallButton = New-Object System.Windows.Forms.Button
 $uninstallButton.Text = "Uninstall"
-$uninstallButton.Location = New-Object System.Drawing.Point(540, 390)
+$uninstallButton.Location = New-Object System.Drawing.Point(540, 510)
 $uninstallButton.Size = New-Object System.Drawing.Size(120, 42)
 $form.Controls.Add($uninstallButton)
 
 $closeButton = New-Object System.Windows.Forms.Button
 $closeButton.Text = "Close"
-$closeButton.Location = New-Object System.Drawing.Point(670, 390)
+$closeButton.Location = New-Object System.Drawing.Point(670, 510)
 $closeButton.Size = New-Object System.Drawing.Size(110, 42)
 $form.Controls.Add($closeButton)
 
@@ -683,8 +895,8 @@ $logBox = New-Object System.Windows.Forms.TextBox
 $logBox.Multiline = $true
 $logBox.ScrollBars = "Vertical"
 $logBox.ReadOnly = $true
-$logBox.Location = New-Object System.Drawing.Point(20, 445)
-$logBox.Size = New-Object System.Drawing.Size(760, 200)
+$logBox.Location = New-Object System.Drawing.Point(20, 565)
+$logBox.Size = New-Object System.Drawing.Size(760, 190)
 $form.Controls.Add($logBox)
 
 $printerNames = Get-InstalledPrinterNames
@@ -709,6 +921,37 @@ $receiptModeCombo.Add_SelectedIndexChanged({
 $serverRadio.Add_CheckedChanged({ if ($serverRadio.Checked) { Set-RoleDefaults } })
 $registerRadio.Add_CheckedChanged({ if ($registerRadio.Checked) { Set-RoleDefaults } })
 $backOfficeRadio.Add_CheckedChanged({ if ($backOfficeRadio.Checked) { Set-RoleDefaults } })
+
+$refreshServerButton.Add_Click({
+  Add-Log "Refreshing server status..."
+  Refresh-ServerManagerStatus
+})
+
+$startServerButton.Add_Click({
+  try {
+    Start-RiversideServerFromManager
+  } catch {
+    Add-Log "Start Server failed: $($_.Exception.Message)"
+    [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Start Server failed", "OK", "Error") | Out-Null
+  }
+})
+
+$restartServerButton.Add_Click({
+  try {
+    Restart-RiversideServerFromManager
+  } catch {
+    Add-Log "Restart Server failed: $($_.Exception.Message)"
+    [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, "Restart Server failed", "OK", "Error") | Out-Null
+  }
+})
+
+$openLogsButton.Add_Click({
+  try {
+    Open-RiversideServerLogs
+  } catch {
+    Add-Log "Open Logs failed: $($_.Exception.Message)"
+  }
+})
 
 $serverAddressText.Add_TextChanged({
   if ($serverAddressText.Text.Trim() -and -not $serverRadio.Checked) {
@@ -785,13 +1028,14 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
 
   if ($Action -eq "Install" -or $Action -eq "Update") {
     if ($serverRadio.Checked) {
-      Add-Log "$Action Backoffice / Server..."
+      Add-Log "$Action This Backoffice / Server PC..."
       Invoke-Installer "install-server.ps1"
       Invoke-Installer "repair-bootstrap-admin.ps1"
       Add-Log "Server $($Action.ToLowerInvariant()) complete."
       Add-Log "$Action Backoffice desktop app..."
       Invoke-Installer "install-register.ps1"
       Add-Log "Backoffice desktop app $($Action.ToLowerInvariant()) complete."
+      Refresh-ServerManagerStatus
     } elseif ($registerRadio.Checked) {
       Add-Log "$Action Register #1..."
       Invoke-Installer "install-register.ps1"
@@ -806,12 +1050,13 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
 
   if ($Action -eq "Repair") {
     if ($serverRadio.Checked) {
-      Add-Log "Repairing Backoffice / Server..."
+      Add-Log "Repairing This Backoffice / Server PC..."
       Invoke-Installer "install-server.ps1"
       Invoke-Installer "repair-bootstrap-admin.ps1"
       Add-Log "Repairing Backoffice desktop app..."
       Invoke-Installer "install-register.ps1"
       Add-Log "Backoffice / Server repair complete."
+      Refresh-ServerManagerStatus
     } else {
       Add-Log "Repairing workstation settings..."
       Invoke-Installer "install-register.ps1" @("-SkipAppInstall", "-NoLaunch")
@@ -879,7 +1124,8 @@ try {
     Set-RoleDefaults
   }
   Set-RoleControlState
-  Add-Log "Ready. Choose this station type, check, then install."
+  Refresh-ServerManagerStatus
+  Add-Log "Ready. Choose this station type, check package, then install, update, or repair."
 } catch {
   Add-Log "Startup warning: $($_.Exception.Message)"
 }

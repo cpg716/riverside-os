@@ -79,6 +79,8 @@ Current signals:
 - Metabase auth mode
 - search mode
 - weather mode
+- backup directory mode
+- station lifecycle governance
 
 Current labels:
 - **Helcim**: `Configured`, `Partial`, `Not configured`
@@ -86,6 +88,7 @@ Current labels:
 - **Metabase auth**: `JWT SSO`, `Shared auth`, `Fallback login`
 - **Search**: `Live search`, `Bundled fallback`
 - **Weather**: `Live weather`, `Mock weather`
+- **Station lifecycle**: configured offline alert window and heartbeat retention window
 
 The panel is intentionally safe:
 - no secrets are returned
@@ -126,12 +129,19 @@ Payload fields:
 - optional update fields: `last_sync_at`, `last_update_check_at`, `last_update_install_at`
 - `meta` JSON
 
-Fleet online/offline status is derived from a recency cutoff in server logic (`last_seen_at`).
+Fleet online/offline status is derived from recency cutoffs in server logic (`last_seen_at`).
+
+Lifecycle semantics:
+- `online`: heartbeat inside the online cutoff.
+- `actionable offline`: missed heartbeat inside the offline alert window. These stations count as offline in health snapshots and can open `station_offline` alerts.
+- `stale history`: missed heartbeat beyond the offline alert window. These rows remain available for governance until retention cleanup, but they do not flood active alert triage.
 
 Fleet retention:
 - `GET /stations` shows station heartbeat rows inside the configured retention window.
 - Daily ops retention cleanup runs at 03:30 server time.
 - Cleanup resolves stale `station_offline` alerts tied to deleted station keys before deleting stale heartbeat rows.
+- Default actionable offline alert window is **24 hours**.
+- Override with `RIVERSIDE_OPS_STATION_OFFLINE_ALERT_HOURS` (clamped 1-168).
 - Default station heartbeat retention is **30 days**.
 - Override with `RIVERSIDE_OPS_STATION_RETENTION_DAYS` (clamped 1-365).
 
@@ -187,6 +197,8 @@ Bug reports remain canonical in existing ROS bug tables/APIs.
 Dev Center adds operational overlay only:
 - `ops_bug_incident_link` joins bug reports to alert incidents.
 - `/api/ops/bugs/overview` returns bug-centric triage data with incident linkage counts.
+- Newly opened ops alerts are also mirrored into `staff_error_event` with source `server_ops_alert`, so **Settings → Bug reports → Error events** can package the server-side issue for Codex repair work without requiring a staff member to manually file a report.
+- Core ops API failures are mirrored as `server_api_error` events when the database is still reachable; if the database itself is unavailable, the server can log the failure but cannot persist a bug-system row until database service is restored.
 
 This keeps Bug Manager source-of-truth intact while adding ops correlation context.
 

@@ -13,6 +13,7 @@ Let any **authenticated staff** submit a bug report from the running app with a 
 - [x] **Observability** — `ServerLogRing` / `ServerLogRingLayer` (`server/src/observability/server_log_ring.rs`) wired in `main.rs` via **`init_tracing_with_optional_otel`** (optional **OpenTelemetry OTLP** layer + **fmt** + ring); snapshot copied into each bug report (not a full host log file or other replicas) — **[`OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**
 - [x] **Submit API** — `POST /api/bug-reports` — `require_authenticated_staff_headers`; validates body sizes and PNG magic; persists `correlation_id` (response JSON + **`X-Bug-Report-Correlation-Id`** header), `include_screenshot`, `screenshot_png` BYTEA, `client_console_log`, `client_meta` JSONB (incl. **`ros_navigation`**: tab, subsection, register session, shell flags), `server_log_snapshot`; per-staff rate limit; notifies **`settings.admin`** via **`app_notification`** (`kind`: `staff_bug_report`, deep link **Settings → Bug reports**)
 - [x] **Admin API** — merged under **`/api/settings`**: `GET /api/settings/bug-reports`, `GET`/`PATCH /api/settings/bug-reports/{id}` — **`settings.admin`**; PATCH accepts optional **`status`**, **`resolver_notes`**, **`external_url`**
+- [x] **Automated error events** — `staff_error_event` stores lightweight client and server operational failures in the same triage workspace. Client toast events post through `POST /api/bug-reports/error-events`; server-side ops alert/API failures are recorded with `staff_id = NULL`, source `server_ops_alert` or `server_api_error`, deduped by server issue key, and include bounded `ServerLogRing` context when available.
 - [x] **Server modules** — `server/src/api/bug_reports.rs`, `server/src/logic/bug_reports.rs`; `settings::router().merge(bug_reports::settings_subrouter())` + `nest("/api/bug-reports", …)` in **`server/src/api/mod.rs`**
 - [x] **Client capture** — **`BugReportFlow`** (`html2canvas` on `#root` when “Attach screenshot” is checked; otherwise placeholder PNG), optional **`VITE_SENTRY_DSN`** (`@sentry/react` in **`main.tsx`**); **`mergedPosStaffHeaders`** for `fetch`
 - [x] **Chrome** — Bug icon in **`Header`** and **`PosShell`**; **`App.tsx`** holds `bugReportOpen` + passes **`onOpenBugReport`**
@@ -25,7 +26,10 @@ Let any **authenticated staff** submit a bug report from the running app with a 
 | Method | Path | Auth |
 |--------|------|------|
 | POST | `/api/bug-reports` | Authenticated staff (BO headers; merged POS+staff when applicable) |
+| POST | `/api/bug-reports/error-events` | Authenticated staff (automated client error events) |
 | GET | `/api/settings/bug-reports` | `settings.admin` |
+| GET | `/api/settings/bug-reports/error-events` | `settings.admin` |
+| PATCH/DELETE | `/api/settings/bug-reports/error-events/{id}` | `settings.admin` |
 | GET | `/api/settings/bug-reports/{id}` | `settings.admin` |
 | PATCH | `/api/settings/bug-reports/{id}` | `settings.admin` (body: any of `status` `pending` \| `complete` \| `dismissed`, `resolver_notes`, `external_url`) |
 

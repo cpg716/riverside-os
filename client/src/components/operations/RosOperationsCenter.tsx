@@ -52,6 +52,7 @@ interface OpsHealthSnapshot {
   open_alerts: number;
   stations_online: number;
   stations_offline: number;
+  stations_stale?: number;
   pending_bug_reports: number;
   integrations?: IntegrationHealthItem[];
 }
@@ -433,7 +434,7 @@ export default function RosOperationsCenter({
         lastActivity: loadedAt ?? "Not loaded",
         summary: ops.error
           ? "Store health could not refresh. Showing the last loaded operational context where available."
-          : `${fmtNumber(opsData?.stations_online)} station${opsData?.stations_online === 1 ? "" : "s"} online, ${fmtNumber(opsData?.stations_offline)} offline, ${fmtNumber(opsData?.open_alerts)} open alert${opsData?.open_alerts === 1 ? "" : "s"}.`,
+          : `${fmtNumber(opsData?.stations_online)} station${opsData?.stations_online === 1 ? "" : "s"} online, ${fmtNumber(opsData?.stations_offline)} actionable offline, ${fmtNumber(opsData?.stations_stale)} stale archived, ${fmtNumber(opsData?.open_alerts)} open alert${opsData?.open_alerts === 1 ? "" : "s"}.`,
         nextAction: (opsData?.stations_offline ?? 0) > 0
           ? "Check offline register workstations before opening or closing the store."
           : "Review open alerts, then continue normal store operations.",

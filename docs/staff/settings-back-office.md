@@ -171,7 +171,7 @@ Typical areas (labels may group differently by build):
 
 **Admins — triage playbook:** **[bug-reports-admin-manual.md](bug-reports-admin-manual.md)** (filters, detail drawer, downloads, tracker URL, internal notes, Fixed / Dismissed / Reopen, retention, notifications).
 
-Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Submissions include **correlation id**, optional **screenshot**, **server log snapshot** (bounded in-process **`tracing`** — not a full host log; **[OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md](../OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**), and **client diagnostics**. The **Error events** tab automatically captures recent error toasts with route and lightweight diagnostics when staff do not file a full report. Treat both as **internal ops data** (PII risk). Retention: **`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`** — **`docs/PLAN_BUG_REPORTS.md`**.
+Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Submissions include **correlation id**, optional **screenshot**, **server log snapshot** (bounded in-process **`tracing`** — not a full host log; **[OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md](../OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**), and **client diagnostics**. The **Error events** tab automatically captures recent error toasts with route and lightweight diagnostics when staff do not file a full report. It also shows server-side operational issues from ROS Dev Center as **Server runtime** events when the server can still write to the database. Treat both as **internal ops data** (PII risk). Retention: **`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`** — **`docs/PLAN_BUG_REPORTS.md`**.
 
 ## ROS Dev Center
 
@@ -183,8 +183,8 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 ### What to use it for
 
 1. **Ops Health Board**: Confirm DB/API/integrations are healthy from one status panel.
-2. **Station Fleet Board**: Verify each Register station heartbeat, version, and online/offline transitions.
-3. **Runtime Diagnostics**: Confirm the station's resolved API base, strict-production status, Helcim readiness, Shippo mode, Metabase auth mode, help-search mode, and weather mode without exposing any secrets.
+2. **Station Fleet Board**: Verify each Register station heartbeat, version, active offline state, and stale-history retention state.
+3. **Runtime Diagnostics**: Confirm the station's resolved API base, strict-production status, Helcim readiness, Shippo mode, Metabase auth mode, help-search mode, weather mode, backup path, and station lifecycle governance without exposing any secrets.
 4. **Alert Center**: Acknowledge active incidents and verify suppression/recurrence behavior.
 5. **Guarded Actions**: Run maintenance actions only with explicit reason + dual confirmation.
 6. **Bug Manager Overlay**: Keep ROS bug reports as source-of-truth and attach bugs to active incidents for triage context.

@@ -83,6 +83,7 @@ Generated Riverside passwords intentionally use URL-safe letters and numbers so 
 
 The same Deployment Manager handles later maintenance:
 
+- **Server Manager status**: shows whether the `Riverside OS Server` scheduled task exists/runs, whether `/api/version` is reachable, the installed server version, the package version, and the next action.
 - **Server update**: copies the new server and web files for the same Riverside release, applies pending migrations, refreshes the firewall/task setup, and restarts Riverside.
 - **Workstation update**: rewrites station settings and installs the included Riverside desktop app package for the same Riverside release.
 - **Server repair**: reruns the server setup in an idempotent way to restore service, firewall, env, and migration state.
@@ -91,6 +92,15 @@ The same Deployment Manager handles later maintenance:
 - **Server uninstall**: removes the server scheduled task, firewall rule, and app files. It keeps the database, backups, and logs by default.
 
 Server, Windows app, and PWA/web files are one release. After any update, open **Settings → Updates** and confirm it shows the expected **Riverside version**. If it shows **Update incomplete**, finish the matching server or workstation update before using that station for production work.
+
+If Riverside Settings cannot open because the API is down, manage the server from Windows instead:
+
+1. On the Backoffice / Server PC, open the release package folder.
+2. Run **`Start-RiversideDeployment.cmd`**.
+3. Select **Backoffice / Server**.
+4. Use **Refresh Server Status**.
+5. If the package version is newer than the installed server version, run **Update This Server PC**.
+6. If the server task is missing or the API is unreachable, run **Repair Server** or use **Start Server** / **Restart Server**.
 
 Hotfix/support actions included in v0.60.1 packages:
 

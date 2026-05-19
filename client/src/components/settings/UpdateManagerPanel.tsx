@@ -279,8 +279,10 @@ export default function UpdateManagerPanel() {
             {releaseMismatch ? (
               <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-900">
                 This station did not finish updating. Close and reopen the
-                Windows app. If this is the Backoffice / Server PC, also run the
-                server update package so the server web files are replaced.
+                Windows app. If the diagnostic detail says the server is behind,
+                go to the Backoffice / Server PC and run the Riverside
+                Deployment Manager outside this app. Choose Backoffice / Server,
+                then Update This Server PC.
                 Diagnostic detail: {releaseDiagnostic}.
               </div>
             ) : null}
@@ -376,13 +378,20 @@ export default function UpdateManagerPanel() {
                 Server update
               </h3>
               <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
-                Updates the Backoffice / Server PC to the current Riverside
-                release.
+                Managed outside Riverside so recovery still works if the server
+                or this Settings screen is unavailable.
               </p>
             </div>
           </div>
+          <div className="mt-4 rounded-xl border border-app-warning/30 bg-app-warning/10 px-4 py-3 text-xs font-semibold leading-relaxed text-app-warning">
+            On the Backoffice / Server PC, open the release package and run
+            <span className="font-mono"> Start-RiversideDeployment.cmd</span>.
+            Select Backoffice / Server, refresh Server Status, then use Update
+            This Server PC or Repair Server.
+          </div>
           <ol className="mt-5 space-y-3 text-xs font-medium leading-relaxed text-app-text-muted">
             {[
+              "Open the Deployment Manager on the Backoffice / Server PC.",
               "Back up the database.",
               "Replace the server and web bundle.",
               "Apply migrations.",

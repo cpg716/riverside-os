@@ -42,6 +42,7 @@ type OpsHealthSnapshot = {
   open_alerts: number;
   stations_online: number;
   stations_offline: number;
+  stations_stale: number;
   pending_bug_reports: number;
 };
 
@@ -110,6 +111,8 @@ type StationRow = {
   last_seen_at: string;
   updated_at: string;
   online: boolean;
+  station_lifecycle: "online" | "recently_offline" | "stale" | string;
+  actionable: boolean;
 };
 
 type AlertEventRow = {
@@ -200,6 +203,7 @@ type SupportFeedKey =
   | "notifications";
 
 type SupportFeedErrors = Partial<Record<SupportFeedKey, boolean>>;
+type OperationalStatus = "ready" | "review" | "degraded" | "blocked";
 
 function fmtTs(v: string | null): string {
   if (!v) return "-";
@@ -244,6 +248,38 @@ function infoBadgeClass(severity: string): string {
     return "bg-app-danger/12 text-app-danger border border-app-danger/30";
   }
   return "bg-app-info/12 text-app-info border border-app-info/30";
+}
+
+function operationalStatusLabel(status: OperationalStatus): string {
+  if (status === "blocked") return "Blocked";
+  if (status === "degraded") return "Degraded";
+  if (status === "review") return "Needs Review";
+  return "Ready";
+}
+
+function operationalStatusClass(status: OperationalStatus): string {
+  if (status === "blocked") {
+    return "border-app-danger/30 bg-app-danger/12 text-app-danger";
+  }
+  if (status === "degraded") {
+    return "border-app-warning/30 bg-app-warning/12 text-app-warning";
+  }
+  if (status === "review") {
+    return "border-amber-500/30 bg-amber-500/12 text-amber-700";
+  }
+  return "border-app-success/30 bg-app-success/12 text-app-success";
+}
+
+function stationLifecycleLabel(station: StationRow): string {
+  if (station.online) return "Online";
+  if (station.actionable) return "Actionable Offline";
+  return "Stale History";
+}
+
+function stationLifecycleClass(station: StationRow): string {
+  if (station.online) return "bg-app-success/12 text-app-success";
+  if (station.actionable) return "bg-app-danger/12 text-app-danger";
+  return "bg-app-bg text-app-text-muted border border-app-border";
 }
 
 function laneOutcomeClass(outcome: string): string {
@@ -401,6 +437,7 @@ export default function RosDevCenterPanel({
   const [linkBusy, setLinkBusy] = useState(false);
   const [stationPage, setStationPage] = useState(1);
   const [alertPage, setAlertPage] = useState(1);
+  const [showStaleStations, setShowStaleStations] = useState(false);
 
   const canView = hasPermission("ops.dev_center.view");
   const canRunActions = hasPermission("ops.dev_center.actions");
@@ -506,15 +543,32 @@ export default function RosDevCenterPanel({
   );
   const blockingLane = e2eHealth?.blocking ?? null;
   const nightlyLane = e2eHealth?.nightly ?? null;
-  const stationTotalPages = pageCount(stations.length, STATION_PAGE_SIZE);
+  const stationCounts = useMemo(
+    () => ({
+      online: stations.filter((station) => station.online).length,
+      actionableOffline: stations.filter(
+        (station) => !station.online && station.actionable,
+      ).length,
+      stale: stations.filter((station) => !station.online && !station.actionable).length,
+    }),
+    [stations],
+  );
+  const displayedStations = useMemo(
+    () =>
+      showStaleStations
+        ? stations
+        : stations.filter((station) => station.online || station.actionable),
+    [showStaleStations, stations],
+  );
+  const stationTotalPages = pageCount(displayedStations.length, STATION_PAGE_SIZE);
   const alertTotalPages = pageCount(openAlerts.length, ALERT_PAGE_SIZE);
   const visibleStations = useMemo(
     () =>
-      stations.slice(
+      displayedStations.slice(
         (stationPage - 1) * STATION_PAGE_SIZE,
         stationPage * STATION_PAGE_SIZE,
       ),
-    [stationPage, stations],
+    [displayedStations, stationPage],
   );
   const visibleAlerts = useMemo(
     () =>
@@ -524,6 +578,34 @@ export default function RosDevCenterPanel({
       ),
     [alertPage, openAlerts],
   );
+  const supportStatus = useMemo<OperationalStatus>(() => {
+    const sourceFailures = Object.values(feedErrors).filter(Boolean).length;
+    const criticalIntegrations =
+      overview?.integrations.filter((item) => item.severity === "critical").length ?? 0;
+    const warningIntegrations =
+      overview?.integrations.filter((item) => item.severity === "warning").length ?? 0;
+    const criticalAlerts = openAlerts.filter((alert) => alert.severity === "critical").length;
+    const warningAlerts = openAlerts.filter((alert) => alert.severity === "warning").length;
+    const criticalRuntime =
+      runtimeDiagnostics?.items.filter((item) => item.severity === "critical").length ?? 0;
+    const warningRuntime =
+      runtimeDiagnostics?.items.filter((item) => item.severity === "warning").length ?? 0;
+
+    if (overview?.db_ok === false || criticalIntegrations > 0 || criticalAlerts > 0 || criticalRuntime > 0) {
+      return "blocked";
+    }
+    if (!overview || sourceFailures > 0) return "degraded";
+    if (
+      warningIntegrations > 0 ||
+      warningAlerts > 0 ||
+      warningRuntime > 0 ||
+      overview.stations_offline > 0 ||
+      overview.pending_bug_reports > 0
+    ) {
+      return "review";
+    }
+    return "ready";
+  }, [feedErrors, openAlerts, overview, runtimeDiagnostics]);
 
   useEffect(() => {
     setStationPage((page) => Math.min(page, stationTotalPages));
@@ -680,8 +762,8 @@ export default function RosDevCenterPanel({
             Support Center
           </h2>
           <p className="mt-2 text-sm font-medium text-app-text-muted">
-            Store health, station status, protected actions, and bug follow-up
-            in one support workspace.
+            Read-only runtime visibility, station recovery, alert triage, and
+            support-safe diagnostics.
           </p>
           <p className="mt-1 text-xs text-app-text-muted">
             Control app version: <strong>{CLIENT_SEMVER}</strong>
@@ -715,11 +797,20 @@ export default function RosDevCenterPanel({
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="ui-card p-5">
           <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            System Status
+            Operational Status
           </div>
           <div className="mt-2 flex items-center gap-2 text-lg font-black text-app-text">
             <Database className="h-5 w-5 text-app-accent" />
-            {overview?.db_ok ? "Healthy" : "Failure"}
+            {operationalStatusLabel(supportStatus)}
+          </div>
+          <div className={`mt-3 rounded-full border px-2 py-1 text-[10px] font-black uppercase tracking-wider ${operationalStatusClass(supportStatus)}`}>
+            {supportStatus === "blocked"
+              ? "Recovery Required"
+              : supportStatus === "degraded"
+                ? "Partial Visibility"
+                : supportStatus === "review"
+                  ? "Manager Review"
+                  : "Normal"}
           </div>
         </div>
         <div className="ui-card p-5">
@@ -746,8 +837,12 @@ export default function RosDevCenterPanel({
           </div>
           <div className="mt-2 flex items-center gap-2 text-lg font-black text-app-text">
             <Users className="h-5 w-5 text-red-400" />
-            {overview?.stations_offline ?? 0}
+            {overview?.stations_offline ?? stationCounts.actionableOffline}
           </div>
+          <p className="mt-2 text-[11px] font-semibold text-app-text-muted">
+            {fmtCount(overview?.stations_stale ?? stationCounts.stale)} stale hidden
+            from active triage.
+          </p>
         </div>
         <div className="ui-card p-5">
           <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1242,13 +1337,37 @@ export default function RosDevCenterPanel({
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Server className="h-5 w-5 text-app-accent" />
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-              Station Fleet
-            </h3>
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Station Fleet
+              </h3>
+              <p className="mt-1 text-xs text-app-text-muted">
+                Active stations stay in triage. Stale heartbeat history is
+                retained for governance without flooding recovery work.
+              </p>
+            </div>
           </div>
-          <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            {stations.length} stations
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-app-success/30 bg-app-success/12 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-success">
+              {fmtCount(stationCounts.online)} online
+            </span>
+            <span className="rounded-full border border-app-danger/30 bg-app-danger/12 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-danger">
+              {fmtCount(stationCounts.actionableOffline)} actionable offline
+            </span>
+            <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              {fmtCount(stationCounts.stale)} stale
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setShowStaleStations((value) => !value);
+                setStationPage(1);
+              }}
+              className="rounded-lg border border-app-border bg-app-bg px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface hover:text-app-text"
+            >
+              {showStaleStations ? "Hide Stale" : "Show Stale"}
+            </button>
+          </div>
         </div>
         {feedErrors.stations ? (
           <div className="mb-4">
@@ -1261,7 +1380,7 @@ export default function RosDevCenterPanel({
         <PageControls
           label="Stations"
           page={stationPage}
-          total={stations.length}
+          total={displayedStations.length}
           pageSize={STATION_PAGE_SIZE}
           onPageChange={setStationPage}
         />
@@ -1292,16 +1411,16 @@ export default function RosDevCenterPanel({
                   </td>
                   <td className="px-3 py-2 text-xs text-app-text-muted">{fmtTs(s.last_seen_at)}</td>
                   <td className="px-3 py-2">
-                    <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${s.online ? "bg-app-success/12 text-app-success" : "bg-app-danger/12 text-app-danger"}`}>
-                      {s.online ? "Online" : "Offline"}
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${stationLifecycleClass(s)}`}>
+                      {stationLifecycleLabel(s)}
                     </span>
                   </td>
                 </tr>
               ))}
-              {!stations.length && (
+              {!displayedStations.length && (
                 <tr>
                   <td colSpan={5} className="py-6 text-center text-sm text-app-text-muted">
-                    No station heartbeat data yet.
+                    No active station heartbeat data in the current view.
                   </td>
                 </tr>
               )}
@@ -1314,13 +1433,27 @@ export default function RosDevCenterPanel({
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <ShieldAlert className="h-5 w-5 text-amber-400" />
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-              Alert Center
-            </h3>
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Alert Center
+              </h3>
+              <p className="mt-1 text-xs text-app-text-muted">
+                Critical alerts sort first. Acknowledged items remain visible
+                until the source condition resolves.
+              </p>
+            </div>
           </div>
-          <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            {openAlerts.length} active alerts
-          </span>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full border border-app-danger/30 bg-app-danger/12 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-danger">
+              {fmtCount(openAlerts.filter((a) => a.severity === "critical").length)} critical
+            </span>
+            <span className="rounded-full border border-app-warning/30 bg-app-warning/12 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
+              {fmtCount(openAlerts.filter((a) => a.severity === "warning").length)} warning
+            </span>
+            <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              {fmtCount(openAlerts.length)} active
+            </span>
+          </div>
         </div>
         {feedErrors.alerts ? (
           <div className="mb-4">
@@ -1379,9 +1512,15 @@ export default function RosDevCenterPanel({
       <section className="ui-card p-6">
         <div className="mb-4 flex items-center gap-2">
           <Wrench className="h-5 w-5 text-app-accent" />
-          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            Protected Actions
-          </h3>
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+              Recovery & Maintenance Actions
+            </h3>
+            <p className="mt-1 text-xs text-app-text-muted">
+              Recovery actions support store operation. Developer maintenance is
+              grouped separately and remains guarded.
+            </p>
+          </div>
         </div>
 
         {!canRunActions ? (
@@ -1422,7 +1561,7 @@ export default function RosDevCenterPanel({
               </label>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <button
                 type="button"
                 disabled={actionBusy === "backup.trigger_local"}
@@ -1433,6 +1572,23 @@ export default function RosDevCenterPanel({
               >
                 {actionBusy === "backup.trigger_local" ? "Running..." : "Trigger Local Backup"}
               </button>
+
+              <button
+                type="button"
+                disabled={actionBusy === "ops.retention_cleanup"}
+                onClick={() =>
+                  void runGuardedAction("ops.retention_cleanup", {})
+                }
+                className="ui-btn-secondary py-3 text-xs font-black uppercase tracking-widest"
+              >
+                {actionBusy === "ops.retention_cleanup" ? "Running..." : "Clean Up Stale Ops Data"}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:col-span-2">
+                Developer maintenance
+              </div>
 
               <button
                 type="button"
@@ -1459,17 +1615,6 @@ export default function RosDevCenterPanel({
                 className="ui-btn-ghost py-3 text-xs font-black uppercase tracking-widest"
               >
                 {actionBusy === "help.generate_manifest" ? "Running..." : "Generate Help Manifest"}
-              </button>
-
-              <button
-                type="button"
-                disabled={actionBusy === "ops.retention_cleanup"}
-                onClick={() =>
-                  void runGuardedAction("ops.retention_cleanup", {})
-                }
-                className="ui-btn-ghost py-3 text-xs font-black uppercase tracking-widest"
-              >
-                {actionBusy === "ops.retention_cleanup" ? "Running..." : "Run Ops Retention"}
               </button>
             </div>
 

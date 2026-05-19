@@ -245,6 +245,55 @@ test.describe("bug reporting diagnostics hardening", () => {
     );
   });
 
+  test("server error events surface in bug report triage", async ({ page }) => {
+    await page.route(/\/api\/settings\/bug-reports$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([]),
+      });
+    });
+    await page.route(/\/api\/settings\/bug-reports\/error-events$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "server-event-1",
+            created_at: "2026-05-19T13:00:00Z",
+            staff_id: null,
+            staff_name: null,
+            status: "pending",
+            message: "Runtime diagnostics failed to load on the server",
+            event_source: "server_api_error",
+            severity: "error",
+            route: "/api/ops/runtime-diagnostics",
+            client_meta: {
+              source: "server_api_error",
+              server_dedupe_key:
+                "server_api_error:/api/ops/runtime-diagnostics",
+            },
+            server_log_snapshot: "ops runtime diagnostics failed",
+          },
+        ]),
+      });
+    });
+
+    await signInToBackOffice(page, { persistSession: true });
+    await openBackofficeSidebarTab(page, "settings");
+    await openSettingsSubItem(page, /^bug reports$/i);
+    await page.getByRole("button", { name: /error events/i }).click();
+
+    await expect(page.getByText("Server runtime")).toBeVisible();
+    await expect(page.getByText("server api error")).toBeVisible();
+    await expect(
+      page.getByText("Runtime diagnostics failed to load on the server"),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /^view$/i }).click();
+    await page.getByText("Advanced details").click();
+    await expect(page.getByText("ops runtime diagnostics failed")).toBeVisible();
+  });
+
   test("Support Center keeps useful diagnostics visible when one feed fails", async ({
     page,
   }) => {
@@ -260,7 +309,8 @@ test.describe("bug reporting diagnostics hardening", () => {
           integrations: [],
           open_alerts: 1,
           stations_online: 2,
-          stations_offline: 0,
+          stations_offline: 1,
+          stations_stale: 1,
           pending_bug_reports: 1,
         }),
       });
@@ -272,7 +322,56 @@ test.describe("bug reporting diagnostics hardening", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify([]),
+        body: JSON.stringify([
+          {
+            station_key: "station-online",
+            station_label: "Register 1",
+            app_version: "0.60.1",
+            git_sha: "58088e9f",
+            tailscale_node: null,
+            lan_ip: "127.0.0.1",
+            last_sync_at: null,
+            last_update_check_at: null,
+            last_update_install_at: null,
+            last_seen_at: "2026-05-19T13:55:00Z",
+            updated_at: "2026-05-19T13:55:00Z",
+            online: true,
+            station_lifecycle: "online",
+            actionable: true,
+          },
+          {
+            station_key: "station-actionable-offline",
+            station_label: "Register 2",
+            app_version: "0.60.1",
+            git_sha: "58088e9f",
+            tailscale_node: null,
+            lan_ip: "127.0.0.2",
+            last_sync_at: null,
+            last_update_check_at: null,
+            last_update_install_at: null,
+            last_seen_at: "2026-05-19T12:55:00Z",
+            updated_at: "2026-05-19T12:55:00Z",
+            online: false,
+            station_lifecycle: "recently_offline",
+            actionable: true,
+          },
+          {
+            station_key: "station-stale",
+            station_label: "Old Register",
+            app_version: "0.50.0",
+            git_sha: "0a93200d",
+            tailscale_node: null,
+            lan_ip: "127.0.0.3",
+            last_sync_at: null,
+            last_update_check_at: null,
+            last_update_install_at: null,
+            last_seen_at: "2026-04-24T12:55:00Z",
+            updated_at: "2026-04-24T12:55:00Z",
+            online: false,
+            station_lifecycle: "stale",
+            actionable: false,
+          },
+        ]),
       });
     });
     await page.route("**/api/ops/alerts", async (route) => {
@@ -307,9 +406,15 @@ test.describe("bug reporting diagnostics hardening", () => {
     await expect(page.getByRole("heading", { name: /support center/i })).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByText("Healthy")).toBeVisible();
+    await expect(page.getByText("Partial Visibility")).toBeVisible();
     await expect(page.getByText("Runtime details could not refresh")).toBeVisible();
     await expect(page.getByText("Station Fleet")).toBeVisible();
+    await expect(page.getByText("1 actionable offline")).toBeVisible();
+    await expect(page.getByText("1 stale hidden from active triage.")).toBeVisible();
+    await expect(page.getByText("Actionable Offline", { exact: true })).toBeVisible();
+    await expect(page.getByText("Stale History")).toHaveCount(0);
+    await page.getByRole("button", { name: "Show Stale" }).click();
+    await expect(page.getByText("Stale History")).toBeVisible();
     await expect(page.getByText("Bug Manager (Source of Truth)")).toBeVisible();
   });
 });

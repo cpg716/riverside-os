@@ -13,11 +13,49 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{OPS_DEV_CENTER_ACTIONS, OPS_DEV_CENTER_VIEW};
+use crate::logic::bug_reports;
 use crate::logic::ops_dev_center::{self, GuardedActionResult, StationHeartbeatIn};
 use crate::middleware;
 
+const MAX_SERVER_ERROR_LOG_SNAPSHOT_BYTES: usize = 240_000;
+
 fn bad_request(msg: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))).into_response()
+}
+
+async fn record_server_api_error(
+    state: &AppState,
+    route: &str,
+    message: &str,
+    error: &sqlx::Error,
+) {
+    let server_log_snapshot = state
+        .server_log_ring
+        .snapshot_text(MAX_SERVER_ERROR_LOG_SNAPSHOT_BYTES);
+    let meta = json!({
+        "source": "server_api_error",
+        "route": route,
+        "error": error.to_string(),
+    });
+    if let Err(e) = bug_reports::upsert_server_error_event(
+        &state.db,
+        &format!("server_api_error:{route}"),
+        message,
+        "server_api_error",
+        "error",
+        Some(route),
+        &meta,
+        &server_log_snapshot,
+    )
+    .await
+    {
+        tracing::error!(
+            error = %e,
+            source_error = %error,
+            route,
+            "failed to record server api error as staff error event"
+        );
+    }
 }
 
 fn json_payload_len(value: &Value) -> usize {
@@ -50,16 +88,33 @@ async fn get_health_snapshot(
 ) -> Result<Json<ops_dev_center::OpsHealthSnapshot>, Response> {
     let _ = require_view(&state, &headers).await?;
 
-    let snapshot = ops_dev_center::health_snapshot(&state.db, state.meilisearch.is_some())
-        .await
-        .map_err(|e| {
+    let server_log_snapshot = state
+        .server_log_ring
+        .snapshot_text(MAX_SERVER_ERROR_LOG_SNAPSHOT_BYTES);
+    let snapshot = match ops_dev_center::health_snapshot(
+        &state.db,
+        state.meilisearch.is_some(),
+        &server_log_snapshot,
+    )
+    .await
+    {
+        Ok(snapshot) => snapshot,
+        Err(e) => {
+            record_server_api_error(
+                &state,
+                "/api/ops/overview",
+                "Operations overview failed to load on the server",
+                &e,
+            )
+            .await;
             tracing::error!(error = %e, "ops health snapshot failed");
-            (
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "could not build ops health snapshot" })),
             )
-                .into_response()
-        })?;
+                .into_response());
+        }
+    };
 
     Ok(Json(snapshot))
 }
@@ -76,16 +131,25 @@ async fn get_ops_integrations(
     headers: HeaderMap,
 ) -> Result<Json<Vec<ops_dev_center::IntegrationHealthItem>>, Response> {
     let _ = require_view(&state, &headers).await?;
-    let rows = ops_dev_center::collect_integrations(&state.db, state.meilisearch.is_some())
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "ops integrations failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "could not load integration status" })),
-            )
-                .into_response()
-        })?;
+    let rows =
+        match ops_dev_center::collect_integrations(&state.db, state.meilisearch.is_some()).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                record_server_api_error(
+                    &state,
+                    "/api/ops/integrations",
+                    "Integration health failed to load on the server",
+                    &e,
+                )
+                .await;
+                tracing::error!(error = %e, "ops integrations failed");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "could not load integration status" })),
+                )
+                    .into_response());
+            }
+        };
     Ok(Json(rows))
 }
 
@@ -95,16 +159,26 @@ async fn get_runtime_diagnostics(
 ) -> Result<Json<ops_dev_center::RuntimeDiagnosticsSnapshot>, Response> {
     let _ = require_view(&state, &headers).await?;
     let snapshot =
-        ops_dev_center::runtime_diagnostics_snapshot(&state.db, state.meilisearch.is_some())
+        match ops_dev_center::runtime_diagnostics_snapshot(&state.db, state.meilisearch.is_some())
             .await
-            .map_err(|e| {
+        {
+            Ok(snapshot) => snapshot,
+            Err(e) => {
+                record_server_api_error(
+                    &state,
+                    "/api/ops/runtime-diagnostics",
+                    "Runtime diagnostics failed to load on the server",
+                    &e,
+                )
+                .await;
                 tracing::error!(error = %e, "ops runtime diagnostics failed");
-                (
+                return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({ "error": "could not load runtime diagnostics" })),
                 )
-                    .into_response()
-            })?;
+                    .into_response());
+            }
+        };
     Ok(Json(snapshot))
 }
 
@@ -153,16 +227,24 @@ async fn get_ops_stations(
     headers: HeaderMap,
 ) -> Result<Json<Vec<ops_dev_center::StationRow>>, Response> {
     let _ = require_view(&state, &headers).await?;
-    let rows = ops_dev_center::list_stations(&state.db)
-        .await
-        .map_err(|e| {
+    let rows = match ops_dev_center::list_stations(&state.db).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            record_server_api_error(
+                &state,
+                "/api/ops/stations",
+                "Station fleet failed to load on the server",
+                &e,
+            )
+            .await;
             tracing::error!(error = %e, "ops list stations failed");
-            (
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "could not load station fleet" })),
             )
-                .into_response()
-        })?;
+                .into_response());
+        }
+    };
     Ok(Json(rows))
 }
 
@@ -171,14 +253,24 @@ async fn get_ops_alerts(
     headers: HeaderMap,
 ) -> Result<Json<Vec<ops_dev_center::AlertEventRow>>, Response> {
     let _ = require_view(&state, &headers).await?;
-    let rows = ops_dev_center::list_alerts(&state.db).await.map_err(|e| {
-        tracing::error!(error = %e, "ops list alerts failed");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "could not load alerts" })),
-        )
-            .into_response()
-    })?;
+    let rows = match ops_dev_center::list_alerts(&state.db).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            record_server_api_error(
+                &state,
+                "/api/ops/alerts",
+                "Operational alerts failed to load on the server",
+                &e,
+            )
+            .await;
+            tracing::error!(error = %e, "ops list alerts failed");
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not load alerts" })),
+            )
+                .into_response());
+        }
+    };
     Ok(Json(rows))
 }
 

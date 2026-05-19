@@ -192,6 +192,30 @@ fn database_pool_max_connections() -> u32 {
         .unwrap_or(20)
 }
 
+/// If `RIVERSIDE_LLAMA_UPSTREAM` is not already set, derive it from the local llama-server
+/// address so the Axum ROSIE proxy can reach the Tauri-managed sidecar without any manual
+/// configuration. Uses `RIVERSIDE_LLAMA_HOST` (default `127.0.0.1`) and
+/// `RIVERSIDE_LLAMA_PORT` (default `8080`) — the same defaults as the Tauri llama_server module.
+fn ensure_rosie_upstream_from_local_llama() {
+    if std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+    {
+        // Already configured — respect whatever was set (e.g. a dedicated GPU machine).
+        return;
+    }
+    let host =
+        std::env::var("RIVERSIDE_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port =
+        std::env::var("RIVERSIDE_LLAMA_PORT").unwrap_or_else(|_| "8080".to_string());
+    let upstream = format!("http://{}:{}", host.trim(), port.trim());
+    std::env::set_var("RIVERSIDE_LLAMA_UPSTREAM", &upstream);
+    tracing::info!(
+        upstream,
+        "RIVERSIDE_LLAMA_UPSTREAM auto-derived from local llama-server address"
+    );
+}
+
 async fn launch_server_inner(
     config: LauncherConfig,
     server_log_ring: ServerLogRing,
@@ -223,6 +247,13 @@ async fn launch_server_inner(
     {
         tracing::warn!(error = %e, "could not apply saved integration credentials; environment values remain active");
     }
+
+    // Auto-derive RIVERSIDE_LLAMA_UPSTREAM from the local llama-server address if not already
+    // set. The Tauri shell manages a llama-server sidecar on RIVERSIDE_LLAMA_HOST:RIVERSIDE_LLAMA_PORT
+    // (default 127.0.0.1:8080). The Axum ROSIE proxy reads RIVERSIDE_LLAMA_UPSTREAM at request
+    // time, so satellite clients and server-side insight/search-intent calls would fail without this.
+    ensure_rosie_upstream_from_local_llama();
+
     validate_helcim_environment(config.strict_production)?;
 
     // Environmental Safety Interlock

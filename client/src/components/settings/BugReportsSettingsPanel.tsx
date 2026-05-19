@@ -7,6 +7,7 @@ import {
   Clipboard,
   Download,
   RefreshCw,
+  Server,
   Trash2,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -130,6 +131,42 @@ function sanitizeErrorEvent(event: ErrorEventRow): ErrorEventRow {
   return redactDiagnosticValue(event) as ErrorEventRow;
 }
 
+function errorEventActorLabel(event: ErrorEventRow): string {
+  if (event.staff_name) return event.staff_name;
+  if (event.event_source.startsWith("server_")) return "Server runtime";
+  return "Unknown";
+}
+
+function isServerError(event: ErrorEventRow): boolean {
+  return event.event_source.startsWith("server_");
+}
+
+function buildAiDiagnosticPackage(event: ErrorEventRow): string {
+  const prompt = [
+    "## Riverside OS — Server Error Diagnostic",
+    "",
+    `**Event source**: \`${event.event_source}\`  `,
+    `**Severity**: ${event.severity}  `,
+    `**Route**: ${event.route ?? "(none)"}  `,
+    `**Occurred**: ${new Date(event.created_at).toLocaleString()}  `,
+    `**Actor**: ${errorEventActorLabel(event)}`,
+    "",
+    "### Error message",
+    event.message,
+    "",
+    "### Fix instructions",
+    "1. Read the route and error message to identify the failing handler.",
+    "2. Check server_log_snapshot for the Rust tracing context near the error.",
+    "3. Locate the handler in server/src/api/ or server/src/logic/ and apply the smallest safe fix.",
+    "4. Follow AGENTS.md: thin handlers, business logic in logic/, no raw SQL mutations without transactions.",
+    "5. Run: cargo fmt && cargo check && cd client && npm run lint && npm run typecheck",
+    "",
+    "### Full diagnostic payload (JSON)",
+  ].join("\n");
+
+  return prompt + "\n" + JSON.stringify(event, null, 2);
+}
+
 function statusPillClass(status: BugStatus): string {
   if (status === "complete") {
     return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
@@ -194,14 +231,26 @@ export default function BugReportsSettingsPanel({
   const [eventListFilter, setEventListFilter] = useState<
     "all" | ErrorEventStatus
   >("pending");
+  const [eventSourceFilter, setEventSourceFilter] = useState<
+    "all" | "server" | "client"
+  >("all");
   const [viewMode, setViewMode] = useState<"reports" | "events">("reports");
 
   const filteredRows =
     listFilter === "all" ? rows : rows.filter((r) => r.status === listFilter);
-  const filteredErrorEvents =
+  const statusFilteredEvents =
     eventListFilter === "all"
       ? errorEvents
       : errorEvents.filter((event) => event.status === eventListFilter);
+  const filteredErrorEvents =
+    eventSourceFilter === "all"
+      ? statusFilteredEvents
+      : eventSourceFilter === "server"
+        ? statusFilteredEvents.filter((e) => isServerError(e))
+        : statusFilteredEvents.filter((e) => !isServerError(e));
+  const pendingServerErrorCount = errorEvents.filter(
+    (e) => isServerError(e) && e.status === "pending",
+  ).length;
   const overlayRoot = document.getElementById("drawer-root") || document.body;
 
   const loadList = useCallback(async () => {
@@ -432,7 +481,7 @@ export default function BugReportsSettingsPanel({
             key={key}
             type="button"
             onClick={() => setViewMode(key)}
-            className={`rounded-xl border px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+            className={`relative rounded-xl border px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
               viewMode === key
                 ? "border-app-accent bg-app-accent/15 text-app-text"
                 : "border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-border/20"
@@ -442,6 +491,12 @@ export default function BugReportsSettingsPanel({
             <span className="ml-1.5 tabular-nums opacity-70">
               ({key === "reports" ? rows.length : errorEvents.length})
             </span>
+            {key === "events" && pendingServerErrorCount > 0 ? (
+              <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-app-danger px-1.5 py-0.5 text-[8px] font-black text-white">
+                <Server className="h-2 w-2" aria-hidden />
+                {pendingServerErrorCount}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -450,12 +505,9 @@ export default function BugReportsSettingsPanel({
         <div className="ui-card overflow-hidden">
           {eventsLoading ? (
             <p className="p-6 text-sm text-app-text-muted">Loading…</p>
-          ) : filteredErrorEvents.length === 0 ? (
-            <p className="p-6 text-sm text-app-text-muted">
-              No automated error events in this filter.
-            </p>
           ) : (
             <div>
+              {/* Status filter row */}
               <div className="flex flex-wrap gap-2 border-b border-app-border bg-app-surface-2/40 p-3">
                 {(
                   [
@@ -483,13 +535,53 @@ export default function BugReportsSettingsPanel({
                     </span>
                   </button>
                 ))}
+                <span className="mx-1 border-r border-app-border" aria-hidden />
+                {/* Source filter */}
+                {(
+                  [
+                    ["all", "All sources"],
+                    ["server", "Server errors"],
+                    ["client", "Client errors"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setEventSourceFilter(key)}
+                    className={`rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                      eventSourceFilter === key
+                        ? key === "server"
+                          ? "border-app-danger bg-app-danger/10 text-app-danger"
+                          : "border-app-accent bg-app-accent/15 text-app-text"
+                        : "border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-border/20"
+                    }`}
+                  >
+                    {key === "server" ? (
+                      <Server className="mr-1 inline h-3 w-3" aria-hidden />
+                    ) : null}
+                    {label}
+                    <span className="ml-1.5 tabular-nums opacity-70">
+                      ({key === "all"
+                        ? errorEvents.length
+                        : key === "server"
+                          ? errorEvents.filter((e) => isServerError(e)).length
+                          : errorEvents.filter((e) => !isServerError(e)).length})
+                    </span>
+                  </button>
+                ))}
               </div>
+              {filteredErrorEvents.length === 0 ? (
+                <p className="p-6 text-sm text-app-text-muted">
+                  No automated error events in this filter.
+                </p>
+              ) : null}
+              {filteredErrorEvents.length > 0 ? (
               <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
               <table className="w-full min-w-[760px] border-collapse text-left text-sm">
                 <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   <tr>
                     <th className="px-4 py-3">When</th>
-                    <th className="px-4 py-3">Staff</th>
+                    <th className="px-4 py-3">Actor</th>
                     <th className="px-4 py-3">Source</th>
                     <th className="px-4 py-3">Message</th>
                     <th className="px-4 py-3">Status</th>
@@ -499,15 +591,31 @@ export default function BugReportsSettingsPanel({
                 </thead>
                 <tbody className="divide-y divide-app-border">
                   {filteredErrorEvents.map((event) => (
-                    <tr key={event.id} className="hover:bg-app-surface-2/80">
+                    <tr
+                      key={event.id}
+                      className={`hover:bg-app-surface-2/80 ${
+                        isServerError(event) && event.status === "pending"
+                          ? "bg-app-danger/5"
+                          : ""
+                      }`}
+                    >
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-app-text-muted">
                         {new Date(event.created_at).toLocaleString()}
                       </td>
                       <td className="px-4 py-3 text-xs font-semibold text-app-text">
-                        {event.staff_name ?? "Unknown"}
+                        {errorEventActorLabel(event)}
                       </td>
                       <td className="px-4 py-3">
-                        <span className="ui-pill bg-app-danger/10 text-[9px] text-app-danger">
+                        <span
+                          className={`ui-pill text-[9px] ${
+                            isServerError(event)
+                              ? "bg-app-danger/15 font-black text-app-danger"
+                              : "bg-app-surface-2 text-app-text-muted"
+                          }`}
+                        >
+                          {isServerError(event) ? (
+                            <Server className="mr-0.5 inline h-2.5 w-2.5" aria-hidden />
+                          ) : null}
                           {event.event_source.replace(/_/g, " ")}
                         </span>
                       </td>
@@ -538,6 +646,7 @@ export default function BugReportsSettingsPanel({
                 </tbody>
               </table>
               </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -898,7 +1007,7 @@ export default function BugReportsSettingsPanel({
                 </p>
                 <p className="mt-1 text-xs text-app-text-muted">
                   {new Date(eventDetail.created_at).toLocaleString()} ·{" "}
-                  {eventDetail.staff_name ?? "Unknown staff"}
+                  {errorEventActorLabel(eventDetail)}
                 </p>
                 <p className="mt-2 text-sm font-bold text-app-text">
                   {eventDetail.message}
@@ -937,6 +1046,21 @@ export default function BugReportsSettingsPanel({
                   <Clipboard className="h-3.5 w-3.5" aria-hidden />
                   Copy AI package
                 </button>
+                {isServerError(eventDetail) ? (
+                  <button
+                    type="button"
+                    className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-app-danger"
+                    onClick={() =>
+                      downloadTextFile(
+                        `ros-server-error-${eventDetail.id}-ai-diagnostic.md`,
+                        buildAiDiagnosticPackage(eventDetail),
+                      )
+                    }
+                  >
+                    <Download className="h-3.5 w-3.5" aria-hidden />
+                    Download AI diagnostic
+                  </button>
+                ) : null}
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
