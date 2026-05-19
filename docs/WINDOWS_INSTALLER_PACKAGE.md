@@ -13,7 +13,7 @@ The primary entry point is **`Start-RiversideDeployment.cmd`**. It opens the Riv
 Build output:
 
 ```text
-RiversideOS-v0.60.0-Windows-Deployment/
+RiversideOS-v0.60.1-Windows-Deployment/
   Start-RiversideDeployment.cmd
   Start-RiversideDeployment.ps1
   install-server.ps1
@@ -34,10 +34,10 @@ RiversideOS-v0.60.0-Windows-Deployment/
 From a Windows release machine after building the server, client, and Tauri bundle:
 
 ```powershell
-.\deployment\windows\build-deployment-package.ps1 -Version "0.60.0"
+.\deployment\windows\build-deployment-package.ps1 -Version "0.60.1"
 ```
 
-If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`.
+If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`. For v0.60.1 and later, do not mix the `server/`, `client-dist/`, `register/`, or `updater/` folders from different release zips.
 
 ## Configure the package
 
@@ -92,7 +92,7 @@ The same Deployment Manager handles later maintenance:
 
 Server, Windows app, and PWA/web files are one release. After any update, open **Settings → Updates** and confirm it shows the expected **Riverside version**. If it shows **Update incomplete**, finish the matching server or workstation update before using that station for production work.
 
-Hotfix/support actions included in v0.60.0 packages:
+Hotfix/support actions included in v0.60.1 packages:
 
 - **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.
 - **`Set-CounterpointBridgeToken.cmd`** prompts for the exact `COUNTERPOINT_SYNC_TOKEN` from the Counterpoint bridge `.env`, writes that same token to the Riverside server environment, and restarts the server. Use this when the Counterpoint bridge reaches Riverside but fails with `health 401`.
@@ -214,7 +214,11 @@ Use installed-printer mode for USB printers, report/label printers that need Win
 }
 ```
 
-For **Zebra 2844 / LP 2844 tags**, set the tag printer to the installed Zebra printer name or the Zebra network IP. Inventory tag actions send ZPL directly to that tag station and use browser preview only as a fallback.
+For **Zebra 2844 / LP 2844 tags**, set the tag printer to the installed Zebra printer name or the Zebra network IP. Inventory tag actions send ZPL directly to that tag station; a failed hardware route must be corrected before relying on tag printing.
+
+For **iPad/PWA receipts**, Riverside does not use the browser print dialog for receipts. The PWA sends the print request to the Riverside Server API, and the server dispatches directly to the Epson IP/port. If the server cannot reach the printer, fix the printer IP, port, firewall, or network before using the lane.
+
+For **reports and audit paperwork**, browser or Windows print remains acceptable. Reports are not routed through the Epson receipt-printer direct TCP path.
 
 ## Remaining manual smoke
 
