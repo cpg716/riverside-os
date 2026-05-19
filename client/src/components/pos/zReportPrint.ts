@@ -148,6 +148,7 @@ export function openProfessionalZReportPrint(opts: {
   openingCents: number;
   cashSalesCents: number;
   netAdjustmentsCents: number;
+  roundingAdjustmentsCents?: number;
   expectedCents: number;
   actualCents: number;
   discrepancyCents: number;
@@ -385,9 +386,14 @@ export function openProfessionalZReportPrint(opts: {
           <span class="mono" style="font-weight: 700;">${formatReportMoney(opts.openingCents)}</span>
         </div>
         <div class="cash-line">
-          <span class="muted">Cash Sales</span>
+          <span class="muted">Cash Sales (Gross)</span>
           <span class="mono" style="font-weight: 700;">+${formatReportMoney(opts.cashSalesCents)}</span>
         </div>
+        ${opts.roundingAdjustmentsCents !== undefined ? `
+        <div class="cash-line">
+          <span class="muted">Cash Rounding</span>
+          <span class="mono" style="font-weight: 700;">${opts.roundingAdjustmentsCents >= 0 ? "+" : ""}${formatReportMoney(opts.roundingAdjustmentsCents)}</span>
+        </div>` : ""}
         <div class="cash-line">
           <span class="muted">Drawer Adjustments</span>
           <span class="mono" style="font-weight: 700;">${opts.netAdjustmentsCents >= 0 ? "+" : ""}${formatReportMoney(opts.netAdjustmentsCents)}</span>

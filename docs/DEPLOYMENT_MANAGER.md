@@ -134,9 +134,40 @@ graph TD
 
 To prevent blocking dialog boxes when triggered from the Tauri GUI log terminal, passing `-StartFresh` suppresses all WinForms MessageBox popups.
 
+To prevent blocking dialog boxes when triggered from the Tauri GUI log terminal, passing `-StartFresh` suppresses all WinForms MessageBox popups.
+
 ---
 
-## 6. Development & Compilation Architecture
+## 6. Password & Security Management
+
+The Deployment Manager includes automated self-healing scripts to recover from lost credentials or corrupted configuration files, improving ease of use for retail operators.
+
+### Repair Server Credentials Key (`repair-server-credentials-key.ps1`)
+If the server loses its encryption keys or the `.env` file is corrupted, this command:
+1. Verifies administrative rights and checks the `.env` state.
+2. Validates `RIVERSIDE_CREDENTIALS_KEY` and `RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`.
+3. If missing or invalid, generates cryptographically secure 48-character replacement secrets.
+4. Writes them to the `.env` file and Windows Machine-level environment variables.
+5. Safely restarts the `Riverside OS Server` scheduled task to pick up the new keys.
+
+### Repair Bootstrap Admin (`repair-bootstrap-admin.ps1`)
+In case of complete lockout, this script forcefully resets the primary administrative account to the factory default PIN (`1234`) and ensures the profile retains the `admin` role, restoring Back Office access.
+
+---
+
+## 7. Integrations & AI Add-ons
+
+The manager exposes utilities to connect and enhance the Riverside OS environment after the core system is installed.
+
+### Install ROSIE AI Stack (`Install-RosieAiStack.ps1`)
+Downloads and configures the local AI copilot dependencies (Gemma GGUF models, SenseVoice, and Kokoro TTS) into the `%LOCALAPPDATA%\riverside-os\rosie` directory, ensuring offline capabilities are ready for the ROSIE worker.
+
+### Set Counterpoint Bridge Token (`set-counterpoint-bridge-token.ps1`)
+Generates or rotates the 48-character `COUNTERPOINT_SYNC_TOKEN` required to secure the bridge between Riverside OS and legacy NCR Counterpoint POS systems.
+
+---
+
+## 8. Development & Compilation Architecture
 
 The Deployment Manager is a Tauri v2 application composed of a **Vite + React + TS** frontend (`deployment/manager-app/src`) and a **Rust** backend (`deployment/manager-app/src-tauri`).
 

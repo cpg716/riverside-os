@@ -259,6 +259,7 @@ pub struct ReconciliationResponse {
     pub qbo_journal_error: Option<String>,
     pub opening_float: Decimal,
     pub net_cash_adjustments: Decimal,
+    pub total_rounding_adjustments: Decimal,
     pub expected_cash: Decimal,
     /// All lanes in the till shift (Z) or single lane (X).
     pub tenders: Vec<TenderTotal>,
@@ -1678,6 +1679,22 @@ async fn build_reconciliation(
         })
         .collect();
 
+    let total_rounding_adjustments: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(agg.rounding_adjustment), 0)
+        FROM (
+            SELECT DISTINCT t.id, t.rounding_adjustment
+            FROM transactions t
+            INNER JOIN payment_allocations pa ON pa.target_transaction_id = t.id
+            INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            WHERE pt.session_id = ANY($1) AND pt.payment_method = 'cash' AND t.rounding_adjustment IS NOT NULL
+        ) agg
+        "#,
+    )
+    .bind(&payment_session_ids)
+    .fetch_one(db)
+    .await?;
+
     let expected_cash = opening_float + total_cash_sales + net_cash_adjustments;
     let unresolved_helcim_attempts =
         unresolved_helcim_attempts_for_sessions(db, &payment_session_ids).await?;
@@ -1743,6 +1760,7 @@ async fn build_reconciliation(
         qbo_journal_error,
         opening_float,
         net_cash_adjustments,
+        total_rounding_adjustments,
         expected_cash,
         tenders,
         tenders_by_lane,

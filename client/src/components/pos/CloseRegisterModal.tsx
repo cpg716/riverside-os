@@ -50,6 +50,7 @@ interface Reconciliation {
   qbo_journal_error?: string | null;
   opening_float: string;
   net_cash_adjustments?: string;
+  total_rounding_adjustments?: string;
   expected_cash: string;
   tenders: TenderTotal[];
   tenders_by_lane?: TendersByLaneRow[];
@@ -648,7 +649,8 @@ export default function CloseRegisterModal({
     const currentActualCents = parseMoneyToCents(actualCash);
     const currentOpeningCents = parseMoneyToCents(currentRecon.opening_float);
     const currentNetAdjCents = parseMoneyToCents(currentRecon.net_cash_adjustments ?? "0");
-    const currentCashSalesCents = currentExpectedCents - currentOpeningCents - currentNetAdjCents;
+    const currentRoundingCents = parseMoneyToCents(currentRecon.total_rounding_adjustments ?? "0");
+    const currentCashSalesCents = currentExpectedCents - currentOpeningCents - currentNetAdjCents - currentRoundingCents;
     const closingNotesForReport = buildClosingNotesForReport();
     openProfessionalZReportPrint({
       title: "Z-Report",
@@ -659,6 +661,7 @@ export default function CloseRegisterModal({
       openingCents: currentOpeningCents,
       cashSalesCents: currentCashSalesCents,
       netAdjustmentsCents: currentNetAdjCents,
+      roundingAdjustmentsCents: currentRoundingCents,
       expectedCents: currentExpectedCents,
       actualCents: currentActualCents,
       discrepancyCents: currentActualCents - currentExpectedCents,
@@ -1189,7 +1192,8 @@ export default function CloseRegisterModal({
   const isOff = discrepancyCents !== 0;
   const openingCents = parseMoneyToCents(recon.opening_float);
   const netAdjCents = parseMoneyToCents(recon.net_cash_adjustments ?? "0");
-  const cashSalesCents = expectedCents - openingCents - netAdjCents;
+  const roundingCents = parseMoneyToCents(recon.total_rounding_adjustments ?? "0");
+  const cashSalesCents = expectedCents - openingCents - netAdjCents - roundingCents;
   const needsNote =
     Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
   const closeBlockers = [
@@ -1426,8 +1430,9 @@ export default function CloseRegisterModal({
             <h3 className="mb-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border pb-2">Cash drawer count</h3>
             <div className="space-y-2.5 text-sm">
               <div className="flex justify-between text-app-text-muted font-medium"><span>Opening Float:</span><span className="font-mono">${centsToFixed2(openingCents)}</span></div>
-              <div className="flex justify-between text-app-text-muted font-medium"><span>Cash Sales:</span><span className="font-mono text-app-success">+ ${centsToFixed2(cashSalesCents)}</span></div>
-              <div className="flex justify-between text-app-text-muted font-medium"><span>Net adjustments:</span><span className="font-mono text-app-warning">${centsToFixed2(netAdjCents)}</span></div>
+              <div className="flex justify-between text-app-text-muted font-medium"><span>Cash Sales (Gross):</span><span className="font-mono text-app-success">+ ${centsToFixed2(cashSalesCents)}</span></div>
+              <div className="flex justify-between text-app-text-muted font-medium"><span>Cash Rounding:</span><span className="font-mono text-app-warning">{roundingCents < 0 ? "-" : "+"}${centsToFixed2(Math.abs(roundingCents))}</span></div>
+              <div className="flex justify-between text-app-text-muted font-medium"><span>Net adjustments:</span><span className="font-mono text-app-warning">{netAdjCents < 0 ? "-" : "+"}${centsToFixed2(Math.abs(netAdjCents))}</span></div>
               <div className="flex justify-between pt-3 border-t border-app-border font-black text-app-text uppercase text-xs"><span>Expected Cash:</span><span className="font-mono">${centsToFixed2(expectedCents)}</span></div>
               <div className="flex justify-between pt-1 font-black text-app-accent text-lg"><span>Actual Counted:</span><span className="font-mono">${centsToFixed2(actualCents)}</span></div>
             </div>
