@@ -11,20 +11,59 @@ struct LogMessage {
     text: String,
 }
 
-fn get_config_path() -> PathBuf {
-    // In production, this would resolve to the package root.
-    // For now, assume it's next to the executable.
+fn get_package_root() -> PathBuf {
     let mut path = env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-    path.pop(); // remove executable name
-    path.push("riverside-deployment.config.json");
+    path.pop();
 
-    // Fallback for development if file doesn't exist
-    if !path.exists() {
-        let mut dev_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        dev_path.push("riverside-deployment.config.json");
+    if path.join("install-server.ps1").exists() {
+        return path;
+    }
+
+    let mut dev_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if dev_path.join("install-server.ps1").exists() {
         return dev_path;
     }
+    if dev_path.join("windows").join("install-server.ps1").exists() {
+        return dev_path.join("windows");
+    }
+    if dev_path.file_name().is_some_and(|name| name == "manager-app") {
+        let windows_dir = dev_path.parent().unwrap_or(&dev_path).join("windows");
+        if windows_dir.join("install-server.ps1").exists() {
+            return windows_dir;
+        }
+    }
+
     path
+}
+
+fn get_config_path() -> PathBuf {
+    get_package_root().join("riverside-deployment.config.json")
+}
+
+fn config_path_arg() -> String {
+    "-ConfigPath".to_string()
+}
+
+fn config_path_value() -> String {
+    get_config_path().to_string_lossy().into_owned()
+}
+
+fn script_supports_config_path(script_name: &str) -> bool {
+    !matches!(
+        script_name,
+        "audit-system.ps1" | "Install-RosieAiStack.ps1"
+    )
+}
+
+#[tauri::command]
+fn get_deployment_paths() -> Result<serde_json::Value, String> {
+    let package_root = get_package_root();
+    let config_path = get_config_path();
+    Ok(serde_json::json!({
+        "packageRoot": package_root.to_string_lossy(),
+        "configPath": config_path.to_string_lossy(),
+        "configExists": config_path.exists(),
+    }))
 }
 
 #[tauri::command]
@@ -41,6 +80,11 @@ async fn read_deployment_config() -> Result<String, String> {
 #[tauri::command]
 async fn write_deployment_config(config: String) -> Result<(), String> {
     let path = get_config_path();
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     tokio::fs::write(path, config)
         .await
         .map_err(|e| e.to_string())
@@ -52,31 +96,28 @@ async fn run_deployment_script(
     script_name: String,
     args: Option<Vec<String>>,
 ) -> Result<(), String> {
-    let script_path = {
-        let mut path = env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
-        path.pop();
-        path.push(&script_name);
-
-        // Fallback for development
-        if !path.exists() {
-            let mut dev_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            dev_path.pop(); // Up to deployment/
-            dev_path.push(&script_name);
-            path = dev_path;
-        }
-        path
-    };
+    let package_root = get_package_root();
+    let script_path = package_root.join(&script_name);
 
     if !script_path.exists() {
-        return Err(format!("Script not found: {}", script_path.display()));
+        return Err(format!(
+            "Script not found: {} (package root: {})",
+            script_path.display(),
+            package_root.display()
+        ));
     }
 
     let mut cmd = Command::new("powershell");
-    cmd.arg("-NoProfile")
+    cmd.current_dir(&package_root)
+        .arg("-NoProfile")
         .arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-File")
-        .arg(script_path.to_str().unwrap());
+        .arg(script_path.as_os_str());
+
+    if script_supports_config_path(&script_name) {
+        cmd.arg(config_path_arg()).arg(config_path_value());
+    }
 
     if let Some(arguments) = args {
         for arg in arguments {
@@ -147,6 +188,14 @@ async fn run_deployment_script(
 
 #[tauri::command]
 async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result<(), String> {
+    if !is_elevated() {
+        return Err(
+            "Administrator privileges are required for server control commands. \
+             Close this app and launch Start-RiversideDeployment.cmd (Run as administrator)."
+                .to_string(),
+        );
+    }
+
     let mut child = Command::new("powershell")
         .arg("-NoProfile")
         .arg("-ExecutionPolicy")
@@ -232,9 +281,54 @@ fn is_elevated() -> bool {
 }
 
 #[tauri::command]
+fn relaunch_elevated() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let exe = env::current_exe().map_err(|e| e.to_string())?;
+        let exe_arg = format!("'{}'", exe.to_string_lossy().replace('\'', "''"));
+        std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &format!("Start-Process -FilePath {exe_arg} -Verb RunAs"),
+            ])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        std::process::exit(0);
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Elevation relaunch is only supported on Windows.".to_string())
+    }
+}
+
+#[tauri::command]
 async fn open_logs() -> Result<(), String> {
+    let config_path = get_config_path();
+    let log_dir = if config_path.exists() {
+        let raw = tokio::fs::read_to_string(&config_path)
+            .await
+            .map_err(|e| e.to_string())?;
+        let install_root = serde_json::from_str::<serde_json::Value>(&raw)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("server")
+                    .and_then(|server| server.get("installRoot"))
+                    .and_then(|root| root.as_str())
+                    .map(str::to_string)
+            })
+            .filter(|root| !root.trim().is_empty())
+            .unwrap_or_else(|| "C:\\RiversideOS".to_string());
+        PathBuf::from(install_root).join("logs")
+    } else {
+        PathBuf::from("C:\\RiversideOS\\logs")
+    };
+
     Command::new("explorer")
-        .arg("C:\\RiversideOS\\logs")
+        .arg(log_dir)
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -249,12 +343,14 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            get_deployment_paths,
             read_deployment_config,
             write_deployment_config,
             run_deployment_script,
             run_inline_powershell,
             open_logs,
-            is_elevated
+            is_elevated,
+            relaunch_elevated
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

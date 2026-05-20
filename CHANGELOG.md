@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.70.1] - 2026-05-20
+### Added
+- **Inventory tag print date**: Tag Designer footer text is followed automatically by the print date on every inventory tag (HTML preview and Zebra/ZPL).
+
+### Fixed
+- **Deployment Manager**: Scripts receive `-ConfigPath`, run from the package root, and can relaunch elevated; privileged actions are blocked with a clear message when not running as Administrator.
+- **Windows deployment scripts**: Hardened config path resolution, `installRoot` defaults, null-safe package manifest checks, Postgres user normalization (`Admin` → `postgres` / `riverside_app`), and `ros_schema_migrations` audit probe.
+- **apply-riverside-migrations.ps1**: Safe property updates when `server` or JWT fields are missing from saved config.
+
 ## [0.70.0] - 2026-05-19
 ### Added
 - **Sweden-Style Cash Rounding**: POS transactions dynamically apply Sweden-style cash rounding (to nearest $0.05). Cash rounding offsets are recorded as a separate payment ledger entry (`cash_rounding_offset`) to ensure that base product prices, shipping, and tax lines are untouched and daily drawer reconciliation matches perfectly.

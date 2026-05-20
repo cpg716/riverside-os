@@ -62,14 +62,25 @@ export default function App() {
     if (!newConfig.server.database.databaseName) newConfig.server.database.databaseName = 'riverside_os';
     if (!newConfig.server.database.appUser) newConfig.server.database.appUser = 'riverside_app';
     if (!newConfig.server.database.adminUser) newConfig.server.database.adminUser = 'postgres';
+    if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
     
     await invoke('write_deployment_config', { config: JSON.stringify(newConfig) });
     setStep(3);
     executeScript(role === 'server' ? 'install-server.ps1' : 'install-register.ps1');
   };
 
-  const executeScript = async (scriptName: string, args?: string[]) => {
+  const requireElevation = (actionLabel: string): boolean => {
+    if (isElevated !== false) return true;
+    setLogs([{
+      level: 'error',
+      text: `${actionLabel} requires Administrator privileges. Use "Relaunch as Administrator" above, or run Start-RiversideDeployment.cmd.`,
+    }]);
+    return false;
+  };
+
+  const executeScript = async (scriptName: string, args?: string[], options?: { requireAdmin?: boolean }) => {
     if (isExecuting) return;
+    if (options?.requireAdmin !== false && !requireElevation(`Running ${scriptName}`)) return;
     setIsExecuting(true);
     setLogs([{ level: 'info', text: `Executing ${scriptName}${args ? ' ' + args.join(' ') : ''}...` }]);
 
@@ -89,6 +100,7 @@ export default function App() {
 
   const executeInline = async (command: string, description: string) => {
     if (isExecuting) return;
+    if (!requireElevation(description)) return;
     setIsExecuting(true);
     setLogs([{ level: 'info', text: `Executing: ${description}...` }]);
 
@@ -141,8 +153,15 @@ export default function App() {
           <div className="flex-1">
             <h4 className="text-sm font-bold text-amber-800">Not Running as Administrator</h4>
             <p className="text-xs text-amber-700 mt-1">
-              The Deployment Manager is running without administrative privileges. Database control, scheduled task updates (such as Starting/Restarting Server), and workstation installation will fail. Please exit and run the manager using the <strong>Start-RiversideDeployment.cmd</strong> script.
+              Install, migrations, server start/restart, and audit require elevation. Launch via <strong>Start-RiversideDeployment.cmd</strong> (recommended) or relaunch this app as Administrator.
             </p>
+            <button
+              type="button"
+              onClick={() => invoke('relaunch_elevated').catch((e) => setLogs([{ level: 'error', text: String(e) }]))}
+              className="mt-3 px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-600 text-white hover:bg-amber-700"
+            >
+              Relaunch as Administrator
+            </button>
           </div>
         </div>
       )}
@@ -353,7 +372,7 @@ export default function App() {
                 <span className="text-xs font-semibold">Logs</span>
               </button>
               <button 
-                onClick={() => executeScript('audit-system.ps1')}
+                onClick={() => executeScript('audit-system.ps1', undefined, { requireAdmin: true })}
                 disabled={isExecuting}
                 className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex flex-col items-center justify-center gap-1 group"
               >

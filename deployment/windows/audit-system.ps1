@@ -90,8 +90,14 @@ if (-not $success) {
         
         $dbName = "riverside_os"
         $dbUser = "postgres"
+        if ($config -and $config.server -and $config.server.database -and $config.server.database.adminUser) {
+            $candidateUser = "$($config.server.database.adminUser)"
+            if ($candidateUser -notmatch '^(Admin|Administrator)$') {
+                $dbUser = $candidateUser
+            }
+        }
         $env:PGPASSWORD = ""
-        if ($config -and $config.server -and $config.server.database -and $config.server.database.adminPassword) {
+        if ($config -and $config.server -and $config.server.database -and $null -ne $config.server.database.adminPassword) {
             $env:PGPASSWORD = $config.server.database.adminPassword
         }
         
@@ -104,11 +110,11 @@ if (-not $success) {
             Write-Host "[OK] Connected to database '$dbName'. Found $tableCount tables." -ForegroundColor Green
             
             # Check Migrations Count
-            $migrationResult = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d $dbName -c "SELECT COUNT(*) FROM _sqlx_migrations;" -t 2>&1
+            $migrationResult = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d $dbName -c "SELECT COUNT(*) FROM ros_schema_migrations;" -t 2>&1
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "[OK] Applied migrations count: $($migrationResult.Trim())" -ForegroundColor Green
             } else {
-                Write-Host "[WARN] _sqlx_migrations table not found or query failed. Migrations may not have run yet." -ForegroundColor Yellow
+                Write-Host "[WARN] ros_schema_migrations table not found or query failed. Migrations may not have run yet." -ForegroundColor Yellow
             }
         }
         $env:PGPASSWORD = $null

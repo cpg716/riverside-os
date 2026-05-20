@@ -77,15 +77,30 @@ function Resolve-PsqlPath($dbConfig) {
   throw "psql.exe was not found. Install PostgreSQL first, or set server.database.psqlPath in the config."
 }
 
-if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-  $ConfigPath = Join-Path $ScriptRoot "riverside-deployment.config.json"
-}
-if (-not (Test-Path $ConfigPath)) {
-  throw "Config file not found: $ConfigPath."
+function Resolve-ExistingPath([string[]]$Candidates, [string]$Description) {
+  foreach ($candidate in $Candidates) {
+    if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
+      return (Resolve-Path $candidate).Path
+    }
+  }
+  throw "$Description not found. Run Start-RiversideDeployment.cmd once first so it can save deployment settings."
 }
 
-$config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+$resolvedConfigPath = Resolve-ExistingPath @(
+  $ConfigPath,
+  (Join-Path $ScriptRoot "riverside-deployment.config.json"),
+  (Join-Path (Split-Path -Parent $ScriptRoot) "riverside-deployment.config.json")
+) "riverside-deployment.config.json"
+
+$config = Get-Content $resolvedConfigPath -Raw | ConvertFrom-Json
+if (-not $config.server -or -not $config.server.database) {
+  throw "Config file is missing server.database settings: $resolvedConfigPath"
+}
 $db = $config.server.database
+if ($db.adminUser -match '^(Admin|Administrator)$') { $db.adminUser = "postgres" }
+if ($db.appUser -match '^(Admin|Administrator)$') { $db.appUser = "riverside_app" }
+if ([string]::IsNullOrWhiteSpace($db.adminUser)) { $db.adminUser = "postgres" }
+if ([string]::IsNullOrWhiteSpace($db.appUser)) { $db.appUser = "riverside_app" }
 $psql = Resolve-PsqlPath $db
 $databaseUrl = "postgresql://$($db.appUser):$($db.appPassword)@$($db.host):$($db.port)/$($db.databaseName)"
 $bootstrapPinHash = '$argon2id$v=19$m=19456,t=2,p=1$KWJoKjtQYNuPjRIyKL2M9g$FBpoET53ejevTU5LrsLTzQMrgXpV5NavqruJmerdPsc'

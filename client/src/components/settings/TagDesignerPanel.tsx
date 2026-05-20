@@ -9,6 +9,7 @@ import {
 import {
   type InventoryTagItem,
   type InventoryTagPrintConfig,
+  buildInventoryTagFooterLine,
   getInventoryTagPrintConfig,
   openInventoryTagsPreviewWindow,
   saveInventoryTagPrintConfig,
@@ -146,6 +147,7 @@ export default function TagDesignerPanel() {
   };
 
   const previewAccent = getAccentTokens(normalizedDraft.accentStyle);
+  const previewFooterLine = buildInventoryTagFooterLine(normalizedDraft.footerText);
 
   return (
     <section className="space-y-6 p-6">
@@ -303,8 +305,12 @@ export default function TagDesignerPanel() {
                 value={draft.footerText}
                 onChange={(e) => updateDraft("footerText", e.target.value)}
                 className="ui-input w-full"
-                placeholder="Riverside OS Inventory Tag"
+                placeholder="Riverside Men's Shop"
               />
+              <p className="text-xs text-app-text-muted">
+                The print date (for example, May 20, 2026) is added automatically
+                after this text whenever tags are printed.
+              </p>
             </label>
           </section>
 
@@ -414,7 +420,7 @@ export default function TagDesignerPanel() {
                       ) : null}
                     </div>
                     <div className="mt-auto text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-                      {normalizedDraft.footerText}
+                      {previewFooterLine}
                     </div>
                   </div>
                 </div>

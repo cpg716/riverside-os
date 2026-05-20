@@ -36,6 +36,26 @@ const DEFAULT_CONFIG: InventoryTagPrintConfig = {
 
 const ZEBRA_2844_DPI = 203;
 
+/** Store-local calendar date stamped on every tag at print time. */
+export function formatInventoryTagPrintDate(at: Date = new Date()): string {
+  return at.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** Footer label plus automatic print date (e.g. "Riverside Men's Shop · May 20, 2026"). */
+export function buildInventoryTagFooterLine(
+  footerText: string,
+  at: Date = new Date(),
+): string {
+  const label = footerText.trim();
+  const date = formatInventoryTagPrintDate(at);
+  if (!label) return date;
+  return `${label} · ${date}`;
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -88,7 +108,7 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
   ]
     .filter(Boolean)
     .join("  ");
-  const footer = config.footerText.trim();
+  const footer = buildInventoryTagFooterLine(config.footerText);
   const sku = escapeZplField(item.sku);
 
   let y = margin;
@@ -218,7 +238,7 @@ function renderTag(
   const variation = item.variation?.trim() || "Standard";
   const price = item.price?.trim() || "";
   const brand = item.brand?.trim() || "";
-  const footer = config.footerText.trim();
+  const footer = buildInventoryTagFooterLine(config.footerText);
 
   return `<section class="tag-page">
   <div class="tag-shell" style="${accent.shell}">

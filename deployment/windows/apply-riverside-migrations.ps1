@@ -134,6 +134,30 @@ $resolvedMigrationsDir = Resolve-ExistingPath $defaultMigrationCandidates "migra
 
 $config = Get-Content $resolvedConfigPath -Raw | ConvertFrom-Json
 
+function Ensure-ConfigServerSection($Config) {
+  if (-not $Config.server) {
+    $Config | Add-Member -NotePropertyName server -NotePropertyValue ([pscustomobject]@{}) -Force
+  }
+  if (-not $Config.server.database) {
+    $Config.server | Add-Member -NotePropertyName database -NotePropertyValue ([pscustomobject]@{}) -Force
+  }
+}
+
+function Normalize-DatabaseConfig($Db) {
+  if ($Db.adminUser -match '^(Admin|Administrator)$') {
+    Write-Warning "database.adminUser was '$($Db.adminUser)'; using 'postgres' (PostgreSQL superuser)."
+    $Db.adminUser = "postgres"
+  }
+  if ($Db.appUser -match '^(Admin|Administrator)$') {
+    Write-Warning "database.appUser was '$($Db.appUser)'; using 'riverside_app'."
+    $Db.appUser = "riverside_app"
+  }
+  if ([string]::IsNullOrWhiteSpace($Db.adminUser)) { $Db.adminUser = "postgres" }
+  if ([string]::IsNullOrWhiteSpace($Db.appUser)) { $Db.appUser = "riverside_app" }
+}
+
+Ensure-ConfigServerSection $config
+
 function New-RiversideSecret([int]$Length) {
   $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
   $random = New-Object System.Random
@@ -177,6 +201,7 @@ if ($configModified) {
 }
 
 $db = $config.server.database
+Normalize-DatabaseConfig $db
 $psql = $db.psqlPath
 
 if ([string]::IsNullOrWhiteSpace($psql) -or -not (Test-Path $psql)) {

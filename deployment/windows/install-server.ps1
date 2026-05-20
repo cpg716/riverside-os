@@ -651,6 +651,12 @@ if (-not (Test-Path $ConfigPath)) {
 }
 
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+if (-not $config.server) {
+  $config | Add-Member -NotePropertyName server -NotePropertyValue ([pscustomobject]@{}) -Force
+}
+if (-not $config.server.database) {
+  $config.server | Add-Member -NotePropertyName database -NotePropertyValue ([pscustomobject]@{}) -Force
+}
 
 function New-RiversideSecret([int]$Length) {
   $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -738,6 +744,14 @@ $server = $config.server
 if (-not $server) { throw "Config file is missing the 'server' section. Check your riverside-deployment.config.json." }
 $db = $server.database
 if (-not $db) { throw "Config file is missing the 'server.database' section. Check your riverside-deployment.config.json." }
+if ($db.adminUser -match '^(Admin|Administrator)$') {
+  Write-Warning "database.adminUser was '$($db.adminUser)'; using 'postgres' (PostgreSQL superuser)."
+  Set-SafeProperty $db "adminUser" "postgres"
+}
+if ($db.appUser -match '^(Admin|Administrator)$') {
+  Write-Warning "database.appUser was '$($db.appUser)'; using 'riverside_app'."
+  Set-SafeProperty $db "appUser" "riverside_app"
+}
 if ([string]::IsNullOrWhiteSpace($db.host))         { Set-SafeProperty $db "host" "127.0.0.1" }
 if (-not $db.port)                                   { Set-SafeProperty $db "port" 5432 }
 if ([string]::IsNullOrWhiteSpace($db.databaseName))  { Set-SafeProperty $db "databaseName" "riverside_os" }
@@ -786,7 +800,8 @@ Stop-PortListeners $serverPort
 Copy-Item $packageServerExe (Join-Path $serverDir "riverside-server.exe") -Force
 Remove-Item "$clientDist\*" -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item "$packageDist\*" $clientDist -Recurse -Force
-Confirm-InstalledClientVersion $clientDist $config.releaseVersion $packageManifest.sourceGitShort
+$expectedGitShort = if ($packageManifest) { $packageManifest.sourceGitShort } else { $null }
+Confirm-InstalledClientVersion $clientDist $config.releaseVersion $expectedGitShort
 Remove-Item "$releaseDir\migrations" -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item $packageMigrations (Join-Path $releaseDir "migrations") -Recurse -Force
 Remove-Item "$releaseDir\seeds" -Recurse -Force -ErrorAction SilentlyContinue
