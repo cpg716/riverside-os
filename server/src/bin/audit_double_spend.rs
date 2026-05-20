@@ -26,9 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .fetch_one(&pool)
     .await?;
 
-    println!(
-        "Created Gift Card: {code} (ID: {card_id}) with Balance: $50.00"
-    );
+    println!("Created Gift Card: {code} (ID: {card_id}) with Balance: $50.00");
 
     // 2. Spawn two concurrent requests trying to redeem $40
     let amount = dec!(40.00);

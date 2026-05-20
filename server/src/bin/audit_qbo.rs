@@ -29,9 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let memo = &line.memo;
             let debit = line.debit;
             let credit = line.credit;
-            println!(
-                "  [Found Rounding] {memo} - Debit: {debit}, Credit: {credit}"
-            );
+            println!("  [Found Rounding] {memo} - Debit: {debit}, Credit: {credit}");
         }
     }
 

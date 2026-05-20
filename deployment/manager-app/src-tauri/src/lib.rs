@@ -17,7 +17,7 @@ fn get_config_path() -> PathBuf {
     let mut path = env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
     path.pop(); // remove executable name
     path.push("riverside-deployment.config.json");
-    
+
     // Fallback for development if file doesn't exist
     if !path.exists() {
         let mut dev_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -33,22 +33,30 @@ async fn read_deployment_config() -> Result<String, String> {
     if !path.exists() {
         return Ok("{}".to_string());
     }
-    tokio::fs::read_to_string(path).await.map_err(|e| e.to_string())
+    tokio::fs::read_to_string(path)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn write_deployment_config(config: String) -> Result<(), String> {
     let path = get_config_path();
-    tokio::fs::write(path, config).await.map_err(|e| e.to_string())
+    tokio::fs::write(path, config)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn run_deployment_script(app: AppHandle, script_name: String, args: Option<Vec<String>>) -> Result<(), String> {
+async fn run_deployment_script(
+    app: AppHandle,
+    script_name: String,
+    args: Option<Vec<String>>,
+) -> Result<(), String> {
     let script_path = {
         let mut path = env::current_exe().unwrap_or_else(|_| PathBuf::from("."));
         path.pop();
         path.push(&script_name);
-        
+
         // Fallback for development
         if !path.exists() {
             let mut dev_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -65,10 +73,10 @@ async fn run_deployment_script(app: AppHandle, script_name: String, args: Option
 
     let mut cmd = Command::new("powershell");
     cmd.arg("-NoProfile")
-       .arg("-ExecutionPolicy")
-       .arg("Bypass")
-       .arg("-File")
-       .arg(script_path.to_str().unwrap());
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-File")
+        .arg(script_path.to_str().unwrap());
 
     if let Some(arguments) = args {
         for arg in arguments {
@@ -89,10 +97,13 @@ async fn run_deployment_script(app: AppHandle, script_name: String, args: Option
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit("deployment-log", LogMessage {
-                level: "info".to_string(),
-                text: line,
-            });
+            let _ = app_clone.emit(
+                "deployment-log",
+                LogMessage {
+                    level: "info".to_string(),
+                    text: line,
+                },
+            );
         }
     });
 
@@ -100,19 +111,32 @@ async fn run_deployment_script(app: AppHandle, script_name: String, args: Option
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit("deployment-log", LogMessage {
-                level: "error".to_string(),
-                text: line,
-            });
+            let _ = app_clone.emit(
+                "deployment-log",
+                LogMessage {
+                    level: "error".to_string(),
+                    text: line,
+                },
+            );
         }
     });
 
-    let status = child.wait().await.map_err(|e| format!("Failed to wait: {}", e))?;
-    
-    let _ = app.emit("deployment-log", LogMessage {
-        level: if status.success() { "success".to_string() } else { "error".to_string() },
-        text: format!("Script exited with status: {}", status),
-    });
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| format!("Failed to wait: {}", e))?;
+
+    let _ = app.emit(
+        "deployment-log",
+        LogMessage {
+            level: if status.success() {
+                "success".to_string()
+            } else {
+                "error".to_string()
+            },
+            text: format!("Script exited with status: {}", status),
+        },
+    );
 
     if status.success() {
         Ok(())
@@ -141,7 +165,13 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit("deployment-log", LogMessage { level: "info".to_string(), text: line });
+            let _ = app_clone.emit(
+                "deployment-log",
+                LogMessage {
+                    level: "info".to_string(),
+                    text: line,
+                },
+            );
         }
     });
 
@@ -149,18 +179,38 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit("deployment-log", LogMessage { level: "error".to_string(), text: line });
+            let _ = app_clone.emit(
+                "deployment-log",
+                LogMessage {
+                    level: "error".to_string(),
+                    text: line,
+                },
+            );
         }
     });
 
-    let status = child.wait().await.map_err(|e| format!("Failed to wait: {}", e))?;
-    
-    let _ = app.emit("deployment-log", LogMessage {
-        level: if status.success() { "success".to_string() } else { "error".to_string() },
-        text: format!("Command exited with status: {}", status),
-    });
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| format!("Failed to wait: {}", e))?;
 
-    if status.success() { Ok(()) } else { Err(format!("Exited with {}", status)) }
+    let _ = app.emit(
+        "deployment-log",
+        LogMessage {
+            level: if status.success() {
+                "success".to_string()
+            } else {
+                "error".to_string()
+            },
+            text: format!("Command exited with status: {}", status),
+        },
+    );
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Exited with {}", status))
+    }
 }
 
 #[tauri::command]
@@ -175,7 +225,11 @@ async fn open_logs() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build())
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             read_deployment_config,
             write_deployment_config,
