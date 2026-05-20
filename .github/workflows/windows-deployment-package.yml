@@ -178,6 +178,18 @@ jobs:
           npm ci
           npx tauri build
 
+      - name: Ensure CRLF in deployment scripts
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path "deployment/windows" -Include "*.ps1","*.cmd" -Recurse | ForEach-Object {
+            $content = [System.IO.File]::ReadAllText($_.FullName)
+            if ($content -notmatch "`r`n" -and $content -match "`n") {
+              $fixed = $content -replace "(?<!\r)\n", "`r`n"
+              [System.IO.File]::WriteAllText($_.FullName, $fixed)
+              Write-Host "Converted to CRLF: $($_.Name)"
+            }
+          }
+
       - name: Assemble deployment package
         shell: pwsh
         run: |
