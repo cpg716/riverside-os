@@ -7,8 +7,7 @@ $ErrorActionPreference = "Stop"
 
 function Test-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-  return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  return ($null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' }))
 }
 
 function New-RiversideSecret([int]$Length = 48) {

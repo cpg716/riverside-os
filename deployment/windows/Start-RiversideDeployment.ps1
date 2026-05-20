@@ -22,14 +22,18 @@ if (-not (Test-Admin)) {
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-if ($PSScriptRoot) {
-  $packageRoot = $PSScriptRoot
-} else {
-  $packageRoot = Split-Path -Parent $PSCommandPath
+$ScriptRoot = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
+  $ScriptRoot = if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+  } else {
+    Split-Path -Parent $PSCommandPath
+  }
 }
-if (-not $packageRoot) {
-  $packageRoot = (Get-Location).Path
+if (-not $ScriptRoot) {
+  $ScriptRoot = "."
 }
+$packageRoot = $ScriptRoot
 $configExamplePath = Join-Path $packageRoot "riverside-deployment.config.example.json"
 $configPath = Join-Path $packageRoot "riverside-deployment.config.json"
 $packageManifestPath = Join-Path $packageRoot "deployment-package.manifest.json"

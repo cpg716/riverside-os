@@ -7,6 +7,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$ScriptRoot = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
+  $ScriptRoot = if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+  } else {
+    "."
+  }
+}
+
 function Resolve-ExistingPath([string[]]$Candidates, [string]$Description) {
   foreach ($candidate in $Candidates) {
     if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
@@ -110,15 +119,15 @@ function Apply-SeedFiles([string]$PsqlPath, [string]$DatabaseUrl, [string]$Dir) 
 
 $defaultConfigCandidates = @(
   $ConfigPath,
-  (Join-Path $PSScriptRoot "riverside-deployment.config.json"),
-  (Join-Path (Split-Path -Parent $PSScriptRoot) "riverside-deployment.config.json"),
+  (Join-Path $ScriptRoot "riverside-deployment.config.json"),
+  (Join-Path (Split-Path -Parent $ScriptRoot) "riverside-deployment.config.json"),
   "C:\RiversideOS\release\riverside-deployment.config.json"
 )
 $resolvedConfigPath = Resolve-ExistingPath $defaultConfigCandidates "riverside-deployment.config.json"
 
 $defaultMigrationCandidates = @(
   $MigrationsDir,
-  (Join-Path $PSScriptRoot "migrations"),
+  (Join-Path $ScriptRoot "migrations"),
   "C:\RiversideOS\release\migrations"
 )
 $resolvedMigrationsDir = Resolve-ExistingPath $defaultMigrationCandidates "migrations folder"

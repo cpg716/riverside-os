@@ -11,6 +11,15 @@ param(
 $ErrorActionPreference = "Stop"
 $script:lastNativeCommandOutput = ""
 
+$ScriptRoot = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
+  $ScriptRoot = if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+  } else {
+    "."
+  }
+}
+
 function Assert-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
@@ -635,7 +644,7 @@ function Set-DatabaseEnvironmentMode($PsqlPath, $DatabaseUrl, [bool]$StrictProdu
 
 Assert-Admin
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-  $ConfigPath = Join-Path $PSScriptRoot "riverside-deployment.config.json"
+  $ConfigPath = Join-Path $ScriptRoot "riverside-deployment.config.json"
 }
 if (-not (Test-Path $ConfigPath)) {
   throw "Config file not found: $ConfigPath. Copy riverside-deployment.config.example.json to riverside-deployment.config.json and fill it in."
@@ -720,24 +729,35 @@ if ($configModified) {
   Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
   Write-Host "Auto-saved resolved credentials and passwords to $ConfigPath." -ForegroundColor Green
 }
-$packageManifestPath = Join-Path $PSScriptRoot "deployment-package.manifest.json"
+$packageManifestPath = Join-Path $ScriptRoot "deployment-package.manifest.json"
 $packageManifest = $null
 if (Test-Path $packageManifestPath) {
   $packageManifest = Get-Content $packageManifestPath -Raw | ConvertFrom-Json
 }
 $server = $config.server
+if (-not $server) { throw "Config file is missing the 'server' section. Check your riverside-deployment.config.json." }
 $db = $server.database
+if (-not $db) { throw "Config file is missing the 'server.database' section. Check your riverside-deployment.config.json." }
+if ([string]::IsNullOrWhiteSpace($db.host))         { Set-SafeProperty $db "host" "127.0.0.1" }
+if (-not $db.port)                                   { Set-SafeProperty $db "port" 5432 }
+if ([string]::IsNullOrWhiteSpace($db.databaseName))  { Set-SafeProperty $db "databaseName" "riverside_os" }
+if ([string]::IsNullOrWhiteSpace($db.appUser))       { Set-SafeProperty $db "appUser" "riverside_app" }
+if ([string]::IsNullOrWhiteSpace($db.adminUser))     { Set-SafeProperty $db "adminUser" "postgres" }
 $installRoot = $server.installRoot
+if ([string]::IsNullOrWhiteSpace($installRoot)) {
+  $installRoot = "C:\RiversideOS"
+  Write-Host "No installRoot in config - defaulting to $installRoot" -ForegroundColor Yellow
+}
 $serverDir = Join-Path $installRoot "server"
 $clientDist = Join-Path $installRoot "client\dist"
 $releaseDir = Join-Path $installRoot "release"
 $backupDir = Join-Path $installRoot "backups"
 $logDir = Join-Path $installRoot "logs"
-$packageServerExe = Join-Path $PSScriptRoot "server\riverside-server.exe"
-$packageDist = Join-Path $PSScriptRoot "client-dist"
-$packageMigrations = Join-Path $PSScriptRoot "migrations"
-$packageSeeds = Join-Path $PSScriptRoot "seeds"
-$packageReleaseDocs = Join-Path $PSScriptRoot "release-docs"
+$packageServerExe = Join-Path $ScriptRoot "server\riverside-server.exe"
+$packageDist = Join-Path $ScriptRoot "client-dist"
+$packageMigrations = Join-Path $ScriptRoot "migrations"
+$packageSeeds = Join-Path $ScriptRoot "seeds"
+$packageReleaseDocs = Join-Path $ScriptRoot "release-docs"
 
 foreach ($dir in @($installRoot, $serverDir, $clientDist, $releaseDir, $backupDir, $logDir)) {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -757,7 +777,9 @@ if (-not (Test-Path $packageSeeds)) {
 }
 
 $taskName = "Riverside OS Server"
-$serverPort = [int](($server.httpBind -split ":")[-1])
+$httpBind = $server.httpBind
+if ([string]::IsNullOrWhiteSpace($httpBind)) { $httpBind = "0.0.0.0:3000" }
+$serverPort = [int](($httpBind -split ":")[-1])
 Stop-RiversideServer
 Stop-PortListeners $serverPort
 
@@ -834,7 +856,7 @@ try {
 $rosieModelPath = $null
 if (-not $SkipRosieSetup) {
   Write-Host "`n--- ROSIE AI Stack Setup ---"
-  $rosieModelPath = Install-RosieStack $PSScriptRoot
+  $rosieModelPath = Install-RosieStack $ScriptRoot
   if ($rosieModelPath) {
     Write-Host "ROSIE model path: $rosieModelPath"
   } else {

@@ -19,8 +19,15 @@ if (-not $isAdmin) {
 }
 
 # 2. Config Resolution
-$packageRoot = $PSScriptRoot
-if (-not $packageRoot) { $packageRoot = (Get-Location).Path }
+$ScriptRoot = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
+  $ScriptRoot = if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+  } else {
+    "."
+  }
+}
+$packageRoot = $ScriptRoot
 $configPath = Join-Path $packageRoot "riverside-deployment.config.json"
 
 if (-not (Test-Path $configPath)) {

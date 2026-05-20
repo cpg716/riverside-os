@@ -26,6 +26,15 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+$ScriptRoot = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
+  $ScriptRoot = if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+  } else {
+    "."
+  }
+}
+
 # ---- Admin guard ----
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
@@ -40,7 +49,7 @@ if (-not $isAdmin) {
 # ---- Resolve server install root ----
 if (-not $ServerInstallRoot) {
   # Try reading from riverside-deployment.config.json next to this script.
-  $configPath = Join-Path $PSScriptRoot "riverside-deployment.config.json"
+  $configPath = Join-Path $ScriptRoot "riverside-deployment.config.json"
   if (Test-Path $configPath) {
     try {
       $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -71,7 +80,7 @@ Write-Host "[1/4] LLM model (Gemma 4 E2B)..."
 
 # MODEL_PIN.json is either next to this script (from the deployment package)
 # or we fall back to inline values pinned at release time.
-$pinPath = Join-Path $PSScriptRoot "rosie\MODEL_PIN.json"
+$pinPath = Join-Path $ScriptRoot "rosie\MODEL_PIN.json"
 if (Test-Path $pinPath) {
   $pin = Get-Content -Raw $pinPath | ConvertFrom-Json
 } else {

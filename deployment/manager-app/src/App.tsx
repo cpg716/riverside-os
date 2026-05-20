@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link } from 'lucide-react';
+import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link, Download, Monitor } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -9,7 +9,7 @@ interface LogMessage {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'wizard' | 'maintenance'>('wizard');
+  const [activeTab, setActiveTab] = useState<'wizard' | 'maintenance'>('maintenance');
   const [step, setStep] = useState(1);
   const [role, setRole] = useState<'server' | 'register'>('server');
   
@@ -54,7 +54,14 @@ export default function App() {
     const newConfig = { ...config };
     if (!newConfig.server) newConfig.server = {};
     if (!newConfig.server.database) newConfig.server.database = {};
+    if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
+    if (!newConfig.server.httpBind) newConfig.server.httpBind = '0.0.0.0:3000';
     newConfig.server.database.adminPassword = dbPassword;
+    if (!newConfig.server.database.host) newConfig.server.database.host = serverIp;
+    if (!newConfig.server.database.port) newConfig.server.database.port = 5432;
+    if (!newConfig.server.database.databaseName) newConfig.server.database.databaseName = 'riverside_os';
+    if (!newConfig.server.database.appUser) newConfig.server.database.appUser = 'riverside_app';
+    if (!newConfig.server.database.adminUser) newConfig.server.database.adminUser = 'postgres';
     
     await invoke('write_deployment_config', { config: JSON.stringify(newConfig) });
     setStep(3);
@@ -291,7 +298,34 @@ export default function App() {
         /* MAINTENANCE TAB */
         <div className="w-full max-w-5xl glass-panel p-8 grid grid-cols-12 gap-8">
           <div className="col-span-5 space-y-4 border-r pr-8 max-h-[500px] overflow-y-auto">
+            {/* Quick Update Actions */}
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900">
+              <Download className="w-5 h-5 text-brand-600" /> Quick Update
+            </h2>
+            <button 
+              onClick={() => executeScript('install-server.ps1')}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border-2 border-brand-500 bg-brand-50 hover:bg-brand-100 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm flex items-center gap-2"><Server className="w-4 h-4" /> Update This Server PC</h3>
+                <p className="text-xs text-zinc-500 mt-1">Copies new server binary, client files, runs migrations, and restarts the service.</p>
+              </div>
+              <Play className="w-4 h-4 text-brand-500" />
+            </button>
+            <button 
+              onClick={() => executeScript('install-register.ps1')}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm flex items-center gap-2"><Monitor className="w-4 h-4" /> Update Register / Workstation</h3>
+                <p className="text-xs text-zinc-500 mt-1">Installs or updates the desktop POS app on this PC.</p>
+              </div>
+              <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
+            </button>
+
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
               <Power className="w-5 h-5 text-brand-600" /> Server Control
             </h2>
             <div className="grid grid-cols-2 gap-2 mb-6">
@@ -372,6 +406,21 @@ export default function App() {
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
               <Cpu className="w-5 h-5 text-brand-600" /> Utility Scripts
             </h2>
+            <button 
+              onClick={() => {
+                if (confirm('This will stop the database, force a password reset, and start it again. Your new password will be auto-saved to the config file. Proceed?')) {
+                  executeScript('reset-postgres-password.ps1');
+                }
+              }}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm text-red-600">Reset Postgres Admin Password</h3>
+                <p className="text-xs text-red-400 mt-1">Forces a database password reset if you forgot it.</p>
+              </div>
+              <Key className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
+            </button>
             <button 
               onClick={() => executeScript('Install-RosieAiStack.ps1')}
               disabled={isExecuting}

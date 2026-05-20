@@ -7,6 +7,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$ScriptRoot = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
+  $ScriptRoot = if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+  } else {
+    "."
+  }
+}
+
 function Assert-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
@@ -16,7 +25,7 @@ function Assert-Admin {
 }
 
 function Find-RegisterInstaller {
-  $registerDir = Join-Path $PSScriptRoot "register"
+  $registerDir = Join-Path $ScriptRoot "register"
   if (-not (Test-Path $registerDir)) {
     throw "Missing register installer folder: $registerDir"
   }
@@ -165,7 +174,7 @@ function Find-InstalledApp {
 
 Assert-Admin
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-  $ConfigPath = Join-Path $PSScriptRoot "riverside-deployment.config.json"
+  $ConfigPath = Join-Path $ScriptRoot "riverside-deployment.config.json"
 }
 if (-not (Test-Path $ConfigPath)) {
   throw "Config file not found: $ConfigPath. Copy riverside-deployment.config.example.json to riverside-deployment.config.json and fill it in."

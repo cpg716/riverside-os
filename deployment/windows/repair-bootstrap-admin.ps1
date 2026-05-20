@@ -6,6 +6,15 @@ param(
 $ErrorActionPreference = "Stop"
 $script:lastNativeCommandOutput = ""
 
+$ScriptRoot = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
+  $ScriptRoot = if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+  } else {
+    "."
+  }
+}
+
 function ConvertTo-NativeArgument([string]$Argument) {
   if ($Argument -notmatch '[\s"]') {
     return $Argument
@@ -69,7 +78,7 @@ function Resolve-PsqlPath($dbConfig) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-  $ConfigPath = Join-Path $PSScriptRoot "riverside-deployment.config.json"
+  $ConfigPath = Join-Path $ScriptRoot "riverside-deployment.config.json"
 }
 if (-not (Test-Path $ConfigPath)) {
   throw "Config file not found: $ConfigPath."

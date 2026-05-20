@@ -7,10 +7,19 @@ param(
 $ErrorActionPreference = "Stop"
 $script:lastNativeCommandOutput = ""
 
+$ScriptRoot = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
+  $ScriptRoot = if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+  } else {
+    "."
+  }
+}
+
 function Assert-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-  if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  $isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
+  if (-not $isAdmin) {
     throw "Run this reset tool as Administrator."
   }
 }
@@ -86,14 +95,14 @@ try {
   Add-Type -AssemblyName System.Windows.Forms
 
   if (-not $ConfigPath) {
-    $ConfigPath = Join-Path $PSScriptRoot "riverside-deployment.config.json"
+    $ConfigPath = Join-Path $ScriptRoot "riverside-deployment.config.json"
   }
   if (-not [System.IO.Path]::IsPathRooted($ConfigPath)) {
-    $ConfigPath = Join-Path $PSScriptRoot $ConfigPath
+    $ConfigPath = Join-Path $ScriptRoot $ConfigPath
   }
 
   if (-not (Test-Path $ConfigPath)) {
-    $parentConfigPath = Join-Path (Split-Path -Parent $PSScriptRoot) "riverside-deployment.config.json"
+    $parentConfigPath = Join-Path (Split-Path -Parent $ScriptRoot) "riverside-deployment.config.json"
     if (Test-Path $parentConfigPath) {
       $ConfigPath = $parentConfigPath
     }
@@ -198,17 +207,17 @@ CREATE DATABASE "$quotedDatabase"
 
   if ($StartFresh) {
     Write-Host "Start Fresh option active. Finding migrations and seeds..."
-    $migrationsDir = Join-Path $PSScriptRoot "migrations"
+    $migrationsDir = Join-Path $ScriptRoot "migrations"
     if (-not (Test-Path $migrationsDir)) {
       $migrationsDir = "C:\RiversideOS\release\migrations"
     }
-    $migrationsScript = Join-Path $PSScriptRoot "apply-riverside-migrations.ps1"
+    $migrationsScript = Join-Path $ScriptRoot "apply-riverside-migrations.ps1"
     if (Test-Path $migrationsScript) {
       Write-Host "Applying database migrations..."
       & $migrationsScript -ConfigPath $ConfigPath -MigrationsDir $migrationsDir -ApplySeeds
       Write-Host "Database recreated, migrated, and seeded successfully! Ready for use." -ForegroundColor Green
     } else {
-      throw "apply-riverside-migrations.ps1 not found in $PSScriptRoot"
+      throw "apply-riverside-migrations.ps1 not found in $ScriptRoot"
     }
   } else {
     [System.Windows.Forms.MessageBox]::Show(
