@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link, Download, Monitor } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link, Download, Monitor, Square, AlertTriangle, Activity, HardDrive, XCircle } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -8,28 +8,56 @@ interface LogMessage {
   text: string;
 }
 
+interface PgStatus {
+  service_status: string;
+  service_name: string;
+  connectable: boolean;
+  version: string;
+  db_exists: boolean;
+  db_size: string;
+  psql_found: boolean;
+  migration_count?: string;
+  table_count?: string;
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'wizard' | 'maintenance'>('maintenance');
   const [step, setStep] = useState(1);
   const [role, setRole] = useState<'server' | 'register'>('server');
-  
+
   const [isElevated, setIsElevated] = useState<boolean | null>(null);
-  
+
   // Config state
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [config, setConfig] = useState<any>({});
   const [serverIp, setServerIp] = useState('127.0.0.1');
   const [dbPassword, setDbPassword] = useState('');
-  
+
   // Execution state
   const [logs, setLogs] = useState<LogMessage[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
+  // PostgreSQL status
+  const [pgStatus, setPgStatus] = useState<PgStatus | null>(null);
+  const [pgLoading, setPgLoading] = useState(false);
+
   // Auto-scroll logs
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
+
+  const refreshPgStatus = useCallback(async () => {
+    setPgLoading(true);
+    try {
+      const result = await invoke<PgStatus>('get_postgres_status');
+      setPgStatus(result);
+    } catch {
+      setPgStatus(null);
+    } finally {
+      setPgLoading(false);
+    }
+  }, []);
 
   // Load config on mount
   useEffect(() => {
@@ -48,7 +76,9 @@ export default function App() {
     invoke<boolean>('is_elevated')
       .then((res) => setIsElevated(res))
       .catch(() => setIsElevated(true));
-  }, []);
+
+    refreshPgStatus();
+  }, [refreshPgStatus]);
 
   const handleContinueToExec = async () => {
     const newConfig = { ...config };
@@ -63,7 +93,7 @@ export default function App() {
     if (!newConfig.server.database.appUser) newConfig.server.database.appUser = 'riverside_app';
     if (!newConfig.server.database.adminUser) newConfig.server.database.adminUser = 'postgres';
     if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
-    
+
     await invoke('write_deployment_config', { config: JSON.stringify(newConfig) });
     setStep(3);
     executeScript(role === 'server' ? 'install-server.ps1' : 'install-register.ps1');
@@ -87,7 +117,7 @@ export default function App() {
     const unlisten = await listen<LogMessage>('deployment-log', (event) => {
       setLogs(prev => [...prev, event.payload]);
     });
-    
+
     try {
       await invoke('run_deployment_script', { scriptName, args });
     } catch (e) {
@@ -107,7 +137,7 @@ export default function App() {
     const unlisten = await listen<LogMessage>('deployment-log', (event) => {
       setLogs(prev => [...prev, event.payload]);
     });
-    
+
     try {
       await invoke('run_inline_powershell', { scriptContent: command });
     } catch (e) {
@@ -132,13 +162,13 @@ export default function App() {
           </div>
         </div>
         <div className="flex bg-zinc-200 p-1 rounded-lg">
-          <button 
+          <button
             onClick={() => setActiveTab('wizard')}
             className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${activeTab === 'wizard' ? 'bg-white shadow-sm text-brand-700' : 'text-zinc-500 hover:text-zinc-700'}`}
           >
             Installation Wizard
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('maintenance')}
             className={`px-4 py-2 text-sm font-semibold rounded-md transition-all ${activeTab === 'maintenance' ? 'bg-white shadow-sm text-brand-700' : 'text-zinc-500 hover:text-zinc-700'}`}
           >
@@ -180,7 +210,7 @@ export default function App() {
               const active = step === s.num;
               const past = step > s.num;
               return (
-                <div 
+                <div
                   key={s.num}
                   className={`p-4 rounded-xl border transition-all ${active ? 'bg-white border-brand-500 shadow-sm' : past ? 'bg-transparent border-transparent opacity-60' : 'bg-transparent border-transparent opacity-40'}`}
                 >
@@ -204,7 +234,7 @@ export default function App() {
               <div className="flex-1">
                 <h2 className="text-xl font-bold mb-6">What is the role of this PC?</h2>
                 <div className="space-y-4">
-                  <button 
+                  <button
                     onClick={() => setRole('server')}
                     className={`w-full text-left p-6 rounded-xl border-2 transition-all ${role === 'server' ? 'border-brand-500 bg-brand-50' : 'border-zinc-200 hover:border-zinc-300'}`}
                   >
@@ -213,7 +243,7 @@ export default function App() {
                     </h3>
                     <p className="text-zinc-500 text-sm mt-1">Runs the core PostgreSQL database, API server, and ROSIE AI models. Only ONE computer per store should be the Server.</p>
                   </button>
-                  <button 
+                  <button
                     onClick={() => setRole('register')}
                     className={`w-full text-left p-6 rounded-xl border-2 transition-all ${role === 'register' ? 'border-brand-500 bg-brand-50' : 'border-zinc-200 hover:border-zinc-300'}`}
                   >
@@ -232,22 +262,22 @@ export default function App() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-semibold text-zinc-700 mb-1">Server IP Address</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={serverIp}
                       onChange={(e) => setServerIp(e.target.value)}
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" 
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
                     />
                   </div>
                   {role === 'server' && (
                     <div>
                       <label className="block text-sm font-semibold text-zinc-700 mb-1">PostgreSQL Admin Password</label>
-                      <input 
-                        type="password" 
+                      <input
+                        type="password"
                         value={dbPassword}
                         onChange={(e) => setDbPassword(e.target.value)}
                         placeholder="Leave blank to auto-generate"
-                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none" 
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
                       />
                     </div>
                   )}
@@ -265,8 +295,8 @@ export default function App() {
                   <div className="space-y-1 pb-4">
                     {logs.map((log, i) => (
                       <p key={i} className={`whitespace-pre-wrap ${
-                        log.level === 'error' ? 'text-red-400' : 
-                        log.level === 'success' ? 'text-green-400' : 
+                        log.level === 'error' ? 'text-red-400' :
+                        log.level === 'success' ? 'text-green-400' :
                         'text-zinc-300'
                       }`}>
                         {log.text}
@@ -316,12 +346,12 @@ export default function App() {
       ) : (
         /* MAINTENANCE TAB */
         <div className="w-full max-w-5xl glass-panel p-8 grid grid-cols-12 gap-8">
-          <div className="col-span-5 space-y-4 border-r pr-8 max-h-[500px] overflow-y-auto">
+          <div className="col-span-5 space-y-4 border-r pr-8 max-h-[700px] overflow-y-auto">
             {/* Quick Update Actions */}
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900">
               <Download className="w-5 h-5 text-brand-600" /> Quick Update
             </h2>
-            <button 
+            <button
               onClick={() => executeScript('install-server.ps1')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border-2 border-brand-500 bg-brand-50 hover:bg-brand-100 transition-all disabled:opacity-50 flex items-center justify-between group"
@@ -332,7 +362,7 @@ export default function App() {
               </div>
               <Play className="w-4 h-4 text-brand-500" />
             </button>
-            <button 
+            <button
               onClick={() => executeScript('install-register.ps1')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
@@ -347,8 +377,8 @@ export default function App() {
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
               <Power className="w-5 h-5 text-brand-600" /> Server Control
             </h2>
-            <div className="grid grid-cols-2 gap-2 mb-6">
-              <button 
+            <div className="grid grid-cols-3 gap-2 mb-6">
+              <button
                 onClick={() => executeInline('Start-ScheduledTask -TaskName "Riverside OS Server"', 'Start Server')}
                 disabled={isExecuting}
                 className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex flex-col items-center justify-center gap-1 group"
@@ -356,7 +386,15 @@ export default function App() {
                 <Power className="w-5 h-5 text-zinc-400 group-hover:text-brand-500" />
                 <span className="text-xs font-semibold">Start</span>
               </button>
-              <button 
+              <button
+                onClick={() => executeInline('Stop-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue; Stop-Process -Name "riverside-server" -Force -ErrorAction SilentlyContinue', 'Stop Server')}
+                disabled={isExecuting}
+                className="p-3 rounded-lg border border-zinc-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex flex-col items-center justify-center gap-1 group"
+              >
+                <Square className="w-5 h-5 text-zinc-400 group-hover:text-red-500" />
+                <span className="text-xs font-semibold">Stop</span>
+              </button>
+              <button
                 onClick={() => executeInline('Stop-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue; Stop-Process -Name "riverside-server" -Force -ErrorAction SilentlyContinue; Start-ScheduledTask -TaskName "Riverside OS Server"', 'Restart Server')}
                 disabled={isExecuting}
                 className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex flex-col items-center justify-center gap-1 group"
@@ -364,14 +402,14 @@ export default function App() {
                 <RotateCw className="w-5 h-5 text-zinc-400 group-hover:text-brand-500" />
                 <span className="text-xs font-semibold">Restart</span>
               </button>
-              <button 
+              <button
                 onClick={() => invoke('open_logs')}
                 className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all flex flex-col items-center justify-center gap-1 group"
               >
                 <FolderOpen className="w-5 h-5 text-zinc-400 group-hover:text-brand-500" />
                 <span className="text-xs font-semibold">Logs</span>
               </button>
-              <button 
+              <button
                 onClick={() => executeScript('audit-system.ps1', undefined, { requireAdmin: true })}
                 disabled={isExecuting}
                 className="p-3 rounded-lg border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex flex-col items-center justify-center gap-1 group"
@@ -381,10 +419,119 @@ export default function App() {
               </button>
             </div>
 
+            {/* ---- PostgreSQL Status Panel ---- */}
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
+              <Activity className="w-5 h-5 text-brand-600" /> PostgreSQL Status
+            </h2>
+            <div className="p-4 rounded-xl border border-zinc-200 bg-white space-y-3 mb-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Database Health</span>
+                <button
+                  onClick={refreshPgStatus}
+                  disabled={pgLoading}
+                  className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${pgLoading ? 'animate-spin' : ''}`} /> Refresh
+                </button>
+              </div>
+              {pgStatus === null ? (
+                <p className="text-xs text-zinc-400 italic">Loading...</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <HardDrive className="w-3.5 h-3.5 text-zinc-400" />
+                      <span className="text-zinc-500">Service:</span>
+                      <span className={`font-bold ${
+                        pgStatus.service_status === 'running' ? 'text-green-600' :
+                        pgStatus.service_status === 'stopped' ? 'text-red-500' :
+                        pgStatus.service_status === 'not_found' ? 'text-zinc-400' :
+                        'text-amber-500'
+                      }`}>
+                        {pgStatus.service_status === 'not_found' ? 'Not Found' : pgStatus.service_status}
+                        {pgStatus.service_name ? ` (${pgStatus.service_name})` : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {pgStatus.connectable ? (
+                        <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                      ) : (
+                        <XCircle className="w-3.5 h-3.5 text-red-500" />
+                      )}
+                      <span className="text-zinc-500">Connection:</span>
+                      <span className={`font-bold ${pgStatus.connectable ? 'text-green-600' : 'text-red-500'}`}>
+                        {pgStatus.connectable ? 'OK' : 'Failed'}
+                      </span>
+                    </div>
+                    {pgStatus.version && (
+                      <div className="col-span-2 flex items-center gap-2 truncate" title={pgStatus.version}>
+                        <Database className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                        <span className="text-zinc-500 shrink-0">Version:</span>
+                        <span className="font-mono text-zinc-700 truncate">{pgStatus.version.split(',')[0]}</span>
+                      </div>
+                    )}
+                    {pgStatus.db_exists && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-500 ml-5">DB Size:</span>
+                          <span className="font-bold text-zinc-700">{pgStatus.db_size || '—'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-500">Tables:</span>
+                          <span className="font-bold text-zinc-700">{pgStatus.table_count ?? '—'}</span>
+                          <span className="text-zinc-400 mx-1">|</span>
+                          <span className="text-zinc-500">Migrations:</span>
+                          <span className="font-bold text-zinc-700">{pgStatus.migration_count ?? '—'}</span>
+                        </div>
+                      </>
+                    )}
+                    {!pgStatus.db_exists && pgStatus.connectable && (
+                      <div className="col-span-2 flex items-center gap-2 text-amber-600">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span className="font-semibold">Database 'riverside_os' does not exist — run Install or Start Fresh.</span>
+                      </div>
+                    )}
+                    {!pgStatus.psql_found && (
+                      <div className="col-span-2 flex items-center gap-2 text-amber-600">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span className="font-semibold">psql.exe not found — install PostgreSQL or set psqlPath in config.</span>
+                      </div>
+                    )}
+                  </div>
+                  {/* PG Service control buttons */}
+                  {pgStatus.service_name && (
+                    <div className="flex gap-2 pt-2 border-t border-zinc-100">
+                      <button
+                        onClick={() => { executeInline(`Start-Service -Name '${pgStatus.service_name}'`, 'Start PostgreSQL'); setTimeout(refreshPgStatus, 3000); }}
+                        disabled={isExecuting || pgStatus.service_status === 'running'}
+                        className="flex-1 text-xs font-semibold py-1.5 rounded-md border border-zinc-200 hover:border-green-500 hover:bg-green-50 disabled:opacity-40 transition-all"
+                      >
+                        Start PG
+                      </button>
+                      <button
+                        onClick={() => { executeInline(`Restart-Service -Name '${pgStatus.service_name}' -Force`, 'Restart PostgreSQL'); setTimeout(refreshPgStatus, 5000); }}
+                        disabled={isExecuting}
+                        className="flex-1 text-xs font-semibold py-1.5 rounded-md border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 disabled:opacity-40 transition-all"
+                      >
+                        Restart PG
+                      </button>
+                      <button
+                        onClick={() => { executeInline(`Stop-Service -Name '${pgStatus.service_name}' -Force`, 'Stop PostgreSQL'); setTimeout(refreshPgStatus, 3000); }}
+                        disabled={isExecuting || pgStatus.service_status === 'stopped'}
+                        className="flex-1 text-xs font-semibold py-1.5 rounded-md border border-zinc-200 hover:border-red-500 hover:bg-red-50 disabled:opacity-40 transition-all"
+                      >
+                        Stop PG
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-2">
               <Database className="w-5 h-5 text-brand-600" /> Database & Migrations
             </h2>
-            <button 
+            <button
               onClick={() => executeScript('apply-riverside-migrations.ps1')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
@@ -395,7 +542,7 @@ export default function App() {
               </div>
               <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
             </button>
-             <button 
+             <button
               onClick={() => executeInline('$psql = Get-Command psql.exe -ErrorAction SilentlyContinue; $psqlPath = if ($psql) { $psql.Source } else { \'psql.exe\' }; if (Test-Path \'seeds\') { & $psqlPath -U postgres -d riverside_os -f \'seeds/seed_core_required.sql\'; & $psqlPath -U postgres -d riverside_os -f \'seeds/seed_rbac.sql\'; Write-Host \'Database seeded successfully.\' } else { Write-Host \'No seeds directory found.\' }', 'Seed Database')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
@@ -406,7 +553,7 @@ export default function App() {
               </div>
               <ArrowDownToLine className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
             </button>
-            <button 
+            <button
               onClick={() => {
                 if(confirm('Are you sure you want to completely START FRESH? This will clear the DB, seed the proper start data, and set it up like new. This cannot be undone.')) {
                   executeScript('reset-riverside-database.ps1', ['-StartFresh']);
@@ -425,7 +572,7 @@ export default function App() {
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
               <Cpu className="w-5 h-5 text-brand-600" /> Utility Scripts
             </h2>
-            <button 
+            <button
               onClick={() => {
                 if (confirm('This will stop the database, force a password reset, and start it again. Your new password will be auto-saved to the config file. Proceed?')) {
                   executeScript('reset-postgres-password.ps1');
@@ -440,7 +587,7 @@ export default function App() {
               </div>
               <Key className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
             </button>
-            <button 
+            <button
               onClick={() => executeScript('Install-RosieAiStack.ps1')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
@@ -451,7 +598,7 @@ export default function App() {
               </div>
               <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
             </button>
-            <button 
+            <button
               onClick={() => executeScript('start-riverside-llama.ps1')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
@@ -462,7 +609,7 @@ export default function App() {
               </div>
               <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
             </button>
-            <button 
+            <button
               onClick={() => executeScript('set-counterpoint-bridge-token.ps1')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 transition-all disabled:opacity-50 flex items-center justify-between group"
@@ -473,7 +620,7 @@ export default function App() {
               </div>
               <Link className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
             </button>
-            <button 
+            <button
               onClick={() => executeScript('repair-server-credentials-key.ps1')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 transition-all disabled:opacity-50 flex items-center justify-between group"
@@ -484,7 +631,7 @@ export default function App() {
               </div>
               <Wrench className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
             </button>
-            <button 
+            <button
               onClick={() => executeScript('repair-bootstrap-admin.ps1')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 transition-all disabled:opacity-50 flex items-center justify-between group"
@@ -494,6 +641,63 @@ export default function App() {
                 <p className="text-xs text-zinc-500 mt-1">Ensures a master administrator account exists.</p>
               </div>
               <Key className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
+            </button>
+
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
+              <Trash2 className="w-5 h-5 text-red-500" /> Uninstall
+            </h2>
+            <button
+              onClick={() => {
+                if(confirm('UNINSTALL SERVER: This will stop the Riverside OS Server task, remove the scheduled task, delete the server directory (C:\\RiversideOS by default), and remove the firewall rule. The PostgreSQL database will NOT be deleted. Proceed?')) {
+                  executeInline(
+                    `$ErrorActionPreference = 'SilentlyContinue';
+                     Stop-ScheduledTask -TaskName 'Riverside OS Server';
+                     Stop-Process -Name 'riverside-server' -Force;
+                     Unregister-ScheduledTask -TaskName 'Riverside OS Server' -Confirm:$false;
+                     $installRoot = 'C:\\RiversideOS';
+                     $cfgPath = '${config?.server?.installRoot || 'C:\\RiversideOS'}';
+                     if ($cfgPath) { $installRoot = $cfgPath };
+                     if (Test-Path $installRoot) { Remove-Item -Recurse -Force $installRoot; Write-Host "Removed $installRoot" } else { Write-Host "$installRoot not found — already clean." };
+                     Remove-NetFirewallRule -DisplayName 'Riverside OS Server' -ErrorAction SilentlyContinue;
+                     Write-Host 'Uninstall complete. PostgreSQL database was preserved.'`,
+                    'Uninstall Server'
+                  );
+                }
+              }}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm text-red-600">Uninstall Server</h3>
+                <p className="text-xs text-red-400/80 mt-1">Removes the server binary, client bundle, scheduled task, and firewall rule. Keeps the database.</p>
+              </div>
+              <Trash2 className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
+            </button>
+            <button
+              onClick={() => {
+                if(confirm('UNINSTALL REGISTER: This will remove the Riverside OS desktop app from this workstation. Proceed?')) {
+                  executeInline(
+                    `$ErrorActionPreference = 'SilentlyContinue';
+                     $userDesktop = [Environment]::GetFolderPath('Desktop');
+                     $publicDesktop = [Environment]::GetFolderPath('CommonDesktopDirectory');
+                     Remove-Item (Join-Path $userDesktop 'Riverside OS.lnk') -Force -ErrorAction SilentlyContinue;
+                     Remove-Item (Join-Path $publicDesktop 'Riverside OS.lnk') -Force -ErrorAction SilentlyContinue;
+                     $localAppData = $env:LOCALAPPDATA;
+                     $tauriDir = Join-Path $localAppData 'com.riverside-os.app';
+                     if (Test-Path $tauriDir) { Remove-Item -Recurse -Force $tauriDir; Write-Host "Removed $tauriDir" } else { Write-Host "Tauri app data not found — already clean." };
+                     Write-Host 'Register uninstall complete.'`,
+                    'Uninstall Register'
+                  );
+                }
+              }}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm text-red-600">Uninstall Register</h3>
+                <p className="text-xs text-red-400/80 mt-1">Removes the desktop POS app and shortcuts from this workstation.</p>
+              </div>
+              <Trash2 className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
             </button>
           </div>
           <div className="col-span-7 flex flex-col min-h-[400px]">
@@ -510,8 +714,8 @@ export default function App() {
                 <div className="space-y-1 pb-4">
                   {logs.map((log, i) => (
                     <p key={i} className={`whitespace-pre-wrap ${
-                      log.level === 'error' ? 'text-red-400' : 
-                      log.level === 'success' ? 'text-green-400' : 
+                      log.level === 'error' ? 'text-red-400' :
+                      log.level === 'success' ? 'text-green-400' :
                       'text-zinc-300'
                     }`}>
                       {log.text}

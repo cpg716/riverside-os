@@ -334,6 +334,133 @@ async fn open_logs() -> Result<(), String> {
     Ok(())
 }
 
+/// Probe PostgreSQL: Windows service state, psql connectivity, version, DB size.
+/// Returns a JSON object consumable by the frontend status panel.
+#[tauri::command]
+async fn get_postgres_status() -> Result<serde_json::Value, String> {
+    let config_path = get_config_path();
+    let (db_host, db_port, db_name, db_user, db_password, psql_hint) = if config_path.exists() {
+        let raw = tokio::fs::read_to_string(&config_path)
+            .await
+            .unwrap_or_default();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+        let db = v.get("server").and_then(|s| s.get("database"));
+        let host = db
+            .and_then(|d| d.get("host"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("127.0.0.1")
+            .to_string();
+        let port = db
+            .and_then(|d| d.get("port"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(5432);
+        let name = db
+            .and_then(|d| d.get("databaseName"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("riverside_os")
+            .to_string();
+        let user = db
+            .and_then(|d| d.get("appUser"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("riverside_app")
+            .to_string();
+        let password = db
+            .and_then(|d| d.get("appPassword"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let psql = db
+            .and_then(|d| d.get("psqlPath"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        (host, port, name, user, password, psql)
+    } else {
+        (
+            "127.0.0.1".into(),
+            5432,
+            "riverside_os".into(),
+            "riverside_app".into(),
+            String::new(),
+            String::new(),
+        )
+    };
+
+    // Build a single PowerShell script that outputs JSON.
+    let ps_script = format!(
+        r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$out = @{{ service_status = 'not_found'; service_name = ''; connectable = $false; version = ''; db_exists = $false; db_size = '' }}
+
+# 1. Windows service status
+$svc = Get-Service | Where-Object {{ $_.Name -like 'postgresql*' -or $_.DisplayName -like 'PostgreSQL*' }} | Sort-Object Name -Descending | Select-Object -First 1
+if ($svc) {{
+    $out.service_name = $svc.Name
+    $out.service_status = $svc.Status.ToString().ToLower()
+}}
+
+# 2. Resolve psql path
+$psqlPath = '{psql_hint}'
+if (-not $psqlPath -or -not (Test-Path $psqlPath)) {{
+    $psqlCmd = Get-Command psql.exe -ErrorAction SilentlyContinue
+    if ($psqlCmd) {{ $psqlPath = $psqlCmd.Source }}
+}}
+$out['psql_found'] = [bool]($psqlPath -and (Test-Path $psqlPath))
+
+# 3. Connectivity + version
+if ($out['psql_found']) {{
+    $env:PGPASSWORD = '{password}'
+    $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-tAc' 'SELECT version();' 2>&1
+    if ($LASTEXITCODE -eq 0 -and $verResult) {{
+        $out.connectable = $true
+        $out.version = ($verResult -join '').Trim()
+    }}
+
+    # 4. DB existence + size
+    if ($out.connectable) {{
+        $existsResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-tAc' "SELECT 1 FROM pg_database WHERE datname = '{db_name}';" 2>&1
+        $out.db_exists = (($existsResult -join '').Trim() -eq '1')
+        if ($out.db_exists) {{
+            $sizeResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-tAc' "SELECT pg_size_pretty(pg_database_size(current_database()));" 2>&1
+            if ($LASTEXITCODE -eq 0) {{ $out.db_size = ($sizeResult -join '').Trim() }}
+            $migResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-tAc' "SELECT count(*) FROM _sqlx_migrations;" 2>&1
+            if ($LASTEXITCODE -eq 0) {{ $out['migration_count'] = ($migResult -join '').Trim() }}
+            $tableResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-tAc' "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>&1
+            if ($LASTEXITCODE -eq 0) {{ $out['table_count'] = ($tableResult -join '').Trim() }}
+        }}
+    }}
+    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+}}
+
+$out | ConvertTo-Json -Compress
+"#,
+        psql_hint = psql_hint.replace('\'', "''"),
+        password = db_password.replace('\'', "''"),
+        host = db_host,
+        port = db_port,
+        user = db_user,
+        db_name = db_name,
+    );
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
+        .arg(&ps_script)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run postgres status probe: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|_| {
+        serde_json::json!({
+            "service_status": "probe_error",
+            "connectable": false,
+            "raw_output": stdout.trim(),
+        })
+    });
+
+    Ok(parsed)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -350,7 +477,8 @@ pub fn run() {
             run_inline_powershell,
             open_logs,
             is_elevated,
-            relaunch_elevated
+            relaunch_elevated,
+            get_postgres_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,5 +1,5 @@
 # ============================================================
-# Riverside OS - ROSIE AI Stack Hotfix Installer
+# Riverside OS - ROSIE AI Stack Installer
 # ============================================================
 # Run this on the Backoffice / Server PC to download the ROSIE
 # LLM model and voice stack, then patch the server .env so
@@ -61,7 +61,7 @@ if (-not $ServerInstallRoot) {
 $serverEnvPath = Join-Path $ServerInstallRoot "server\.env"
 Write-Host ""
 Write-Host "========================================================"
-Write-Host "  Riverside OS - ROSIE AI Stack Hotfix"
+Write-Host "  Riverside OS - ROSIE AI Stack Installer"
 Write-Host "  Server root : $ServerInstallRoot"
 Write-Host "  Server .env : $serverEnvPath"
 Write-Host "========================================================"
@@ -300,7 +300,7 @@ if ((Test-Path $llamaScript) -and $modelDest -and (Test-Path $modelDest)) {
 # ============================================================
 Write-Host ""
 Write-Host "========================================================"
-Write-Host "  ROSIE AI Stack Hotfix - Complete"
+Write-Host "  ROSIE AI Stack Install - Complete"
 Write-Host ""
 if ($modelDest -and (Test-Path $modelDest)) {
   Write-Host "  LLM model  : OK - $modelDest"
