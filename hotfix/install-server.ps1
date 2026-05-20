@@ -57,10 +57,17 @@ function Ensure-PostgresServiceRunning {
   $service = $services[0]
   if ($service.Status -ne "Running") {
     Write-Host "Starting PostgreSQL service $($service.Name)"
-    Start-Service -Name $service.Name
-    $service.WaitForStatus("Running", (New-TimeSpan -Seconds 30))
+    try {
+      Start-Service -Name $service.Name
+      $service.WaitForStatus("Running", (New-TimeSpan -Seconds 30))
+    } catch {
+      Write-Warning "Could not start PostgreSQL service '$($service.Name)': $($_.Exception.Message)"
+      Write-Warning "Continuing — database operations will fail if PostgreSQL is not reachable."
+    }
   }
-  Set-Service -Name $service.Name -StartupType Automatic
+  try { Set-Service -Name $service.Name -StartupType Automatic } catch {
+    Write-Warning "Could not set service startup type: $($_.Exception.Message)"
+  }
 }
 
 function ConvertTo-NativeArgument([string]$Argument) {
@@ -432,7 +439,7 @@ function Install-RosieStack($PackageRoot) {
     try {
       $headers = @{}
       if ($env:HF_TOKEN) { $headers["Authorization"] = "Bearer $env:HF_TOKEN" }
-      
+
       $oldProgress = $ProgressPreference
       $ProgressPreference = 'SilentlyContinue'
       Invoke-WebRequest -Uri $modelUrl -OutFile $modelDest -Headers $headers -UseBasicParsing
@@ -676,7 +683,7 @@ if (Test-PlaceholderSecret $config.server.database.adminPassword) {
   $dbHost = $config.server.database.host
   $dbPort = $config.server.database.port
   $dbUser = $config.server.database.adminUser
-  
+
   Write-Host "PostgreSQL admin password is empty/placeholder. Checking local connection..."
   $tcpClient = New-Object System.Net.Sockets.TcpClient
   $connect = $tcpClient.BeginConnect($dbHost, $dbPort, $null, $null)
@@ -684,17 +691,17 @@ if (Test-PlaceholderSecret $config.server.database.adminPassword) {
   if ($success) {
     $tcpClient.EndConnect($connect)
     $tcpClient.Close()
-    
+
     $psqlCmd = Get-Command psql.exe -ErrorAction SilentlyContinue
     $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
       $matches = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter psql.exe -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
       if ($matches) { $matches[0].FullName } else { "psql.exe" }
     }
-    
+
     $env:PGPASSWORD = ""
     $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
     $env:PGPASSWORD = $null
-    
+
     if ($LASTEXITCODE -eq 0) {
       Write-Host "PostgreSQL trust authentication detected (no password required)." -ForegroundColor Green
       Set-SafeProperty $config.server.database "adminPassword" ""
