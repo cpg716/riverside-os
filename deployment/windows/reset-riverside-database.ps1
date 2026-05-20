@@ -112,34 +112,34 @@ try {
   }
 
   $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-  
+
   function Test-PlaceholderSecret([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) { return $true }
     return $Value -match "replace-" -or $Value -eq "password" -or $Value -eq "placeholder"
   }
-  
+
   if (Test-PlaceholderSecret $config.server.database.adminPassword) {
     $dbHost = $config.server.database.host
     $dbPort = $config.server.database.port
     $dbUser = $config.server.database.adminUser
-    
+
     $tcpClient = New-Object System.Net.Sockets.TcpClient
     $connect = $tcpClient.BeginConnect($dbHost, $dbPort, $null, $null)
     $success = $connect.AsyncWaitHandle.WaitOne(1000, $false)
     if ($success) {
       $tcpClient.EndConnect($connect)
       $tcpClient.Close()
-      
+
       $psqlCmd = Get-Command psql.exe -ErrorAction SilentlyContinue
       $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
         $matches = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter psql.exe -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
         if ($matches) { $matches[0].FullName } else { "psql.exe" }
       }
-      
+
       $env:PGPASSWORD = ""
       $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
       $env:PGPASSWORD = $null
-      
+
       if ($LASTEXITCODE -eq 0) {
         $config.server.database.adminPassword = ""
         $configJson = $config | ConvertTo-Json -Depth 8
@@ -185,20 +185,12 @@ try {
   try {
     $adminUrl = "postgresql://$($db.adminUser)@$($db.host):$($db.port)/postgres"
     $quotedDatabase = Escape-SqlIdentifier $databaseName
-    Invoke-Psql $psql $adminUrl @"
-SELECT pg_terminate_backend(pid)
-FROM pg_stat_activity
-WHERE datname = '$($databaseName.Replace("'", "''"))'
-  AND pid <> pg_backend_pid();
-
-DROP DATABASE IF EXISTS "$quotedDatabase" WITH (FORCE);
-
-CREATE DATABASE "$quotedDatabase"
-  WITH TEMPLATE template0
-  ENCODING 'UTF8'
-  LC_COLLATE 'C'
-  LC_CTYPE 'C';
-"@
+    $escapedName = $databaseName.Replace("'", "''")
+    $resetSql = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity " +
+      "WHERE datname = '$escapedName' AND pid <> pg_backend_pid(); " +
+      "DROP DATABASE IF EXISTS ""$quotedDatabase"" WITH (FORCE); " +
+      "CREATE DATABASE ""$quotedDatabase"" WITH TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C';"
+    Invoke-Psql $psql $adminUrl $resetSql
     $databaseUrl = "postgresql://$($db.adminUser)@$($db.host):$($db.port)/$databaseName"
     Invoke-Psql $psql $databaseUrl "SHOW server_encoding;"
   } finally {

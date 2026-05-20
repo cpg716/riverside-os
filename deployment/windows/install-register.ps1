@@ -201,12 +201,10 @@ if (-not $NoLaunch) {
   }
 }
 
-$summary = @"
-Riverside OS workstation install complete.
-Station setup: $stationConfigPath
-API base: $($config.register.apiBase)
-Station label: $($config.register.stationLabel)
-Receipt mode: $($config.register.receiptPrinter.mode)
-"@
+$summary = "Riverside OS workstation install complete.`n" +
+  "Station setup: $stationConfigPath`n" +
+  "API base: $($config.register.apiBase)`n" +
+  "Station label: $($config.register.stationLabel)`n" +
+  "Receipt mode: $($config.register.receiptPrinter.mode)"
 Set-Content -Path (Join-Path (Split-Path $stationConfigPath) "register-deployment-summary.txt") -Value $summary -Encoding UTF8
 Write-Host $summary

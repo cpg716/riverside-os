@@ -188,66 +188,38 @@ if (Test-Path $UpdaterDistPath) {
   Copy-Item "$UpdaterDistPath\*" "$packageRoot\updater" -Recurse -Force
 }
 
-$readme = @"
-# RiversideOS $Version Windows Deployment Package
-
-Package build: $gitShort
-
-1. Double-click Start-RiversideDeployment.cmd.
-2. Choose Backoffice / Server, Register #1, or Back Office Workstation.
-3. Click Check, then Install, Update, Repair, or Uninstall.
-
-The Deployment Manager writes riverside-deployment.config.json for you and runs
-the correct installer for the selected station type.
-
-Backoffice / Server installs both:
-
-- The Riverside OS server, database setup, firewall rule, and startup task.
-- The Riverside Windows desktop app configured to use the local server.
-
-Password handling:
-
-- If PostgreSQL is missing, the manager can offer to install PostgreSQL 18 through Windows Package Manager.
-- Enter the existing PostgreSQL admin password when PostgreSQL is already installed.
-- Riverside database and app secrets are generated automatically when left blank or placeholder.
-- Station settings are written automatically for Register and Back Office workstation installs.
-- A deployment-manager.log file is written next to the installer for support.
-
-Uninstall behavior:
-
-- Workstation uninstall removes the Riverside desktop app and station settings.
-- Server uninstall removes the Riverside server service, firewall rule, and app files.
-- Server uninstall keeps the database, backups, and logs by default.
-
-Manual fallback:
-
-1. Copy riverside-deployment.config.example.json to riverside-deployment.config.json.
-2. Fill in the Server PC, database, secret, Register #1, and printer values.
-3. On the Backoffice / Server PC, open PowerShell as Administrator and run:
-
-   .\install-server.ps1
-
-   Then install/configure the desktop app on the same PC:
-
-   .\install-register.ps1
-
-4. On Register #1, copy this package or the same config file, open PowerShell as Administrator, and run:
-
-   .\install-register.ps1
-
-The Register installer writes C:\ProgramData\RiversideOS\station-config.json.
-The desktop app imports that file on first launch and saves the API/printer settings for the station.
-
-Database-only repair:
-
-- If the app starts but a screen reports a missing relation/table, double-click Apply-RiversideMigrations.cmd from the release package. It applies pending schema migrations without replacing the server, web bundle, or desktop app.
-
-If the updater folder is present, keep those files with the release:
-
-- latest.json
-- the Windows updater installer or archive
-- the matching .sig signature file
-"@
+$readme = "# RiversideOS $Version Windows Deployment Package`n" +
+  "`nPackage build: $gitShort`n" +
+  "`n1. Double-click Start-RiversideDeployment.cmd.`n" +
+  "2. Choose Backoffice / Server, Register #1, or Back Office Workstation.`n" +
+  "3. Click Check, then Install, Update, Repair, or Uninstall.`n" +
+  "`nThe Deployment Manager writes riverside-deployment.config.json for you and runs`n" +
+  "the correct installer for the selected station type.`n" +
+  "`nBackoffice / Server installs both:`n" +
+  "`n- The Riverside OS server, database setup, firewall rule, and startup task.`n" +
+  "- The Riverside Windows desktop app configured to use the local server.`n" +
+  "`nPassword handling:`n" +
+  "`n- If PostgreSQL is missing, the manager can offer to install PostgreSQL 18 through Windows Package Manager.`n" +
+  "- Enter the existing PostgreSQL admin password when PostgreSQL is already installed.`n" +
+  "- Riverside database and app secrets are generated automatically when left blank or placeholder.`n" +
+  "- Station settings are written automatically for Register and Back Office workstation installs.`n" +
+  "- A deployment-manager.log file is written next to the installer for support.`n" +
+  "`nUninstall behavior:`n" +
+  "`n- Workstation uninstall removes the Riverside desktop app and station settings.`n" +
+  "- Server uninstall removes the Riverside server service, firewall rule, and app files.`n" +
+  "- Server uninstall keeps the database, backups, and logs by default.`n" +
+  "`nManual fallback:`n" +
+  "`n1. Copy riverside-deployment.config.example.json to riverside-deployment.config.json.`n" +
+  "2. Fill in the Server PC, database, secret, Register #1, and printer values.`n" +
+  "3. On the Backoffice / Server PC, open PowerShell as Administrator and run: .\install-server.ps1`n" +
+  "   Then install/configure the desktop app on the same PC: .\install-register.ps1`n" +
+  "4. On Register #1, copy this package or the same config file, open PowerShell as Administrator, and run: .\install-register.ps1`n" +
+  "`nThe Register installer writes C:\ProgramData\RiversideOS\station-config.json.`n" +
+  "The desktop app imports that file on first launch and saves the API/printer settings for the station.`n" +
+  "`nDatabase-only repair:`n" +
+  "`n- If the app starts but a screen reports a missing relation/table, double-click Apply-RiversideMigrations.cmd.`n" +
+  "`nIf the updater folder is present, keep those files with the release:`n" +
+  "`n- latest.json`n- the Windows updater installer or archive`n- the matching .sig signature file"
 Set-Content -Path "$packageRoot\README.md" -Value $readme -Encoding UTF8
 
 Compress-Archive -Path "$packageRoot\*" -DestinationPath "$packageRoot.zip" -Force

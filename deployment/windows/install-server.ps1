@@ -199,46 +199,15 @@ function Assert-DatabaseUtf8($PsqlPath, $Db, [string]$DatabaseName) {
 
 function Ensure-BootstrapAdmin($PsqlPath, $DatabaseUrl) {
   $bootstrapPinHash = '$argon2id$v=19$m=19456,t=2,p=1$KWJoKjtQYNuPjRIyKL2M9g$FBpoET53ejevTU5LrsLTzQMrgXpV5NavqruJmerdPsc'
-  Invoke-Psql $PsqlPath $DatabaseUrl @"
-INSERT INTO staff (
-  full_name,
-  cashier_code,
-  pin_hash,
-  role,
-  is_active,
-  avatar_key
-)
-VALUES (
-  'Chris G',
-  '1234',
-  '$bootstrapPinHash',
-  'admin',
-  TRUE,
-  'ros_default'
-)
-ON CONFLICT (cashier_code) DO UPDATE
-SET
-  full_name = EXCLUDED.full_name,
-  pin_hash = EXCLUDED.pin_hash,
-  role = EXCLUDED.role,
-  is_active = TRUE,
-  avatar_key = COALESCE(staff.avatar_key, EXCLUDED.avatar_key);
-
-DO `$`$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM staff
-    WHERE cashier_code = '1234'
-      AND role = 'admin'::staff_role
-      AND is_active = TRUE
-      AND pin_hash IS NOT NULL
-  ) THEN
-    RAISE EXCEPTION 'Bootstrap admin was not created.';
-  END IF;
-END
-`$`$;
-"@
+  $sql = "INSERT INTO staff (full_name, cashier_code, pin_hash, role, is_active, avatar_key) " +
+    "VALUES ('Chris G', '1234', '$bootstrapPinHash', 'admin', TRUE, 'ros_default') " +
+    "ON CONFLICT (cashier_code) DO UPDATE SET " +
+    "full_name = EXCLUDED.full_name, pin_hash = EXCLUDED.pin_hash, role = EXCLUDED.role, " +
+    "is_active = TRUE, avatar_key = COALESCE(staff.avatar_key, EXCLUDED.avatar_key); " +
+    "DO `$`$ BEGIN " +
+    "IF NOT EXISTS (SELECT 1 FROM staff WHERE cashier_code = '1234' AND role = 'admin'::staff_role AND is_active = TRUE AND pin_hash IS NOT NULL) THEN " +
+    "RAISE EXCEPTION 'Bootstrap admin was not created.'; END IF; END `$`$;"
+  Invoke-Psql $PsqlPath $DatabaseUrl $sql
 }
 
 function Stop-RiversideServer {
@@ -358,11 +327,9 @@ function Ensure-RiversideLlamaHost(
 ) {
   $llamaSrc = Join-Path $PackageRoot "rosie\bin\llama-server.exe"
   if (-not (Test-Path $llamaSrc)) {
-    Write-Warning @"
-ROSIE: llama-server.exe was not found in this deployment package ($llamaSrc).
-ROSIE chat will stay unavailable until llama-server is running on http://${LlamaHost}:${LlamaPort}/.
-Run Install-RosieAiStack.ps1 after copying a full deployment package, or start the Riverside desktop app on this PC (it can launch the sidecar).
-"@
+    Write-Warning ("ROSIE: llama-server.exe was not found in this deployment package ($llamaSrc). " +
+      "ROSIE chat will stay unavailable until llama-server is running on http://${LlamaHost}:${LlamaPort}/. " +
+      "Run Install-RosieAiStack.ps1 after copying a full deployment package, or start the Riverside desktop app on this PC (it can launch the sidecar).")
     return
   }
 
@@ -873,17 +840,12 @@ if (-not $SkipDatabaseCreate) {
   $appUser = Escape-SqlLiteral $db.appUser
   $appPassword = Escape-SqlLiteral $db.appPassword
   $databaseName = Escape-SqlLiteral $db.databaseName
-  Invoke-PsqlAdmin $psql $db @"
-DO `$`$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$appUser') THEN
-    CREATE ROLE "$appUser" LOGIN PASSWORD '$appPassword';
-  ELSE
-    ALTER ROLE "$appUser" LOGIN PASSWORD '$appPassword';
-  END IF;
-END
-`$`$;
-"@
+  $roleSql = "DO `$`$ BEGIN " +
+    "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$appUser') THEN " +
+    "CREATE ROLE ""$appUser"" LOGIN PASSWORD '$appPassword'; " +
+    "ELSE ALTER ROLE ""$appUser"" LOGIN PASSWORD '$appPassword'; " +
+    "END IF; END `$`$;"
+  Invoke-PsqlAdmin $psql $db $roleSql
   $env:PGPASSWORD = $db.adminPassword
   try {
     $exists = & $psql "postgresql://$($db.adminUser)@$($db.host):$($db.port)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname = '$databaseName';"
@@ -970,13 +932,11 @@ if (-not $NoStart) {
   Write-Host "Riverside OS server API responded at $localUrl"
 }
 
-$summary = @"
-Riverside OS Server install complete.
-Install root: $installRoot
-Server task: $taskName
-Frontend: $clientDist
-Database: $($db.databaseName) on $($db.host):$($db.port)
-Config: $envPath
-"@
+$summary = "Riverside OS Server install complete.`n" +
+  "Install root: $installRoot`n" +
+  "Server task: $taskName`n" +
+  "Frontend: $clientDist`n" +
+  "Database: $($db.databaseName) on $($db.host):$($db.port)`n" +
+  "Config: $envPath"
 Set-Content -Path (Join-Path $installRoot "deployment-summary.txt") -Value $summary -Encoding UTF8
 Write-Host $summary

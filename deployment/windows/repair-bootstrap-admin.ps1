@@ -107,46 +107,15 @@ $bootstrapPinHash = '$argon2id$v=19$m=19456,t=2,p=1$KWJoKjtQYNuPjRIyKL2M9g$FBpoE
 
 $env:PGPASSWORD = $db.appPassword
 try {
-  Invoke-Psql $psql $databaseUrl @"
-INSERT INTO staff (
-  full_name,
-  cashier_code,
-  pin_hash,
-  role,
-  is_active,
-  avatar_key
-)
-VALUES (
-  'Chris G',
-  '1234',
-  '$bootstrapPinHash',
-  'admin',
-  TRUE,
-  'ros_default'
-)
-ON CONFLICT (cashier_code) DO UPDATE
-SET
-  full_name = EXCLUDED.full_name,
-  pin_hash = EXCLUDED.pin_hash,
-  role = EXCLUDED.role,
-  is_active = TRUE,
-  avatar_key = COALESCE(staff.avatar_key, EXCLUDED.avatar_key);
-
-DO `$`$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM staff
-    WHERE cashier_code = '1234'
-      AND role = 'admin'::staff_role
-      AND is_active = TRUE
-      AND pin_hash IS NOT NULL
-  ) THEN
-    RAISE EXCEPTION 'Bootstrap admin was not created.';
-  END IF;
-END
-`$`$;
-"@
+  $sql = "INSERT INTO staff (full_name, cashier_code, pin_hash, role, is_active, avatar_key) " +
+    "VALUES ('Chris G', '1234', '$bootstrapPinHash', 'admin', TRUE, 'ros_default') " +
+    "ON CONFLICT (cashier_code) DO UPDATE SET " +
+    "full_name = EXCLUDED.full_name, pin_hash = EXCLUDED.pin_hash, role = EXCLUDED.role, " +
+    "is_active = TRUE, avatar_key = COALESCE(staff.avatar_key, EXCLUDED.avatar_key); " +
+    "DO `$`$ BEGIN " +
+    "IF NOT EXISTS (SELECT 1 FROM staff WHERE cashier_code = '1234' AND role = 'admin'::staff_role AND is_active = TRUE AND pin_hash IS NOT NULL) THEN " +
+    "RAISE EXCEPTION 'Bootstrap admin was not created.'; END IF; END `$`$;"
+  Invoke-Psql $psql $databaseUrl $sql
 } finally {
   Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
 }
