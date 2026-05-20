@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download the pinned Gemma 4 E2B-it Q4_K_M GGUF (see tools/ros-gemma/MODEL_PIN.json).
+# Download the pinned Gemma 4 E4B-it Q4_K_M GGUF (see tools/ros-gemma/MODEL_PIN.json).
 # Usage: from repo root — ./scripts/download-ros-ai-gguf.sh
 # Env:
 #   ROS_AI_GGUF_DIR  — output directory (default: tools/ros-gemma/models)

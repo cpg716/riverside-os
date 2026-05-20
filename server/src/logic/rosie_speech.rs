@@ -85,8 +85,8 @@ fn default_rosie_llm_model_path() -> Option<PathBuf> {
             .join("riverside-os")
             .join("rosie")
             .join("models")
-            .join("gemma-4-e2b")
-            .join("google_gemma-4-E2B-it-Q4_K_M.gguf");
+            .join("gemma-4-e4b")
+            .join("google_gemma-4-E4B-it-Q4_K_M.gguf");
         if win_path.exists() {
             return Some(win_path);
         }
@@ -94,8 +94,8 @@ fn default_rosie_llm_model_path() -> Option<PathBuf> {
     // macOS / Linux fallback for dev workstations.
     rosie_host_dir().map(|root| {
         root.join("models")
-            .join("gemma-4-e2b")
-            .join("google_gemma-4-E2B-it-Q4_K_M.gguf")
+            .join("gemma-4-e4b")
+            .join("google_gemma-4-E4B-it-Q4_K_M.gguf")
     })
 }
 
@@ -315,7 +315,7 @@ pub async fn runtime_status(state: &RosieSpeechState) -> Result<RosieHostRuntime
             base_url: upstream_url.clone(),
             host,
             port,
-            model_name: "Gemma 4 E2B".to_string(),
+            model_name: "Gemma 4 E4B".to_string(),
             model_path: resolve_llama_model_path().map(|path| path.display().to_string()),
             model_present: resolve_llama_model_path()
                 .map(|path| path.exists())

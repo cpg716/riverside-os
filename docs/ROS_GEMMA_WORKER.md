@@ -12,7 +12,7 @@ Everything runs from **root `docker-compose.yml`**:
 
 1. **Once:** `./scripts/download-ros-ai-gguf.sh` — writes the pinned GGUF under **`tools/ros-gemma/models/`** (see **`MODEL_PIN.json`**). Windows: **`scripts/download-ros-ai-gguf.ps1`**.
 2. **`docker compose up -d`** — starts **`db`**, **`llama-server`**, and **`ros-gemma`**.
-3. **`ros-gemma`** image and Compose set **`LLAMA_CPP_SERVER_URL=http://llama-server:8080`**; **`llama-server`** loads **`/models/google_gemma-4-E2B-it-Q4_K_M.gguf`** inside the network (port **8080** is not published to the host).
+3. **`ros-gemma`** image and Compose set **`LLAMA_CPP_SERVER_URL=http://llama-server:8080`**; **`llama-server`** loads **`/models/google_gemma-4-E4B-it-Q4_K_M.gguf`** inside the network (port **8080** is not published to the host).
 4. On the **API** process: **`AI_ENABLED=true`** (**`server/.env`**). **`AI_BASE_URL`** defaults to **`http://127.0.0.1:8787`** when unset.
 
 If completions still fail: **`docker compose build ros-gemma && docker compose up -d`** so the worker image includes current defaults.
@@ -21,10 +21,10 @@ If completions still fail: **`docker compose build ros-gemma && docker compose u
 
 | Item | Value |
 |------|--------|
-| **Family** | **Gemma 4** instruction-tuned **E2B-it** |
-| **Size** | **2B** |
+| **Family** | **Gemma 4** instruction-tuned **E4B-it** |
+| **Size** | **4B** |
 | **Format** | **GGUF** **Q4_K_M** |
-| **Source** | **[`tools/ros-gemma/MODEL_PIN.json`](../tools/ros-gemma/MODEL_PIN.json)** — HF **`bartowski/google_gemma-4-E2B-it-GGUF`**, file **`google_gemma-4-E2B-it-Q4_K_M.gguf`** |
+| **Source** | **[`tools/ros-gemma/MODEL_PIN.json`](../tools/ros-gemma/MODEL_PIN.json)** — HF **`bartowski/google_gemma-4-E4B-it-GGUF`**, file **`google_gemma-4-E4B-it-Q4_K_M.gguf`** |
 
 To change the model for the deployment, edit **`MODEL_PIN.json`** (and Compose **`llama-server`** command if the filename changes), then re-download.
 

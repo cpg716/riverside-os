@@ -60,14 +60,14 @@ Write-Host ""
 
 # ---- Asset directories (%LOCALAPPDATA%\riverside-os\rosie\) ----
 $rosieRoot  = Join-Path $env:LOCALAPPDATA "riverside-os\rosie"
-$modelsDir  = Join-Path $rosieRoot "models\gemma-4-e2b"
+$modelsDir  = Join-Path $rosieRoot "models\gemma-4-e4b"
 $sttDir     = Join-Path $rosieRoot "stt"
 $ttsDir     = Join-Path $rosieRoot "tts"
 
 # ============================================================
 # STEP 1 - Pinned Gemma GGUF (MODEL_PIN.json)
 # ============================================================
-Write-Host "[1/4] LLM model (Gemma 4 E2B)..."
+Write-Host "[1/4] LLM model (Gemma 4 E4B)..."
 
 # MODEL_PIN.json is either next to this script (from the deployment package)
 # or we fall back to inline values pinned at release time.
@@ -77,11 +77,11 @@ if (Test-Path $pinPath) {
 } else {
   Write-Host "      MODEL_PIN.json not found next to script - using release-pinned values."
   $pin = [pscustomobject]@{
-    huggingface_model_id = "bartowski/google_gemma-4-E2B-it-GGUF"
-    revision             = "185cd2b180d1db0bcf37f4eca4032d769a4051c6"
-    filename             = "google_gemma-4-E2B-it-Q4_K_M.gguf"
-    sha256               = "5efe645db4e1909c7a1f4a9608df18e6c14383f5e86777fc49f769f9ba7d5fdf"
-    size_bytes           = 3462673376
+    huggingface_model_id = "bartowski/google_gemma-4-E4B-it-GGUF"
+    revision             = "c04cb322fd63e347db759a08b6249b867488ccf8"
+    filename             = "google_gemma-4-E4B-it-Q4_K_M.gguf"
+    sha256               = "b937a48e96379116137c50acbe39fd1b46eb101d2df4e560f47f5e2171b6451e"
+    size_bytes           = 5405167904
   }
 }
 

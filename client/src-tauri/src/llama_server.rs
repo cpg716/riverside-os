@@ -19,14 +19,14 @@ impl Default for LlamaSidecarState {
 }
 
 fn default_rosie_model_path() -> Option<PathBuf> {
-    // Windows production: installer downloads to %LOCALAPPDATA%\riverside-os\rosie\models\gemma-4-e2b\.
+    // Windows production: installer downloads to %LOCALAPPDATA%\riverside-os\rosie\models\gemma-4-e4b\.
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
         let win_path = PathBuf::from(local_app_data)
             .join("riverside-os")
             .join("rosie")
             .join("models")
-            .join("gemma-4-e2b")
-            .join("google_gemma-4-E2B-it-Q4_K_M.gguf");
+            .join("gemma-4-e4b")
+            .join("google_gemma-4-E4B-it-Q4_K_M.gguf");
         if win_path.exists() {
             return Some(win_path);
         }
@@ -38,8 +38,8 @@ fn default_rosie_model_path() -> Option<PathBuf> {
             .join("riverside-os")
             .join("rosie")
             .join("models")
-            .join("gemma-4-e2b")
-            .join("google_gemma-4-E2B-it-Q4_K_M.gguf")
+            .join("gemma-4-e4b")
+            .join("google_gemma-4-E4B-it-Q4_K_M.gguf")
     })
 }
 

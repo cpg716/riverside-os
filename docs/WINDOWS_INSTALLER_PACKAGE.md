@@ -149,7 +149,7 @@ The script:
 - Copies bundled docs into `C:\RiversideOS\release\docs` for help/reindex workflows when enabled.
 - Creates/updates the PostgreSQL app role and database.
 - Applies pending migrations using `psql`.
-- Downloads the pinned ROSIE LLM model (Gemma E2B) and installs the sherpa-onnx Python voice stack.
+- Downloads the pinned ROSIE LLM model (Gemma E4B) and installs the sherpa-onnx Python voice stack.
 - Writes `C:\RiversideOS\server\.env`.
 - Adds the inbound firewall rule for the configured server port.
 - Creates a startup scheduled task named `Riverside OS Server`.

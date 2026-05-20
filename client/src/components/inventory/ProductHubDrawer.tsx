@@ -771,7 +771,7 @@ export default function ProductHubDrawer({
       const cleanupCompletionPayload: RosieChatCompletionRequest & {
         chat_template_kwargs: { enable_thinking: boolean };
       } = {
-        model: "gemma-4-e2b",
+        model: "gemma-4-e4b",
         temperature: 0.1,
         max_tokens: 900,
         chat_template_kwargs: { enable_thinking: false },

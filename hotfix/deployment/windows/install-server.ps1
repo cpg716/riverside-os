@@ -404,7 +404,7 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
 # ---------------------------------------------------------------------------
 function Install-RosieStack($PackageRoot) {
   $rosieRoot   = Join-Path $env:LOCALAPPDATA "riverside-os\rosie"
-  $modelsDir   = Join-Path $rosieRoot "models\gemma-4-e2b"
+  $modelsDir   = Join-Path $rosieRoot "models\gemma-4-e4b"
   $sttDir      = Join-Path $rosieRoot "stt"
   $ttsDir      = Join-Path $rosieRoot "tts"
 
