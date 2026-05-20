@@ -3085,6 +3085,15 @@ pub async fn execute_checkout(
         Ok::<bool, CheckoutError>(needs || creates_fulfillment_order(fulfillment))
     })?;
     if needs_fulfillment {
+        let wedding_party_id: Option<Uuid> = if let Some(member_id) = payload.wedding_member_id {
+            sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
+                .bind(member_id)
+                .fetch_optional(&mut *tx)
+                .await?
+        } else {
+            None
+        };
+
         let row: (Uuid, String) = sqlx::query_as(
             r#"
                 INSERT INTO fulfillment_orders (customer_id, wedding_id, status)
@@ -3093,7 +3102,7 @@ pub async fn execute_checkout(
                 "#,
         )
         .bind(payload.customer_id)
-        .bind(payload.wedding_member_id)
+        .bind(wedding_party_id)
         .fetch_one(&mut *tx)
         .await?;
         fulfillment_order_id = Some(row.0);
@@ -5424,6 +5433,10 @@ mod tests {
             .await?;
         sqlx::query("DELETE FROM register_sessions WHERE id = $1")
             .bind(session_id)
+            .execute(pool)
+            .await?;
+        sqlx::query("DELETE FROM inventory_transactions WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id = $1)")
+            .bind(product_id)
             .execute(pool)
             .await?;
         sqlx::query("DELETE FROM commission_combo_rules WHERE id = $1")

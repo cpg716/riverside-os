@@ -63,4 +63,4 @@ Ensure these values in `counterpoint-bridge/.env` are intact:
 - **Resolution**: On the Backoffice / Server PC, run `Set-CounterpointBridgeToken.cmd` from the Windows deployment package and paste the exact `COUNTERPOINT_SYNC_TOKEN` from `C:\counterpoint-bridge\.env`. Then close and restart the bridge.
 
 ---
-*Version: v0.60.2 - May 2026*
+*Version: v0.70.0 - May 2026*

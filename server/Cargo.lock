@@ -3209,7 +3209,7 @@ dependencies = [
 
 [[package]]
 name = "riverside-server"
-version = "0.60.2"
+version = "0.70.0"
 dependencies = [
  "ammonia",
  "anyhow",

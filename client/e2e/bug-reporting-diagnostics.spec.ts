@@ -326,7 +326,7 @@ test.describe("bug reporting diagnostics hardening", () => {
           {
             station_key: "station-online",
             station_label: "Register 1",
-            app_version: "0.60.2",
+            app_version: "0.70.0",
             git_sha: "58088e9f",
             tailscale_node: null,
             lan_ip: "127.0.0.1",
@@ -342,7 +342,7 @@ test.describe("bug reporting diagnostics hardening", () => {
           {
             station_key: "station-actionable-offline",
             station_label: "Register 2",
-            app_version: "0.60.2",
+            app_version: "0.70.0",
             git_sha: "58088e9f",
             tailscale_node: null,
             lan_ip: "127.0.0.2",

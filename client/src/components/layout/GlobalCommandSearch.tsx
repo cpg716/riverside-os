@@ -15,6 +15,7 @@ import { twMerge } from "tailwind-merge";
 import type { Customer } from "../pos/CustomerSelector";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { requestRosieSearchIntent, type RosieSearchShortcutId } from "../../lib/rosie";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import type { SidebarTabId } from "./sidebarSections";
 
@@ -180,6 +181,14 @@ interface UniversalSearchResponse {
   operational_hits?: OperationalSearchHit[];
   shortcuts?: { intent: SearchShortcutIntent }[];
 }
+
+const ROSIE_SEARCH_SHORTCUT_IDS: SearchShortcutIntent[] = [
+  "open_orders",
+  "inventory_cleanup",
+  "alterations_queue",
+  "pickup_queue",
+  "daily_sales",
+];
 
 const SEARCH_SHORTCUTS: Record<SearchShortcutIntent, SearchShortcut> = {
   open_orders: {
@@ -364,9 +373,14 @@ function mergeSearchShortcuts(
   backendShortcutIds: SearchShortcutIntent[],
 ): SearchShortcut[] {
   const seen = new Set(deterministic.map((shortcut) => shortcut.intent));
-  const backendShortcuts = backendShortcutIds
-    .map((id) => SEARCH_SHORTCUTS[id])
-    .filter((shortcut) => shortcut && !seen.has(shortcut.intent));
+  const backendShortcuts: SearchShortcut[] = [];
+  for (const id of backendShortcutIds) {
+    const shortcut = SEARCH_SHORTCUTS[id];
+    if (shortcut && !seen.has(shortcut.intent)) {
+      seen.add(shortcut.intent);
+      backendShortcuts.push(shortcut);
+    }
+  }
   return [...deterministic, ...backendShortcuts];
 }
 
@@ -461,6 +475,7 @@ export default function GlobalCommandSearch({
   const [helpHits, setHelpHits] = useState<HelpSearchHit[]>([]);
   const [operationalHits, setOperationalHits] = useState<OperationalSearchHit[]>([]);
   const [backendShortcutIds, setBackendShortcutIds] = useState<SearchShortcutIntent[]>([]);
+  const [rosieShortcutIds, setRosieShortcutIds] = useState<SearchShortcutIntent[]>([]);
   const [failedSources, setFailedSources] = useState<string[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [commandHintVisible, setCommandHintVisible] = useState(false);
@@ -507,9 +522,9 @@ export default function GlobalCommandSearch({
     () =>
       mergeSearchShortcuts(
         buildSearchShortcuts(query, Boolean(onNavigateToTab)),
-        backendShortcutIds,
+        [...backendShortcutIds, ...rosieShortcutIds],
       ),
-    [backendShortcutIds, onNavigateToTab, query],
+    [backendShortcutIds, rosieShortcutIds, onNavigateToTab, query],
   );
 
   const resultEntries = useMemo<SearchResultEntry[]>(
@@ -708,6 +723,7 @@ export default function GlobalCommandSearch({
       setHelpHits([]);
       setOperationalHits([]);
       setBackendShortcutIds([]);
+      setRosieShortcutIds([]);
       setFailedSources([]);
     };
 
@@ -741,6 +757,27 @@ export default function GlobalCommandSearch({
         setBackendShortcutIds((data.shortcuts ?? []).map((shortcut) => shortcut.intent));
         setFailedSources(data.sources_failed ?? []);
       }
+
+      if (q.length >= 3 && activeSearchQueryRef.current === q) {
+        try {
+          const response = await requestRosieSearchIntent(
+            {
+              query: q,
+              available_shortcuts: ROSIE_SEARCH_SHORTCUT_IDS.map((id) => ({
+                id: id as RosieSearchShortcutId,
+                label: SEARCH_SHORTCUTS[id].title,
+                description: SEARCH_SHORTCUTS[id].subtitle,
+              })),
+            },
+            { headers: apiAuth() },
+          );
+          if (activeSearchQueryRef.current === q) {
+            setRosieShortcutIds(response.status === "available" ? response.shortcut_ids : []);
+          }
+        } catch {
+          // ignore rosie failure
+        }
+      }
     } catch {
       if (activeSearchQueryRef.current === q) {
         setFailedSources(["Universal Search"]);
@@ -771,6 +808,7 @@ export default function GlobalCommandSearch({
       setHelpHits([]);
       setOperationalHits([]);
       setBackendShortcutIds([]);
+      setRosieShortcutIds([]);
       setFailedSources([]);
       setLoading(false);
       return;

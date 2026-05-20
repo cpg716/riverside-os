@@ -1,7 +1,7 @@
 {
   "name": "manager-app",
   "private": true,
-  "version": "0.60.2",
+  "version": "0.70.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

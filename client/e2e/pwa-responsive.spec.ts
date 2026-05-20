@@ -112,9 +112,9 @@ test.describe("PWA layout — phone (375×667, iPhone 8 preset)", () => {
     const search = page.getByRole("combobox", { name: /universal search/i });
     await search.fill("cleanup review");
     await expect(page.getByText("Suggested Searches")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("Inventory Cleanup Review")).toBeVisible();
-    await expect(page.getByText("Daily Sales")).toBeVisible();
-    await expect(page.getByText("unsupported")).toHaveCount(0);
+    await expect(page.getByRole("option").filter({ hasText: "Shortcut" }).getByText("Inventory Cleanup Review")).toBeVisible();
+    await expect(page.getByRole("option").filter({ hasText: "Shortcut" }).getByText("Daily Sales")).toBeVisible();
+    await expect(page.getByRole("option").filter({ hasText: "Shortcut" }).getByText("unsupported")).toHaveCount(0);
     expect(intentBodies).toHaveLength(1);
     expect(intentBodies[0]).toMatchObject({
       query: "cleanup review",

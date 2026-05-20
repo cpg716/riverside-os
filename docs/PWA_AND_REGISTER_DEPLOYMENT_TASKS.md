@@ -25,12 +25,12 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 
 ### A.1 Current release artifact status (2026-05-19)
 
-- [x] Target Riverside version is now **`v0.60.2`** across root, client/PWA, server, and Tauri metadata.
+- [x] Target Riverside version is now **`v0.70.0`** across root, client/PWA, server, and Tauri metadata.
 - [x] The Windows updater release workflow publishes `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for the same Riverside version.
 - [x] Release workflows run `npm run check:version` so mismatched release metadata blocks packaging.
 - [ ] Before installing Windows stations, confirm the target GitHub release does not retain older Riverside MSI/signature assets beside the current release assets.
-- [ ] Latest `main` **Lint Checks** must be green on the `v0.60.2` release commit before calling the current head release-ready.
-- [ ] Latest `main` **Playwright E2E** must be green on the `v0.60.2` release commit before calling the current head release-ready. Use the release-certification evidence plus a fresh CI run after commit/push.
+- [ ] Latest `main` **Lint Checks** must be green on the `v0.70.0` release commit before calling the current head release-ready.
+- [ ] Latest `main` **Playwright E2E** must be green on the `v0.70.0` release commit before calling the current head release-ready. Use the release-certification evidence plus a fresh CI run after commit/push.
 
 ---
 

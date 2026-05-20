@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.70.0] - 2026-05-19
+### Added
+- **Sweden-Style Cash Rounding**: POS transactions dynamically apply Sweden-style cash rounding (to nearest $0.05). Cash rounding offsets are recorded as a separate payment ledger entry (`cash_rounding_offset`) to ensure that base product prices, shipping, and tax lines are untouched and daily drawer reconciliation matches perfectly.
+- **CoreCredit Financing**: Integrated consumer line-of-credit (CoreCard/CoreCredit) checks into checkout payment allocations.
+- **ROSIE Local AI Copilot**: Powered by a local Gemma LLM sidecar under the strict ROSIE Operating Contract (RBAC constraints, user confirmation gates, no raw SQL).
+- **Universal Search Aggregator**: Exposes `/api/search/aggregate` to search CRM, Catalog, Alterations, Weddings, and Help in a single backend call.
+- **Transaction Backdating**: Checkout terminal supports booking date overrides to adjust commission and QBO entries.
+- **Dynamic Shortcuts**: Combined deterministic backend commands and dynamic Rosie AI search intents in the `GlobalCommandSearch` dialog without duplication.
+
+### Fixed
+- **Responsive & QBO Test Stabilization**: Scope locators in `pwa-responsive.spec.ts` to ensure 100% pass rate on responsive/PWA E2E tests.
+- **Database Scrubbing**: Added `ros-wipe-business-data-keep-bootstrap-admin.sql` to safely purge all development/testing activity while leaving the seed/bootstrap system metadata and admin users intact.
+- **Host Service Commissioning**: Documented and verified startup task integration (`install-server.ps1` registering Axum API as a Scheduled Task and PostgreSQL as an Automatic startup service).
+
 ## [0.60.2] - 2026-05-19
 ### Added
 - **Modernized Deployment Manager**: Rebuilt the legacy WinForms/PowerShell deployment manager as a robust, interactive React + Tauri desktop application.

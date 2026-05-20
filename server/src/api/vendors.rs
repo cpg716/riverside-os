@@ -586,11 +586,21 @@ mod tests {
 
     #[tokio::test]
     async fn validate_create_vendor_payload_rejects_duplicate_name_and_vendor_code() {
-        let database_url =
-            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| {
+                "postgresql://postgres:password@localhost:5433/riverside_os".into()
+            });
         let pool = PgPool::connect(&database_url)
             .await
             .expect("connect test database");
+
+        sqlx::query("DELETE FROM vendors WHERE name = $1 OR vendor_code = $2")
+            .bind("Existing Vendor Validation")
+            .bind("VAL-001")
+            .execute(&pool)
+            .await
+            .expect("cleanup vendor");
 
         sqlx::query(
             "INSERT INTO vendors (id, name, vendor_code, is_active) VALUES ($1, $2, $3, true)",

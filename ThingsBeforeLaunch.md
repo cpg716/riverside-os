@@ -70,7 +70,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 - [ ] Hostname and static/DHCP-reserved LAN IP documented.
 - [ ] Power plan set to prevent sleep/hibernate during store hours.
-- [ ] Auto-start/service strategy validated for API and DB after reboot.
+- [x] Auto-start/service strategy validated for API and DB after reboot.
 - [ ] Windows Firewall rules verified for required ports only (least privilege).
 - [ ] NTP/time sync verified (clock drift can break TLS and reports).
 - [ ] UPS present and graceful shutdown plan documented.
@@ -230,7 +230,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] **Tax Rate Verification:** Final audit of NYS/NYC clothing tax rules vs Riverside logic.
 - [ ] **Hardware Stress Test:** Validate thermal printing from multiple registers simultaneously.
 - [ ] **Offline Drill:** Staff training on manual overrides and credit card procedures if internet/Tailscale is down.
-- [ ] **Final DB Scrub:** Purge all "Test" records (customers, tickets) before the first day of real operations.
+- [x] **Final DB Scrub:** Purge all "Test" records (customers, tickets) before the first day of real operations.
 
 ---
 

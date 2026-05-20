@@ -143,7 +143,7 @@ When a Markdown file is **removed** from this repository, add an entry here **be
 | **Former path** | `docs/releases/v0.60.0-printable-deployment-guide.pdf`, `docs/releases/v0.60.1-printable-deployment-guide.pdf` |
 | **Date retired** | 2026-05-19 |
 | **Why removed** | Old compiled binary PDFs. MD version is kept for text searchability. |
-| **Where content lives now** | `docs/releases/v0.60.2-printable-deployment-guide.md` (or equivalent markdown versions) |
+| **Where content lives now** | `docs/releases/v0.70.0-printable-deployment-guide.md` (or equivalent markdown versions) |
 | **Summary** | Binary PDF outputs compiled for historical releases. Deleting them keeps the git repository clean of large unsearchable binary blobs, as the markdown text equivalent is fully preserved. |
 
 ### Obsolete Windows 11 Smoke Checklist (`docs/WINDOWS11_TAURI_SMOKE_CHECKLIST_V021.md`)
@@ -153,7 +153,7 @@ When a Markdown file is **removed** from this repository, add an entry here **be
 | **Former path** | `docs/WINDOWS11_TAURI_SMOKE_CHECKLIST_V021.md` |
 | **Date retired** | 2026-05-19 |
 | **Why removed** | Obsolete smoke checklist specific to `v0.2.1` auth/identity features. |
-| **Where content lives now** | [`docs/releases/v0.60.2-release-notes.md`](releases/v0.60.2-release-notes.md) (release checks are managed in the release QA documents now) |
+| **Where content lives now** | [`docs/releases/v0.70.0-release-notes.md`](releases/v0.70.0-release-notes.md) (release checks are managed in the release QA documents now) |
 | **Summary** | Outlined the manual QA testing checklist to verify identity and auth features introduced in version `v0.2.1`. Release-specific testing checklists are now managed under general QA checklists or release-specific certification artifacts. |
 
 ### Deprecated Release Deployment Guides (`docs/releases/v0.60.0-printable-deployment-guide.md` and `docs/releases/v0.60.1-printable-deployment-guide.md`)
@@ -163,5 +163,5 @@ When a Markdown file is **removed** from this repository, add an entry here **be
 | **Former path** | `docs/releases/v0.60.0-printable-deployment-guide.md`, `docs/releases/v0.60.1-printable-deployment-guide.md` |
 | **Date retired** | 2026-05-19 |
 | **Why removed** | Outdated version-specific deployment guides. |
-| **Where content lives now** | [`docs/releases/v0.60.2-printable-deployment-guide.md`](releases/v0.60.2-printable-deployment-guide.md) |
-| **Summary** | Printable markdown deployment guides for earlier `v0.60` release series updates. Superseded by the `v0.60.2` guide. |
+| **Where content lives now** | [`docs/releases/v0.70.0-printable-deployment-guide.md`](releases/v0.70.0-printable-deployment-guide.md) |
+| **Summary** | Printable markdown deployment guides for earlier `v0.60` release series updates. Superseded by the `v0.70.0` guide. |
