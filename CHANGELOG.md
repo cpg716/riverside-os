@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+- **ROSIE on Server PC**: Windows server install now packages `llama-server.exe`, registers a **Riverside OS LLM Host** startup task on port 8080, and adds **Start-RiversideLlama.cmd** / Deployment Manager **Start ROSIE LLM Host** for repair.
+
 ## [0.70.1] - 2026-05-20
 ### Added
 - **Inventory tag print date**: Tag Designer footer text is followed automatically by the print date on every inventory tag (HTML preview and Zebra/ZPL).

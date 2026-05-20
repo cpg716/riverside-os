@@ -138,6 +138,22 @@ if (Test-Path $modelPinSource) {
   Write-Warning "tools/ros-gemma/MODEL_PIN.json not found; ROSIE model download will be skipped during server install."
 }
 
+$llamaBinSrc = Join-Path $repoRoot "client\src-tauri\binaries"
+$llamaBinDest = Join-Path $packageRoot "rosie\bin"
+$llamaSourceExe = Join-Path $llamaBinSrc "llama-server-x86_64-pc-windows-msvc.exe"
+if (Test-Path $llamaSourceExe) {
+  New-Item -ItemType Directory -Force -Path $llamaBinDest | Out-Null
+  Copy-Item $llamaSourceExe (Join-Path $llamaBinDest "llama-server.exe") -Force
+  Get-ChildItem $llamaBinSrc -Filter "*.dll" -ErrorAction SilentlyContinue |
+    Copy-Item -Destination $llamaBinDest -Force
+  Write-Host "Packaged rosie/bin/llama-server.exe for Server PC ROSIE host"
+} else {
+  Write-Warning "client/src-tauri/binaries/llama-server-x86_64-pc-windows-msvc.exe not found; package ROSIE host runtime before building the deployment zip."
+}
+
+Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Start-RiversideLlama.cmd" $packageRoot -Force
+
 
 $manifest = @{
   releaseVersion = $Version

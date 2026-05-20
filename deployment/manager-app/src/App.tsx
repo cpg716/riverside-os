@@ -452,6 +452,17 @@ export default function App() {
               <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
             </button>
             <button 
+              onClick={() => executeScript('start-riverside-llama.ps1')}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm">Start ROSIE LLM Host</h3>
+                <p className="text-xs text-zinc-500 mt-1">Registers and starts llama-server on port 8080 for in-store chat.</p>
+              </div>
+              <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
+            </button>
+            <button 
               onClick={() => executeScript('set-counterpoint-bridge-token.ps1')}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 transition-all disabled:opacity-50 flex items-center justify-between group"

@@ -121,6 +121,39 @@ if (-not $success) {
     }
 }
 
+# 4b. ROSIE / llama-server loopback
+Write-Host ""
+Write-Host "--- ROSIE Host LLM Checks ---" -ForegroundColor Blue
+$llamaHost = "127.0.0.1"
+$llamaPort = 8080
+if ($config -and $config.server -and $config.server.environment) {
+  if ($config.server.environment.RIVERSIDE_LLAMA_HOST) {
+    $llamaHost = "$($config.server.environment.RIVERSIDE_LLAMA_HOST)".Trim()
+  }
+  if ($config.server.environment.RIVERSIDE_LLAMA_PORT) {
+    $llamaPort = [int]$config.server.environment.RIVERSIDE_LLAMA_PORT
+  }
+}
+$llamaBase = "http://${llamaHost}:$llamaPort"
+Write-Host "Testing ROSIE Host LLM at $llamaBase ..."
+try {
+  $llamaHealth = Invoke-WebRequest -Uri "$llamaBase/health" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+  if ($llamaHealth.StatusCode -eq 200) {
+    Write-Host "[OK] llama-server is responding at $llamaBase." -ForegroundColor Green
+  } else {
+    Write-Host "[FAIL] llama-server returned HTTP $($llamaHealth.StatusCode) at $llamaBase." -ForegroundColor Red
+  }
+} catch {
+  Write-Host "[FAIL] llama-server is not reachable at $llamaBase. ROSIE chat will return 502 until Start-RiversideLlama.cmd runs or the 'Riverside OS LLM Host' task is started." -ForegroundColor Red
+  Write-Host "       Error: $($_.Exception.Message)" -ForegroundColor Red
+}
+$llamaTask = Get-ScheduledTask -TaskName "Riverside OS LLM Host" -ErrorAction SilentlyContinue
+if ($llamaTask) {
+  Write-Host "[OK] Scheduled task 'Riverside OS LLM Host' is registered. State: $($llamaTask.State)" -ForegroundColor Green
+} else {
+  Write-Host "[WARN] Scheduled task 'Riverside OS LLM Host' is missing. Re-run install-server.ps1 from a v0.70.1+ package or run Start-RiversideLlama.cmd." -ForegroundColor Yellow
+}
+
 # 5. Core API Server Service Checks
 Write-Host ""
 Write-Host "--- Core API Server Checks ---" -ForegroundColor Blue

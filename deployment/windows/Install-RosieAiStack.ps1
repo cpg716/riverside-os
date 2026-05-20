@@ -284,6 +284,17 @@ if ($SkipEnvPatch) {
   }
 }
 
+$llamaScript = Join-Path $ScriptRoot "start-riverside-llama.ps1"
+if ((Test-Path $llamaScript) -and $modelDest -and (Test-Path $modelDest)) {
+  Write-Host ""
+  Write-Host "[5/5] Starting ROSIE LLM host (llama-server)..."
+  try {
+    & $llamaScript -InstallRoot $ServerInstallRoot
+  } catch {
+    Write-Warning "      Could not start ROSIE LLM host: $($_.Exception.Message)"
+  }
+}
+
 # ============================================================
 # Summary
 # ============================================================

@@ -342,6 +342,51 @@ function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
   throw "Riverside OS Server did not pass the API check at $BaseUrl/api/staff/list-for-pos."
 }
 
+function Ensure-RiversideLlamaHost(
+  [string]$PackageRoot,
+  [string]$InstallRoot,
+  [string]$ModelPath,
+  [string]$LlamaHost,
+  [int]$LlamaPort
+) {
+  $llamaSrc = Join-Path $PackageRoot "rosie\bin\llama-server.exe"
+  if (-not (Test-Path $llamaSrc)) {
+    Write-Warning @"
+ROSIE: llama-server.exe was not found in this deployment package ($llamaSrc).
+ROSIE chat will stay unavailable until llama-server is running on http://${LlamaHost}:${LlamaPort}/.
+Run Install-RosieAiStack.ps1 after copying a full deployment package, or start the Riverside desktop app on this PC (it can launch the sidecar).
+"@
+    return
+  }
+
+  if ([string]::IsNullOrWhiteSpace($ModelPath) -or -not (Test-Path $ModelPath)) {
+    Write-Warning "ROSIE: LLM model is missing at '$ModelPath'. Skipping Riverside OS LLM Host scheduled task."
+    return
+  }
+
+  $llamaDir = Join-Path $InstallRoot "rosie\bin"
+  New-Item -ItemType Directory -Force -Path $llamaDir | Out-Null
+  Copy-Item "$PackageRoot\rosie\bin\*" $llamaDir -Force
+
+  $llamaExe = Join-Path $llamaDir "llama-server.exe"
+  $taskName = "Riverside OS LLM Host"
+  $argument = "-m `"$ModelPath`" --host $LlamaHost --port $LlamaPort --reasoning off"
+
+  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+  $action = New-ScheduledTaskAction -Execute $llamaExe -Argument $argument -WorkingDirectory $llamaDir
+  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+  $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 0)
+  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
+
+  Get-Process -Name "llama-server" -ErrorAction SilentlyContinue | ForEach-Object {
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+  }
+  Start-Sleep -Seconds 1
+  Start-ScheduledTask -TaskName $taskName
+  Write-Host "ROSIE: Registered and started scheduled task '$taskName' at http://${LlamaHost}:${LlamaPort}/"
+}
+
 function Ensure-RiversideFirewallRule([string]$DisplayName, [int]$Port) {
   Remove-NetFirewallRule -DisplayName $DisplayName -ErrorAction SilentlyContinue
   New-NetFirewallRule `
@@ -896,6 +941,16 @@ $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
 $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 0)
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
+
+$llamaHost = "127.0.0.1"
+$llamaPort = 8080
+if ($server.environment) {
+  $envHost = "$($server.environment.RIVERSIDE_LLAMA_HOST)".Trim()
+  $envPort = "$($server.environment.RIVERSIDE_LLAMA_PORT)".Trim()
+  if ($envHost) { $llamaHost = $envHost }
+  if ($envPort -and ($envPort -match '^\d+$')) { $llamaPort = [int]$envPort }
+}
+Ensure-RiversideLlamaHost $ScriptRoot $installRoot $rosieModelPath $llamaHost $llamaPort
 
 if (-not $NoStart) {
   Start-ScheduledTask -TaskName $taskName
