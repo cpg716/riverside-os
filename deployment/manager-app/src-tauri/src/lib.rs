@@ -70,6 +70,20 @@ fn get_deployment_paths() -> Result<serde_json::Value, String> {
 async fn read_deployment_config() -> Result<String, String> {
     let path = get_config_path();
     if !path.exists() {
+        // Auto-create from example config if available (mirrors Start-RiversideDeployment.ps1 behaviour).
+        let example_path = get_package_root().join("riverside-deployment.config.example.json");
+        if example_path.exists() {
+            let example_content = tokio::fs::read_to_string(&example_path)
+                .await
+                .map_err(|e| format!("Failed to read example config: {e}"))?;
+            if let Some(parent) = path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+            tokio::fs::write(&path, &example_content)
+                .await
+                .map_err(|e| format!("Failed to create config from example: {e}"))?;
+            return Ok(example_content);
+        }
         return Ok("{}".to_string());
     }
     tokio::fs::read_to_string(path)

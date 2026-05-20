@@ -86,13 +86,23 @@ export default function App() {
     if (!newConfig.server.database) newConfig.server.database = {};
     if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
     if (!newConfig.server.httpBind) newConfig.server.httpBind = '0.0.0.0:3000';
+    if (!newConfig.server.firewallRuleName) newConfig.server.firewallRuleName = 'Riverside OS Server';
+    if (!newConfig.server.corsOrigins || !newConfig.server.corsOrigins.length) {
+      newConfig.server.corsOrigins = ['http://tauri.localhost', 'https://tauri.localhost'];
+    }
+    if (!newConfig.server.environment) {
+      newConfig.server.environment = {
+        RIVERSIDE_BACKUP_DIR: 'C:\\RiversideOS\\backups',
+        RIVERSIDE_REPO_ROOT: 'C:\\RiversideOS\\release',
+      };
+    }
     newConfig.server.database.adminPassword = dbPassword;
     if (!newConfig.server.database.host) newConfig.server.database.host = serverIp;
     if (!newConfig.server.database.port) newConfig.server.database.port = 5432;
     if (!newConfig.server.database.databaseName) newConfig.server.database.databaseName = 'riverside_os';
     if (!newConfig.server.database.appUser) newConfig.server.database.appUser = 'riverside_app';
     if (!newConfig.server.database.adminUser) newConfig.server.database.adminUser = 'postgres';
-    if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
+    if (!newConfig.server.database.psqlPath) newConfig.server.database.psqlPath = '';
 
     await invoke('write_deployment_config', { config: JSON.stringify(newConfig) });
     setStep(3);

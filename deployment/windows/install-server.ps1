@@ -412,6 +412,8 @@ function Escape-SqlLiteral([string]$Value) {
 function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieModelPath) {
   $server = $Config.server
   $environmentMode = if ([bool]$server.strictProduction) { "production" } else { "development" }
+  $httpBind = $server.httpBind
+  if ([string]::IsNullOrWhiteSpace($httpBind)) { $httpBind = "0.0.0.0:3000" }
   $corsOrigins = @($server.corsOrigins) |
     Where-Object { $null -ne $_ -and "$_".Trim() -ne "" } |
     ForEach-Object { "$_".Trim() }
@@ -423,9 +425,9 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
   $lines = @(
     "DATABASE_URL=$DatabaseUrl",
     "FRONTEND_DIST=$FrontendDist",
-    "RIVERSIDE_HTTP_BIND=$($server.httpBind)",
+    "RIVERSIDE_HTTP_BIND=$httpBind",
     "RIVERSIDE_MODE=$environmentMode",
-    "RIVERSIDE_STRICT_PRODUCTION=$($server.strictProduction.ToString().ToLowerInvariant())",
+    "RIVERSIDE_STRICT_PRODUCTION=$("$([bool]$server.strictProduction)".ToLowerInvariant())",
     "RIVERSIDE_CORS_ORIGINS=$(($corsOrigins -join ','))",
     "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET=$($server.storeCustomerJwtSecret)",
     "RIVERSIDE_CREDENTIALS_KEY=$($server.storeCustomerJwtSecret)"
@@ -938,7 +940,9 @@ Write-ServerEnv $envPath $config $databaseUrl $clientDist $rosieModelPath
 Set-MachineEnvironmentFromServerConfig $config
 
 if (-not $SkipFirewall) {
-  Ensure-RiversideFirewallRule $server.firewallRuleName $serverPort
+  $fwName = $server.firewallRuleName
+  if ([string]::IsNullOrWhiteSpace($fwName)) { $fwName = "Riverside OS Server" }
+  Ensure-RiversideFirewallRule $fwName $serverPort
 }
 
 $serverExe = Join-Path $serverDir "riverside-server.exe"
