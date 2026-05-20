@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$ConfigPath = "$PSScriptRoot\riverside-deployment.config.json"
+  [string]$ConfigPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -68,6 +68,9 @@ function Resolve-PsqlPath($dbConfig) {
   throw "psql.exe was not found. Install PostgreSQL first, or set server.database.psqlPath in the config."
 }
 
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+  $ConfigPath = Join-Path $PSScriptRoot "riverside-deployment.config.json"
+}
 if (-not (Test-Path $ConfigPath)) {
   throw "Config file not found: $ConfigPath."
 }

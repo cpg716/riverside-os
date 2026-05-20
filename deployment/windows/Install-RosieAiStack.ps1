@@ -1,5 +1,5 @@
 # ============================================================
-# Riverside OS — ROSIE AI Stack Hotfix Installer
+# Riverside OS - ROSIE AI Stack Hotfix Installer
 # ============================================================
 # Run this on the Backoffice / Server PC to download the ROSIE
 # LLM model and voice stack, then patch the server .env so
@@ -27,9 +27,9 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 # ---- Admin guard ----
-$identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
-$principal = [Security.Principal.WindowsPrincipal]::new($identity)
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
+if (-not $isAdmin) {
   Write-Host "Re-launching as Administrator..."
   Start-Process powershell.exe -Verb RunAs -ArgumentList @(
     "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`""
@@ -52,7 +52,7 @@ if (-not $ServerInstallRoot) {
 $serverEnvPath = Join-Path $ServerInstallRoot "server\.env"
 Write-Host ""
 Write-Host "========================================================"
-Write-Host "  Riverside OS — ROSIE AI Stack Hotfix"
+Write-Host "  Riverside OS - ROSIE AI Stack Hotfix"
 Write-Host "  Server root : $ServerInstallRoot"
 Write-Host "  Server .env : $serverEnvPath"
 Write-Host "========================================================"
@@ -65,7 +65,7 @@ $sttDir     = Join-Path $rosieRoot "stt"
 $ttsDir     = Join-Path $rosieRoot "tts"
 
 # ============================================================
-# STEP 1 — Pinned Gemma GGUF (MODEL_PIN.json)
+# STEP 1 - Pinned Gemma GGUF (MODEL_PIN.json)
 # ============================================================
 Write-Host "[1/4] LLM model (Gemma 4 E2B)..."
 
@@ -75,7 +75,7 @@ $pinPath = Join-Path $PSScriptRoot "rosie\MODEL_PIN.json"
 if (Test-Path $pinPath) {
   $pin = Get-Content -Raw $pinPath | ConvertFrom-Json
 } else {
-  Write-Host "      MODEL_PIN.json not found next to script — using release-pinned values."
+  Write-Host "      MODEL_PIN.json not found next to script - using release-pinned values."
   $pin = [pscustomobject]@{
     huggingface_model_id = "bartowski/google_gemma-4-E2B-it-GGUF"
     revision             = "185cd2b180d1db0bcf37f4eca4032d769a4051c6"
@@ -93,11 +93,11 @@ if (Test-Path $modelDest) {
   Write-Host "      Verifying existing model SHA256..."
   $existingHash = (Get-FileHash -Algorithm SHA256 -Path $modelDest).Hash.ToLowerInvariant()
   if ($existingHash -eq $pin.sha256.ToLowerInvariant()) {
-    Write-Host "      OK — model already present and verified."
+    Write-Host "      OK - model already present and verified."
     Write-Host "      Path: $modelDest"
     $needsDownload = $false
   } else {
-    Write-Warning "      Hash mismatch — re-downloading."
+    Write-Warning "      Hash mismatch - re-downloading."
     Remove-Item $modelDest -Force
   }
 }
@@ -129,7 +129,7 @@ if ($needsDownload) {
 }
 
 # ============================================================
-# STEP 2 — sherpa-onnx Python runtime (via uv)
+# STEP 2 - sherpa-onnx Python runtime (via uv)
 # ============================================================
 if ($SkipVoiceTools) {
   Write-Host "[2/4] Voice tools skipped (-SkipVoiceTools)."
@@ -280,12 +280,12 @@ if ($SkipEnvPatch) {
 # ============================================================
 Write-Host ""
 Write-Host "========================================================"
-Write-Host "  ROSIE AI Stack Hotfix — Complete"
+Write-Host "  ROSIE AI Stack Hotfix - Complete"
 Write-Host ""
 if ($modelDest -and (Test-Path $modelDest)) {
-  Write-Host "  LLM model  : OK — $modelDest"
+  Write-Host "  LLM model  : OK - $modelDest"
 } else {
-  Write-Host "  LLM model  : MISSING — download manually and re-run"
+  Write-Host "  LLM model  : MISSING - download manually and re-run"
 }
 if (-not $SkipVoiceTools) {
   $sttOk = Test-Path (Join-Path $sttDir "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\model.int8.onnx")

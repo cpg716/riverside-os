@@ -140,15 +140,24 @@ function Test-PlaceholderSecret([string]$Value) {
   return $Value -match "replace-" -or $Value -eq "password" -or $Value -eq "placeholder"
 }
 
+function Set-SafeProperty($Object, $Name, $Value) {
+  if ($null -eq $Object) { return }
+  if ($Object.PSObject.Properties[$Name]) {
+    $Object.$Name = $Value
+  } else {
+    $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
+  }
+}
+
 $configModified = $false
 
 if (Test-PlaceholderSecret $config.server.storeCustomerJwtSecret) {
-  $config.server.storeCustomerJwtSecret = New-RiversideSecret 32
+  Set-SafeProperty $config.server "storeCustomerJwtSecret" (New-RiversideSecret 32)
   $configModified = $true
 }
 
 if (Test-PlaceholderSecret $config.server.database.appPassword) {
-  $config.server.database.appPassword = New-RiversideSecret 24
+  Set-SafeProperty $config.server.database "appPassword" (New-RiversideSecret 24)
   $configModified = $true
 }
 

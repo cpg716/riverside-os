@@ -10,8 +10,8 @@ Write-Host ""
 
 # 1. Admin Privilege check
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-$principal = [Security.Principal.WindowsPrincipal]::new($identity)
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+$isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
+if (-not $isAdmin) {
     Write-Host "[FAIL] Script is not running as Administrator. Please run this command/app elevated." -ForegroundColor Red
     exit 1
 } else {

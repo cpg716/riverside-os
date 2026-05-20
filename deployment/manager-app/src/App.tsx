@@ -13,6 +13,8 @@ export default function App() {
   const [step, setStep] = useState(1);
   const [role, setRole] = useState<'server' | 'register'>('server');
   
+  const [isElevated, setIsElevated] = useState<boolean | null>(null);
+  
   // Config state
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [config, setConfig] = useState<any>({});
@@ -42,6 +44,10 @@ export default function App() {
         console.error("Failed to parse config:", e);
       }
     });
+
+    invoke<boolean>('is_elevated')
+      .then((res) => setIsElevated(res))
+      .catch(() => setIsElevated(true));
   }, []);
 
   const handleContinueToExec = async () => {
@@ -121,6 +127,18 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {isElevated === false && (
+        <div className="w-full max-w-4xl mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl shadow-sm flex items-start gap-3">
+          <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold mt-0.5 text-xs">!</div>
+          <div className="flex-1">
+            <h4 className="text-sm font-bold text-amber-800">Not Running as Administrator</h4>
+            <p className="text-xs text-amber-700 mt-1">
+              The Deployment Manager is running without administrative privileges. Database control, scheduled task updates (such as Starting/Restarting Server), and workstation installation will fail. Please exit and run the manager using the <strong>Start-RiversideDeployment.cmd</strong> script.
+            </p>
+          </div>
+        </div>
+      )}
 
       {activeTab === 'wizard' ? (
         /* WIZARD TAB */

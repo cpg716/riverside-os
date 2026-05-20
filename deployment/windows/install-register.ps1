@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$ConfigPath = "$PSScriptRoot\riverside-deployment.config.json",
+  [string]$ConfigPath = "",
   [switch]$SkipAppInstall,
   [switch]$NoLaunch
 )
@@ -9,8 +9,8 @@ $ErrorActionPreference = "Stop"
 
 function Assert-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-  if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  $isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
+  if (-not $isAdmin) {
     throw "Run this installer from an elevated PowerShell window."
   }
 }
@@ -164,6 +164,9 @@ function Find-InstalledApp {
 }
 
 Assert-Admin
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+  $ConfigPath = Join-Path $PSScriptRoot "riverside-deployment.config.json"
+}
 if (-not (Test-Path $ConfigPath)) {
   throw "Config file not found: $ConfigPath. Copy riverside-deployment.config.example.json to riverside-deployment.config.json and fill it in."
 }

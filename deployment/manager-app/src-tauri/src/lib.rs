@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -214,6 +214,24 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
 }
 
 #[tauri::command]
+fn is_elevated() -> bool {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("net")
+            .arg("session")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+#[tauri::command]
 async fn open_logs() -> Result<(), String> {
     Command::new("explorer")
         .arg("C:\\RiversideOS\\logs")
@@ -235,7 +253,8 @@ pub fn run() {
             write_deployment_config,
             run_deployment_script,
             run_inline_powershell,
-            open_logs
+            open_logs,
+            is_elevated
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$ConfigPath = "$PSScriptRoot\riverside-deployment.config.json",
+  [string]$ConfigPath = "",
   [switch]$SkipDatabaseCreate,
   [switch]$SkipMigrations,
   [switch]$SkipFirewall,
@@ -13,9 +13,18 @@ $script:lastNativeCommandOutput = ""
 
 function Assert-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-  if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  $isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
+  if (-not $isAdmin) {
     throw "Run this installer from an elevated PowerShell window."
+  }
+}
+
+function Set-SafeProperty($Object, $Name, $Value) {
+  if ($null -eq $Object) { return }
+  if ($Object.PSObject.Properties[$Name]) {
+    $Object.$Name = $Value
+  } else {
+    $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
   }
 }
 
@@ -361,7 +370,7 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
     "RIVERSIDE_CREDENTIALS_KEY=$($server.storeCustomerJwtSecret)"
   )
 
-  # ROSIE local LLM — write model path so the Axum proxy can derive RIVERSIDE_LLAMA_UPSTREAM
+  # ROSIE local LLM - write model path so the Axum proxy can derive RIVERSIDE_LLAMA_UPSTREAM
   # at startup. Port stays at the default 8080 unless overridden in config.server.environment.
   if ($RosieModelPath) {
     $lines += "RIVERSIDE_LLAMA_MODEL_PATH=$RosieModelPath"
@@ -625,6 +634,9 @@ function Set-DatabaseEnvironmentMode($PsqlPath, $DatabaseUrl, [bool]$StrictProdu
 }
 
 Assert-Admin
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+  $ConfigPath = Join-Path $PSScriptRoot "riverside-deployment.config.json"
+}
 if (-not (Test-Path $ConfigPath)) {
   throw "Config file not found: $ConfigPath. Copy riverside-deployment.config.example.json to riverside-deployment.config.json and fill it in."
 }
@@ -649,13 +661,13 @@ function Test-PlaceholderSecret([string]$Value) {
 $configModified = $false
 
 if (Test-PlaceholderSecret $config.server.storeCustomerJwtSecret) {
-  $config.server.storeCustomerJwtSecret = New-RiversideSecret 32
+  Set-SafeProperty $config.server "storeCustomerJwtSecret" (New-RiversideSecret 32)
   $configModified = $true
   Write-Host "Auto-generated secure JWT secret." -ForegroundColor Green
 }
 
 if (Test-PlaceholderSecret $config.server.database.appPassword) {
-  $config.server.database.appPassword = New-RiversideSecret 24
+  Set-SafeProperty $config.server.database "appPassword" (New-RiversideSecret 24)
   $configModified = $true
   Write-Host "Auto-generated secure database app password." -ForegroundColor Green
 }
@@ -685,7 +697,7 @@ if (Test-PlaceholderSecret $config.server.database.adminPassword) {
     
     if ($LASTEXITCODE -eq 0) {
       Write-Host "PostgreSQL trust authentication detected (no password required)." -ForegroundColor Green
-      $config.server.database.adminPassword = ""
+      Set-SafeProperty $config.server.database "adminPassword" ""
       $configModified = $true
     } else {
       foreach ($pwd in @("postgres", "admin", "password")) {
@@ -694,7 +706,7 @@ if (Test-PlaceholderSecret $config.server.database.adminPassword) {
         $env:PGPASSWORD = $null
         if ($LASTEXITCODE -eq 0) {
           Write-Host "Auto-detected PostgreSQL admin password: '$pwd'" -ForegroundColor Green
-          $config.server.database.adminPassword = $pwd
+          Set-SafeProperty $config.server.database "adminPassword" $pwd
           $configModified = $true
           break
         }
@@ -817,7 +829,7 @@ try {
   Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
 }
 
-# ROSIE AI stack — download model and set up voice tools.
+# ROSIE AI stack - download model and set up voice tools.
 # Runs before the .env is written so the model path can be included.
 $rosieModelPath = $null
 if (-not $SkipRosieSetup) {
