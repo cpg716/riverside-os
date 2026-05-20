@@ -13,11 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.70.1] - 2026-05-20
 ### Added
 - **Inventory tag print date**: Tag Designer footer text is followed automatically by the print date on every inventory tag (HTML preview and Zebra/ZPL).
+- **ROSIE AI model upgrade (E4B)**: Standardized the entire stack on Gemma 4 E4B (4B params, 5.4 GB Q4_K_M) — `MODEL_PIN.json`, Rust default paths, PowerShell installers, dev scripts, e2e mocks, and all docs updated from E2B → E4B.
+- **Deployment Manager — PostgreSQL Status Panel**: Live diagnostics showing PG service state, psql connectivity, version, database existence, size, table count, and migration count with a Refresh button.
+- **Deployment Manager — PostgreSQL service control**: Start PG / Restart PG / Stop PG buttons inside the status panel with auto-refresh after actions.
+- **Deployment Manager — Stop Server**: Added a Stop Server button (previously only Start and Restart were available).
+- **Deployment Manager — Uninstall flows**: Uninstall Server (removes binary, scheduled task, firewall rule — preserves database) and Uninstall Register (removes desktop app and shortcuts).
 
 ### Fixed
 - **Deployment Manager**: Scripts receive `-ConfigPath`, run from the package root, and can relaunch elevated; privileged actions are blocked with a clear message when not running as Administrator.
 - **Windows deployment scripts**: Hardened config path resolution, `installRoot` defaults, null-safe package manifest checks, Postgres user normalization (`Admin` → `postgres` / `riverside_app`), and `ros_schema_migrations` audit probe.
 - **apply-riverside-migrations.ps1**: Safe property updates when `server` or JWT fields are missing from saved config.
+
+### Removed
+- **Stale `hotfix/` directory**: Deleted ~7,800 lines of duplicated deployment scripts that had fallen behind the canonical `deployment/windows/` copies, eliminating triple-maintenance burden and risk of running outdated scripts.
 
 ## [0.70.0] - 2026-05-19
 ### Added
