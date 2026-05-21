@@ -55,6 +55,12 @@ This script updates all required JSON and TOML files, as well as the `README.md`
    git push origin <branch>
    git push origin --tags
    ```
+5. **Trigger Release Workflows**: For production Windows releases, you must run both the deployment package and auto-updater pipelines:
+   ```bash
+   gh workflow run windows-deployment-package.yml --ref v<new_version>
+   gh workflow run tauri-register-updater-release.yml --ref v<new_version>
+   ```
+   *Note: Both the offline installer package (ZIP) and the online auto-updater release assets (MSI, latest.json, sigs) must be built and published together to the GitHub Release.*
 
 Only cut the release tag after the code RC gate has passed and the human operational checklist in `docs/RELEASE_OPERATIONAL_SIGNOFF.md` is complete.
 
