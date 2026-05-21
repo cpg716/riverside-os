@@ -218,7 +218,7 @@ test.describe("Inventory receiving operator verification", () => {
 
     await expect(page.getByText(/line pointer/i)).toHaveCount(0);
     await expect(invoiceRow.getByRole("button", { name: /^mark sent$/i })).toHaveCount(0);
-    const printBtn = page.getByRole("button", { name: /print/i });
+    const printBtn = page.getByRole("button", { name: /^print$/i });
     await expect(printBtn).toBeVisible({ timeout: 10_000 });
     await expect(printBtn.locator("..").getByRole("button", { name: /^mark sent$/i })).toHaveCount(0);
 
