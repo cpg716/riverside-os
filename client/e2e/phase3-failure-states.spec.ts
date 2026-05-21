@@ -28,7 +28,7 @@ async function openInventoryReceiveStock(page: Page) {
   await expect(
     page.getByRole("navigation", { name: "Breadcrumb" }).getByText(/^inventory$/i),
   ).toBeVisible({ timeout: 15_000 });
-  await page.getByRole("button", { name: /^receive stock$/i }).click({ force: true });
+  await page.getByRole("navigation", { name: "Main Navigation" }).getByRole("button", { name: /^receive stock$/i }).click({ force: true });
   await expect(page.getByText(/start with the vendor paperwork in hand/i)).toBeVisible({
     timeout: 20_000,
   });

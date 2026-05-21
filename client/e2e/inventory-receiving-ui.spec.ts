@@ -31,7 +31,7 @@ async function openInventoryPurchaseOrders(page: Parameters<typeof test>[0]["pag
   await expect(
     page.getByRole("navigation", { name: "Breadcrumb" }).getByText(/^inventory$/i),
   ).toBeVisible({ timeout: 15_000 });
-  const purchaseOrdersButton = page.getByRole("button", {
+  const purchaseOrdersButton = page.getByRole("navigation", { name: "Main Navigation" }).getByRole("button", {
     name: /^order stock$/i,
   });
   await expect(purchaseOrdersButton).toBeVisible({ timeout: 15_000 });
@@ -46,7 +46,7 @@ async function openInventoryReceiveStock(page: Parameters<typeof test>[0]["page"
   await expect(
     page.getByRole("navigation", { name: "Breadcrumb" }).getByText(/^inventory$/i),
   ).toBeVisible({ timeout: 15_000 });
-  const receiveStockButton = page.getByRole("button", {
+  const receiveStockButton = page.getByRole("navigation", { name: "Main Navigation" }).getByRole("button", {
     name: /^receive stock$/i,
   });
   await expect(receiveStockButton).toBeVisible({ timeout: 15_000 });
