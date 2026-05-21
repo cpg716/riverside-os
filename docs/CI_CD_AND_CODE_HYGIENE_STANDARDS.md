@@ -10,8 +10,9 @@ The goal of the CI repository is to maintain **0 ESLint errors** and **0 archite
 |-------|------|---------|
 | Client Lint | ESLint | `npm run lint` (in `client/`) |
 | Client Build | Vite | `npm run build` (in `client/`) |
-| Server Lint | Clippy | `cargo clippy --all-targets -- -D warnings` |
-| Server Format | rustfmt | `cargo fmt --check` |
+| Server Lint | Clippy | `cargo clippy --workspace --all-targets -- -D warnings` |
+| Server Format | rustfmt | `cargo fmt --all --check` |
+
 
 ## Generated help artifacts
 
@@ -94,8 +95,8 @@ gh run list --status failure --limit 100 --json databaseId --jq '.[].databaseId'
 ## Server-Side Hygiene (Rust)
 
 1. **Toolchain Pinning:** The project is strictly pinned to **Rust 1.88**. Ensure your `rust-toolchain.toml` includes both `clippy` and `rustfmt`.
-2. **Clippy Compliance:** Code must pass `cargo clippy -- -D warnings` without warnings.
-3. **Deterministic Formatting:** Always run `cargo fmt` before committing (`cargo fmt --check` is run in CI).
+2. **Clippy Compliance:** Code must pass `cargo clippy --workspace --all-targets -- -D warnings` without warnings.
+3. **Deterministic Formatting:** Always run `cargo fmt --all` before committing (`cargo fmt --all --check` is run in CI).
 4. **Decimal for Currency:** Never use `f32`/`f64` for money. Use `rust_decimal::Decimal`.
 
 ## Validation Workflow
@@ -103,8 +104,8 @@ gh run list --status failure --limit 100 --json databaseId --jq '.[].databaseId'
 Before pushing any major refactor, executors should run the following locally:
 
 1. `cd client && npm run lint`
-2. `cd server && cargo clippy -- -D warnings && cargo fmt --check`
-3. `cd client/src-tauri && cargo clippy -- -D warnings && cargo fmt --check`
+2. `cargo clippy --workspace --all-targets -- -D warnings`
+3. `cargo fmt --all --check`
 4. `cd client && npm run build` (to catch type errors in production builds)
 
 **Last reviewed:** 2026-04-09

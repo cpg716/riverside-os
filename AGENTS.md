@@ -116,7 +116,7 @@ RiversideOS v0.60.2 introduces the Tauri-based Deployment Manager GUI and automa
 - **System Pre-Flight Audit**: The "Audit" dashboard action runs `audit-system.ps1` to perform deep system health checks (admin rights, PostgreSQL connectivity, schema/migration status, server task running state, API ping `/api/version`, machine environment variables, and print routing).
 - **Zero-Config Credentials**: Deployment scripts auto-resolve PostgreSQL trust authentication or common defaults, auto-generate JWT and app secrets on the fly, and persist them to `riverside-deployment.config.json`.
 - **Start Fresh (Factory Reset)**: The "Start Fresh" maintenance action triggers `reset-riverside-database.ps1` with `-StartFresh`, executing database drop/recreate, migration apply, and core seeding silently in a single click (suppressing interactive WinForms MessageBox prompts).
-- **CI/CD Compilation Caching**: Uses `swatinem/rust-cache` to cache Rust dependencies across three distinct compilation scopes (`client/src-tauri`, `server`, and `deployment/manager-app/src-tauri`), reducing CI compilation time from 35+ minutes to ~8 minutes.
+- **CI/CD Compilation Caching**: Uses a unified Cargo workspace layout with `swatinem/rust-cache` to cache Rust dependencies across all workspace packages (`server`, `client/src-tauri`, and `deployment/manager-app/src-tauri`) in a single shared target directory, drastically reducing CI/CD compilation and caching overhead.
 
 ### v0.60.0 ROSIE Local AI Copilot, Universal Search & Backdating
 
@@ -324,7 +324,6 @@ The main shell component is the central hub of Riverside OS. It manages global s
 - If changing sqlx macros, run:
 
 ```bash
-cd server
 cargo sqlx prepare --workspace
 ```
 
@@ -510,7 +509,7 @@ Any change touching these areas must be treated as high risk:
 ### Always
 
 ```bash
-cargo fmt
+cargo fmt --all
 cd client && npm run lint
 cd client && npm run typecheck
 ```
@@ -525,7 +524,6 @@ cd client && npm run build
 ### When changing server queries or sqlx macros
 
 ```bash
-cd server
 cargo sqlx prepare --workspace
 ```
 

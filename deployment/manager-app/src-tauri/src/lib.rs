@@ -19,14 +19,17 @@ fn get_package_root() -> PathBuf {
         return path;
     }
 
-    let mut dev_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let dev_path = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     if dev_path.join("install-server.ps1").exists() {
         return dev_path;
     }
     if dev_path.join("windows").join("install-server.ps1").exists() {
         return dev_path.join("windows");
     }
-    if dev_path.file_name().is_some_and(|name| name == "manager-app") {
+    if dev_path
+        .file_name()
+        .is_some_and(|name| name == "manager-app")
+    {
         let windows_dir = dev_path.parent().unwrap_or(&dev_path).join("windows");
         if windows_dir.join("install-server.ps1").exists() {
             return windows_dir;
@@ -49,10 +52,7 @@ fn config_path_value() -> String {
 }
 
 fn script_supports_config_path(script_name: &str) -> bool {
-    !matches!(
-        script_name,
-        "audit-system.ps1" | "Install-RosieAiStack.ps1"
-    )
+    !matches!(script_name, "audit-system.ps1" | "Install-RosieAiStack.ps1")
 }
 
 #[tauri::command]
@@ -143,7 +143,7 @@ async fn run_deployment_script(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn powershell: {}", e))?;
+        .map_err(|e| format!("Failed to spawn powershell: {e}"))?;
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
@@ -179,7 +179,7 @@ async fn run_deployment_script(
     let status = child
         .wait()
         .await
-        .map_err(|e| format!("Failed to wait: {}", e))?;
+        .map_err(|e| format!("Failed to wait: {e}"))?;
 
     let _ = app.emit(
         "deployment-log",
@@ -189,14 +189,14 @@ async fn run_deployment_script(
             } else {
                 "error".to_string()
             },
-            text: format!("Script exited with status: {}", status),
+            text: format!("Script exited with status: {status}"),
         },
     );
 
     if status.success() {
         Ok(())
     } else {
-        Err(format!("Script exited with {}", status))
+        Err(format!("Script exited with {status}"))
     }
 }
 
@@ -219,7 +219,7 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn powershell: {}", e))?;
+        .map_err(|e| format!("Failed to spawn powershell: {e}"))?;
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
@@ -255,7 +255,7 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
     let status = child
         .wait()
         .await
-        .map_err(|e| format!("Failed to wait: {}", e))?;
+        .map_err(|e| format!("Failed to wait: {e}"))?;
 
     let _ = app.emit(
         "deployment-log",
@@ -265,14 +265,14 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
             } else {
                 "error".to_string()
             },
-            text: format!("Command exited with status: {}", status),
+            text: format!("Command exited with status: {status}"),
         },
     );
 
     if status.success() {
         Ok(())
     } else {
-        Err(format!("Exited with {}", status))
+        Err(format!("Exited with {status}"))
     }
 }
 

@@ -269,8 +269,9 @@ Both `apply-migrations-psql.sh` and `apply-migrations-docker.sh` store a SHA-256
 ### 2. API server
 
 ```bash
-cd server
-cargo run
+cargo run --package server
+# Or:
+cd server && cargo run
 # Listens on http://0.0.0.0:3000
 # Note: Serves static files from `../client/dist` by default.
 ```
@@ -405,13 +406,13 @@ See [`docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`](docs/SCHEMA_CONTRACT_AND_MIGRATIO
 
 ## Build / quality checks
 
-The **API server** uses **`server/rust-toolchain.toml`** (**Rust 1.88**). The toolchain file also enforces **`clippy`** and **`rustfmt`** components. If **Homebrew** installs **`cargo`/`rustc` 1.86** and they appear **before** **`~/.cargo/bin`** on **`PATH`**, plain **`cargo`** in **`server/`** may ignore the toolchain file and fail. Prefer **`npm run check:server`** (runs **`scripts/cargo-server.sh`**, same PATH fix as **`dev-server.sh`**), or put **`~/.cargo/bin`** first, or run **`rustup run 1.88 cargo …`** explicitly.
+The **Cargo Workspace** uses a root-level **`rust-toolchain.toml`** (**Rust 1.88**). The toolchain file also enforces **`clippy`** and **`rustfmt`** components. If **Homebrew** installs **`cargo`/`rustc` 1.86** and they appear **before** **`~/.cargo/bin`** on **`PATH`**, plain **`cargo`** may ignore the toolchain file and fail. Prefer **`npm run check:server`** (runs **`scripts/cargo-server.sh`**, same PATH fix as **`dev-server.sh`**), or put **`~/.cargo/bin`** first, or run **`rustup run 1.88 cargo …`** explicitly.
 
 To **avoid that class of issues entirely**, uninstall Homebrew’s compiler and rely on **rustup** only: **`brew uninstall rust`** (and **`brew uninstall rustup`** only if you installed the **`rustup`** formula). Then ensure **`which -a rustc`** lists **`~/.cargo/bin/rustc`** first and remove any **`PATH`** entries pointing at **`/opt/homebrew/opt/rust`** (or Intel **`/usr/local/opt/rust`**) from **`~/.zshrc`** / **`~/.zprofile`**. This does **not** remove toolchains managed by **`rustup`** from **`~/.rustup`**. All workspace `rust-toolchain.toml` files include the required components for CI/CD consistency.
 
 ```bash
 npm run check:server          # cargo check with Rust 1.88 on PATH (from repo root)
-cd server && rustup run 1.88 cargo test
+rustup run 1.88 cargo test --workspace
 cd client && npm run build    # tsc --noEmit + vite build
 ```
 

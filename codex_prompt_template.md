@@ -58,7 +58,8 @@ Rules:
 - respect existing system contracts
 
 Validation:
-- cargo fmt --check --manifest-path client/src-tauri/Cargo.toml
+- cargo clippy --workspace --all-targets -- -D warnings
+- cargo fmt --all --check
 - mkdir -p client/test-results && npm run lint
 - npm --prefix client run build
 - npm run pack
@@ -133,7 +134,8 @@ Rules:
 - respect existing system contracts
 
 Validation:
-- cargo fmt --check --manifest-path client/src-tauri/Cargo.toml
+- cargo clippy --workspace --all-targets -- -D warnings
+- cargo fmt --all --check
 - mkdir -p client/test-results && npm run lint
 - npm --prefix client run build
 - npm run pack
