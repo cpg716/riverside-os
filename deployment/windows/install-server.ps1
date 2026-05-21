@@ -71,7 +71,7 @@ function Ensure-PostgresServiceRunning {
       $service.WaitForStatus("Running", (New-TimeSpan -Seconds 30))
     } catch {
       Write-Warning "Could not start PostgreSQL service '$($service.Name)': $($_.Exception.Message)"
-      Write-Warning "Continuing — database operations will fail if PostgreSQL is not reachable."
+      Write-Warning "Continuing - database operations will fail if PostgreSQL is not reachable."
     }
   }
   try { Set-Service -Name $service.Name -StartupType Automatic } catch {
