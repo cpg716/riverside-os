@@ -108,6 +108,26 @@ RiversideOS v0.3.4 introduces a refined scheduling model focused on privacy, mul
 - **Highlighter Authority**: 
   - Solid Yellow (`#fff176`) is the authoritative color for the manual highlighter tool, used to emphasize specific shifts for printing.
 
+### v0.70.2 Production Hardening & Enterprise Features
+
+RiversideOS v0.70.2 introduces comprehensive production hardening features for enterprise-grade scalability, reliability, and observability.
+
+- **Health Check Endpoints**: `/api/health`, `/api/ready`, `/api/live` for orchestration and monitoring systems. Health checks validate database connectivity, background workers, and system dependencies with appropriate HTTP status codes.
+- **Connection Pool Monitoring**: Automatic monitoring of PostgreSQL connection pool utilization with alerts when usage exceeds 80%. Monitors active, idle, and total connections with real-time alerting to admin staff.
+- **WAL Archiving**: Point-in-time recovery capability with automated WAL archiving, monitoring, and failure alerting. Includes health status tracking and automatic cleanup of old archive files.
+- **System Alert Broadcasting**: Critical system events (connection pool exhaustion, WAL failures, etc.) are automatically broadcast to all admin staff via the notification system using `settings.admin` permission targeting.
+- **Global Rate Limiting**: IP-based and user-based rate limiting to prevent API abuse and DoS attacks. Configurable limits with sliding window enforcement and automatic cleanup of expired entries.
+- **Redis Cluster Integration**: Distributed caching and locking with graceful fallback when Redis unavailable. Includes connection pooling, retry logic, and distributed lock implementation using Lua scripts.
+- **Background Job Queue**: Resilient async processing system with Redis backend, supporting retries, dead letter queues, and multiple job types (email, reports, sync, maintenance, notifications, analytics).
+- **Comprehensive Metrics System**: Business KPIs (revenue, customers, inventory, financial) and technical metrics (system resources, database performance, API metrics) with multiple export formats (Prometheus, JSON, InfluxDB, Graphite).
+
+**Production Documentation**: All production features are documented in:
+- `docs/PRODUCTION_HARDENING_GUIDE.md` - Complete production setup and configuration
+- `docs/REDIS_INTEGRATION_GUIDE.md` - Redis caching and distributed locking
+- `docs/JOB_QUEUE_GUIDE.md` - Background job processing and worker configuration
+- `docs/METRICS_SYSTEM_GUIDE.md` - Business and technical KPI collection
+- `docs/DEPLOYMENT_GUIDE.md` - Production deployment procedures
+
 ### v0.60.2 Deployment Manager & Diagnostics
 
 RiversideOS v0.60.2 introduces the Tauri-based Deployment Manager GUI and automated system audits to replace fragmented installation scripts.
@@ -171,6 +191,10 @@ Then read the domain doc most relevant to the task.
 
 ### Domain docs to consult before changing business-critical behavior
 
+- **Production Hardening & Operations** — `docs/PRODUCTION_HARDENING_GUIDE.md`, `docs/DEPLOYMENT_GUIDE.md`
+- **Redis Integration & Caching** — `docs/REDIS_INTEGRATION_GUIDE.md`
+- **Job Queue & Background Processing** — `docs/JOB_QUEUE_GUIDE.md`
+- **Metrics & Monitoring** — `docs/METRICS_SYSTEM_GUIDE.md`
 - **Orders / wedding orders / fulfillment** — `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`
 - **Deposits** — `docs/DEPOSIT_OPERATIONS.md`
 - **Returns / refunds / exchanges** — `docs/TRANSACTION_RETURNS_EXCHANGES.md`
@@ -197,7 +221,7 @@ If a change affects a staff-facing workflow, update the relevant staff docs in t
 
 ## What this repo is
 
-**Riverside OS** = PostgreSQL + **Rust Axum API** (`server/`) + **React/Vite UI** (`client/`) packaged with **Tauri 2** (`client/src-tauri/`).
+**Riverside OS** = PostgreSQL + **Rust Axum API** (`server/`) + **React/Vite UI** (`client/`) packaged with **Tauri 2** (`client/src-tauri/`) + **Production Hardening** (`server/src/cache/`, `server/src/jobs/`, `server/src/metrics/`).
 
 Primary codepaths:
 
@@ -208,6 +232,15 @@ Primary codepaths:
 - Register sessions
 - Reporting / insights
 - Settings / integrations
+
+**Production Systems (v0.70.2+)**:
+- **Redis Integration** (`server/src/cache/`) - Distributed caching and locking with graceful fallback
+- **Background Job Queue** (`server/src/jobs/`) - Resilient async processing with Redis backend
+- **Metrics Collection** (`server/src/metrics/`) - Business KPIs and technical metrics with multiple export formats
+- **Health Monitoring** (`server/src/api/health.rs`) - Health check endpoints for orchestration
+- **Rate Limiting** (`server/src/middleware/rate_limit.rs`) - IP-based and user-based DoS protection
+- **Connection Pool Monitoring** (`server/src/launcher.rs`) - Automatic alerts for pool utilization
+- **WAL Archiving** (`server/src/logic/backups.rs`) - Point-in-time recovery with monitoring
 
 Tauri 2 is utilized directly for native hardware bridging, including async TCP ESC/POS thermal printing via `client/src-tauri/src/hardware.rs`.
 
@@ -225,6 +258,9 @@ Reference-only trees like **`NexoPOS-master/`**, **`odoo-19.0/`**, and **`rivers
 - PostgreSQL
 - `rust_decimal` for all money math
 - `tracing` / `tracing-subscriber`
+- **Redis** - Distributed caching and locking
+- **async-trait** - Job queue handlers
+- **Prometheus/JSON exporters** - Metrics collection
 
 ### Frontend
 
@@ -232,6 +268,14 @@ Reference-only trees like **`NexoPOS-master/`**, **`odoo-19.0/`**, and **`rivers
 - TypeScript
 - Tailwind CSS
 - Vite
+
+### Production Infrastructure
+
+- **Redis Cluster** - Distributed caching and job queues
+- **PostgreSQL WAL Archiving** - Point-in-time recovery
+- **Prometheus** - Metrics collection and monitoring
+- **Grafana** - Visualization and alerting
+- **HAProxy/Nginx** - Load balancing and rate limiting
 
 ### Desktop / native
 

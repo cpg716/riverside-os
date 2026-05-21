@@ -2,9 +2,12 @@
 
 pub mod api;
 pub mod auth;
+pub mod cache;
 pub mod db_startup_diag;
+pub mod jobs;
 pub mod launcher;
 pub mod logic;
+pub mod metrics;
 pub mod middleware;
 pub mod models;
 pub mod observability;

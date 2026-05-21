@@ -9,13 +9,13 @@ use opendal::{
 use ring::aead::{self, Aad, LessSafeKey, UnboundKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::Command;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 const BACKUP_DIR_ENV: &str = "RIVERSIDE_BACKUP_DIR";
@@ -1293,4 +1293,120 @@ pub async fn record_cloud_backup_failure(pool: &PgPool, detail: &str) -> Result<
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Check WAL archive health and return status for monitoring
+pub async fn check_wal_archive_health(pool: &PgPool) -> Result<WalArchiveHealth, sqlx::Error> {
+    // Use raw query to avoid compile-time validation of missing tables
+    let row = match sqlx::query(
+        r#"
+        SELECT
+            status,
+            last_archive_at,
+            last_archive_file,
+            archive_count_today,
+            archive_size_mb,
+            error_message,
+            CASE
+                WHEN status = 'active' AND last_archive_at > now() - interval '10 minutes' THEN 'healthy'
+                WHEN status = 'active' AND last_archive_at > now() - interval '30 minutes' THEN 'warning'
+                WHEN status = 'failed' THEN 'critical'
+                ELSE 'unknown'
+            END as health_status,
+            EXTRACT(epoch FROM (now() - last_archive_at))::bigint as seconds_since_last_archive
+        FROM wal_archive_health
+        LIMIT 1
+        "#
+    )
+    .fetch_optional(pool)
+    .await {
+        Ok(row) => row,
+        Err(e) => {
+            // If the WAL archive tables don't exist yet, return default status
+            if e.to_string().contains("does not exist") {
+                tracing::warn!("WAL archive tables not yet created - migration pending");
+                return Ok(WalArchiveHealth::default());
+            }
+            return Err(e);
+        }
+    };
+
+    let row = if let Some(row) = row {
+        // Manually map the row to our struct
+        let status: String = row.get("status");
+        let health_status: String = row.get("health_status");
+        let last_archive_at: Option<chrono::DateTime<chrono::Utc>> = row.get("last_archive_at");
+        let last_archive_file: Option<String> = row.get("last_archive_file");
+        let archive_count_today: Option<i64> = row.get("archive_count_today");
+        let archive_size_mb: Option<i64> = row.get("archive_size_mb");
+        let error_message: Option<String> = row.get("error_message");
+        let seconds_since_last_archive: Option<i64> = row.get("seconds_since_last_archive");
+
+        Some((status, health_status, last_archive_at, last_archive_file, archive_count_today, archive_size_mb, error_message, seconds_since_last_archive))
+    } else {
+        None
+    };
+
+    match row {
+        Some((status, health_status, last_archive_at, last_archive_file, archive_count_today, archive_size_mb, error_message, seconds_since_last_archive)) => {
+            Ok(WalArchiveHealth {
+                status,
+                health_status,
+                last_archive_at,
+                last_archive_file,
+                archive_count_today: archive_count_today.unwrap_or(0),
+                archive_size_mb: archive_size_mb.unwrap_or(0),
+                error_message,
+                seconds_since_last_archive: seconds_since_last_archive.unwrap_or(0),
+            })
+        },
+        None => Ok(WalArchiveHealth::default()),
+    }
+}
+
+/// Record WAL archive failure for alerting
+pub async fn record_wal_archive_failure(pool: &PgPool, error_message: &str) -> Result<(), sqlx::Error> {
+    // Try to record failure, but handle case where tables don't exist yet
+    if let Err(e) = sqlx::query(
+        r#"
+        UPDATE wal_archive_status
+        SET
+            status = 'failed',
+            error_message = $1,
+            updated_at = now()
+        WHERE id = (SELECT id FROM wal_archive_status LIMIT 1)
+        "#
+    )
+    .bind(error_message)
+    .execute(pool)
+    .await {
+        if e.to_string().contains("does not exist") {
+            tracing::warn!("WAL archive tables not yet created - cannot record failure: {}", error_message);
+            // Still send alert even if we can't record to database
+        } else {
+            return Err(e);
+        }
+    }
+
+    // Send alert to admins
+    if let Err(e) = crate::logic::notifications::broadcast_system_alert(
+        pool,
+        &format!("WAL archiving failed: {}", error_message)
+    ).await {
+        tracing::error!(error = %e, "Failed to send WAL archive failure alert");
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Default)]
+pub struct WalArchiveHealth {
+    pub status: String,
+    pub health_status: String,
+    pub last_archive_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_archive_file: Option<String>,
+    pub archive_count_today: i64,
+    pub archive_size_mb: i64,
+    pub error_message: Option<String>,
+    pub seconds_since_last_archive: i64,
 }

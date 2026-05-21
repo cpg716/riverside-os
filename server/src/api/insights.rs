@@ -3684,6 +3684,8 @@ mod tests {
             corecard_token_cache: Arc::new(Mutex::new(CoreCardTokenCache::default())),
             rosie_speech_state: Arc::new(Mutex::new(None)),
             server_log_ring: ServerLogRing::new(32, 512),
+            cache: None,
+            metrics_collector: None,
         }
     }
 

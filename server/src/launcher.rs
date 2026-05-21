@@ -234,6 +234,43 @@ async fn launch_server_inner(
         "Unified Engine: PostgreSQL pool configured"
     );
 
+    // Start connection pool monitoring
+    let monitor_pool = pool.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            let idle = monitor_pool.num_idle() as u32;
+            let max = monitor_pool.size();
+            let active = max.saturating_sub(idle as usize) as u32;
+            let utilization = if max > 0 { (active * 100) / max } else { 0 };
+
+            if utilization >= 80 {
+                tracing::warn!(
+                    active_connections = active,
+                    max_connections = max,
+                    utilization_percent = utilization,
+                    "Database connection pool utilization critical (>80%)"
+                );
+
+                // Send notification to admins
+                if let Err(e) = crate::logic::notifications::broadcast_system_alert(
+                    &monitor_pool,
+                    &format!("Database pool utilization at {}% ({} active / {} max)", utilization, active, max)
+                ).await {
+                    tracing::error!(error = %e, "Failed to send pool utilization alert");
+                }
+            } else if utilization >= 60 {
+                tracing::info!(
+                    active_connections = active,
+                    max_connections = max,
+                    utilization_percent = utilization,
+                    "Database connection pool utilization elevated"
+                );
+            }
+        }
+    });
+
     crate::db_startup_diag::log_postgres_startup_context(&pool).await;
 
     if let Err(e) = crate::schema_bootstrap::ensure_core_schema(&pool).await {
@@ -333,6 +370,8 @@ async fn launch_server_inner(
         )),
         rosie_speech_state: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         server_log_ring: server_log_ring.clone(),
+        cache: crate::cache::CacheService::from_env().ok(),
+        metrics_collector: None, // Will be initialized later if needed
     };
 
     // Workers

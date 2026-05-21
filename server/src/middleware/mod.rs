@@ -4,6 +4,8 @@ use axum::http::{HeaderMap, StatusCode};
 use serde_json::json;
 use uuid::Uuid;
 
+pub mod rate_limit;
+
 use crate::api::AppState;
 use crate::auth::permissions::{self, staff_has_permission, NOTIFICATIONS_VIEW};
 use crate::auth::pins::AuthenticatedStaff;

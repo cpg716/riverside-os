@@ -12,6 +12,11 @@ Current Version: **v0.70.2** (See [CHANGELOG.md](CHANGELOG.md))
 | Frontend | React 19 · TypeScript · Tailwind CSS · Vite |
 | Desktop shell | Tauri 2 |
 | Architecture | **Unified Hybrid Model** (New in v0.2.1) — Embedding the backend engine in the desktop shell for one-click updates. |
+| Caching & Locking | Redis Cluster · Distributed locking · Graceful fallback |
+| Job Queue | Redis-based background processing · Dead letter queues · Automatic retries |
+| Metrics | Business KPIs · Technical metrics · Prometheus/JSON/InfluxDB exports |
+| Monitoring | Health checks · Connection pool monitoring · WAL archiving |
+| Security | Global rate limiting · System alerts · CORS protection |
 | Logging / traces | `tracing` + `tracing-subscriber` (`RUST_LOG`); optional **OpenTelemetry OTLP** — [`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md) |
 | Timezone | `chrono-tz` (IANA; configurable per store in receipt settings) |
 | Money | `rust_decimal` only — no f32/f64 for currency anywhere |
@@ -30,6 +35,41 @@ Current runtime contract:
 - while a valid shell is active, the app should stay in that shell until the user takes an explicit exit path
 - child-shell tab changes must not silently bounce the user back to Back Office
 - invalid shell state should fall back cleanly only when the owning shell is no longer valid
+
+## Production Features (v0.70.2+)
+
+Riverside OS v0.70.2+ includes enterprise-grade production hardening features:
+
+### 🏥 **Health & Monitoring**
+- **Health Check Endpoints**: `/api/health`, `/api/ready`, `/api/live` for orchestration
+- **Connection Pool Monitoring**: Automatic alerts when pool utilization > 80%
+- **WAL Archiving**: Point-in-time recovery with monitoring and alerting
+- **System Alerts**: Broadcast critical events to all admin staff
+
+### 🚀 **Performance & Scalability**
+- **Redis Cluster**: Distributed caching and locking with graceful fallback
+- **Background Job Queue**: Resilient async processing with retries and dead letter queues
+- **Global Rate Limiting**: IP-based and user-based DoS protection
+- **Connection Pooling**: Optimized database connection management
+
+### 📊 **Observability**
+- **Business KPIs**: Revenue, customers, inventory, financial metrics
+- **Technical Metrics**: System resources, database performance, API metrics
+- **Multiple Export Formats**: Prometheus, JSON, InfluxDB, Graphite
+- **Real-time Collection**: Configurable intervals with automatic cleanup
+
+### 🔒 **Security**
+- **Rate Limiting**: Configurable limits per IP and authenticated users
+- **CORS Protection**: Production-ready cross-origin security
+- **Input Validation**: Comprehensive request validation and sanitization
+- **Secure Headers**: Automatic security header injection
+
+**📖 Production Documentation**:
+- [Production Hardening Guide](docs/PRODUCTION_HARDENING_GUIDE.md) - Complete production setup
+- [Redis Integration Guide](docs/REDIS_INTEGRATION_GUIDE.md) - Caching and distributed locking
+- [Job Queue Guide](docs/JOB_QUEUE_GUIDE.md) - Background job processing
+- [Metrics System Guide](docs/METRICS_SYSTEM_GUIDE.md) - Business and technical KPIs
+- [Deployment Guide](docs/DEPLOYMENT_GUIDE.md) - Production deployment procedures
 
 ## Quick start
 
@@ -210,38 +250,50 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 
 | Path | Role | Audience |
 |------|------|----------|
-| `README.md` | Overview, quick start, schema-contract summary | Everyone |
+| **Production & Operations** |
+| `docs/PRODUCTION_HARDENING_GUIDE.md` | Complete production hardening features, monitoring, security | DevOps / System Admins |
+| `docs/DEPLOYMENT_GUIDE.md` | Production deployment procedures, load balancer, monitoring setup | DevOps / System Admins |
+| `docs/REDIS_INTEGRATION_GUIDE.md` | Redis caching, distributed locking, performance optimization | Developers / DevOps |
+| `docs/JOB_QUEUE_GUIDE.md` | Background job processing, queue management, worker configuration | Developers / DevOps |
+| `docs/METRICS_SYSTEM_GUIDE.md` | Business KPIs, technical metrics, monitoring, alerting | Developers / DevOps |
+| **Core Development** |
+| `README.md` | Overview, quick start, production features summary | Everyone |
 | `CHANGELOG.md` | Detailed version history and release notes | Everyone |
 | `DEVELOPER.md` | Architecture, API overview, schema-contract workflow, runbooks | Developers |
 | `AGENTS.md` | Invariants, edit map, commands, migration cheat sheet | Agents / devs |
 | `docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md` | Baseline migrations, seed separation, runtime validation, future migration rules | Developers / agents |
-| `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md` | Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival. | Developers / ops |
+| **Business Operations** |
+| `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md` | Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival | Developers / ops |
 | `docs/POS_WEDDING_REGISTER_WORKFLOW.md` | Register workflow for wedding members, checklist-driven item add, measurement gating, and Wedding Manager source-of-truth rules | Ops / devs |
-| `docs/ORBSTACK_GUIDE.md` | Local Docker management, context switch, VirtioFS | Devs |
-| `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
 | `docs/HELCIM.md` | Helcim POS/Payments integration contract, provider attempts, terminal health, webhooks, settlement, refunds | Devs / ops |
 | `docs/staff/payments-operations.md` | Staff guide for Helcim payment operations, reconciliation, deposits, sync health, and alerts | Ops / devs |
-| `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
+| `docs/COMMISSION_AND_SPIFF_OPERATIONS.md` | Commission Manager, SPIFF rules, and combo rewards | Ops / devs |
+| `docs/CASH_ROUNDING_OPERATIONS.md` | Swedish Rounding rules, cash checkout logic, and QBO mapping | Ops / devs |
+| **Technical Features** |
+| `docs/ORBSTACK_GUIDE.md` | Local Docker management, context switch, VirtioFS | Devs |
+| `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
 | `docs/SEARCH_AND_PAGINATION.md` | Search semantics, optional Meilisearch | Devs |
 | `docs/COUNTERPOINT_SYNC_GUIDE.md` | Counterpoint one-time migration bridge, mapping, heartbeats, retirement path | Ops / devs |
 | `docs/WEDDING_COUNTERPOINT_CUTOVER_LINKING.md` | Mid-season wedding cutover design for linking imported parties to Counterpoint-synced customers, transactions, and item lifecycle | Ops / devs |
-| `docs/STAFF_SCHEDULE_XLSX_IMPORTER.md` | Staff Schedule Maker weekly grid + `.xlsx` import format and troubleshooting | Ops / devs |
 | `docs/TRANSACTION_RETURNS_EXCHANGES.md` | Refunds, returns, exchanges | Devs |
-| `docs/STAFF_TASKS_AND_REGISTER_SHIFT.md` | Checklists, tasks, register shift primary | Devs / ops |
-| `docs/PLAN_BUG_REPORTS.md` | In-app bug report architecture and triage | Devs / ops |
 | `docs/RECEIPT_BUILDER_AND_DELIVERY.md`| ZPL / Thermal templates and Podium delivery | Devs / ops |
-| `docs/COMMISSION_AND_SPIFF_OPERATIONS.md` | Commission Manager, SPIFF rules, and combo rewards | Ops / devs |
 | `docs/SHIPPING_AND_SHIPMENTS_HUB.md` | Shippo, Registry, and Hub operations | Devs / ops |
+| **User Interface & Client** |
+| `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
 | `docs/CLIENT_UI_CONVENTIONS.md` | React primitives, modal a11y, shell wiring | Devs / agents |
 | `docs/CUSTOMER_HUB_AND_RBAC.md` | Joint accounts, financial redirection, CRM RBAC | Devs / ops |
 | `docs/UNIFIED_ENGINE_AND_HOST_MODE.md` | **Unified Hybrid Architecture** (v0.2.1+), Host Mode, and updates | Everyone |
 | `docs/ROS_DEV_CENTER.md` | ROS Dev Center architecture, API contracts, operations, and hardening model | Devs / ops |
+| **Operations & Maintenance** |
 | `INVENTORY_GUIDE.md` | Scanning engine, physical inventory sessions | Ops / devs |
 | `BACKUP_RESTORE_GUIDE.md` | Maintenance, backups, cloud sync | Ops |
+| `docs/STAFF_SCHEDULE_XLSX_IMPORTER.md` | Staff Schedule Maker weekly grid + `.xlsx` import format and troubleshooting | Ops / devs |
+| `docs/STAFF_TASKS_AND_REGISTER_SHIFT.md` | Checklists, tasks, register shift primary | Devs / ops |
+| `docs/PLAN_BUG_REPORTS.md` | In-app bug report architecture and triage | Devs / ops |
+| `docs/INTELLIGENCE_LAYER_GUIDE.md` | Proactive risk & replenishment engines (logic, UI, API) | Developers / ops |
+| **Reference** |
 | `Riverside_OS_Master_Specification.md` | Product requirements and vocabulary | Product / devs |
 | `docs/RETIRED_DOCUMENT_SUMMARIES.md` | Ledger of removed docs | Maintainers |
-| `docs/INTELLIGENCE_LAYER_GUIDE.md` | Proactive risk & replenishment engines (logic, UI, API) | Developers / ops |
-| `docs/CASH_ROUNDING_OPERATIONS.md` | Swedish Rounding rules, cash checkout logic, and QBO mapping | Ops / devs |
 | `client/src/assets/docs/lockout-manual.md` | Restoration steps for locked-out staff and admins | Everyone |
 
 ## Command Summary

@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::auth::permissions::{
     self, staff_has_permission, CATALOG_EDIT, CUSTOMERS_MERGE, NUORDER_SYNC, ORDERS_VIEW, QBO_VIEW,
-    REGISTER_REPORTS,
+    REGISTER_REPORTS, SETTINGS_ADMIN,
 };
 use crate::models::DbStaffRole;
 
@@ -1864,6 +1864,51 @@ pub async fn emit_nuorder_sync_failed(
     };
     let staff = staff_ids_with_permission(pool, NUORDER_SYNC).await?;
     fan_out_notification_to_staff_ids(pool, nid, &staff).await
+}
+
+/// Broadcast critical system alert to all admin staff
+pub async fn broadcast_system_alert(pool: &PgPool, message: &str) -> Result<(), sqlx::Error> {
+    // Find all staff with settings.admin permission
+    let admin_staff: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT sp.staff_id
+        FROM staff_permissions sp
+        JOIN permissions p ON sp.permission_id = p.id
+        WHERE p.key = 'settings.admin'
+        AND sp.granted = TRUE
+        "#
+    )
+    .fetch_all(pool)
+    .await?;
+
+    if admin_staff.is_empty() {
+        tracing::warn!("No admin staff found for system alert broadcast");
+        return Ok(());
+    }
+
+    // Create the notification
+    let notification_id = insert_app_notification_deduped(
+        pool,
+        "system_alert",
+        "System Alert",
+        message,
+        json!({"route": "/settings"}),
+        "system",
+        json!({"roles": ["admin"]}),
+        Some(&format!("system_alert_{}", chrono::Utc::now().timestamp())),
+    ).await?;
+
+    if let Some(notification_id) = notification_id {
+        // Fan out to all admin staff
+        fan_out_notification_to_staff_ids(pool, notification_id, &admin_staff).await?;
+        tracing::info!(
+            admin_count = admin_staff.len(),
+            message = message,
+            "System alert broadcast to admin staff"
+        );
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

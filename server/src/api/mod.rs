@@ -15,6 +15,7 @@ pub mod customers;
 pub mod discount_events;
 pub mod gift_cards;
 pub mod hardware;
+pub mod health;
 pub mod help;
 pub mod insights;
 pub mod inventory;
@@ -99,8 +100,14 @@ pub struct AppState {
     pub rosie_speech_state: crate::logic::rosie_speech::RosieSpeechState,
     /// Recent API server `tracing` lines (shared with [`ServerLogRingLayer`](crate::observability::ServerLogRingLayer)).
     pub server_log_ring: ServerLogRing,
+    /// Redis cache service for distributed caching and locking.
+    pub cache: Option<crate::cache::CacheService>,
+    /// Metrics collector for business and technical KPIs.
+    pub metrics_collector: Option<crate::metrics::MetricsCollector>,
 }
 pub fn build_router() -> Router<AppState> {
+    let rate_limit_state = crate::middleware::rate_limit::rate_limit_middleware();
+
     let mut router = Router::new()
         .route("/api/version", get(api_version))
         .merge(metabase_proxy::router())
@@ -152,6 +159,7 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/weddings", weddings::router())
         .nest("/api/weather", weather::router())
         .nest("/api/hardware", hardware::router())
+        .nest("/api/health", health::health_router())
         .nest("/api/sync", counterpoint_sync::router())
         .nest(
             "/api/settings/counterpoint-sync",
@@ -170,5 +178,9 @@ pub fn build_router() -> Router<AppState> {
         router = router.nest("/api/test-support", test_support::router());
     }
 
-    router
+    // Add rate limiting middleware
+    router.layer(axum::middleware::from_fn_with_state(
+        rate_limit_state,
+        crate::middleware::rate_limit::rate_limit_handler,
+    ))
 }

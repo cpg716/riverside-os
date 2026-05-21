@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
+- **Production Hardening Suite**: Enterprise-grade production features for scalability, reliability, and observability
+  - **Health Check Endpoints**: `/api/health`, `/api/ready`, `/api/live` for orchestration and monitoring
+  - **Connection Pool Monitoring**: Automatic alerts when pool utilization exceeds 80%
+  - **WAL Archiving**: Point-in-time recovery capability with monitoring and failure alerting
+  - **System Alert Broadcasting**: Critical system events broadcast to all admin staff
+  - **Global Rate Limiting**: IP-based and user-based DoS protection with configurable limits
+  - **Redis Cluster Integration**: Distributed caching and locking with graceful fallback
+  - **Background Job Queue**: Resilient async processing with retries, dead letter queues, and worker pools
+  - **Comprehensive Metrics System**: Business KPIs and technical metrics with multiple export formats
 - **Migration checksum drift detection**: Both `apply-migrations-psql.sh` and `apply-migrations-docker.sh` now store a SHA-256 hash of each migration file in `ros_schema_migrations.file_sha256`. On subsequent runs, if a previously applied file has been modified, the script prints a `⚠ DRIFT` warning instead of silently skipping. This prevents the class of bug where columns are added to an already-applied migration file and never reach the database.
 
 ### Fixed
