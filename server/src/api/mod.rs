@@ -47,6 +47,7 @@ pub mod test_support;
 pub mod transactions;
 pub mod vendors;
 pub mod weather;
+pub mod web_categories;
 pub mod webhooks;
 pub mod weddings;
 
@@ -147,6 +148,7 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/public", public_api::router())
         .nest("/api/webhooks", webhooks::router())
         .nest("/api/integrations", webhooks::integrations_router())
+        .nest("/api/web-categories", web_categories::router())
         .nest("/api/weddings", weddings::router())
         .nest("/api/weather", weather::router())
         .nest("/api/hardware", hardware::router())

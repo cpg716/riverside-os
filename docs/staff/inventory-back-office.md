@@ -43,14 +43,31 @@ Use **Add/Edit Catalog** for setup tooling: creating new items, managing categor
 
 ### Add Item
 
-1. **Add/Edit Catalog** → **Add Item** → follow wizard steps (category, **primary vendor**, matrix, initial SKU).
+1. **Add/Edit Catalog** → **Add Item** → follow the 3-step wizard:
+   - **Step 1: Product & Pricing**: Enter item details, base cost, retail price, and primary vendor.
+     - **Vendor Intelligence**: When a vendor is selected, a contextual sidebar shows the vendor code, rules, and guidance.
+     - **Margin/Markup Hints**: Profit margin and markup percentages calculate in real-time as cost and retail prices are entered.
+     - **Item Rules Grid**: Tax overrides, low-stock warnings, and web-publishing configurations are grouped into a clean 3-column selector layout.
+   - **Step 2: Sizes & Options**: Set up matrix axes (Size, Color, Fit, etc.) manually or by using **Copy From** to duplicate the variation structure of an existing product.
+   - **Step 3: Web Listing** *(Conditional)*: This step appears between Options and Review if "Publish to Web" was checked in Step 1.
+   - **Step 4 (or 3): Review & Save**: Verify the SKU variations and click the green save button to commit the product catalog record.
 2. Enter **non-negative** base retail and cost values. Negative benchmark pricing, negative cost, and negative initial stock are blocked.
 3. Primary vendor is required for manually created items because downstream ordering and receiving depend on it.
 4. New Riverside-created SKUs use **`ROS-XXXXXX`** and should advance to the next available ROS number. Imported Counterpoint SKUs such as **`B-XXXXXX`** stay unchanged.
 5. Use **Copy From** when a new item has similar options to an existing style. Copy From copies option structure only; it does not copy name, vendor, stock, cost, retail, or descriptions.
 6. Keep generated SKUs unique. If a SKU already exists anywhere in ROS, the product will not save until the conflict is resolved.
-7. **Save** each step; do not close the browser mid-wizard.
+7. Clickable step navigation lets you jump directly between validation-passed steps.
 8. Verify the SKU appears in **Find Item** search.
+
+### Web Store Listing (Web Listing Step)
+
+When "Publish to Web" is enabled, the catalog wizard inserts a dedicated **Web Listing** step:
+- **Marketing Overrides**: Allows entering a custom **Web Storefront Title** and a rich **Web Description** specifically for online merchandising (falls back to POS name/description if blank).
+- **Web Tags**: Input keywords separated by commas to improve online catalog searches (e.g. `wool, suit, wedding`).
+- **Online Store Categories**: Assign the product to one or more active nodes using the hierarchical checkbox category tree.
+- **Web Image Gallery**: Add web-specific product photos via URL with custom Alt Text. Use up/down arrow buttons to set the sort order and select the **Hero Image** (used as the primary thumbnail).
+- **SEO Optimization**: Override the HTML Meta Title (max 70 characters) and Meta Description (max 160 characters) with real-time length counters.
+- **Live Preview Pane**: Displays a side-by-side mockup of the online storefront cart card and the Google Search snippet preview.
 
 ### Categories
 
@@ -95,13 +112,15 @@ Use **Add/Edit Catalog** for setup tooling: creating new items, managing categor
 ## Order Stock
 
 1. **Inventory** → **Order Stock**.
-2. Select the correct vendor **before** creating the PO.
-3. Standard POs stay editable only while they are **draft**.
-4. A standard PO must have at least one line before **Submit PO** is allowed.
-5. PO lines require a valid SKU, quantity above zero, and non-negative unit cost.
-6. If a SKU is already linked to a different **primary vendor**, ROS blocks adding it to the wrong vendor’s PO.
+2. Select the vendor from the **Unified Vendor Selector Bar** in the top row. The selector bar groups PO building and direct invoices into a single header.
+3. Review the **Collapsible NTBO Queue**: Special customer orders awaiting vendor order placement are housed here. Toggle it open to reference needed styles/quantities without cluttering the screen.
+4. Standard POs stay editable only while they are **draft**.
+5. A standard PO must have at least one line before **Submit PO** is allowed.
+6. PO lines require a valid SKU, quantity above zero, and non-negative unit cost.
+7. If a SKU is already linked to a different **primary vendor**, ROS blocks adding it to the wrong vendor’s PO.
+8. PO worksheets feature tighter grid spacing and hover-reveal action buttons (Mark Sent, Receive, Delete) for cleaner visual management.
 
-Use **Order Stock** when you are planning or building a vendor order before merchandise arrives. Direct invoices are for merchandise that arrived without a pre-built order, so start them from **Receive Stock** when the vendor paperwork is already in hand.
+Use **Order Stock** when you are planning or building a vendor order before merchandise arrives. Direct invoices are for merchandise that arrived without a pre-built order, so start them from **Receive Stock** when the paperwork is in hand.
 
 ## Receive Stock
 
@@ -110,7 +129,7 @@ Use **Receive Stock** when merchandise is already here and you have vendor paper
 If a physical inventory session is open or in review, receiving is paused. Sales may continue during the count, but ROS will not post received stock until the count is published or canceled.
 
 1. **Receive Stock** → choose a submitted **PO** that is ready to receive, or create a **Direct Invoice** if the shipment arrived without a pre-built PO.
-2. Check the document state before opening the receiving worksheet:
+2. The receiving worksheet features a tightened layout that maximizes item grid visibility. Check the document state before opening the worksheet:
    - **Submitted PO** = ready to receive.
    - **Direct invoice** = arrived without a pre-built PO and can open receiving immediately.
    - **Draft PO** = order setup; submit it before receiving.
@@ -119,7 +138,7 @@ If a physical inventory session is open or in review, receiving is paused. Sales
 5. **Post inventory** (finalize receipt into stock) is the **emerald** primary action (**green** with a **thick bottom edge**) — same **“terminal completion”** pattern as **Complete Sale** on the register (**`UI_STANDARDS.md`**). Read totals before confirming.
 6. Watch for messages about **reserved** stock for open special orders after posting.
 
-**Direct invoices** and submitted **standard POs** now share the same final posting path. If a receipt is retried, ROS prevents duplicate stock posting for the same receipt payload.
+**Direct invoices** and submitted **standard POs** share the same final posting path. Once a receipt is finalized, ROS locks the document and blocks duplicate posting for that receipt ID to preserve database and ledger integrity.
 
 **At the register**, staff browse the catalog and tap **Add to sale** from **POS → Inventory** (same data family as the control board) — [pos-inventory.md](pos-inventory.md).
 
@@ -146,7 +165,7 @@ Open **Product Hub** from **Find Item**. The **Variations** tab supports three v
 - **Matrix:** compact axis grid when a style has true size/color/fit structure.
 - **List:** dense table for long SKU lists and bulk edits.
 
-All views should represent the same filtered SKUs. Imported Counterpoint SKUs and new ROS SKUs must both remain searchable, editable, sellable, and usable in receiving and order workflows.
+All views should represent the same filtered SKUs. Used Counterpoint SKUs and new ROS SKUs must both remain searchable, editable, sellable, and usable in receiving and order workflows.
 
 ## Count/Reconcile
 
@@ -182,4 +201,4 @@ All views should represent the same filtered SKUs. Imported Counterpoint SKUs an
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 - [../PLAN_NOTIFICATION_CENTER.md](../PLAN_NOTIFICATION_CENTER.md)
 
-**Last reviewed:** 2026-04-21
+**Last reviewed:** 2026-05-20

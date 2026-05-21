@@ -895,6 +895,13 @@ pub fn router() -> Router<AppState> {
         .route("/{product_id}/hub", get(get_product_hub))
         .route("/{product_id}/timeline", get(get_product_timeline))
         .route("/{product_id}/variants", get(list_variants))
+        .nest(
+            "/{product_id}/web-categories",
+            super::web_categories::product_subrouter(),
+        )
+        .route("/{product_id}/web-listing", patch(patch_product_web_listing))
+        .route("/{product_id}/web-images", get(list_product_web_images).post(add_product_web_image))
+        .route("/{product_id}/web-images/{image_id}", patch(patch_product_web_image).delete(delete_product_web_image))
 }
 
 async fn require_catalog_perm(
@@ -3559,7 +3566,7 @@ async fn get_maintenance_ledger(
 
     let rows = sqlx::query_as::<_, MaintenanceLedgerRow>(
         r#"
-        SELECT 
+        SELECT
             it.id,
             it.created_at,
             it.tx_type::text AS tx_type,
@@ -3627,6 +3634,223 @@ async fn get_variant(
     })?;
 
     Ok(Json(resolved))
+}
+
+// ── Web Listing Fields ───────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct PatchProductWebListingRequest {
+    pub web_title: Option<String>,
+    #[serde(default)]
+    pub clear_web_title: bool,
+    pub web_description: Option<String>,
+    #[serde(default)]
+    pub clear_web_description: bool,
+    pub seo_meta_title: Option<String>,
+    #[serde(default)]
+    pub clear_seo_meta_title: bool,
+    pub seo_meta_description: Option<String>,
+    #[serde(default)]
+    pub clear_seo_meta_description: bool,
+    pub web_tags: Option<Vec<String>>,
+}
+
+async fn patch_product_web_listing(
+    State(state): State<AppState>,
+    Path(product_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<PatchProductWebListingRequest>,
+) -> Result<Json<Value>, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
+
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1 AND is_active = TRUE)")
+            .bind(product_id)
+            .fetch_one(&state.db)
+            .await?;
+    if !exists {
+        return Err(ProductError::ProductNotFound);
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE products SET
+            web_title = CASE WHEN $2 THEN NULL ELSE COALESCE($3, web_title) END,
+            web_description = CASE WHEN $4 THEN NULL ELSE COALESCE($5, web_description) END,
+            seo_meta_title = CASE WHEN $6 THEN NULL ELSE COALESCE($7, seo_meta_title) END,
+            seo_meta_description = CASE WHEN $8 THEN NULL ELSE COALESCE($9, seo_meta_description) END,
+            web_tags = COALESCE($10, web_tags)
+        WHERE id = $1
+        "#,
+    )
+    .bind(product_id)
+    .bind(body.clear_web_title)
+    .bind(body.web_title.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(body.clear_web_description)
+    .bind(body.web_description.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(body.clear_seo_meta_title)
+    .bind(body.seo_meta_title.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(body.clear_seo_meta_description)
+    .bind(body.seo_meta_description.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(body.web_tags.as_ref().map(|tags| {
+        tags.iter()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+    }))
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(json!({ "status": "updated" })))
+}
+
+// ── Web Images ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct ProductWebImage {
+    id: Uuid,
+    product_id: Uuid,
+    url: String,
+    alt_text: Option<String>,
+    sort_order: i32,
+    is_hero: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct AddProductWebImageBody {
+    url: String,
+    alt_text: Option<String>,
+    sort_order: Option<i32>,
+    #[serde(default)]
+    is_hero: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct PatchProductWebImageBody {
+    url: Option<String>,
+    alt_text: Option<String>,
+    #[serde(default)]
+    clear_alt_text: bool,
+    sort_order: Option<i32>,
+    is_hero: Option<bool>,
+}
+
+async fn list_product_web_images(
+    State(state): State<AppState>,
+    Path(product_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+    let rows = sqlx::query_as::<_, ProductWebImage>(
+        "SELECT id, product_id, url, alt_text, sort_order, is_hero FROM product_web_images WHERE product_id = $1 ORDER BY sort_order, created_at",
+    )
+    .bind(product_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(json!({ "images": rows })))
+}
+
+async fn add_product_web_image(
+    State(state): State<AppState>,
+    Path(product_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<AddProductWebImageBody>,
+) -> Result<Json<Value>, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
+    let url = body.url.trim().to_string();
+    if url.is_empty() {
+        return Err(ProductError::InvalidPayload("url is required".to_string()));
+    }
+
+    // If marking as hero, clear other hero flags
+    let mut tx = state.db.begin().await?;
+    if body.is_hero {
+        sqlx::query("UPDATE product_web_images SET is_hero = false WHERE product_id = $1")
+            .bind(product_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    let id: Uuid = sqlx::query_scalar(
+        "INSERT INTO product_web_images (product_id, url, alt_text, sort_order, is_hero) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    )
+    .bind(product_id)
+    .bind(&url)
+    .bind(body.alt_text.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(body.sort_order.unwrap_or(0))
+    .bind(body.is_hero)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(Json(json!({ "id": id, "status": "created" })))
+}
+
+#[derive(Deserialize)]
+struct WebImagePathParams {
+    product_id: Uuid,
+    image_id: Uuid,
+}
+
+async fn patch_product_web_image(
+    State(state): State<AppState>,
+    Path(params): Path<WebImagePathParams>,
+    headers: HeaderMap,
+    Json(body): Json<PatchProductWebImageBody>,
+) -> Result<Json<Value>, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
+
+    let mut tx = state.db.begin().await?;
+
+    // If promoting to hero, clear other hero flags first
+    if body.is_hero == Some(true) {
+        sqlx::query("UPDATE product_web_images SET is_hero = false WHERE product_id = $1")
+            .bind(params.product_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    let affected = sqlx::query(
+        r#"
+        UPDATE product_web_images SET
+            url = COALESCE($3, url),
+            alt_text = CASE WHEN $4 THEN NULL ELSE COALESCE($5, alt_text) END,
+            sort_order = COALESCE($6, sort_order),
+            is_hero = COALESCE($7, is_hero)
+        WHERE id = $1 AND product_id = $2
+        "#,
+    )
+    .bind(params.image_id)
+    .bind(params.product_id)
+    .bind(body.url.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(body.clear_alt_text)
+    .bind(body.alt_text.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(body.sort_order)
+    .bind(body.is_hero)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    tx.commit().await?;
+
+    if affected == 0 {
+        return Err(ProductError::VariantNotFound);
+    }
+    Ok(Json(json!({ "status": "updated" })))
+}
+
+async fn delete_product_web_image(
+    State(state): State<AppState>,
+    Path(params): Path<WebImagePathParams>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
+    sqlx::query("DELETE FROM product_web_images WHERE id = $1 AND product_id = $2")
+        .bind(params.image_id)
+        .bind(params.product_id)
+        .execute(&state.db)
+        .await?;
+    Ok(Json(json!({ "status": "deleted" })))
 }
 
 #[cfg(test)]

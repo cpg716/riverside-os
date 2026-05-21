@@ -200,7 +200,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [invGlLabel, setInvGlLabel] = useState("INV_ASSET · not mapped");
-  const [freightGlLabel, setFreightGlLabel] = useState("Freight cost · not mapped");
+  const [, setFreightGlLabel] = useState("Freight cost · not mapped");
   const [glanceUnavailable, setGlanceUnavailable] = useState(false);
   const [useVendorUpc, setUseVendorUpc] = useState(false);
   const [scanMode, setScanMode] = useState<ScanMode>("laser");
@@ -555,10 +555,6 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   const receivingWorkflowIndex = RECEIVING_WORKFLOW_STEPS.findIndex(
     (step) => step.id === receivingWorkflowCurrentStep,
   );
-  const receivingWorkflowNextStep =
-    !receivingClosed && receivingWorkflowIndex < RECEIVING_WORKFLOW_STEPS.length - 1
-      ? RECEIVING_WORKFLOW_STEPS[receivingWorkflowIndex + 1]
-      : null;
 
   // ── Render: Error ──────────────────────────────────────────────────────────
 
@@ -629,477 +625,287 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-app-bg font-sans">
-      {/* Scan feedback overlay */}
+      {/* Scan feedback color bar */}
       {feedback && (
         <div
-          className={`pointer-events-none fixed inset-x-0 top-0 z-[60] h-1.5 transition-colors ${
-            feedback.type === "success"
-              ? "bg-emerald-400"
-              : feedback.type === "error"
-                ? "bg-red-500"
-                : "bg-amber-400"
+          className={`pointer-events-none fixed inset-x-0 top-0 z-[60] h-1 transition-colors ${
+            feedback.type === "success" ? "bg-emerald-400" : feedback.type === "error" ? "bg-red-500" : "bg-amber-400"
           }`}
         />
       )}
 
-      <header className="z-10 flex shrink-0 items-center justify-between bg-app-text p-4 sm:p-6 text-white shadow-xl">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-4 sm:gap-6">
-          <div className="flex min-w-0 flex-col">
-            <div className="flex items-center gap-3">
-              <h2 className="text-xl font-black uppercase italic tracking-tighter">
-                Receive Stock
-              </h2>
+      {/* ── Header ── */}
+      <header className="z-10 shrink-0 bg-app-text text-white shadow-xl">
+        <div className="flex items-center gap-4 px-5 py-3">
+          {/* Left: Identity */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Truck size={18} className="text-emerald-400 shrink-0" />
+              <h2 className="text-base font-bold truncate">Receive Stock</h2>
+              <span className="text-xs font-mono text-white/60">{detail.po_number}</span>
               {useVendorUpc && (
-                <span className="rounded-full bg-violet-600/30 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-violet-300">
-                  Vendor UPC
-                </span>
+                <span className="rounded-full bg-violet-600/30 px-2 py-0.5 text-[9px] font-bold text-violet-300">UPC Mode</span>
               )}
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-                aria-label="Close receiving"
-              >
-                <X size={20} />
-              </button>
             </div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/55">
-              Vendor paperwork · {detail.po_number} · {detail.vendor_name} ·{" "}
-              <span className="text-white/75">{detail.status}</span>
-              {detail.po_kind && (
-                <>
-                  {" "}
-                  ·{" "}
-                  <span className="text-app-accent">{detail.po_kind}</span>
-                </>
-              )}
+            <p className="text-[10px] text-white/50 mt-0.5">
+              {detail.vendor_name} · {detail.status}{detail.po_kind ? ` · ${detail.po_kind}` : ""}
             </p>
           </div>
 
-          {/* Scan mode toggle + input */}
-          <div className="flex flex-1 items-center gap-3 max-w-md">
-            {/* Mode Toggle */}
-            <div className="flex shrink-0 overflow-hidden rounded-xl border border-white/20">
+          {/* Center: Scanner */}
+          <div className="flex items-center gap-2 max-w-md flex-1">
+            <div className="flex shrink-0 overflow-hidden rounded-lg border border-white/20">
               {(["laser", "camera"] as const).map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => { setScanMode(m); warmUpAudio(); }}
-                  className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-widest transition ${
-                    scanMode === m
-                      ? "bg-white/10 text-white"
-                      : "text-white/45 hover:text-white/85"
+                  className={`flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-bold uppercase transition ${
+                    scanMode === m ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
                   }`}
                 >
-                  {m === "laser" ? <Barcode size={13} /> : <Camera size={13} />}
+                  {m === "laser" ? <Barcode size={12} /> : <Camera size={12} />}
                   <span className="hidden sm:inline">{m}</span>
                 </button>
               ))}
             </div>
-
-            {/* Hidden laser scan input (always present for HID focus) */}
             {scanMode === "laser" && (
-              <form
-                onSubmit={(e) => { e.preventDefault(); }}
-                className="group relative flex-1"
-              >
-                <Barcode
-                  className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-white/45 transition-colors group-focus-within:text-app-accent-2"
-                  size={18}
-                />
+              <form onSubmit={(e) => e.preventDefault()} className="group relative flex-1">
+                <Barcode className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-white/40 group-focus-within:text-emerald-400" size={16} />
                 <input
                   ref={scannerRef}
                   value={scanInput}
                   onChange={handleScanInputChange}
                   onKeyDown={handleScanInputKeyDown}
                   disabled={receivingClosed}
-                  className="w-full rounded-xl border border-white/20 bg-black/30 py-2.5 pl-9 pr-4 font-mono text-sm text-white placeholder:text-white/40 outline-none transition-all focus:ring-2 focus:ring-app-accent-2 disabled:opacity-50"
+                  className="w-full rounded-lg border border-white/20 bg-black/30 py-2 pl-9 pr-3 font-mono text-sm text-white placeholder:text-white/35 outline-none focus:ring-2 focus:ring-emerald-400/50 disabled:opacity-40"
                   placeholder="Scan UPC or SKU..."
                   autoComplete="off"
                 />
               </form>
             )}
-
-            {/* Scan count pill */}
             {scanCount > 0 && (
-              <span className="shrink-0 rounded-full bg-emerald-500/20 px-2.5 py-1 text-[10px] font-black text-emerald-400">
-                {scanCount} scanned
-              </span>
+              <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">{scanCount}</span>
             )}
           </div>
-        </div>
 
-        <div className="mt-4 flex shrink-0 flex-wrap items-center gap-6 border-white/20 pl-0 lg:mt-0 lg:border-l lg:pl-10">
-          <div className="text-right">
-            <p className="text-[10px] font-black uppercase text-white/50">
-              Est. invoice grand total
-            </p>
-            <p className="font-mono text-3xl font-black text-emerald-400">
-              ${centsToFixed2(grandTotalCents)}
-            </p>
+          {/* Right: Total + actions */}
+          <div className="flex items-center gap-4 shrink-0">
+            <div className="text-right">
+              <p className="text-[9px] font-bold uppercase text-white/40">Total</p>
+              <p className="font-mono text-2xl font-bold text-emerald-400">${centsToFixed2(grandTotalCents)}</p>
+            </div>
+            <button
+              type="button"
+              disabled={receivingClosed}
+              onClick={markAllRemaining}
+              className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-black/30 px-3 py-2 text-[9px] font-bold uppercase text-white/70 hover:bg-white/10 disabled:opacity-30 transition-all"
+            >
+              <CheckSquare size={13} /> Fill All
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-white/40 hover:bg-white/10 hover:text-white transition-colors"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
           </div>
-          <button
-            type="button"
-            disabled={receivingClosed}
-            onClick={markAllRemaining}
-            className="flex items-center gap-2 rounded-xl border border-white/25 bg-black/35 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white shadow-sm transition-all hover:bg-white/10 disabled:opacity-40"
-          >
-            <CheckSquare size={14} /> Mark all remaining
-          </button>
         </div>
       </header>
 
-      {!receivingClosed ? (
-        <div className="shrink-0 border-b border-app-border bg-app-surface px-4 py-2 sm:px-6">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            <span
-              className={`rounded-lg border px-2.5 py-1 ${
-                canPost
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : "border-app-border bg-app-surface-2 text-app-text"
-              }`}
-            >
-              {canPost ? "Ready to post" : "Receiving draft open"}
-            </span>
-            <span className="rounded-lg border border-app-accent/25 bg-app-accent/10 px-2.5 py-1 text-app-accent">
-              {detail.vendor_name}
-            </span>
-            <span className="rounded-lg bg-app-surface-2 px-2.5 py-1">
-              {receivingLineCount} line{receivingLineCount === 1 ? "" : "s"} staged
-            </span>
-            <span className="text-[11px] normal-case tracking-normal text-app-text-muted">
-              {canPost
-                ? "Review invoice number and costs, then Post Receipt when the paperwork matches."
-                : "Leave this screen open to resume; inventory is not updated until Post Receipt."}
-            </span>
-            {!canPost ? (
-              <span className="text-[11px] normal-case tracking-normal text-amber-700">
-                Pilot watch: open drafts should be resumed or closed before the receiver leaves the task.
-              </span>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Camera scanner overlay */}
-      {scanMode === "camera" && !receivingClosed && (
-        <CameraScanner
-          label="Receive Stock - Camera Scan"
-          onScan={handleCameraScan}
-          onClose={() => setScanMode("laser")}
-        />
-      )}
-
-      {/* Scan feedback banner */}
-      {feedback && (
-        <div
-          className={`flex items-center gap-3 px-6 py-2.5 text-xs font-black transition-all ${
-            feedback.type === "success"
-              ? "border-b border-emerald-200 bg-emerald-50 text-emerald-800"
-              : feedback.type === "error"
-                ? "border-b border-red-200 bg-red-50 text-red-800"
-                : "border-b border-amber-200 bg-amber-50 text-amber-800"
-          }`}
-        >
-          {feedback.type === "success" ? (
-            <CheckCircle size={15} className="shrink-0" />
-          ) : (
-            <AlertCircle size={15} className="shrink-0" />
-          )}
-          {feedback.message}
-        </div>
-      )}
-
-      {receivingClosed && (
-        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-6 py-2 text-xs font-bold text-amber-900">
-          <AlertCircle size={16} className="shrink-0" />
-          This PO cannot be received (standard drafts must be submitted first,
-          or open a direct invoice draft).
-        </div>
-      )}
-
-      {!receivingClosed && costAlertLines.length > 0 && (
-        <div className="border-b border-amber-200 bg-amber-50 px-6 py-3 text-xs text-amber-950">
-          <div className="flex items-start gap-2">
-            <AlertCircle size={16} className="mt-0.5 shrink-0" />
-            <div>
-              <p className="font-black uppercase tracking-widest">
-                Cost change to review before posting
-              </p>
-              <p className="mt-1 font-semibold leading-relaxed">
-                {costAlertLines.length === 1
-                    ? "One line is more than 5% different from its prior cost."
-                  : `${costAlertLines.length} lines are more than 5% different from their prior costs.`}{" "}
-                Posting will use the invoice cost shown here for receipt valuation and downstream accounting.
-              </p>
-              <p className="mt-2 font-semibold leading-relaxed">
-                Review the highlighted unit cost rows before you finalize this receipt:
-                {" "}
-                {costAlertLines
-                  .slice(0, 3)
-                  .map((line) => line.sku)
-                  .join(", ")}
-                {costAlertLines.length > 3 ? ", …" : ""}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="border-b border-app-border bg-app-surface px-4 py-4 sm:px-6">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-3">
+      {/* ── Status + Workflow bar ── */}
+      <div className="shrink-0 border-b border-app-border bg-app-surface px-5 py-2">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 text-xs">
+          {/* Step indicators (compact) */}
+          <div className="flex items-center gap-1">
             {RECEIVING_WORKFLOW_STEPS.map((step, index) => {
               const isCurrent = step.id === receivingWorkflowCurrentStep;
-              const isComplete =
-                receivingClosed || index < receivingWorkflowIndex;
+              const isComplete = receivingClosed || index < receivingWorkflowIndex;
               return (
-                <div
-                  key={step.id}
-                  className={`min-w-[10rem] rounded-2xl border px-4 py-3 ${
-                    isCurrent
-                      ? "border-app-accent bg-app-accent/10 text-app-text"
-                      : isComplete
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                        : "border-app-border bg-app-surface-2 text-app-text-muted"
-                  }`}
-                >
-                  <p className="text-[10px] font-black uppercase tracking-widest opacity-75">
-                    Step {index + 1}
-                  </p>
-                  <p className="mt-1 text-sm font-black text-current">
+                <div key={step.id} className="flex items-center gap-1">
+                  {index > 0 && <div className="h-px w-4 bg-app-border" />}
+                  <span className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[9px] font-bold ${
+                    isCurrent ? "bg-app-accent/10 text-app-accent border border-app-accent/20" :
+                    isComplete ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
+                    "bg-app-surface-2 text-app-text-muted border border-app-border"
+                  }`}>
+                    {isComplete && <CheckCircle size={10} />}
                     {step.label}
-                  </p>
-                  <p className="mt-1 text-[11px] leading-relaxed opacity-80">
-                    {step.hint}
-                  </p>
+                  </span>
                 </div>
               );
             })}
           </div>
-          <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-sm text-app-text lg:max-w-sm">
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Current stage
-            </p>
-            <p className="mt-1 font-black text-app-text">
-              {RECEIVING_WORKFLOW_STEPS[receivingWorkflowIndex]?.label}
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-app-text-muted">
-              {receivingClosed
-                ? "This receipt is already posted. Reopen the PO workflow elsewhere if another action is needed."
-                : receivingWorkflowNextStep
-                  ? `Next: ${receivingWorkflowNextStep.label}. ${receivingWorkflowNextStep.hint}`
-                  : "Next: Post inventory when the staged receipt matches the invoice in hand."}
-            </p>
-            {!receivingClosed ? (
-              <p className="mt-2 text-[11px] font-semibold text-app-text-muted">
-                {receivingLineCount > 0
-                  ? `${receivingLineCount} line${receivingLineCount === 1 ? "" : "s"} staged for this receipt.`
-                  : "No lines staged yet."}
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      <div className="border-b border-app-border bg-app-surface px-4 py-3 sm:px-6">
-        <div className="mx-auto max-w-6xl">
+          <div className="h-4 w-px bg-app-border" />
+          <span className={`rounded-lg px-2 py-0.5 text-[9px] font-bold ${
+            canPost ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-app-surface-2 text-app-text-muted border border-app-border"
+          }`}>
+            {receivingLineCount} line{receivingLineCount === 1 ? "" : "s"} staged
+          </span>
           <RosieInsightSummary
             surface="receiving_review"
             title="Receiving Review"
             mode="explain"
             getHeaders={apiAuth}
             facts={receivingInsightFacts}
-            className="mt-0"
+            className="mt-0 ml-auto"
           />
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-8">
-        <div className="mx-auto max-w-6xl overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-sm">
-          <table className="w-full text-left">
-            <thead className="border-b border-app-border bg-app-surface-2">
+      {/* Camera scanner overlay */}
+      {scanMode === "camera" && !receivingClosed && (
+        <CameraScanner label="Receive Stock - Camera Scan" onScan={handleCameraScan} onClose={() => setScanMode("laser")} />
+      )}
+
+      {/* Feedback banner */}
+      {feedback && (
+        <div className={`flex items-center gap-2 px-5 py-2 text-xs font-bold ${
+          feedback.type === "success" ? "border-b border-emerald-200 bg-emerald-50 text-emerald-800" :
+          feedback.type === "error" ? "border-b border-red-200 bg-red-50 text-red-800" :
+          "border-b border-amber-200 bg-amber-50 text-amber-800"
+        }`}>
+          {feedback.type === "success" ? <CheckCircle size={14} className="shrink-0" /> : <AlertCircle size={14} className="shrink-0" />}
+          {feedback.message}
+        </div>
+      )}
+
+      {/* Closed warning */}
+      {receivingClosed && (
+        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-5 py-2 text-xs font-bold text-amber-900">
+          <AlertCircle size={14} className="shrink-0" />
+          This PO cannot be received — standard drafts must be submitted first, or use a direct invoice.
+        </div>
+      )}
+
+      {/* Cost alert */}
+      {!receivingClosed && costAlertLines.length > 0 && (
+        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-5 py-2 text-xs font-bold text-amber-900">
+          <AlertCircle size={14} className="shrink-0" />
+          {costAlertLines.length} line{costAlertLines.length === 1 ? " has" : "s have"} cost variance &gt;5%: {costAlertLines.slice(0, 3).map((l) => l.sku).join(", ")}{costAlertLines.length > 3 ? ", …" : ""}
+        </div>
+      )}
+
+      {/* ── Line Table ── */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-6">
+        <div className="mx-auto max-w-6xl overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-app-border bg-app-surface-2/60">
               <tr>
-                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Item description
-                </th>
-                <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Ordered
-                </th>
-                <th className="bg-app-accent-2/15 px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-app-accent-2">
-                  Previously received
-                </th>
-                <th className="bg-app-accent-2/15 px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-app-accent-2">
-                  Receiving now
-                </th>
-                <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Invoice unit
-                </th>
+                <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Item</th>
+                <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Ordered</th>
+                <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-app-text-muted bg-app-accent-2/10">Prior Rcvd</th>
+                <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-app-accent-2 bg-app-accent-2/10">Receiving</th>
+                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Unit Cost</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-app-border">
-              {lines.map((line) => (
-                <tr
-                  key={line.line_id}
-                  className="transition-colors hover:bg-app-surface-2/50"
-                >
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-black uppercase tracking-tight text-app-text">
-                      {line.product_name}
-                    </div>
-                    <div className="text-[10px] font-bold uppercase tracking-tighter text-app-text-muted">
-                      {line.subtitle}{" "}
-                      <span className="ml-2 font-mono">{line.sku}</span>
-                      {useVendorUpc && line.vendor_upc && (
-                        <span className="ml-2 text-violet-500">[UPC: {line.vendor_upc}]</span>
+            <tbody className="divide-y divide-app-border/40">
+              {lines.map((line) => {
+                const remaining = Math.max(0, line.qty_ordered - line.qty_previously_received);
+                const hasCostAlert = unitCostAlerts(line.prior_effective_cost, line.unit_cost);
+                return (
+                  <tr key={line.line_id} className="transition-colors hover:bg-app-surface-2/30">
+                    <td className="px-5 py-3">
+                      <p className="text-xs font-bold text-app-text">{line.product_name}</p>
+                      <p className="text-[10px] text-app-text-muted">
+                        {line.subtitle} · <span className="font-mono">{line.sku}</span>
+                        {useVendorUpc && line.vendor_upc && <span className="ml-1 text-violet-500">UPC: {line.vendor_upc}</span>}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-center font-bold text-app-text-muted">{line.qty_ordered}</td>
+                    <td className="px-4 py-3 text-center font-bold text-app-text-muted bg-app-accent-2/5">{line.qty_previously_received}</td>
+                    <td className="px-4 py-3 bg-app-accent-2/5">
+                      <input
+                        type="number"
+                        min={0}
+                        max={remaining}
+                        value={line.qty_receiving || ""}
+                        disabled={receivingClosed}
+                        onChange={(e) => {
+                          const raw = Number.parseInt(e.target.value || "0", 10);
+                          const val = Number.isFinite(raw) ? Math.min(Math.max(0, raw), remaining) : 0;
+                          setLines((prev) => prev.map((l) => l.line_id === line.line_id ? { ...l, qty_receiving: val } : l));
+                        }}
+                        className="mx-auto block w-16 rounded-lg border-2 border-app-border p-1.5 text-center text-sm font-bold text-app-accent-2 outline-none focus:border-app-accent-2 disabled:opacity-40"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className={`text-sm font-bold tabular-nums ${hasCostAlert ? "text-amber-600" : "text-app-text"}`}>
+                        ${line.unit_cost.toFixed(2)}
+                      </span>
+                      {line.prior_effective_cost > 0 && (
+                        <p className="text-[9px] text-app-text-muted">was ${line.prior_effective_cost.toFixed(2)}</p>
                       )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center font-bold text-app-text-muted">
-                    {line.qty_ordered}
-                  </td>
-                  <td className="bg-app-accent-2/10 px-6 py-4 text-center font-bold text-app-text-muted">
-                    {line.qty_previously_received}
-                  </td>
-                  <td className="bg-app-accent-2/10 px-6 py-4">
-                    <input
-                      type="number"
-                      min={0}
-                      max={Math.max(0, line.qty_ordered - line.qty_previously_received)}
-                      value={line.qty_receiving || ""}
-                      disabled={receivingClosed}
-                      onChange={(e) => {
-                        const raw = Number.parseInt(e.target.value || "0", 10);
-                        const cap = Math.max(0, line.qty_ordered - line.qty_previously_received);
-                        const val = Number.isFinite(raw) ? Math.min(Math.max(0, raw), cap) : 0;
-                        setLines((prev) =>
-                          prev.map((l) =>
-                            l.line_id === line.line_id ? { ...l, qty_receiving: val } : l,
-                          ),
-                        );
-                      }}
-                      className="mx-auto block w-20 rounded-xl border-2 border-app-border p-2 text-center font-black text-app-accent-2 outline-none transition-all focus:border-app-accent-2 disabled:opacity-50"
-                    />
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className={`text-sm font-black tabular-nums ${unitCostAlerts(line.prior_effective_cost, line.unit_cost) ? 'text-amber-600 animate-pulse' : 'text-app-text'}`}>
-                      ${line.unit_cost.toFixed(2)}
-                    </div>
-                    {line.prior_effective_cost > 0 && (
-                       <div className="text-[10px] font-bold text-app-text-muted uppercase">
-                         Prior: ${line.prior_effective_cost.toFixed(2)}
-                       </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
-      <footer className="shrink-0 border-t border-app-border bg-app-surface p-4 sm:p-8 shadow-[0_-12px_40px_rgba(0,0,0,0.08)]">
-        <div className="mx-auto flex max-w-6xl flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Invoice number
-              </label>
+      {/* ── Footer ── */}
+      <footer className="shrink-0 border-t border-app-border bg-app-surface px-5 py-4 shadow-[0_-8px_24px_rgba(0,0,0,0.06)]">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-end gap-4">
+          {/* Invoice & freight inputs */}
+          <div className="flex flex-wrap gap-3 flex-1">
+            <div className="min-w-[180px] space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Invoice #</label>
+              <input
+                type="text"
+                value={invoiceNum}
+                disabled={receivingClosed}
+                onChange={(e) => setInvoiceNum(e.target.value)}
+                className="ui-input h-10 w-full text-sm font-bold"
+                placeholder="From paperwork..."
+              />
+            </div>
+            <div className="w-[130px] space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Freight ($)</label>
               <div className="relative">
-                 <input
-                   type="text"
-                   value={invoiceNum}
-                   disabled={receivingClosed}
-                   onChange={(e) => setInvoiceNum(e.target.value)}
-                   className="ui-input w-full p-3 font-black text-app-text"
-                   placeholder="From paperwork..."
-                 />
-                 <Truck className="absolute right-3 top-1/2 -translate-y-1/2 text-app-text-disabled" size={16} />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted/40">$</span>
+                <input
+                  type="text"
+                  value={freight}
+                  disabled={receivingClosed}
+                  onChange={(e) => setFreight(e.target.value)}
+                  className="ui-input h-10 w-full pl-7 font-mono text-sm font-bold"
+                />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Freight charge ($)
-              </label>
-              <div className="relative">
-                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted font-black" aria-hidden>$</span>
-                 <input
-                   type="text"
-                   value={freight}
-                   disabled={receivingClosed}
-                   onChange={(e) => setFreight(e.target.value)}
-                   className="ui-input w-full pl-7 p-3 font-mono font-black text-app-text"
-                 />
-              </div>
-            </div>
-            <div className="space-y-2 lg:col-span-1">
-              <div className="flex items-center gap-2">
-                 <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
-                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">QBO integration status</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-[10px] font-bold text-app-text-muted">Asset: <span className="text-app-text font-black">{invGlLabel}</span></p>
-                <p className="text-[10px] font-bold text-app-text-muted">Freight: <span className="text-app-text font-black">{freightGlLabel}</span></p>
-                {glanceUnavailable && (
-                  <p className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600">
-                    <AlertCircle size={12} className="shrink-0" />
-                    Account status could not refresh.
-                  </p>
-                )}
-              </div>
+            {/* QBO status (compact) */}
+            <div className="flex items-end gap-2 text-[9px] font-bold text-app-text-muted pb-2">
+              <div className="h-2 w-2 rounded-full bg-emerald-500 shrink-0 mb-0.5" />
+              <span>{invGlLabel}</span>
+              {glanceUnavailable && <AlertCircle size={10} className="text-amber-500" />}
             </div>
           </div>
 
-          <div className="flex flex-col gap-3">
-            <div
-              className={`rounded-2xl border px-4 py-3 text-xs font-bold ${
-                receivingClosed
-                  ? "border-app-border bg-app-surface-2 text-app-text-muted"
-                  : canPost
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                    : "border-amber-200 bg-amber-50 text-amber-900"
-              }`}
+          {/* Actions */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-10 rounded-xl border border-app-border bg-app-surface-2 px-5 text-xs font-bold text-app-text-muted hover:text-app-text transition-all"
             >
-              <p className="text-[10px] font-black uppercase tracking-widest">
-                {receivingClosed ? "Receiving closed" : canPost ? "Ready to post" : "Not ready to post"}
-              </p>
-              <p className="mt-1">
-                {receivingClosed
-                  ? "This document is no longer accepting inventory updates."
-                  : canPost
-                    ? `${receivingLineCount} line${receivingLineCount === 1 ? "" : "s"} will update inventory when posted.`
-                    : "Enter at least one receiving quantity before posting inventory."}
-              </p>
-              {!receivingClosed ? (
-                <p className="mt-2 text-[11px] font-bold">
-                  {canPost
-                    ? "Pilot watch: posting completes the receiving handoff and creates the accounting trail."
-                    : "Pilot watch: this is an unresolved receiving draft until quantities are posted or the work is intentionally stopped."}
-                </p>
-              ) : null}
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <button
-                type="button"
-                onClick={onClose}
-                className="ui-btn-secondary px-8 py-4 text-xs"
-              >
-                Cancel & Close
-              </button>
-              <button
-                type="button"
-                disabled={!canPost}
-                onClick={() => setShowPostConfirm(true)}
-                className="flex items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-10 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-500/20 transition-all hover:bg-emerald-500 hover:shadow-emerald-500/40 active:scale-95 disabled:opacity-30"
-              >
-                {loading ? (
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                ) : (
-                  <ShieldCheck size={18} />
-                )}
-                Post Receipt to Inventory
-              </button>
-            </div>
+              Close
+            </button>
+            <button
+              type="button"
+              disabled={!canPost}
+              onClick={() => setShowPostConfirm(true)}
+              className="flex items-center gap-2 h-10 rounded-xl bg-emerald-600 px-6 text-xs font-bold text-white shadow-lg shadow-emerald-500/20 hover:brightness-110 active:scale-95 disabled:opacity-30 transition-all"
+            >
+              {loading ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <ShieldCheck size={16} />
+              )}
+              Post Receipt
+            </button>
           </div>
         </div>
       </footer>
@@ -1110,10 +916,10 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           title={invoiceMissing ? "Post Without Invoice Number?" : "Finalize Inventory Receipt?"}
           message={
             invoiceMissing
-              ? `No invoice number is entered. Continue only if vendor paperwork is not available yet. This will add stock and post a journal entry to QBO for $${centsToFixed2(grandTotalCents)}.`
-              : `This will add stock and post a journal entry to QBO for $${centsToFixed2(grandTotalCents)}. This action is audit-tracked and difficult to reverse.`
+              ? `No invoice number entered. This will add stock and post $${centsToFixed2(grandTotalCents)} to QBO.`
+              : `This will add stock and post $${centsToFixed2(grandTotalCents)} to QBO. This action is audit-tracked.`
           }
-          confirmLabel={invoiceMissing ? "Post Without Invoice Number" : "Confirm & Post"}
+          confirmLabel={invoiceMissing ? "Post Without Invoice" : "Confirm & Post"}
           onConfirm={() => void handlePost()}
           onClose={() => setShowPostConfirm(false)}
         />
