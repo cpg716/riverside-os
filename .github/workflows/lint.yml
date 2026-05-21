@@ -51,8 +51,6 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server
 
       - name: Check Formatting
         run: cargo fmt --check
@@ -94,8 +92,6 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: client/src-tauri
 
       - name: Check Formatting
         run: cargo fmt --check

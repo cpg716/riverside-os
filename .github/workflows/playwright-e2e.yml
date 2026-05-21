@@ -26,8 +26,6 @@ jobs:
           components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server
 
       - name: Build server
         run: cd server && cargo build
@@ -48,7 +46,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: server-binary
-          path: server/target/debug/riverside-server
+          path: target/debug/riverside-server
 
       - name: Upload Frontend Bundle
         uses: actions/upload-artifact@v6

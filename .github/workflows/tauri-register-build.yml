@@ -37,4 +37,4 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: tauri-windows-bundle
-          path: client/src-tauri/target/release/bundle/
+          path: target/release/bundle/

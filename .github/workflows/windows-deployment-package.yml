@@ -62,11 +62,6 @@ jobs:
           components: clippy, rustfmt
 
       - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            client/src-tauri -> target
-            server -> target
-            deployment/manager-app/src-tauri -> target
 
       - name: Install client dependencies
         working-directory: client
@@ -135,7 +130,7 @@ jobs:
         shell: pwsh
         working-directory: client
         run: |
-          $targetRoot = "src-tauri/target"
+          $targetRoot = "../target"
           $sig = Get-ChildItem -Path $targetRoot -Recurse -Filter *.sig | Select-Object -First 1
           if ($null -eq $sig) {
             throw "No updater signature file (*.sig) found. Ensure TAURI_SIGNING_PRIVATE_KEY is configured."
@@ -200,11 +195,11 @@ jobs:
           $version = (Get-Content "client/package.json" | ConvertFrom-Json).version
           .\deployment\windows\build-deployment-package.ps1 `
             -Version $version `
-            -ServerBinaryPath ".\server\target\release\riverside-server.exe" `
+            -ServerBinaryPath ".\target\release\riverside-server.exe" `
             -ClientDistPath ".\client\dist" `
-            -RegisterBundlePath ".\client\src-tauri\target\release\bundle" `
+            -RegisterBundlePath ".\target\release\bundle" `
             -UpdaterDistPath ".\client\updater-dist" `
-            -ManagerBinaryPath ".\deployment\manager-app\src-tauri\target\release\riverside-deployment-manager.exe"
+            -ManagerBinaryPath ".\target\release\riverside-deployment-manager.exe"
           Get-ChildItem dist/deployment/*.zip | ForEach-Object {
             "Deployment package: $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
           }

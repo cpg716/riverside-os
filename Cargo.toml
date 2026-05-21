@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "server",
+    "client/src-tauri",
+    "deployment/manager-app/src-tauri"
+]

@@ -2,11 +2,11 @@
 param(
   [string]$Version = "0.70.2",
   [string]$OutputDir = "$PSScriptRoot\..\..\dist\deployment",
-  [string]$ServerBinaryPath = "$PSScriptRoot\..\..\server\target\release\riverside-server.exe",
+  [string]$ServerBinaryPath = "$PSScriptRoot\..\..\target\release\riverside-server.exe",
   [string]$ClientDistPath = "$PSScriptRoot\..\..\client\dist",
-  [string]$RegisterBundlePath = "$PSScriptRoot\..\..\client\src-tauri\target\release\bundle",
+  [string]$RegisterBundlePath = "$PSScriptRoot\..\..\target\release\bundle",
   [string]$UpdaterDistPath = "$PSScriptRoot\..\..\client\updater-dist",
-  [string]$ManagerBinaryPath = "$PSScriptRoot\..\manager-app\src-tauri\target\release\riverside-deployment-manager.exe",
+  [string]$ManagerBinaryPath = "$PSScriptRoot\..\..\target\release\riverside-deployment-manager.exe",
   [switch]$AllowMissingRegisterBundle,
   [switch]$AllowMissingManagerBinary
 )
