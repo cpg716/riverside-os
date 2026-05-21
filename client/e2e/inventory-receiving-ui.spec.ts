@@ -166,7 +166,7 @@ test.describe("Inventory receiving operator verification", () => {
 
     const drawerRoot = page.locator("#drawer-root");
     const postInventoryButton = drawerRoot
-      .getByRole("button", { name: /post receipt to inventory/i })
+      .getByRole("button", { name: /post receipt/i })
       .last();
     await expect(postInventoryButton).toBeVisible({ timeout: 10_000 });
     await expect(postInventoryButton).toBeEnabled({ timeout: 10_000 });
@@ -238,7 +238,7 @@ test.describe("Inventory receiving operator verification", () => {
 
     const drawerRoot = page.locator("#drawer-root");
     const postInventoryButton = drawerRoot
-      .getByRole("button", { name: /post receipt to inventory/i })
+      .getByRole("button", { name: /post receipt/i })
       .last();
     await expect(postInventoryButton).toBeEnabled({ timeout: 10_000 });
     const receiveResponse = page.waitForResponse(
