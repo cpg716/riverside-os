@@ -31,6 +31,8 @@ jobs:
           toolchain: "1.88"
           components: clippy, rustfmt
 
+      - uses: swatinem/rust-cache@v2
+
       - name: Build Tauri bundle
         run: npm run tauri:build
 

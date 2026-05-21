@@ -56,6 +56,8 @@ jobs:
           toolchain: "1.88"
           components: clippy, rustfmt
 
+      - uses: swatinem/rust-cache@v2
+
       - name: Install Windows ROSIE sidecar
         shell: pwsh
         run: |
