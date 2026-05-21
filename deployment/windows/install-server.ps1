@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$ConfigPath = "",
   [switch]$SkipDatabaseCreate,
@@ -54,6 +54,29 @@ function Resolve-PsqlPath($dbConfig) {
 }
 
 function Ensure-PostgresServiceRunning {
+  if ($db) {
+    $dbHost = $db.host
+    $dbPort = $db.port
+    if ([string]::IsNullOrWhiteSpace($dbHost)) { $dbHost = "127.0.0.1" }
+    if (-not $dbPort) { $dbPort = 5432 }
+
+    Write-Host "Checking if PostgreSQL is already reachable on $dbHost`:$dbPort..."
+    $tcpClient = New-Object System.Net.Sockets.TcpClient
+    try {
+      $connect = $tcpClient.BeginConnect($dbHost, $dbPort, $null, $null)
+      $success = $connect.AsyncWaitHandle.WaitOne(1000, $false)
+      if ($success) {
+        $tcpClient.EndConnect($connect)
+        Write-Host "PostgreSQL is already reachable on $dbHost`:$dbPort. Skipping service start."
+        return
+      }
+    } catch {
+      # Ignore connection failures, we will try starting the service.
+    } finally {
+      if ($tcpClient) { $tcpClient.Close() }
+    }
+  }
+
   $services = Get-Service -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -like "postgresql*" -or $_.DisplayName -like "PostgreSQL*" } |
     Sort-Object Name -Descending
@@ -63,19 +86,38 @@ function Ensure-PostgresServiceRunning {
     return
   }
 
-  $service = $services[0]
-  if ($service.Status -ne "Running") {
-    Write-Host "Starting PostgreSQL service $($service.Name)"
+  $started = $false
+  $chosenService = $null
+
+  foreach ($service in $services) {
+    $chosenService = $service
+    if ($service.Status -eq "Running") {
+      Write-Host "PostgreSQL service '$($service.Name)' is already running."
+      $started = $true
+      break
+    }
+
+    Write-Host "Starting PostgreSQL service $($service.Name)..."
     try {
       Start-Service -Name $service.Name
       $service.WaitForStatus("Running", (New-TimeSpan -Seconds 30))
+      Write-Host "Successfully started PostgreSQL service $($service.Name)."
+      $started = $true
+      break
     } catch {
       Write-Warning "Could not start PostgreSQL service '$($service.Name)': $($_.Exception.Message)"
-      Write-Warning "Continuing - database operations will fail if PostgreSQL is not reachable."
     }
   }
-  try { Set-Service -Name $service.Name -StartupType Automatic } catch {
-    Write-Warning "Could not set service startup type: $($_.Exception.Message)"
+
+  if (-not $started) {
+    Write-Warning "Could not start any detected PostgreSQL Windows service."
+    Write-Warning "Continuing - database operations will fail if PostgreSQL is not reachable."
+  } elseif ($chosenService) {
+    try {
+      Set-Service -Name $chosenService.Name -StartupType Automatic
+    } catch {
+      Write-Warning "Could not set service '$($chosenService.Name)' startup type to Automatic: $($_.Exception.Message)"
+    }
   }
 }
 
