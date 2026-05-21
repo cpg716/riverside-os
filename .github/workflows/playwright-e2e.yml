@@ -131,12 +131,12 @@ jobs:
         run: cd client && npx playwright install chromium --with-deps
 
       - name: Download Server Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: server-binary
 
       - name: Download Frontend Bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: frontend-dist
           path: dist
@@ -316,7 +316,7 @@ jobs:
       - name: Create or update blocking lane failure issue
         if: failure()
         continue-on-error: true
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           RUN_URL: ${{ steps.blocking_failure_meta.outputs.run_url }}
           FAILURE_TIMESTAMP: ${{ steps.blocking_failure_meta.outputs.timestamp }}
@@ -548,12 +548,12 @@ jobs:
         run: cd client && npx playwright install chromium --with-deps
 
       - name: Download Server Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: server-binary
 
       - name: Download Frontend Bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: frontend-dist
           path: dist
