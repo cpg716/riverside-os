@@ -43,14 +43,14 @@ Use **Add/Edit Catalog** for setup tooling: creating new items, managing categor
 
 ### Add Item
 
-1. **Add/Edit Catalog** → **Add Item** → follow the 3-step wizard:
+1. **Add/Edit Catalog** → **Add Item** → follow the wizard (3 or 4 steps depending on web publishing):
    - **Step 1: Product & Pricing**: Enter item details, base cost, retail price, and primary vendor.
      - **Vendor Intelligence**: When a vendor is selected, a contextual sidebar shows the vendor code, rules, and guidance.
      - **Margin/Markup Hints**: Profit margin and markup percentages calculate in real-time as cost and retail prices are entered.
      - **Item Rules Grid**: Tax overrides, low-stock warnings, and web-publishing configurations are grouped into a clean 3-column selector layout.
    - **Step 2: Sizes & Options**: Set up matrix axes (Size, Color, Fit, etc.) manually or by using **Copy From** to duplicate the variation structure of an existing product.
-   - **Step 3: Web Listing** *(Conditional)*: This step appears between Options and Review if "Publish to Web" was checked in Step 1.
-   - **Step 4 (or 3): Review & Save**: Verify the SKU variations and click the green save button to commit the product catalog record.
+   - **Step 3: Web Listing** *(only if "Publish to Web" was checked in Step 1)*: Marketing overrides, tags, categories, image gallery, and SEO fields.
+   - **Final Step — Review & Save**: Verify the SKU variations and click the green save button to commit the product catalog record.
 2. Enter **non-negative** base retail and cost values. Negative benchmark pricing, negative cost, and negative initial stock are blocked.
 3. Primary vendor is required for manually created items because downstream ordering and receiving depend on it.
 4. New Riverside-created SKUs use **`ROS-XXXXXX`** and should advance to the next available ROS number. Imported Counterpoint SKUs such as **`B-XXXXXX`** stay unchanged.
@@ -129,13 +129,17 @@ Use **Receive Stock** when merchandise is already here and you have vendor paper
 If a physical inventory session is open or in review, receiving is paused. Sales may continue during the count, but ROS will not post received stock until the count is published or canceled.
 
 1. **Receive Stock** → choose a submitted **PO** that is ready to receive, or create a **Direct Invoice** if the shipment arrived without a pre-built PO.
-2. The receiving worksheet features a tightened layout that maximizes item grid visibility. Check the document state before opening the worksheet:
+2. The receiving screen shows a **3-step workflow indicator** in the header bar:
+   - **Step 1 | Check paperwork** — confirm you have the right vendor invoice or PO.
+   - **Step 2 | Count & invoice** — scan or enter quantities; fill in the invoice number and freight amount.
+   - **Step 3 | Post inventory** — review totals, then post to finalize.
+   - A **"Next: ..."** hint beside the step indicators shows what comes next at each stage.
+3. Check the document state before entering quantities:
    - **Submitted PO** = ready to receive.
    - **Direct invoice** = arrived without a pre-built PO and can open receiving immediately.
    - **Draft PO** = order setup; submit it before receiving.
-3. Scan or enter **quantities** to match the packing slip.
 4. Scanning and worksheet entry only **stage** the receipt. They do **not** change live stock yet.
-5. **Post inventory** (finalize receipt into stock) is the **emerald** primary action (**green** with a **thick bottom edge**) — same **“terminal completion”** pattern as **Complete Sale** on the register (**`UI_STANDARDS.md`**). Read totals before confirming.
+5. **Post Receipt** (the emerald button in the footer) finalizes the receipt into inventory — same **"terminal completion"** pattern as **Complete Sale** at the register. Read totals before confirming.
 6. Watch for messages about **reserved** stock for open special orders after posting.
 
 **Direct invoices** and submitted **standard POs** share the same final posting path. Once a receipt is finalized, ROS locks the document and blocks duplicate posting for that receipt ID to preserve database and ledger integrity.
@@ -201,4 +205,4 @@ All views should represent the same filtered SKUs. Used Counterpoint SKUs and ne
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 - [../PLAN_NOTIFICATION_CENTER.md](../PLAN_NOTIFICATION_CENTER.md)
 
-**Last reviewed:** 2026-05-20
+**Last reviewed:** 2026-05-21
