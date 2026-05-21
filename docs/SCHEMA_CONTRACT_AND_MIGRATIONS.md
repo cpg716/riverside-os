@@ -52,6 +52,7 @@ The only active migration files in `migrations/` are:
 | `034_transaction_void_records.sql` | POS transaction void audit and reversal tracking |
 | `035_backup_resilience_settings.sql` | Backup and resilience settings |
 | `036_financial_date_and_counterpoint_integrity.sql` | Financial date and Counterpoint integrity hardening |
+| `037_backfill_missing_columns.sql` | Backfill columns added to earlier files after they were applied (`store_media_asset.deleted_at/alt_text/usage_note`, `categories.variation_axis_presets`) |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 
@@ -103,18 +104,35 @@ bash scripts/schema_diff.sh <left-db-or-url> <right-db-or-url>
 
 `schema_diff.sh` runs normalized schema-only dumps and fails if the schemas differ.
 
+## Checksum Drift Detection
+
+As of migration 037, both `apply-migrations-psql.sh` and `apply-migrations-docker.sh` store a SHA-256 checksum of each migration file in the `file_sha256` column of `ros_schema_migrations`.
+
+On each run the script compares the current file hash against the stored hash. If a file has been modified since it was applied, the script prints a **`⚠ DRIFT`** warning:
+
+```
+⚠ DRIFT: 006_integrations.sql has changed since it was applied!
+  → This file was modified after being applied. You may need a new migration to reconcile.
+```
+
+This catches the exact scenario that caused the `deleted_at` / `variation_axis_presets` production errors: a migration file was edited in-place after being applied, the ledger said "done", and the new columns were silently skipped.
+
+**When you see a DRIFT warning**: create a new numbered migration (e.g. `038_...`) with `ADD COLUMN IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS` to reconcile. Do not re-apply the modified file.
+
 ## Future Migration Rules
 
-After launch, migrations are append-only:
+Migrations are **append-only and immutable** once applied to any environment:
 
-- do not edit old baseline files for live schema changes
+- **never edit an already-applied migration file** — the checksum system will flag it as drift
 - do not rename or renumber existing migration files
 - do not add duplicate numeric prefixes
 - do not put seed/test data in migrations
 - do not rely on runtime schema mutation
 - run layout and schema-contract validation before commit
+- all new schema changes get the next numbered file (e.g. `038_...`)
+- use `IF NOT EXISTS` / `IF EXISTS` guards in new migrations for safe idempotency
 
-For pre-launch baseline work, regenerate and validate the baseline as a whole. For post-launch work, add a new numbered migration after the current active baseline.
+For post-launch work, add a new numbered migration after the current active baseline. Never modify baseline files.
 
 ## Payment Provider Settlement Contract
 

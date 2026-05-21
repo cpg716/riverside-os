@@ -311,6 +311,7 @@ The main shell component is the central hub of Riverside OS. It manages global s
 
 - Never edit schema directly
 - Always use numbered SQL migrations
+- **Never modify an already-applied migration file** — always append a new numbered file
 - All migrations must be idempotent
 - Use `IF NOT EXISTS` guards where appropriate
 - When changing PostgreSQL views and the column shape changes, prepend `DROP VIEW IF EXISTS`
@@ -855,21 +856,25 @@ E2E_BASE_URL="http://localhost:5173" npm run test:e2e:update-snapshots
 
 - Local dev uses Docker Compose `db`
 - `DATABASE_URL` should use `localhost:5433`, not `5432`
-- The migration ledger is `public.ros_schema_migrations`
-- Active migrations are the schema-contract baseline `001` through `008`
+- The migration ledger is `public.ros_schema_migrations` (includes `file_sha256` checksums)
+- Active migrations are `001` through `037` (check `migrations/` for the actual latest)
 - Legacy pre-launch migrations live under `migrations/legacy_prelaunch_history/`
 - Seed data lives in `scripts/seeds/` and must stay out of active migrations
 - Runtime startup validates schema only; do not add hidden DDL or compat patches
-
 - Use the scripts in `scripts/` rather than inventing ad hoc migration workflows
 
 ## Migration numbering safety
 
+- **Never edit an already-applied migration file** — the SHA-256 checksum system will flag it as drift
 - Never rename or renumber existing migrations
-- Do not edit baseline migrations after launch
-- Always create a new append-only migration for post-launch schema changes
+- Always create a new append-only migration for post-launch schema changes (e.g. `038_...`)
+- Use `IF NOT EXISTS` / `IF EXISTS` guards in new migrations for safe idempotency
 - Preserve migration order across branches
 - Verify migration sequence before making changes
+
+### Checksum drift detection
+
+Both `apply-migrations-psql.sh` and `apply-migrations-docker.sh` store a SHA-256 hash of each file in `ros_schema_migrations.file_sha256`. If a previously applied file has been modified, the script prints a `⚠ DRIFT` warning. When you see drift: create a new numbered migration to reconcile. Do not re-apply or edit the original file.
 
 ### Migration truth rule
 
@@ -878,7 +883,6 @@ Do not hardcode a stale migration ceiling in AGENTS.
 When you need the latest migration:
 
 - inspect `migrations/`
-
 - confirm with `DEVELOPER.md`
 - confirm with migration-status scripts
 - confirm with `docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`

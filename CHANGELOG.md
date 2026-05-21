@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **Migration checksum drift detection**: Both `apply-migrations-psql.sh` and `apply-migrations-docker.sh` now store a SHA-256 hash of each migration file in `ros_schema_migrations.file_sha256`. On subsequent runs, if a previously applied file has been modified, the script prints a `⚠ DRIFT` warning instead of silently skipping. This prevents the class of bug where columns are added to an already-applied migration file and never reach the database.
+
 ### Fixed
+- **Schema drift: missing columns**: Added migration `037_backfill_missing_columns.sql` to reconcile columns that were added to earlier migration files after they had already been applied — `store_media_asset.deleted_at/alt_text/usage_note` and `categories.variation_axis_presets`. Resolves 500 errors on the Store Dashboard and Categories API endpoints.
 - **ROSIE on Server PC**: Windows server install now packages `llama-server.exe`, registers a **Riverside OS LLM Host** startup task on port 8080, and adds **Start-RiversideLlama.cmd** / Deployment Manager **Start ROSIE LLM Host** for repair.
 
 ## [0.70.1] - 2026-05-20

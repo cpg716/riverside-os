@@ -237,14 +237,26 @@ docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < 
 
 ## Migration numbering safety
 
-- Active baseline files are `001` through `032`
-- Never edit active baseline files after launch
+- Active baseline files are `001` through `037`
+- **Never edit an already-applied migration file** — the checksum system will flag it as drift (see below)
 - Always create a new append-only migration for post-launch schema changes
 - Preserve migration order across branches
 - Verify migration sequence before making changes
 - Keep repo files and `ros_schema_migrations` aligned; if the ledger and repo diverge, fix the mismatch instead of silently backfilling around it
 - Keep seed/test data out of migrations; use `scripts/seeds/`
 - Runtime startup must validate schema only and must not apply hidden DDL
+- Use `IF NOT EXISTS` / `IF EXISTS` guards in new migrations for safe idempotency
+
+### Checksum drift detection
+
+Both `apply-migrations-psql.sh` and `apply-migrations-docker.sh` store a SHA-256 hash of each migration file in `ros_schema_migrations.file_sha256`. On every run, the script compares the current file hash against the stored hash. If a previously applied file has been modified, you'll see:
+
+```
+⚠ DRIFT: 006_integrations.sql has changed since it was applied!
+  → This file was modified after being applied. You may need a new migration to reconcile.
+```
+
+**Action**: create a new numbered migration (e.g. `038_fix_xyz.sql`) with `ADD COLUMN IF NOT EXISTS` to reconcile. Do not re-apply or edit the original file. See `docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md` for full details.
 
 **`server/.env`**: `DATABASE_URL` must match the Docker `db` service (see [`server/.env.example`](server/.env.example)). If it still points at a local Homebrew user (e.g. `postgresql://YOU@localhost/...`), the API will not hit this container.
 

@@ -6,7 +6,29 @@ export interface InventoryTagItem {
   variation: string;
   brand?: string | null;
   price?: string | null;
+  /** Original retail price when item is on promotion. */
+  regularPrice?: string | null;
+  /** Active sale price when item is on promotion. */
+  salePrice?: string | null;
 }
+
+/** Selects the overall tag composition. Each layout arranges the same data differently. */
+export type TagLayoutId = "standard" | "price-hero" | "barcode-left" | "barcode-right" | "barcode-bottom" | "compact";
+
+export interface TagLayoutOption {
+  id: TagLayoutId;
+  label: string;
+  description: string;
+}
+
+export const TAG_LAYOUTS: TagLayoutOption[] = [
+  { id: "standard",       label: "Standard",       description: "Product info fills the tag with a barcode along the bottom." },
+  { id: "price-hero",     label: "Price First",    description: "Price dominates the tag — perfect for clearance and sales racks." },
+  { id: "barcode-left",   label: "Barcode Left",   description: "Vertical barcode on the left edge with product info on the right." },
+  { id: "barcode-right",  label: "Barcode Right",  description: "Vertical barcode on the right edge for handheld scanner access." },
+  { id: "barcode-bottom", label: "Barcode Bottom", description: "Full-width barcode strip across the bottom of the tag." },
+  { id: "compact",        label: "Compact",        description: "Dense two-column layout for smaller label stock." },
+];
 
 export interface InventoryTagPrintConfig {
   widthInches: number;
@@ -16,8 +38,15 @@ export interface InventoryTagPrintConfig {
   showVariation: boolean;
   showBrand: boolean;
   showPrice: boolean;
-  accentStyle: "classic" | "bold" | "minimal";
+  showBarcode: boolean;
+  showPromoPrice: boolean;
+  /** How prominent the price appears: "standard" or "large". */
+  priceSize: "standard" | "large";
+  /** Overall tag composition layout. */
+  tagLayout: TagLayoutId;
   footerText: string;
+  /** Legacy field kept for backward compat — no longer rendered. */
+  accentStyle?: "classic" | "bold" | "minimal";
 }
 
 const STORAGE_KEY = "ros.inventory.tagPrintConfig";
@@ -28,10 +57,13 @@ const DEFAULT_CONFIG: InventoryTagPrintConfig = {
   showSku: true,
   showProductName: true,
   showVariation: true,
-  showBrand: false,
-  showPrice: false,
-  accentStyle: "bold",
-  footerText: "Riverside OS Inventory Tag",
+  showBrand: true,
+  showPrice: true,
+  showBarcode: true,
+  showPromoPrice: true,
+  priceSize: "large",
+  tagLayout: "standard",
+  footerText: "Riverside Men's Shop",
 };
 
 const ZEBRA_2844_DPI = 203;
@@ -91,57 +123,109 @@ function zplField(x: number, y: number, height: number, width: number, value: st
   return `^FO${x},${y}^A0N,${height},${width}^FD${escapeZplField(value)}^FS`;
 }
 
+function zplTextBlock(parts: string[], x: number, y: number, item: InventoryTagItem, config: InventoryTagPrintConfig, textChars: number): number {
+  const nameLines = config.showProductName ? wrapText(item.productName || item.sku, textChars, 2) : [];
+  const variation = item.variation?.trim() || "Standard";
+  const sku = escapeZplField(item.sku);
+
+  if (config.showSku) { parts.push(zplField(x, y, 28, 26, sku)); y += 38; }
+  for (const line of nameLines) { parts.push(zplField(x, y, 44, 40, line)); y += 50; }
+  if (config.showVariation) { parts.push(zplField(x, y + 2, 28, 26, escapeZplField(variation))); y += 34; }
+  if (config.showBrand && item.brand) { parts.push(zplField(x, y + 2, 26, 24, escapeZplField(item.brand))); y += 32; }
+  return y;
+}
+
+function zplPriceBlock(parts: string[], x: number, y: number, maxY: number, item: InventoryTagItem, config: InventoryTagPrintConfig): void {
+  if (!config.showPrice) return;
+  const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
+  const pH = config.priceSize === "large" ? 48 : 32;
+  const pW = config.priceSize === "large" ? 44 : 28;
+  const pY = Math.max(y + 8, maxY - pH - 36);
+  if (isPromo) {
+    parts.push(zplField(x, pY - 22, 20, 18, `Reg ${escapeZplField(item.regularPrice!)}`));
+    parts.push(zplField(x, pY, pH, pW, escapeZplField(item.salePrice!)));
+  } else if (item.price) {
+    parts.push(zplField(x, pY, pH, pW, escapeZplField(item.price)));
+  }
+}
+
 function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
   const width = Math.round(clampDimension(config.widthInches, 2, 6, 4) * ZEBRA_2844_DPI);
   const height = Math.round(clampDimension(config.heightInches, 1.25, 4, 2.5) * ZEBRA_2844_DPI);
-  const margin = Math.max(18, Math.round(width * 0.035));
-  const bodyWidth = width - margin * 2;
-  const textChars = Math.max(18, Math.floor(bodyWidth / 22));
-  const nameLines = config.showProductName
-    ? wrapText(item.productName || item.sku, textChars, 2)
-    : [];
-  const variation = item.variation?.trim() || "Standard";
-  const meta = [
-    config.showVariation ? variation : null,
-    config.showBrand && item.brand ? item.brand : null,
-    config.showPrice && item.price ? item.price : null,
-  ]
-    .filter(Boolean)
-    .join("  ");
-  const footer = buildInventoryTagFooterLine(config.footerText);
+  const m = Math.max(16, Math.round(width * 0.03));
   const sku = escapeZplField(item.sku);
+  const footer = buildInventoryTagFooterLine(config.footerText);
+  const layout = config.tagLayout || "standard";
 
-  let y = margin;
   const parts = [`^XA`, `^PW${width}`, `^LL${height}`, "^CI28"];
 
-  if (config.accentStyle !== "minimal") {
-    parts.push(`^FO0,0^GB${Math.max(10, Math.round(width * 0.035))},${height},0^FS`);
+  if (layout === "barcode-left") {
+    const bcZone = config.showBarcode ? Math.round(width * 0.15) : 0;
+    const textX = m + bcZone;
+    const bodyW = width - textX - m;
+    const chars = Math.max(14, Math.floor(bodyW / 20));
+    const y = zplTextBlock(parts, textX, m, item, config, chars);
+    zplPriceBlock(parts, textX, y, height - 32, item, config);
+    if (config.showBarcode && sku) {
+      parts.push(`^FO${m},${m}^A0R,20,18^FD${sku}^FS`);
+      parts.push(`^FO${m + 22},${m}^BY2^BCR,${height - m * 2 - 20},N,N,N^FD${sku}^FS`);
+    }
+  } else if (layout === "barcode-right") {
+    const bcZone = config.showBarcode ? Math.round(width * 0.15) : 0;
+    const bodyW = width - m * 2 - bcZone;
+    const chars = Math.max(14, Math.floor(bodyW / 20));
+    const y = zplTextBlock(parts, m, m, item, config, chars);
+    zplPriceBlock(parts, m, y, height - 32, item, config);
+    if (config.showBarcode && sku) {
+      const lblX = width - bcZone - 4;
+      parts.push(`^FO${lblX},${m}^A0R,20,18^FD${sku}^FS`);
+      const bcX = lblX + 22;
+      parts.push(`^FO${bcX},${m}^BY2^BCR,${height - m * 2 - 20},N,N,N^FD${sku}^FS`);
+    }
+  } else if (layout === "price-hero") {
+    const pH = config.priceSize === "large" ? 52 : 36;
+    const pW = config.priceSize === "large" ? 48 : 32;
+    let y = m;
+    if (config.showPrice) {
+      const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
+      if (isPromo) {
+        parts.push(zplField(m, y, 20, 18, `Reg ${escapeZplField(item.regularPrice!)}`));
+        y += 24;
+        parts.push(zplField(m, y, pH, pW, escapeZplField(item.salePrice!)));
+      } else if (item.price) {
+        parts.push(zplField(m, y, pH, pW, escapeZplField(item.price)));
+      }
+      y += pH + 8;
+    }
+    const chars = Math.max(14, Math.floor((width - m * 2) / 20));
+    zplTextBlock(parts, m, y, item, config, chars);
+    if (config.showBarcode && sku) {
+      const bcH = Math.min(48, Math.round(height * 0.12));
+      parts.push(`^FO${m},${height - bcH - 24}^BY2^BCN,${bcH},Y,N,N^FD${sku}^FS`);
+    }
+  } else if (layout === "compact") {
+    const halfW = Math.round(width * 0.55);
+    const chars = Math.max(10, Math.floor((halfW - m) / 20));
+    const y = zplTextBlock(parts, m, m, item, config, chars);
+    const rightX = halfW + 8;
+    zplPriceBlock(parts, rightX, m, height - 32, item, config);
+    if (config.showBarcode && sku) {
+      const bcH = Math.min(40, Math.round(height * 0.1));
+      parts.push(`^FO${rightX},${height - bcH - 24}^BY2^BCN,${bcH},Y,N,N^FD${sku}^FS`);
+    }
+    void y;
+  } else {
+    const chars = Math.max(14, Math.floor((width - m * 2) / 20));
+    const y = zplTextBlock(parts, m, m, item, config, chars);
+    const bcH = config.showBarcode ? Math.min(50, Math.round(height * 0.14)) : 0;
+    const bcReserve = config.showBarcode ? bcH + 28 : 0;
+    zplPriceBlock(parts, m, y, height - bcReserve - 24, item, config);
+    if (config.showBarcode && sku) {
+      parts.push(`^FO${m},${height - bcH - 22}^BY2^BCN,${bcH},Y,N,N^FD${sku}^FS`);
+    }
   }
 
-  if (config.showSku) {
-    parts.push(zplField(margin, y, 28, 28, sku));
-    y += 42;
-  }
-
-  for (const line of nameLines) {
-    parts.push(zplField(margin, y, 38, 34, line));
-    y += 44;
-  }
-
-  if (meta) {
-    parts.push(zplField(margin, y + 4, 24, 22, meta));
-  }
-
-  const barcodeHeight = Math.min(82, Math.max(50, Math.floor(height * 0.16)));
-  const barcodeY = Math.max(y + 48, height - barcodeHeight - 86);
-  if (sku) {
-    parts.push(`^FO${margin},${barcodeY}^BY2,2,${barcodeHeight}^BCN,${barcodeHeight},Y,N,N^FD${sku}^FS`);
-  }
-
-  if (footer) {
-    parts.push(zplField(margin, height - 28, 18, 18, footer));
-  }
-
+  if (footer) { parts.push(zplField(m, height - 22, 18, 16, footer)); }
   parts.push("^XZ");
   return parts.join("\n");
 }
@@ -203,172 +287,172 @@ function clampDimension(
   return Math.min(max, Math.max(min, value));
 }
 
-function getAccentClasses(style: InventoryTagPrintConfig["accentStyle"]) {
-  switch (style) {
-    case "classic":
-      return {
-        shell: "border:1px solid #0f172a;background:#ffffff;",
-        chip: "background:#ecfeff;color:#0f766e;border:1px solid #99f6e4;",
-        band:
-          "background:linear-gradient(135deg,#0f172a 0%,#334155 100%);",
-      };
-    case "minimal":
-      return {
-        shell: "border:1px solid #d4d4d8;background:#ffffff;",
-        chip: "background:#f4f4f5;color:#18181b;border:1px solid #e4e4e7;",
-        band: "background:#e4e4e7;",
-      };
-    case "bold":
-    default:
-      return {
-        shell:
-          "border:1px solid #d1fae5;background:radial-gradient(circle at top left,#ecfdf5 0%,#ffffff 58%,#f0fdf4 100%);",
-        chip: "background:#022c22;color:#ecfdf5;border:1px solid #064e3b;",
-        band:
-          "background:linear-gradient(135deg,#065f46 0%,#10b981 55%,#6ee7b7 100%);",
-      };
+function computeSavings(regular: string, sale: string): string {
+  const regNum = parseFloat(regular.replace(/[^0-9.]/g, ""));
+  const saleNum = parseFloat(sale.replace(/[^0-9.]/g, ""));
+  if (!isFinite(regNum) || !isFinite(saleNum) || regNum <= saleNum) return "";
+  return `$${(regNum - saleNum).toFixed(2)}`;
+}
+
+function priceHtml(item: InventoryTagItem, config: InventoryTagPrintConfig, sizeOverride?: string): string {
+  if (!config.showPrice) return "";
+  const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
+  const sz = sizeOverride ?? (config.priceSize === "large" ? "28px" : "16px");
+  if (isPromo) {
+    const savings = computeSavings(item.regularPrice!, item.salePrice!);
+    return `<div class="t-price-block"><div class="t-price-reg"><s>${escapeHtml(item.regularPrice!)}</s></div><div class="t-price-sale" style="font-size:${sz}">${escapeHtml(item.salePrice!)}</div>${savings ? `<div class="t-savings">You save ${escapeHtml(savings)}</div>` : ""}</div>`;
+  }
+  const p = item.price?.trim() || "";
+  if (!p) return "";
+  return `<div class="t-price" style="font-size:${sz}">${escapeHtml(p)}</div>`;
+}
+
+function barcodeHtml(sku: string, orient: "h" | "v"): string {
+  if (orient === "v") {
+    return `<div class="t-bc t-bc-v"><div class="t-bc-v-lbl">${escapeHtml(sku)}</div><div class="t-bc-v-bars"><svg class="t-bc-svg" data-sku="${escapeHtml(sku)}"></svg></div></div>`;
+  }
+  return `<div class="t-bc t-bc-h"><svg class="t-bc-svg" data-sku="${escapeHtml(sku)}"></svg><div class="t-bc-lbl">${escapeHtml(sku)}</div></div>`;
+}
+
+function skuHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  return config.showSku ? `<div class="t-sku">${escapeHtml(item.sku)}</div>` : "";
+}
+function nameHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  return config.showProductName ? `<div class="t-name">${escapeHtml(item.productName)}</div>` : "";
+}
+function variationHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  return config.showVariation ? `<div class="t-var">${escapeHtml(item.variation?.trim() || "Standard")}</div>` : "";
+}
+function brandHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  const b = item.brand?.trim();
+  return config.showBrand && b ? `<div class="t-brand">${escapeHtml(b)}</div>` : "";
+}
+function footerHtml(config: InventoryTagPrintConfig): string {
+  return `<div class="t-footer">${escapeHtml(buildInventoryTagFooterLine(config.footerText))}</div>`;
+}
+
+function renderTagStandard(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  return `<section class="tag-page"><div class="tag-shell tag-standard">
+    <div class="t-body">${skuHtml(item, config)}${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${priceHtml(item, config)}${footerHtml(config)}</div>
+    ${config.showBarcode ? `<div class="t-bc-row">${barcodeHtml(item.sku, "h")}</div>` : ""}
+  </div></section>`;
+}
+
+function renderTagPriceHero(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  const sz = config.priceSize === "large" ? "36px" : "24px";
+  return `<section class="tag-page"><div class="tag-shell tag-price-hero">
+    <div class="t-top">${priceHtml(item, config, sz)}</div>
+    <div class="t-body">${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${skuHtml(item, config)}${footerHtml(config)}</div>
+    ${config.showBarcode ? `<div class="t-bc-row">${barcodeHtml(item.sku, "h")}</div>` : ""}
+  </div></section>`;
+}
+
+function renderTagBarcodeLeft(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  return `<section class="tag-page"><div class="tag-shell tag-bc-left">
+    ${config.showBarcode ? `<div class="t-bc-col">${barcodeHtml(item.sku, "v")}</div>` : ""}
+    <div class="t-body">${skuHtml(item, config)}${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${priceHtml(item, config)}${footerHtml(config)}</div>
+  </div></section>`;
+}
+
+function renderTagBarcodeRight(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  return `<section class="tag-page"><div class="tag-shell tag-bc-right">
+    <div class="t-body">${skuHtml(item, config)}${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${priceHtml(item, config)}${footerHtml(config)}</div>
+    ${config.showBarcode ? `<div class="t-bc-col">${barcodeHtml(item.sku, "v")}</div>` : ""}
+  </div></section>`;
+}
+
+function renderTagBarcodeBottom(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  return `<section class="tag-page"><div class="tag-shell tag-bc-bottom">
+    <div class="t-body">${skuHtml(item, config)}${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${priceHtml(item, config)}${footerHtml(config)}</div>
+    ${config.showBarcode ? `<div class="t-bc-row t-bc-row-lg">${barcodeHtml(item.sku, "h")}</div>` : ""}
+  </div></section>`;
+}
+
+function renderTagCompact(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  return `<section class="tag-page"><div class="tag-shell tag-compact">
+    <div class="t-col-left">${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${skuHtml(item, config)}</div>
+    <div class="t-col-right">${priceHtml(item, config)}${config.showBarcode ? barcodeHtml(item.sku, "h") : ""}${footerHtml(config)}</div>
+  </div></section>`;
+}
+
+function renderTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  switch (config.tagLayout) {
+    case "price-hero": return renderTagPriceHero(item, config);
+    case "barcode-left": return renderTagBarcodeLeft(item, config);
+    case "barcode-right": return renderTagBarcodeRight(item, config);
+    case "barcode-bottom": return renderTagBarcodeBottom(item, config);
+    case "compact": return renderTagCompact(item, config);
+    default: return renderTagStandard(item, config);
   }
 }
 
-function renderTag(
-  item: InventoryTagItem,
-  config: InventoryTagPrintConfig,
-): string {
-  const accent = getAccentClasses(config.accentStyle);
-  const variation = item.variation?.trim() || "Standard";
-  const price = item.price?.trim() || "";
-  const brand = item.brand?.trim() || "";
-  const footer = buildInventoryTagFooterLine(config.footerText);
-
-  return `<section class="tag-page">
-  <div class="tag-shell" style="${accent.shell}">
-    <div class="tag-band" style="${accent.band}"></div>
-    <div class="tag-main">
-      ${
-        config.showSku
-          ? `<div class="tag-chip" style="${accent.chip}">${escapeHtml(item.sku)}</div>`
-          : ""
-      }
-      ${
-        config.showProductName
-          ? `<div class="tag-name">${escapeHtml(item.productName)}</div>`
-          : ""
-      }
-      ${
-        config.showVariation
-          ? `<div class="tag-variation">${escapeHtml(variation)}</div>`
-          : ""
-      }
-      <div class="tag-meta">
-        ${
-          config.showBrand && brand
-            ? `<span class="tag-meta-pill">${escapeHtml(brand)}</span>`
-            : ""
-        }
-        ${
-          config.showPrice && price
-            ? `<span class="tag-meta-pill">${escapeHtml(price)}</span>`
-            : ""
-        }
-      </div>
-      <div class="tag-footer">${escapeHtml(footer)}</div>
-    </div>
-  </div>
-</section>`;
+function generateBarcodeSvgScript(): string {
+  return `<script>
+(function(){
+  var C={32:212222,33:222122,34:222221,35:121223,36:121322,37:131222,38:122213,39:122312,40:132212,41:221213,42:221312,43:231212,44:112232,45:122132,46:122231,47:113222,48:123122,49:123221,50:223211,51:221132,52:221231,53:213212,54:223112,55:312131,56:311222,57:312212,58:322112,59:322211,60:212123,61:212321,62:232121,63:111323,64:131123,65:131321,66:112313,67:132113,68:132311,69:211313,70:231113,71:231311,72:112133,73:112331,74:132131,75:113123,76:113321,77:133121,78:313121,79:211331,80:231131,81:213113,82:213311,83:213131,84:311123,85:311321,86:331121,87:312113,88:312311,89:332111,90:314111,91:221411,92:431111,93:111224,94:111422,95:121124,96:121421,97:141122,98:141221,99:112214,100:112412,101:122114,102:122411,103:142112,104:142211,105:241211,106:221114,107:413111,108:241112,109:134111,110:111242,111:121142,112:121241,113:114212,114:124112,115:124211,116:411212,117:421112,118:421211,119:212141,120:214121,121:412121,122:111143,123:111341,124:131141,125:114113,126:114311,127:411113,128:411311};
+  function enc(t){var s=104,cs=s,b=C[s]+'';for(var i=0;i<t.length;i++){var c=t.charCodeAt(i)-32;cs+=(i+1)*c;b+=C[c+32];}b+=C[cs%103];b+=C[106];return b;}
+  document.querySelectorAll('.t-bc-svg').forEach(function(svg){
+    var sku=svg.getAttribute('data-sku');if(!sku)return;
+    var bars=enc(sku),tw=0;for(var i=0;i<bars.length;i++)tw+=parseInt(bars[i]);
+    svg.setAttribute('viewBox','0 0 '+tw+' 50');svg.setAttribute('preserveAspectRatio','none');
+    var x=0,d='';for(var i=0;i<bars.length;i++){var w=parseInt(bars[i]);if(i%2===0)d+='M'+x+' 0h'+w+'v50h-'+w+'z';x+=w;}
+    var p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',d);p.setAttribute('fill','#000');svg.appendChild(p);
+  });
+})();
+</script>`;
 }
 
-function buildDocument(
-  items: InventoryTagItem[],
-  config: InventoryTagPrintConfig,
-): string {
-  const pages = items.map((item) => renderTag(item, config)).join("\n");
-  return `<!DOCTYPE html>
-<html>
-  <head>
-    <title>Inventory tags (${items.length})</title>
-    <style>
-      @page { size: ${config.widthInches}in ${config.heightInches}in; margin: 0.08in; }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        padding: 0;
-        font-family: Inter, Outfit, "Aptos", "Segoe UI", sans-serif;
-        color: #0f172a;
-        background: #ffffff;
-      }
-      .tag-page {
-        page-break-after: always;
-        width: 100%;
-        min-height: ${Math.max(1, config.heightInches - 0.16)}in;
-      }
-      .tag-page:last-child { page-break-after: auto; }
-      .tag-shell {
-        position: relative;
-        display: flex;
-        min-height: ${Math.max(1, config.heightInches - 0.16)}in;
-        border-radius: 18px;
-        overflow: hidden;
-      }
-      .tag-band {
-        width: 0.28in;
-        min-width: 0.28in;
-      }
-      .tag-main {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        gap: 8px;
-        padding: 12px 12px 10px;
-      }
-      .tag-chip {
-        align-self: flex-start;
-        border-radius: 999px;
-        padding: 4px 9px;
-        font-size: 13px;
-        font-weight: 900;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-      .tag-name {
-        font-size: 21px;
-        line-height: 1.05;
-        font-weight: 900;
-        letter-spacing: -0.03em;
-      }
-      .tag-variation {
-        font-size: 14px;
-        line-height: 1.15;
-        font-weight: 700;
-        color: #334155;
-      }
-      .tag-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-      .tag-meta-pill {
-        border-radius: 999px;
-        border: 1px solid #cbd5e1;
-        background: rgba(255,255,255,0.9);
-        padding: 3px 8px;
-        font-size: 11px;
-        font-weight: 800;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: #334155;
-      }
-      .tag-footer {
-        font-size: 9px;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: #64748b;
-      }
-    </style>
-  </head>
-  <body>${pages}</body>
-</html>`;
+function buildDocument(items: InventoryTagItem[], config: InventoryTagPrintConfig): string {
+  const pages = items.map((i) => renderTag(i, config)).join("\n");
+  const pSz = config.priceSize === "large" ? "28px" : "16px";
+  const hIn = Math.max(1, config.heightInches - 0.12);
+  return `<!DOCTYPE html><html><head><title>Inventory tags (${items.length})</title>
+<style>
+@page{size:${config.widthInches}in ${config.heightInches}in;margin:0.04in;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Inter,Outfit,"Aptos","Segoe UI",sans-serif;color:#000;background:#fff;}
+.tag-page{page-break-after:always;width:100%;height:${hIn}in;}
+.tag-page:last-child{page-break-after:auto;}
+.tag-shell{display:flex;flex-direction:column;height:100%;border:1px solid #000;overflow:hidden;}
+.t-body{flex:1;display:flex;flex-direction:column;gap:2px;padding:6px 10px 4px;min-width:0;overflow:hidden;}
+.t-sku{font:700 13px/1.2 inherit;letter-spacing:.06em;text-transform:uppercase;color:#000;}
+.t-name{font:900 22px/1.08 inherit;letter-spacing:-.02em;color:#000;}
+.t-var{font:600 14px/1.2 inherit;color:#111;}
+.t-brand{font:700 12px/1.2 inherit;text-transform:uppercase;letter-spacing:.04em;color:#222;}
+.t-price{font:900 ${pSz}/1.1 inherit;letter-spacing:-.02em;margin-top:auto;color:#000;}
+.t-price-block{margin-top:auto;}
+.t-price-reg{font:600 13px/1.2 inherit;color:#222;}
+.t-price-reg s{text-decoration:line-through;}
+.t-price-sale{font:900 ${pSz}/1.1 inherit;letter-spacing:-.02em;color:#000;}
+.t-savings{font:700 11px/1.2 inherit;color:#111;}
+.t-footer{font:700 8px/1.2 inherit;letter-spacing:.08em;text-transform:uppercase;color:#333;margin-top:auto;padding-top:2px;}
+/* Barcode horizontal row */
+.t-bc-row{display:flex;align-items:center;gap:6px;padding:4px 10px;border-top:1px solid #ccc;}
+.t-bc-row-lg{padding:6px 10px;}
+.t-bc.t-bc-h{display:flex;align-items:center;gap:6px;flex:1;min-width:0;}
+.t-bc.t-bc-h .t-bc-svg{flex:1;height:32px;display:block;}
+.t-bc-row-lg .t-bc-h .t-bc-svg{height:42px;}
+.t-bc.t-bc-h .t-bc-lbl{font:700 10px/1 inherit;letter-spacing:.04em;white-space:nowrap;color:#000;}
+/* Barcode vertical column (barcode-left and barcode-right layouts) */
+.tag-bc-right{flex-direction:row!important;}
+.tag-bc-right>.t-body{flex:1;}
+.tag-bc-left{flex-direction:row!important;}
+.tag-bc-left>.t-body{flex:1;}
+.tag-bc-left .t-bc-col{border-left:none;border-right:1px solid #ccc;}
+.t-bc-col{display:flex;border-left:1px solid #ccc;}
+.t-bc.t-bc-v{display:flex;height:100%;}
+.t-bc-v-lbl{width:0.18in;display:flex;align-items:center;justify-content:center;background:#f8f8f8;writing-mode:vertical-rl;transform:rotate(180deg);font:700 10px/1 inherit;letter-spacing:.05em;white-space:nowrap;color:#000;}
+.t-bc-v-bars{width:0.38in;display:flex;align-items:center;justify-content:center;padding:4px 2px;writing-mode:vertical-rl;transform:rotate(180deg);}
+.t-bc-v-bars .t-bc-svg{width:100%;height:100%;display:block;}
+/* Price Hero */
+.tag-price-hero .t-top{padding:6px 10px 0;display:flex;align-items:baseline;gap:6px;}
+/* Compact two-col */
+.tag-compact{flex-direction:row!important;}
+.tag-compact .t-col-left{flex:1.1;display:flex;flex-direction:column;gap:2px;padding:6px 8px 4px;min-width:0;overflow:hidden;}
+.tag-compact .t-col-right{flex:0.9;display:flex;flex-direction:column;gap:4px;padding:6px 8px 4px;border-left:1px solid #ddd;align-items:flex-end;justify-content:space-between;text-align:right;}
+.tag-compact .t-bc.t-bc-h{flex-direction:column;align-items:flex-end;}
+.tag-compact .t-bc.t-bc-h .t-bc-svg{width:100%;height:28px;flex:none;}
+</style></head><body>${pages}${config.showBarcode ? generateBarcodeSvgScript() : ""}</body></html>`;
 }
 
 export type InventoryTagPrintResult = "direct" | "browser";
