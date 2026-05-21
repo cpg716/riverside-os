@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [string]$InstallRoot = "C:\RiversideOS",
   [string]$Token = ""

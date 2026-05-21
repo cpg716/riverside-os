@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [string]$Version = "0.70.0",
   [string]$OutputDir = "$PSScriptRoot\..\..\dist\deployment",
