@@ -172,7 +172,7 @@ async function main() {
       margin: 1.6cm 1.5cm;
     }
     @page :first {
-      margin: 0;
+      margin: 0 !important;
     }
 
     * {
@@ -191,10 +191,11 @@ async function main() {
     /* Cover Page Styles */
     .cover-page {
       page-break-after: always;
-      height: 29.7cm; /* Exact A4 height */
-      width: 21.0cm; /* Exact A4 width */
-      max-width: 100%;
-      padding: 3cm 2.5cm;
+      page-break-inside: avoid !important;
+      height: 96vh; /* Viewport-relative height to prevent rounding overflows */
+      max-height: 96vh;
+      width: 100%;
+      padding: 2.5cm 2cm;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -217,6 +218,7 @@ async function main() {
       border-left: 4px solid #2563eb;
       padding-left: 28px;
       margin: auto 0;
+      page-break-inside: avoid !important;
     }
     .cover-title {
       font-family: 'Outfit', sans-serif;
@@ -227,6 +229,8 @@ async function main() {
       margin: 0 0 16px 0;
       border-bottom: none;
       padding-bottom: 0;
+      page-break-before: avoid !important;
+      page-break-inside: avoid !important;
     }
     .cover-tagline {
       font-size: 14px;
@@ -392,9 +396,9 @@ async function main() {
       border-width: 0 1.5px 1.5px 0;
       transform: rotate(45deg);
     }
-    .task-list-item {
+    li:has(input[type="checkbox"]) {
       list-style-type: none;
-      margin-left: -20px;
+      margin-left: -16px;
     }
 
     /* Code blocks */
@@ -494,8 +498,12 @@ async function main() {
       tr {
         page-break-inside: avoid;
       }
+      table {
+        page-break-inside: avoid !important;
+      }
       h1, h2, h3, h4, h5, h6 {
         page-break-after: avoid;
+        page-break-inside: avoid;
       }
     }
   </style>
@@ -536,7 +544,6 @@ async function main() {
     path: outputPath,
     format: "A4",
     printBackground: true,
-    // Note: Do not specify margin here; let CSS @page rules control margins
     displayHeaderFooter: true,
     headerTemplate: "<div></div>", // Hide default header
     footerTemplate: `
@@ -544,7 +551,13 @@ async function main() {
         <span>Riverside OS v0.70.2 Deployment Guide</span>
         <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
       </div>
-    `
+    `,
+    margin: {
+      top: "1.6cm",
+      bottom: "1.6cm",
+      left: "1.5cm",
+      right: "1.5cm"
+    }
   });
 
   await browser.close();
