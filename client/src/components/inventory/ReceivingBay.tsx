@@ -732,7 +732,9 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
                     "bg-app-surface-2 text-app-text-muted border border-app-border"
                   }`}>
                     {isComplete && <CheckCircle size={10} />}
-                    {step.label}
+                    <span>Step {index + 1}</span>
+                    <span className="opacity-40 font-normal">|</span>
+                    <span>{step.label}</span>
                   </span>
                 </div>
               );
