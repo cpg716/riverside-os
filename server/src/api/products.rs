@@ -899,9 +899,18 @@ pub fn router() -> Router<AppState> {
             "/{product_id}/web-categories",
             super::web_categories::product_subrouter(),
         )
-        .route("/{product_id}/web-listing", patch(patch_product_web_listing))
-        .route("/{product_id}/web-images", get(list_product_web_images).post(add_product_web_image))
-        .route("/{product_id}/web-images/{image_id}", patch(patch_product_web_image).delete(delete_product_web_image))
+        .route(
+            "/{product_id}/web-listing",
+            patch(patch_product_web_listing),
+        )
+        .route(
+            "/{product_id}/web-images",
+            get(list_product_web_images).post(add_product_web_image),
+        )
+        .route(
+            "/{product_id}/web-images/{image_id}",
+            patch(patch_product_web_image).delete(delete_product_web_image),
+        )
 }
 
 async fn require_catalog_perm(
@@ -3663,11 +3672,12 @@ async fn patch_product_web_listing(
 ) -> Result<Json<Value>, ProductError> {
     require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
 
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1 AND is_active = TRUE)")
-            .bind(product_id)
-            .fetch_one(&state.db)
-            .await?;
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM products WHERE id = $1 AND is_active = TRUE)",
+    )
+    .bind(product_id)
+    .fetch_one(&state.db)
+    .await?;
     if !exists {
         return Err(ProductError::ProductNotFound);
     }
@@ -3824,7 +3834,12 @@ async fn patch_product_web_image(
     .bind(params.product_id)
     .bind(body.url.as_deref().map(str::trim).filter(|s| !s.is_empty()))
     .bind(body.clear_alt_text)
-    .bind(body.alt_text.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(
+        body.alt_text
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    )
     .bind(body.sort_order)
     .bind(body.is_hero)
     .execute(&mut *tx)

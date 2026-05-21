@@ -43,7 +43,10 @@ impl IntoResponse for WebCatError {
             WebCatError::Conflict(m) => (StatusCode::CONFLICT, m),
             WebCatError::Database(e) => {
                 tracing::error!(error = %e, "Database error in web_categories");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
         };
         (status, Json(json!({ "error": msg }))).into_response()
@@ -52,7 +55,11 @@ impl IntoResponse for WebCatError {
 
 fn map_perm(e: (StatusCode, Json<Value>)) -> WebCatError {
     let (st, Json(v)) = e;
-    let msg = v.get("error").and_then(|x| x.as_str()).unwrap_or("not authorized").to_string();
+    let msg = v
+        .get("error")
+        .and_then(|x| x.as_str())
+        .unwrap_or("not authorized")
+        .to_string();
     match st {
         StatusCode::UNAUTHORIZED => WebCatError::Unauthorized(msg),
         StatusCode::FORBIDDEN => WebCatError::Forbidden(msg),
@@ -156,15 +163,20 @@ async fn create_web_category(
     let name = body.name.trim().to_string();
     let slug = body.slug.trim().to_lowercase();
     if name.is_empty() || slug.is_empty() {
-        return Err(WebCatError::InvalidPayload("name and slug are required".to_string()));
+        return Err(WebCatError::InvalidPayload(
+            "name and slug are required".to_string(),
+        ));
     }
     if let Some(pid) = body.parent_id {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_categories WHERE id = $1)")
-            .bind(pid)
-            .fetch_one(&state.db)
-            .await?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_categories WHERE id = $1)")
+                .bind(pid)
+                .fetch_one(&state.db)
+                .await?;
         if !exists {
-            return Err(WebCatError::InvalidPayload("parent_id not found".to_string()));
+            return Err(WebCatError::InvalidPayload(
+                "parent_id not found".to_string(),
+            ));
         }
     }
     let id: Uuid = sqlx::query_scalar(
@@ -194,10 +206,11 @@ async fn patch_web_category(
     Json(body): Json<PatchWebCategoryBody>,
 ) -> Result<Json<Value>, WebCatError> {
     require_edit(&state, &headers).await?;
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_categories WHERE id = $1)")
-        .bind(id)
-        .fetch_one(&state.db)
-        .await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_categories WHERE id = $1)")
+            .bind(id)
+            .fetch_one(&state.db)
+            .await?;
     if !exists {
         return Err(WebCatError::NotFound);
     }
@@ -215,12 +228,27 @@ async fn patch_web_category(
         "#,
     )
     .bind(id)
-    .bind(body.name.as_deref().map(str::trim).filter(|s| !s.is_empty()))
-    .bind(body.slug.as_deref().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()))
+    .bind(
+        body.name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    )
+    .bind(
+        body.slug
+            .as_deref()
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty()),
+    )
     .bind(body.clear_parent_id)
     .bind(body.parent_id)
     .bind(body.clear_description)
-    .bind(body.description.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+    .bind(
+        body.description
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    )
     .bind(body.sort_order)
     .bind(body.is_active)
     .execute(&state.db)
@@ -287,5 +315,7 @@ async fn set_product_web_categories(
         .await?;
     }
     tx.commit().await?;
-    Ok(Json(json!({ "status": "updated", "count": body.web_category_ids.len() })))
+    Ok(Json(
+        json!({ "status": "updated", "count": body.web_category_ids.len() }),
+    ))
 }

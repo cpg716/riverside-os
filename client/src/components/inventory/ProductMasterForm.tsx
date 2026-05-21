@@ -978,7 +978,7 @@ export default function ProductMasterForm({
 
                       {parent.children.length > 0 && (
                         <div className="pl-6 grid gap-2 border-l border-app-border/40 ml-2">
-                          {parent.children.map((child: any) => (
+                          {parent.children.map((child: WebCategory) => (
                             <label key={child.id} className="flex items-center gap-2 cursor-pointer group">
                               <input
                                 type="checkbox"
