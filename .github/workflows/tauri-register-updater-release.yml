@@ -1,5 +1,9 @@
 name: Tauri register updater release (Windows)
 
+concurrency:
+  group: tauri-register-updater-release
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:

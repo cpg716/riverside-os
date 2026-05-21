@@ -1,5 +1,9 @@
 name: Windows deployment package
 
+concurrency:
+  group: windows-deployment-package
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:
