@@ -2673,7 +2673,7 @@ dependencies = [
 
 [[package]]
 name = "riverside-deployment-manager"
-version = "0.70.0"
+version = "0.70.2"
 dependencies = [
  "log",
  "serde",
