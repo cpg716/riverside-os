@@ -148,7 +148,7 @@ export default function PurchaseOrderPanel({
   const [selectedPo, setSelectedPo] = useState<string>("");
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersLoadError, setOrdersLoadError] = useState<string | null>(null);
-  const [, setOrdersShowingStale] = useState(false);
+  const [ordersShowingStale, setOrdersShowingStale] = useState(false);
   const [variantId, setVariantId] = useState("");
   const [qty, setQty] = useState(1);
   const [unitCost, setUnitCost] = useState("0.00");
@@ -650,9 +650,14 @@ export default function PurchaseOrderPanel({
       {/* ── Purchase Order List ── */}
       <div className="rounded-2xl border border-app-border bg-app-surface shadow-sm overflow-hidden">
         {ordersLoadError && (
-          <div className="flex items-center gap-3 border-b border-amber-400/20 bg-amber-50 px-5 py-3">
-            <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-            <p className="text-xs font-bold text-amber-800">{ordersLoadError}</p>
+          <div className="flex flex-col gap-1 border-b border-amber-400/20 bg-amber-50 px-5 py-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+              <p className="text-xs font-bold text-amber-850">
+                {ordersShowingStale ? "Vendor paperwork may not be current" : "Vendor paperwork unavailable"}
+              </p>
+            </div>
+            <p className="text-xs text-amber-800 pl-6">{ordersLoadError}</p>
           </div>
         )}
 

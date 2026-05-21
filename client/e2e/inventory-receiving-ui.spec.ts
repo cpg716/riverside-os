@@ -36,7 +36,7 @@ async function openInventoryPurchaseOrders(page: Parameters<typeof test>[0]["pag
   });
   await expect(purchaseOrdersButton).toBeVisible({ timeout: 15_000 });
   await purchaseOrdersButton.click({ force: true });
-  await expect(page.getByText(/purchase orders & receiving/i).first()).toBeVisible({
+  await expect(page.getByText(/build purchase orders and send to vendors/i)).toBeVisible({
     timeout: 20_000,
   });
 }
