@@ -28,7 +28,6 @@ async function main() {
   if (outIndex !== -1 && args[outIndex + 1]) {
     outputFile = args[outIndex + 1];
   } else {
-    // Default to same directory and filename with .pdf extension
     const parsed = path.parse(inputFile);
     outputFile = path.join(parsed.dir, `${parsed.name}.pdf`);
   }
@@ -44,9 +43,26 @@ async function main() {
   console.log(`📖 Reading: ${inputFile}`);
   const markdownContent = fs.readFileSync(inputPath, "utf-8");
 
-  // Extract headings for Table of Contents (H1 and H2)
+  // Parse title & version from the first H1
+  let bodyMarkdown = markdownContent;
+  let docTitle = "Riverside OS Guide";
+  let version = "0.70.2";
+
+  const h1Match = markdownContent.match(/^#\s+(.+)$/m);
+  if (h1Match) {
+    docTitle = h1Match[1].trim();
+    // Strip the main H1 title from the body markdown so it doesn't repeat on page 2
+    bodyMarkdown = markdownContent.replace(/^#\s+(.+)$/m, "");
+  }
+
+  const versionMatch = docTitle.match(/v?(\d+\.\d+\.\d+)/);
+  if (versionMatch) {
+    version = versionMatch[1];
+  }
+
+  // Extract H2 headings for Table of Contents (from body markdown)
   console.log("📑 Extracting headings for TOC...");
-  const lines = markdownContent.split("\n");
+  const lines = bodyMarkdown.split("\n");
   const headings = [];
   let insideCodeBlock = false;
 
@@ -58,13 +74,6 @@ async function main() {
     }
     if (insideCodeBlock) continue;
 
-    const h1Match = line.match(/^#\s+(.+)$/);
-    if (h1Match) {
-      const text = h1Match[1].trim();
-      const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-      headings.push({ level: 1, text, id });
-    }
-
     const h2Match = line.match(/^##\s+(.+)$/);
     if (h2Match) {
       const text = h2Match[1].trim();
@@ -73,40 +82,21 @@ async function main() {
     }
   }
 
-  // Generate TOC HTML
+  // Generate TOC HTML (relative to H2s under the main cover page)
   let tocHtml = "";
   if (headings.length > 0) {
     tocHtml += `<div class="toc">
   <h2>Table of Contents</h2>
   <ul>
 `;
-    let currentH1 = null;
     for (const heading of headings) {
-      if (heading.level === 1) {
-        if (currentH1) {
-          tocHtml += `      </ul>
-    </li>
-`;
-        }
-        tocHtml += `    <li><a href="#${heading.id}">${heading.text}</a>
-      <ul>
-`;
-        currentH1 = heading;
-      } else if (heading.level === 2) {
-        tocHtml += `        <li><a href="#${heading.id}">${heading.text}</a></li>
-`;
-      }
-    }
-    if (currentH1) {
-      tocHtml += `      </ul>
-    </li>
-`;
+      tocHtml += `    <li><a href="#${heading.id}">${heading.text}</a></li>\n`;
     }
     tocHtml += `  </ul>
 </div>\n`;
   }
 
-  // Configure marked with custom heading renderer to include IDs
+  // Configure marked with custom heading renderer
   marked.use({
     renderer: {
       heading({ text, depth }) {
@@ -117,19 +107,74 @@ async function main() {
   });
 
   console.log("🔨 Converting markdown to HTML...");
-  const contentHtml = await marked.parse(markdownContent);
+  const contentHtml = await marked.parse(bodyMarkdown);
 
-  // Assemble full HTML with premium styling
+  // Cover Page HTML
+  const coverPageHtml = `
+  <div class="cover-page">
+    <div class="cover-top">
+      <div class="cover-badge">RELEASE COMPLIANCE DOCUMENT</div>
+      <div style="display: flex; align-items: center; gap: 16px; margin-top: 10px;">
+        <svg class="cover-logo" viewBox="0 0 100 100" width="48" height="48">
+          <path d="M50 15 L85 35 L85 65 L50 85 L15 65 L15 35 Z" fill="none" stroke="#2563eb" stroke-width="5"/>
+          <path d="M50 28 L73 41 L73 59 L50 72 L27 59 L27 41 Z" fill="#2563eb"/>
+        </svg>
+        <span style="font-family: 'Outfit', sans-serif; font-size: 28px; font-weight: 700; color: #0f172a; letter-spacing: -0.5px;">RIVERSIDE OS</span>
+      </div>
+    </div>
+    
+    <div class="cover-middle">
+      <h1 class="cover-title">${docTitle}</h1>
+      <p class="cover-tagline">Authoritative reference manual for store hardware configuration, software package updates, schema migrations, and backup verification.</p>
+    </div>
+
+    <div class="cover-details">
+      <table class="cover-details-table">
+        <tr>
+          <td>Target Version</td>
+          <td>v${version}</td>
+        </tr>
+        <tr>
+          <td>Document Classification</td>
+          <td>Operational Standard Work</td>
+        </tr>
+        <tr>
+          <td>Authorized Stations</td>
+          <td>Server PC / Register #1 / Register #2 (iPad) / Counterpoint PC</td>
+        </tr>
+        <tr>
+          <td>Generated On</td>
+          <td>${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="cover-footer-text">
+      CONFIDENTIAL &bull; INTERNAL STORE OPERATIONS ONLY &bull; DO NOT DISTRIBUTE
+    </div>
+  </div>
+  `;
+
+  // Assemble full HTML with cover page and page style setups
   const fullHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Riverside OS Printable Guide</title>
+  <title>${docTitle}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
+    /* CSS @page definitions for margin controls */
+    @page {
+      size: A4;
+      margin: 1.6cm 1.5cm;
+    }
+    @page :first {
+      margin: 0;
+    }
+
     * {
       box-sizing: border-box;
     }
@@ -139,9 +184,104 @@ async function main() {
       color: #1e293b;
       max-width: 850px;
       margin: 0 auto;
-      padding: 40px 20px;
       font-size: 14px;
       background-color: #ffffff;
+    }
+
+    /* Cover Page Styles */
+    .cover-page {
+      page-break-after: always;
+      height: 29.7cm; /* Exact A4 height */
+      width: 21.0cm; /* Exact A4 width */
+      max-width: 100%;
+      padding: 3cm 2.5cm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-sizing: border-box;
+      background-color: #ffffff;
+      margin: 0 auto;
+    }
+    .cover-badge {
+      font-size: 10px;
+      font-family: 'Outfit', sans-serif;
+      letter-spacing: 2px;
+      color: #2563eb;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .cover-logo {
+      color: #2563eb;
+    }
+    .cover-middle {
+      border-left: 4px solid #2563eb;
+      padding-left: 28px;
+      margin: auto 0;
+    }
+    .cover-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 38px;
+      font-weight: 700;
+      line-height: 1.15;
+      color: #0f172a;
+      margin: 0 0 16px 0;
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .cover-tagline {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #475569;
+      margin: 0;
+      max-width: 540px;
+    }
+    .cover-details {
+      margin-bottom: auto;
+      margin-top: 2cm;
+      max-width: 500px;
+    }
+    .cover-details-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .cover-details-table td {
+      border: none;
+      padding: 10px 0;
+      font-size: 13px;
+    }
+    .cover-details-table tr {
+      border-bottom: 1px solid #f1f5f9;
+      background-color: transparent !important;
+    }
+    .cover-details-table tr:last-child {
+      border-bottom: none;
+    }
+    .cover-details-table td:first-child {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 600;
+      color: #64748b;
+      width: 200px;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }
+    .cover-details-table td:last-child {
+      color: #0f172a;
+      font-weight: 500;
+    }
+    .cover-footer-text {
+      font-family: 'Outfit', sans-serif;
+      font-size: 10px;
+      letter-spacing: 1px;
+      color: #94a3b8;
+      text-align: center;
+      margin-top: auto;
+      font-weight: 600;
+    }
+
+    /* Guide Body Styles */
+    .guide-body {
+      padding: 0 20px;
     }
 
     /* Headings */
@@ -151,19 +291,15 @@ async function main() {
       color: #0f172a;
     }
     h1 {
-      font-size: 26px;
+      font-size: 24px;
       border-bottom: 2px solid #e2e8f0;
       padding-bottom: 12px;
       margin-top: 40px;
       margin-bottom: 20px;
       page-break-before: always;
     }
-    h1:first-of-type {
-      page-break-before: avoid;
-      margin-top: 0;
-    }
     h2 {
-      font-size: 20px;
+      font-size: 18px;
       margin-top: 32px;
       margin-bottom: 16px;
       padding-bottom: 6px;
@@ -188,7 +324,7 @@ async function main() {
     }
     .toc h2 {
       margin-top: 0;
-      font-size: 18px;
+      font-size: 16px;
       color: #0f172a;
       border-bottom: 1px solid #e2e8f0;
       padding-bottom: 8px;
@@ -198,16 +334,9 @@ async function main() {
       padding-left: 0;
       margin: 0;
     }
-    .toc ul ul {
-      padding-left: 20px;
-      margin-top: 4px;
-    }
     .toc li {
       margin: 8px 0;
       font-weight: 500;
-    }
-    .toc ul ul li {
-      font-weight: 400;
     }
     .toc a {
       color: #2563eb;
@@ -298,7 +427,6 @@ async function main() {
       border-collapse: collapse;
       margin: 24px 0;
       font-size: 12.5px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.01);
     }
     th, td {
       border: 1px solid #e2e8f0;
@@ -373,17 +501,22 @@ async function main() {
   </style>
 </head>
 <body>
-  <div style="margin-bottom: 20px; text-align: right; font-size: 11px; color: #64748b; font-family: 'Outfit', sans-serif; letter-spacing: 0.5px;">
-    RIVERSIDE OS RELEASE COMPLIANCE
+
+  ${coverPageHtml}
+
+  <div class="guide-body">
+    <div style="margin-bottom: 20px; text-align: right; font-size: 11px; color: #64748b; font-family: 'Outfit', sans-serif; letter-spacing: 0.5px;">
+      RIVERSIDE OS RELEASE COMPLIANCE
+    </div>
+
+    ${tocHtml}
+
+    ${contentHtml}
+
+    <footer style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 11px; text-align: center; font-family: 'Outfit', sans-serif;">
+      Riverside OS Operations &bull; Confidential &bull; Standard Work Procedures
+    </footer>
   </div>
-
-  ${tocHtml}
-
-  ${contentHtml}
-
-  <footer style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 11px; text-align: center; font-family: 'Outfit', sans-serif;">
-    Riverside OS Operations &bull; Confidential &bull; Standard Work Procedures
-  </footer>
 </body>
 </html>`;
 
@@ -403,12 +536,7 @@ async function main() {
     path: outputPath,
     format: "A4",
     printBackground: true,
-    margin: {
-      top: "1.5cm",
-      bottom: "1.5cm",
-      left: "1.5cm",
-      right: "1.5cm"
-    },
+    // Note: Do not specify margin here; let CSS @page rules control margins
     displayHeaderFooter: true,
     headerTemplate: "<div></div>", // Hide default header
     footerTemplate: `
