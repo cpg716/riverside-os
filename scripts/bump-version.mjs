@@ -55,6 +55,31 @@ const filesToUpdate = [
     }
   },
   {
+    path: 'deployment/manager-app/package.json',
+    replace: (content) => content.replace(/"version": ".*?"/, `"version": "${version}"`)
+  },
+  {
+    path: 'deployment/manager-app/src-tauri/tauri.conf.json',
+    replace: (content) => content.replace(/"version": ".*?"/, `"version": "${version}"`)
+  },
+  {
+    path: 'deployment/manager-app/src-tauri/Cargo.toml',
+    replace: (content) => {
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('version = "')) {
+          lines[i] = `version = "${version}"`;
+          break;
+        }
+      }
+      return lines.join('\n');
+    }
+  },
+  {
+    path: 'deployment/windows/riverside-deployment.config.example.json',
+    replace: (content) => content.replace(/"releaseVersion": ".*?"/, `"releaseVersion": "${version}"`)
+  },
+  {
     path: 'README.md',
     replace: (content) => content.replace(/Current Version: \*\*v.*?\*\*/, `Current Version: **v${version}**`)
   }
