@@ -5,7 +5,8 @@ param(
   [switch]$SkipMigrations,
   [switch]$SkipFirewall,
   [switch]$SkipRosieSetup,
-  [switch]$NoStart
+  [switch]$NoStart,
+  [switch]$SkipPostgresInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,44 +38,144 @@ function Set-SafeProperty($Object, $Name, $Value) {
   }
 }
 
+function Find-PsqlPath {
+  $cmd = Get-Command psql.exe -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  $found = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter psql.exe -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending | Select-Object -First 1
+  if ($found) { return $found.FullName }
+  return $null
+}
+
+function Install-PostgreSqlWithWinget([string]$AdminPassword) {
+  $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+  if (-not $winget) {
+    throw ("PostgreSQL is not installed and Windows Package Manager (winget) was not found. " +
+      "Install PostgreSQL 18 manually from https://www.postgresql.org/download/windows/ " +
+      "then rerun install-server.ps1.")
+  }
+
+  if ([string]::IsNullOrWhiteSpace($AdminPassword)) {
+    # Generate a temporary password so the unattended installer doesn't fail
+    $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    $rng = New-Object System.Random
+    $AdminPassword = -join (1..24 | ForEach-Object { $chars[$rng.Next(0, $chars.Length)] })
+  }
+
+  Write-Host "PostgreSQL 18 not found. Installing via winget (this may take several minutes)..." -ForegroundColor Yellow
+  $override = "--mode unattended --unattendedmodeui minimal --superpassword `"$AdminPassword`" --serverport 5432"
+  $output = & $winget.Source install -e --id PostgreSQL.PostgreSQL.18 --silent `
+    --accept-package-agreements --accept-source-agreements --override $override 2>&1
+  foreach ($line in $output) {
+    if ($null -ne $line) { Write-Host $line }
+  }
+  if ($LASTEXITCODE -ne 0) {
+    throw "PostgreSQL 18 winget install failed with exit code $LASTEXITCODE."
+  }
+
+  # Refresh PATH so psql.exe is found in this session
+  $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + `
+              [System.Environment]::GetEnvironmentVariable("PATH", "User")
+
+  Write-Host "Waiting for PostgreSQL to become available after install..."
+  for ($i = 0; $i -lt 30; $i++) {
+    Start-Sleep -Seconds 2
+    if (Find-PsqlPath) {
+      Write-Host "PostgreSQL installed successfully." -ForegroundColor Green
+      return $AdminPassword
+    }
+  }
+  throw "PostgreSQL install finished, but psql.exe was not found. Restart Windows, then rerun install-server.ps1."
+}
+
 function Resolve-PsqlPath($dbConfig) {
   if ($dbConfig.psqlPath -and (Test-Path $dbConfig.psqlPath)) {
     return $dbConfig.psqlPath
   }
-  $cmd = Get-Command psql.exe -ErrorAction SilentlyContinue
-  if ($cmd) {
-    return $cmd.Source
-  }
-  $matches = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter psql.exe -ErrorAction SilentlyContinue |
-    Sort-Object FullName -Descending
-  if ($matches) {
-    return $matches[0].FullName
-  }
+  $found = Find-PsqlPath
+  if ($found) { return $found }
   throw "psql.exe was not found. Install PostgreSQL first, or set server.database.psqlPath in the config."
 }
 
-function Ensure-PostgresServiceRunning {
-  if ($db) {
-    $dbHost = $db.host
-    $dbPort = $db.port
-    if ([string]::IsNullOrWhiteSpace($dbHost)) { $dbHost = "127.0.0.1" }
-    if (-not $dbPort) { $dbPort = 5432 }
+function Get-PgDataDir([string]$ServiceName) {
+  try {
+    $wmi = Get-WmiObject win32_service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
+    if ($wmi -and $wmi.PathName -match '-D\s+"([^"]+)"') { return $Matches[1] }
+    if ($wmi -and $wmi.PathName -match "-D\s+([^ ]+)")   { return $Matches[1] }
+  } catch {}
+  return $null
+}
 
-    Write-Host "Checking if PostgreSQL is already reachable on $dbHost`:$dbPort..."
-    $tcpClient = New-Object System.Net.Sockets.TcpClient
-    try {
-      $connect = $tcpClient.BeginConnect($dbHost, $dbPort, $null, $null)
-      $success = $connect.AsyncWaitHandle.WaitOne(1000, $false)
-      if ($success) {
-        $tcpClient.EndConnect($connect)
-        Write-Host "PostgreSQL is already reachable on $dbHost`:$dbPort. Skipping service start."
-        return
-      }
-    } catch {
-      # Ignore connection failures, we will try starting the service.
-    } finally {
-      if ($tcpClient) { $tcpClient.Close() }
+function Get-PgCtlPath([string]$ServiceName) {
+  try {
+    $wmi = Get-WmiObject win32_service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
+    if ($wmi -and $wmi.PathName -match '"([^"]+pg_ctl\.exe)"') { return $Matches[1] }
+    if ($wmi -and $wmi.PathName -match '([^\s]+pg_ctl\.exe)')  { return $Matches[1] }
+  } catch {}
+  # Fall back: look for pg_ctl next to psql
+  $psqlCmd = Get-Command psql.exe -ErrorAction SilentlyContinue
+  if ($psqlCmd) {
+    $pgCtl = Join-Path (Split-Path $psqlCmd.Source) "pg_ctl.exe"
+    if (Test-Path $pgCtl) { return $pgCtl }
+  }
+  $pgCtlFound = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter pg_ctl.exe -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending | Select-Object -First 1
+  if ($pgCtlFound) { return $pgCtlFound.FullName }
+  return $null
+}
+
+function Show-PostgresLogs([string]$DataDir) {
+  if ([string]::IsNullOrWhiteSpace($DataDir) -or -not (Test-Path $DataDir)) { return }
+  $logDir = Join-Path $DataDir "log"
+  if (-not (Test-Path $logDir)) { $logDir = $DataDir }
+  $latest = Get-ChildItem $logDir -Filter "*.log" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if ($latest) {
+    Write-Warning "--- Last 20 lines of PostgreSQL log: $($latest.FullName) ---"
+    Get-Content $latest.FullName -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Warning $_ }
+    Write-Warning "--- End of PostgreSQL log ---"
+  }
+}
+
+function Show-ServiceEventLog([string]$ServiceName) {
+  try {
+    $events = Get-WinEvent -FilterHashtable @{ LogName='System'; Id=@(7000,7009,7023,7034,7038); StartTime=(Get-Date).AddMinutes(-10) } -ErrorAction SilentlyContinue |
+      Where-Object { $_.Message -like "*$ServiceName*" } |
+      Select-Object -Last 5
+    if ($events) {
+      Write-Warning "--- Windows Service Event Log entries for '$ServiceName' ---"
+      $events | ForEach-Object { Write-Warning "$($_.TimeCreated): $($_.Message)" }
+      Write-Warning "--- End of event log entries ---"
     }
+  } catch {}
+}
+
+function Test-PostgresReachable([string]$DbHost, [int]$DbPort) {
+  $tcpClient = New-Object System.Net.Sockets.TcpClient
+  try {
+    $connect = $tcpClient.BeginConnect($DbHost, $DbPort, $null, $null)
+    $ok = $connect.AsyncWaitHandle.WaitOne(2000, $false)
+    if ($ok) { $tcpClient.EndConnect($connect) }
+    return $ok
+  } catch {
+    return $false
+  } finally {
+    $tcpClient.Close()
+  }
+}
+
+function Ensure-PostgresServiceRunning {
+  $dbHost = "127.0.0.1"
+  $dbPort = 5432
+  if ($db) {
+    if (-not [string]::IsNullOrWhiteSpace($db.host)) { $dbHost = $db.host }
+    if ($db.port) { $dbPort = [int]$db.port }
+  }
+
+  Write-Host "Checking if PostgreSQL is already reachable on $dbHost`:$dbPort..."
+  if (Test-PostgresReachable $dbHost $dbPort) {
+    Write-Host "PostgreSQL is already reachable on $dbHost`:$dbPort. Skipping service start."
+    return
   }
 
   $services = Get-Service -ErrorAction SilentlyContinue |
@@ -82,44 +183,123 @@ function Ensure-PostgresServiceRunning {
     Sort-Object Name -Descending
 
   if (-not $services) {
-    Write-Warning "No PostgreSQL Windows service was found. Continuing because psql.exe exists, but database connection may fail if PostgreSQL is not running."
-    return
+    Write-Warning "No PostgreSQL Windows service was found on this machine."
+
+    if ($SkipPostgresInstall) {
+      throw ("PostgreSQL is not reachable at $dbHost`:$dbPort and no PostgreSQL Windows service was found. " +
+        "Install PostgreSQL 18 first, then rerun install-server.ps1.")
+    }
+
+    if (-not (Find-PsqlPath)) {
+      # PostgreSQL is not installed at all — offer silent install via winget
+      Write-Host "PostgreSQL does not appear to be installed. Attempting automatic install via winget..." -ForegroundColor Yellow
+      $adminPwd = if ($db -and -not [string]::IsNullOrWhiteSpace($db.adminPassword)) { $db.adminPassword } else { $null }
+      $installedPwd = Install-PostgreSqlWithWinget $adminPwd
+
+      # Persist the generated password back to config so subsequent psql calls succeed
+      if ($installedPwd -and $db -and [string]::IsNullOrWhiteSpace($db.adminPassword)) {
+        Set-SafeProperty $db "adminPassword" $installedPwd
+        $script:configModifiedAfterPostgresInstall = $true
+      }
+
+      # Re-enumerate services now that PostgreSQL is installed
+      Start-Sleep -Seconds 3
+      $services = Get-Service -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "postgresql*" -or $_.DisplayName -like "PostgreSQL*" } |
+        Sort-Object Name -Descending
+    }
+
+    if (-not $services) {
+      throw ("PostgreSQL is not reachable at $dbHost`:$dbPort and no PostgreSQL Windows service was found " +
+        "even after install. Restart Windows and rerun install-server.ps1.")
+    }
   }
 
   $started = $false
-  $chosenService = $null
 
   foreach ($service in $services) {
-    $chosenService = $service
     if ($service.Status -eq "Running") {
       Write-Host "PostgreSQL service '$($service.Name)' is already running."
       $started = $true
+
+      # Still not reachable even though service says Running - wait a moment and recheck
+      if (-not (Test-PostgresReachable $dbHost $dbPort)) {
+        Write-Warning "Service '$($service.Name)' is Running but port $dbPort is not yet open. Waiting up to 15s..."
+        $deadline = (Get-Date).AddSeconds(15)
+        while ((Get-Date) -lt $deadline) {
+          Start-Sleep -Milliseconds 500
+          if (Test-PostgresReachable $dbHost $dbPort) { break }
+        }
+      }
       break
     }
 
-    Write-Host "Starting PostgreSQL service $($service.Name)..."
+    Write-Host "Attempting to start PostgreSQL service '$($service.Name)'..."
     try {
-      Start-Service -Name $service.Name
+      Start-Service -Name $service.Name -ErrorAction Stop
       $service.WaitForStatus("Running", (New-TimeSpan -Seconds 30))
-      Write-Host "Successfully started PostgreSQL service $($service.Name)."
+      Write-Host "Successfully started PostgreSQL service '$($service.Name)'."
       $started = $true
       break
     } catch {
-      Write-Warning "Could not start PostgreSQL service '$($service.Name)': $($_.Exception.Message)"
+      Write-Warning "Could not start PostgreSQL service '$($service.Name)' via Service Control Manager: $($_.Exception.Message)"
+
+      # Show Windows Event Log and PostgreSQL log for diagnostics
+      Show-ServiceEventLog $service.Name
+      $dataDir = Get-PgDataDir $service.Name
+      Show-PostgresLogs $dataDir
+
+      # Fallback: try pg_ctl start directly
+      $pgCtl = Get-PgCtlPath $service.Name
+      if ($pgCtl -and $dataDir) {
+        Write-Host "Attempting fallback: pg_ctl start -D `"$dataDir`"..."
+        try {
+          $pgCtlOut = & $pgCtl start -D $dataDir -w -t 30 2>&1
+          Write-Host $pgCtlOut
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "pg_ctl start succeeded for '$($service.Name)'."
+            $started = $true
+            break
+          } else {
+            Write-Warning "pg_ctl start exited with code $LASTEXITCODE."
+          }
+        } catch {
+          Write-Warning "pg_ctl fallback failed: $($_.Exception.Message)"
+        }
+      } else {
+        if (-not $pgCtl)  { Write-Warning "pg_ctl.exe could not be located for fallback startup." }
+        if (-not $dataDir){ Write-Warning "PostgreSQL data directory could not be determined for fallback startup." }
+      }
     }
   }
 
   if (-not $started) {
-    Write-Warning "Could not start any detected PostgreSQL Windows service."
-    Write-Warning "Continuing - database operations will fail if PostgreSQL is not reachable."
-  } elseif ($chosenService) {
-    try {
-      Set-Service -Name $chosenService.Name -StartupType Automatic
-    } catch {
-      Write-Warning "Could not set service '$($chosenService.Name)' startup type to Automatic: $($_.Exception.Message)"
+    # Final TCP check — maybe one of the above attempts worked despite error codes
+    if (Test-PostgresReachable $dbHost $dbPort) {
+      Write-Host "PostgreSQL is now reachable on $dbHost`:$dbPort."
+      $started = $true
+    }
+  }
+
+  if (-not $started) {
+    $names = ($services | ForEach-Object { $_.Name }) -join ", "
+    throw ("PostgreSQL is not reachable at $dbHost`:$dbPort after attempting to start: $names. " +
+      "Check the PostgreSQL log in its data/log directory and the Windows Application Event Log for the root cause, " +
+      "then rerun install-server.ps1. Common causes: missing data directory (run initdb), " +
+      "corrupted data files, or another process already using port $dbPort.")
+  }
+
+  # Set chosen (first running) service to auto-start
+  $running = Get-Service -ErrorAction SilentlyContinue |
+    Where-Object { ($_.Name -like "postgresql*" -or $_.DisplayName -like "PostgreSQL*") -and $_.Status -eq "Running" } |
+    Select-Object -First 1
+  if ($running) {
+    try { Set-Service -Name $running.Name -StartupType Automatic } catch {
+      Write-Warning "Could not set service '$($running.Name)' startup type to Automatic: $($_.Exception.Message)"
     }
   }
 }
+
 
 function ConvertTo-NativeArgument([string]$Argument) {
   if ($Argument -notmatch '[\s"]') {
@@ -876,6 +1056,17 @@ if (Test-Path $packageReleaseDocs) {
 
 $psql = Resolve-PsqlPath $db
 Ensure-PostgresServiceRunning
+
+# If PostgreSQL was just installed by winget, the admin password may have been generated
+# inside Ensure-PostgresServiceRunning. Re-resolve psql (PATH was refreshed) and persist config.
+if ($script:configModifiedAfterPostgresInstall) {
+  $configJson = $config | ConvertTo-Json -Depth 8
+  Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
+  Write-Host "Saved PostgreSQL credentials to $ConfigPath." -ForegroundColor Green
+  # Re-resolve psql now that PATH was updated by the winget install
+  $psql = Resolve-PsqlPath $db
+}
+
 $databaseUrl = "postgresql://$($db.appUser):$($db.appPassword)@$($db.host):$($db.port)/$($db.databaseName)"
 
 if (-not $SkipDatabaseCreate) {
