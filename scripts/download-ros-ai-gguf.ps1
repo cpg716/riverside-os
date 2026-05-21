@@ -1,4 +1,4 @@
-# Download pinned ROS-AI GGUF (tools/ros-gemma/MODEL_PIN.json). Run from repo root in PowerShell.
+﻿# Download pinned ROS-AI GGUF (tools/ros-gemma/MODEL_PIN.json). Run from repo root in PowerShell.
 # Optional: $env:ROS_AI_GGUF_DIR, $env:HF_TOKEN
 
 $ErrorActionPreference = "Stop"
@@ -16,7 +16,7 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 if (Test-Path $Dest) {
     $hash = (Get-FileHash -Algorithm SHA256 -Path $Dest).Hash.ToLowerInvariant()
     if ($hash -eq $Pin.sha256) {
-        Write-Host "OK — file exists and matches MODEL_PIN.json"
+        Write-Host "OK - file exists and matches MODEL_PIN.json"
         exit 0
     }
     Write-Host "Hash mismatch; re-downloading..."
@@ -34,4 +34,4 @@ if ($got -ne $Pin.sha256) {
     Remove-Item -Force $Dest
     exit 1
 }
-Write-Host "OK — matches MODEL_PIN.json. Start llama-server with -m `"$Dest`""
+Write-Host "OK - matches MODEL_PIN.json. Start llama-server with -m `"$Dest`""
