@@ -179,7 +179,7 @@ test.describe("Inventory receiving operator verification", () => {
     );
     await postInventoryButton.evaluate((button) => (button as HTMLButtonElement).click());
     const confirmPostButton = drawerRoot
-      .getByRole("button", { name: /confirm & post|post without invoice number/i })
+      .getByRole("button", { name: /confirm & post|post without invoice/i })
       .last();
     await expect(confirmPostButton).toBeVisible({ timeout: 10_000 });
     await confirmPostButton.click({ force: true });
@@ -249,7 +249,7 @@ test.describe("Inventory receiving operator verification", () => {
     );
     await postInventoryButton.evaluate((button) => (button as HTMLButtonElement).click());
     await drawerRoot
-      .getByRole("button", { name: /confirm & post|post without invoice number/i })
+      .getByRole("button", { name: /confirm & post|post without invoice/i })
       .click({ force: true });
     await receiveResponse;
 
