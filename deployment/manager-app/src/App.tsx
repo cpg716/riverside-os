@@ -131,12 +131,68 @@ export default function App() {
     try {
       await invoke('run_deployment_script', { scriptName, args });
 
-      // For a full Server install/update (run from the wizard), also run repair-bootstrap-admin
-      // to match the old Start-RiversideDeployment.ps1 sequence exactly.
+      // For a full Server install/update (run from the wizard), run the full sequence
+      // matching the old Start-RiversideDeployment.ps1 Invoke-SelectedLifecycleAction:
+      //   1. install-server.ps1  ← done above
+      //   2. repair-bootstrap-admin.ps1
+      //   3. install-register.ps1  (installs the BO desktop Tauri app on this PC)
       if (scriptName === 'install-server.ps1' && step === 3) {
         setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
         await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
+        setLogs(prev => [...prev, { level: 'info', text: 'Installing Backoffice desktop app...' }]);
+        await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: undefined });
       }
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
+    } finally {
+      setIsExecuting(false);
+      unlisten();
+    }
+  };
+
+  // Full server update sequence matching old PS manager:
+  // install-server.ps1 → repair-bootstrap-admin.ps1 → install-register.ps1
+  const executeServerUpdate = async () => {
+    if (isExecuting) return;
+    if (!requireElevation('Update This Server PC')) return;
+    setIsExecuting(true);
+    setLogs([{ level: 'info', text: 'Updating Backoffice / Server PC...' }]);
+
+    const unlisten = await listen<LogMessage>('deployment-log', (event) => {
+      setLogs(prev => [...prev, event.payload]);
+    });
+
+    try {
+      setLogs(prev => [...prev, { level: 'info', text: 'Executing install-server.ps1...' }]);
+      await invoke('run_deployment_script', { scriptName: 'install-server.ps1', args: undefined });
+      setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
+      await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
+      setLogs(prev => [...prev, { level: 'info', text: 'Updating Backoffice desktop app...' }]);
+      await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: undefined });
+      setLogs(prev => [...prev, { level: 'success', text: 'Server update complete.' }]);
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
+    } finally {
+      setIsExecuting(false);
+      unlisten();
+    }
+  };
+
+  // Workstation repair matching old PS manager:
+  // install-register.ps1 -SkipAppInstall -NoLaunch
+  const executeWorkstationRepair = async () => {
+    if (isExecuting) return;
+    if (!requireElevation('Repair Workstation')) return;
+    setIsExecuting(true);
+    setLogs([{ level: 'info', text: 'Repairing workstation settings...' }]);
+
+    const unlisten = await listen<LogMessage>('deployment-log', (event) => {
+      setLogs(prev => [...prev, event.payload]);
+    });
+
+    try {
+      await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-SkipAppInstall', '-NoLaunch'] });
+      setLogs(prev => [...prev, { level: 'success', text: 'Workstation settings repair complete.' }]);
     } catch (e) {
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
     } finally {
@@ -370,7 +426,7 @@ export default function App() {
               <Download className="w-5 h-5 text-brand-600" /> Quick Update
             </h2>
             <button
-              onClick={() => executeScript('install-server.ps1')}
+              onClick={() => executeServerUpdate()}
               disabled={isExecuting}
               className="w-full text-left p-4 rounded-xl border-2 border-brand-500 bg-brand-50 hover:bg-brand-100 transition-all disabled:opacity-50 flex items-center justify-between group"
             >
@@ -390,6 +446,17 @@ export default function App() {
                 <p className="text-xs text-zinc-500 mt-1">Installs or updates the desktop POS app on this PC.</p>
               </div>
               <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
+            </button>
+            <button
+              onClick={() => executeWorkstationRepair()}
+              disabled={isExecuting}
+              className="w-full text-left p-4 rounded-xl border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 transition-all disabled:opacity-50 flex items-center justify-between group"
+            >
+              <div>
+                <h3 className="font-semibold text-sm flex items-center gap-2"><Wrench className="w-4 h-4" /> Repair Workstation Settings</h3>
+                <p className="text-xs text-zinc-500 mt-1">Re-applies station config without reinstalling the app (SkipAppInstall).</p>
+              </div>
+              <Wrench className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
             </button>
 
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-zinc-900 mt-6 border-t pt-6">
@@ -666,18 +733,19 @@ export default function App() {
             </h2>
             <button
               onClick={() => {
-                if(confirm('UNINSTALL SERVER: This will stop the Riverside OS Server task, remove the scheduled task, delete the server directory (C:\\RiversideOS by default), and remove the firewall rule. The PostgreSQL database will NOT be deleted. Proceed?')) {
+                if(confirm('UNINSTALL SERVER: This stops the Riverside OS Server task, removes the scheduled task, deletes server/client/release subdirectories under the install root, and removes the firewall rule. The PostgreSQL database, backups, and logs are NOT deleted. Proceed?')) {
                   executeInline(
                     `$ErrorActionPreference = 'SilentlyContinue';
-                     Stop-ScheduledTask -TaskName 'Riverside OS Server';
-                     Stop-Process -Name 'riverside-server' -Force;
-                     Unregister-ScheduledTask -TaskName 'Riverside OS Server' -Confirm:$false;
-                     $installRoot = 'C:\\RiversideOS';
-                     $cfgPath = '${config?.server?.installRoot || 'C:\\RiversideOS'}';
-                     if ($cfgPath) { $installRoot = $cfgPath };
-                     if (Test-Path $installRoot) { Remove-Item -Recurse -Force $installRoot; Write-Host "Removed $installRoot" } else { Write-Host "$installRoot not found — already clean." };
-                     Remove-NetFirewallRule -DisplayName 'Riverside OS Server' -ErrorAction SilentlyContinue;
-                     Write-Host 'Uninstall complete. PostgreSQL database was preserved.'`,
+                     $config = if (Test-Path 'riverside-deployment.config.json') { Get-Content 'riverside-deployment.config.json' -Raw | ConvertFrom-Json } else { $null };
+                     $installRoot = if ($config -and $config.server -and $config.server.installRoot) { $config.server.installRoot } else { 'C:\\RiversideOS' };
+                     $fwName = if ($config -and $config.server -and $config.server.firewallRuleName) { $config.server.firewallRuleName } else { 'Riverside OS Server' };
+                     Stop-ScheduledTask -TaskName 'Riverside OS Server' -ErrorAction SilentlyContinue;
+                     Unregister-ScheduledTask -TaskName 'Riverside OS Server' -Confirm:$false -ErrorAction SilentlyContinue;
+                     Stop-Process -Name 'riverside-server' -Force -ErrorAction SilentlyContinue;
+                     Remove-NetFirewallRule -DisplayName $fwName -ErrorAction SilentlyContinue;
+                     foreach ($child in @('server','client','release')) { Remove-Item (Join-Path $installRoot $child) -Recurse -Force -ErrorAction SilentlyContinue };
+                     Remove-Item (Join-Path $installRoot 'deployment-summary.txt') -Force -ErrorAction SilentlyContinue;
+                     Write-Host 'Server uninstall complete. Database, backups, and logs were preserved.'`,
                     'Uninstall Server'
                   );
                 }
@@ -687,22 +755,22 @@ export default function App() {
             >
               <div>
                 <h3 className="font-semibold text-sm text-red-600">Uninstall Server</h3>
-                <p className="text-xs text-red-400/80 mt-1">Removes the server binary, client bundle, scheduled task, and firewall rule. Keeps the database.</p>
+                <p className="text-xs text-red-400/80 mt-1">Removes server binary, client bundle, scheduled task, and firewall rule. Keeps the database, backups, and logs.</p>
               </div>
               <Trash2 className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
             </button>
             <button
               onClick={() => {
-                if(confirm('UNINSTALL REGISTER: This will remove the Riverside OS desktop app from this workstation. Proceed?')) {
+                if(confirm('UNINSTALL REGISTER: This will stop the Riverside OS desktop app, run its uninstaller, and remove station config. Proceed?')) {
                   executeInline(
                     `$ErrorActionPreference = 'SilentlyContinue';
-                     $userDesktop = [Environment]::GetFolderPath('Desktop');
-                     $publicDesktop = [Environment]::GetFolderPath('CommonDesktopDirectory');
-                     Remove-Item (Join-Path $userDesktop 'Riverside OS.lnk') -Force -ErrorAction SilentlyContinue;
-                     Remove-Item (Join-Path $publicDesktop 'Riverside OS.lnk') -Force -ErrorAction SilentlyContinue;
-                     $localAppData = $env:LOCALAPPDATA;
-                     $tauriDir = Join-Path $localAppData 'com.riverside-os.app';
-                     if (Test-Path $tauriDir) { Remove-Item -Recurse -Force $tauriDir; Write-Host "Removed $tauriDir" } else { Write-Host "Tauri app data not found — already clean." };
+                     foreach ($name in @('Riverside POS','Riverside.POS','RiversideOS','riverside-pos')) { Stop-Process -Name $name -Force -ErrorAction SilentlyContinue };
+                     $regPaths = @('HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*');
+                     $apps = foreach ($p in $regPaths) { Get-ItemProperty $p -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'Riverside' -and ($_.DisplayName -match 'POS|OS') } };
+                     foreach ($app in $apps) { if ($app.PSChildName -match '^\\{.*\\}$') { Start-Process msiexec.exe -Wait -ArgumentList @('/x',$app.PSChildName,'/qn','/norestart') } elseif ($app.UninstallString) { Start-Process cmd.exe -Wait -ArgumentList @('/c',$app.UninstallString) } };
+                     $stationDir = Join-Path $env:PROGRAMDATA 'RiversideOS';
+                     Remove-Item (Join-Path $stationDir 'station-config.json') -Force -ErrorAction SilentlyContinue;
+                     Remove-Item (Join-Path $stationDir 'register-deployment-summary.txt') -Force -ErrorAction SilentlyContinue;
                      Write-Host 'Register uninstall complete.'`,
                     'Uninstall Register'
                   );
@@ -713,7 +781,7 @@ export default function App() {
             >
               <div>
                 <h3 className="font-semibold text-sm text-red-600">Uninstall Register</h3>
-                <p className="text-xs text-red-400/80 mt-1">Removes the desktop POS app and shortcuts from this workstation.</p>
+                <p className="text-xs text-red-400/80 mt-1">Stops the desktop app, runs its Windows uninstaller, and removes station config.</p>
               </div>
               <Trash2 className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
             </button>
