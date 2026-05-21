@@ -746,6 +746,11 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           }`}>
             {receivingLineCount} line{receivingLineCount === 1 ? "" : "s"} staged
           </span>
+          {!receivingClosed && receivingWorkflowIndex < RECEIVING_WORKFLOW_STEPS.length - 1 && (
+            <span className="text-[9px] font-bold text-app-text-muted">
+              Next: {RECEIVING_WORKFLOW_STEPS[receivingWorkflowIndex + 1].label}
+            </span>
+          )}
           <RosieInsightSummary
             surface="receiving_review"
             title="Receiving Review"
