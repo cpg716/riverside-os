@@ -130,6 +130,13 @@ export default function App() {
 
     try {
       await invoke('run_deployment_script', { scriptName, args });
+
+      // For a full Server install/update (run from the wizard), also run repair-bootstrap-admin
+      // to match the old Start-RiversideDeployment.ps1 sequence exactly.
+      if (scriptName === 'install-server.ps1' && step === 3) {
+        setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
+        await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
+      }
     } catch (e) {
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
     } finally {
@@ -137,6 +144,7 @@ export default function App() {
       unlisten();
     }
   };
+
 
   const executeInline = async (command: string, description: string) => {
     if (isExecuting) return;
