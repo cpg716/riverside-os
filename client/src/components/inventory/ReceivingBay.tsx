@@ -746,9 +746,11 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           }`}>
             {receivingLineCount} line{receivingLineCount === 1 ? "" : "s"} staged
           </span>
-          {!receivingClosed && receivingWorkflowIndex < RECEIVING_WORKFLOW_STEPS.length - 1 && (
+          {!receivingClosed && (
             <span className="text-[9px] font-bold text-app-text-muted">
-              Next: {RECEIVING_WORKFLOW_STEPS[receivingWorkflowIndex + 1].label}
+              Next: {receivingWorkflowIndex < RECEIVING_WORKFLOW_STEPS.length - 1
+                ? RECEIVING_WORKFLOW_STEPS[receivingWorkflowIndex + 1].label
+                : "Post inventory"}
             </span>
           )}
           <RosieInsightSummary
