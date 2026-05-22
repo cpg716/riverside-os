@@ -283,8 +283,8 @@ function Ensure-PostgresServiceRunning {
 
   if (-not $started) {
     $names = ($services | ForEach-Object { $_.Name }) -join ", "
-    throw ("PostgreSQL is not reachable at $dbHost`:$dbPort after attempting to start: $names. " +
-      "Check the PostgreSQL log in its data/log directory and the Windows Application Event Log for the root cause, " +
+    Write-Warning ("PostgreSQL is not reachable at $dbHost`:$dbPort after attempting to start: $names. " +
+      "Database setup will be skipped. To fix: check the PostgreSQL log in its data/log directory and the Windows Application Event Log, " +
       "then rerun install-server.ps1. Common causes: missing data directory (run initdb), " +
       "corrupted data files, or another process already using port $dbPort.")
   }
@@ -1069,50 +1069,72 @@ if ($script:configModifiedAfterPostgresInstall) {
 
 $databaseUrl = "postgresql://$($db.appUser):$($db.appPassword)@$($db.host):$($db.port)/$($db.databaseName)"
 
-if (-not $SkipDatabaseCreate) {
-  $appUser = Escape-SqlLiteral $db.appUser
-  $appPassword = Escape-SqlLiteral $db.appPassword
-  $databaseName = Escape-SqlLiteral $db.databaseName
-  $roleSql = "DO `$`$ BEGIN " +
-    "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$appUser') THEN " +
-    "CREATE ROLE ""$appUser"" LOGIN PASSWORD '$appPassword'; " +
-    "ELSE ALTER ROLE ""$appUser"" LOGIN PASSWORD '$appPassword'; " +
-    "END IF; END `$`$;"
-  Invoke-PsqlAdmin $psql $db $roleSql
-  $env:PGPASSWORD = $db.adminPassword
-  try {
-    $exists = & $psql "postgresql://$($db.adminUser)@$($db.host):$($db.port)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname = '$databaseName';"
-    if (($exists -join "").Trim() -ne "1") {
-      Invoke-PsqlAdmin $psql $db "CREATE DATABASE ""$databaseName"" WITH OWNER ""$appUser"" TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C';"
+# Test if PostgreSQL is actually reachable before attempting DB operations
+$postgresReachable = Test-PostgresReachable $db.host $db.port
+if ($postgresReachable) {
+  if (-not $SkipDatabaseCreate) {
+    try {
+      $appUser = Escape-SqlLiteral $db.appUser
+      $appPassword = Escape-SqlLiteral $db.appPassword
+      $databaseName = Escape-SqlLiteral $db.databaseName
+      $roleSql = "DO `$`$ BEGIN " +
+        "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$appUser') THEN " +
+        "CREATE ROLE ""$appUser"" LOGIN PASSWORD '$appPassword'; " +
+        "ELSE ALTER ROLE ""$appUser"" LOGIN PASSWORD '$appPassword'; " +
+        "END IF; END `$`$;"
+      Invoke-PsqlAdmin $psql $db $roleSql
+      $env:PGPASSWORD = $db.adminPassword
+      try {
+        $exists = & $psql "postgresql://$($db.adminUser)@$($db.host):$($db.port)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname = '$databaseName';"
+        if (($exists -join "").Trim() -ne "1") {
+          Invoke-PsqlAdmin $psql $db "CREATE DATABASE ""$databaseName"" WITH OWNER ""$appUser"" TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C';"
+        }
+      } finally {
+        Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+      }
+      Assert-DatabaseUtf8 $psql $db $databaseName
+      Invoke-PsqlAdmin $psql $db "ALTER DATABASE ""$databaseName"" OWNER TO ""$appUser""; GRANT CREATE ON DATABASE ""$databaseName"" TO ""$appUser"";"
+      Invoke-PsqlAdminDatabase $psql $db $databaseName "ALTER SCHEMA public OWNER TO ""$appUser""; GRANT ALL ON SCHEMA public TO ""$appUser"";"
+      Ensure-OptionalReportingRole $psql $db
+    } catch {
+      Write-Warning "Database creation/setup failed: $($_.Exception.Message). Continuing with server installation."
     }
-  } finally {
-    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
   }
-  Assert-DatabaseUtf8 $psql $db $databaseName
-  Invoke-PsqlAdmin $psql $db "ALTER DATABASE ""$databaseName"" OWNER TO ""$appUser""; GRANT CREATE ON DATABASE ""$databaseName"" TO ""$appUser"";"
-  Invoke-PsqlAdminDatabase $psql $db $databaseName "ALTER SCHEMA public OWNER TO ""$appUser""; GRANT ALL ON SCHEMA public TO ""$appUser"";"
-  Ensure-OptionalReportingRole $psql $db
-}
 
-Assert-DatabaseUtf8 $psql $db $db.databaseName
-
-if (-not $SkipMigrations) {
-  $env:PGPASSWORD = $db.appPassword
   try {
-    Apply-Migrations $psql $databaseUrl (Join-Path $releaseDir "migrations")
-    Apply-SeedFiles $psql $databaseUrl (Join-Path $releaseDir "seeds")
-    Set-DatabaseEnvironmentMode $psql $databaseUrl ([bool]$server.strictProduction)
-  } finally {
-    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+    Assert-DatabaseUtf8 $psql $db $db.databaseName
+  } catch {
+    Write-Warning "Database UTF-8 check failed: $($_.Exception.Message). Continuing."
   }
-}
 
-$env:PGPASSWORD = $db.appPassword
-try {
-  Ensure-BootstrapAdmin $psql $databaseUrl
-  Write-Host "Bootstrap admin ready: Chris G / Access PIN 1234"
-} finally {
-  Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+  if (-not $SkipMigrations) {
+    try {
+      $env:PGPASSWORD = $db.appPassword
+      try {
+        Apply-Migrations $psql $databaseUrl (Join-Path $releaseDir "migrations")
+        Apply-SeedFiles $psql $databaseUrl (Join-Path $releaseDir "seeds")
+        Set-DatabaseEnvironmentMode $psql $databaseUrl ([bool]$server.strictProduction)
+      } finally {
+        Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+      }
+    } catch {
+      Write-Warning "Migrations/seeds failed: $($_.Exception.Message). Continuing with server installation."
+    }
+  }
+
+  try {
+    $env:PGPASSWORD = $db.appPassword
+    try {
+      Ensure-BootstrapAdmin $psql $databaseUrl
+      Write-Host "Bootstrap admin ready: Chris G / Access PIN 1234"
+    } finally {
+      Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+    }
+  } catch {
+    Write-Warning "Bootstrap admin setup failed: $($_.Exception.Message). Continuing."
+  }
+} else {
+  Write-Warning "PostgreSQL is not reachable. Skipping all database operations. Run install-server.ps1 again after fixing PostgreSQL."
 }
 
 # ROSIE AI stack - download model and set up voice tools.
