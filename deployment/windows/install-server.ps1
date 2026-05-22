@@ -305,6 +305,17 @@ function Ensure-PostgresServiceRunning {
             try {
               & $initDb -D "$dataDir" -E UTF8 --no-locale --auth=trust 2>&1 | ForEach-Object { Write-Host $_ }
               if ($LASTEXITCODE -eq 0) {
+                # Ensure the service account can access the data directory
+                try {
+                  $wmiSvc = Get-WmiObject win32_service -Filter "Name='$($service.Name)'" -ErrorAction SilentlyContinue
+                  if ($wmiSvc -and $wmiSvc.StartName) {
+                    $svcAccount = $wmiSvc.StartName
+                    Write-Host "Granting service account '$svcAccount' access to data directory..."
+                    & icacls "$dataDir" /grant "$svcAccount`:(OI)(CI)F" /T 2>&1 | ForEach-Object { Write-Host $_ }
+                  }
+                } catch {
+                  Write-Warning "Could not set data directory permissions: $($_.Exception.Message)"
+                }
                 Write-Host "initdb succeeded. Retrying service start..."
                 try {
                   Start-Service -Name $service.Name -ErrorAction Stop
