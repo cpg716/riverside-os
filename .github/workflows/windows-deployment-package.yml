@@ -226,4 +226,7 @@ jobs:
             gh release create $tag --title "Riverside POS $tag" --notes "Riverside POS Release"
           }
           gh release upload $tag dist/deployment/*.zip --clobber
+          if (Test-Path "client/updater-dist") {
+            gh release upload $tag client/updater-dist/* --clobber
+          }
 
