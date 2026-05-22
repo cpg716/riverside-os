@@ -5,6 +5,10 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
   workflow_dispatch:
     inputs:
       release_notes:
@@ -62,6 +66,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "windows-release"
 
       - name: Install client dependencies
         working-directory: client

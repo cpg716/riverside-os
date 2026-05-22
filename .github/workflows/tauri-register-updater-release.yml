@@ -77,6 +77,8 @@ jobs:
           components: clippy, rustfmt
 
       - uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "windows-release"
 
       - name: Install Windows ROSIE sidecar
         shell: pwsh
