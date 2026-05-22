@@ -2,7 +2,7 @@
 
 **Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.70.0 is the production release for the store rollout model: Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and Windows laptop PWA/optional Tauri clients. It carries forward the v0.60.2 deployment baseline and tightens host selection, printer readiness, updater, Help/ROSIE, deployment, and recovery hardening.
 
-Current Version: **v0.70.2** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.70.5** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 
@@ -36,9 +36,27 @@ Current runtime contract:
 - child-shell tab changes must not silently bounce the user back to Back Office
 - invalid shell state should fall back cleanly only when the owning shell is no longer valid
 
-## Production Features (v0.70.2+)
+## DevOps Center (v0.70.5+)
 
-Riverside OS v0.70.2+ includes enterprise-grade production hardening features:
+Riverside OS includes a comprehensive DevOps management system for monitoring, diagnostics, and release management.
+
+### In-App DevOps Center
+- **Real-time monitoring** — DB health, stations, alerts, bugs, runtime diagnostics
+- **GitHub integration** — View workflow runs, releases, trigger builds with one click
+- **Server diagnostics** — Version, DB pool, migrations, recent errors/warnings
+- **AI-ready prompts** — Copy diagnostic data for analysis with ChatGPT/Claude/Cursor
+
+### Standalone ROS Dev Center (macOS)
+A dedicated macOS companion app in `ros-dev/` for managing ROS from anywhere:
+- **Auto-discovery** — Scans Tailscale peers and local subnet for ROS servers
+- **Server profiles** — Save and switch between dev/staging/production instances
+- **Tailscale detection** — Shows connection status and tailnet name
+- **ROSIE AI analysis** — One-click diagnostic analysis via the local Gemma LLM
+- **Build**: `cd ros-dev && npm install && npm run tauri build`
+
+## Production Features (v0.70.5+)
+
+Riverside OS v0.70.5+ includes enterprise-grade production hardening features:
 
 ### 🏥 **Health & Monitoring**
 - **Health Check Endpoints**: `/api/health`, `/api/ready`, `/api/live` for orchestration

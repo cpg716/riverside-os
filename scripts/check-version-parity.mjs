@@ -19,6 +19,12 @@ const versions = [
   ["client/src-tauri/tauri.conf.json", readJson("client/src-tauri/tauri.conf.json").version],
   ["server/Cargo.toml", readCargoPackageVersion("server/Cargo.toml")],
   ["client/src-tauri/Cargo.toml", readCargoPackageVersion("client/src-tauri/Cargo.toml")],
+  ["ros-dev/package.json", readJson("ros-dev/package.json").version],
+  ["ros-dev/src-tauri/tauri.conf.json", readJson("ros-dev/src-tauri/tauri.conf.json").version],
+  ["ros-dev/src-tauri/Cargo.toml", readCargoPackageVersion("ros-dev/src-tauri/Cargo.toml")],
+  ["deployment/manager-app/package.json", readJson("deployment/manager-app/package.json").version],
+  ["deployment/manager-app/src-tauri/tauri.conf.json", readJson("deployment/manager-app/src-tauri/tauri.conf.json").version],
+  ["deployment/manager-app/src-tauri/Cargo.toml", readCargoPackageVersion("deployment/manager-app/src-tauri/Cargo.toml")],
 ];
 
 const expected = versions[0][1];
