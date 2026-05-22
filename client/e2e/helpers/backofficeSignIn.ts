@@ -133,7 +133,7 @@ export async function openBackofficeSidebarTab(
       .catch(() => false);
   let tabButton = resolveTabButton();
   const viewportWidth = await page.evaluate(() => window.innerWidth).catch(() => 1024);
-  if (viewportWidth < 640 || !(await isInteractableInViewport(tabButton))) {
+  if (!(await isInteractableInViewport(tabButton))) {
     const menuToggle = page.getByRole("button", { name: "Toggle menu" });
     if (await menuToggle.isVisible().catch(() => false)) {
       await menuToggle.click().catch(() => {});
@@ -158,7 +158,7 @@ export async function openBackofficeSidebarTab(
   if (tabId === "register" || tabId === "weddings") {
     return tabButton;
   }
-  if ((await page.evaluate(() => window.innerWidth).catch(() => 1024)) < 1024) {
+  if (viewportWidth <= 1024) {
     const appShellState = page.getByTestId("app-shell-state");
     const activeTabMatches = async () =>
       (await appShellState.getAttribute("data-active-tab").catch(() => "")) === tabId;

@@ -41,6 +41,9 @@ expected=(
   "034_transaction_void_records.sql"
   "035_backup_resilience_settings.sql"
   "036_financial_date_and_counterpoint_integrity.sql"
+  "037_backfill_missing_columns.sql"
+  "038_web_listing_and_categories.sql"
+  "039_wal_archiving_configuration.sql"
 )
 
 active=()

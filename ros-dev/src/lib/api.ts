@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 export interface ServerProfile {
   id: string;
   name: string;
@@ -24,6 +26,18 @@ function loadProfiles(): ServerProfile[] {
 let profiles: ServerProfile[] = loadProfiles();
 let activeProfileId: string = localStorage.getItem(ACTIVE_PROFILE_KEY) || profiles[0]?.id || "local";
 
+// Asynchronously load secure PINs from macOS keychain into memory
+export async function initializeProfiles(): Promise<void> {
+  for (const p of profiles) {
+    try {
+      const pin = await invoke<string>("get_secure_pin", { profileId: p.id });
+      p.staffCode = pin;
+    } catch (e) {
+      console.error(`Failed to load secure PIN for profile ${p.id} from keychain:`, e);
+    }
+  }
+}
+
 function getActiveProfile(): ServerProfile {
   return profiles.find((p) => p.id === activeProfileId) || profiles[0];
 }
@@ -44,11 +58,18 @@ export function setActiveProfile(id: string) {
 export function saveProfile(profile: ServerProfile) {
   const idx = profiles.findIndex((p) => p.id === profile.id);
   if (idx >= 0) {
-    profiles[idx] = profile;
+    profiles[idx] = { ...profile };
   } else {
-    profiles.push(profile);
+    profiles.push({ ...profile });
   }
-  localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+
+  // Save to Keychain asynchronously
+  invoke("save_secure_pin", { profileId: profile.id, pin: profile.staffCode })
+    .catch((e: any) => console.error(`Failed to save secure PIN for profile ${profile.id} in keychain:`, e));
+
+  // Strip PIN from localstorage profiles array
+  const strippedProfiles = profiles.map(p => ({ ...p, staffCode: "" }));
+  localStorage.setItem(PROFILES_KEY, JSON.stringify(strippedProfiles));
 }
 
 export function deleteProfile(id: string) {
@@ -57,7 +78,13 @@ export function deleteProfile(id: string) {
     activeProfileId = profiles[0]?.id || "";
     localStorage.setItem(ACTIVE_PROFILE_KEY, activeProfileId);
   }
-  localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+
+  // Delete from Keychain asynchronously
+  invoke("delete_secure_pin", { profileId: id })
+    .catch((e: any) => console.error(`Failed to delete secure PIN for profile ${id} from keychain:`, e));
+
+  const strippedProfiles = profiles.map(p => ({ ...p, staffCode: "" }));
+  localStorage.setItem(PROFILES_KEY, JSON.stringify(strippedProfiles));
 }
 
 export function getServerUrl(): string {
@@ -111,10 +138,8 @@ export interface TailscaleStatus {
 
 export async function checkTailscale(): Promise<TailscaleStatus> {
   try {
-    // Try to fetch Tailscale's local API (requires macOS and Tailscale running)
     const res = await fetch("http://100.100.100.100:8080/localapi/v0/status", {
       method: "GET",
-      // Short timeout — this only works if Tailscale is running locally
       signal: AbortSignal.timeout(2000),
     });
     if (res.ok) {
@@ -125,9 +150,7 @@ export async function checkTailscale(): Promise<TailscaleStatus> {
         tailnet: data.CurrentTailnet?.Name,
       };
     }
-  } catch {
-    // Tailscale local API not reachable
-  }
+  } catch { /* ignore */ }
   return { running: false };
 }
 
@@ -167,92 +190,14 @@ export interface DiscoveredServer {
   latency_ms?: number;
 }
 
+// Call tauri native scanner
 export async function discoverServers(): Promise<DiscoveredServer[]> {
-  const found: DiscoveredServer[] = [];
-
-  // 1. Try Tailscale device discovery first (if Tailscale is running)
   try {
-    const tsRes = await fetch("http://100.100.100.100:8080/localapi/v0/status", {
-      signal: AbortSignal.timeout(3000),
-    });
-    if (tsRes.ok) {
-      const tsData = await tsRes.json();
-      const peers = tsData.Peer || [];
-      for (const peer of peers) {
-        const ip = peer.TailscaleIPs?.[0];
-        if (!ip) continue;
-        const url = `http://${ip}:3000`;
-        try {
-          const start = performance.now();
-          const res = await fetch(`${url}/api/health`, {
-            headers: { "x-riverside-staff-code": "" },
-            signal: AbortSignal.timeout(2000),
-          });
-          if (res.ok) {
-            found.push({
-              url,
-              name: peer.DNSName || peer.HostName || ip,
-              tailscale: true,
-              latency_ms: Math.round(performance.now() - start),
-            });
-          }
-        } catch {
-          // Not a ROS server
-        }
-      }
-    }
-  } catch {
-    // Tailscale not running
+    return await invoke<DiscoveredServer[]>("discover_servers");
+  } catch (e) {
+    console.error("Native discovery failed, fallback to empty list:", e);
+    return [];
   }
-
-  // 2. Scan local subnet (common ranges)
-  const subnets = getLocalSubnets();
-  const candidates: string[] = [];
-  for (const subnet of subnets) {
-    for (let i = 1; i <= 254; i++) {
-      candidates.push(`http://${subnet}.${i}:3000`);
-    }
-  }
-
-  // Scan in batches to avoid overwhelming the network
-  const batchSize = 20;
-  for (let i = 0; i < candidates.length; i += batchSize) {
-    const batch = candidates.slice(i, i + batchSize);
-    const results = await Promise.all(
-      batch.map(async (url) => {
-        try {
-          const start = performance.now();
-          const res = await fetch(`${url}/api/health`, {
-            headers: { "x-riverside-staff-code": "" },
-            signal: AbortSignal.timeout(800),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            return {
-              url,
-              name: data.version ? `Riverside OS v${data.version}` : undefined,
-              latency_ms: Math.round(performance.now() - start),
-            };
-          }
-        } catch {
-          // Not reachable
-        }
-        return null;
-      })
-    );
-    for (const r of results) {
-      if (r) found.push(r);
-    }
-    // Stop early if we found enough
-    if (found.length >= 5) break;
-  }
-
-  return found;
-}
-
-function getLocalSubnets(): string[] {
-  // Heuristic: common home/small office subnets
-  return ["192.168.1", "192.168.0", "10.0.0", "10.0.1"];
 }
 
 export interface RosieAnalysisResult {

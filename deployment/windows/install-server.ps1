@@ -21,6 +21,14 @@ if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
   }
 }
 
+$packageManifestPath = Join-Path $ScriptRoot "deployment-package.manifest.json"
+$packageManifest = $null
+if (Test-Path $packageManifestPath) {
+  try {
+    $packageManifest = Get-Content $packageManifestPath -Raw | ConvertFrom-Json
+  } catch {}
+}
+
 function Assert-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
@@ -901,6 +909,13 @@ if (-not $config.server.database) {
   $config.server | Add-Member -NotePropertyName database -NotePropertyValue ([pscustomobject]@{}) -Force
 }
 
+if ($packageManifest -and $packageManifest.releaseVersion) {
+  if ($config.releaseVersion -ne $packageManifest.releaseVersion) {
+    Set-SafeProperty $config "releaseVersion" $packageManifest.releaseVersion
+    $configModified = $true
+  }
+}
+
 function New-RiversideSecret([int]$Length) {
   $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
   $random = New-Object System.Random
@@ -978,11 +993,7 @@ if ($configModified) {
   Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
   Write-Host "Auto-saved resolved credentials and passwords to $ConfigPath." -ForegroundColor Green
 }
-$packageManifestPath = Join-Path $ScriptRoot "deployment-package.manifest.json"
-$packageManifest = $null
-if (Test-Path $packageManifestPath) {
-  $packageManifest = Get-Content $packageManifestPath -Raw | ConvertFrom-Json
-}
+# $packageManifest already loaded at script startup
 $server = $config.server
 if (-not $server) { throw "Config file is missing the 'server' section. Check your riverside-deployment.config.json." }
 $db = $server.database

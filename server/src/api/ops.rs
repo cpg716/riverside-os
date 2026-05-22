@@ -3,12 +3,21 @@
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse, Response,
+    },
     routing::{get, post},
     Json, Router,
 };
+use futures_core::stream::Stream;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::convert::Infallible;
+use std::time::Duration;
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 use crate::api::AppState;
@@ -355,6 +364,8 @@ async fn post_ops_action(
     let result: GuardedActionResult = ops_dev_center::run_guarded_action(
         &state.db,
         state.meilisearch.as_ref(),
+        state.cache.as_ref(),
+        &state.server_log_ring,
         &action_key,
         &body.payload,
     )
@@ -910,6 +921,24 @@ async fn post_bug_alert_link(
     Ok(Json(json!({ "ok": true })))
 }
 
+async fn stream_logs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>> + Send>, Response> {
+    let _ = require_view(&state, &headers).await?;
+
+    let receiver = state.server_log_ring.subscribe();
+    let stream = BroadcastStream::new(receiver).filter_map(|item| match item {
+        Ok(line) => Some(Ok(Event::default().data(line))),
+        Err(BroadcastStreamRecvError::Lagged(n)) => {
+            tracing::warn!(skipped = n, "Ops logs stream client lagged");
+            None
+        }
+    });
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health/snapshot", get(get_health_snapshot))
@@ -930,4 +959,5 @@ pub fn router() -> Router<AppState> {
         .route("/diagnostics/analyze", post(post_diagnostics_analyze))
         .route("/bugs/overview", get(get_bugs_overview))
         .route("/bugs/link-alert", post(post_bug_alert_link))
+        .route("/logs/stream", get(stream_logs))
 }

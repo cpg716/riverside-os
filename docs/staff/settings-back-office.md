@@ -195,11 +195,19 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 - **Help Center**: if live search is unavailable, the drawer clearly indicates bundled/manual fallback mode.
 - **Weather**: Operations and the POS dashboard show a `Mock Weather` badge and note when weather data is coming from mock mode.
 
+### Standalone ROS Dev Center App (macOS)
+For remote administrative management, developers and admins can run the standalone macOS Dev Center companion app. It supports:
+- **Zero-Secret Server Profiles**: Configures connections to local/staging/production instances.
+- **Keychain PIN Storage**: Staff Access PINs are stored securely via the native system Keychain instead of plaintext files on disk.
+- **Native Auto-Discovery**: Rapidly scans Tailscale networks and local subnets via concurrent Rust sweeps to discover active server hosts.
+- **ROSIE AI Diagnostics**: Interrogates local Gemma LLM instances to analyze recent warning/error server logs and recommend file-level code patches.
+
 ### Guardrails
 
 - Do not run guarded actions during business hours.
 - Always include a meaningful reason (this is captured in immutable action audit history).
 - Use Dev Center as operational control, not as a substitute for POS/Back Office transactional workflows.
+
 
 ## Online store
 

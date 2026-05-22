@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param()
 
 $ErrorActionPreference = "Stop"
@@ -528,6 +528,17 @@ function Load-ConfigIntoForm {
 
 function Save-FormToConfig {
   $config = Read-DeploymentConfig
+
+  $manifest = Read-PackageManifest
+  if ($manifest -and $manifest.releaseVersion) {
+    if ($config.releaseVersion -ne $manifest.releaseVersion) {
+      if ($config.PSObject.Properties["releaseVersion"]) {
+        $config.releaseVersion = $manifest.releaseVersion
+      } else {
+        $config | Add-Member -NotePropertyName "releaseVersion" -NotePropertyValue $manifest.releaseVersion -Force
+      }
+    }
+  }
 
   $serverAddress = $serverAddressText.Text.Trim()
   if (-not $serverAddress) {

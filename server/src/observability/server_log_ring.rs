@@ -14,6 +14,7 @@ use tracing_subscriber::registry::LookupSpan;
 #[derive(Clone)]
 pub struct ServerLogRing {
     inner: Arc<Mutex<RingInner>>,
+    tx: tokio::sync::broadcast::Sender<String>,
 }
 
 struct RingInner {
@@ -24,12 +25,14 @@ struct RingInner {
 
 impl ServerLogRing {
     pub fn new(max_lines: usize, max_line_chars: usize) -> Self {
+        let (tx, _) = tokio::sync::broadcast::channel(1000);
         Self {
             inner: Arc::new(Mutex::new(RingInner {
                 lines: VecDeque::new(),
                 max_lines: max_lines.max(16),
                 max_line_chars: max_line_chars.clamp(256, 16_384),
             })),
+            tx,
         }
     }
 
@@ -42,10 +45,24 @@ impl ServerLogRing {
             line.truncate(g.max_line_chars);
             line.push('…');
         }
-        g.lines.push_back(line);
+        g.lines.push_back(line.clone());
         while g.lines.len() > g.max_lines {
             g.lines.pop_front();
         }
+        let _ = self.tx.send(line);
+    }
+
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<String> {
+        self.tx.subscribe()
+    }
+
+    /// Clear all log lines in the buffer
+    pub fn clear(&self) {
+        let mut g = match self.inner.lock() {
+            Ok(x) => x,
+            Err(e) => e.into_inner(),
+        };
+        g.lines.clear();
     }
 
     /// Newest lines last (chronological), joined with newlines. Truncates to `max_bytes` UTF-8.

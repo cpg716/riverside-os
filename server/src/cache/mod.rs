@@ -114,4 +114,9 @@ impl CacheService {
     ) -> Result<Option<T>, RedisError> {
         self.get_with_retry(key).await
     }
+
+    /// Flush the cache database
+    pub async fn flush(&self) -> Result<(), RedisError> {
+        self.redis.flushdb().await
+    }
 }

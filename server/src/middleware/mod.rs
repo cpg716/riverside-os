@@ -1,7 +1,13 @@
 //! Request helpers (RBAC-style gates).
 
-use axum::http::{HeaderMap, StatusCode};
+use axum::{
+    extract::{ConnectInfo, Request},
+    http::{HeaderMap, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
 use serde_json::json;
+use std::net::{IpAddr, SocketAddr};
 use uuid::Uuid;
 
 pub mod rate_limit;
@@ -405,4 +411,97 @@ pub async fn require_help_viewer(
             json!({ "error": "x-riverside-staff-code or register session headers required" }),
         ),
     ))
+}
+
+/// IP shield middleware for `/api/ops/*` routing to restrict access to local/private and Tailscale networks.
+pub async fn ops_shield_middleware(request: Request, next: Next) -> Response {
+    let client_ip = extract_client_ip(&request);
+
+    if let Some(ip) = client_ip {
+        if is_allowed_ip(ip) {
+            next.run(request).await
+        } else {
+            tracing::warn!(
+                client_ip = %ip,
+                path = request.uri().path(),
+                "Ops shield: blocked request from unauthorized IP space"
+            );
+            StatusCode::FORBIDDEN.into_response()
+        }
+    } else {
+        tracing::warn!(
+            path = request.uri().path(),
+            "Ops shield: blocked request due to unresolvable client IP"
+        );
+        StatusCode::FORBIDDEN.into_response()
+    }
+}
+
+fn extract_client_ip(request: &Request) -> Option<IpAddr> {
+    // Check for X-Forwarded-For header (reverse proxy)
+    if let Some(forwarded) = request.headers().get("x-forwarded-for") {
+        if let Ok(forwarded_str) = forwarded.to_str() {
+            if let Some(first_ip) = forwarded_str.split(',').next() {
+                let ip = first_ip.trim();
+                if !ip.is_empty() {
+                    if let Ok(parsed_ip) = ip.parse::<IpAddr>() {
+                        return Some(parsed_ip);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to ConnectInfo SocketAddr extension
+    if let Some(conn_info) = request.extensions().get::<ConnectInfo<SocketAddr>>() {
+        return Some(conn_info.0.ip());
+    }
+
+    // Fall back to direct SocketAddr extension
+    if let Some(addr) = request.extensions().get::<SocketAddr>() {
+        return Some(addr.ip());
+    }
+
+    None
+}
+
+fn is_allowed_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ipv4) => {
+            // Loopback: 127.0.0.0/8
+            if ipv4.is_loopback() {
+                return true;
+            }
+            // RFC 1918:
+            // 10.0.0.0/8
+            // 172.16.0.0/12
+            // 192.168.0.0/16
+            let octets = ipv4.octets();
+            if octets[0] == 10 {
+                return true;
+            }
+            if octets[0] == 172 && (octets[1] >= 16 && octets[1] <= 31) {
+                return true;
+            }
+            if octets[0] == 192 && octets[1] == 168 {
+                return true;
+            }
+            // Tailscale: 100.64.0.0/10
+            if octets[0] == 100 && (octets[1] >= 64 && octets[1] <= 127) {
+                return true;
+            }
+            false
+        }
+        IpAddr::V6(ipv6) => {
+            if ipv6.is_loopback() {
+                return true;
+            }
+            // Tailscale IPv6: fd7a:115c:a1e0::/48
+            let segments = ipv6.segments();
+            if segments[0] == 0xfd7a && segments[1] == 0x115c && segments[2] == 0xa1e0 {
+                return true;
+            }
+            false
+        }
+    }
 }

@@ -1251,13 +1251,14 @@ A dedicated macOS companion app lives in `ros-dev/` for managing Riverside OS de
 
 ### What It Does
 
-- **Auto-discovers servers** — scans Tailscale peers and local subnet for ROS instances
-- **Server profiles** — save multiple servers (dev, staging, production) and switch instantly
-- **Tailscale-aware** — detects Tailscale status, marks Tailscale profiles, shows tailnet name
-- **Real-time DevOps dashboard** — DB health, stations, alerts, bugs, workflow runs, releases
-- **GitHub integration** — view workflow runs, releases, one-click release builds
-- **ROSIE AI analysis** — one-click diagnostic analysis using the local ROSIE LLM
-- **AI-ready** — copy-paste prompts for ChatGPT/Claude/Cursor with full diagnostic context
+- **Auto-discovers servers (Native)** — scans Tailscale peers and local subnet for ROS instances using a high-performance concurrent Rust scanner (limiting concurrent sockets to `40` to prevent starvation).
+- **Secure Keychain Storage** — saves staff Access PINs in the macOS Keychain under service `com.riverside.ros-dev-center` (plaintext PINs are stripped from local disk storage).
+- **Route Shielded (API)** — backend `/api/ops/*` endpoints are protected by `ops_shield_middleware` to allow connections only from loopback, private subnets (RFC 1918), and Tailscale networks.
+- **Server profiles** — save multiple servers (dev, staging, production) and switch instantly.
+- **Tailscale-aware** — detects Tailscale status, marks Tailscale profiles, shows tailnet name.
+- **Real-time DevOps dashboard** — DB health, stations, alerts, bugs, workflow runs, releases.
+- **ROSIE AI analysis** — one-click diagnostic analysis using the local ROSIE LLM.
+- **AI-ready** — copy-paste prompts for ChatGPT/Claude/Cursor with full diagnostic context.
 
 ### Build
 

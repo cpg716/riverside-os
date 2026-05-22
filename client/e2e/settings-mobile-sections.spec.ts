@@ -15,11 +15,13 @@ const SETTINGS_VIEWPORTS: SettingsViewport[] = [
 ];
 
 async function openSettingsSubItem(page: Page, label: RegExp): Promise<void> {
-  const menuToggle = page.getByRole("button", { name: /toggle menu/i });
-  if (await menuToggle.isVisible().catch(() => false)) {
-    await menuToggle.click().catch(() => {});
-  }
   const subButton = page.getByRole("button", { name: label }).first();
+  if (!(await subButton.isVisible().catch(() => false))) {
+    const menuToggle = page.getByRole("button", { name: /toggle menu/i });
+    if (await menuToggle.isVisible().catch(() => false)) {
+      await menuToggle.click().catch(() => {});
+    }
+  }
   await expect(subButton).toBeVisible({ timeout: 20_000 });
   await subButton.click();
 }
@@ -45,8 +47,8 @@ for (const viewport of SETTINGS_VIEWPORTS) {
       timeout: 20_000,
     });
 
-    await openSettingsSubItem(page, /^bug reports$/i);
-    await expect(page.getByRole("heading", { name: /^bug reports$/i })).toBeVisible({
+    await openSettingsSubItem(page, /^support center$/i);
+    await expect(page.getByRole("heading", { name: /support center/i })).toBeVisible({
       timeout: 20_000,
     });
   });

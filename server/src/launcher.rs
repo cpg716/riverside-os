@@ -377,6 +377,26 @@ async fn launch_server_inner(
     };
 
     // Workers
+    let fallback_pool = state.db.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            ticker.tick().await;
+            if sqlx::query("SELECT 1").execute(&fallback_pool).await.is_ok() {
+                match crate::logic::bug_reports::ingest_fallback_errors(&fallback_pool).await {
+                    Ok(count) => {
+                        if count > 0 {
+                            tracing::info!(count, "Ingested fallback errors into database");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to ingest fallback errors");
+                    }
+                }
+            }
+        }
+    });
+
     let qbo_pool = state.db.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(50 * 60));

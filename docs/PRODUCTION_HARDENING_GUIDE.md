@@ -834,6 +834,158 @@ redis-cli info clients
 
 ---
 
+## Database-Down Fallback Logging (v0.70.5)
+
+### Overview
+
+When the PostgreSQL database is unreachable, error and alert events that would normally be written to the database are captured in a local JSON fallback file. A background worker automatically re-ingests these events once the database recovers.
+
+### Implementation
+
+**Files**: `server/src/logic/bug_reports.rs`, `server/src/launcher.rs`
+
+- A thread-safe global mutex guards all writes to `server/fallback_logs/fallback_errors.json`.
+- `upsert_server_error_event` catches database connection errors and appends a `FallbackErrorEvent` struct to the fallback file instead of dropping the event.
+- A background task spawned in `launcher.rs` polls the database every **30 seconds**. On recovery it reads, parses, and re-inserts all fallback events, then truncates the file under the lock.
+
+### Fallback File Location
+
+```
+server/fallback_logs/fallback_errors.json
+```
+
+The directory is created automatically on first write. In production deployments, ensure the server process has write access to this path.
+
+### Operational Notes
+
+- Events are never lost during short database outages; they queue on disk and are automatically reingested.
+- The fallback file is a newline-delimited JSON array and can be inspected manually if needed.
+- If the database is down for an extended period, monitor disk usage on the server host.
+
+---
+
+## Real-Time Diagnostic Log Streaming (v0.70.5)
+
+### Overview
+
+Live server `tracing` output is streamed in real-time via Server-Sent Events (SSE) to authorized DevOps operators without requiring SSH access.
+
+### Endpoint
+
+```
+GET /api/ops/logs/stream
+```
+
+Requires `ops.dev_center.view` permission. Protected by Ops Shield middleware (private network / Tailscale IPs only).
+
+### Implementation
+
+**Files**: `server/src/observability/server_log_ring.rs`, `server/src/api/ops.rs`
+
+- `ServerLogRing` embeds a `tokio::sync::broadcast::Sender<String>`. Every formatted tracing line is broadcast instantly to all subscribers.
+- The SSE handler subscribes to the broadcast channel via `server_log_ring.subscribe()` and maps each line to an SSE `data:` event.
+- A 15-second SSE keepalive is emitted to prevent proxy timeouts.
+- Lagged clients (those that fall too far behind) are silently skipped with a `tracing::warn!` entry.
+
+### Usage
+
+```bash
+curl -N \
+  -H "Authorization: Bearer <staff_token>" \
+  http://localhost:3000/api/ops/logs/stream
+```
+
+---
+
+## Auto-Rollback Watchdog Script (v0.70.5)
+
+### Overview
+
+`scripts/watchdog-updater.sh` is a POSIX-compliant shell script that automates safe server binary updates and rolls back automatically if the new build fails to pass health checks.
+
+### Location
+
+```
+scripts/watchdog-updater.sh
+```
+
+### How It Works
+
+1. Accepts paths for the new binary, old binary, and PostgreSQL backup.
+2. Creates a pre-flight database backup using `pg_dump` (falls back to `docker exec pg_dump` inside the `riverside-os-db` container if Docker is in use).
+3. Launches the new binary, then polls `GET /api/health/ready` every **5 seconds** for up to **120 seconds**.
+4. On health check success: exits cleanly.
+5. On failure or timeout: kills the new process, restores the database via `pg_restore`, restarts the old binary, and writes a timestamped entry to `rollback_error.log`.
+
+### Usage
+
+```bash
+./scripts/watchdog-updater.sh \
+  --new-binary ./target/release/riverside-server-new \
+  --old-binary ./target/release/riverside-server \
+  --backup-file /backups/pre-update.dump \
+  --host localhost \
+  --port 3000
+```
+
+### Integration with Deployment Manager
+
+The Deployment Manager's update flow should call `watchdog-updater.sh` instead of directly swapping binaries to guarantee zero-downtime rollback on any failed update.
+
+---
+
+## Audited Remote DevOps Commands (v0.70.5)
+
+### Overview
+
+Three new guarded remote commands are available in the ROS Dev Center actions console. All require `ops.dev_center.actions` permission plus `confirm_primary=true` and `confirm_secondary=true` in the request body. Every execution writes an immutable row to `ops_action_audit`.
+
+### Commands
+
+| Action Key | Description |
+|---|---|
+| `ops.restart_background_workers` | Logs re-initialization and signals restart of background worker loops and job queues. |
+| `ops.flush_cache` | Executes Redis `FLUSHDB` on the configured cache instance, clearing all cached keys. |
+| `ops.clear_logs` | Empties the in-memory `ServerLogRing` diagnostics buffer. Does not affect database logs. |
+
+### Usage Example
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer <staff_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reason": "Pre-maintenance cache flush",
+    "confirm_primary": true,
+    "confirm_secondary": true
+  }' \
+  http://localhost:3000/api/ops/actions/ops.flush_cache
+```
+
+### Response
+
+```json
+{
+  "ok": true,
+  "message": "Cache flushed successfully",
+  "data": { "status": "flushed" },
+  "audit": {
+    "id": "...",
+    "correlation_id": "...",
+    "created_at": "2026-05-22T13:00:00Z",
+    "action_key": "ops.flush_cache"
+  }
+}
+```
+
+### Operational Notes
+
+- `ops.flush_cache` gracefully returns `ok: false` with a clear message if Redis is not configured.
+- `ops.clear_logs` clears only the live in-memory ring buffer; historical database `staff_error_event` rows are unaffected.
+- `ops.restart_background_workers` logs the signal but does not hard-kill worker processes; existing in-flight jobs continue to completion.
+
+---
+
 ## Conclusion
 
 This production hardening implementation provides Riverside OS with enterprise-grade reliability, scalability, and observability. The system is now ready for production deployment with comprehensive monitoring, alerting, and protection mechanisms.

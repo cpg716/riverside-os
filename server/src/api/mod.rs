@@ -144,7 +144,12 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
         .nest("/api/reviews", reviews::router())
         .nest("/api/search", search::router())
         .nest("/api/notifications", notifications::router())
-        .nest("/api/ops", ops::router())
+        .nest(
+            "/api/ops",
+            ops::router().layer(axum::middleware::from_fn(
+                crate::middleware::ops_shield_middleware,
+            )),
+        )
         .nest("/api/order-lifecycle", order_lifecycle::router())
         .nest(
             "/api/settings",

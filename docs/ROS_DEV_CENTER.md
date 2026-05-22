@@ -50,6 +50,36 @@ Every guarded action writes an immutable row to `ops_action_audit`.
 1. migration `149_ros_dev_center_v1.sql`
 2. reporting follow-up: migration `150_reporting_order_lines_margin_restore.sql`
 
+- Standalone Companion App (macOS):
+1. Client UI and native shell: `ros-dev/`
+2. Key tools: Native keychain storage, high-performance subnet/Tailscale discovery sweep, ROSIE Gemma LLM local integration.
+
+---
+
+## Security & Performance Hardening (v0.70.5+)
+
+To ensure maximum operational security and performance, the Dev Center includes three specific hardening components:
+
+### 1. Keychain Integration
+Staff Access PINs (`staffCode`) are no longer serialized to plaintext `localStorage` on disk.
+* **Storage Provider**: Native macOS/OS Keychain via the Rust `keyring` crate.
+* **Service Name**: `com.riverside.ros-dev-center`.
+* **Flow**: Plaintext credentials are deleted from `localStorage` immediately during initialization. When profile editing or selection happens, the app fetches and stores the PIN dynamically in system memory using Tauri commands.
+
+### 2. High-Performance Subnet & Tailscale Discovery
+Instead of using slow, serial, or resource-heavy Javascript fetch loops, server discovery is delegated to a concurrent native Rust sweep.
+* **Concurrency**: Powered by `tokio::task::JoinSet`.
+* **Guardrails**: Limits maximum concurrent connections to `40` via a semaphore to avoid system socket starvation.
+* **Method**: Resolves local subnet prefix and queries local Tailscale status (`100.100.100.100:8080/localapi/v0/status`). Sweeps open ports (port `3000`), verifies the server is a valid Riverside OS instance via `GET /api/health`, and returns results sorted by latency.
+
+### 3. Local & Tailscale Route Shielding
+To prevent administration routes from being exposed to the internet, all `/api/ops/*` routes are protected on the Axum server.
+* **Shielding Middleware**: `ops_shield_middleware` parses the request's origin IP address from the `X-Forwarded-For` header or TCP connection info extensions (`ConnectInfo<SocketAddr>` / `SocketAddr`).
+* **Permitted Networks**: Requests are rejected with a `403 Forbidden` unless the source IP address lies in:
+  - Loopback (`127.0.0.1`, `::1`)
+  - RFC 1918 Private space (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
+  - Tailscale IP space (`100.64.0.0/10` IPv4, and `fd7a:115c:a1e0::/48` IPv6)
+
 ---
 
 ## API contracts
@@ -149,18 +179,27 @@ Fleet retention:
 
 ## Guarded actions (current allow-list)
 
-As of v0.2.1, allowed action keys are:
+As of v0.70.5, allowed action keys are:
 
 1. `backup.trigger_local`
 2. `help.reindex_search`
 3. `help.generate_manifest`
 4. `ops.retention_cleanup`
+5. `ops.restart_background_workers`
+6. `ops.flush_cache`
+7. `ops.clear_logs`
 
 Unknown keys are rejected and API returns the current allow-list.
 
 `backup.trigger_local` writes to the effective `RIVERSIDE_BACKUP_DIR` location using the same backup settings as the scheduler, including encrypted archives when enabled. Runtime Diagnostics exposes the backup directory path and flags whether the host is using an explicit production-safe path or the local development fallback.
 
 `ops.retention_cleanup` applies the configured station and resolved-alert retention windows. It is guarded and audited like other Dev Center mutations.
+
+`ops.restart_background_workers` logs re-initialization details and registers a signal to restart running background worker loops and job queues.
+
+`ops.flush_cache` connects to the Redis server and flushes all keys from the cache database using the Redis `FLUSHDB` command.
+
+`ops.clear_logs` empties all formatted tracing lines stored in the in-memory `ServerLogRing` diagnostics buffer.
 
 ---
 

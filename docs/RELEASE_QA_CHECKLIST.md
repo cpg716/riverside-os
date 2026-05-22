@@ -317,13 +317,16 @@ For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
 - [ ] `cargo check -p ros-dev-center` passes
 - [ ] `npm run tauri build` succeeds
 - [ ] Login screen: Tailscale status badge appears
-- [ ] Login screen: "Scan for Riverside Servers" discovers local servers
+- [ ] Login screen: "Scan for Riverside Servers" discovers local servers (Rust concurrent scanner)
 - [ ] Login screen: server profiles can be added, edited, deleted
+- [ ] Keychain check: verify profile PINs are stored securely in macOS Keychain (com.riverside.ros-dev-center) and stripped from `localStorage`
+- [ ] IP Shielding check: verify `/api/ops/*` endpoints return 403 Forbidden for non-local/non-Tailscale source IPs
 - [ ] Dashboard loads after connecting
 - [ ] Auto-refresh every 30 seconds works
 - [ ] "Run Diagnostics" captures errors and warnings
 - [ ] "Analyze with ROSIE" returns AI analysis (requires `RIVERSIDE_LLAMA_UPSTREAM`)
 - [ ] "Copy Prompt" copies the AI prompt to clipboard
+
 
 ---
 

@@ -13,11 +13,13 @@ const SENSITIVE_SECRET = "secret-value-123";
 const REDACTED = "[redacted]";
 
 async function openSettingsSubItem(page: Page, label: RegExp): Promise<void> {
-  const menuToggle = page.getByRole("button", { name: /toggle menu/i });
-  if (await menuToggle.isVisible().catch(() => false)) {
-    await menuToggle.click().catch(() => {});
-  }
   const subButton = page.getByRole("button", { name: label }).first();
+  if (!(await subButton.isVisible().catch(() => false))) {
+    const menuToggle = page.getByRole("button", { name: /toggle menu/i });
+    if (await menuToggle.isVisible().catch(() => false)) {
+      await menuToggle.click().catch(() => {});
+    }
+  }
   await expect(subButton).toBeVisible({ timeout: 20_000 });
   await subButton.click({ force: true });
 }
@@ -163,8 +165,9 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^bug reports$/i);
-    await page.getByRole("button", { name: /^view$/i }).click();
+    await openSettingsSubItem(page, /^support center$/i);
+    await page.getByRole("button", { name: /^bug manager$/i }).first().click();
+    await page.getByRole("button", { name: /^view$/i }).first().click();
     await expect(page.getByRole("dialog", { name: /bug report detail/i })).toBeVisible({
       timeout: 20_000,
     });
@@ -215,7 +218,8 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^bug reports$/i);
+    await openSettingsSubItem(page, /^support center$/i);
+    await page.getByRole("button", { name: /^bug manager$/i }).first().click();
 
     await expect
       .poll(() => errorEventPayloads.length, {
@@ -223,7 +227,7 @@ test.describe("bug reporting diagnostics hardening", () => {
         message: "toast error event was not submitted",
       })
       .toBe(1);
-    await page.getByRole("button", { name: /^refresh$/i }).click();
+    await page.getByRole("button", { name: /^refresh$/i }).first().click();
     await expect.poll(() => errorEventPayloads.length, { timeout: 2_000 }).toBe(1);
 
     const payload = errorEventPayloads[0] as Record<string, unknown>;
@@ -281,8 +285,9 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^bug reports$/i);
-    await page.getByRole("button", { name: /error events/i }).click();
+    await openSettingsSubItem(page, /^support center$/i);
+    await page.getByRole("button", { name: /^bug manager$/i }).first().click();
+    await page.getByRole("button", { name: /error events/i }).first().click();
 
     await expect(page.getByText("Server runtime")).toBeVisible();
     await expect(page.getByText("server api error")).toBeVisible();
@@ -401,20 +406,21 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^ros dev center$/i);
+    await openSettingsSubItem(page, /^support center$/i);
 
     await expect(page.getByRole("heading", { name: /support center/i })).toBeVisible({
       timeout: 20_000,
     });
     await expect(page.getByText("Partial Visibility")).toBeVisible();
     await expect(page.getByText("Runtime details could not refresh")).toBeVisible();
-    await expect(page.getByText("Station Fleet")).toBeVisible();
+    await expect(page.getByText("Stations Fleet")).toBeVisible();
+    await page.getByRole("button", { name: "Stations Fleet" }).click();
     await expect(page.getByText("1 actionable offline")).toBeVisible();
-    await expect(page.getByText("1 stale hidden from active triage.")).toBeVisible();
+    await expect(page.getByText("1 stale")).toBeVisible();
     await expect(page.getByText("Actionable Offline", { exact: true })).toBeVisible();
-    await expect(page.getByText("Stale History")).toHaveCount(0);
+    await expect(page.getByText("Stale History", { exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Show Stale" }).click();
-    await expect(page.getByText("Stale History")).toBeVisible();
-    await expect(page.getByText("Bug Manager (Source of Truth)")).toBeVisible();
+    await expect(page.getByText("Stale History", { exact: true })).toBeVisible();
+    await expect(page.getByText("Bug Manager")).toBeVisible();
   });
 });

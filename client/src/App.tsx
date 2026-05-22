@@ -579,11 +579,11 @@ function App() {
           "remote-access",
           "ros-operations-center",
           "ros-dev-center",
+          "ros-support-center",
           "rosie",
           "online-store",
           "help-center",
           "backups",
-          "bug-reports",
           "meilisearch",
           "shippo",
           "helcim",
@@ -593,7 +593,8 @@ function App() {
           "email",
           "insights",
         ]);
-        setActiveSubSection(allowed.has(sec) ? sec : "general");
+        const targetSec = sec === "bug-reports" ? "ros-support-center" : sec;
+        setActiveSubSection(allowed.has(targetSec) ? targetSec : "general");
         const bugId = linkStr(link, "bug_report_id");
         if (bugId) {
           setBugReportsDeepLinkId(bugId);

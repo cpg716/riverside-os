@@ -14,7 +14,6 @@ import {
   ChevronRight,
   BookOpen,
   Bot,
-  Bug,
   Code2,
   Database,
   Trash2,
@@ -34,6 +33,7 @@ import {
   ReceiptText,
   Server,
   ShieldCheck,
+  ShieldAlert,
   Save,
   SlidersHorizontal,
   Store,
@@ -53,7 +53,7 @@ import CounterpointSyncSettingsPanel from "./CounterpointSyncSettingsPanel";
 import { StaffRoleAccessPanel } from "../staff/StaffAccessPanels";
 import StaffDiscountCapsPanel from "../staff/StaffDiscountCapsPanel";
 import InsightsSettingsPanel from "./InsightsSettingsPanel";
-import BugReportsSettingsPanel from "./BugReportsSettingsPanel";
+import RosSupportCenterPanel from "./RosSupportCenterPanel";
 import NuorderSettingsPanel from "./NuorderSettingsPanel";
 import GeoapifySettingsPanel from "./GeoapifySettingsPanel";
 import WeatherSettingsPanel from "./WeatherSettingsPanel";
@@ -74,7 +74,6 @@ import RosOperationsCenter, {
 } from "../operations/RosOperationsCenter";
 import RosDevCenterPanel from "./RosDevCenterPanel";
 import RosieSettingsPanel from "./RosieSettingsPanel";
-import UpdateManagerPanel from "./UpdateManagerPanel";
 import { SIDEBAR_SUB_SECTIONS } from "../layout/sidebarSections";
 
 
@@ -194,7 +193,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   meilisearch: "Search index health, reindex controls, and diagnostics.",
   "help-center": "Help Center content, manuals, and staff guidance publishing.",
   rosie: "ROSIE assistant settings and runtime behavior.",
-  "bug-reports": "Bug reports, captured incidents, and diagnostics triage.",
+  "ros-support-center": "Heartbeats, alerts, bug tracking, integrations, updates.",
   "ros-operations-center": "Operational readiness, problem routing, and support snapshot.",
   "ros-dev-center": "Developer operations, runtime health, and guarded actions.",
 };
@@ -247,7 +246,7 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   meilisearch: Plug,
   "help-center": BookOpen,
   rosie: Bot,
-  "bug-reports": Bug,
+  "ros-support-center": ShieldAlert,
   "ros-operations-center": Gauge,
   "ros-dev-center": Code2,
 };
@@ -1340,18 +1339,16 @@ export default function SettingsWorkspace({
               </div>
             )}
 
-            {activeTab === "updates" && <UpdateManagerPanel />}
-
             {activeTab === "online-store" && (
               <OnlineStoreConfigPanel onOpenOnlineStore={onOpenOnlineStore} />
             )}
 
             {activeTab === "rosie" && <RosieSettingsPanel />}
             {activeTab === "help-center" && <HelpCenterSettingsPanel />}
-            {activeTab === "bug-reports" && hasPermission("settings.admin") && (
-              <BugReportsSettingsPanel
-                deepLinkReportId={bugReportsDeepLinkId}
-                onDeepLinkConsumed={onBugReportsDeepLinkConsumed}
+            {activeTab === "ros-support-center" && hasPermission("ops.dev_center.view") && (
+              <RosSupportCenterPanel
+                bugReportsDeepLinkId={bugReportsDeepLinkId}
+                onBugReportsDeepLinkConsumed={onBugReportsDeepLinkConsumed}
               />
             )}
             {activeTab === "ros-operations-center" &&
@@ -1360,10 +1357,7 @@ export default function SettingsWorkspace({
               )}
             {activeTab === "ros-dev-center" &&
               hasPermission("ops.dev_center.view") && (
-                <RosDevCenterPanel
-                  bugReportsDeepLinkId={bugReportsDeepLinkId}
-                  onBugReportsDeepLinkConsumed={onBugReportsDeepLinkConsumed}
-                />
+                <RosDevCenterPanel />
               )}
 
             {activeTab === "meilisearch" && hasPermission("settings.admin") && (

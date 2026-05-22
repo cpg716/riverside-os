@@ -439,7 +439,7 @@ export default function RosOperationsCenter({
           ? "Check offline register workstations before opening or closing the store."
           : "Review open alerts, then continue normal store operations.",
         buttonLabel: "Open Support Center",
-        target: { tab: "settings", section: "ros-dev-center" },
+        target: { tab: "settings", section: "ros-support-center" },
         Icon: ShieldCheck,
       },
       {
@@ -571,7 +571,7 @@ export default function RosOperationsCenter({
         summary: `Client ${CLIENT_SEMVER} · build ${GIT_SHORT || "unknown"} · ${fmtNumber(opsData?.pending_bug_reports)} pending bug report${opsData?.pending_bug_reports === 1 ? "" : "s"}.`,
         nextAction: "Use Support Center for runtime diagnostics, E2E health, station fleet, backups, and guarded support actions.",
         buttonLabel: "Open Support Center",
-        target: { tab: "settings", section: "ros-dev-center" },
+        target: { tab: "settings", section: "ros-support-center" },
         Icon: ClipboardCheck,
       },
     ];
@@ -1075,7 +1075,7 @@ export default function RosOperationsCenter({
               </button>
               <button
                 type="button"
-                onClick={() => onNavigate({ tab: "settings", section: "ros-dev-center" })}
+                onClick={() => onNavigate({ tab: "settings", section: "ros-support-center" })}
                 className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
               >
                 Open Diagnostics

@@ -68,6 +68,13 @@ impl RedisCache {
         Ok(count > 0)
     }
 
+    /// Flush all keys in the database
+    pub async fn flushdb(&self) -> RedisResult<()> {
+        let mut conn = self.get_connection().await?;
+        let _: () = redis::cmd("FLUSHDB").query(&mut conn)?;
+        Ok(())
+    }
+
     /// Check if key exists
     pub async fn exists(&self, key: &str) -> RedisResult<bool> {
         let mut conn = self.get_connection().await?;

@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde_json::{json, Map, Value};
 use sqlx::PgPool;
+use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
@@ -275,6 +276,133 @@ pub async fn insert_staff_error_event(
     .await
 }
 
+static FALLBACK_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn fallback_mutex() -> &'static Mutex<()> {
+    FALLBACK_MUTEX.get_or_init(|| Mutex::new(()))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FallbackErrorEvent {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub staff_id: Option<Uuid>,
+    pub message: String,
+    pub event_source: String,
+    pub severity: String,
+    pub route: Option<String>,
+    pub client_meta: Value,
+    pub server_log_snapshot: String,
+}
+
+pub fn save_to_fallback_file(event: FallbackErrorEvent) -> Result<(), std::io::Error> {
+    let _guard = fallback_mutex().lock().unwrap();
+    let dir = std::path::Path::new("fallback_logs");
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join("fallback_errors.json");
+
+    let mut events: Vec<FallbackErrorEvent> = if path.exists() {
+        let content = std::fs::read_to_string(&path)?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    events.push(event);
+    let serialized = serde_json::to_string_pretty(&events)?;
+    std::fs::write(&path, serialized)?;
+    Ok(())
+}
+
+pub async fn ingest_fallback_errors(pool: &PgPool) -> Result<usize, sqlx::Error> {
+    let path = std::path::Path::new("fallback_logs").join("fallback_errors.json");
+
+    // Acquire lock and read the events
+    let events = {
+        let _guard = fallback_mutex().lock().unwrap();
+        if !path.exists() {
+            return Ok(0);
+        }
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to read fallback_errors.json");
+                return Ok(0);
+            }
+        };
+        let events: Vec<FallbackErrorEvent> = match serde_json::from_str(&content) {
+            Ok(evs) => evs,
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to parse fallback_errors.json");
+                return Ok(0);
+            }
+        };
+        events
+    };
+
+    if events.is_empty() {
+        return Ok(0);
+    }
+
+    let mut count = 0;
+    for event in &events {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff_error_event WHERE id = $1)")
+                .bind(event.id)
+                .fetch_one(pool)
+                .await?;
+        if exists {
+            continue;
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO staff_error_event (
+                id, created_at, staff_id, status, message, event_source, severity, route, client_meta, server_log_snapshot
+            )
+            VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, $9)
+            "#,
+        )
+        .bind(event.id)
+        .bind(event.created_at)
+        .bind(event.staff_id)
+        .bind(&event.message)
+        .bind(&event.event_source)
+        .bind(&event.severity)
+        .bind(event.route.as_deref())
+        .bind(&event.client_meta)
+        .bind(&event.server_log_snapshot)
+        .execute(pool)
+        .await?;
+
+        count += 1;
+    }
+
+    // Cleanup/truncate the file under lock by filtering out successfully ingested events
+    {
+        let _guard = fallback_mutex().lock().unwrap();
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(mut current_events) =
+                    serde_json::from_str::<Vec<FallbackErrorEvent>>(&content)
+                {
+                    let before_count = current_events.len();
+                    current_events.retain(|e| !events.iter().any(|ingested| ingested.id == e.id));
+                    if current_events.is_empty() {
+                        let _ = std::fs::remove_file(&path);
+                    } else if current_events.len() < before_count {
+                        if let Ok(serialized) = serde_json::to_string_pretty(&current_events) {
+                            let _ = std::fs::write(&path, serialized);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(count)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn upsert_server_error_event(
     pool: &PgPool,
@@ -293,56 +421,95 @@ pub async fn upsert_server_error_event(
     );
     let meta = Value::Object(meta);
 
-    if let Some(id) = sqlx::query_scalar::<_, Uuid>(
-        r#"
-        SELECT id
-        FROM staff_error_event
-        WHERE event_source = $1
-          AND client_meta->>'server_dedupe_key' = $2
-          AND lower(coalesce(status, 'pending')) = 'pending'
-        ORDER BY created_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(event_source)
-    .bind(server_dedupe_key.trim())
-    .fetch_optional(pool)
-    .await?
-    {
-        sqlx::query(
+    let db_result = async {
+        if let Some(id) = sqlx::query_scalar::<_, Uuid>(
             r#"
-            UPDATE staff_error_event
-            SET
-                message = $2,
-                severity = $3,
-                route = $4,
-                client_meta = $5,
-                server_log_snapshot = $6
-            WHERE id = $1
+            SELECT id
+            FROM staff_error_event
+            WHERE event_source = $1
+              AND client_meta->>'server_dedupe_key' = $2
+              AND lower(coalesce(status, 'pending')) = 'pending'
+            ORDER BY created_at DESC
+            LIMIT 1
             "#,
         )
-        .bind(id)
-        .bind(message)
-        .bind(severity)
-        .bind(route)
-        .bind(&meta)
-        .bind(server_log_snapshot)
-        .execute(pool)
-        .await?;
-        return Ok(id);
+        .bind(event_source)
+        .bind(server_dedupe_key.trim())
+        .fetch_optional(pool)
+        .await?
+        {
+            sqlx::query(
+                r#"
+                UPDATE staff_error_event
+                SET
+                    message = $2,
+                    severity = $3,
+                    route = $4,
+                    client_meta = $5,
+                    server_log_snapshot = $6
+                WHERE id = $1
+                "#,
+            )
+            .bind(id)
+            .bind(message)
+            .bind(severity)
+            .bind(route)
+            .bind(&meta)
+            .bind(server_log_snapshot)
+            .execute(pool)
+            .await?;
+            Ok(id)
+        } else {
+            insert_staff_error_event(
+                pool,
+                None,
+                message,
+                event_source,
+                severity,
+                route,
+                &meta,
+                server_log_snapshot,
+            )
+            .await
+        }
     }
+    .await;
 
-    insert_staff_error_event(
-        pool,
-        None,
-        message,
-        event_source,
-        severity,
-        route,
-        &meta,
-        server_log_snapshot,
-    )
-    .await
+    match db_result {
+        Ok(id) => Ok(id),
+        Err(db_err) => {
+            let fallback_id = Uuid::new_v4();
+            let fallback_event = FallbackErrorEvent {
+                id: fallback_id,
+                created_at: Utc::now(),
+                staff_id: None,
+                message: message.to_string(),
+                event_source: event_source.to_string(),
+                severity: severity.to_string(),
+                route: route.map(|s| s.to_string()),
+                client_meta: meta,
+                server_log_snapshot: server_log_snapshot.to_string(),
+            };
+            match save_to_fallback_file(fallback_event) {
+                Ok(_) => {
+                    tracing::warn!(
+                        error = %db_err,
+                        fallback_id = %fallback_id,
+                        "Database unavailable. Server error event saved to fallback file."
+                    );
+                    Ok(fallback_id)
+                }
+                Err(file_err) => {
+                    tracing::error!(
+                        db_error = %db_err,
+                        file_error = %file_err,
+                        "Database unavailable AND fallback file write failed!"
+                    );
+                    Err(db_err)
+                }
+            }
+        }
+    }
 }
 
 pub async fn get_staff_error_event(

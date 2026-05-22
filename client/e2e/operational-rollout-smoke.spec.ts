@@ -151,11 +151,13 @@ async function selectCustomer(page: Page): Promise<void> {
 }
 
 async function openSettingsSubItem(page: Page, label: RegExp): Promise<void> {
-  const menuToggle = page.getByRole("button", { name: /toggle menu/i });
-  if (await menuToggle.isVisible().catch(() => false)) {
-    await menuToggle.click().catch(() => {});
-  }
   const subButton = page.getByRole("button", { name: label }).first();
+  if (!(await subButton.isVisible().catch(() => false))) {
+    const menuToggle = page.getByRole("button", { name: /toggle menu/i });
+    if (await menuToggle.isVisible().catch(() => false)) {
+      await menuToggle.click().catch(() => {});
+    }
+  }
   await expect(subButton).toBeVisible({ timeout: 20_000 });
   await subButton.click({ force: true });
 }
@@ -711,8 +713,9 @@ test.describe("operational rollout smoke", () => {
     );
 
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^bug reports$/i);
-    await page.getByRole("button", { name: /^view$/i }).click();
+    await openSettingsSubItem(page, /^support center$/i);
+    await page.getByRole("button", { name: /^bug manager$/i }).first().click();
+    await page.getByRole("button", { name: /^view$/i }).first().click();
 
     const detail = page.getByRole("dialog", { name: /bug report detail/i });
     await expect(detail).toBeVisible({ timeout: 20_000 });

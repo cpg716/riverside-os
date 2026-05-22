@@ -76,7 +76,7 @@ function downloadJson(filename: string, data: unknown) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 150);
 }
 
 function downloadTextFile(filename: string, text: string) {
@@ -88,7 +88,7 @@ function downloadTextFile(filename: string, text: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 150);
 }
 
 async function copyToClipboardOrDownload(
@@ -120,7 +120,7 @@ function downloadPng(filename: string, base64: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 150);
 }
 
 function sanitizeDetail(detail: Detail): Detail {

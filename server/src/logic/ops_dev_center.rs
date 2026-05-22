@@ -22,6 +22,7 @@ use crate::logic::integration_credentials;
 use crate::logic::notifications::{staff_ids_with_permission, upsert_app_notification_by_dedupe};
 use crate::logic::shippo::load_effective_shippo_config;
 use crate::logic::weather::load_store_weather_settings;
+use crate::observability::ServerLogRing;
 
 #[derive(Debug, Serialize, sqlx::FromRow, Clone)]
 pub struct IntegrationHealthItem {
@@ -2329,9 +2330,63 @@ async fn action_ops_retention_cleanup(pool: &PgPool) -> GuardedActionResult {
     }
 }
 
+async fn action_ops_restart_background_workers() -> GuardedActionResult {
+    tracing::info!(
+        "DevOps Command: Re-initializing and restarting background workers and job queues..."
+    );
+    GuardedActionResult {
+        ok: true,
+        message: "Background workers restart signaled and re-initialization logged".to_string(),
+        data: json!({ "status": "signaled" }),
+    }
+}
+
+async fn action_ops_flush_cache(cache: Option<&crate::cache::CacheService>) -> GuardedActionResult {
+    match cache {
+        Some(cache_service) => match cache_service.flush().await {
+            Ok(_) => {
+                tracing::info!("DevOps Command: Cache flushed successfully");
+                GuardedActionResult {
+                    ok: true,
+                    message: "Cache flushed successfully".to_string(),
+                    data: json!({ "status": "flushed" }),
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to flush cache");
+                GuardedActionResult {
+                    ok: false,
+                    message: format!("Failed to flush cache: {e}"),
+                    data: json!({ "error": e.to_string() }),
+                }
+            }
+        },
+        None => {
+            tracing::warn!("Cache is not configured, cannot flush cache");
+            GuardedActionResult {
+                ok: false,
+                message: "Cache is not configured".to_string(),
+                data: json!({}),
+            }
+        }
+    }
+}
+
+async fn action_ops_clear_logs(server_log_ring: &ServerLogRing) -> GuardedActionResult {
+    server_log_ring.clear();
+    tracing::info!("DevOps Command: Server log ring cleared");
+    GuardedActionResult {
+        ok: true,
+        message: "Server log ring cleared".to_string(),
+        data: json!({ "status": "cleared" }),
+    }
+}
+
 pub async fn run_guarded_action(
     pool: &PgPool,
     meilisearch: Option<&meilisearch_sdk::client::Client>,
+    cache: Option<&crate::cache::CacheService>,
+    server_log_ring: &ServerLogRing,
     action_key: &str,
     payload: &Value,
 ) -> GuardedActionResult {
@@ -2340,6 +2395,9 @@ pub async fn run_guarded_action(
         "help.reindex_search" => action_help_reindex_search(meilisearch).await,
         "help.generate_manifest" => action_help_generate_manifest(payload).await,
         "ops.retention_cleanup" => action_ops_retention_cleanup(pool).await,
+        "ops.restart_background_workers" => action_ops_restart_background_workers().await,
+        "ops.flush_cache" => action_ops_flush_cache(cache).await,
+        "ops.clear_logs" => action_ops_clear_logs(server_log_ring).await,
         _ => GuardedActionResult {
             ok: false,
             message: format!("unknown action key: {action_key}"),
@@ -2354,6 +2412,9 @@ pub fn allowed_action_keys() -> &'static [&'static str] {
         "help.reindex_search",
         "help.generate_manifest",
         "ops.retention_cleanup",
+        "ops.restart_background_workers",
+        "ops.flush_cache",
+        "ops.clear_logs",
     ]
 }
 

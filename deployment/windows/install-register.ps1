@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$ConfigPath = "",
   [switch]$SkipAppInstall,
@@ -13,6 +13,23 @@ if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
     Split-Path -Parent $MyInvocation.MyCommand.Path
   } else {
     "."
+  }
+}
+
+$packageManifestPath = Join-Path $ScriptRoot "deployment-package.manifest.json"
+$packageManifest = $null
+if (Test-Path $packageManifestPath) {
+  try {
+    $packageManifest = Get-Content $packageManifestPath -Raw | ConvertFrom-Json
+  } catch {}
+}
+
+function Set-SafeProperty($Object, $Name, $Value) {
+  if ($null -eq $Object) { return }
+  if ($Object.PSObject.Properties[$Name]) {
+    $Object.$Name = $Value
+  } else {
+    $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
   }
 }
 
@@ -181,6 +198,15 @@ if (-not (Test-Path $ConfigPath)) {
 }
 
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+
+if ($packageManifest -and $packageManifest.releaseVersion) {
+  if ($config.releaseVersion -ne $packageManifest.releaseVersion) {
+    Set-SafeProperty $config "releaseVersion" $packageManifest.releaseVersion
+    $configJson = $config | ConvertTo-Json -Depth 8
+    Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
+  }
+}
+
 $stationConfigPath = Write-StationConfig $config
 Write-Host "Station setup written to $stationConfigPath"
 

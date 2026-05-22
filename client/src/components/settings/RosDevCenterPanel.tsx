@@ -1,63 +1,48 @@
-import { getBaseUrl, getBaseUrlDiagnostics } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { getBaseUrl } from "../../lib/apiConfig";
+import { useCallback, useEffect, useState } from "react";
 import {
-  Activity,
-  AlertTriangle,
-  Bell,
-  Bug,
-  CheckCircle2,
-  ClipboardList,
+  Code2,
   Database,
   RefreshCw,
-  Server,
-  ShieldAlert,
   Terminal,
-  Users,
-  Wrench,
+  Server,
+  Sparkles,
+  ShieldCheck,
 } from "lucide-react";
-
-import { CLIENT_SEMVER } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
-import BugReportsSettingsPanel from "./BugReportsSettingsPanel";
 import GitHubDevOpsPanel from "./GitHubDevOpsPanel";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
-type IntegrationHealthItem = {
-  key: string;
-  title: string;
-  status: string;
-  severity: string;
-  detail: string;
-  last_success_at: string | null;
-  last_failure_at: string | null;
-  updated_at: string | null;
+type ServerDiagnostics = {
+  version: string;
+  uptime_seconds: number;
+  rust_version: string;
 };
 
-type OpsHealthSnapshot = {
-  server_time: string;
-  db_ok: boolean;
-  meilisearch_configured: boolean;
-  tailscale_expected: boolean;
-  integrations: IntegrationHealthItem[];
-  open_alerts: number;
-  stations_online: number;
-  stations_offline: number;
-  stations_stale: number;
-  pending_bug_reports: number;
+type DatabaseDiagnostics = {
+  connected: boolean;
+  pool_size: number;
+  active_connections: number;
+  idle_connections: number;
+  migration_count: number;
 };
 
-type RuntimeDiagnosticItem = {
-  key: string;
-  label: string;
-  value: string;
-  detail: string;
-  severity: string;
+type LogEntry = {
+  timestamp: string;
+  level: string;
+  target: string;
+  message: string;
 };
 
-type RuntimeDiagnosticsSnapshot = {
+type DiagnosticsSnapshot = {
   generated_at: string;
-  items: RuntimeDiagnosticItem[];
+  server: ServerDiagnostics;
+  database: DatabaseDiagnostics;
+  errors: LogEntry[];
+  warnings: LogEntry[];
+  github: { token_configured: boolean };
+  ai_prompt: string;
 };
 
 type E2eFailurePlaybookItem = {
@@ -99,36 +84,6 @@ type E2eHealthSnapshot = {
   playbook: E2eFailurePlaybookItem[];
 };
 
-type StationRow = {
-  station_key: string;
-  station_label: string;
-  app_version: string;
-  git_sha: string | null;
-  tailscale_node: string | null;
-  lan_ip: string | null;
-  last_sync_at: string | null;
-  last_update_check_at: string | null;
-  last_update_install_at: string | null;
-  last_seen_at: string;
-  updated_at: string;
-  online: boolean;
-  station_lifecycle: "online" | "recently_offline" | "stale" | string;
-  actionable: boolean;
-};
-
-type AlertEventRow = {
-  id: string;
-  rule_key: string;
-  title: string;
-  body: string;
-  severity: "critical" | "warning" | "info" | string;
-  status: "open" | "acked" | "resolved" | string;
-  first_seen_at: string;
-  last_seen_at: string;
-  acked_at: string | null;
-  resolved_at: string | null;
-};
-
 type ActionAuditRow = {
   id: string;
   actor_staff_id: string;
@@ -143,144 +98,19 @@ type ActionAuditRow = {
   created_at: string;
 };
 
-type BugOverviewRow = {
-  id: string;
-  correlation_id: string;
-  created_at: string;
-  status: string;
-  summary: string;
-  staff_name: string;
-  linked_incidents: number;
-  oldest_linked_alert_at: string | null;
-};
-
-type NotificationHealth = {
-  summary: {
-    active_inbox_rows: number;
-    unread_rows: number;
-    stale_unread_rows: number;
-    history_rows: number;
-    canonical_notifications_24h: number;
-    staff_rows_24h: number;
-  };
-  generator_runs: Array<{
-    generator_key: string;
-    last_started_at: string;
-    last_finished_at: string;
-    last_success_at: string | null;
-    last_error_at: string | null;
-    last_status: "ok" | "failed";
-    last_error: string | null;
-    consecutive_failures: number;
-  }>;
-  volume_by_kind_7d: Array<{
-    semantic_kind: string;
-    kind: string;
-    canonical_count: number;
-    recipient_count: number;
-  }>;
-  stale_unread_by_kind: Array<{
-    semantic_kind: string;
-    unread_count: number;
-    oldest_created_at: string;
-  }>;
-};
-
 type GuardedActionKey =
-  | "backup.trigger_local"
   | "help.reindex_search"
   | "help.generate_manifest"
-  | "ops.retention_cleanup";
+  | "ops.retention_cleanup"
+  | "backup.trigger_local";
 
 const baseUrl = getBaseUrl();
-
-type SupportFeedKey =
-  | "overview"
-  | "runtime"
-  | "stations"
-  | "alerts"
-  | "audit"
-  | "bugs"
-  | "notifications";
-
-type SupportFeedErrors = Partial<Record<SupportFeedKey, boolean>>;
-type OperationalStatus = "ready" | "review" | "degraded" | "blocked";
 
 function fmtTs(v: string | null): string {
   if (!v) return "-";
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return v;
   return d.toLocaleString();
-}
-
-function fmtCount(v: number | null | undefined): string {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(
-    v ?? 0,
-  );
-}
-
-function formatNotificationKindLabel(value: string): string {
-  return value
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function severityClass(severity: string): string {
-  if (severity === "critical") {
-    return "bg-app-danger/12 text-app-danger border border-app-danger/30";
-  }
-  if (severity === "warning") {
-    return "bg-app-warning/12 text-app-warning border border-app-warning/30";
-  }
-  return "bg-app-success/12 text-app-success border border-app-success/30";
-}
-
-function statusClass(status: string): string {
-  if (status === "open") return "bg-app-danger/12 text-app-danger";
-  if (status === "acked") return "bg-app-warning/12 text-app-warning";
-  return "bg-app-success/12 text-app-success";
-}
-
-function infoBadgeClass(severity: string): string {
-  if (severity === "warning") {
-    return "bg-app-warning/12 text-app-warning border border-app-warning/30";
-  }
-  if (severity === "critical") {
-    return "bg-app-danger/12 text-app-danger border border-app-danger/30";
-  }
-  return "bg-app-info/12 text-app-info border border-app-info/30";
-}
-
-function operationalStatusLabel(status: OperationalStatus): string {
-  if (status === "blocked") return "Blocked";
-  if (status === "degraded") return "Degraded";
-  if (status === "review") return "Needs Review";
-  return "Ready";
-}
-
-function operationalStatusClass(status: OperationalStatus): string {
-  if (status === "blocked") {
-    return "border-app-danger/30 bg-app-danger/12 text-app-danger";
-  }
-  if (status === "degraded") {
-    return "border-app-warning/30 bg-app-warning/12 text-app-warning";
-  }
-  if (status === "review") {
-    return "border-amber-500/30 bg-amber-500/12 text-amber-700";
-  }
-  return "border-app-success/30 bg-app-success/12 text-app-success";
-}
-
-function stationLifecycleLabel(station: StationRow): string {
-  if (station.online) return "Online";
-  if (station.actionable) return "Actionable Offline";
-  return "Stale History";
-}
-
-function stationLifecycleClass(station: StationRow): string {
-  if (station.online) return "bg-app-success/12 text-app-success";
-  if (station.actionable) return "bg-app-danger/12 text-app-danger";
-  return "bg-app-bg text-app-text-muted border border-app-border";
 }
 
 function laneOutcomeClass(outcome: string): string {
@@ -296,132 +126,25 @@ function laneOutcomeClass(outcome: string): string {
   return "bg-app-bg text-app-text-muted border border-app-border";
 }
 
-const STATION_PAGE_SIZE = 10;
-const ALERT_PAGE_SIZE = 6;
-const E2E_FAILURE_PLAYBOOK: Array<{
-  category: string;
-  nextAction: string;
-}> = [
-  {
-    category: "app startup",
-    nextAction:
-      "Confirm the app is reachable, then rerun one blocking check before changing tests.",
-  },
-  {
-    category: "auth/seed data",
-    nextAction:
-      "Re-run seed/migration steps and verify expected staff/session fixtures before triaging selectors.",
-  },
-  {
-    category: "selector/UI contract",
-    nextAction:
-      "Reproduce with a single spec in headed mode, verify data-testid/role contract, and patch the smallest stable locator.",
-  },
-  {
-    category: "staff-facing wording/layout",
-    nextAction:
-      "Compare the failure with current staff-facing copy and responsive layout, then update the UI and matching E2E wording together.",
-  },
-  {
-    category: "runtime console/API cleanliness",
-    nextAction:
-      "Run the runtime cleanliness spec and inspect unexpected browser console output or API 4xx noise before changing tests.",
-  },
-  {
-    category: "financial/audit contract",
-    nextAction:
-      "Treat as release-blocking. Compare the failed result, then confirm money and audit rules still hold.",
-  },
-  {
-    category: "flaky/timing",
-    nextAction:
-      "Replace broad waits with deterministic readiness checks and rerun serially to isolate state timing.",
-  },
-];
-
-function pageCount(total: number, pageSize: number): number {
-  return Math.max(1, Math.ceil(total / pageSize));
-}
-
-function PageControls({
-  label,
-  page,
-  total,
-  pageSize,
-  onPageChange,
-}: {
-  label: string;
-  page: number;
-  total: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
-}) {
-  const totalPages = pageCount(total, pageSize);
-  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const end = Math.min(total, page * pageSize);
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-app-border/60 pb-3">
-      <p className="text-[11px] font-bold uppercase tracking-wider text-app-text-muted">
-        {label}: {start}-{end} of {total}
-      </p>
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onPageChange(Math.max(1, page - 1))}
-          disabled={page <= 1}
-          className="rounded-lg border border-app-border bg-app-bg px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-text disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Prev
-        </button>
-        <span className="rounded-lg border border-app-border bg-app-surface px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text">
-          Page {page} / {totalPages}
-        </span>
-        <button
-          type="button"
-          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-          disabled={page >= totalPages}
-          className="rounded-lg border border-app-border bg-app-bg px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-text disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function DegradedNotice({ children }: { children: ReactNode }) {
-  return (
-    <p className="rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-warning">
-      {children}
-    </p>
-  );
-}
-
-export default function RosDevCenterPanel({
-  bugReportsDeepLinkId = null,
-  onBugReportsDeepLinkConsumed,
-}: {
-  bugReportsDeepLinkId?: string | null;
-  onBugReportsDeepLinkConsumed?: () => void;
-}) {
+export default function RosDevCenterPanel() {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
-  const [overview, setOverview] = useState<OpsHealthSnapshot | null>(null);
-  const [stations, setStations] = useState<StationRow[]>([]);
-  const [alerts, setAlerts] = useState<AlertEventRow[]>([]);
-  const [auditRows, setAuditRows] = useState<ActionAuditRow[]>([]);
-  const [bugsOverview, setBugsOverview] = useState<BugOverviewRow[]>([]);
-  const [notificationHealth, setNotificationHealth] =
-    useState<NotificationHealth | null>(null);
-  const [runtimeDiagnostics, setRuntimeDiagnostics] =
-    useState<RuntimeDiagnosticsSnapshot | null>(null);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
   const [e2eHealth, setE2eHealth] = useState<E2eHealthSnapshot | null>(null);
   const [e2eHealthLoading, setE2eHealthLoading] = useState(false);
-  const [feedErrors, setFeedErrors] = useState<SupportFeedErrors>({});
+  const [auditRows, setAuditRows] = useState<ActionAuditRow[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
 
+  // ROSIE AI analysis states
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+
+  // Database Vacuum state
+  const [vacuumBusy, setVacuumBusy] = useState(false);
+
+  // Guarded actions state
   const [actionBusy, setActionBusy] = useState<GuardedActionKey | null>(null);
   const [actionReason, setActionReason] = useState("");
   const [confirmPrimary, setConfirmPrimary] = useState(false);
@@ -431,14 +154,6 @@ export default function RosDevCenterPanel({
   const [manifestIncludeShadcn, setManifestIncludeShadcn] = useState(false);
   const [manifestRescan, setManifestRescan] = useState(false);
   const [manifestCleanupOrphans, setManifestCleanupOrphans] = useState(false);
-
-  const [selectedBugId, setSelectedBugId] = useState("");
-  const [selectedAlertId, setSelectedAlertId] = useState("");
-  const [linkNote, setLinkNote] = useState("");
-  const [linkBusy, setLinkBusy] = useState(false);
-  const [stationPage, setStationPage] = useState(1);
-  const [alertPage, setAlertPage] = useState(1);
-  const [showStaleStations, setShowStaleStations] = useState(false);
 
   const canView = hasPermission("ops.dev_center.view");
   const canRunActions = hasPermission("ops.dev_center.actions");
@@ -465,156 +180,112 @@ export default function RosDevCenterPanel({
     [backofficeHeaders, canView],
   );
 
-  const loadAll = useCallback(async () => {
+  const loadDiagnostics = useCallback(async () => {
     if (!canView) return;
     setLoading(true);
-    const headers = backofficeHeaders() as Record<string, string>;
-    const fetchJson = async <T,>(
-      key: SupportFeedKey,
-      path: string,
-    ): Promise<{ key: SupportFeedKey; ok: true; data: T } | { key: SupportFeedKey; ok: false }> => {
-      try {
-        const res = await fetch(`${baseUrl}${path}`, { headers });
-        if (!res.ok) return { key, ok: false };
-        return { key, ok: true, data: (await res.json()) as T };
-      } catch {
-        return { key, ok: false };
-      }
-    };
-
     try {
-      const results = await Promise.all([
-        fetchJson<OpsHealthSnapshot>("overview", "/api/ops/overview"),
-        fetchJson<RuntimeDiagnosticsSnapshot>(
-          "runtime",
-          "/api/ops/runtime-diagnostics",
-        ),
-        fetchJson<StationRow[]>("stations", "/api/ops/stations"),
-        fetchJson<AlertEventRow[]>("alerts", "/api/ops/alerts"),
-        fetchJson<ActionAuditRow[]>("audit", "/api/ops/audit-log"),
-        fetchJson<BugOverviewRow[]>("bugs", "/api/ops/bugs/overview"),
-        fetchJson<NotificationHealth>("notifications", "/api/notifications/health"),
-      ]);
-
-      const nextErrors: SupportFeedErrors = {};
-      for (const result of results) {
-        if (!result.ok) {
-          nextErrors[result.key] = true;
-          continue;
-        }
-        if (result.key === "overview") setOverview(result.data as OpsHealthSnapshot);
-        if (result.key === "runtime") {
-          setRuntimeDiagnostics(result.data as RuntimeDiagnosticsSnapshot);
-        }
-        if (result.key === "stations") setStations(result.data as StationRow[]);
-        if (result.key === "alerts") setAlerts(result.data as AlertEventRow[]);
-        if (result.key === "audit") setAuditRows(result.data as ActionAuditRow[]);
-        if (result.key === "bugs") setBugsOverview(result.data as BugOverviewRow[]);
-        if (result.key === "notifications") {
-          setNotificationHealth(result.data as NotificationHealth);
-        }
+      const headers = backofficeHeaders() as Record<string, string>;
+      const res = await fetch(`${baseUrl}/api/ops/diagnostics`, { headers });
+      if (!res.ok) {
+        setDiagnostics(null);
+        return;
       }
-      setFeedErrors(nextErrors);
+      setDiagnostics((await res.json()) as DiagnosticsSnapshot);
+    } catch {
+      setDiagnostics(null);
     } finally {
       setLoading(false);
     }
   }, [backofficeHeaders, canView]);
 
-  useEffect(() => {
-    void loadAll();
+  const loadAuditLogs = useCallback(async () => {
+    if (!canView) return;
+    setAuditLoading(true);
+    try {
+      const headers = backofficeHeaders() as Record<string, string>;
+      const res = await fetch(`${baseUrl}/api/ops/audit-log`, { headers });
+      if (!res.ok) {
+        setAuditRows([]);
+        return;
+      }
+      setAuditRows((await res.json()) as ActionAuditRow[]);
+    } catch {
+      setAuditRows([]);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [backofficeHeaders, canView]);
+
+  const loadAll = useCallback(() => {
+    void loadDiagnostics();
     void loadE2eHealth();
-  }, [loadAll, loadE2eHealth]);
+    void loadAuditLogs();
+  }, [loadDiagnostics, loadE2eHealth, loadAuditLogs]);
 
-  const refreshBusy = loading || e2eHealthLoading;
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
 
-  const openAlerts = useMemo(
-    () => alerts.filter((a) => a.status === "open" || a.status === "acked"),
-    [alerts],
-  );
-  const apiBaseDiagnostics = useMemo(() => getBaseUrlDiagnostics(), []);
-  const e2ePlaybook = useMemo(
-    () =>
-      e2eHealth?.playbook?.length
-        ? e2eHealth.playbook.map((item) => ({
-            category: item.category,
-            nextAction: item.recommended_next_action,
-          }))
-        : E2E_FAILURE_PLAYBOOK,
-    [e2eHealth],
-  );
+  const refreshBusy = loading || e2eHealthLoading || auditLoading;
+  
   const blockingLane = e2eHealth?.blocking ?? null;
   const nightlyLane = e2eHealth?.nightly ?? null;
-  const stationCounts = useMemo(
-    () => ({
-      online: stations.filter((station) => station.online).length,
-      actionableOffline: stations.filter(
-        (station) => !station.online && station.actionable,
-      ).length,
-      stale: stations.filter((station) => !station.online && !station.actionable).length,
-    }),
-    [stations],
-  );
-  const displayedStations = useMemo(
-    () =>
-      showStaleStations
-        ? stations
-        : stations.filter((station) => station.online || station.actionable),
-    [showStaleStations, stations],
-  );
-  const stationTotalPages = pageCount(displayedStations.length, STATION_PAGE_SIZE);
-  const alertTotalPages = pageCount(openAlerts.length, ALERT_PAGE_SIZE);
-  const visibleStations = useMemo(
-    () =>
-      displayedStations.slice(
-        (stationPage - 1) * STATION_PAGE_SIZE,
-        stationPage * STATION_PAGE_SIZE,
-      ),
-    [displayedStations, stationPage],
-  );
-  const visibleAlerts = useMemo(
-    () =>
-      openAlerts.slice(
-        (alertPage - 1) * ALERT_PAGE_SIZE,
-        alertPage * ALERT_PAGE_SIZE,
-      ),
-    [alertPage, openAlerts],
-  );
-  const supportStatus = useMemo<OperationalStatus>(() => {
-    const sourceFailures = Object.values(feedErrors).filter(Boolean).length;
-    const criticalIntegrations =
-      overview?.integrations.filter((item) => item.severity === "critical").length ?? 0;
-    const warningIntegrations =
-      overview?.integrations.filter((item) => item.severity === "warning").length ?? 0;
-    const criticalAlerts = openAlerts.filter((alert) => alert.severity === "critical").length;
-    const warningAlerts = openAlerts.filter((alert) => alert.severity === "warning").length;
-    const criticalRuntime =
-      runtimeDiagnostics?.items.filter((item) => item.severity === "critical").length ?? 0;
-    const warningRuntime =
-      runtimeDiagnostics?.items.filter((item) => item.severity === "warning").length ?? 0;
 
-    if (overview?.db_ok === false || criticalIntegrations > 0 || criticalAlerts > 0 || criticalRuntime > 0) {
-      return "blocked";
+  // Trigger local vacuum / optimize
+  const handleVacuumOptimize = async () => {
+    setVacuumBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/database/optimize`, {
+        method: "POST",
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (res.ok) {
+        toast("Database optimized successfully", "success");
+        void loadDiagnostics();
+      } else {
+        toast("Database optimization failed", "error");
+      }
+    } catch {
+      toast("Network error optimizing database", "error");
+    } finally {
+      setVacuumBusy(false);
     }
-    if (!overview || sourceFailures > 0) return "degraded";
-    if (
-      warningIntegrations > 0 ||
-      warningAlerts > 0 ||
-      warningRuntime > 0 ||
-      overview.stations_offline > 0 ||
-      overview.pending_bug_reports > 0
-    ) {
-      return "review";
+  };
+
+  // ROSIE AI Analysis trigger
+  const runAiAnalysis = async () => {
+    if (!diagnostics?.ai_prompt) {
+      toast("No diagnostics prompt compiled yet", "error");
+      return;
     }
-    return "ready";
-  }, [feedErrors, openAlerts, overview, runtimeDiagnostics]);
-
-  useEffect(() => {
-    setStationPage((page) => Math.min(page, stationTotalPages));
-  }, [stationTotalPages]);
-
-  useEffect(() => {
-    setAlertPage((page) => Math.min(page, alertTotalPages));
-  }, [alertTotalPages]);
+    setAiBusy(true);
+    setAiAnalysis(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/ops/diagnostics/analyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(backofficeHeaders() as Record<string, string>),
+        },
+        body: JSON.stringify({ prompt: diagnostics.ai_prompt }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error ?? "AI Analysis failed", "error");
+        return;
+      }
+      if (data.error) {
+        toast(data.error, "error");
+      } else {
+        setAiAnalysis(data.analysis);
+        toast("Analysis complete", "success");
+      }
+    } catch {
+      toast("Network error running AI analysis", "error");
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   const runGuardedAction = useCallback(
     async (actionKey: GuardedActionKey, payload: Record<string, unknown>) => {
@@ -656,7 +327,7 @@ export default function RosDevCenterPanel({
         setActionReason("");
         setConfirmPrimary(false);
         setConfirmSecondary(false);
-        await loadAll();
+        loadAll();
       } catch {
         toast("Network error running action", "error");
       } finally {
@@ -674,527 +345,237 @@ export default function RosDevCenterPanel({
     ],
   );
 
-  const ackAlert = useCallback(
-    async (alertId: string) => {
-      if (!canRunActions) return;
-      try {
-        const res = await fetch(`${baseUrl}/api/ops/alerts/ack`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(backofficeHeaders() as Record<string, string>),
-          },
-          body: JSON.stringify({ alert_id: alertId }),
-        });
-        if (!res.ok) {
-          toast("Could not acknowledge alert", "error");
-          return;
-        }
-        toast("Alert acknowledged", "success");
-        await loadAll();
-      } catch {
-        toast("Network error acknowledging alert", "error");
-      }
-    },
-    [backofficeHeaders, canRunActions, loadAll, toast],
-  );
-
-  const linkBugAlert = useCallback(async () => {
-    if (!canRunActions) return;
-    if (!selectedBugId || !selectedAlertId) {
-      toast("Select both a bug report and an alert", "error");
-      return;
-    }
-
-    setLinkBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/ops/bugs/link-alert`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify({
-          bug_report_id: selectedBugId,
-          alert_event_id: selectedAlertId,
-          note: linkNote.trim(),
-        }),
-      });
-      if (!res.ok) {
-        toast("Could not link bug to alert", "error");
-        return;
-      }
-      toast("Bug linked to ops incident", "success");
-      setLinkNote("");
-      await loadAll();
-    } catch {
-      toast("Network error linking bug", "error");
-    } finally {
-      setLinkBusy(false);
-    }
-  }, [
-    backofficeHeaders,
-    canRunActions,
-    linkNote,
-    loadAll,
-    selectedAlertId,
-    selectedBugId,
-    toast,
-  ]);
-
   if (!canView) {
     return (
       <div className="ui-card p-8">
-          <h2 className="text-xl font-black uppercase tracking-widest text-app-text">
-          Support Center
+        <h2 className="text-xl font-black uppercase tracking-widest text-app-text">
+          Dev Center
         </h2>
         <p className="mt-2 text-sm text-app-text-muted">
-          You do not have access to this workspace.
+          You do not have access to this developer workspace.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+    <div className="space-y-6">
+      {/* Premium Header */}
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-app-border/40 pb-4">
         <div>
-          <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-            Support Center
+          <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text flex items-center gap-2">
+            <Code2 className="h-8 w-8 text-app-accent" />
+            Dev Center
           </h2>
-          <p className="mt-2 text-sm font-medium text-app-text-muted">
-            Read-only runtime visibility, station recovery, alert triage, and
-            support-safe diagnostics.
-          </p>
-          <p className="mt-1 text-xs text-app-text-muted">
-            Control app version: <strong>{CLIENT_SEMVER}</strong>
+          <p className="mt-1 text-sm font-medium text-app-text-muted">
+            Internal diagnostics, database connection pools, local AI log analysis, and E2E regression testing.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => {
-            void loadAll();
-            void loadE2eHealth();
-          }}
+          onClick={loadAll}
           disabled={refreshBusy}
           className="ui-btn-ghost px-4 py-2 text-xs font-black uppercase tracking-widest"
         >
-          {refreshBusy ? (
-            <RefreshCw className="mr-2 inline h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 inline h-4 w-4" />
-          )}
+          <RefreshCw className={`mr-2 inline h-4 w-4 ${refreshBusy ? "animate-spin" : ""}`} />
           Refresh
         </button>
       </header>
 
-      {feedErrors.overview ? (
-        <DegradedNotice>
-          Overview details could not refresh. Showing the last available support
-          summary where possible.
-        </DegradedNotice>
-      ) : null}
+      {/* Main Grid: DB and Server info */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Database diagnostics card */}
+        <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-app-accent" />
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                PostgreSQL Connection Pool
+              </h3>
+            </div>
+            <span
+              className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest border ${
+                diagnostics?.database.connected
+                  ? "bg-app-success/12 text-app-success border-app-success/30"
+                  : "bg-app-danger/12 text-app-danger border-app-danger/30"
+              }`}
+            >
+              {diagnostics?.database.connected ? "Connected" : "Disconnected"}
+            </span>
+          </div>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <div className="ui-card p-5">
-          <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Operational Status
-          </div>
-          <div className="mt-2 flex items-center gap-2 text-lg font-black text-app-text">
-            <Database className="h-5 w-5 text-app-accent" />
-            {operationalStatusLabel(supportStatus)}
-          </div>
-          <div className={`mt-3 rounded-full border px-2 py-1 text-[10px] font-black uppercase tracking-wider ${operationalStatusClass(supportStatus)}`}>
-            {supportStatus === "blocked"
-              ? "Recovery Required"
-              : supportStatus === "degraded"
-                ? "Partial Visibility"
-                : supportStatus === "review"
-                  ? "Manager Review"
-                  : "Normal"}
-          </div>
-        </div>
-        <div className="ui-card p-5">
-          <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Open Alerts
-          </div>
-          <div className="mt-2 flex items-center gap-2 text-lg font-black text-app-text">
-            <AlertTriangle className="h-5 w-5 text-amber-400" />
-            {overview?.open_alerts ?? 0}
-          </div>
-        </div>
-        <div className="ui-card p-5">
-          <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Stations Online
-          </div>
-          <div className="mt-2 flex items-center gap-2 text-lg font-black text-app-text">
-            <Server className="h-5 w-5 text-emerald-400" />
-            {overview?.stations_online ?? 0}
-          </div>
-        </div>
-        <div className="ui-card p-5">
-          <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Stations Offline
-          </div>
-          <div className="mt-2 flex items-center gap-2 text-lg font-black text-app-text">
-            <Users className="h-5 w-5 text-red-400" />
-            {overview?.stations_offline ?? stationCounts.actionableOffline}
-          </div>
-          <p className="mt-2 text-[11px] font-semibold text-app-text-muted">
-            {fmtCount(overview?.stations_stale ?? stationCounts.stale)} stale hidden
-            from active triage.
-          </p>
-        </div>
-        <div className="ui-card p-5">
-          <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Pending Bugs
-          </div>
-          <div className="mt-2 flex items-center gap-2 text-lg font-black text-app-text">
-            <Bug className="h-5 w-5 text-app-accent" />
-            {overview?.pending_bug_reports ?? 0}
-          </div>
-        </div>
-      </section>
-
-      <section className="ui-card p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <Activity className="h-5 w-5 text-app-accent" />
-          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            Support Details
-          </h3>
-        </div>
-        {feedErrors.runtime ? (
-          <div className="mb-4">
-            <DegradedNotice>
-              Runtime details could not refresh. Other support tools remain
-              available.
-            </DegradedNotice>
-          </div>
-        ) : null}
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          <div className="ui-metric-cell ui-tint-info p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-black text-app-text">App connection</p>
-                <p className="mt-1 break-all font-mono text-xs text-app-text">
-                  {apiBaseDiagnostics.resolved}
-                </p>
-                <p className="mt-2 text-xs text-app-text-muted">
-                  Source:{" "}
-                  {apiBaseDiagnostics.source === "override"
-                    ? "local override"
-                    : apiBaseDiagnostics.source === "vite-env"
-                      ? "app setting"
-                      : apiBaseDiagnostics.source === "same-origin"
-                        ? "current browser"
-                        : "desktop fallback"}
-                </p>
-              </div>
-              <span className="rounded-full border border-app-info/30 bg-app-info/12 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-app-info">
-                app
-              </span>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="ui-metric-cell ui-tint-neutral p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Total Pool Size
+              </p>
+              <p className="mt-2 text-2xl font-black text-app-text">
+                {diagnostics?.database.pool_size ?? 0}
+              </p>
+            </div>
+            <div className="ui-metric-cell ui-tint-neutral p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Active Connections
+              </p>
+              <p className="mt-2 text-2xl font-black text-app-text text-app-accent">
+                {diagnostics?.database.active_connections ?? 0}
+              </p>
+            </div>
+            <div className="ui-metric-cell ui-tint-neutral p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Idle Connections
+              </p>
+              <p className="mt-2 text-2xl font-black text-app-text">
+                {diagnostics?.database.idle_connections ?? 0}
+              </p>
+            </div>
+            <div className="ui-metric-cell ui-tint-neutral p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Applied Migrations
+              </p>
+              <p className="mt-2 text-2xl font-black text-app-text">
+                {diagnostics?.database.migration_count ?? 0}
+              </p>
             </div>
           </div>
 
-          {(runtimeDiagnostics?.items ?? []).map((item) => (
-            <div
-              key={item.key}
-              className="ui-metric-cell ui-tint-neutral p-4"
+          <div className="mt-6 flex justify-end">
+            <button
+              type="button"
+              disabled={vacuumBusy}
+              onClick={() => void handleVacuumOptimize()}
+              className="ui-btn-secondary px-4 py-2 text-xs font-black uppercase tracking-widest"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-black text-app-text">{item.label}</p>
-                  <p className="mt-1 text-lg font-black text-app-text">{item.value}</p>
-                  <p className="mt-2 text-xs leading-relaxed text-app-text-muted">
-                    {item.detail}
-                  </p>
-                </div>
-                <span
-                  className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${infoBadgeClass(item.severity)}`}
-                >
-                  {item.severity}
+              <Database className="mr-2 inline h-4 w-4" />
+              {vacuumBusy ? "Vacuuming..." : "Vacuum & Optimize DB"}
+            </button>
+          </div>
+        </div>
+
+        {/* Server & Environment info */}
+        <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60 flex flex-col justify-between">
+          <div>
+            <div className="mb-4 flex items-center gap-2">
+              <Server className="h-5 w-5 text-app-accent" />
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Server Environment
+              </h3>
+            </div>
+            <div className="space-y-4">
+              <div className="flex justify-between border-b border-app-border/40 pb-2 text-xs">
+                <span className="font-bold text-app-text-muted">Package Version:</span>
+                <span className="font-mono text-app-text">{diagnostics?.server.version ?? "-"}</span>
+              </div>
+              <div className="flex justify-between border-b border-app-border/40 pb-2 text-xs">
+                <span className="font-bold text-app-text-muted">Rust Runtime Version:</span>
+                <span className="font-mono text-app-text">{diagnostics?.server.rust_version ?? "-"}</span>
+              </div>
+              <div className="flex justify-between border-b border-app-border/40 pb-2 text-xs">
+                <span className="font-bold text-app-text-muted">Server Uptime:</span>
+                <span className="font-mono text-app-text">
+                  {diagnostics?.server.uptime_seconds
+                    ? `${(diagnostics.server.uptime_seconds / 3600).toFixed(2)} hours`
+                    : "-"}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="font-bold text-app-text-muted">Captured Errors / Warnings (24h):</span>
+                <span className="font-mono font-bold text-app-danger">
+                  {(diagnostics?.errors.length ?? 0)} E / {(diagnostics?.warnings.length ?? 0)} W
                 </span>
               </div>
             </div>
-          ))}
+          </div>
+          <p className="mt-4 text-[10px] text-app-text-muted">
+            Environment metadata auto-compiled at startup. GitHub token configured:{" "}
+            <strong>{diagnostics?.github.token_configured ? "Yes" : "No"}</strong>
+          </p>
         </div>
-        <p className="mt-3 text-[11px] text-app-text-muted">
-          Read-only support snapshot. Secrets are never exposed.
-          {runtimeDiagnostics?.generated_at
-            ? ` Last checked: ${fmtTs(runtimeDiagnostics.generated_at)}`
-            : ""}
-        </p>
-      </section>
+      </div>
 
-      <section className="ui-card p-6">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      {/* ROSIE AI Diagnostics Analyzer */}
+      <section className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60">
+        <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Bell className="h-5 w-5 text-app-accent" />
+            <Sparkles className="h-5 w-5 text-app-accent" />
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Notification Health
+                ROSIE AI Log Analyzer
               </h3>
               <p className="mt-1 text-xs text-app-text-muted">
-                Generator runs, stale alerts, and delivery noise.
+                Run system metrics and log streams through our local Gemma LLM endpoint to diagnose anomalies.
               </p>
             </div>
           </div>
-          <span
-            className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
-              notificationHealth?.generator_runs.some((r) => r.last_status === "failed")
-                ? "border-app-danger/30 bg-app-danger/12 text-app-danger"
-                : "border-app-success/30 bg-app-success/12 text-app-success"
-            }`}
+          <button
+            type="button"
+            disabled={aiBusy || !diagnostics?.ai_prompt}
+            onClick={() => void runAiAnalysis()}
+            className="ui-btn-primary px-4 py-2 text-xs font-black uppercase tracking-widest flex items-center gap-2"
           >
-            {notificationHealth?.generator_runs.filter((r) => r.last_status === "failed").length ??
-              0}{" "}
-            failing
-          </span>
-        </div>
-        {feedErrors.notifications ? (
-          <div className="mb-4">
-            <DegradedNotice>
-              Notification health could not refresh. Staff alerts remain usable.
-            </DegradedNotice>
-          </div>
-        ) : null}
-
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[
-            { label: "Unread", value: notificationHealth?.summary.unread_rows },
-            {
-              label: "Stale unread",
-              value: notificationHealth?.summary.stale_unread_rows,
-            },
-            {
-              label: "Active rows",
-              value: notificationHealth?.summary.active_inbox_rows,
-            },
-            {
-              label: "Generated 24h",
-              value: notificationHealth?.summary.canonical_notifications_24h,
-            },
-          ].map(({ label, value }) => (
-            <div key={label} className="ui-metric-cell ui-tint-neutral p-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {label}
-              </p>
-              <p className="mt-2 text-xl font-black text-app-text">
-                {fmtCount(value)}
-              </p>
-            </div>
-          ))}
+            <Sparkles className={`h-4 w-4 ${aiBusy ? "animate-pulse" : ""}`} />
+            {aiBusy ? "Analyzing Logs..." : "Run AI Analysis"}
+          </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="ui-metric-cell ui-tint-neutral p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Generator status
-            </p>
-            <div className="mt-3 space-y-3">
-              {(notificationHealth?.generator_runs ?? []).slice(0, 5).map((row) => (
-                <div
-                  key={row.generator_key}
-                  className="flex items-start justify-between gap-3 text-xs"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-bold text-app-text">
-                      {formatNotificationKindLabel(row.generator_key)}
-                    </p>
-                    <p className="truncate text-[11px] text-app-text-muted">
-                      {row.last_status === "failed"
-                        ? row.last_error || "Generator failed"
-                        : `Last ran ${fmtTs(row.last_finished_at)}`}
-                    </p>
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-wider ${
-                      row.last_status === "failed"
-                        ? "border-app-danger/30 bg-app-danger/12 text-app-danger"
-                        : "border-app-success/30 bg-app-success/12 text-app-success"
-                    }`}
-                  >
-                    {row.last_status === "failed"
-                      ? `${row.consecutive_failures}x fail`
-                      : "OK"}
-                  </span>
-                </div>
-              ))}
-              {!notificationHealth?.generator_runs.length ? (
-                <p className="text-xs text-app-text-muted">
-                  No generator run records yet.
-                </p>
-              ) : null}
-            </div>
+        {aiAnalysis ? (
+          <div className="mt-4 rounded-xl border border-app-border/60 bg-black/85 p-4 font-mono text-xs text-emerald-400 overflow-x-auto max-h-96">
+            <pre className="whitespace-pre-wrap">{aiAnalysis}</pre>
           </div>
-
-          <div className="ui-metric-cell ui-tint-neutral p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Highest volume
-            </p>
-            <div className="mt-3 space-y-2">
-              {(notificationHealth?.volume_by_kind_7d ?? []).slice(0, 5).map((row) => (
-                <div
-                  key={`${row.kind}:${row.semantic_kind}`}
-                  className="flex justify-between gap-3 text-xs"
-                >
-                  <span className="truncate text-app-text">
-                    {formatNotificationKindLabel(row.semantic_kind)}
-                  </span>
-                  <span className="font-bold text-app-text-muted">
-                    {fmtCount(row.recipient_count)} rows
-                  </span>
-                </div>
-              ))}
-              {!notificationHealth?.volume_by_kind_7d.length ? (
-                <p className="text-xs text-app-text-muted">
-                  No notification volume in the last 7 days.
-                </p>
-              ) : null}
-            </div>
+        ) : (
+          <div className="mt-4 rounded-xl border border-dashed border-app-border p-8 text-center text-xs text-app-text-muted bg-app-bg/20">
+            No analysis results yet. Click the button to send compile log snapshot data to the local worker.
           </div>
-
-          <div className="ui-metric-cell ui-tint-neutral p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Stale unread
-            </p>
-            <div className="mt-3 space-y-2">
-              {(notificationHealth?.stale_unread_by_kind ?? []).slice(0, 5).map((row) => (
-                <div
-                  key={row.semantic_kind}
-                  className="flex justify-between gap-3 text-xs"
-                >
-                  <span className="truncate text-app-text">
-                    {formatNotificationKindLabel(row.semantic_kind)}
-                  </span>
-                  <span className="font-bold text-app-warning">
-                    {fmtCount(row.unread_count)}
-                  </span>
-                </div>
-              ))}
-              {!notificationHealth?.stale_unread_by_kind.length ? (
-                <p className="text-xs text-app-text-muted">
-                  No stale unread alerts.
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </div>
+        )}
       </section>
 
-      <GitHubDevOpsPanel />
-
-      <section className="ui-card p-6">
+      {/* E2E health lanes */}
+      <section className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60">
         <div className="mb-4 flex items-center gap-2">
-          <ClipboardList className="h-5 w-5 text-app-accent" />
+          <ShieldCheck className="h-5 w-5 text-app-accent" />
           <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            E2E Health
+            Playwright E2E Regression Lanes
           </h3>
         </div>
-        <p className="text-sm text-app-text-muted">
-          Live lane status with commands and guidance for blocking, nightly,
-          responsive, readability, and runtime-cleanliness checks.
+        <p className="text-xs text-app-text-muted">
+          Active test telemetry integrated with GitHub Action workflow runs.
         </p>
 
         <div className="mt-4">
           <IntegrationCredentialsCard
             baseUrl={baseUrl}
             integrationKey="ops_github"
-            title="GitHub E2E Telemetry"
-            description="Save the GitHub repository and read-only Actions token here. ROS Dev Center reads these encrypted Settings values for E2E health."
+            title="GitHub E2E Telemetry Sync"
+            description="Secure developer configuration containing the repository identifier and Actions read token."
             fields={[
               {
                 key: "repo",
                 label: "Repository",
                 type: "text",
                 placeholder: "owner/riverside-os",
-                help: "Required for Playwright lane status.",
+                help: "Must map to GitHub repository name.",
               },
               {
                 key: "token",
-                label: "GitHub Token",
+                label: "GitHub Access Token",
                 type: "password",
-                help: "Read-only token with Actions workflow-run/job/log access.",
+                help: "Required to fetch workflow statuses.",
               },
             ]}
             onSaved={loadE2eHealth}
           />
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span
-            className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${
-              e2eHealth?.source.mode === "live"
-                ? "border border-app-success/30 bg-app-success/12 text-app-success"
-                : "border border-app-warning/30 bg-app-warning/12 text-app-warning"
-            }`}
-          >
-            Source:{" "}
-            {e2eHealth?.source.mode ?? (e2eHealthLoading ? "loading" : "unavailable")}
-          </span>
-          <span className="rounded-full border border-app-border bg-app-bg px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Last sync:{" "}
-            {e2eHealth?.generated_at
-              ? fmtTs(e2eHealth.generated_at)
-              : e2eHealthLoading
-                ? "Loading"
-                : "-"}
-          </span>
-        </div>
-
-        {e2eHealth?.failure_issue_url ? (
-          <div className="mt-3">
-            <a
-              href={e2eHealth.failure_issue_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-black uppercase tracking-wider text-app-accent underline-offset-2 hover:underline"
-            >
-              Open failure tracker
-            </a>
-          </div>
-        ) : null}
-
-        {e2eHealth?.source.notes?.length ? (
-          <div className="mt-3 space-y-2 rounded-xl border border-app-warning/30 bg-app-warning/10 p-3 text-xs text-app-warning">
-            {e2eHealth.source.notes.map((note) => (
-              <p key={note}>{note}</p>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <div className="ui-metric-cell ui-tint-neutral p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Blocking lane purpose
-            </p>
-            <p className="mt-2 text-sm font-bold text-app-text">
-              {blockingLane?.purpose ??
-                "High-signal financial, tax, register, audit, staff-language, and core navigation contracts."}
-              {" "}Must pass for merge.
-            </p>
-          </div>
-          <div className="ui-metric-cell ui-tint-neutral p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Nightly lane purpose
-            </p>
-            <p className="mt-2 text-sm font-bold text-app-text">
-              {nightlyLane?.purpose ??
-                "Broader responsive, full-suite, visual, and runtime-cleanliness coverage for drift detection without PR blocking."}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
           {[
-            { label: "Blocking lane", lane: blockingLane },
-            { label: "Nightly lane", lane: nightlyLane },
+            { label: "Blocking Merge Checks", lane: blockingLane },
+            { label: "Nightly Execution Suite", lane: nightlyLane },
           ].map(({ label, lane }) => (
             <div key={label} className="ui-metric-cell ui-tint-neutral p-4">
               <div className="flex items-start justify-between gap-3">
                 <p className="text-sm font-black text-app-text">{label}</p>
                 <span
-                  className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${laneOutcomeClass(
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${laneOutcomeClass(
                     lane?.last_run_outcome ?? "unknown",
                   )}`}
                 >
@@ -1202,9 +583,8 @@ export default function RosDevCenterPanel({
                 </span>
               </div>
               <p className="mt-2 text-xs text-app-text-muted">
-                Run:{" "}
-                {lane?.run_number ? `#${lane.run_number}` : "-"}
-                {lane?.html_url ? (
+                Run Number: {lane?.run_number ? `#${lane.run_number}` : "-"}
+                {lane?.html_url && (
                   <>
                     {" "}
                     •{" "}
@@ -1212,37 +592,24 @@ export default function RosDevCenterPanel({
                       href={lane.html_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-black text-app-accent underline-offset-2 hover:underline"
+                      className="font-black text-app-accent underline"
                     >
-                      open
+                      View GitHub Action
                     </a>
                   </>
-                ) : null}
+                )}
               </p>
-              <p className="mt-1 text-xs text-app-text-muted">
-                Started: {fmtTs(lane?.started_at ?? null)} • Completed:{" "}
-                {fmtTs(lane?.completed_at ?? null)}
+              <p className="mt-1 text-[11px] text-app-text-muted">
+                Started: {fmtTs(lane?.started_at ?? null)} | Completed: {fmtTs(lane?.completed_at ?? null)}
               </p>
-              {lane?.failure_category ? (
-                <p className="mt-2 text-xs text-app-warning">
-                  Category: <span className="font-black">{lane.failure_category}</span>
-                </p>
-              ) : null}
-              {lane?.recommended_next_action ? (
-                <p className="mt-1 text-xs text-app-text-muted">
-                  Next action: {lane.recommended_next_action}
-                </p>
-              ) : null}
               {lane?.failed_specs.length ? (
-                <div className="mt-2 rounded-lg border border-app-border/60 bg-app-bg/40 p-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Failed specs
+                <div className="mt-3 rounded-lg border border-app-border/40 bg-app-bg/50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1">
+                    Failed Spec Suites
                   </p>
-                  <div className="mt-1 space-y-1">
-                    {(lane?.failed_specs ?? []).map((spec) => (
-                      <p key={spec} className="font-mono text-[11px] text-app-text">
-                        {spec}
-                      </p>
+                  <div className="space-y-1 font-mono text-[10px] text-app-danger">
+                    {lane.failed_specs.map((spec) => (
+                      <div key={spec}>{spec}</div>
                     ))}
                   </div>
                 </div>
@@ -1251,297 +618,45 @@ export default function RosDevCenterPanel({
           ))}
         </div>
 
-        <div className="mt-4 rounded-xl border border-app-border/60 bg-app-bg/30 p-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Local commands
-          </p>
-          <div className="mt-2 space-y-2 font-mono text-xs text-app-text">
-            <p>
-              blocking: <span className="font-black">npm --prefix client run test:e2e:blocking</span>
-            </p>
-            <p>
-              nightly: <span className="font-black">npm --prefix client run test:e2e:nightly</span>
-            </p>
-            <p>
-              runtime:{" "}
-              <span className="font-black">
-                npm --prefix client run test:e2e -- e2e/runtime-console-cleanliness.spec.ts --workers=1
-              </span>
-            </p>
-            <p>
-              readability:{" "}
-              <span className="font-black">
-                npm --prefix client run test:e2e -- e2e/staff-audit-labels.spec.ts e2e/settings-mobile.spec.ts e2e/reports-mobile-cards.spec.ts --workers=1
-              </span>
-            </p>
+        {/* Local commands snippet box */}
+        <div className="mt-4 rounded-xl border border-app-border/60 bg-app-bg/30 p-4 font-mono text-xs text-app-text space-y-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Local CLI Execution</p>
+          <div className="space-y-1">
+            <div>blocking: <span className="font-bold">npm --prefix client run test:e2e:blocking</span></div>
+            <div>nightly: <span className="font-bold">npm --prefix client run test:e2e:nightly</span></div>
           </div>
         </div>
 
-        <div className="mt-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Common failure categories and next action
-          </p>
-          <div className="mt-2 space-y-2">
-            {e2ePlaybook.map((item) => (
-              <div key={item.category} className="ui-metric-cell ui-tint-neutral p-3">
-                <p className="text-xs font-black uppercase tracking-wider text-app-text">
-                  {item.category}
-                </p>
-                <p className="mt-1 text-xs text-app-text-muted">{item.nextAction}</p>
-              </div>
-            ))}
-          </div>
+        <div className="mt-4 border-t border-app-border/40 pt-4">
+          <GitHubDevOpsPanel />
         </div>
-
-        <p className="mt-4 text-xs text-app-text-muted">
-          If station test details are unavailable, this card stays limited and
-          the rest of Support Center remains usable.
-        </p>
-        <p className="mt-1 text-xs text-app-text-muted">
-          Reference: <code>docs/E2E_REGRESSION_MATRIX.md</code>
-        </p>
       </section>
 
-      <section className="ui-card p-6">
+      {/* Developer Guarded Actions */}
+      <section className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60">
         <div className="mb-4 flex items-center gap-2">
-          <Activity className="h-5 w-5 text-app-accent" />
+          <Terminal className="h-5 w-5 text-app-accent" />
           <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            Integration Health
+            Guarded Developer Actions
           </h3>
-        </div>
-        {feedErrors.overview ? (
-          <div className="mb-4">
-            <DegradedNotice>
-              Integration health could not refresh with the latest overview.
-            </DegradedNotice>
-          </div>
-        ) : null}
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {(overview?.integrations ?? []).map((item) => (
-            <div key={item.key} className="ui-metric-cell ui-tint-neutral p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-black text-app-text">{item.title}</p>
-                  <p className="mt-1 text-xs text-app-text-muted">{item.detail || "-"}</p>
-                </div>
-                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${severityClass(item.severity)}`}>
-                  {item.status}
-                </span>
-              </div>
-              <p className="mt-2 text-[11px] text-app-text-muted">
-                Last success: {fmtTs(item.last_success_at)} | Last failure: {fmtTs(item.last_failure_at)}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="ui-card p-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Server className="h-5 w-5 text-app-accent" />
-            <div>
-              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Station Fleet
-              </h3>
-              <p className="mt-1 text-xs text-app-text-muted">
-                Active stations stay in triage. Stale heartbeat history is
-                retained for governance without flooding recovery work.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-app-success/30 bg-app-success/12 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-success">
-              {fmtCount(stationCounts.online)} online
-            </span>
-            <span className="rounded-full border border-app-danger/30 bg-app-danger/12 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-danger">
-              {fmtCount(stationCounts.actionableOffline)} actionable offline
-            </span>
-            <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              {fmtCount(stationCounts.stale)} stale
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setShowStaleStations((value) => !value);
-                setStationPage(1);
-              }}
-              className="rounded-lg border border-app-border bg-app-bg px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface hover:text-app-text"
-            >
-              {showStaleStations ? "Hide Stale" : "Show Stale"}
-            </button>
-          </div>
-        </div>
-        {feedErrors.stations ? (
-          <div className="mb-4">
-            <DegradedNotice>
-              Station details could not refresh. Showing the last available
-              station list.
-            </DegradedNotice>
-          </div>
-        ) : null}
-        <PageControls
-          label="Stations"
-          page={stationPage}
-          total={displayedStations.length}
-          pageSize={STATION_PAGE_SIZE}
-          onPageChange={setStationPage}
-        />
-        <div className="mt-3 max-h-[520px] overflow-auto rounded-xl border border-app-border/60">
-          <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 z-10 bg-app-surface">
-              <tr className="text-[10px] uppercase tracking-widest text-app-text-muted">
-                <th className="px-3 py-2">Station</th>
-                <th className="px-3 py-2">Version</th>
-                <th className="px-3 py-2">Network</th>
-                <th className="px-3 py-2">Last Seen</th>
-                <th className="px-3 py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleStations.map((s) => (
-                <tr key={s.station_key} className="border-t border-app-border/60">
-                  <td className="px-3 py-2">
-                    <div className="font-bold text-app-text">{s.station_label}</div>
-                    <div className="text-xs text-app-text-muted">{s.station_key}</div>
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {s.app_version}
-                    {s.git_sha ? ` (${s.git_sha.slice(0, 10)})` : ""}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-app-text-muted">
-                    {s.tailscale_node || s.lan_ip || "-"}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-app-text-muted">{fmtTs(s.last_seen_at)}</td>
-                  <td className="px-3 py-2">
-                    <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${stationLifecycleClass(s)}`}>
-                      {stationLifecycleLabel(s)}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {!displayedStations.length && (
-                <tr>
-                  <td colSpan={5} className="py-6 text-center text-sm text-app-text-muted">
-                    No active station heartbeat data in the current view.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="ui-card p-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="h-5 w-5 text-amber-400" />
-            <div>
-              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Alert Center
-              </h3>
-              <p className="mt-1 text-xs text-app-text-muted">
-                Critical alerts sort first. Acknowledged items remain visible
-                until the source condition resolves.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-app-danger/30 bg-app-danger/12 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-danger">
-              {fmtCount(openAlerts.filter((a) => a.severity === "critical").length)} critical
-            </span>
-            <span className="rounded-full border border-app-warning/30 bg-app-warning/12 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
-              {fmtCount(openAlerts.filter((a) => a.severity === "warning").length)} warning
-            </span>
-            <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              {fmtCount(openAlerts.length)} active
-            </span>
-          </div>
-        </div>
-        {feedErrors.alerts ? (
-          <div className="mb-4">
-            <DegradedNotice>
-              Alert details could not refresh. Showing the last available alert
-              list.
-            </DegradedNotice>
-          </div>
-        ) : null}
-        <PageControls
-          label="Alerts"
-          page={alertPage}
-          total={openAlerts.length}
-          pageSize={ALERT_PAGE_SIZE}
-          onPageChange={setAlertPage}
-        />
-        <div className="mt-3 max-h-[560px] space-y-3 overflow-y-auto pr-1">
-          {visibleAlerts.map((a) => (
-            <div key={a.id} className="ui-metric-cell ui-tint-neutral p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-black text-app-text">{a.title}</p>
-                  <p className="mt-1 text-xs text-app-text-muted">{a.body}</p>
-                  <p className="mt-1 text-[11px] text-app-text-muted">
-                    First seen {fmtTs(a.first_seen_at)} | Last seen {fmtTs(a.last_seen_at)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${severityClass(a.severity)}`}>
-                    {a.severity}
-                  </span>
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${statusClass(a.status)}`}>
-                    {a.status}
-                  </span>
-                  {canRunActions && a.status === "open" && (
-                    <button
-                      type="button"
-                      onClick={() => void ackAlert(a.id)}
-                      className="rounded-lg bg-app-accent px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white"
-                    >
-                      Ack
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-          {!openAlerts.length && (
-            <p className="ui-panel ui-tint-success px-4 py-3 text-sm text-app-success">
-              No open/acked alerts right now.
-            </p>
-          )}
-        </div>
-      </section>
-
-      <section className="ui-card p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <Wrench className="h-5 w-5 text-app-accent" />
-          <div>
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-              Recovery & Maintenance Actions
-            </h3>
-            <p className="mt-1 text-xs text-app-text-muted">
-              Recovery actions support store operation. Developer maintenance is
-              grouped separately and remains guarded.
-            </p>
-          </div>
         </div>
 
         {!canRunActions ? (
-          <p className="text-sm text-app-text-muted">
-            You can view action history, but Manager Access is needed to run protected actions.
+          <p className="text-xs text-app-text-muted">
+            Developer authorization defaults restrict execution. Developer role mapping is required to run protected commands.
           </p>
         ) : (
           <div className="space-y-4">
             <div>
               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Required reason
+                Audit Trail Reason (Required)
               </label>
               <textarea
                 value={actionReason}
                 onChange={(e) => setActionReason(e.target.value)}
-                rows={3}
-                className="ui-input mt-2 w-full"
-                placeholder="Why this action is needed (required for audit trail)"
+                rows={2}
+                className="ui-input mt-2 w-full bg-app-bg text-app-text border-app-border"
+                placeholder="Reason statement required to sign action payload..."
               />
             </div>
 
@@ -1552,7 +667,7 @@ export default function RosDevCenterPanel({
                   checked={confirmPrimary}
                   onChange={(e) => setConfirmPrimary(e.target.checked)}
                 />
-                I confirm this is intentional.
+                Confirm execution target
               </label>
               <label className="inline-flex items-center gap-2 text-app-text-muted">
                 <input
@@ -1560,48 +675,18 @@ export default function RosDevCenterPanel({
                   checked={confirmSecondary}
                   onChange={(e) => setConfirmSecondary(e.target.checked)}
                 />
-                I confirm business timing is safe.
+                Confirm production safety
               </label>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <button
-                type="button"
-                disabled={actionBusy === "backup.trigger_local"}
-                onClick={() =>
-                  void runGuardedAction("backup.trigger_local", {})
-                }
-                className="ui-btn-primary py-3 text-xs font-black uppercase tracking-widest"
-              >
-                {actionBusy === "backup.trigger_local" ? "Running..." : "Trigger Local Backup"}
-              </button>
-
-              <button
-                type="button"
-                disabled={actionBusy === "ops.retention_cleanup"}
-                onClick={() =>
-                  void runGuardedAction("ops.retention_cleanup", {})
-                }
-                className="ui-btn-secondary py-3 text-xs font-black uppercase tracking-widest"
-              >
-                {actionBusy === "ops.retention_cleanup" ? "Running..." : "Clean Up Stale Ops Data"}
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:col-span-2">
-                Developer maintenance
-              </div>
-
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <button
                 type="button"
                 disabled={actionBusy === "help.reindex_search"}
-                onClick={() =>
-                  void runGuardedAction("help.reindex_search", {})
-                }
-                className="ui-btn-secondary py-3 text-xs font-black uppercase tracking-widest"
+                onClick={() => void runGuardedAction("help.reindex_search", {})}
+                className="ui-btn-primary py-3 text-xs font-black uppercase tracking-widest"
               >
-                {actionBusy === "help.reindex_search" ? "Running..." : "Reindex Help Search"}
+                {actionBusy === "help.reindex_search" ? "Reindexing..." : "Reindex Help Search"}
               </button>
 
               <button
@@ -1615,15 +700,16 @@ export default function RosDevCenterPanel({
                     cleanup_orphans: manifestCleanupOrphans,
                   })
                 }
-                className="ui-btn-ghost py-3 text-xs font-black uppercase tracking-widest"
+                className="ui-btn-secondary py-3 text-xs font-black uppercase tracking-widest"
               >
-                {actionBusy === "help.generate_manifest" ? "Running..." : "Generate Help Manifest"}
+                {actionBusy === "help.generate_manifest" ? "Generating..." : "Generate Help Manifest"}
               </button>
             </div>
 
-            <div className="rounded-xl border border-app-border p-3 text-xs text-app-text-muted">
-              <div className="mb-2 font-black uppercase tracking-widest">Manifest options</div>
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {/* Manifest Checkboxes */}
+            <div className="rounded-xl border border-app-border p-4 text-xs text-app-text bg-app-bg/25">
+              <div className="mb-2 font-black uppercase tracking-widest text-[10px] text-app-text-muted">Help Manifest Generation Options</div>
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                 <label className="inline-flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -1646,7 +732,7 @@ export default function RosDevCenterPanel({
                     checked={manifestRescan}
                     onChange={(e) => setManifestRescan(e.target.checked)}
                   />
-                  Rescan components
+                  Rescan files
                 </label>
                 <label className="inline-flex items-center gap-2">
                   <input
@@ -1654,7 +740,7 @@ export default function RosDevCenterPanel({
                     checked={manifestCleanupOrphans}
                     onChange={(e) => setManifestCleanupOrphans(e.target.checked)}
                   />
-                  Cleanup orphans
+                  Clean orphans
                 </label>
               </div>
             </div>
@@ -1662,135 +748,39 @@ export default function RosDevCenterPanel({
         )}
       </section>
 
-      <section className="ui-card p-6">
+      {/* Action Audit Log */}
+      <section className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60">
         <div className="mb-4 flex items-center gap-2">
           <Terminal className="h-5 w-5 text-app-accent" />
           <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            Action Audit
+            Audit Trails (Guarded Actions)
           </h3>
         </div>
-        {feedErrors.audit ? (
-          <div className="mb-4">
-            <DegradedNotice>
-              Action history could not refresh. Protected actions still record
-              audit details on the server.
-            </DegradedNotice>
-          </div>
-        ) : null}
-        <div className="space-y-2">
-          {auditRows.slice(0, 15).map((row) => (
+
+        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+          {auditRows.slice(0, 10).map((row) => (
             <div key={row.id} className="ui-metric-cell ui-tint-neutral px-3 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm font-black text-app-text">{row.action_key}</div>
-                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${row.result_ok ? "bg-app-success/12 text-app-success" : "bg-app-danger/12 text-app-danger"}`}>
+                <div className="text-xs font-black text-app-text">{row.action_key}</div>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                    row.result_ok
+                      ? "bg-app-success/12 text-app-success border border-app-success/20"
+                      : "bg-app-danger/12 text-app-danger border border-app-danger/20"
+                  }`}
+                >
                   {row.result_ok ? "Success" : "Failed"}
                 </span>
               </div>
               <p className="mt-1 text-xs text-app-text-muted">{row.reason}</p>
-              <p className="mt-1 text-[11px] text-app-text-muted">
-                {fmtTs(row.created_at)} | Correlation {row.correlation_id}
+              <p className="mt-1 text-[10px] text-app-text-muted">
+                {fmtTs(row.created_at)} | ID: {row.correlation_id}
               </p>
             </div>
           ))}
           {!auditRows.length && (
-            <p className="text-sm text-app-text-muted">No action audit rows yet.</p>
+            <p className="text-xs text-app-text-muted">No audit trails recorded.</p>
           )}
-        </div>
-      </section>
-
-      <section className="ui-card p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <CheckCircle2 className="h-5 w-5 text-app-accent" />
-          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            Bug Incident Links
-          </h3>
-        </div>
-        {feedErrors.bugs ? (
-          <div className="mb-4">
-            <DegradedNotice>
-              Bug incident links could not refresh. The Bug Manager below
-              remains the source of truth.
-            </DegradedNotice>
-          </div>
-        ) : null}
-
-        {canRunActions && (
-          <div className="mb-6 grid grid-cols-1 gap-3 rounded-xl border border-app-border p-4 lg:grid-cols-4">
-            <select
-              value={selectedBugId}
-              onChange={(e) => setSelectedBugId(e.target.value)}
-              className="ui-input"
-            >
-              <option value="">Select bug report</option>
-              {bugsOverview.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.summary.slice(0, 72)}
-                </option>
-              ))}
-            </select>
-            <select
-              value={selectedAlertId}
-              onChange={(e) => setSelectedAlertId(e.target.value)}
-              className="ui-input"
-            >
-              <option value="">Select alert</option>
-              {openAlerts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.title}
-                </option>
-              ))}
-            </select>
-            <input
-              value={linkNote}
-              onChange={(e) => setLinkNote(e.target.value)}
-              placeholder="Optional link note"
-              className="ui-input"
-            />
-            <button
-              type="button"
-              disabled={linkBusy}
-              onClick={() => void linkBugAlert()}
-              className="ui-btn-primary px-4 py-2 text-xs font-black uppercase tracking-widest"
-            >
-              {linkBusy ? "Linking..." : "Link Bug To Alert"}
-            </button>
-          </div>
-        )}
-
-        <div className="space-y-2">
-          {bugsOverview.slice(0, 15).map((b) => (
-            <div key={b.id} className="ui-metric-cell ui-tint-neutral px-3 py-2">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-black text-app-text">{b.summary}</p>
-                  <p className="text-xs text-app-text-muted">
-                    {b.staff_name} | {fmtTs(b.created_at)}
-                  </p>
-                </div>
-                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${b.status === "pending" ? "bg-app-warning/12 text-app-warning" : "bg-app-success/12 text-app-success"}`}>
-                  {b.status}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-app-text-muted">
-                Linked incidents: {b.linked_incidents} | Oldest linked alert: {fmtTs(b.oldest_linked_alert_at)}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="ui-card p-6">
-        <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-          Bug Manager (Source of Truth)
-        </h3>
-        <p className="mt-1 text-xs text-app-text-muted">
-          All bug CRUD and status remain canonical in ROS Bug Reports.
-        </p>
-        <div className="mt-6">
-          <BugReportsSettingsPanel
-            deepLinkReportId={bugReportsDeepLinkId}
-            onDeepLinkConsumed={onBugReportsDeepLinkConsumed}
-          />
         </div>
       </section>
     </div>

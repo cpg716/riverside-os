@@ -6,13 +6,13 @@ import {
   setActiveProfile,
   saveProfile,
   deleteProfile,
-  getServerUrl,
   getStaffCode,
   type ServerProfile,
   checkTailscale,
   type TailscaleStatus,
   discoverServers,
   type DiscoveredServer,
+  initializeProfiles,
 } from "./lib/api";
 import DevOpsDashboard from "./components/DevOpsDashboard";
 
@@ -327,12 +327,29 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (getStaffCode()) {
-      setLoggedIn(true);
-    }
+    initializeProfiles()
+      .then(() => {
+        if (getStaffCode()) {
+          setLoggedIn(true);
+        }
+        setLoading(false);
+      })
+      .catch((e) => {
+        console.error(e);
+        setLoading(false);
+      });
   }, []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-app-bg">
+        <Loader2 className="h-8 w-8 animate-spin text-app-accent" />
+      </div>
+    );
+  }
 
   if (!loggedIn) {
     return <LoginScreen onLogin={() => setLoggedIn(true)} />;
