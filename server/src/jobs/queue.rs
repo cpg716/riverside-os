@@ -1,8 +1,8 @@
 //! Job queue implementation using Redis for distributed processing
 
-use crate::cache::{CacheService, DistributedLock};
-use crate::jobs::{Job, JobContext, JobStatus, JobType, JobPriority};
-use chrono::{DateTime, Utc};
+use crate::cache::CacheService;
+use crate::jobs::{Job, JobStatus};
+use chrono::Utc;
 use redis::RedisError;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -58,22 +58,22 @@ impl JobQueue {
         let job_id = job.id;
         let queue_key = self.queue_key();
         let job_key = self.job_key(job_id);
-        
+
         // Store job data
         self.cache.set(&job_key, &job, Some(Duration::from_secs(86400))).await?;
-        
+
         // Add to queue (using Redis list)
         let mut conn = self.cache.redis().get_connection().await?;
         let _: () = redis::cmd("LPUSH")
             .arg(&queue_key)
             .arg(job_id.to_string())
             .query(&mut conn)?;
-        
+
         // Update queue stats
         self.increment_queue_stats("enqueued").await?;
-        
+
         tracing::info!(job_id = %job_id, job_type = %job.job_type, "Job enqueued");
-        
+
         Ok(job_id)
     }
 
@@ -81,7 +81,7 @@ impl JobQueue {
     pub async fn dequeue(&self) -> Result<Option<Job>, RedisError> {
         let queue_key = self.queue_key();
         let processing_key = self.processing_key();
-        
+
         // Use BRPOPLPUSH to atomically move job to processing queue
         let mut conn = self.cache.redis().get_connection().await?;
         let job_id_result: Option<String> = redis::cmd("BRPOPLPUSH")
@@ -89,31 +89,31 @@ impl JobQueue {
             .arg(&processing_key)
             .arg(self.config.visibility_timeout.as_secs() as u64)
             .query(&mut conn)?;
-        
+
         let job_id = match job_id_result {
             Some(id) => Uuid::parse_str(&id).map_err(|_| {
                 RedisError::from((redis::ErrorKind::TypeError, "Invalid UUID", id))
             })?,
             None => return Ok(None),
         };
-        
+
         // Get job data
         let job_key = self.job_key(job_id);
         let job: Option<Job> = self.cache.get(&job_key).await?;
-        
+
         match job {
             Some(mut job) => {
                 job.status = JobStatus::Processing;
                 job.started_at = Some(Utc::now());
-                
+
                 // Update job status
                 self.cache.set(&job_key, &job, Some(Duration::from_secs(86400))).await?;
-                
+
                 // Update queue stats
                 self.increment_queue_stats("dequeued").await?;
-                
+
                 tracing::info!(job_id = %job_id, job_type = %job.job_type, "Job dequeued");
-                
+
                 Ok(Some(job))
             }
             None => {
@@ -123,9 +123,9 @@ impl JobQueue {
                     .arg(1)
                     .arg(job_id.to_string())
                     .query(&mut conn)?;
-                
+
                 tracing::warn!(job_id = %job_id, "Job data missing, removing from processing queue");
-                
+
                 Ok(None)
             }
         }
@@ -135,18 +135,18 @@ impl JobQueue {
     pub async fn complete(&self, job_id: Uuid) -> Result<(), RedisError> {
         let job_key = self.job_key(job_id);
         let processing_key = self.processing_key();
-        
+
         // Get and update job
         let mut job: Option<Job> = self.cache.get(&job_key).await?;
-        
+
         if let Some(ref mut job) = job {
             job.status = JobStatus::Completed;
             job.completed_at = Some(Utc::now());
-            
+
             // Update job data
             self.cache.set(&job_key, job, Some(Duration::from_secs(86400))).await?;
         }
-        
+
         // Remove from processing queue
         let mut conn = self.cache.redis().get_connection().await?;
         let _: () = redis::cmd("LREM")
@@ -154,12 +154,12 @@ impl JobQueue {
             .arg(1)
             .arg(job_id.to_string())
             .query(&mut conn)?;
-        
+
         // Update queue stats
         self.increment_queue_stats("completed").await?;
-        
+
         tracing::info!(job_id = %job_id, "Job completed");
-        
+
         Ok(())
     }
 
@@ -168,20 +168,20 @@ impl JobQueue {
         let job_key = self.job_key(job_id);
         let processing_key = self.processing_key();
         let dead_letter_key = self.dead_letter_key();
-        
+
         // Get and update job
         let mut job: Option<Job> = self.cache.get(&job_key).await?;
-        
+
         if let Some(ref mut job) = job {
             job.status = JobStatus::Failed;
             job.error_message = Some(error.to_string());
             job.attempts += 1;
             job.failed_at = Some(Utc::now());
-            
+
             // Update job data
             self.cache.set(&job_key, job, Some(Duration::from_secs(86400))).await?;
         }
-        
+
         // Remove from processing queue
         let mut conn = self.cache.redis().get_connection().await?;
         let _: () = redis::cmd("LREM")
@@ -189,7 +189,7 @@ impl JobQueue {
             .arg(1)
             .arg(job_id.to_string())
             .query(&mut conn)?;
-        
+
         // Check if should retry or send to dead letter queue
         if let Some(ref job) = job {
             if job.attempts < self.config.max_retries {
@@ -198,7 +198,7 @@ impl JobQueue {
                     .arg(&self.queue_key())
                     .arg(job_id.to_string())
                     .query(&mut conn)?;
-                
+
                 tracing::warn!(job_id = %job_id, attempt = job.attempts, error = error, "Job failed, requeuing");
             } else {
                 // Send to dead letter queue
@@ -206,38 +206,38 @@ impl JobQueue {
                     .arg(&dead_letter_key)
                     .arg(job_id.to_string())
                     .query(&mut conn)?;
-                
+
                 tracing::error!(job_id = %job_id, attempts = job.attempts, error = error, "Job failed permanently, sent to dead letter queue");
             }
         }
-        
+
         // Update queue stats
         self.increment_queue_stats("failed").await?;
-        
+
         Ok(())
     }
 
     /// Get queue statistics
     pub async fn get_stats(&self) -> Result<QueueStats, RedisError> {
         let mut conn = self.cache.redis().get_connection().await?;
-        
+
         let pending: i64 = redis::cmd("LLEN")
             .arg(&self.queue_key())
             .query(&mut conn)?;
-        
+
         let processing: i64 = redis::cmd("LLEN")
             .arg(&self.processing_key())
             .query(&mut conn)?;
-        
+
         let dead_letter: i64 = redis::cmd("LLEN")
             .arg(&self.dead_letter_key())
             .query(&mut conn)?;
-        
+
         let enqueued: i64 = self.cache.redis().get(&self.stats_key("enqueued")).await?.unwrap_or(0);
         let dequeued: i64 = self.cache.redis().get(&self.stats_key("dequeued")).await?.unwrap_or(0);
         let completed: i64 = self.cache.redis().get(&self.stats_key("completed")).await?.unwrap_or(0);
         let failed: i64 = self.cache.redis().get(&self.stats_key("failed")).await?.unwrap_or(0);
-        
+
         Ok(QueueStats {
             pending,
             processing,

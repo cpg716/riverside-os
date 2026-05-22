@@ -3,5 +3,6 @@ resolver = "2"
 members = [
     "server",
     "client/src-tauri",
-    "deployment/manager-app/src-tauri"
+    "deployment/manager-app/src-tauri",
+    "ros-dev/src-tauri"
 ]

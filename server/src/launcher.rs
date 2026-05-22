@@ -242,7 +242,7 @@ async fn launch_server_inner(
             interval.tick().await;
             let idle = monitor_pool.num_idle() as u32;
             let max = monitor_pool.size();
-            let active = max.saturating_sub(idle as usize) as u32;
+            let active = max.saturating_sub(idle);
             let utilization = if max > 0 { (active * 100) / max } else { 0 };
 
             if utilization >= 80 {
@@ -372,6 +372,8 @@ async fn launch_server_inner(
         server_log_ring: server_log_ring.clone(),
         cache: crate::cache::CacheService::from_env().ok(),
         metrics_collector: None, // Will be initialized later if needed
+        rate_limit: crate::middleware::rate_limit::rate_limit_middleware(),
+        github_token: std::env::var("RIVERSIDE_GITHUB_TOKEN").ok(),
     };
 
     // Workers
@@ -651,7 +653,7 @@ async fn launch_server_inner(
 
     let max_body = config.max_body_bytes.unwrap_or(256 * 1024 * 1024);
 
-    let app = build_router()
+    let app = build_router(state.clone())
         .layer(DefaultBodyLimit::max(max_body))
         .layer(cors)
         .layer(TraceLayer::new_for_http())

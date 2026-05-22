@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::auth::permissions::{
     self, staff_has_permission, CATALOG_EDIT, CUSTOMERS_MERGE, NUORDER_SYNC, ORDERS_VIEW, QBO_VIEW,
-    REGISTER_REPORTS, SETTINGS_ADMIN,
+    REGISTER_REPORTS,
 };
 use crate::models::DbStaffRole;
 

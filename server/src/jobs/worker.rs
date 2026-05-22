@@ -1,6 +1,6 @@
 //! Job worker implementation for processing background jobs
 
-use crate::jobs::{Job, JobContext, HandlerRegistry, JobHandler};
+use crate::jobs::{Job, JobContext, HandlerRegistry};
 use crate::jobs::queue::JobQueue;
 use std::sync::Arc;
 use std::time::Duration;
@@ -74,8 +74,7 @@ impl JobWorker {
                 match queue.dequeue().await {
                     Ok(Some(job)) => {
                         // Now try to acquire semaphore for this job
-                        let semaphore_clone = job_semaphore.clone();
-                        let permit = match semaphore_clone.acquire().await {
+                        let permit = match job_semaphore.clone().acquire_owned().await {
                             Ok(permit) => permit,
                             Err(_) => {
                                 warn!("Semaphore closed, stopping worker");
@@ -106,12 +105,10 @@ impl JobWorker {
                     }
                     Ok(None) => {
                         // No jobs available, wait before next poll
-                        drop(permit);
                         tokio::time::sleep(poll_interval).await;
                     }
                     Err(e) => {
                         error!(worker_id = %worker_id, error = %e, "Failed to dequeue job");
-                        drop(permit);
                         tokio::time::sleep(Duration::from_secs(10)).await;
                     }
                 }
@@ -223,7 +220,7 @@ impl JobWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jobs::{Job, JobType};
+    use crate::jobs::{JobContext, JobHandler};
     use async_trait::async_trait;
 
     struct TestHandler {

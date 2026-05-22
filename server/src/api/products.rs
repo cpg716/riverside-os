@@ -4023,6 +4023,8 @@ mod tests {
             server_log_ring: ServerLogRing::new(32, 512),
             cache: None,
             metrics_collector: None,
+            rate_limit: crate::middleware::rate_limit::rate_limit_middleware(),
+            github_token: None,
         }
     }
 

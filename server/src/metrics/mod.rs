@@ -5,14 +5,14 @@ pub mod exporters;
 pub mod business_metrics;
 pub mod technical_metrics;
 
-pub use collector::{MetricsCollector, MetricsConfig};
+pub use collector::MetricsCollector;
 pub use exporters::{MetricsExporter, PrometheusExporter, JsonExporter};
 pub use business_metrics::{BusinessMetrics, BusinessKpi};
 pub use technical_metrics::{TechnicalMetrics, TechnicalKpi};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricValue {
@@ -104,7 +104,7 @@ impl MetricRegistry {
 
     pub fn get_snapshot(&self, name: &str, aggregation: Option<AggregationType>) -> Option<MetricSnapshot> {
         let values = self.metrics.get(name)?;
-        
+
         let aggregated = match aggregation {
             Some(AggregationType::Sum) => Some(values.iter().map(|v| v.value).sum()),
             Some(AggregationType::Average) => {
@@ -132,7 +132,7 @@ impl MetricRegistry {
 
     pub fn cleanup_old_metrics(&mut self, older_than: Duration) {
         let cutoff = chrono::Utc::now() - chrono::Duration::from_std(older_than).unwrap();
-        
+
         for values in self.metrics.values_mut() {
             values.retain(|v| v.timestamp > cutoff);
         }

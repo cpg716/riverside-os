@@ -1175,6 +1175,106 @@ iostat -x 1
 
 ---
 
+## CI/CD and Dependency Automation
+
+Riverside OS uses GitHub Actions for continuous integration and automated dependency management.
+
+### Automated Workflows
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `lint.yml` | PR / push to `main` | `cargo fmt`, `cargo clippy`, `cargo audit` |
+| `security-audit.yml` | Weekly (Mon midnight) + manual | `cargo audit` (CVE scan) + `cargo outdated` (stale deps) |
+| `tauri-register-updater-release.yml` | Push `v*` tag or manual | Builds signed Windows updater bundle and publishes to GitHub release |
+| `dependabot-auto-merge.yml` | Dependabot PR | Auto-squash merges patch-level dependency updates |
+
+### Releasing a New Version
+
+1. Bump version in all manifests (must match):
+   - `package.json` (root)
+   - `client/package.json`
+   - `client/src-tauri/tauri.conf.json`
+   - `server/Cargo.toml`
+   - `client/src-tauri/Cargo.toml`
+   - `ros-dev/package.json`
+   - `ros-dev/src-tauri/tauri.conf.json`
+   - `ros-dev/src-tauri/Cargo.toml`
+2. Write release notes to `docs/releases/vX.Y.Z-release-notes.md`
+3. Commit, tag, and push:
+   ```bash
+   git commit -m "release: v0.70.3"
+   git tag v0.70.3
+   git push origin main --tags
+   ```
+4. The `tauri-register-updater-release` workflow triggers automatically, builds the signed installer, and publishes `latest.json` to the GitHub release — visible to all Tauri auto-updaters.
+
+### Manual Release Override
+
+For hotfixes or special tags, go to **Actions → Tauri register updater release → Run workflow** and specify a custom `release_tag`.
+
+---
+
+## In-App DevOps Center
+
+Riverside OS includes a **DevOps Center** inside **Settings → ROS Dev Center** for staff with `ops.dev_center.view` permission.
+
+### What It Shows
+
+- **Operational status** — DB health, integrations, station connectivity
+- **Runtime diagnostics** — memory, disk, service status
+- **E2E health** — latest CI test lane status
+- **GitHub DevOps** — recent workflow runs, releases, and one-click release builds
+
+### GitHub Integration
+
+The DevOps Center reads from and writes to GitHub via server-side API proxy:
+
+| Feature | Endpoint | Permission Required |
+|---------|----------|---------------------|
+| View workflow runs | `GET /api/ops/github/workflows` | `ops.dev_center.view` |
+| View releases | `GET /api/ops/github/releases` | `ops.dev_center.view` |
+| Trigger release build | `POST /api/ops/github/dispatch` | `ops.dev_center.actions` |
+
+### Configuration
+
+Set `RIVERSIDE_GITHUB_TOKEN` in server environment (`.env` or deployment config):
+- **Scopes needed**: `repo` (read), `workflow` (write for dispatch)
+- **Never expose to client** — the token is server-side only
+
+The token is read at startup and stored in `AppState.github_token`. If not configured, the GitHub section shows a "not configured" message.
+
+---
+
+## Standalone ROS Dev Center (macOS)
+
+A dedicated macOS companion app lives in `ros-dev/` for managing Riverside OS development tasks outside the browser.
+
+### What It Does
+
+- **Connects to any ROS instance** — local (`localhost:3000`) or remote via Tailscale
+- **Real-time DevOps dashboard** — DB health, stations, alerts, bugs
+- **GitHub integration** — workflow runs, releases, one-click release builds
+- **AI-ready** — designed to work alongside AI coding tools with full context
+
+### Build
+
+```bash
+cd ros-dev
+npm install
+npm run tauri build
+```
+
+The `.dmg` appears in `ros-dev/src-tauri/target/release/bundle/dmg/`.
+
+### Connect
+
+1. Launch the app
+2. Enter ROS server URL (local or Tailscale address)
+3. Enter your staff PIN (must have `ops.dev_center.view`)
+4. Dashboard auto-refreshes every 30 seconds
+
+---
+
 ## Conclusion
 
 This deployment guide provides comprehensive instructions for deploying Riverside OS in production environments with enterprise-grade features. Following these guidelines ensures a secure, scalable, and maintainable deployment.

@@ -146,6 +146,24 @@ impl MetricsCollector {
     pub async fn get_registry(&self) -> Arc<RwLock<MetricRegistry>> {
         self.registry.clone()
     }
+
+    /// Record an API request (method, path, status, duration). Used by metrics middleware.
+    pub async fn record_request(&self, method: &str, path: &str, status_code: u16, duration_ms: f64) {
+        let mut tags = std::collections::HashMap::new();
+        tags.insert("method".to_string(), method.to_string());
+        tags.insert("path".to_string(), path.to_string());
+        tags.insert("status".to_string(), status_code.to_string());
+
+        self.record_custom_metric("api_requests_total", 1.0, tags.clone(), crate::metrics::MetricType::Counter).await;
+        self.record_custom_metric("api_request_duration_ms", duration_ms, tags.clone(), crate::metrics::MetricType::Histogram).await;
+
+        if status_code >= 400 {
+            let mut error_tags = std::collections::HashMap::new();
+            error_tags.insert("method".to_string(), method.to_string());
+            error_tags.insert("status".to_string(), status_code.to_string());
+            self.record_custom_metric("api_errors_total", 1.0, error_tags, crate::metrics::MetricType::Counter).await;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

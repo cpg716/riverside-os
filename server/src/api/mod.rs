@@ -104,10 +104,12 @@ pub struct AppState {
     pub cache: Option<crate::cache::CacheService>,
     /// Metrics collector for business and technical KPIs.
     pub metrics_collector: Option<crate::metrics::MetricsCollector>,
+    /// Global rate-limit state (IP and user buckets).
+    pub rate_limit: crate::middleware::rate_limit::RateLimitMiddleware,
+    /// GitHub personal access token for DevOps Center integration (optional).
+    pub github_token: Option<String>,
 }
-pub fn build_router() -> Router<AppState> {
-    let rate_limit_state = crate::middleware::rate_limit::rate_limit_middleware();
-
+pub fn build_router(app_state: AppState) -> Router<AppState> {
     let mut router = Router::new()
         .route("/api/version", get(api_version))
         .merge(metabase_proxy::router())
@@ -178,9 +180,9 @@ pub fn build_router() -> Router<AppState> {
         router = router.nest("/api/test-support", test_support::router());
     }
 
-    // Add rate limiting middleware
+    // Add rate limiting middleware (IP-based only for now)
     router.layer(axum::middleware::from_fn_with_state(
-        rate_limit_state,
+        app_state.rate_limit,
         crate::middleware::rate_limit::rate_limit_handler,
     ))
 }

@@ -20,6 +20,7 @@ import { CLIENT_SEMVER } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import BugReportsSettingsPanel from "./BugReportsSettingsPanel";
+import GitHubDevOpsPanel from "./GitHubDevOpsPanel";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 type IntegrationHealthItem = {
@@ -1080,6 +1081,8 @@ export default function RosDevCenterPanel({
           </div>
         </div>
       </section>
+
+      <GitHubDevOpsPanel />
 
       <section className="ui-card p-6">
         <div className="mb-4 flex items-center gap-2">

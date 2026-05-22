@@ -1,6 +1,6 @@
 //! Metrics exporters for different formats and destinations
 
-use crate::metrics::{MetricRegistry, MetricSnapshot, ExportFormat};
+use crate::metrics::{MetricRegistry, ExportFormat};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -196,8 +196,8 @@ impl MetricsExporter for JsonExporter {
 
 #[derive(Debug, Clone)]
 pub struct InfluxDBExporter {
-    url: String,
-    database: String,
+    _url: String,
+    _database: String,
     username: Option<String>,
     password: Option<String>,
 }
@@ -205,8 +205,8 @@ pub struct InfluxDBExporter {
 impl InfluxDBExporter {
     pub fn new(url: &str, database: &str) -> Self {
         Self {
-            url: url.to_string(),
-            database: database.to_string(),
+            _url: url.to_string(),
+            _database: database.to_string(),
             username: None,
             password: None,
         }

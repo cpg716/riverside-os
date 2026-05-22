@@ -3,7 +3,6 @@
 use redis::{Client, Connection, RedisError, RedisResult};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tokio::time::timeout;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -25,14 +24,14 @@ impl RedisCache {
     pub async fn set<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) -> RedisResult<()> {
         let serialized = serde_json::to_string(value)
             .map_err(|e| RedisError::from((redis::ErrorKind::TypeError, "Serialization failed", e.to_string())))?;
-        
+
         let mut conn = self.get_connection().await?;
         let _: () = redis::cmd("SETEX")
             .arg(key)
             .arg(ttl.as_secs())
             .arg(serialized)
             .query(&mut conn)?;
-        
+
         Ok(())
     }
 
@@ -42,7 +41,7 @@ impl RedisCache {
         let result: Option<String> = redis::cmd("GET")
             .arg(key)
             .query(&mut conn)?;
-        
+
         match result {
             Some(data) => {
                 let deserialized: T = serde_json::from_str(&data)
@@ -59,7 +58,7 @@ impl RedisCache {
         let count: i32 = redis::cmd("DEL")
             .arg(key)
             .query(&mut conn)?;
-        
+
         Ok(count > 0)
     }
 
@@ -69,7 +68,7 @@ impl RedisCache {
         let count: i32 = redis::cmd("EXISTS")
             .arg(key)
             .query(&mut conn)?;
-        
+
         Ok(count > 0)
     }
 
@@ -94,7 +93,7 @@ impl RedisCache {
     pub async fn set_nx<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) -> RedisResult<bool> {
         let serialized = serde_json::to_string(value)
             .map_err(|e| RedisError::from((redis::ErrorKind::TypeError, "Serialization failed", e.to_string())))?;
-        
+
         let mut conn = self.get_connection().await?;
         let result: Option<String> = redis::cmd("SET")
             .arg(key)
@@ -103,7 +102,7 @@ impl RedisCache {
             .arg("EX")
             .arg(ttl.as_secs())
             .query(&mut conn)?;
-        
+
         Ok(result.is_some())
     }
 }
@@ -131,16 +130,16 @@ impl DistributedLock {
     pub async fn acquire(&self, timeout_ms: u64) -> RedisResult<bool> {
         let deadline = Duration::from_millis(timeout_ms);
         let start = std::time::Instant::now();
-        
+
         while start.elapsed() < deadline {
             if self.try_acquire().await? {
                 return Ok(true);
             }
-            
+
             // Wait a bit before retrying
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        
+
         Ok(false)
     }
 
@@ -154,14 +153,14 @@ impl DistributedLock {
             .arg("PX")
             .arg(self.ttl.as_millis() as u64)
             .query(&mut conn)?;
-        
+
         Ok(result.is_some())
     }
 
     /// Release the lock
     pub async fn release(&self) -> RedisResult<bool> {
         let mut conn = self.redis.get_connection().await?;
-        
+
         // Lua script to safely release lock only if we own it
         let script = r#"
             if redis.call("get", KEYS[1]) == ARGV[1] then
@@ -170,19 +169,19 @@ impl DistributedLock {
                 return 0
             end
         "#;
-        
+
         let result: i64 = redis::Script::new(script)
             .key(&self.key)
             .arg(&self.token)
             .invoke(&mut conn)?;
-        
+
         Ok(result > 0)
     }
 
     /// Extend the lock TTL
     pub async fn extend(&self, additional_ttl: Duration) -> RedisResult<bool> {
         let mut conn = self.redis.get_connection().await?;
-        
+
         let script = r#"
             if redis.call("get", KEYS[1]) == ARGV[1] then
                 return redis.call("pexpire", KEYS[1], ARGV[2])
@@ -190,13 +189,13 @@ impl DistributedLock {
                 return 0
             end
         "#;
-        
+
         let result: i64 = redis::Script::new(script)
             .key(&self.key)
             .arg(&self.token)
             .arg(additional_ttl.as_millis() as u64)
             .invoke(&mut conn)?;
-        
+
         Ok(result > 0)
     }
 }

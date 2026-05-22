@@ -1,10 +1,10 @@
 //! Business metrics and KPIs for Riverside OS
 
-use crate::metrics::{MetricRegistry, MetricType};
+use crate::metrics::MetricRegistry;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
-use chrono::{DateTime, Utc, Duration as ChronoDuration};
+use chrono::{Utc, Duration as ChronoDuration};
 use rust_decimal::Decimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

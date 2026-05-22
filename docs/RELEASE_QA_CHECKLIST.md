@@ -269,6 +269,35 @@ This is a release gate, not optional.
 
 ---
 
+## Automated Release (Tag Push)
+
+### Triggering a Release
+
+After this checklist is complete and the branch is green:
+
+1. **Bump version** in all manifests (must stay in sync):
+   ```bash
+   # Root package.json, client/package.json, client/src-tauri/tauri.conf.json
+   # server/Cargo.toml, client/src-tauri/Cargo.toml
+   ```
+2. **Write release notes** to `docs/releases/vX.Y.Z-release-notes.md`
+3. **Commit and tag**:
+   ```bash
+   git add -A
+   git commit -m "release: v0.70.3"
+   git tag v0.70.3
+   git push origin main --tags
+   ```
+4. **Automation takes over** — GitHub Actions `tauri-register-updater-release.yml` triggers on the `v*` tag push, builds the signed Windows installer, and publishes to the GitHub release with `latest.json` for the Tauri updater.
+
+### Manual Override
+
+For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
+- Go to **Actions → Tauri register updater release → Run workflow**
+- Optionally override `release_tag` and `release_notes`
+
+---
+
 ## Known limitations / deferred hardening
 
 - **API base centralization:** remaining direct **`VITE_API_BASE ?? "http://127.0.0.1:3000"`** callsites should be consolidated on the shared helper. Deferred from this RC.

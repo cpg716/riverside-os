@@ -5092,6 +5092,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ros-dev-center"
+version = "0.70.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-shell",
+]
+
+[[package]]
 name = "rsa"
 version = "0.9.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"

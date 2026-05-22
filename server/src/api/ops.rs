@@ -419,6 +419,134 @@ async fn get_ops_audit_log(
     Ok(Json(rows))
 }
 
+// --- GitHub DevOps Center proxy endpoints ---
+
+const GITHUB_API_BASE: &str = "https://api.github.com";
+const GITHUB_REPO: &str = "cpg716/riverside-os";
+
+async fn github_api_get(
+    client: &reqwest::Client,
+    token: &str,
+    path: &str,
+) -> Result<Value, String> {
+    let url = format!("{GITHUB_API_BASE}{path}");
+    let resp = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "RiversideOS-DevCenter")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub request failed: {e}"))?;
+
+    let status = resp.status();
+    let body = resp
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("GitHub response parse failed: {e}"))?;
+
+    if !status.is_success() {
+        return Err(format!("GitHub API error {status}: {body}"));
+    }
+    Ok(body)
+}
+
+async fn github_api_post(
+    client: &reqwest::Client,
+    token: &str,
+    path: &str,
+    payload: Value,
+) -> Result<Value, String> {
+    let url = format!("{GITHUB_API_BASE}{path}");
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", "RiversideOS-DevCenter")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub request failed: {e}"))?;
+
+    let status = resp.status();
+    let body = resp
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("GitHub response parse failed: {e}"))?;
+
+    if !status.is_success() {
+        return Err(format!("GitHub API error {status}: {body}"));
+    }
+    Ok(body)
+}
+
+async fn get_github_workflows(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Response> {
+    let _ = require_view(&state, &headers).await?;
+    let token = state.github_token.as_deref().ok_or_else(|| {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"}))).into_response()
+    })?;
+    let data = github_api_get(
+        &state.http_client,
+        token,
+        &format!("/repos/{GITHUB_REPO}/actions/runs?per_page=10"),
+    )
+    .await
+    .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": e}))).into_response())?;
+    Ok(Json(data))
+}
+
+async fn get_github_releases(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Response> {
+    let _ = require_view(&state, &headers).await?;
+    let token = state.github_token.as_deref().ok_or_else(|| {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"}))).into_response()
+    })?;
+    let data = github_api_get(
+        &state.http_client,
+        token,
+        &format!("/repos/{GITHUB_REPO}/releases?per_page=10"),
+    )
+    .await
+    .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": e}))).into_response())?;
+    Ok(Json(data))
+}
+
+#[derive(Deserialize)]
+struct GitHubDispatchBody {
+    workflow_id: String,
+    branch: String,
+    inputs: Option<Value>,
+}
+
+async fn post_github_dispatch(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<GitHubDispatchBody>,
+) -> Result<Json<Value>, Response> {
+    let _ = require_actions(&state, &headers).await?;
+    let token = state.github_token.as_deref().ok_or_else(|| {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"}))).into_response()
+    })?;
+
+    let payload = json!({
+        "ref": body.branch,
+        "inputs": body.inputs.unwrap_or_else(|| json!({}))
+    });
+
+    let path = format!("/repos/{GITHUB_REPO}/actions/workflows/{}/dispatches", body.workflow_id);
+    let data = github_api_post(&state.http_client, token, &path, payload)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": e}))).into_response())?;
+    Ok(Json(data))
+}
+
 async fn get_bugs_overview(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -487,6 +615,9 @@ pub fn router() -> Router<AppState> {
         .route("/alerts/ack", post(post_ops_alert_ack))
         .route("/actions/{action_key}", post(post_ops_action))
         .route("/audit-log", get(get_ops_audit_log))
+        .route("/github/workflows", get(get_github_workflows))
+        .route("/github/releases", get(get_github_releases))
+        .route("/github/dispatch", post(post_github_dispatch))
         .route("/bugs/overview", get(get_bugs_overview))
         .route("/bugs/link-alert", post(post_bug_alert_link))
 }

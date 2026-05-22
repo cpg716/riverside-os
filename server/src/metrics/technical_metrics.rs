@@ -1,11 +1,10 @@
 //! Technical metrics and system performance KPIs
 
-use crate::metrics::{MetricRegistry, MetricType};
+use crate::metrics::MetricRegistry;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use chrono::{DateTime, Utc};
+use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TechnicalMetrics {

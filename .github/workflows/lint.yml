@@ -58,6 +58,12 @@ jobs:
       - name: Run Clippy
         run: cargo clippy -- -D warnings
 
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit Dependencies
+        run: cargo audit
+
   counterpoint-bridge-package:
     name: Counterpoint Bridge Package Smoke
     runs-on: ubuntu-latest

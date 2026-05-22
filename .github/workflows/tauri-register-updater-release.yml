@@ -15,6 +15,10 @@ on:
         description: "GitHub release tag to publish updater assets to, e.g. v0.50-GOLD. Defaults to v<client package version>."
         required: false
         default: ""
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
 
 permissions:
   contents: write
@@ -31,12 +35,28 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       RIVERSIDE_UPDATER_BASE_URL: https://github.com/${{ github.repository }}/releases/latest/download
-      RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
-      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
       LLAMA_CPP_RELEASE: b8994
       LLAMA_CPP_WIN_CPU_ASSET: llama-b8994-bin-win-cpu-x64.zip
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Prepare release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $tag = '${{ github.event.inputs.release_tag }}'
+            $notes = '${{ github.event.inputs.release_notes }}'
+          } else {
+            $tag = '${{ github.ref_name }}'
+            $pkg = Get-Content "client/package.json" | ConvertFrom-Json
+            $version = $pkg.version
+            $notes = "Riverside POS v$version — see docs/releases/v$version-release-notes.md for details."
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "notes=$notes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - uses: actions/setup-node@v5
         with:
@@ -133,6 +153,9 @@ jobs:
       - name: Build updater manifest bundle
         id: updater_meta
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_NOTES: ${{ steps.meta.outputs.notes }}
         run: |
           $targetRoot = "../target"
           $sig = Get-ChildItem -Path $targetRoot -Recurse -Filter *.sig | Select-Object -First 1
@@ -194,6 +217,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.updater_meta.outputs.tag }}
+          RELEASE_NOTES: ${{ steps.meta.outputs.notes }}
         run: |
           gh release view $env:TAG *> $null
           if ($LASTEXITCODE -ne 0) {
