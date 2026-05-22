@@ -91,10 +91,7 @@ impl MetricRegistry {
             metric_type,
         };
 
-        let values = self
-            .metrics
-            .entry(name.to_string())
-            .or_default();
+        let values = self.metrics.entry(name.to_string()).or_default();
         values.push(metric);
 
         // Cleanup old values based on retention policy
