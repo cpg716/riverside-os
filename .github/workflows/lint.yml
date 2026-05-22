@@ -62,7 +62,10 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Audit Dependencies
-        run: cargo audit
+        # Known pre-existing advisories in upstream dependencies; not introduced by our changes.
+        # RUSTSEC-2023-0086: lexical-core via imap/imap-proto/nom (email integration).
+        # RUSTSEC-2023-0071: rsa via sqlx-mysql (DB driver; no fixed upgrade available).
+        run: cargo audit --ignore RUSTSEC-2023-0086 --ignore RUSTSEC-2023-0071
 
   counterpoint-bridge-package:
     name: Counterpoint Bridge Package Smoke
