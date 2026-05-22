@@ -298,6 +298,35 @@ For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
 
 ---
 
+## DevOps Center QA
+
+### In-App DevOps Center (Settings → ROS Dev Center)
+
+- [ ] Overview loads: DB health, integrations, stations online/offline
+- [ ] Runtime diagnostics show: memory, disk, service status
+- [ ] GitHub DevOps section loads (requires `RIVERSIDE_GITHUB_TOKEN` on server)
+- [ ] Workflow runs table displays with status badges
+- [ ] Releases table displays with tag links
+- [ ] "Build Release" button dispatches workflow (requires `ops.dev_center.actions`)
+- [ ] Alerts section shows open/acked alerts
+- [ ] Stations table shows online/offline status and versions
+- [ ] Bug reports section loads
+
+### Standalone ROS Dev Center (macOS App)
+
+- [ ] `cargo check -p ros-dev-center` passes
+- [ ] `npm run tauri build` succeeds
+- [ ] Login screen: Tailscale status badge appears
+- [ ] Login screen: "Scan for Riverside Servers" discovers local servers
+- [ ] Login screen: server profiles can be added, edited, deleted
+- [ ] Dashboard loads after connecting
+- [ ] Auto-refresh every 30 seconds works
+- [ ] "Run Diagnostics" captures errors and warnings
+- [ ] "Analyze with ROSIE" returns AI analysis (requires `RIVERSIDE_LLAMA_UPSTREAM`)
+- [ ] "Copy Prompt" copies the AI prompt to clipboard
+
+---
+
 ## Known limitations / deferred hardening
 
 - **API base centralization:** remaining direct **`VITE_API_BASE ?? "http://127.0.0.1:3000"`** callsites should be consolidated on the shared helper. Deferred from this RC.
@@ -305,4 +334,4 @@ For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
 
 ---
 
-**Last reviewed:** 2026-05-19 for v0.70.0
+**Last reviewed:** 2026-05-21 for v0.70.5

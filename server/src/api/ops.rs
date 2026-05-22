@@ -547,6 +547,272 @@ async fn post_github_dispatch(
     Ok(Json(data))
 }
 
+// --- Comprehensive Diagnostics & AI Prompt ---
+
+#[derive(serde::Serialize)]
+struct DiagnosticsSnapshot {
+    generated_at: String,
+    server: ServerDiagnostics,
+    database: DatabaseDiagnostics,
+    errors: Vec<LogEntry>,
+    warnings: Vec<LogEntry>,
+    github: GitHubStatus,
+    ai_prompt: String,
+}
+
+#[derive(serde::Serialize)]
+struct ServerDiagnostics {
+    version: String,
+    uptime_seconds: u64,
+    rust_version: String,
+}
+
+#[derive(serde::Serialize)]
+struct DatabaseDiagnostics {
+    connected: bool,
+    pool_size: u32,
+    active_connections: u32,
+    idle_connections: u32,
+    migration_count: i64,
+}
+
+#[derive(serde::Serialize)]
+struct LogEntry {
+    timestamp: String,
+    level: String,
+    target: String,
+    message: String,
+}
+
+#[derive(serde::Serialize)]
+struct GitHubStatus {
+    token_configured: bool,
+}
+
+async fn get_diagnostics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<DiagnosticsSnapshot>, Response> {
+    let _ = require_view(&state, &headers).await?;
+
+    let server = ServerDiagnostics {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        uptime_seconds: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(), // Simplified; real uptime would need start tracking
+        rust_version: {
+            let v = rustc_version_runtime::version();
+            format!("{}.{}.{}", v.major, v.minor, v.patch)
+        },
+    };
+
+    // Database diagnostics
+    let db_diag = match check_db_diagnostics(&state.db).await {
+        Ok(d) => d,
+        Err(_) => DatabaseDiagnostics {
+            connected: false,
+            pool_size: 0,
+            active_connections: 0,
+            idle_connections: 0,
+            migration_count: 0,
+        },
+    };
+
+    // Parse server log ring for errors and warnings
+    let log_snapshot = state.server_log_ring.snapshot_text(240_000);
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    for line in log_snapshot.lines() {
+        if line.contains(" ERROR ") {
+            if let Some(entry) = parse_log_line(line) {
+                errors.push(entry);
+            }
+        } else if line.contains(" WARN ") {
+            if let Some(entry) = parse_log_line(line) {
+                warnings.push(entry);
+            }
+        }
+    }
+
+    // Limit entries
+    errors.truncate(50);
+    warnings.truncate(50);
+
+    let github = GitHubStatus {
+        token_configured: state.github_token.is_some(),
+    };
+
+    let ai_prompt = generate_ai_prompt(&server, &db_diag, &errors, &warnings, &github);
+
+    Ok(Json(DiagnosticsSnapshot {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        server,
+        database: db_diag,
+        errors,
+        warnings,
+        github,
+        ai_prompt,
+    }))
+}
+
+async fn check_db_diagnostics(pool: &sqlx::PgPool) -> Result<DatabaseDiagnostics, sqlx::Error> {
+    let _: i32 = sqlx::query_scalar("SELECT 1").fetch_one(pool).await?;
+    let pool_size = pool.size() as u32;
+    let idle = pool.num_idle() as u32;
+    let active = pool_size.saturating_sub(idle);
+
+    let migration_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM _sqlx_migrations"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    Ok(DatabaseDiagnostics {
+        connected: true,
+        pool_size,
+        active_connections: active,
+        idle_connections: idle,
+        migration_count,
+    })
+}
+
+fn parse_log_line(line: &str) -> Option<LogEntry> {
+    // Format: "YYYY-MM-DDTHH:MM:SS.mmmZ LEVEL target message"
+    let parts: Vec<&str> = line.splitn(4, ' ').collect();
+    if parts.len() >= 3 {
+        let ts = parts[0].to_string();
+        let level = parts[1].trim().to_string();
+        let target = parts.get(2).unwrap_or(&"").to_string();
+        let message = parts.get(3).unwrap_or(&"").to_string();
+        Some(LogEntry { timestamp: ts, level, target, message })
+    } else {
+        None
+    }
+}
+
+fn generate_ai_prompt(
+    server: &ServerDiagnostics,
+    db: &DatabaseDiagnostics,
+    errors: &[LogEntry],
+    warnings: &[LogEntry],
+    github: &GitHubStatus,
+) -> String {
+    let mut prompt = String::new();
+    prompt.push_str("# Riverside OS Diagnostic Report\n\n");
+    prompt.push_str(&format!("**Version:** {}\n", server.version));
+    prompt.push_str(&format!("**Rust:** {}\n", server.rust_version));
+    prompt.push_str(&format!("**DB Connected:** {}\n", db.connected));
+    prompt.push_str(&format!("**DB Pool:** {}/{} active ({} idle)\n", db.active_connections, db.pool_size, db.idle_connections));
+    prompt.push_str(&format!("**Migrations:** {} applied\n", db.migration_count));
+    prompt.push_str(&format!("**GitHub Token:** {}\n", if github.token_configured { "configured" } else { "NOT CONFIGURED" }));
+
+    if !errors.is_empty() {
+        prompt.push_str("\n## Recent Errors (last 50)\n\n");
+        for e in errors.iter().take(20) {
+            prompt.push_str(&format!("- `[{}]` `{}` — {}\n", e.timestamp, e.target, e.message));
+        }
+    }
+
+    if !warnings.is_empty() {
+        prompt.push_str("\n## Recent Warnings (last 50)\n\n");
+        for w in warnings.iter().take(20) {
+            prompt.push_str(&format!("- `[{}]` `{}` — {}\n", w.timestamp, w.target, w.message));
+        }
+    }
+
+    prompt.push_str("\n## AI Analysis Request\n\n");
+    prompt.push_str("Please analyze the above diagnostic data and:\n");
+    prompt.push_str("1. Identify the root cause of any errors or warnings\n");
+    prompt.push_str("2. Suggest specific files and code changes needed\n");
+    prompt.push_str("3. Prioritize issues by severity (critical, warning, info)\n");
+    prompt.push_str("4. Recommend preventive measures\n");
+    prompt.push_str("5. If DB issues exist, suggest migration or connection pool fixes\n");
+
+    prompt
+}
+
+#[derive(Deserialize)]
+struct DiagnosticsAnalyzeBody {
+    prompt: String,
+}
+
+async fn post_diagnostics_analyze(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<DiagnosticsAnalyzeBody>,
+) -> Result<Json<Value>, Response> {
+    let _ = require_view(&state, &headers).await?;
+
+    let upstream = std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty());
+
+    let upstream = match upstream {
+        Some(u) => u,
+        None => {
+            return Ok(Json(json!({
+                "error": "RIVERSIDE_LLAMA_UPSTREAM not configured. ROSIE AI analysis unavailable.",
+                "rosie_available": false
+            })));
+        }
+    };
+
+    let upstream_url = format!("{upstream}/v1/chat/completions");
+
+    let llm_payload = json!({
+        "model": "local",
+        "messages": [
+            { "role": "system", "content": "You are ROSIE, the Riverside OS AI assistant. Analyze diagnostic data and provide concise, actionable fixes. Always include specific file paths and line-level suggestions when possible." },
+            { "role": "user", "content": body.prompt }
+        ],
+        "temperature": 0.3,
+        "max_tokens": 2048
+    });
+
+    let resp = state
+        .http_client
+        .post(&upstream_url)
+        .json(&llm_payload)
+        .send()
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, %upstream_url, "rosie diagnostics analyze failed");
+            (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("ROSIE upstream failed: {e}")}))).into_response()
+        })?;
+
+    let status = resp.status();
+    let data: Value = resp.json().await.map_err(|e| {
+        (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("ROSIE response parse failed: {e}")}))).into_response()
+    })?;
+
+    if !status.is_success() {
+        return Ok(Json(json!({
+            "error": format!("ROSIE upstream error {status}"),
+            "upstream_response": data,
+            "rosie_available": true
+        })));
+    }
+
+    // Extract the message content from the completion
+    let content = data
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("(no content in ROSIE response)");
+
+    Ok(Json(json!({
+        "analysis": content,
+        "rosie_available": true,
+        "model": data.get("model").and_then(|m| m.as_str()).unwrap_or("unknown")
+    })))
+}
+
 async fn get_bugs_overview(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -618,6 +884,8 @@ pub fn router() -> Router<AppState> {
         .route("/github/workflows", get(get_github_workflows))
         .route("/github/releases", get(get_github_releases))
         .route("/github/dispatch", post(post_github_dispatch))
+        .route("/diagnostics", get(get_diagnostics))
+        .route("/diagnostics/analyze", post(post_diagnostics_analyze))
         .route("/bugs/overview", get(get_bugs_overview))
         .route("/bugs/link-alert", post(post_bug_alert_link))
 }

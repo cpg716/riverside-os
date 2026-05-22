@@ -3,6 +3,9 @@ import {
   AlertTriangle,
   Bug,
   CheckCircle2,
+  Brain,
+  Clipboard,
+  ClipboardCheck,
   GitBranch,
   GitMerge,
   Laptop,
@@ -13,9 +16,11 @@ import {
   Server,
   ShieldAlert,
   Tag,
+  Terminal,
   Wifi,
+  Wrench,
 } from "lucide-react";
-import { apiGet, apiPost, getServerUrl, setServerConfig } from "../lib/api";
+import { apiGet, apiPost, getServerUrl, setServerConfig, type DiagnosticsSnapshot } from "../lib/api";
 
 interface WorkflowRun {
   id: number;
@@ -111,6 +116,11 @@ export default function DevOpsDashboard() {
   const [github, setGithub] = useState<GitHubData | null>(null);
   const [dispatching, setDispatching] = useState(false);
   const [error, setError] = useState("");
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -134,11 +144,46 @@ export default function DevOpsDashboard() {
     }
   }, []);
 
+  const fetchDiagnostics = useCallback(async () => {
+    setDiagLoading(true);
+    try {
+      const diag = await apiGet<DiagnosticsSnapshot>("/api/ops/diagnostics");
+      setDiagnostics(diag);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load diagnostics");
+    } finally {
+      setDiagLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchAll();
     const interval = setInterval(fetchAll, 30000);
     return () => clearInterval(interval);
   }, [fetchAll]);
+
+  const runRosieAnalysis = async () => {
+    if (!diagnostics?.ai_prompt) return;
+    setAnalyzing(true);
+    setError("");
+    try {
+      const result = await apiPost<{
+        analysis?: string;
+        rosie_available?: boolean;
+        error?: string;
+      }>("/api/ops/diagnostics/analyze", {
+        prompt: diagnostics.ai_prompt,
+      });
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      setAnalysis(result.analysis || "(no analysis returned)");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "ROSIE analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const triggerRelease = async () => {
     setDispatching(true);
@@ -481,6 +526,177 @@ export default function DevOpsDashboard() {
             </div>
           ) : (
             <p className="text-sm text-app-text-muted">No open alerts.</p>
+          )}
+        </section>
+
+        {/* Diagnostics & AI Prompt */}
+        <section className="ui-card col-span-1 p-6 xl:col-span-2">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Terminal className="h-5 w-5 text-app-accent" />
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Diagnostics & AI Analysis
+              </h3>
+            </div>
+            <button
+              onClick={fetchDiagnostics}
+              disabled={diagLoading}
+              className="ui-btn ui-btn-ghost ui-btn-sm inline-flex items-center gap-1"
+            >
+              <RefreshCw className={`h-4 w-4 ${diagLoading ? "animate-spin" : ""}`} />
+              {diagLoading ? "Analyzing..." : "Run Diagnostics"}
+            </button>
+          </div>
+
+          {!diagnostics ? (
+            <div className="rounded-xl border border-app-border/60 p-8 text-center">
+              <Terminal className="mx-auto mb-3 h-8 w-8 text-app-text-muted" />
+              <p className="text-sm text-app-text-muted">
+                Click "Run Diagnostics" to capture server logs, errors, warnings,
+                and generate an AI prompt for analysis.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Server Stats */}
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <div className="rounded-lg bg-app-bg p-3">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">Version</div>
+                  <div className="text-sm font-black text-app-text">{diagnostics.server.version}</div>
+                </div>
+                <div className="rounded-lg bg-app-bg p-3">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">Rust</div>
+                  <div className="text-sm font-black text-app-text">{diagnostics.server.rust_version}</div>
+                </div>
+                <div className="rounded-lg bg-app-bg p-3">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">DB Pool</div>
+                  <div className="text-sm font-black text-app-text">
+                    {diagnostics.database.active_connections}/{diagnostics.database.pool_size}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-app-bg p-3">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">Migrations</div>
+                  <div className="text-sm font-black text-app-text">{diagnostics.database.migration_count}</div>
+                </div>
+              </div>
+
+              {/* Errors */}
+              {diagnostics.errors.length > 0 && (
+                <div>
+                  <h4 className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-app-danger">
+                    <AlertTriangle className="h-4 w-4" />
+                    Errors ({diagnostics.errors.length})
+                  </h4>
+                  <div className="max-h-[200px] overflow-auto rounded-xl border border-app-danger/30 bg-app-danger/5">
+                    {diagnostics.errors.slice(0, 10).map((e, i) => (
+                      <div key={i} className="border-b border-app-danger/10 px-3 py-2 text-xs">
+                        <div className="flex items-center gap-2 text-app-text-muted">
+                          <span>{fmtTs(e.timestamp)}</span>
+                          <span className="font-mono text-app-accent">{e.target}</span>
+                        </div>
+                        <div className="mt-1 text-app-text">{e.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Warnings */}
+              {diagnostics.warnings.length > 0 && (
+                <div>
+                  <h4 className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-app-warning">
+                    <Wrench className="h-4 w-4" />
+                    Warnings ({diagnostics.warnings.length})
+                  </h4>
+                  <div className="max-h-[200px] overflow-auto rounded-xl border border-app-warning/30 bg-app-warning/5">
+                    {diagnostics.warnings.slice(0, 10).map((w, i) => (
+                      <div key={i} className="border-b border-app-warning/10 px-3 py-2 text-xs">
+                        <div className="flex items-center gap-2 text-app-text-muted">
+                          <span>{fmtTs(w.timestamp)}</span>
+                          <span className="font-mono text-app-accent">{w.target}</span>
+                        </div>
+                        <div className="mt-1 text-app-text">{w.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI Prompt & ROSIE Analysis */}
+              {diagnostics.errors.length > 0 && (
+                <div className="space-y-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-app-success">
+                      <Clipboard className="h-4 w-4" />
+                      AI Prompt
+                    </h4>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(diagnostics.ai_prompt);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        }}
+                        className="ui-btn ui-btn-ghost ui-btn-sm inline-flex items-center gap-1"
+                      >
+                        {copied ? <ClipboardCheck className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
+                        {copied ? "Copied!" : "Copy"}
+                      </button>
+                      <button
+                        onClick={runRosieAnalysis}
+                        disabled={analyzing}
+                        className="ui-btn ui-btn-primary ui-btn-sm inline-flex items-center gap-1"
+                      >
+                        {analyzing ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Brain className="h-4 w-4" />
+                        )}
+                        {analyzing ? "Analyzing..." : "Analyze with ROSIE"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-[200px] overflow-auto rounded-xl border border-app-border/60 bg-app-bg p-4">
+                    <pre className="whitespace-pre-wrap text-xs text-app-text-muted">
+                      {diagnostics.ai_prompt}
+                    </pre>
+                  </div>
+
+                  {/* ROSIE Analysis Result */}
+                  {analysis && (
+                    <div className="rounded-xl border border-app-accent/30 bg-app-accent/5 p-4">
+                      <h4 className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-app-accent">
+                        <Brain className="h-4 w-4" />
+                        ROSIE Analysis
+                      </h4>
+                      <div className="max-h-[400px] overflow-auto text-sm text-app-text">
+                        {analysis.split("\n").map((line, i) => (
+                          <p key={i} className="mb-1">
+                            {line.startsWith("##") ? (
+                              <span className="font-bold text-app-accent">{line}</span>
+                            ) : line.startsWith("-") || line.startsWith("1.") || line.startsWith("2.") ? (
+                              <span className="text-app-text-muted">{line}</span>
+                            ) : (
+                              line
+                            )}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {diagnostics.errors.length === 0 && diagnostics.warnings.length === 0 && (
+                <div className="rounded-xl border border-app-success/30 bg-app-success/5 p-6 text-center">
+                  <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-app-success" />
+                  <p className="text-sm font-black text-app-success">No errors or warnings detected!</p>
+                  <p className="mt-1 text-xs text-app-text-muted">
+                    Server is running cleanly. Check back after usage.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </section>
       </div>

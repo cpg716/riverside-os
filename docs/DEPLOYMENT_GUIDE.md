@@ -1251,10 +1251,13 @@ A dedicated macOS companion app lives in `ros-dev/` for managing Riverside OS de
 
 ### What It Does
 
-- **Connects to any ROS instance** — local (`localhost:3000`) or remote via Tailscale
-- **Real-time DevOps dashboard** — DB health, stations, alerts, bugs
-- **GitHub integration** — workflow runs, releases, one-click release builds
-- **AI-ready** — designed to work alongside AI coding tools with full context
+- **Auto-discovers servers** — scans Tailscale peers and local subnet for ROS instances
+- **Server profiles** — save multiple servers (dev, staging, production) and switch instantly
+- **Tailscale-aware** — detects Tailscale status, marks Tailscale profiles, shows tailnet name
+- **Real-time DevOps dashboard** — DB health, stations, alerts, bugs, workflow runs, releases
+- **GitHub integration** — view workflow runs, releases, one-click release builds
+- **ROSIE AI analysis** — one-click diagnostic analysis using the local ROSIE LLM
+- **AI-ready** — copy-paste prompts for ChatGPT/Claude/Cursor with full diagnostic context
 
 ### Build
 
@@ -1269,9 +1272,42 @@ The `.dmg` appears in `ros-dev/src-tauri/target/release/bundle/dmg/`.
 ### Connect
 
 1. Launch the app
-2. Enter ROS server URL (local or Tailscale address)
-3. Enter your staff PIN (must have `ops.dev_center.view`)
-4. Dashboard auto-refreshes every 30 seconds
+2. Check Tailscale status badge (green = connected)
+3. Click **"Scan for Riverside Servers"** to auto-discover
+4. Click a discovered server, or select a saved profile
+5. Enter your staff PIN (must have `ops.dev_center.view`)
+6. Click **Connect** — dashboard auto-refreshes every 30 seconds
+
+### Server Profiles
+
+Save multiple connection targets:
+
+| Profile | URL | Use Case |
+|---------|-----|----------|
+| Local Dev | `http://localhost:3000` | Development on this Mac |
+| Production (Tailscale) | `http://riverside-server:3000` | Remote store management |
+| Custom | Any URL | Staging, backup server, etc. |
+
+Profiles persist in localStorage. Delete custom profiles at any time.
+
+### Diagnostics & AI Analysis
+
+1. In the dashboard, click **"Run Diagnostics"**
+2. The server captures: version, Rust version, DB pool, migrations, recent errors/warnings
+3. Click **"Analyze with ROSIE"** to send the prompt to the local Gemma LLM
+4. ROSIE returns: root cause analysis, file-level fix suggestions, priority ranking
+5. Or click **"Copy"** to paste the prompt into any external AI tool
+
+### API Endpoints (used by the app)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/ops/overview` | GET | Health snapshot, stations, alerts |
+| `/api/ops/diagnostics` | GET | Full diagnostic snapshot with AI prompt |
+| `/api/ops/diagnostics/analyze` | POST | Send prompt to ROSIE LLM for analysis |
+| `/api/ops/github/workflows` | GET | Recent GitHub Actions workflow runs |
+| `/api/ops/github/releases` | GET | Recent GitHub releases |
+| `/api/ops/github/dispatch` | POST | Trigger a workflow dispatch |
 
 ---
 
