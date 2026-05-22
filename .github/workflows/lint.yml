@@ -58,12 +58,7 @@ jobs:
       - name: Run Clippy
         run: cargo clippy -- -D warnings
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Audit Dependencies
-        # Ignores configured in .cargo/audit.toml
-        run: cargo audit
+      # Security audit is handled by the weekly security-audit.yml workflow
 
   counterpoint-bridge-package:
     name: Counterpoint Bridge Package Smoke
