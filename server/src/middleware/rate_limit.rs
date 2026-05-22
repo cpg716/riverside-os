@@ -42,10 +42,13 @@ impl RateLimitState {
     }
 
     fn check_ip_limit(&mut self, ip_key: &str, limit: u32, now: Instant) -> bool {
-        let bucket = self.ip_buckets.entry(ip_key.to_string()).or_insert(RateLimitBucket {
-            window_start: now,
-            count: 0,
-        });
+        let bucket = self
+            .ip_buckets
+            .entry(ip_key.to_string())
+            .or_insert(RateLimitBucket {
+                window_start: now,
+                count: 0,
+            });
 
         Self::tick_bucket(bucket, now);
 
@@ -57,12 +60,12 @@ impl RateLimitState {
 
         // Cleanup old entries periodically
         if self.ip_buckets.len() > 10000 {
-            self.ip_buckets.retain(|_, b| now.duration_since(b.window_start) < Duration::from_secs(120));
+            self.ip_buckets
+                .retain(|_, b| now.duration_since(b.window_start) < Duration::from_secs(120));
         }
 
         true
     }
-
 }
 
 pub type RateLimitMiddleware = Arc<RwLock<RateLimitState>>;

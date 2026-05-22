@@ -89,7 +89,11 @@ pub enum TechnicalKpi {
 }
 
 impl TechnicalMetrics {
-    pub async fn collect(pool: &PgPool, cache: Option<&crate::cache::CacheService>, registry: &mut MetricRegistry) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn collect(
+        pool: &PgPool,
+        cache: Option<&crate::cache::CacheService>,
+        registry: &mut MetricRegistry,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let start_time = Instant::now();
 
         // Collect system metrics
@@ -112,10 +116,21 @@ impl TechnicalMetrics {
         let job_metrics = Self::collect_job_metrics().await?;
 
         // Record metrics to registry
-        Self::record_metrics_to_registry(&system_metrics, &database_metrics, &api_metrics, &cache_metrics, &job_metrics, registry);
+        Self::record_metrics_to_registry(
+            &system_metrics,
+            &database_metrics,
+            &api_metrics,
+            &cache_metrics,
+            &job_metrics,
+            registry,
+        );
 
         let collection_time = start_time.elapsed();
-        registry.record_timer("technical_metrics_collection_duration", collection_time, HashMap::new());
+        registry.record_timer(
+            "technical_metrics_collection_duration",
+            collection_time,
+            HashMap::new(),
+        );
 
         Ok(TechnicalMetrics {
             system_metrics,
@@ -126,7 +141,8 @@ impl TechnicalMetrics {
         })
     }
 
-    async fn collect_system_metrics() -> Result<SystemMetrics, Box<dyn std::error::Error + Send + Sync>> {
+    async fn collect_system_metrics(
+    ) -> Result<SystemMetrics, Box<dyn std::error::Error + Send + Sync>> {
         // CPU usage (simplified - would use sysinfo crate in production)
         let cpu_usage_percent = 45.0; // Placeholder
 
@@ -180,7 +196,7 @@ impl TechnicalMetrics {
             SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (query_end - query_start)) * 1000), 0)
             FROM pg_stat_statements
             WHERE calls > 0
-            "#
+            "#,
         )
         .fetch_optional(pool)
         .await?;
@@ -191,24 +207,22 @@ impl TechnicalMetrics {
             SELECT COUNT(*)
             FROM pg_stat_statements
             WHERE mean_exec_time > 1000
-            "#
+            "#,
         )
         .fetch_one(pool)
         .await?;
 
         // Database size
-        let database_size_mb: Option<i64> = sqlx::query_scalar(
-            "SELECT pg_database_size(current_database()) / 1024 / 1024"
-        )
-        .fetch_optional(pool)
-        .await?;
+        let database_size_mb: Option<i64> =
+            sqlx::query_scalar("SELECT pg_database_size(current_database()) / 1024 / 1024")
+                .fetch_optional(pool)
+                .await?;
 
         // WAL size
-        let wal_size_mb: Option<i64> = sqlx::query_scalar(
-            "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0') / 1024 / 1024"
-        )
-        .fetch_optional(pool)
-        .await?;
+        let wal_size_mb: Option<i64> =
+            sqlx::query_scalar("SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0') / 1024 / 1024")
+                .fetch_optional(pool)
+                .await?;
 
         // Cache hit ratio
         let cache_hit_ratio: f64 = sqlx::query_scalar(
@@ -220,7 +234,7 @@ impl TechnicalMetrics {
                 END
             FROM pg_stat_database
             WHERE datname = current_database()
-            "#
+            "#,
         )
         .fetch_one(pool)
         .await?;
@@ -238,7 +252,9 @@ impl TechnicalMetrics {
         })
     }
 
-    async fn collect_api_metrics(_registry: &MetricRegistry) -> Result<ApiMetrics, Box<dyn std::error::Error + Send + Sync>> {
+    async fn collect_api_metrics(
+        _registry: &MetricRegistry,
+    ) -> Result<ApiMetrics, Box<dyn std::error::Error + Send + Sync>> {
         // These would typically be collected from middleware
         // For now, we'll use placeholder values and try to extract from registry
 
@@ -272,7 +288,9 @@ impl TechnicalMetrics {
         })
     }
 
-    async fn collect_cache_metrics(_cache: &crate::cache::CacheService) -> Result<CacheMetrics, Box<dyn std::error::Error + Send + Sync>> {
+    async fn collect_cache_metrics(
+        _cache: &crate::cache::CacheService,
+    ) -> Result<CacheMetrics, Box<dyn std::error::Error + Send + Sync>> {
         // These would be collected from Redis INFO command
         // For now, we'll use placeholder values
 
@@ -329,56 +347,188 @@ impl TechnicalMetrics {
         registry: &mut MetricRegistry,
     ) {
         // System metrics
-        registry.record_gauge("system_cpu_usage_percent", system.cpu_usage_percent, HashMap::new());
-        registry.record_gauge("system_memory_usage_mb", system.memory_usage_mb as f64, HashMap::new());
-        registry.record_gauge("system_memory_usage_percent", system.memory_usage_percent, HashMap::new());
-        registry.record_gauge("system_disk_usage_mb", system.disk_usage_mb as f64, HashMap::new());
-        registry.record_gauge("system_disk_usage_percent", system.disk_usage_percent, HashMap::new());
-        registry.record_counter("system_network_bytes_sent", system.network_bytes_sent as f64, HashMap::new());
-        registry.record_counter("system_network_bytes_received", system.network_bytes_received as f64, HashMap::new());
-        registry.record_gauge("system_uptime_seconds", system.uptime_seconds as f64, HashMap::new());
+        registry.record_gauge(
+            "system_cpu_usage_percent",
+            system.cpu_usage_percent,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "system_memory_usage_mb",
+            system.memory_usage_mb as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "system_memory_usage_percent",
+            system.memory_usage_percent,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "system_disk_usage_mb",
+            system.disk_usage_mb as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "system_disk_usage_percent",
+            system.disk_usage_percent,
+            HashMap::new(),
+        );
+        registry.record_counter(
+            "system_network_bytes_sent",
+            system.network_bytes_sent as f64,
+            HashMap::new(),
+        );
+        registry.record_counter(
+            "system_network_bytes_received",
+            system.network_bytes_received as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "system_uptime_seconds",
+            system.uptime_seconds as f64,
+            HashMap::new(),
+        );
 
         if let Some(load_avg) = system.load_average {
             registry.record_gauge("system_load_average", load_avg, HashMap::new());
         }
 
         // Database metrics
-        registry.record_gauge("database_active_connections", database.active_connections as f64, HashMap::new());
-        registry.record_gauge("database_idle_connections", database.idle_connections as f64, HashMap::new());
-        registry.record_gauge("database_total_connections", database.total_connections as f64, HashMap::new());
-        registry.record_gauge("database_connection_utilization_percent", database.connection_utilization_percent, HashMap::new());
-        registry.record_gauge("database_query_duration_avg_ms", database.query_duration_avg_ms, HashMap::new());
-        registry.record_counter("database_slow_queries_count", database.slow_queries_count as f64, HashMap::new());
-        registry.record_gauge("database_size_mb", database.database_size_mb as f64, HashMap::new());
-        registry.record_gauge("database_wal_size_mb", database.wal_size_mb as f64, HashMap::new());
-        registry.record_gauge("database_cache_hit_ratio", database.cache_hit_ratio, HashMap::new());
+        registry.record_gauge(
+            "database_active_connections",
+            database.active_connections as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "database_idle_connections",
+            database.idle_connections as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "database_total_connections",
+            database.total_connections as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "database_connection_utilization_percent",
+            database.connection_utilization_percent,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "database_query_duration_avg_ms",
+            database.query_duration_avg_ms,
+            HashMap::new(),
+        );
+        registry.record_counter(
+            "database_slow_queries_count",
+            database.slow_queries_count as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "database_size_mb",
+            database.database_size_mb as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "database_wal_size_mb",
+            database.wal_size_mb as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "database_cache_hit_ratio",
+            database.cache_hit_ratio,
+            HashMap::new(),
+        );
 
         // API metrics
-        registry.record_gauge("api_requests_per_second", api.requests_per_second, HashMap::new());
-        registry.record_gauge("api_average_response_time_ms", api.average_response_time_ms, HashMap::new());
-        registry.record_gauge("api_p95_response_time_ms", api.p95_response_time_ms, HashMap::new());
-        registry.record_gauge("api_p99_response_time_ms", api.p99_response_time_ms, HashMap::new());
-        registry.record_gauge("api_error_rate_percent", api.error_rate_percent, HashMap::new());
-        registry.record_gauge("api_active_connections", api.active_connections as f64, HashMap::new());
+        registry.record_gauge(
+            "api_requests_per_second",
+            api.requests_per_second,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "api_average_response_time_ms",
+            api.average_response_time_ms,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "api_p95_response_time_ms",
+            api.p95_response_time_ms,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "api_p99_response_time_ms",
+            api.p99_response_time_ms,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "api_error_rate_percent",
+            api.error_rate_percent,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "api_active_connections",
+            api.active_connections as f64,
+            HashMap::new(),
+        );
 
         // Cache metrics
-        registry.record_gauge("cache_hit_rate_percent", cache.hit_rate_percent, HashMap::new());
-        registry.record_gauge("cache_miss_rate_percent", cache.miss_rate_percent, HashMap::new());
-        registry.record_counter("cache_total_operations", cache.total_operations as f64, HashMap::new());
-        registry.record_gauge("cache_memory_usage_mb", cache.memory_usage_mb as f64, HashMap::new());
-        registry.record_counter("cache_evicted_keys", cache.evicted_keys as f64, HashMap::new());
-        registry.record_counter("cache_expired_keys", cache.expired_keys as f64, HashMap::new());
-        registry.record_gauge("cache_connected_clients", cache.connected_clients as f64, HashMap::new());
+        registry.record_gauge(
+            "cache_hit_rate_percent",
+            cache.hit_rate_percent,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "cache_miss_rate_percent",
+            cache.miss_rate_percent,
+            HashMap::new(),
+        );
+        registry.record_counter(
+            "cache_total_operations",
+            cache.total_operations as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "cache_memory_usage_mb",
+            cache.memory_usage_mb as f64,
+            HashMap::new(),
+        );
+        registry.record_counter(
+            "cache_evicted_keys",
+            cache.evicted_keys as f64,
+            HashMap::new(),
+        );
+        registry.record_counter(
+            "cache_expired_keys",
+            cache.expired_keys as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "cache_connected_clients",
+            cache.connected_clients as f64,
+            HashMap::new(),
+        );
 
         // Job metrics
         registry.record_counter("jobs_enqueued", jobs.jobs_enqueued as f64, HashMap::new());
         registry.record_counter("jobs_dequeued", jobs.jobs_dequeued as f64, HashMap::new());
         registry.record_counter("jobs_completed", jobs.jobs_completed as f64, HashMap::new());
         registry.record_counter("jobs_failed", jobs.jobs_failed as f64, HashMap::new());
-        registry.record_gauge("jobs_average_processing_time_seconds", jobs.average_processing_time_seconds, HashMap::new());
+        registry.record_gauge(
+            "jobs_average_processing_time_seconds",
+            jobs.average_processing_time_seconds,
+            HashMap::new(),
+        );
         registry.record_gauge("jobs_pending", jobs.pending_jobs as f64, HashMap::new());
-        registry.record_gauge("jobs_processing", jobs.processing_jobs as f64, HashMap::new());
-        registry.record_gauge("jobs_dead_letter", jobs.dead_letter_jobs as f64, HashMap::new());
+        registry.record_gauge(
+            "jobs_processing",
+            jobs.processing_jobs as f64,
+            HashMap::new(),
+        );
+        registry.record_gauge(
+            "jobs_dead_letter",
+            jobs.dead_letter_jobs as f64,
+            HashMap::new(),
+        );
     }
 
     // Helper methods for system metrics (would use proper system libraries in production)

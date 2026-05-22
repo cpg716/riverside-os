@@ -1,14 +1,14 @@
 //! Comprehensive metrics collection system for business and technical KPIs
 
+pub mod business_metrics;
 pub mod collector;
 pub mod exporters;
-pub mod business_metrics;
 pub mod technical_metrics;
 
+pub use business_metrics::{BusinessKpi, BusinessMetrics};
 pub use collector::MetricsCollector;
-pub use exporters::{MetricsExporter, PrometheusExporter, JsonExporter};
-pub use business_metrics::{BusinessMetrics, BusinessKpi};
-pub use technical_metrics::{TechnicalMetrics, TechnicalKpi};
+pub use exporters::{JsonExporter, MetricsExporter, PrometheusExporter};
+pub use technical_metrics::{TechnicalKpi, TechnicalMetrics};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -77,7 +77,13 @@ impl MetricRegistry {
         self.record_metric(name, duration.as_secs_f64(), tags, MetricType::Timer);
     }
 
-    fn record_metric(&mut self, name: &str, value: f64, tags: HashMap<String, String>, metric_type: MetricType) {
+    fn record_metric(
+        &mut self,
+        name: &str,
+        value: f64,
+        tags: HashMap<String, String>,
+        metric_type: MetricType,
+    ) {
         let metric = MetricValue {
             value,
             timestamp: chrono::Utc::now(),
@@ -85,7 +91,10 @@ impl MetricRegistry {
             metric_type,
         };
 
-        let values = self.metrics.entry(name.to_string()).or_insert_with(Vec::new);
+        let values = self
+            .metrics
+            .entry(name.to_string())
+            .or_default();
         values.push(metric);
 
         // Cleanup old values based on retention policy
@@ -102,7 +111,11 @@ impl MetricRegistry {
         &self.metrics
     }
 
-    pub fn get_snapshot(&self, name: &str, aggregation: Option<AggregationType>) -> Option<MetricSnapshot> {
+    pub fn get_snapshot(
+        &self,
+        name: &str,
+        aggregation: Option<AggregationType>,
+    ) -> Option<MetricSnapshot> {
         let values = self.metrics.get(name)?;
 
         let aggregated = match aggregation {
@@ -111,8 +124,15 @@ impl MetricRegistry {
                 let sum: f64 = values.iter().map(|v| v.value).sum();
                 Some(sum / values.len() as f64)
             }
-            Some(AggregationType::Min) => Some(values.iter().map(|v| v.value).fold(f64::INFINITY, f64::min)),
-            Some(AggregationType::Max) => Some(values.iter().map(|v| v.value).fold(f64::NEG_INFINITY, f64::max)),
+            Some(AggregationType::Min) => {
+                Some(values.iter().map(|v| v.value).fold(f64::INFINITY, f64::min))
+            }
+            Some(AggregationType::Max) => Some(
+                values
+                    .iter()
+                    .map(|v| v.value)
+                    .fold(f64::NEG_INFINITY, f64::max),
+            ),
             Some(AggregationType::Percentile(p)) => {
                 let mut sorted_values: Vec<f64> = values.iter().map(|v| v.value).collect();
                 sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());

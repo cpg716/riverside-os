@@ -1,12 +1,12 @@
 //! Background job queue system for resilient async processing
 
+pub mod job_types;
 pub mod queue;
 pub mod worker;
-pub mod jobs;
 
+pub use job_types::{Job, JobPriority, JobStatus, JobType};
 pub use queue::{JobQueue, JobQueueConfig};
 pub use worker::{JobWorker, WorkerConfig};
-pub use jobs::{Job, JobStatus, JobType, JobPriority};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -52,7 +52,8 @@ impl JobContext {
 
 #[async_trait::async_trait]
 pub trait JobHandler: Send + Sync {
-    async fn handle(&self, ctx: JobContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn handle(&self, ctx: JobContext)
+        -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     fn job_type(&self) -> &'static str;
     fn max_attempts(&self) -> u32 {
         3

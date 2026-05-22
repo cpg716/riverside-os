@@ -1,7 +1,7 @@
 //! Job worker implementation for processing background jobs
 
-use crate::jobs::{Job, JobContext, HandlerRegistry};
 use crate::jobs::queue::JobQueue;
+use crate::jobs::{HandlerRegistry, Job, JobContext};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -92,13 +92,10 @@ impl JobWorker {
                         tokio::spawn(async move {
                             let _permit = permit; // Hold permit until job completes
 
-                            if let Err(e) = Self::process_job(
-                                &queue,
-                                &handlers,
-                                job,
-                                job_timeout,
-                                &worker_id,
-                            ).await {
+                            if let Err(e) =
+                                Self::process_job(&queue, &handlers, job, job_timeout, &worker_id)
+                                    .await
+                            {
                                 error!(worker_id = %worker_id, job_id = %job_id, error = %e, "Job processing failed");
                             }
                         });
@@ -133,8 +130,10 @@ impl JobWorker {
         // Wait for all running jobs to complete or timeout
         let semaphore_acquisition = timeout(
             self.config.shutdown_timeout,
-            self.job_semaphore.acquire_many(self.config.max_concurrent_jobs as u32)
-        ).await;
+            self.job_semaphore
+                .acquire_many(self.config.max_concurrent_jobs as u32),
+        )
+        .await;
 
         match semaphore_acquisition {
             Ok(Ok(_)) => {
@@ -157,7 +156,9 @@ impl JobWorker {
     }
 
     /// Get worker statistics
-    pub async fn get_stats(&self) -> Result<crate::jobs::queue::QueueStats, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_stats(
+        &self,
+    ) -> Result<crate::jobs::queue::QueueStats, Box<dyn std::error::Error + Send + Sync>> {
         Ok(self.queue.get_stats().await?)
     }
 
@@ -183,7 +184,7 @@ impl JobWorker {
         let handler = match handlers.get(&job_type.to_string()) {
             Some(handler) => handler.clone(),
             None => {
-                let error = format!("No handler found for job type: {}", job_type);
+                let error = format!("No handler found for job type: {job_type}");
                 error!(worker_id = %worker_id, job_id = %job_id, error = %error);
                 queue.fail(job_id, &error).await?;
                 return Err(error.into());
@@ -207,7 +208,7 @@ impl JobWorker {
             }
             Err(_) => {
                 // Job timed out
-                let error_msg = format!("Job timed out after {:?}", job_timeout);
+                let error_msg = format!("Job timed out after {job_timeout:?}");
                 error!(worker_id = %worker_id, job_id = %job_id, error = %error_msg);
                 queue.fail(job_id, &error_msg).await?;
             }
@@ -229,7 +230,10 @@ mod tests {
 
     #[async_trait]
     impl JobHandler for TestHandler {
-        async fn handle(&self, ctx: JobContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        async fn handle(
+            &self,
+            ctx: JobContext,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             info!("Handling job: {}", ctx.job_type);
             Ok(())
         }
@@ -245,7 +249,10 @@ mod tests {
         // For now, we'll just test the worker creation
         let queue = JobQueue::from_env().unwrap();
         let mut handlers = crate::jobs::create_registry();
-        crate::jobs::register_handler(&mut handlers, std::sync::Arc::new(TestHandler { name: "test" }));
+        crate::jobs::register_handler(
+            &mut handlers,
+            std::sync::Arc::new(TestHandler { name: "test" }),
+        );
 
         let config = WorkerConfig {
             worker_id: "test-worker".to_string(),

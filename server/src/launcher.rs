@@ -256,7 +256,7 @@ async fn launch_server_inner(
                 // Send notification to admins
                 if let Err(e) = crate::logic::notifications::broadcast_system_alert(
                     &monitor_pool,
-                    &format!("Database pool utilization at {}% ({} active / {} max)", utilization, active, max)
+                    &format!("Database pool utilization at {utilization}% ({active} active / {max} max)")
                 ).await {
                     tracing::error!(error = %e, "Failed to send pool utilization alert");
                 }

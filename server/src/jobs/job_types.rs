@@ -70,29 +70,29 @@ pub enum JobType {
     // Email jobs
     SendEmail,
     SendBulkEmail,
-    
+
     // Report jobs
     GenerateReport,
     ExportData,
-    
+
     // Sync jobs
     SyncQBO,
     SyncMeilisearch,
     SyncCounterpoint,
-    
+
     // Maintenance jobs
     CleanupOldSessions,
     BackupDatabase,
     ArchiveNotifications,
-    
+
     // Notification jobs
     SendPushNotification,
     SendSMS,
-    
+
     // Analytics jobs
     UpdateMetrics,
     ProcessAnalytics,
-    
+
     // Custom jobs
     Custom(String),
 }
@@ -114,7 +114,7 @@ impl std::fmt::Display for JobType {
             JobType::SendSMS => write!(f, "send_sms"),
             JobType::UpdateMetrics => write!(f, "update_metrics"),
             JobType::ProcessAnalytics => write!(f, "process_analytics"),
-            JobType::Custom(name) => write!(f, "{}", name),
+            JobType::Custom(name) => write!(f, "{name}"),
         }
     }
 }

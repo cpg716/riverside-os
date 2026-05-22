@@ -1876,7 +1876,7 @@ pub async fn broadcast_system_alert(pool: &PgPool, message: &str) -> Result<(), 
         JOIN permissions p ON sp.permission_id = p.id
         WHERE p.key = 'settings.admin'
         AND sp.granted = TRUE
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await?;
@@ -1896,7 +1896,8 @@ pub async fn broadcast_system_alert(pool: &PgPool, message: &str) -> Result<(), 
         "system",
         json!({"roles": ["admin"]}),
         Some(&format!("system_alert_{}", chrono::Utc::now().timestamp())),
-    ).await?;
+    )
+    .await?;
 
     if let Some(notification_id) = notification_id {
         // Fan out to all admin staff

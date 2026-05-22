@@ -1,11 +1,11 @@
 //! Business metrics and KPIs for Riverside OS
 
 use crate::metrics::MetricRegistry;
+use chrono::{Duration as ChronoDuration, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
-use chrono::{Utc, Duration as ChronoDuration};
-use rust_decimal::Decimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BusinessMetrics {
@@ -84,7 +84,10 @@ pub enum BusinessKpi {
 }
 
 impl BusinessMetrics {
-    pub async fn collect(pool: &PgPool, registry: &mut MetricRegistry) -> Result<Self, sqlx::Error> {
+    pub async fn collect(
+        pool: &PgPool,
+        registry: &mut MetricRegistry,
+    ) -> Result<Self, sqlx::Error> {
         let start_time = std::time::Instant::now();
 
         // Collect sales metrics
@@ -103,10 +106,22 @@ impl BusinessMetrics {
         let financial_metrics = Self::collect_financial_metrics(pool).await?;
 
         // Record metrics to registry
-        Self::record_metrics_to_registry(&sales_metrics, &customer_metrics, &inventory_metrics, &order_metrics, &financial_metrics, registry).await;
+        Self::record_metrics_to_registry(
+            &sales_metrics,
+            &customer_metrics,
+            &inventory_metrics,
+            &order_metrics,
+            &financial_metrics,
+            registry,
+        )
+        .await;
 
         let collection_time = start_time.elapsed();
-        registry.record_timer("business_metrics_collection_duration", collection_time, HashMap::new());
+        registry.record_timer(
+            "business_metrics_collection_duration",
+            collection_time,
+            HashMap::new(),
+        );
 
         Ok(BusinessMetrics {
             sales_metrics,
@@ -127,7 +142,7 @@ impl BusinessMetrics {
             FROM transactions
             WHERE DATE(created_at) = $1
             AND status = 'completed'
-            "#
+            "#,
         )
         .bind(today)
         .fetch_one(pool)
@@ -140,7 +155,7 @@ impl BusinessMetrics {
             FROM transactions
             WHERE DATE(created_at) = $1
             AND status = 'completed'
-            "#
+            "#,
         )
         .bind(today)
         .fetch_one(pool)
@@ -162,7 +177,7 @@ impl BusinessMetrics {
             AND status = 'completed'
             GROUP BY EXTRACT(HOUR FROM created_at)
             ORDER BY hour
-            "#
+            "#,
         )
         .bind(today)
         .fetch_all(pool)
@@ -187,13 +202,14 @@ impl BusinessMetrics {
             GROUP BY p.id, p.name
             ORDER BY SUM(tl.quantity) DESC
             LIMIT 10
-            "#
+            "#,
         )
         .bind(today)
         .fetch_all(pool)
         .await?;
 
-        let top_selling_products: Vec<ProductSales> = top_selling_products_raw.into_iter()
+        let top_selling_products: Vec<ProductSales> = top_selling_products_raw
+            .into_iter()
             .map(|(id, name, quantity, revenue)| ProductSales {
                 product_id: id,
                 product_name: name,
@@ -217,13 +233,14 @@ impl BusinessMetrics {
             AND t.status = 'completed'
             GROUP BY c.name
             ORDER BY SUM(tl.quantity * tl.unit_price) DESC
-            "#
+            "#,
         )
         .bind(today)
         .fetch_all(pool)
         .await?;
 
-        let sales_by_category: HashMap<String, Decimal> = sales_by_category_raw.into_iter().collect();
+        let sales_by_category: HashMap<String, Decimal> =
+            sales_by_category_raw.into_iter().collect();
 
         Ok(SalesMetrics {
             total_revenue_today: total_revenue_today.unwrap_or(Decimal::ZERO),
@@ -240,12 +257,11 @@ impl BusinessMetrics {
         let _thirty_days_ago = today - ChronoDuration::days(30);
 
         // New customers today
-        let new_customers_today: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM customers WHERE DATE(created_at) = $1"
-        )
-        .bind(today)
-        .fetch_one(pool)
-        .await?;
+        let new_customers_today: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM customers WHERE DATE(created_at) = $1")
+                .bind(today)
+                .fetch_one(pool)
+                .await?;
 
         // Active customers today (customers with transactions)
         let active_customers_today: i64 = sqlx::query_scalar(
@@ -255,7 +271,7 @@ impl BusinessMetrics {
             WHERE DATE(created_at) = $1
             AND customer_id IS NOT NULL
             AND status = 'completed'
-            "#
+            "#,
         )
         .bind(today)
         .fetch_one(pool)
@@ -303,7 +319,7 @@ impl BusinessMetrics {
                 AND status = 'completed'
                 GROUP BY customer_id
             ) customer_values
-            "#
+            "#,
         )
         .fetch_one(pool)
         .await?;
@@ -329,12 +345,13 @@ impl BusinessMetrics {
                 GROUP BY customer_id
             ) customer_spending
             GROUP BY segment
-            "#
+            "#,
         )
         .fetch_all(pool)
         .await?;
 
-        let customers_by_segment: HashMap<String, u64> = customers_by_segment_raw.into_iter()
+        let customers_by_segment: HashMap<String, u64> = customers_by_segment_raw
+            .into_iter()
             .map(|(segment, count)| (segment, count as u64))
             .collect();
 
@@ -355,7 +372,7 @@ impl BusinessMetrics {
             FROM product_variants pv
             INNER JOIN products p ON p.id = pv.product_id
             WHERE pv.stock_on_hand > 0
-            "#
+            "#,
         )
         .fetch_one(pool)
         .await?;
@@ -367,7 +384,7 @@ impl BusinessMetrics {
             FROM product_variants pv
             INNER JOIN products p ON p.id = pv.product_id
             WHERE pv.stock_on_hand > 0 AND pv.stock_on_hand <= 10
-            "#
+            "#,
         )
         .fetch_one(pool)
         .await?;
@@ -379,7 +396,7 @@ impl BusinessMetrics {
             FROM product_variants pv
             INNER JOIN products p ON p.id = pv.product_id
             WHERE pv.stock_on_hand = 0
-            "#
+            "#,
         )
         .fetch_one(pool)
         .await?;
@@ -405,7 +422,7 @@ impl BusinessMetrics {
                     ELSE (total_sold::float / avg_inventory::float)
                 END
             FROM last_30_days_sales, avg_inventory
-            "#
+            "#,
         )
         .fetch_one(pool)
         .await?;
@@ -430,12 +447,11 @@ impl BusinessMetrics {
         let today = Utc::now().date_naive();
 
         // Orders today
-        let orders_today: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM transactions WHERE DATE(created_at) = $1"
-        )
-        .bind(today)
-        .fetch_one(pool)
-        .await?;
+        let orders_today: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM transactions WHERE DATE(created_at) = $1")
+                .bind(today)
+                .fetch_one(pool)
+                .await?;
 
         // Orders fulfilled today
         let orders_fulfilled_today: i64 = sqlx::query_scalar(
@@ -444,7 +460,7 @@ impl BusinessMetrics {
             FROM transactions
             WHERE DATE(created_at) = $1
             AND is_fulfilled = true
-            "#
+            "#,
         )
         .bind(today)
         .fetch_one(pool)
@@ -464,7 +480,7 @@ impl BusinessMetrics {
             FROM transactions
             WHERE fulfilled_at IS NOT NULL
             AND created_at >= NOW() - INTERVAL '7 days'
-            "#
+            "#,
         )
         .fetch_one(pool)
         .await?;
@@ -479,12 +495,13 @@ impl BusinessMetrics {
             SELECT status, COUNT(*)
             FROM transactions
             GROUP BY status
-            "#
+            "#,
         )
         .fetch_all(pool)
         .await?;
 
-        let orders_by_status: HashMap<String, u64> = orders_by_status_raw.into_iter()
+        let orders_by_status: HashMap<String, u64> = orders_by_status_raw
+            .into_iter()
             .map(|(status, count)| (status, count as u64))
             .collect();
 
@@ -510,7 +527,7 @@ impl BusinessMetrics {
             INNER JOIN products p ON p.id = tl.product_id
             WHERE DATE(t.created_at) = $1
             AND t.status = 'completed'
-            "#
+            "#,
         )
         .bind(today)
         .fetch_one(pool)
@@ -523,7 +540,7 @@ impl BusinessMetrics {
             FROM transactions
             WHERE DATE(created_at) = $1
             AND status = 'completed'
-            "#
+            "#,
         )
         .bind(today)
         .fetch_one(pool)
@@ -533,7 +550,10 @@ impl BusinessMetrics {
         let gross_profit_margin: f64 = match revenue_today {
             Some(rev) if rev > Decimal::ZERO => {
                 let profit = gross_profit_today.unwrap_or(Decimal::ZERO);
-                (profit / rev * Decimal::from(100)).to_string().parse().unwrap_or(0.0)
+                (profit / rev * Decimal::from(100))
+                    .to_string()
+                    .parse()
+                    .unwrap_or(0.0)
             }
             _ => 0.0,
         };
@@ -551,7 +571,7 @@ impl BusinessMetrics {
             FROM transactions
             WHERE status = 'completed'
             AND total_amount > paid_amount
-            "#
+            "#,
         )
         .fetch_one(pool)
         .await?;
@@ -590,7 +610,11 @@ impl BusinessMetrics {
         );
         registry.record_gauge(
             "sales_average_transaction_value",
-            sales.average_transaction_value.to_string().parse().unwrap_or(0.0),
+            sales
+                .average_transaction_value
+                .to_string()
+                .parse()
+                .unwrap_or(0.0),
             HashMap::new(),
         );
 
@@ -614,7 +638,11 @@ impl BusinessMetrics {
         // Inventory metrics
         registry.record_gauge(
             "inventory_total_value",
-            inventory.total_inventory_value.to_string().parse().unwrap_or(0.0),
+            inventory
+                .total_inventory_value
+                .to_string()
+                .parse()
+                .unwrap_or(0.0),
             HashMap::new(),
         );
         registry.record_gauge(
@@ -634,11 +662,7 @@ impl BusinessMetrics {
         );
 
         // Order metrics
-        registry.record_counter(
-            "orders_today",
-            orders.orders_today as f64,
-            HashMap::new(),
-        );
+        registry.record_counter("orders_today", orders.orders_today as f64, HashMap::new());
         registry.record_counter(
             "orders_fulfilled_today",
             orders.orders_fulfilled_today as f64,
@@ -653,7 +677,11 @@ impl BusinessMetrics {
         // Financial metrics
         registry.record_gauge(
             "financial_gross_profit_today",
-            financial.gross_profit_today.to_string().parse().unwrap_or(0.0),
+            financial
+                .gross_profit_today
+                .to_string()
+                .parse()
+                .unwrap_or(0.0),
             HashMap::new(),
         );
         registry.record_gauge(
@@ -663,12 +691,20 @@ impl BusinessMetrics {
         );
         registry.record_gauge(
             "financial_net_profit_today",
-            financial.net_profit_today.to_string().parse().unwrap_or(0.0),
+            financial
+                .net_profit_today
+                .to_string()
+                .parse()
+                .unwrap_or(0.0),
             HashMap::new(),
         );
         registry.record_gauge(
             "financial_accounts_receivable",
-            financial.accounts_receivable.to_string().parse().unwrap_or(0.0),
+            financial
+                .accounts_receivable
+                .to_string()
+                .parse()
+                .unwrap_or(0.0),
             HashMap::new(),
         );
     }

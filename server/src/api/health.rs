@@ -42,7 +42,8 @@ pub struct WorkerStatus {
 }
 
 // Shared state for tracking worker health
-pub static WORKER_HEALTH: tokio::sync::OnceCell<RwLock<WorkerHealth>> = tokio::sync::OnceCell::const_new();
+pub static WORKER_HEALTH: tokio::sync::OnceCell<RwLock<WorkerHealth>> =
+    tokio::sync::OnceCell::const_new();
 
 #[derive(Debug, Default)]
 pub struct WorkerHealth {
@@ -83,9 +84,7 @@ pub async fn health() -> Result<Json<HealthResponse>, StatusCode> {
         status: "healthy".to_string(),
         timestamp: chrono::Utc::now(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime_seconds: {
-            start_time().elapsed().as_secs() as u32
-        },
+        uptime_seconds: { start_time().elapsed().as_secs() as u32 },
     };
 
     Ok(Json(response))
@@ -132,25 +131,23 @@ pub async fn live() -> Result<Json<serde_json::Value>, StatusCode> {
 
 async fn check_database_health(pool: &PgPool) -> Result<DatabaseStatus, sqlx::Error> {
     // Test database connectivity with a simple query
-    let _: i32 = sqlx::query_scalar("SELECT 1")
-        .fetch_one(pool)
-        .await?;
+    let _: i32 = sqlx::query_scalar("SELECT 1").fetch_one(pool).await?;
 
-    let pool_size = pool.size() as u32;
+    let pool_size = pool.size();
     let idle_connections = pool.num_idle() as u32;
     let active_connections = pool_size.saturating_sub(idle_connections);
 
     Ok(DatabaseStatus {
         connected: true,
-        pool_size: pool_size as u32,
-        active_connections: active_connections as u32,
-        idle_connections: idle_connections as u32,
+        pool_size,
+        active_connections,
+        idle_connections,
     })
 }
 
 fn start_time() -> &'static Instant {
     static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
-    START_TIME.get_or_init(|| Instant::now())
+    START_TIME.get_or_init(Instant::now)
 }
 
 pub fn health_router() -> axum::Router<AppState> {

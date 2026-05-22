@@ -1342,30 +1342,49 @@ pub async fn check_wal_archive_health(pool: &PgPool) -> Result<WalArchiveHealth,
         let error_message: Option<String> = row.get("error_message");
         let seconds_since_last_archive: Option<i64> = row.get("seconds_since_last_archive");
 
-        Some((status, health_status, last_archive_at, last_archive_file, archive_count_today, archive_size_mb, error_message, seconds_since_last_archive))
+        Some((
+            status,
+            health_status,
+            last_archive_at,
+            last_archive_file,
+            archive_count_today,
+            archive_size_mb,
+            error_message,
+            seconds_since_last_archive,
+        ))
     } else {
         None
     };
 
     match row {
-        Some((status, health_status, last_archive_at, last_archive_file, archive_count_today, archive_size_mb, error_message, seconds_since_last_archive)) => {
-            Ok(WalArchiveHealth {
-                status,
-                health_status,
-                last_archive_at,
-                last_archive_file,
-                archive_count_today: archive_count_today.unwrap_or(0),
-                archive_size_mb: archive_size_mb.unwrap_or(0),
-                error_message,
-                seconds_since_last_archive: seconds_since_last_archive.unwrap_or(0),
-            })
-        },
+        Some((
+            status,
+            health_status,
+            last_archive_at,
+            last_archive_file,
+            archive_count_today,
+            archive_size_mb,
+            error_message,
+            seconds_since_last_archive,
+        )) => Ok(WalArchiveHealth {
+            status,
+            health_status,
+            last_archive_at,
+            last_archive_file,
+            archive_count_today: archive_count_today.unwrap_or(0),
+            archive_size_mb: archive_size_mb.unwrap_or(0),
+            error_message,
+            seconds_since_last_archive: seconds_since_last_archive.unwrap_or(0),
+        }),
         None => Ok(WalArchiveHealth::default()),
     }
 }
 
 /// Record WAL archive failure for alerting
-pub async fn record_wal_archive_failure(pool: &PgPool, error_message: &str) -> Result<(), sqlx::Error> {
+pub async fn record_wal_archive_failure(
+    pool: &PgPool,
+    error_message: &str,
+) -> Result<(), sqlx::Error> {
     // Try to record failure, but handle case where tables don't exist yet
     if let Err(e) = sqlx::query(
         r#"
@@ -1375,13 +1394,17 @@ pub async fn record_wal_archive_failure(pool: &PgPool, error_message: &str) -> R
             error_message = $1,
             updated_at = now()
         WHERE id = (SELECT id FROM wal_archive_status LIMIT 1)
-        "#
+        "#,
     )
     .bind(error_message)
     .execute(pool)
-    .await {
+    .await
+    {
         if e.to_string().contains("does not exist") {
-            tracing::warn!("WAL archive tables not yet created - cannot record failure: {}", error_message);
+            tracing::warn!(
+                "WAL archive tables not yet created - cannot record failure: {}",
+                error_message
+            );
             // Still send alert even if we can't record to database
         } else {
             return Err(e);
@@ -1391,8 +1414,10 @@ pub async fn record_wal_archive_failure(pool: &PgPool, error_message: &str) -> R
     // Send alert to admins
     if let Err(e) = crate::logic::notifications::broadcast_system_alert(
         pool,
-        &format!("WAL archiving failed: {}", error_message)
-    ).await {
+        &format!("WAL archiving failed: {error_message}"),
+    )
+    .await
+    {
         tracing::error!(error = %e, "Failed to send WAL archive failure alert");
     }
 

@@ -1,13 +1,16 @@
 //! Metrics exporters for different formats and destinations
 
-use crate::metrics::{MetricRegistry, ExportFormat};
+use crate::metrics::{ExportFormat, MetricRegistry};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[async_trait]
 pub trait MetricsExporter: Send + Sync {
-    async fn export(&self, registry: &MetricRegistry) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
+    async fn export(
+        &self,
+        registry: &MetricRegistry,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
     fn format(&self) -> ExportFormat;
 }
 
@@ -57,7 +60,10 @@ impl PrometheusExporter {
 
 #[async_trait]
 impl MetricsExporter for PrometheusExporter {
-    async fn export(&self, registry: &MetricRegistry) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn export(
+        &self,
+        registry: &MetricRegistry,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let mut output = String::new();
         let metrics = registry.get_all_metrics();
 
@@ -78,15 +84,31 @@ impl MetricsExporter for PrometheusExporter {
                     crate::metrics::MetricType::Timer => "histogram",
                 };
 
-                output.push_str(&format!("# TYPE {} {}\n", full_name, metric_type));
+                output.push_str(&format!("# TYPE {full_name} {metric_type}\n"));
 
                 // For histograms, we need to export buckets
-                if matches!(latest_value.metric_type, crate::metrics::MetricType::Histogram | crate::metrics::MetricType::Timer) {
+                if matches!(
+                    latest_value.metric_type,
+                    crate::metrics::MetricType::Histogram | crate::metrics::MetricType::Timer
+                ) {
                     let mut sorted_values: Vec<f64> = values.iter().map(|v| v.value).collect();
                     sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
                     // Define standard buckets
-                    let buckets = vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, f64::INFINITY];
+                    let buckets = vec![
+                        0.005,
+                        0.01,
+                        0.025,
+                        0.05,
+                        0.1,
+                        0.25,
+                        0.5,
+                        1.0,
+                        2.5,
+                        5.0,
+                        10.0,
+                        f64::INFINITY,
+                    ];
 
                     for bucket in &buckets {
                         let count = sorted_values.iter().filter(|&&v| v <= *bucket).count() as f64;
@@ -146,9 +168,17 @@ pub struct JsonExporter {
     pretty_print: bool,
 }
 
+impl Default for JsonExporter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JsonExporter {
     pub fn new() -> Self {
-        Self { pretty_print: false }
+        Self {
+            pretty_print: false,
+        }
     }
 
     pub fn pretty_print(mut self) -> Self {
@@ -159,24 +189,29 @@ impl JsonExporter {
 
 #[async_trait]
 impl MetricsExporter for JsonExporter {
-    async fn export(&self, registry: &MetricRegistry) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn export(
+        &self,
+        registry: &MetricRegistry,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let metrics = registry.get_all_metrics();
         let mut output = HashMap::new();
 
         for (metric_name, values) in metrics {
             let metric_data: Vec<serde_json::Value> = values
                 .iter()
-                .map(|v| serde_json::json!({
-                    "value": v.value,
-                    "timestamp": v.timestamp,
-                    "tags": v.tags,
-                    "type": match v.metric_type {
-                        crate::metrics::MetricType::Counter => "counter",
-                        crate::metrics::MetricType::Gauge => "gauge",
-                        crate::metrics::MetricType::Histogram => "histogram",
-                        crate::metrics::MetricType::Timer => "timer",
-                    }
-                }))
+                .map(|v| {
+                    serde_json::json!({
+                        "value": v.value,
+                        "timestamp": v.timestamp,
+                        "tags": v.tags,
+                        "type": match v.metric_type {
+                            crate::metrics::MetricType::Counter => "counter",
+                            crate::metrics::MetricType::Gauge => "gauge",
+                            crate::metrics::MetricType::Histogram => "histogram",
+                            crate::metrics::MetricType::Timer => "timer",
+                        }
+                    })
+                })
                 .collect();
 
             output.insert(metric_name.clone(), metric_data);
@@ -218,13 +253,25 @@ impl InfluxDBExporter {
         self
     }
 
-    fn format_line_protocol(&self, measurement: &str, tags: &HashMap<String, String>, value: f64, timestamp: i64) -> String {
+    fn format_line_protocol(
+        &self,
+        measurement: &str,
+        tags: &HashMap<String, String>,
+        value: f64,
+        timestamp: i64,
+    ) -> String {
         let tag_string = if tags.is_empty() {
             String::new()
         } else {
             let formatted_tags: Vec<String> = tags
                 .iter()
-                .map(|(key, val)| format!("{}={}", key.replace([' ', ','], "\\ "), val.replace([' ', ','], "\\ ")))
+                .map(|(key, val)| {
+                    format!(
+                        "{}={}",
+                        key.replace([' ', ','], "\\ "),
+                        val.replace([' ', ','], "\\ ")
+                    )
+                })
                 .collect();
             format!(",{}", formatted_tags.join(","))
         };
@@ -241,7 +288,10 @@ impl InfluxDBExporter {
 
 #[async_trait]
 impl MetricsExporter for InfluxDBExporter {
-    async fn export(&self, registry: &MetricRegistry) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn export(
+        &self,
+        registry: &MetricRegistry,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let mut lines = Vec::new();
         let metrics = registry.get_all_metrics();
 
@@ -285,7 +335,7 @@ impl GraphiteExporter {
         } else {
             let tag_string = tags
                 .iter()
-                .map(|(key, value)| format!("{}.{}", key, value))
+                .map(|(key, value)| format!("{key}.{value}"))
                 .collect::<Vec<_>>()
                 .join(".");
             format!("{}.{}.{}", self.prefix, tag_string, sanitized_name)
@@ -295,7 +345,10 @@ impl GraphiteExporter {
 
 #[async_trait]
 impl MetricsExporter for GraphiteExporter {
-    async fn export(&self, registry: &MetricRegistry) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn export(
+        &self,
+        registry: &MetricRegistry,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let mut lines = Vec::new();
         let metrics = registry.get_all_metrics();
 
@@ -358,10 +411,15 @@ impl Default for ExportConfig {
     }
 }
 
-pub fn create_exporter(format: &ExportFormat, config: &ExportConfig) -> Result<Box<dyn MetricsExporter>, Box<dyn std::error::Error + Send + Sync>> {
+pub fn create_exporter(
+    format: &ExportFormat,
+    config: &ExportConfig,
+) -> Result<Box<dyn MetricsExporter>, Box<dyn std::error::Error + Send + Sync>> {
     match format {
         ExportFormat::Prometheus => {
-            let prometheus_config = config.prometheus.as_ref()
+            let prometheus_config = config
+                .prometheus
+                .as_ref()
                 .ok_or("Prometheus config required")?;
             let mut exporter = PrometheusExporter::new(&prometheus_config.namespace);
             if let Some(subsystem) = &prometheus_config.subsystem {
@@ -371,17 +429,18 @@ pub fn create_exporter(format: &ExportFormat, config: &ExportConfig) -> Result<B
         }
         ExportFormat::Json => Ok(Box::new(JsonExporter::new())),
         ExportFormat::InfluxDB => {
-            let influxdb_config = config.influxdb.as_ref()
-                .ok_or("InfluxDB config required")?;
-            let mut exporter = InfluxDBExporter::new(&influxdb_config.url, &influxdb_config.database);
-            if let (Some(username), Some(password)) = (&influxdb_config.username, &influxdb_config.password) {
+            let influxdb_config = config.influxdb.as_ref().ok_or("InfluxDB config required")?;
+            let mut exporter =
+                InfluxDBExporter::new(&influxdb_config.url, &influxdb_config.database);
+            if let (Some(username), Some(password)) =
+                (&influxdb_config.username, &influxdb_config.password)
+            {
                 exporter = exporter.with_auth(username, password);
             }
             Ok(Box::new(exporter))
         }
         ExportFormat::Graphite => {
-            let graphite_config = config.graphite.as_ref()
-                .ok_or("Graphite config required")?;
+            let graphite_config = config.graphite.as_ref().ok_or("Graphite config required")?;
             Ok(Box::new(GraphiteExporter::new(&graphite_config.prefix)))
         }
     }

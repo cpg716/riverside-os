@@ -1,7 +1,7 @@
 //! Metrics collector that aggregates and manages metrics collection
 
-use crate::metrics::{MetricRegistry, MetricsConfig, BusinessMetrics, TechnicalMetrics};
 use crate::cache::CacheService;
+use crate::metrics::{BusinessMetrics, MetricRegistry, MetricsConfig, TechnicalMetrics};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -37,7 +37,10 @@ impl MetricsCollector {
             *running = true;
         }
 
-        info!("Starting metrics collection with interval: {:?}", self.config.collection_interval);
+        info!(
+            "Starting metrics collection with interval: {:?}",
+            self.config.collection_interval
+        );
 
         let registry = self.registry.clone();
         let config = self.config.clone();
@@ -68,7 +71,13 @@ impl MetricsCollector {
 
                 // Collect technical metrics
                 if config.enable_technical_metrics {
-                    match TechnicalMetrics::collect(&db_pool, cache.as_ref(), &mut *registry.write().await).await {
+                    match TechnicalMetrics::collect(
+                        &db_pool,
+                        cache.as_ref(),
+                        &mut *registry.write().await,
+                    )
+                    .await
+                    {
                         Ok(_) => {
                             info!("Technical metrics collected successfully");
                         }
@@ -126,19 +135,31 @@ impl MetricsCollector {
     }
 
     /// Get specific metric snapshot
-    pub async fn get_metric_snapshot(&self, name: &str, aggregation: Option<crate::metrics::AggregationType>) -> Option<crate::metrics::MetricSnapshot> {
+    pub async fn get_metric_snapshot(
+        &self,
+        name: &str,
+        aggregation: Option<crate::metrics::AggregationType>,
+    ) -> Option<crate::metrics::MetricSnapshot> {
         let registry = self.registry.read().await;
         registry.get_snapshot(name, aggregation)
     }
 
     /// Record a custom metric
-    pub async fn record_custom_metric(&self, name: &str, value: f64, tags: std::collections::HashMap<String, String>, metric_type: crate::metrics::MetricType) {
+    pub async fn record_custom_metric(
+        &self,
+        name: &str,
+        value: f64,
+        tags: std::collections::HashMap<String, String>,
+        metric_type: crate::metrics::MetricType,
+    ) {
         let mut registry = self.registry.write().await;
         match metric_type {
             crate::metrics::MetricType::Counter => registry.record_counter(name, value, tags),
             crate::metrics::MetricType::Gauge => registry.record_gauge(name, value, tags),
             crate::metrics::MetricType::Histogram => registry.record_histogram(name, value, tags),
-            crate::metrics::MetricType::Timer => registry.record_timer(name, std::time::Duration::from_secs_f64(value), tags),
+            crate::metrics::MetricType::Timer => {
+                registry.record_timer(name, std::time::Duration::from_secs_f64(value), tags)
+            }
         }
     }
 
@@ -148,20 +169,44 @@ impl MetricsCollector {
     }
 
     /// Record an API request (method, path, status, duration). Used by metrics middleware.
-    pub async fn record_request(&self, method: &str, path: &str, status_code: u16, duration_ms: f64) {
+    pub async fn record_request(
+        &self,
+        method: &str,
+        path: &str,
+        status_code: u16,
+        duration_ms: f64,
+    ) {
         let mut tags = std::collections::HashMap::new();
         tags.insert("method".to_string(), method.to_string());
         tags.insert("path".to_string(), path.to_string());
         tags.insert("status".to_string(), status_code.to_string());
 
-        self.record_custom_metric("api_requests_total", 1.0, tags.clone(), crate::metrics::MetricType::Counter).await;
-        self.record_custom_metric("api_request_duration_ms", duration_ms, tags.clone(), crate::metrics::MetricType::Histogram).await;
+        self.record_custom_metric(
+            "api_requests_total",
+            1.0,
+            tags.clone(),
+            crate::metrics::MetricType::Counter,
+        )
+        .await;
+        self.record_custom_metric(
+            "api_request_duration_ms",
+            duration_ms,
+            tags.clone(),
+            crate::metrics::MetricType::Histogram,
+        )
+        .await;
 
         if status_code >= 400 {
             let mut error_tags = std::collections::HashMap::new();
             error_tags.insert("method".to_string(), method.to_string());
             error_tags.insert("status".to_string(), status_code.to_string());
-            self.record_custom_metric("api_errors_total", 1.0, error_tags, crate::metrics::MetricType::Counter).await;
+            self.record_custom_metric(
+                "api_errors_total",
+                1.0,
+                error_tags,
+                crate::metrics::MetricType::Counter,
+            )
+            .await;
         }
     }
 }
@@ -176,82 +221,107 @@ impl MetricsMiddleware {
         Self { collector }
     }
 
-
     /// Record database query metrics
     pub async fn record_database_query(&self, query_type: &str, duration_ms: f64, success: bool) {
         let mut tags = std::collections::HashMap::new();
         tags.insert("query_type".to_string(), query_type.to_string());
         tags.insert("success".to_string(), success.to_string());
 
-        self.collector.record_custom_metric(
-            "database_query_duration_ms",
-            duration_ms,
-            tags.clone(),
-            crate::metrics::MetricType::Histogram,
-        ).await;
+        self.collector
+            .record_custom_metric(
+                "database_query_duration_ms",
+                duration_ms,
+                tags.clone(),
+                crate::metrics::MetricType::Histogram,
+            )
+            .await;
 
-        self.collector.record_custom_metric(
-            "database_queries_total",
-            1.0,
-            tags,
-            crate::metrics::MetricType::Counter,
-        ).await;
+        self.collector
+            .record_custom_metric(
+                "database_queries_total",
+                1.0,
+                tags,
+                crate::metrics::MetricType::Counter,
+            )
+            .await;
     }
 
     /// Record cache operation metrics
-    pub async fn record_cache_operation(&self, operation: &str, _key: &str, hit: bool, duration_ms: f64) {
+    pub async fn record_cache_operation(
+        &self,
+        operation: &str,
+        _key: &str,
+        hit: bool,
+        duration_ms: f64,
+    ) {
         let mut tags = std::collections::HashMap::new();
         tags.insert("operation".to_string(), operation.to_string());
         tags.insert("hit".to_string(), hit.to_string());
 
-        self.collector.record_custom_metric(
-            "cache_operation_duration_ms",
-            duration_ms,
-            tags.clone(),
-            crate::metrics::MetricType::Histogram,
-        ).await;
+        self.collector
+            .record_custom_metric(
+                "cache_operation_duration_ms",
+                duration_ms,
+                tags.clone(),
+                crate::metrics::MetricType::Histogram,
+            )
+            .await;
 
-        self.collector.record_custom_metric(
-            "cache_operations_total",
-            1.0,
-            tags,
-            crate::metrics::MetricType::Counter,
-        ).await;
+        self.collector
+            .record_custom_metric(
+                "cache_operations_total",
+                1.0,
+                tags,
+                crate::metrics::MetricType::Counter,
+            )
+            .await;
     }
 
     /// Record API request metrics
-    pub async fn record_request(&self, method: &str, path: &str, status_code: u16, duration_ms: f64) {
+    pub async fn record_request(
+        &self,
+        method: &str,
+        path: &str,
+        status_code: u16,
+        duration_ms: f64,
+    ) {
         let mut tags = std::collections::HashMap::new();
         tags.insert("method".to_string(), method.to_string());
         tags.insert("path".to_string(), path.to_string());
         tags.insert("status".to_string(), status_code.to_string());
 
-        self.collector.record_custom_metric(
-            "api_requests_total",
-            1.0,
-            tags.clone(),
-            crate::metrics::MetricType::Counter,
-        ).await;
+        self.collector
+            .record_custom_metric(
+                "api_requests_total",
+                1.0,
+                tags.clone(),
+                crate::metrics::MetricType::Counter,
+            )
+            .await;
 
         // Record request duration
-        self.collector.record_custom_metric(
-            "api_request_duration_ms",
-            duration_ms,
-            tags.clone(),
-            crate::metrics::MetricType::Histogram,
-        ).await;
+        self.collector
+            .record_custom_metric(
+                "api_request_duration_ms",
+                duration_ms,
+                tags.clone(),
+                crate::metrics::MetricType::Histogram,
+            )
+            .await;
 
         // Record error count if status indicates error
         if status_code >= 400 {
             let mut error_tags = std::collections::HashMap::new();
             error_tags.insert("method".to_string(), method.to_string());
             error_tags.insert("status".to_string(), status_code.to_string());
-            self.collector.record_custom_metric(
-                "api_errors_total",
-                1.0,
-                error_tags,
-                crate::metrics::MetricType::Counter,
-            ).await;
+            self.collector
+                .record_custom_metric(
+                    "api_errors_total",
+                    1.0,
+                    error_tags,
+                    crate::metrics::MetricType::Counter,
+                )
+                .await;
         }
     }
 }
@@ -273,7 +343,9 @@ pub async fn metrics_middleware(
 
     // Record metrics if collector is available
     if let Some(metrics_collector) = &state.metrics_collector {
-        metrics_collector.record_request(&method, &path, status_code, duration_ms).await;
+        metrics_collector
+            .record_request(&method, &path, status_code, duration_ms)
+            .await;
     }
 
     response

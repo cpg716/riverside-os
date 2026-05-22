@@ -60,7 +60,9 @@ impl JobQueue {
         let job_key = self.job_key(job_id);
 
         // Store job data
-        self.cache.set(&job_key, &job, Some(Duration::from_secs(86400))).await?;
+        self.cache
+            .set(&job_key, &job, Some(Duration::from_secs(86400)))
+            .await?;
 
         // Add to queue (using Redis list)
         let mut conn = self.cache.redis().get_connection().await?;
@@ -87,13 +89,12 @@ impl JobQueue {
         let job_id_result: Option<String> = redis::cmd("BRPOPLPUSH")
             .arg(&queue_key)
             .arg(&processing_key)
-            .arg(self.config.visibility_timeout.as_secs() as u64)
+            .arg(self.config.visibility_timeout.as_secs())
             .query(&mut conn)?;
 
         let job_id = match job_id_result {
-            Some(id) => Uuid::parse_str(&id).map_err(|_| {
-                RedisError::from((redis::ErrorKind::TypeError, "Invalid UUID", id))
-            })?,
+            Some(id) => Uuid::parse_str(&id)
+                .map_err(|_| RedisError::from((redis::ErrorKind::TypeError, "Invalid UUID", id)))?,
             None => return Ok(None),
         };
 
@@ -107,7 +108,9 @@ impl JobQueue {
                 job.started_at = Some(Utc::now());
 
                 // Update job status
-                self.cache.set(&job_key, &job, Some(Duration::from_secs(86400))).await?;
+                self.cache
+                    .set(&job_key, &job, Some(Duration::from_secs(86400)))
+                    .await?;
 
                 // Update queue stats
                 self.increment_queue_stats("dequeued").await?;
@@ -144,7 +147,9 @@ impl JobQueue {
             job.completed_at = Some(Utc::now());
 
             // Update job data
-            self.cache.set(&job_key, job, Some(Duration::from_secs(86400))).await?;
+            self.cache
+                .set(&job_key, job, Some(Duration::from_secs(86400)))
+                .await?;
         }
 
         // Remove from processing queue
@@ -179,7 +184,9 @@ impl JobQueue {
             job.failed_at = Some(Utc::now());
 
             // Update job data
-            self.cache.set(&job_key, job, Some(Duration::from_secs(86400))).await?;
+            self.cache
+                .set(&job_key, job, Some(Duration::from_secs(86400)))
+                .await?;
         }
 
         // Remove from processing queue
@@ -195,7 +202,7 @@ impl JobQueue {
             if job.attempts < self.config.max_retries {
                 // Requeue for retry
                 let _: () = redis::cmd("LPUSH")
-                    .arg(&self.queue_key())
+                    .arg(self.queue_key())
                     .arg(job_id.to_string())
                     .query(&mut conn)?;
 
@@ -221,22 +228,40 @@ impl JobQueue {
     pub async fn get_stats(&self) -> Result<QueueStats, RedisError> {
         let mut conn = self.cache.redis().get_connection().await?;
 
-        let pending: i64 = redis::cmd("LLEN")
-            .arg(&self.queue_key())
-            .query(&mut conn)?;
+        let pending: i64 = redis::cmd("LLEN").arg(self.queue_key()).query(&mut conn)?;
 
         let processing: i64 = redis::cmd("LLEN")
-            .arg(&self.processing_key())
+            .arg(self.processing_key())
             .query(&mut conn)?;
 
         let dead_letter: i64 = redis::cmd("LLEN")
-            .arg(&self.dead_letter_key())
+            .arg(self.dead_letter_key())
             .query(&mut conn)?;
 
-        let enqueued: i64 = self.cache.redis().get(&self.stats_key("enqueued")).await?.unwrap_or(0);
-        let dequeued: i64 = self.cache.redis().get(&self.stats_key("dequeued")).await?.unwrap_or(0);
-        let completed: i64 = self.cache.redis().get(&self.stats_key("completed")).await?.unwrap_or(0);
-        let failed: i64 = self.cache.redis().get(&self.stats_key("failed")).await?.unwrap_or(0);
+        let enqueued: i64 = self
+            .cache
+            .redis()
+            .get(&self.stats_key("enqueued"))
+            .await?
+            .unwrap_or(0);
+        let dequeued: i64 = self
+            .cache
+            .redis()
+            .get(&self.stats_key("dequeued"))
+            .await?
+            .unwrap_or(0);
+        let completed: i64 = self
+            .cache
+            .redis()
+            .get(&self.stats_key("completed"))
+            .await?
+            .unwrap_or(0);
+        let failed: i64 = self
+            .cache
+            .redis()
+            .get(&self.stats_key("failed"))
+            .await?
+            .unwrap_or(0);
 
         Ok(QueueStats {
             pending,
@@ -263,7 +288,7 @@ impl JobQueue {
     }
 
     fn job_key(&self, job_id: Uuid) -> String {
-        format!("job:{}", job_id)
+        format!("job:{job_id}")
     }
 
     fn stats_key(&self, stat: &str) -> String {

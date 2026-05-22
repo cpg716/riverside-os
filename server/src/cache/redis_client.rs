@@ -22,8 +22,13 @@ impl RedisCache {
 
     /// Cache a value with TTL
     pub async fn set<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) -> RedisResult<()> {
-        let serialized = serde_json::to_string(value)
-            .map_err(|e| RedisError::from((redis::ErrorKind::TypeError, "Serialization failed", e.to_string())))?;
+        let serialized = serde_json::to_string(value).map_err(|e| {
+            RedisError::from((
+                redis::ErrorKind::TypeError,
+                "Serialization failed",
+                e.to_string(),
+            ))
+        })?;
 
         let mut conn = self.get_connection().await?;
         let _: () = redis::cmd("SETEX")
@@ -38,14 +43,17 @@ impl RedisCache {
     /// Get a cached value
     pub async fn get<T: for<'de> Deserialize<'de>>(&self, key: &str) -> RedisResult<Option<T>> {
         let mut conn = self.get_connection().await?;
-        let result: Option<String> = redis::cmd("GET")
-            .arg(key)
-            .query(&mut conn)?;
+        let result: Option<String> = redis::cmd("GET").arg(key).query(&mut conn)?;
 
         match result {
             Some(data) => {
-                let deserialized: T = serde_json::from_str(&data)
-                    .map_err(|e| RedisError::from((redis::ErrorKind::TypeError, "Deserialization failed", e.to_string())))?;
+                let deserialized: T = serde_json::from_str(&data).map_err(|e| {
+                    RedisError::from((
+                        redis::ErrorKind::TypeError,
+                        "Deserialization failed",
+                        e.to_string(),
+                    ))
+                })?;
                 Ok(Some(deserialized))
             }
             None => Ok(None),
@@ -55,9 +63,7 @@ impl RedisCache {
     /// Delete a cached value
     pub async fn del(&self, key: &str) -> RedisResult<bool> {
         let mut conn = self.get_connection().await?;
-        let count: i32 = redis::cmd("DEL")
-            .arg(key)
-            .query(&mut conn)?;
+        let count: i32 = redis::cmd("DEL").arg(key).query(&mut conn)?;
 
         Ok(count > 0)
     }
@@ -65,9 +71,7 @@ impl RedisCache {
     /// Check if key exists
     pub async fn exists(&self, key: &str) -> RedisResult<bool> {
         let mut conn = self.get_connection().await?;
-        let count: i32 = redis::cmd("EXISTS")
-            .arg(key)
-            .query(&mut conn)?;
+        let count: i32 = redis::cmd("EXISTS").arg(key).query(&mut conn)?;
 
         Ok(count > 0)
     }
@@ -75,24 +79,29 @@ impl RedisCache {
     /// Increment a counter
     pub async fn incr(&self, key: &str) -> RedisResult<i64> {
         let mut conn = self.get_connection().await?;
-        redis::cmd("INCR")
-            .arg(key)
-            .query(&mut conn)
+        redis::cmd("INCR").arg(key).query(&mut conn)
     }
 
     /// Increment a counter by amount
     pub async fn incr_by(&self, key: &str, amount: i64) -> RedisResult<i64> {
         let mut conn = self.get_connection().await?;
-        redis::cmd("INCRBY")
-            .arg(key)
-            .arg(amount)
-            .query(&mut conn)
+        redis::cmd("INCRBY").arg(key).arg(amount).query(&mut conn)
     }
 
     /// Set a value only if it doesn't exist
-    pub async fn set_nx<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) -> RedisResult<bool> {
-        let serialized = serde_json::to_string(value)
-            .map_err(|e| RedisError::from((redis::ErrorKind::TypeError, "Serialization failed", e.to_string())))?;
+    pub async fn set_nx<T: Serialize>(
+        &self,
+        key: &str,
+        value: &T,
+        ttl: Duration,
+    ) -> RedisResult<bool> {
+        let serialized = serde_json::to_string(value).map_err(|e| {
+            RedisError::from((
+                redis::ErrorKind::TypeError,
+                "Serialization failed",
+                e.to_string(),
+            ))
+        })?;
 
         let mut conn = self.get_connection().await?;
         let result: Option<String> = redis::cmd("SET")
@@ -120,7 +129,7 @@ impl DistributedLock {
         let token = Uuid::new_v4().to_string();
         Self {
             redis,
-            key: format!("lock:{}", resource),
+            key: format!("lock:{resource}"),
             token,
             ttl,
         }
@@ -203,26 +212,26 @@ impl DistributedLock {
 /// Cache key utilities
 pub mod keys {
     pub fn user_session(user_id: &str) -> String {
-        format!("session:user:{}", user_id)
+        format!("session:user:{user_id}")
     }
 
     pub fn product_cache(product_id: &str) -> String {
-        format!("product:{}", product_id)
+        format!("product:{product_id}")
     }
 
     pub fn inventory_cache(store_id: &str) -> String {
-        format!("inventory:store:{}", store_id)
+        format!("inventory:store:{store_id}")
     }
 
     pub fn rate_limit(ip: &str, window: &str) -> String {
-        format!("rate_limit:{}:{}", ip, window)
+        format!("rate_limit:{ip}:{window}")
     }
 
     pub fn search_cache(query_hash: &str) -> String {
-        format!("search:{}", query_hash)
+        format!("search:{query_hash}")
     }
 
     pub fn metrics_cache(metric_type: &str, time_window: &str) -> String {
-        format!("metrics:{}:{}", metric_type, time_window)
+        format!("metrics:{metric_type}:{time_window}")
     }
 }

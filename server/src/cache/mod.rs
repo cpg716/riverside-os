@@ -2,7 +2,7 @@
 
 pub mod redis_client;
 
-pub use redis_client::{RedisCache, DistributedLock};
+pub use redis_client::{DistributedLock, RedisCache};
 
 use redis::RedisError;
 use std::time::Duration;
@@ -22,7 +22,7 @@ impl Default for CacheConfig {
             redis_url: std::env::var("RIVERSIDE_REDIS_URL")
                 .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
             default_ttl: Duration::from_secs(300), // 5 minutes
-            lock_timeout: Duration::from_secs(30),  // 30 seconds
+            lock_timeout: Duration::from_secs(30), // 30 seconds
             max_retries: 3,
         }
     }
@@ -55,7 +55,12 @@ impl CacheService {
     }
 
     /// Cache with retry logic
-    pub async fn set_with_retry<T: serde::Serialize>(&self, key: &str, value: &T, ttl: Option<Duration>) -> Result<(), RedisError> {
+    pub async fn set_with_retry<T: serde::Serialize>(
+        &self,
+        key: &str,
+        value: &T,
+        ttl: Option<Duration>,
+    ) -> Result<(), RedisError> {
         let ttl = ttl.unwrap_or(self.config.default_ttl);
         let mut retries = 0;
 
@@ -73,7 +78,10 @@ impl CacheService {
     }
 
     /// Get with retry logic
-    pub async fn get_with_retry<T: for<'de> serde::Deserialize<'de>>(&self, key: &str) -> Result<Option<T>, RedisError> {
+    pub async fn get_with_retry<T: for<'de> serde::Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, RedisError> {
         let mut retries = 0;
 
         loop {
@@ -90,12 +98,20 @@ impl CacheService {
     }
 
     /// Set a value in cache (convenience method)
-    pub async fn set<T: serde::Serialize>(&self, key: &str, value: &T, ttl: Option<Duration>) -> Result<(), RedisError> {
+    pub async fn set<T: serde::Serialize>(
+        &self,
+        key: &str,
+        value: &T,
+        ttl: Option<Duration>,
+    ) -> Result<(), RedisError> {
         self.set_with_retry(key, value, ttl).await
     }
 
     /// Get a value from cache (convenience method)
-    pub async fn get<T: for<'de> serde::Deserialize<'de>>(&self, key: &str) -> Result<Option<T>, RedisError> {
+    pub async fn get<T: for<'de> serde::Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, RedisError> {
         self.get_with_retry(key).await
     }
 }

@@ -488,7 +488,11 @@ async fn get_github_workflows(
 ) -> Result<Json<Value>, Response> {
     let _ = require_view(&state, &headers).await?;
     let token = state.github_token.as_deref().ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"}))).into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"})),
+        )
+            .into_response()
     })?;
     let data = github_api_get(
         &state.http_client,
@@ -506,7 +510,11 @@ async fn get_github_releases(
 ) -> Result<Json<Value>, Response> {
     let _ = require_view(&state, &headers).await?;
     let token = state.github_token.as_deref().ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"}))).into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"})),
+        )
+            .into_response()
     })?;
     let data = github_api_get(
         &state.http_client,
@@ -532,7 +540,11 @@ async fn post_github_dispatch(
 ) -> Result<Json<Value>, Response> {
     let _ = require_actions(&state, &headers).await?;
     let token = state.github_token.as_deref().ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"}))).into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "RIVERSIDE_GITHUB_TOKEN not configured"})),
+        )
+            .into_response()
     })?;
 
     let payload = json!({
@@ -540,7 +552,10 @@ async fn post_github_dispatch(
         "inputs": body.inputs.unwrap_or_else(|| json!({}))
     });
 
-    let path = format!("/repos/{GITHUB_REPO}/actions/workflows/{}/dispatches", body.workflow_id);
+    let path = format!(
+        "/repos/{GITHUB_REPO}/actions/workflows/{}/dispatches",
+        body.workflow_id
+    );
     let data = github_api_post(&state.http_client, token, &path, payload)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, Json(json!({"error": e}))).into_response())?;
@@ -659,16 +674,14 @@ async fn get_diagnostics(
 
 async fn check_db_diagnostics(pool: &sqlx::PgPool) -> Result<DatabaseDiagnostics, sqlx::Error> {
     let _: i32 = sqlx::query_scalar("SELECT 1").fetch_one(pool).await?;
-    let pool_size = pool.size() as u32;
+    let pool_size = pool.size();
     let idle = pool.num_idle() as u32;
     let active = pool_size.saturating_sub(idle);
 
-    let migration_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM _sqlx_migrations"
-    )
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
+    let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
 
     Ok(DatabaseDiagnostics {
         connected: true,
@@ -687,7 +700,12 @@ fn parse_log_line(line: &str) -> Option<LogEntry> {
         let level = parts[1].trim().to_string();
         let target = parts.get(2).unwrap_or(&"").to_string();
         let message = parts.get(3).unwrap_or(&"").to_string();
-        Some(LogEntry { timestamp: ts, level, target, message })
+        Some(LogEntry {
+            timestamp: ts,
+            level,
+            target,
+            message,
+        })
     } else {
         None
     }
@@ -705,21 +723,37 @@ fn generate_ai_prompt(
     prompt.push_str(&format!("**Version:** {}\n", server.version));
     prompt.push_str(&format!("**Rust:** {}\n", server.rust_version));
     prompt.push_str(&format!("**DB Connected:** {}\n", db.connected));
-    prompt.push_str(&format!("**DB Pool:** {}/{} active ({} idle)\n", db.active_connections, db.pool_size, db.idle_connections));
+    prompt.push_str(&format!(
+        "**DB Pool:** {}/{} active ({} idle)\n",
+        db.active_connections, db.pool_size, db.idle_connections
+    ));
     prompt.push_str(&format!("**Migrations:** {} applied\n", db.migration_count));
-    prompt.push_str(&format!("**GitHub Token:** {}\n", if github.token_configured { "configured" } else { "NOT CONFIGURED" }));
+    prompt.push_str(&format!(
+        "**GitHub Token:** {}\n",
+        if github.token_configured {
+            "configured"
+        } else {
+            "NOT CONFIGURED"
+        }
+    ));
 
     if !errors.is_empty() {
         prompt.push_str("\n## Recent Errors (last 50)\n\n");
         for e in errors.iter().take(20) {
-            prompt.push_str(&format!("- `[{}]` `{}` — {}\n", e.timestamp, e.target, e.message));
+            prompt.push_str(&format!(
+                "- `[{}]` `{}` — {}\n",
+                e.timestamp, e.target, e.message
+            ));
         }
     }
 
     if !warnings.is_empty() {
         prompt.push_str("\n## Recent Warnings (last 50)\n\n");
         for w in warnings.iter().take(20) {
-            prompt.push_str(&format!("- `[{}]` `{}` — {}\n", w.timestamp, w.target, w.message));
+            prompt.push_str(&format!(
+                "- `[{}]` `{}` — {}\n",
+                w.timestamp, w.target, w.message
+            ));
         }
     }
 
@@ -781,12 +815,20 @@ async fn post_diagnostics_analyze(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, %upstream_url, "rosie diagnostics analyze failed");
-            (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("ROSIE upstream failed: {e}")}))).into_response()
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": format!("ROSIE upstream failed: {e}")})),
+            )
+                .into_response()
         })?;
 
     let status = resp.status();
     let data: Value = resp.json().await.map_err(|e| {
-        (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("ROSIE response parse failed: {e}")}))).into_response()
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("ROSIE response parse failed: {e}")})),
+        )
+            .into_response()
     })?;
 
     if !status.is_success() {

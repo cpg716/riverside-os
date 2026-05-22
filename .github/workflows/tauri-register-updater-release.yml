@@ -51,7 +51,7 @@ jobs:
             $notes = '${{ github.event.inputs.release_notes }}'
           } else {
             $tag = '${{ github.ref_name }}'
-            $pkg = Get-Content "client/package.json" | ConvertFrom-Json
+            $pkg = Get-Content "package.json" | ConvertFrom-Json
             $version = $pkg.version
             $notes = "Riverside POS v$version — see docs/releases/v$version-release-notes.md for details."
           }
