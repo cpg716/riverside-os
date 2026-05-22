@@ -1,0 +1,12 @@
+[advisories]
+ignore = [
+    # lexical-core soundness issues — pulled via imap/imap-proto/nom (email integration)
+    "RUSTSEC-2023-0086",
+    # rsa Marvin Attack — pulled via sqlx-mysql (DB driver; no fixed upgrade available)
+    "RUSTSEC-2023-0071",
+]
+
+# Only fail on actual vulnerabilities, not unmaintained/unsound/yanked warnings
+[output]
+# Show warnings but don't fail the build because of them
+quiet = false
