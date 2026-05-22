@@ -289,6 +289,48 @@ function Ensure-PostgresServiceRunning {
     }
   }
 
+  # If service exists but won't start, try initdb if the data directory is missing
+  if (-not $started -and $services) {
+    foreach ($service in $services) {
+      $dataDir = Get-PgDataDir $service.Name
+      if ($dataDir -and -not (Test-Path $dataDir)) {
+        $pgCtl = Get-PgCtlPath $service.Name
+        if ($pgCtl) {
+          $binDir = Split-Path $pgCtl -Parent
+          $initDb = Join-Path $binDir "initdb.exe"
+          if (Test-Path $initDb) {
+            Write-Warning "PostgreSQL data directory missing at $dataDir. Running initdb..."
+            New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+            $env:PGUSER = "postgres"
+            try {
+              & $initDb -D "$dataDir" -E UTF8 --no-locale --auth=trust 2>&1 | ForEach-Object { Write-Host $_ }
+              if ($LASTEXITCODE -eq 0) {
+                Write-Host "initdb succeeded. Retrying service start..."
+                try {
+                  Start-Service -Name $service.Name -ErrorAction Stop
+                  $service.WaitForStatus("Running", (New-TimeSpan -Seconds 30))
+                  if (Test-PostgresReachable $dbHost $dbPort) {
+                    Write-Host "PostgreSQL is now reachable after initdb."
+                    $started = $true
+                    break
+                  }
+                } catch {
+                  Write-Warning "Service start after initdb failed: $($_.Exception.Message)"
+                }
+              } else {
+                Write-Warning "initdb exited with code $LASTEXITCODE."
+              }
+            } catch {
+              Write-Warning "initdb failed: $($_.Exception.Message)"
+            } finally {
+              Remove-Item Env:\PGUSER -ErrorAction SilentlyContinue
+            }
+          }
+        }
+      }
+    }
+  }
+
   if (-not $started) {
     $names = ($services | ForEach-Object { $_.Name }) -join ", "
     Write-Warning ("PostgreSQL is not reachable at $dbHost`:$dbPort after attempting to start: $names. " +
@@ -544,6 +586,12 @@ function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
     }
     Start-Sleep -Milliseconds 500
   } while ((Get-Date) -lt $deadline)
+
+  if (-not $script:postgresReachable) {
+    Write-Warning "Riverside OS Server API is not responding at $BaseUrl. This is expected because PostgreSQL was not reachable during install and the database was not set up."
+    Write-Warning "To fix: resolve PostgreSQL (check the PostgreSQL log in its data/log directory, run initdb if the data directory is missing, or free port 5432), then rerun install-server.ps1."
+    return
+  }
 
   throw "Riverside OS Server did not pass the API check at $BaseUrl/api/staff/list-for-pos."
 }
@@ -1081,8 +1129,8 @@ if ($script:configModifiedAfterPostgresInstall) {
 $databaseUrl = "postgresql://$($db.appUser):$($db.appPassword)@$($db.host):$($db.port)/$($db.databaseName)"
 
 # Test if PostgreSQL is actually reachable before attempting DB operations
-$postgresReachable = Test-PostgresReachable $db.host $db.port
-if ($postgresReachable) {
+$script:postgresReachable = Test-PostgresReachable $db.host $db.port
+if ($script:postgresReachable) {
   if (-not $SkipDatabaseCreate) {
     try {
       $appUser = Escape-SqlLiteral $db.appUser
