@@ -1015,7 +1015,10 @@ pub fn router() -> Router<AppState> {
         .route("/alerts/ack", post(post_ops_alert_ack))
         .route("/actions/{action_key}", post(post_ops_action))
         .route("/audit-log", get(get_ops_audit_log))
-        .route("/audit-probes", get(get_audit_probe_runs).post(post_run_audit_probes))
+        .route(
+            "/audit-probes",
+            get(get_audit_probe_runs).post(post_run_audit_probes),
+        )
         .route("/audit-probes/{run_id}", get(get_audit_probe_run_detail))
         .route("/github/workflows", get(get_github_workflows))
         .route("/github/releases", get(get_github_releases))

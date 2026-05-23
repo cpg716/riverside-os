@@ -2471,53 +2471,92 @@ pub async fn execute_audit_probes(
     .await?;
 
     let probes: Vec<(&str, &str, &str, &str)> = vec![
-        ("duplicate_checkout_id", "Duplicate checkout client IDs", "critical", r#"
+        (
+            "duplicate_checkout_id",
+            "Duplicate checkout client IDs",
+            "critical",
+            r#"
             SELECT checkout_client_id AS key, COUNT(*) AS count
             FROM transactions
             WHERE checkout_client_id IS NOT NULL
             GROUP BY checkout_client_id
             HAVING COUNT(*) > 1
-        "#),
-        ("orphan_payment_alloc", "Payment allocations missing payment tx", "critical", r#"
+        "#,
+        ),
+        (
+            "orphan_payment_alloc",
+            "Payment allocations missing payment tx",
+            "critical",
+            r#"
             SELECT pa.id AS key, pa.transaction_id::text AS detail
             FROM payment_allocations pa
             LEFT JOIN payment_transactions pt ON pt.id = pa.transaction_id
             WHERE pt.id IS NULL
-        "#),
-        ("orphan_target_alloc", "Payment allocations missing target tx", "critical", r#"
+        "#,
+        ),
+        (
+            "orphan_target_alloc",
+            "Payment allocations missing target tx",
+            "critical",
+            r#"
             SELECT pa.id AS key, pa.target_transaction_id::text AS detail
             FROM payment_allocations pa
             LEFT JOIN transactions t ON t.id = pa.target_transaction_id
             WHERE t.id IS NULL
-        "#),
-        ("overallocated_payment", "Over-allocated payment transactions", "warning", r#"
+        "#,
+        ),
+        (
+            "overallocated_payment",
+            "Over-allocated payment transactions",
+            "warning",
+            r#"
             SELECT pt.id AS key,
                    (ABS(COALESCE(SUM(pa.amount_allocated), 0)) - ABS(pt.amount))::text AS detail
             FROM payment_transactions pt
             LEFT JOIN payment_allocations pa ON pa.transaction_id = pt.id
             GROUP BY pt.id, pt.amount
             HAVING ABS(COALESCE(SUM(pa.amount_allocated), 0)) > ABS(pt.amount) + 0.01
-        "#),
-        ("stale_reconciling", "Register sessions reconciling >2 hours", "warning", r#"
+        "#,
+        ),
+        (
+            "stale_reconciling",
+            "Register sessions reconciling >2 hours",
+            "warning",
+            r#"
             SELECT id::text AS key, register_lane::text AS detail
             FROM register_sessions
             WHERE is_open = true AND lifecycle_status = 'reconciling'
               AND opened_at < now() - INTERVAL '2 hours'
-        "#),
-        ("parked_on_closed", "Parked sales on closed register sessions", "warning", r#"
+        "#,
+        ),
+        (
+            "parked_on_closed",
+            "Parked sales on closed register sessions",
+            "warning",
+            r#"
             SELECT p.id::text AS key, p.label AS detail
             FROM pos_parked_sale p
             JOIN register_sessions rs ON rs.id = p.register_session_id
             WHERE p.status = 'parked' AND rs.is_open = false
-        "#),
-        ("negative_stock", "Negative available stock by variant", "warning", r#"
+        "#,
+        ),
+        (
+            "negative_stock",
+            "Negative available stock by variant",
+            "warning",
+            r#"
             SELECT pv.sku AS key, (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::text AS detail
             FROM product_variants pv
             JOIN products p ON p.id = pv.product_id
             WHERE (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway) < 0
               AND COALESCE(p.pos_line_kind, '') = ''
-        "#),
-        ("order_stock_decrement", "Order lines that decremented stock at booking", "warning", r#"
+        "#,
+        ),
+        (
+            "order_stock_decrement",
+            "Order lines that decremented stock at booking",
+            "warning",
+            r#"
             SELECT it.id::text AS key, it.variant_id::text AS detail
             FROM inventory_transactions it
             JOIN transaction_lines tl ON tl.id = it.reference_id
@@ -2526,8 +2565,13 @@ pub async fn execute_audit_probes(
               AND it.quantity_delta < 0
               AND tl.fulfilled_at IS NULL
               AND it.reference_table = 'transaction_lines'
-        "#),
-        ("tax_exempt_missing_reason", "Tax-exempt transactions missing reason", "warning", r#"
+        "#,
+        ),
+        (
+            "tax_exempt_missing_reason",
+            "Tax-exempt transactions missing reason",
+            "warning",
+            r#"
             SELECT t.id::text AS key, t.short_id AS detail
             FROM transactions t
             WHERE COALESCE(t.is_tax_exempt, false) = true
@@ -2537,32 +2581,53 @@ pub async fn execute_audit_probes(
                   WHERE tl.transaction_id = t.id
                     AND (COALESCE(tl.state_tax, 0) <> 0 OR COALESCE(tl.local_tax, 0) <> 0)
               )
-        "#),
-        ("commission_without_fulfillment", "Finalized commission without fulfillment", "warning", r#"
+        "#,
+        ),
+        (
+            "commission_without_fulfillment",
+            "Finalized commission without fulfillment",
+            "warning",
+            r#"
             SELECT id::text AS key, transaction_id::text AS detail
             FROM transaction_lines
             WHERE commission_payout_finalized_at IS NOT NULL
               AND fulfilled_at IS NULL
-        "#),
-        ("unbalanced_qbo", "Unbalanced QBO staging rows", "warning", r#"
+        "#,
+        ),
+        (
+            "unbalanced_qbo",
+            "Unbalanced QBO staging rows",
+            "warning",
+            r#"
             SELECT id::text AS key, sync_date::text AS detail
             FROM qbo_sync_logs
             WHERE status IN ('pending', 'approved')
               AND COALESCE((payload #>> '{totals,balanced}')::boolean, false) = false
-        "#),
-        ("qbo_missing_timezone", "QBO staging missing business_timezone", "warning", r#"
+        "#,
+        ),
+        (
+            "qbo_missing_timezone",
+            "QBO staging missing business_timezone",
+            "warning",
+            r#"
             SELECT id::text AS key, sync_date::text AS detail
             FROM qbo_sync_logs
             WHERE payload ? 'activity_date' AND NOT (payload ? 'business_timezone')
-        "#),
-        ("stale_backup", "Stale backup health (>30 hours)", "critical", r#"
+        "#,
+        ),
+        (
+            "stale_backup",
+            "Stale backup health (>30 hours)",
+            "critical",
+            r#"
             SELECT id::text AS key, COALESCE(last_local_success_at::text, 'never') AS detail
             FROM store_backup_health
             WHERE last_local_success_at IS NULL
                OR last_local_success_at < now() - INTERVAL '30 hours'
                OR COALESCE(last_local_failure_at, '-infinity'::timestamptz)
                   > COALESCE(last_local_success_at, '-infinity'::timestamptz)
-        "#),
+        "#,
+        ),
     ];
 
     let mut total_violations = 0i32;
@@ -2570,10 +2635,7 @@ pub async fn execute_audit_probes(
     let mut error_message: Option<String> = None;
 
     for (key, label, severity, sql) in &probes {
-        let detail_rows: Vec<Value> = match sqlx::query(sql)
-            .fetch_all(pool)
-            .await
-        {
+        let detail_rows: Vec<Value> = match sqlx::query(sql).fetch_all(pool).await {
             Ok(rows) => rows
                 .into_iter()
                 .map(|r| {
@@ -2618,7 +2680,11 @@ pub async fn execute_audit_probes(
     }
 
     let duration_ms = (Utc::now() - start).num_milliseconds() as i32;
-    let status = if error_message.is_some() { "failed" } else { "completed" };
+    let status = if error_message.is_some() {
+        "failed"
+    } else {
+        "completed"
+    };
 
     sqlx::query(
         r#"
