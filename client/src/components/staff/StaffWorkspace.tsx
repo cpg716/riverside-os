@@ -221,6 +221,7 @@ export default function StaffWorkspace({
     staff_id: string;
     staff_name: string;
     staff_avatar_key: string;
+    staff_avatar_photo_url?: string | null;
     event_kind: string;
     metadata: Record<string, unknown>;
     created_at: string;
@@ -678,7 +679,7 @@ export default function StaffWorkspace({
                       />
                     ) : null}
                     <img
-                      src={staffAvatarUrl(r.avatar_key)}
+                      src={staffAvatarUrl(r.avatar_key, r.avatar_photo_url)}
                       alt=""
                       className="h-12 w-12 shrink-0 rounded-full border border-app-border object-cover"
                     />
@@ -813,7 +814,7 @@ export default function StaffWorkspace({
                     </div>
                     <div className="mt-2 flex items-center gap-2">
                       <img
-                        src={staffAvatarUrl(row.staff_avatar_key)}
+                        src={staffAvatarUrl(row.staff_avatar_key, row.staff_avatar_photo_url)}
                         alt=""
                         className="h-8 w-8 shrink-0 rounded-full border border-app-border object-cover"
                       />
@@ -856,7 +857,7 @@ export default function StaffWorkspace({
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
                           <img
-                            src={staffAvatarUrl(row.staff_avatar_key)}
+                            src={staffAvatarUrl(row.staff_avatar_key, row.staff_avatar_photo_url)}
                             alt=""
                             className="h-7 w-7 shrink-0 rounded-full border border-app-border object-cover"
                           />

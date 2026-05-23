@@ -10,6 +10,7 @@ export interface StaffSearchResult {
   full_name: string;
   role: string;
   avatar_key: string;
+  avatar_photo_url?: string | null;
 }
 
 interface StaffSearchInputProps {
@@ -31,7 +32,7 @@ export default function StaffSearchInput({
 }: StaffSearchInputProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
-  
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<StaffSearchResult[]>([]);
   const [allStaff, setAllStaff] = useState<StaffSearchResult[]>([]);
@@ -64,8 +65,8 @@ export default function StaffSearchInput({
       setResults([]);
       return;
     }
-    const filtered = allStaff.filter(s => 
-      !excludeIds.includes(s.id) && 
+    const filtered = allStaff.filter(s =>
+      !excludeIds.includes(s.id) &&
       s.full_name.toLowerCase().includes(q)
     );
     setResults(filtered);
@@ -122,7 +123,7 @@ export default function StaffSearchInput({
                   >
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-app-border/50 overflow-hidden bg-app-surface-2 shadow-inner">
                        {s.avatar_key ? (
-                         <img src={staffAvatarUrl(s.avatar_key)} alt="" className="h-full w-full object-cover" />
+                         <img src={staffAvatarUrl(s.avatar_key, s.avatar_photo_url)} alt="" className="h-full w-full object-cover" />
                        ) : (
                          <User size={14} className="text-app-text-muted" />
                        )}

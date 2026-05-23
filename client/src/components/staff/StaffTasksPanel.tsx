@@ -55,6 +55,7 @@ type TeamRow = {
   assignee_staff_id: string;
   assignee_name: string;
   assignee_avatar_key: string;
+  assignee_avatar_photo_url?: string | null;
 };
 type HistRow = {
   instance_id: string;
@@ -64,6 +65,7 @@ type HistRow = {
   completed_at: string | null;
   assignee_name: string;
   assignee_avatar_key: string;
+  assignee_avatar_photo_url?: string | null;
 };
 type HubRow = {
   id: string;
@@ -71,6 +73,7 @@ type HubRow = {
   cashier_code: string;
   role: string;
   avatar_key: string;
+  avatar_photo_url?: string | null;
 };
 
 type SubTab = "mine" | "team" | "admin";
@@ -207,7 +210,7 @@ export default function StaffTasksPanel({
   useEffect(() => {
     if (sub === "team") void refreshTeam();
   }, [sub, refreshTeam]);
- 
+
   const filteredTeam = useMemo(() => {
     if (!teamSearch.trim()) return team;
     const q = teamSearch.toLowerCase();
@@ -452,7 +455,7 @@ export default function StaffTasksPanel({
                     className="flex w-full items-center gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-left"
                   >
                     <img
-                      src={staffAvatarUrl(r.assignee_avatar_key)}
+                      src={staffAvatarUrl(r.assignee_avatar_key, r.assignee_avatar_photo_url)}
                       alt=""
                       className="h-9 w-9 shrink-0 rounded-full border border-app-border"
                     />
@@ -628,7 +631,7 @@ export default function StaffTasksPanel({
                 <label className="block text-[10px] font-black uppercase text-app-text-muted mb-1">
                   Link Customer (optional)
                 </label>
-                <CustomerSearchInput 
+                <CustomerSearchInput
                   onSelect={(c) => {
                     setAsgCustomerId(c.id);
                     setAsgCustomerLabel(
@@ -730,7 +733,7 @@ export default function StaffTasksPanel({
                     className="flex items-center gap-3 rounded-lg border border-app-border px-3 py-2 text-sm"
                   >
                     <img
-                      src={staffAvatarUrl(h.assignee_avatar_key)}
+                      src={staffAvatarUrl(h.assignee_avatar_key, h.assignee_avatar_photo_url)}
                       alt=""
                       className="h-8 w-8 rounded-full border border-app-border"
                     />

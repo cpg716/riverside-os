@@ -1,14 +1,14 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { 
-  User, 
-  Mail, 
-  Phone, 
-  Camera, 
-  Save, 
-  Loader2, 
-  ShieldCheck, 
+import {
+  User,
+  Mail,
+  Phone,
+  Camera,
+  Save,
+  Loader2,
+  ShieldCheck,
   ShieldAlert,
   CreditCard,
   Target,
@@ -24,10 +24,10 @@ import {
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
-import { 
-  staffAvatarUrl, 
+import {
+  staffAvatarUrl,
   STAFF_AVATAR_CATALOG,
-  staffAvatarGroupLabel 
+  staffAvatarGroupLabel
 } from "../../lib/staffAvatars";
 
 interface StaffProfile {
@@ -42,6 +42,7 @@ interface StaffProfile {
   phone: string | null;
   email: string | null;
   avatar_key: string;
+  avatar_photo_url: string | null;
   max_discount_percent: string;
   employee_customer_code: string | null;
   notification_preferences: NotificationPreferences;
@@ -130,12 +131,14 @@ export default function StaffProfilePanel() {
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [newPin, setNewPin] = useState("");
   const [pinSaving, setPinSaving] = useState(false);
-  
+
   // Local form state
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [avatarKey, setAvatarKey] = useState("");
+  const [avatarPhotoUrl, setAvatarPhotoUrl] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [podiumUserUid, setPodiumUserUid] = useState("");
   const [podiumDisplayName, setPodiumDisplayName] = useState("");
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(
@@ -157,6 +160,7 @@ export default function StaffProfilePanel() {
       setEmail(data.email || "");
       setPhone(data.phone || "");
       setAvatarKey(data.avatar_key);
+      setAvatarPhotoUrl(data.avatar_photo_url);
       setPodiumUserUid(data.podium_user_uid || "");
       setPodiumDisplayName(data.podium_display_name || "");
       setNotificationPreferences(
@@ -237,6 +241,61 @@ export default function StaffProfilePanel() {
     }
   };
 
+  const handlePhotoUpload = async (file: File) => {
+    if (!profile) return;
+    if (!file.type.startsWith("image/")) {
+      toast("Please select an image file.", "error");
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append("photo", file);
+      const res = await fetch(
+        `${baseUrl}/api/staff/admin/${profile.id}/avatar-photo`,
+        {
+          method: "POST",
+          headers: backofficeHeaders(),
+          body: formData,
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error || "Upload failed");
+      }
+      toast("Photo uploaded and processed.", "success");
+      await loadProfile();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Upload failed", "error");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handlePhotoDelete = async () => {
+    if (!profile) return;
+    setUploadingPhoto(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/staff/admin/${profile.id}/avatar-photo`,
+        {
+          method: "DELETE",
+          headers: backofficeHeaders(),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error || "Delete failed");
+      }
+      toast("Photo removed.", "success");
+      await loadProfile();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Delete failed", "error");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -274,25 +333,55 @@ export default function StaffProfilePanel() {
           <section className="ui-card p-8 flex flex-col items-center text-center relative overflow-hidden">
             {/* Glossy background accent */}
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-app-accent/40 to-transparent" />
-            
-            <div className="relative group cursor-pointer" onClick={() => setAvatarPickerOpen(true)}>
-              <div className="h-36 w-36 rounded-[2.5rem] overflow-hidden border-2 border-app-border shadow-2xl transition-all group-hover:border-app-accent group-hover:scale-[1.02]">
-                <img 
-                  src={staffAvatarUrl(avatarKey)} 
-                  alt={fullName} 
+
+            <div className="relative group">
+              <div className="h-36 w-36 rounded-[2.5rem] overflow-hidden border-2 border-app-border shadow-2xl transition-all">
+                <img
+                  src={staffAvatarUrl(avatarKey, avatarPhotoUrl)}
+                  alt={fullName}
                   className="h-full w-full object-cover"
                 />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                   <p className="text-[10px] font-black uppercase text-white tracking-widest">Change</p>
-                </div>
+                {uploadingPhoto && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-white" />
+                  </div>
+                )}
               </div>
-              <div 
-                className="absolute bottom-0 right-0 h-10 w-10 rounded-2xl bg-app-accent text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition-all border-4 border-app-card"
+              <button
+                onClick={() => setAvatarPickerOpen(true)}
+                className="absolute bottom-0 right-0 h-10 w-10 rounded-2xl bg-app-accent text-white flex items-center justify-center shadow-lg hover:scale-110 transition-all border-4 border-app-card"
+                title="Change avatar"
               >
                 <Camera size={18} />
-              </div>
+              </button>
             </div>
-            
+
+            {/* Photo upload / remove controls */}
+            <div className="mt-4 flex items-center gap-2">
+              <label className="ui-btn-secondary text-xs py-1.5 px-3 cursor-pointer">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void handlePhotoUpload(file);
+                    e.target.value = "";
+                  }}
+                />
+                {avatarPhotoUrl ? "Replace Photo" : "Upload Photo"}
+              </label>
+              {avatarPhotoUrl && (
+                <button
+                  onClick={() => void handlePhotoDelete()}
+                  className="ui-btn-danger text-xs py-1.5 px-3"
+                  disabled={uploadingPhoto}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+
             <div className="mt-6">
               <h3 className="text-2xl font-black text-app-text tracking-tight">{profile.full_name}</h3>
               <p className="text-[11px] font-black uppercase tracking-[0.25em] text-app-accent mt-1">
@@ -311,7 +400,7 @@ export default function StaffProfilePanel() {
                       <p className="text-xs font-black text-app-text">Workstation Gate</p>
                    </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setPinModalOpen(true)}
                   className="ui-btn-secondary px-3 py-1.5 text-[10px] uppercase font-black"
                 >
@@ -385,14 +474,14 @@ export default function StaffProfilePanel() {
                 Account Details
               </h3>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
               <label className="block space-y-3">
                 <span className="text-[11px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-2">
                   <User size={12} className="text-app-accent" />
                   Full Display Name
                 </span>
-                <input 
+                <input
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -406,7 +495,7 @@ export default function StaffProfilePanel() {
                   <Mail size={12} className="text-app-accent" />
                   Work Email Address
                 </span>
-                <input 
+                <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -420,7 +509,7 @@ export default function StaffProfilePanel() {
                   <Phone size={12} className="text-app-accent" />
                   Mobile Phone
                 </span>
-                <input 
+                <input
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -588,9 +677,9 @@ export default function StaffProfilePanel() {
       {/* Avatar Picker Modal */}
       {avatarPickerOpen && createPortal(
         <div className="ui-overlay-backdrop animate-in fade-in duration-300">
-           <div 
-             className="fixed inset-0 bg-black/80 backdrop-blur-xl" 
-             onClick={() => setAvatarPickerOpen(false)} 
+           <div
+             className="fixed inset-0 bg-black/80 backdrop-blur-xl"
+             onClick={() => setAvatarPickerOpen(false)}
            />
            <div className="ui-modal relative w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-300">
               <div className="p-10 border-b border-app-border flex justify-between items-center">
@@ -602,7 +691,7 @@ export default function StaffProfilePanel() {
                     <X size={24} />
                  </button>
               </div>
-              
+
               <div className="flex-1 overflow-y-auto p-10 custom-scrollbar space-y-12">
                  {groups.map(group => (
                    <div key={group}>
@@ -612,7 +701,7 @@ export default function StaffProfilePanel() {
                       </h4>
                       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-6">
                          {STAFF_AVATAR_CATALOG.filter(a => a.group === group).map(avatar => (
-                           <button 
+                           <button
                              key={avatar.key}
                              onClick={() => {
                                setAvatarKey(avatar.key);
@@ -642,9 +731,9 @@ export default function StaffProfilePanel() {
       {/* PIN Update Modal */}
       {pinModalOpen && createPortal(
         <div className="ui-overlay-backdrop animate-in fade-in duration-300">
-           <div 
-             className="fixed inset-0 bg-black/80 backdrop-blur-xl" 
-             onClick={() => setPinModalOpen(false)} 
+           <div
+             className="fixed inset-0 bg-black/80 backdrop-blur-xl"
+             onClick={() => setPinModalOpen(false)}
            />
            <div className="ui-modal relative w-full max-w-md p-10 space-y-8 animate-in zoom-in-95 duration-300">
               <div className="text-center">
@@ -656,7 +745,7 @@ export default function StaffProfilePanel() {
               </div>
 
               <div className="space-y-4">
-                 <input 
+                 <input
                    type="password"
                    maxLength={4}
                    value={newPin}
@@ -674,13 +763,13 @@ export default function StaffProfilePanel() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                 <button 
+                 <button
                    onClick={() => setPinModalOpen(false)}
                    className="ui-btn-secondary h-14 rounded-2xl font-black uppercase text-xs tracking-widest"
                  >
                     Cancel
                  </button>
-                 <button 
+                 <button
                    onClick={handleUpdatePin}
                    disabled={pinSaving || newPin.length !== 4}
                    className="ui-btn-primary h-14 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-app-accent/20"

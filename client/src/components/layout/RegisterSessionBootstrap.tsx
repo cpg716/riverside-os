@@ -40,6 +40,7 @@ async function fetchSessionCurrent(
 type CurrentSessionJson = {
   cashier_name: string;
   cashier_avatar_key?: string;
+  cashier_avatar_photo_url?: string | null;
   cashier_code: string;
   session_id: string;
   register_lane: number;
@@ -87,6 +88,7 @@ export type RegisterSessionBootstrapProps = {
   setCashierName: (v: string | null) => void;
   setCashierCode: (v: string | null) => void;
   setCashierAvatarKey: (v: string | null) => void;
+  setCashierAvatarPhotoUrl: (v: string | null) => void;
   setSessionId: (v: string | null) => void;
   setRegisterLane: (v: number | null) => void;
   setRegisterOrdinal: (v: number | null) => void;
@@ -111,6 +113,7 @@ export default function RegisterSessionBootstrap({
   setCashierName,
   setCashierCode,
   setCashierAvatarKey,
+  setCashierAvatarPhotoUrl,
   setSessionId,
   setRegisterLane,
   setRegisterOrdinal,
@@ -190,6 +193,7 @@ export default function RegisterSessionBootstrap({
         | "lifecycle_status"
         | "cashier_name"
         | "cashier_avatar_key"
+        | "cashier_avatar_photo_url"
         | "cashier_code"
         | "role"
         | "receipt_timezone"
@@ -205,6 +209,7 @@ export default function RegisterSessionBootstrap({
           ? data.cashier_avatar_key.trim()
           : "ros_default",
       );
+      setCashierAvatarPhotoUrl(data.cashier_avatar_photo_url ?? null);
       setReceiptTimezone(
         typeof data.receipt_timezone === "string" &&
           data.receipt_timezone.trim()
@@ -223,6 +228,7 @@ export default function RegisterSessionBootstrap({
     setCashierName,
     setCashierCode,
     setCashierAvatarKey,
+    setCashierAvatarPhotoUrl,
     setReceiptTimezone,
   ]);
 
@@ -280,6 +286,7 @@ export default function RegisterSessionBootstrap({
               ? data.cashier_avatar_key.trim()
               : "ros_default",
           );
+          setCashierAvatarPhotoUrl(data.cashier_avatar_photo_url ?? null);
           setSessionId(data.session_id);
           setRegisterLane(data.register_lane);
           setRegisterOrdinal(data.register_ordinal);
@@ -323,6 +330,7 @@ export default function RegisterSessionBootstrap({
           setCashierName(null);
           setCashierCode(null);
           setCashierAvatarKey(null);
+          setCashierAvatarPhotoUrl(null);
           setReceiptTimezone("America/New_York");
           const noSessionKey = `${staffCode.trim()}|${staffPin.trim()}|${staffRole ?? ""}|409`;
           const shouldApplyNoSessionShell =
@@ -343,6 +351,7 @@ export default function RegisterSessionBootstrap({
           setCashierName(null);
           setCashierCode(null);
           setCashierAvatarKey(null);
+          setCashierAvatarPhotoUrl(null);
           setReceiptTimezone("America/New_York");
           const noSessionKey = `${staffCode.trim()}|${staffPin.trim()}|${staffRole ?? ""}`;
           const shouldApplyNoSessionShell =
@@ -379,6 +388,7 @@ export default function RegisterSessionBootstrap({
       setCashierName,
       setCashierCode,
       setCashierAvatarKey,
+      setCashierAvatarPhotoUrl,
       setSessionId,
       setRegisterLane,
       setRegisterOrdinal,
@@ -428,6 +438,7 @@ export default function RegisterSessionBootstrap({
           ? data.cashier_avatar_key.trim()
           : "ros_default",
       );
+      setCashierAvatarPhotoUrl(data.cashier_avatar_photo_url ?? null);
       setSessionId(data.session_id);
       setRegisterLane(data.register_lane);
       setRegisterOrdinal(data.register_ordinal);
@@ -447,6 +458,7 @@ export default function RegisterSessionBootstrap({
       setCashierName,
       setCashierCode,
       setCashierAvatarKey,
+      setCashierAvatarPhotoUrl,
       setSessionId,
       setRegisterLane,
       setRegisterOrdinal,

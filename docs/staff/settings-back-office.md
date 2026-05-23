@@ -73,10 +73,11 @@ Settings appears in these sidebar groups:
 ## Profile
 
 1. **Settings** → **Profile**.
-2. Update **Personal Info** (Name, Phone, Email) or your **Staff Icon**.
-3. **CRM Linkage**: Link your profile to your customer account for automatic employee discount application and transaction history.
-4. View-only access (POS mode): Identity-sensitive fields like **Role**, **Economics**, and **Permissions** are read-only to prevent unauthorized modification during sales operations; full management is available in the Back Office.
-5. Save; the sidebar and top-bar identity will update instantly upon confirmation.
+2. Update **Personal Info** (Name, Phone, Email), your **Staff Icon**, or your **Staff Photo**.
+3. **Staff Photo**: Upload a real photo (JPEG, PNG, or WebP, max 10 MB). The system automatically detects the face, crops to a square, and resizes to a uniform 512x512 avatar. Your photo appears everywhere your avatar is shown — Top Bar, Register Overlay, Staff Roster, Notifications, and Staff Search. To revert to an icon avatar, delete the photo.
+4. **CRM Linkage**: Link your profile to your customer account for automatic employee discount application and transaction history.
+5. View-only access (POS mode): Identity-sensitive fields like **Role**, **Economics**, and **Permissions** are read-only to prevent unauthorized modification during sales operations; full management is available in the Back Office.
+6. Save; the sidebar and top-bar identity will update instantly upon confirmation.
 
 ## General
 
@@ -248,4 +249,4 @@ For remote administrative management, developers and admins can run the standalo
 - [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md)
 - [pos-settings.md](pos-settings.md)
 
-**Last reviewed:** 2026-04-21
+**Last reviewed:** 2026-05-23

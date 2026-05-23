@@ -38,6 +38,8 @@ export type BackofficeAuthContextValue = {
   staffDisplayName: string;
   /** Bundled portrait key from `effective-permissions` (`avatar_key`). */
   staffAvatarKey: string;
+  /** Real photo URL from `effective-permissions` (`avatar_photo_url`). */
+  staffAvatarPhotoUrl: string | null;
   /** DB role from effective-permissions; null before load or without credentials. */
   staffRole: StaffRole | null;
   /** Linked CRM customer for employee-cost POS pricing (`staff.employee_customer_id`). */
@@ -50,6 +52,7 @@ export type BackofficeAuthContextValue = {
     permissions: string[],
     staffDisplayName?: string | null,
     staffAvatarKey?: string | null,
+    staffAvatarPhotoUrl?: string | null,
     staffRole?: StaffRole | null,
     idFromServer?: string | null,
   ) => void;

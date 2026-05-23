@@ -52,6 +52,7 @@ export function BackofficeAuthProvider({
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [staffDisplayName, setStaffDisplayName] = useState("");
   const [staffAvatarKey, setStaffAvatarKey] = useState("ros_default");
+  const [staffAvatarPhotoUrl, setStaffAvatarPhotoUrl] = useState<string | null>(null);
   const [staffId, setStaffId] = useState("");
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
   const [employeeCustomerId, setEmployeeCustomerId] = useState<string | null>(
@@ -84,6 +85,7 @@ export function BackofficeAuthProvider({
       setPermissions([]);
       setStaffDisplayName("");
       setStaffAvatarKey("ros_default");
+      setStaffAvatarPhotoUrl(null);
       setStaffId("");
       setStaffRole(null);
       setEmployeeCustomerId(null);
@@ -109,6 +111,7 @@ export function BackofficeAuthProvider({
         permissions?: string[];
         full_name?: string;
         avatar_key?: string;
+        avatar_photo_url?: string | null;
         staff_id?: string;
         id?: string;
         role?: unknown;
@@ -124,6 +127,7 @@ export function BackofficeAuthProvider({
           ? d.avatar_key.trim()
           : "ros_default";
       setStaffAvatarKey(ak);
+      setStaffAvatarPhotoUrl(d.avatar_photo_url ?? null);
       setStaffRole(parseStaffRole(d.role));
       const ec =
         typeof d.employee_customer_id === "string" &&
@@ -192,6 +196,7 @@ export function BackofficeAuthProvider({
       list: string[],
       nameFromServer?: string | null,
       avatarFromServer?: string | null,
+      avatarPhotoFromServer?: string | null,
       roleFromServer?: StaffRole | null,
       idFromServer?: string | null,
     ) => {
@@ -202,6 +207,9 @@ export function BackofficeAuthProvider({
       if (avatarFromServer != null) {
         const a = avatarFromServer.trim();
         setStaffAvatarKey(a || "ros_default");
+      }
+      if (avatarPhotoFromServer !== undefined) {
+        setStaffAvatarPhotoUrl(avatarPhotoFromServer);
       }
       if (roleFromServer !== undefined) {
         setStaffRole(roleFromServer);
@@ -220,6 +228,7 @@ export function BackofficeAuthProvider({
     setPermissions([]);
     setStaffDisplayName("");
     setStaffAvatarKey("ros_default");
+    setStaffAvatarPhotoUrl(null);
     setStaffId("");
     setStaffRole(null);
     setEmployeeCustomerId(null);
@@ -238,6 +247,7 @@ export function BackofficeAuthProvider({
       staffId,
       staffDisplayName,
       staffAvatarKey,
+      staffAvatarPhotoUrl,
       staffRole,
       employeeCustomerId,
       permissions,
@@ -255,6 +265,7 @@ export function BackofficeAuthProvider({
       staffId,
       staffDisplayName,
       staffAvatarKey,
+      staffAvatarPhotoUrl,
       staffRole,
       employeeCustomerId,
       permissions,

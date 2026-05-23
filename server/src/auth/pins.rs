@@ -17,6 +17,8 @@ pub struct AuthenticatedStaff {
     pub role: DbStaffRole,
     /// Bundled avatar slug (`client/public/staff-avatars/{key}.svg`).
     pub avatar_key: String,
+    /// URL path to processed portrait photo; takes precedence over avatar_key.
+    pub avatar_photo_url: Option<String>,
 }
 
 #[derive(Debug)]
@@ -67,6 +69,7 @@ pub fn verify_pin(pin: &str, stored: &str) -> bool {
 }
 
 /// POS / register: lookup by `cashier_code`. If `pin_hash` is set, the same code must be provided as `pin` and verified.
+#[allow(clippy::type_complexity)]
 pub async fn authenticate_pos_staff(
     pool: &PgPool,
     cashier_code: &str,
@@ -77,9 +80,16 @@ pub async fn authenticate_pos_staff(
         return Err(PinAuthError::InvalidCredentials);
     }
 
-    let row: Option<(Uuid, String, DbStaffRole, Option<String>, String)> = sqlx::query_as(
+    let row: Option<(
+        Uuid,
+        String,
+        DbStaffRole,
+        Option<String>,
+        String,
+        Option<String>,
+    )> = sqlx::query_as(
         r#"
-        SELECT id, full_name, role, pin_hash, avatar_key
+        SELECT id, full_name, role, pin_hash, avatar_key, avatar_photo_url
         FROM staff
         WHERE cashier_code = $1 AND is_active = TRUE
         "#,
@@ -88,7 +98,7 @@ pub async fn authenticate_pos_staff(
     .fetch_optional(pool)
     .await?;
 
-    let Some((id, full_name, role, pin_hash, avatar_key)) = row else {
+    let Some((id, full_name, role, pin_hash, avatar_key, avatar_photo_url)) = row else {
         return Err(PinAuthError::InvalidCredentials);
     };
 
@@ -131,6 +141,7 @@ pub async fn authenticate_pos_staff(
         full_name,
         role,
         avatar_key,
+        avatar_photo_url,
     })
 }
 
@@ -146,14 +157,22 @@ pub async fn authenticate_admin(
     Ok(s)
 }
 
+#[allow(clippy::type_complexity)]
 pub async fn authenticate_staff_by_id(
     pool: &PgPool,
     staff_id: Uuid,
     pin: Option<&str>,
 ) -> Result<AuthenticatedStaff, PinAuthError> {
-    let row: Option<(Uuid, String, DbStaffRole, Option<String>, String)> = sqlx::query_as(
+    let row: Option<(
+        Uuid,
+        String,
+        DbStaffRole,
+        Option<String>,
+        String,
+        Option<String>,
+    )> = sqlx::query_as(
         r#"
-        SELECT id, full_name, role, pin_hash, avatar_key
+        SELECT id, full_name, role, pin_hash, avatar_key, avatar_photo_url
         FROM staff
         WHERE id = $1 AND is_active = TRUE
         "#,
@@ -162,7 +181,7 @@ pub async fn authenticate_staff_by_id(
     .fetch_optional(pool)
     .await?;
 
-    let Some((id, full_name, role, pin_hash, avatar_key)) = row else {
+    let Some((id, full_name, role, pin_hash, avatar_key, avatar_photo_url)) = row else {
         return Err(PinAuthError::InvalidCredentials);
     };
 
@@ -187,6 +206,7 @@ pub async fn authenticate_staff_by_id(
         full_name,
         role,
         avatar_key,
+        avatar_photo_url,
     })
 }
 

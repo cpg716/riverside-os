@@ -310,9 +310,9 @@ pub async fn require_notification_viewer(
                 ));
             }
         }
-        let row: Option<(Uuid, String, DbStaffRole, String)> = sqlx::query_as(
+        let row: Option<(Uuid, String, DbStaffRole, String, Option<String>)> = sqlx::query_as(
             r#"
-            SELECT s.id, s.full_name, s.role, s.avatar_key
+            SELECT s.id, s.full_name, s.role, s.avatar_key, s.avatar_photo_url
             FROM register_sessions rs
             JOIN staff s ON s.id = COALESCE(rs.shift_primary_staff_id, rs.opened_by)
             WHERE rs.id = $1 AND rs.is_open = true AND s.is_active = TRUE
@@ -328,7 +328,7 @@ pub async fn require_notification_viewer(
                 axum::Json(json!({ "error": "database error" })),
             )
         })?;
-        let Some((id, full_name, role, avatar_key)) = row else {
+        let Some((id, full_name, role, avatar_key, avatar_photo_url)) = row else {
             return Err((
                 StatusCode::UNAUTHORIZED,
                 axum::Json(json!({ "error": "no open register session for notifications" })),
@@ -339,6 +339,7 @@ pub async fn require_notification_viewer(
             full_name,
             role,
             avatar_key,
+            avatar_photo_url,
         }
     } else {
         return Err((

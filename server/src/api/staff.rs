@@ -1,7 +1,7 @@
 //! Staff registry, POS verification, and Back Office hub (RBAC permissions).
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Multipart, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, patch, post},
@@ -23,7 +23,9 @@ use crate::auth::permissions::{
 };
 use crate::auth::pins::{self, hash_pin, is_valid_staff_credential, log_staff_access};
 use crate::auth::staff_avatar;
-use crate::logic::{notifications, pricing_limits, register_staff_metrics, tasks};
+use crate::logic::{
+    notifications, pricing_limits, register_staff_metrics, staff_avatar_processor, tasks,
+};
 use crate::middleware::{require_authenticated_staff_headers, require_staff_with_permission};
 use crate::models::DbStaffRole;
 
@@ -37,6 +39,8 @@ pub enum StaffApiError {
     Forbidden,
     #[error("Invalid payload: {0}")]
     InvalidPayload(String),
+    #[error("Processing error: {0}")]
+    Processing(String),
 }
 
 impl IntoResponse for StaffApiError {
@@ -45,6 +49,10 @@ impl IntoResponse for StaffApiError {
             StaffApiError::InvalidCode => (StatusCode::UNAUTHORIZED, self.to_string()),
             StaffApiError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
             StaffApiError::InvalidPayload(m) => (StatusCode::BAD_REQUEST, m),
+            StaffApiError::Processing(m) => {
+                tracing::error!(error = %m, "Processing error in staff");
+                (StatusCode::INTERNAL_SERVER_ERROR, m)
+            }
             StaffApiError::Database(e) => {
                 tracing::error!(error = %e, "Database error in staff");
                 let msg = match &e {
@@ -71,6 +79,7 @@ pub struct StaffListRow {
     pub full_name: String,
     pub role: DbStaffRole,
     pub avatar_key: String,
+    pub avatar_photo_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -86,6 +95,7 @@ pub struct StaffHubRow {
     pub phone: Option<String>,
     pub email: Option<String>,
     pub avatar_key: String,
+    pub avatar_photo_url: Option<String>,
     pub max_discount_percent: Decimal,
     pub employment_start_date: Option<NaiveDate>,
     pub employment_end_date: Option<NaiveDate>,
@@ -109,6 +119,7 @@ pub struct VerifyCashierResponse {
     pub full_name: String,
     pub role: DbStaffRole,
     pub avatar_key: String,
+    pub avatar_photo_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -195,6 +206,7 @@ pub struct StaffAccessLogRow {
     pub staff_id: Uuid,
     pub staff_name: String,
     pub staff_avatar_key: String,
+    pub staff_avatar_photo_url: Option<String>,
     pub event_kind: String,
     pub metadata: serde_json::Value,
     pub created_at: DateTime<Utc>,
@@ -298,6 +310,10 @@ pub fn router() -> Router<AppState> {
             get(admin_get_staff_overrides).put(admin_put_staff_overrides),
         )
         .route("/admin/{staff_id}/set-pin", post(admin_set_pin))
+        .route(
+            "/admin/{staff_id}/avatar-photo",
+            post(admin_upload_avatar_photo).delete(admin_delete_avatar_photo),
+        )
         .route("/admin/{staff_id}", patch(admin_patch_staff))
         .route("/admin", post(admin_create_staff))
         // Commission incentive rules (fixed SPIFFs and combos)
@@ -461,6 +477,7 @@ async fn effective_permissions_self(
         "staff_id": staff.id,
         "full_name": staff.full_name,
         "avatar_key": staff.avatar_key,
+        "avatar_photo_url": staff.avatar_photo_url,
         "role": staff.role,
         "permissions": list,
         "employee_customer_id": employee_customer_id,
@@ -501,6 +518,7 @@ async fn self_get_profile(
             NULLIF(trim(s.phone), '') AS phone,
             NULLIF(trim(s.email), '') AS email,
             s.avatar_key,
+            s.avatar_photo_url,
             s.max_discount_percent,
             s.employment_start_date,
             s.employment_end_date,
@@ -739,7 +757,7 @@ async fn list_for_pos(
     let today = tasks::store_local_date(&tz_name);
     let rows = sqlx::query_as::<_, StaffListRow>(
         r#"
-        SELECT id, full_name, role, avatar_key
+        SELECT id, full_name, role, avatar_key, avatar_photo_url
         FROM staff
         WHERE is_active = TRUE
         ORDER BY
@@ -783,6 +801,7 @@ async fn verify_cashier_code(
         full_name: staff.full_name,
         role: staff.role,
         avatar_key: staff.avatar_key,
+        avatar_photo_url: staff.avatar_photo_url,
     }))
 }
 
@@ -819,6 +838,7 @@ pub async fn legacy_verify_pin(
         full_name: staff.full_name,
         role: staff.role,
         avatar_key: staff.avatar_key,
+        avatar_photo_url: staff.avatar_photo_url,
     }))
 }
 
@@ -844,6 +864,7 @@ async fn admin_access_log(
             sal.staff_id,
             st.full_name AS staff_name,
             st.avatar_key AS staff_avatar_key,
+            st.avatar_photo_url AS staff_avatar_photo_url,
             sal.event_kind,
             sal.metadata,
             sal.created_at
@@ -894,6 +915,7 @@ async fn admin_roster(
             NULLIF(trim(s.phone), '') AS phone,
             NULLIF(trim(s.email), '') AS email,
             s.avatar_key,
+            s.avatar_photo_url,
             s.max_discount_percent,
             s.employment_start_date,
             s.employment_end_date,
@@ -1927,8 +1949,8 @@ async fn upsert_commission_rule(
         sqlx::query_as::<_, crate::models::CommissionRule>(
             r#"
             UPDATE commission_rules
-            SET match_type = $1, match_id = $2, override_rate = $3, 
-                fixed_spiff_amount = $4, label = $5, start_date = $6, 
+            SET match_type = $1, match_id = $2, override_rate = $3,
+                fixed_spiff_amount = $4, label = $5, start_date = $6,
                 end_date = $7, is_active = $8
             WHERE id = $9
             RETURNING *
@@ -1949,7 +1971,7 @@ async fn upsert_commission_rule(
         sqlx::query_as::<_, crate::models::CommissionRule>(
             r#"
             INSERT INTO commission_rules (
-                match_type, match_id, override_rate, fixed_spiff_amount, 
+                match_type, match_id, override_rate, fixed_spiff_amount,
                 label, start_date, end_date, is_active
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -2255,7 +2277,7 @@ async fn admin_create_staff(
     let new_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO staff (
-            full_name, cashier_code, pin_hash, role, is_active, 
+            full_name, cashier_code, pin_hash, role, is_active,
             base_commission_rate, phone, email, avatar_key, max_discount_percent,
             employment_start_date, employment_end_date, employee_customer_id,
             podium_user_uid, podium_display_name
@@ -2337,7 +2359,130 @@ async fn admin_create_staff(
     Ok(Json(json!({ "status": "created", "id": new_id })))
 }
 
+async fn admin_upload_avatar_photo(
+    State(state): State<AppState>,
+    Path(staff_id): Path<Uuid>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let admin = require_staff_with_permission(&state, &headers, STAFF_EDIT)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    let mut image_bytes: Option<Vec<u8>> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| StaffApiError::InvalidPayload(format!("multipart error: {e}")))?
+    {
+        if field.name() == Some("photo") {
+            image_bytes = Some(
+                field
+                    .bytes()
+                    .await
+                    .map_err(|e| StaffApiError::InvalidPayload(format!("read error: {e}")))?
+                    .to_vec(),
+            );
+        }
+    }
+
+    let bytes = image_bytes
+        .ok_or_else(|| StaffApiError::InvalidPayload("missing 'photo' field".to_string()))?;
+
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err(StaffApiError::InvalidPayload(
+            "image exceeds 10MB".to_string(),
+        ));
+    }
+
+    let processed = staff_avatar_processor::process_staff_avatar(&bytes)
+        .map_err(|e| StaffApiError::InvalidPayload(e.to_string()))?;
+
+    let upload_dir = std::path::PathBuf::from("uploads/avatars");
+    tokio::fs::create_dir_all(&upload_dir).await.ok();
+    let file_name = format!("{staff_id}.jpg");
+    let file_path = upload_dir.join(&file_name);
+
+    tokio::fs::write(&file_path, &processed)
+        .await
+        .map_err(|e| StaffApiError::Processing(format!("save failed: {e}")))?;
+
+    let photo_url = format!("/uploads/avatars/{file_name}");
+    sqlx::query("UPDATE staff SET avatar_photo_url = $1 WHERE id = $2")
+        .bind(&photo_url)
+        .bind(staff_id)
+        .execute(&state.db)
+        .await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "admin_staff_avatar_photo_upload",
+        json!({ "target_staff_id": staff_id, "size_bytes": processed.len() }),
+    )
+    .await;
+
+    Ok(Json(
+        json!({ "status": "updated", "avatar_photo_url": photo_url }),
+    ))
+}
+
+async fn admin_delete_avatar_photo(
+    State(state): State<AppState>,
+    Path(staff_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let admin = require_staff_with_permission(&state, &headers, STAFF_EDIT)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    sqlx::query("UPDATE staff SET avatar_photo_url = NULL WHERE id = $1")
+        .bind(staff_id)
+        .execute(&state.db)
+        .await?;
+
+    let file_path = format!("uploads/avatars/{staff_id}.jpg");
+    let _ = tokio::fs::remove_file(&file_path).await;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "admin_staff_avatar_photo_delete",
+        json!({ "target_staff_id": staff_id }),
+    )
+    .await;
+
+    Ok(Json(json!({ "status": "deleted" })))
+}
+
 async fn get_staff_avatar(Path(id): Path<String>, State(state): State<AppState>) -> Response {
+    // First, try to serve a real uploaded photo if one exists.
+    if let Ok(uid) = Uuid::parse_str(&id) {
+        if let Ok(Some(url)) = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT avatar_photo_url FROM staff WHERE id = $1",
+        )
+        .bind(uid)
+        .fetch_one(&state.db)
+        .await
+        {
+            let file_name = url.trim_start_matches("/uploads/avatars/");
+            let paths = vec![
+                format!("uploads/avatars/{file_name}"),
+                format!("../uploads/avatars/{file_name}"),
+            ];
+            for path in paths {
+                if let Ok(data) = tokio::fs::read(&path).await {
+                    return Response::builder()
+                        .header("Content-Type", "image/jpeg")
+                        .header("Cache-Control", "public, max-age=3600")
+                        .body(axum::body::Body::from(data))
+                        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+                }
+            }
+        }
+    }
+
+    // Fall back to SVG avatar_key system.
     let key = if id == "ros_default" {
         "ros_default".to_string()
     } else if let Ok(uid) = Uuid::parse_str(&id) {

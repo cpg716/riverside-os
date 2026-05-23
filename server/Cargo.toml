@@ -9,7 +9,7 @@ path = "src/lib.rs"
 [dependencies]
 dotenvy = "0.15"
 http = "1"
-axum = { version = "0.8", features = ["json", "macros", "tokio"] }
+axum = { version = "0.8", features = ["json", "macros", "tokio", "multipart"] }
 chrono = { version = "0.4", features = ["serde"] }
 rustc_version_runtime = "0.3"
 rust_decimal = { version = "1.36", features = ["serde"] }
@@ -63,7 +63,8 @@ tokio-cron-scheduler = "0.15.1"
 ammonia = "4"
 jsonwebtoken = "9"
 meilisearch-sdk = "0.32"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+imageproc = "0.25"
 opentelemetry = "0.27"
 opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-rustls"] }

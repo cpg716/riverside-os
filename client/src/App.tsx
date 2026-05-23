@@ -169,6 +169,7 @@ function App() {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [cashierName, setCashierName] = useState<string | null>(null);
   const [cashierAvatarKey, setCashierAvatarKey] = useState<string | null>(null);
+  const [cashierAvatarPhotoUrl, setCashierAvatarPhotoUrl] = useState<string | null>(null);
   const [cashierCode, setCashierCode] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [registerLane, setRegisterLane] = useState<number | null>(null);
@@ -366,6 +367,7 @@ function App() {
     cashierName: string;
     cashierCode: string;
     cashierAvatarKey: string;
+    cashierAvatarPhotoUrl?: string | null;
     floatAmount: number;
     sessionId: string;
     registerLane: number;
@@ -378,6 +380,7 @@ function App() {
     setCashierName(p.cashierName);
     setCashierCode(p.cashierCode);
     setCashierAvatarKey(p.cashierAvatarKey?.trim() || "ros_default");
+    setCashierAvatarPhotoUrl(p.cashierAvatarPhotoUrl ?? null);
     setSessionId(p.sessionId);
     setRegisterLane(p.registerLane);
     setRegisterOrdinal(p.registerOrdinal);
@@ -424,6 +427,7 @@ function App() {
     setSessionId(null);
     setCashierName(null);
     setCashierAvatarKey(null);
+    setCashierAvatarPhotoUrl(null);
     setRegisterLane(null);
     setRegisterOrdinal(null);
     setLifecycleStatus(null);
@@ -483,7 +487,7 @@ function App() {
       setWeddingMode(true);
       setInsightsMode(false);
     }
-  }, [posMode]); 
+  }, [posMode]);
 
 
   const clearPendingWmPartyId = useCallback(() => {
@@ -846,7 +850,7 @@ function App() {
     const subLabel = SIDEBAR_SUB_SECTIONS[activeTab].find(
       (s) => s.id === activeSubSection,
     )?.label;
-    
+
     const baseClick = () => {
       if (activeTab === "home") return;
       setActiveTab("home");
@@ -997,6 +1001,7 @@ function App() {
           setCashierName={setCashierName}
           setCashierCode={setCashierCode}
           setCashierAvatarKey={setCashierAvatarKey}
+          setCashierAvatarPhotoUrl={setCashierAvatarPhotoUrl}
           setSessionId={setSessionId}
           setRegisterLane={setRegisterLane}
           setRegisterOrdinal={setRegisterOrdinal}
@@ -1039,6 +1044,7 @@ function App() {
             isRegisterOpen={isRegisterOpen}
             cashierName={cashierName}
             cashierAvatarKey={cashierAvatarKey}
+            cashierAvatarPhotoUrl={cashierAvatarPhotoUrl}
             cashierCode={cashierCode}
             sessionId={sessionId}
             registerLane={registerLane}
@@ -1120,6 +1126,7 @@ interface PosSessionInfo {
   cashierName: string;
   cashierCode: string;
   cashierAvatarKey: string;
+  cashierAvatarPhotoUrl?: string | null;
   floatAmount: number;
   sessionId: string;
   registerLane: number;
@@ -1148,6 +1155,7 @@ interface AppShellProps {
   isRegisterOpen: boolean;
   cashierName: string | null;
   cashierAvatarKey: string | null;
+  cashierAvatarPhotoUrl: string | null;
   cashierCode: string | null;
   sessionId: string | null;
   registerLane: number | null;
@@ -1251,6 +1259,7 @@ function AppShell({
   cashierName,
   cashierCode,
   cashierAvatarKey,
+  cashierAvatarPhotoUrl,
   registerOrdinal,
   registerLane,
   lifecycleStatus,
@@ -1728,6 +1737,7 @@ function AppShell({
         }
         cashierName={cashierName}
         cashierAvatarKey={cashierAvatarKey}
+        cashierAvatarPhotoUrl={cashierAvatarPhotoUrl}
       />
       {content}
     </div>

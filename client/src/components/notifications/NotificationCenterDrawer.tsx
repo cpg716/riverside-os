@@ -1,14 +1,14 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { 
-  ArrowRight, 
-  ChevronRight, 
-  X as CloseIcon, 
-  MessageSquare, 
-  Star, 
-  Package, 
-  ClipboardList, 
-  AlertTriangle, 
+import {
+  ArrowRight,
+  ChevronRight,
+  X as CloseIcon,
+  MessageSquare,
+  Star,
+  Package,
+  ClipboardList,
+  AlertTriangle,
   Megaphone,
   History,
   Inbox,
@@ -45,7 +45,7 @@ const baseUrl = getBaseUrl();
 
 function parseBroadcastSender(
   deepLink: NotificationRow["deep_link"],
-): { fullName: string; avatarKey: string } | null {
+): { fullName: string; avatarKey: string; avatarPhotoUrl?: string | null } | null {
   const raw = deepLink as Record<string, unknown>;
   const bf = raw.broadcast_from;
   if (!bf || typeof bf !== "object" || Array.isArray(bf)) return null;
@@ -58,8 +58,12 @@ function parseBroadcastSender(
     typeof o.avatar_key === "string" && o.avatar_key.trim()
       ? o.avatar_key.trim()
       : "ros_default";
+  const avatarPhotoUrl =
+    typeof o.avatar_photo_url === "string" && o.avatar_photo_url.trim()
+      ? o.avatar_photo_url.trim()
+      : null;
   if (!fullName) return null;
-  return { fullName, avatarKey };
+  return { fullName, avatarKey, avatarPhotoUrl };
 }
 
 function formatKindLabel(kind: string): string {
@@ -835,7 +839,7 @@ export default function NotificationCenterDrawer({
                         >
                           <div className="h-5 w-5 shrink-0 overflow-hidden rounded-full border border-app-border bg-app-surface-2">
                             <img
-                              src={staffAvatarUrl(s.avatar_key)}
+                              src={staffAvatarUrl(s.avatar_key, s.avatar_photo_url)}
                               alt=""
                               className="h-full w-full object-cover"
                             />
@@ -1108,7 +1112,7 @@ export default function NotificationCenterDrawer({
                                         return sender ? (
                                           <div className="flex items-center gap-3 rounded-lg bg-app-success/10 p-2 ring-1 ring-app-success/20">
                                             <img
-                                              src={staffAvatarUrl(sender.avatarKey)}
+                                              src={staffAvatarUrl(sender.avatarKey, sender.avatarPhotoUrl)}
                                               alt={sender.fullName}
                                               className="h-8 w-8 shrink-0 rounded-full border-2 border-white shadow-sm object-cover"
                                             />

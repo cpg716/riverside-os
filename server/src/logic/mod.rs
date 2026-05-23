@@ -74,6 +74,7 @@ pub mod rosie_speech;
 pub mod sales_commission;
 pub mod shipment;
 pub mod shippo;
+pub mod staff_avatar_processor;
 pub mod staff_schedule;
 pub mod store_cart_resolve;
 pub mod store_catalog;

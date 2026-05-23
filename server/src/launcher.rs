@@ -673,7 +673,13 @@ async fn launch_server_inner(
 
     let max_body = config.max_body_bytes.unwrap_or(256 * 1024 * 1024);
 
+    let uploads_dir = std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("uploads");
+    let serve_uploads = ServeDir::new(uploads_dir);
+
     let app = build_router(state.clone())
+        .nest_service("/uploads", serve_uploads)
         .layer(DefaultBodyLimit::max(max_body))
         .layer(cors)
         .layer(TraceLayer::new_for_http())

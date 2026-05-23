@@ -38,6 +38,7 @@ export interface SessionOpenedPayload {
   cashierName: string;
   cashierCode: string;
   cashierAvatarKey: string;
+  cashierAvatarPhotoUrl: string | null;
   floatAmount: number;
   sessionId: string;
   registerLane: number;
@@ -62,6 +63,7 @@ const DEV_OPENING_FLOAT = "200.00";
 type CurrentSessionJson = {
   cashier_name: string;
   cashier_avatar_key?: string;
+  cashier_avatar_photo_url?: string | null;
   cashier_code: string;
   session_id: string;
   register_lane: number;
@@ -132,6 +134,7 @@ function payloadFromSessionJson(
       data.cashier_avatar_key.trim()
         ? data.cashier_avatar_key.trim()
         : "ros_default",
+    cashierAvatarPhotoUrl: data.cashier_avatar_photo_url ?? null,
     floatAmount: floatVal,
     sessionId: data.session_id,
     registerLane: data.register_lane,

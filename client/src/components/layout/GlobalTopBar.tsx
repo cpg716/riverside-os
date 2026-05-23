@@ -1,7 +1,7 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { 
-  ChevronRight, 
+import {
+  ChevronRight,
   LayoutDashboard,
   Menu,
   Sun,
@@ -64,6 +64,7 @@ interface GlobalTopBarProps {
   onThemeToggle: () => void;
   cashierName?: string | null;
   cashierAvatarKey?: string | null;
+  cashierAvatarPhotoUrl?: string | null;
   onNavigateToTab?: (tab: SidebarTabId, section?: string) => void;
 }
 
@@ -112,7 +113,8 @@ export default function GlobalTopBar({
     backofficeHeaders,
     clearStaffCredentials,
     staffDisplayName,
-    staffAvatarKey
+    staffAvatarKey,
+    staffAvatarPhotoUrl,
   } = useBackofficeAuth();
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -120,7 +122,7 @@ export default function GlobalTopBar({
   );
   const { isOnline, queueCount, pendingCount, blockedCount } = useOfflineSync(baseUrl, apiAuth);
   const isPosVariant = searchVariant === "pos";
-  
+
   const isTailscaleRemote = useMemo(() => {
     if (typeof window === "undefined") return false;
     const h = window.location.hostname;
@@ -229,7 +231,7 @@ export default function GlobalTopBar({
           {onOpenRosie ? <RosieTriggerButton onOpen={onOpenRosie} /> : null}
           {onOpenHelp ? <HelpCenterTriggerButton onOpen={onOpenHelp} /> : null}
           {onOpenBugReport ? <BugReportTriggerButton onOpen={onOpenBugReport} /> : null}
-          
+
           <button
             type="button"
             onClick={onThemeToggle}
@@ -245,7 +247,7 @@ export default function GlobalTopBar({
         {/* User Profile Hookup */}
         <div className="flex items-center gap-2 pl-1 sm:pl-2">
             {isTailscaleRemote && (
-              <div 
+              <div
                 className="hidden items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-indigo-500 animate-in fade-in slide-in-from-right-2 lg:flex"
                 title="Connected via secure remote access"
               >
@@ -264,7 +266,7 @@ export default function GlobalTopBar({
                </p>
             </div>
           </div>
-          
+
           <div className="relative" ref={userMenuRef}>
             <button
                type="button"
@@ -277,10 +279,13 @@ export default function GlobalTopBar({
                aria-expanded={userMenuOpen}
                aria-haspopup="true"
             >
-              <img 
-                src={staffAvatarUrl(staffAvatarKey || (isRegisterOpen ? cashierAvatarKey : null))} 
-                alt="" 
-                className="h-full w-full object-cover" 
+              <img
+                src={staffAvatarUrl(
+                  staffAvatarKey || (isRegisterOpen ? cashierAvatarKey : null),
+                  staffAvatarPhotoUrl,
+                )}
+                alt=""
+                className="h-full w-full object-cover"
               />
             </button>
             {userMenuOpen && (

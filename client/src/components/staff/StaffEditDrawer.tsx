@@ -33,6 +33,7 @@ export interface HubRow {
   phone?: string | null;
   email?: string | null;
   avatar_key: string;
+  avatar_photo_url?: string | null;
   max_discount_percent: string | number;
   employment_start_date?: string | null;
   employment_end_date?: string | null;
@@ -515,7 +516,7 @@ export default function StaffEditDrawer({
                 <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">
                   Security
                 </h3>
-                <form 
+                <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     void save();
@@ -540,7 +541,7 @@ export default function StaffEditDrawer({
                       placeholder="••••"
                     />
                     <p className="mt-2 text-[10px] text-app-text-muted italic">
-                      {staff.id === "NEW" 
+                      {staff.id === "NEW"
                         ? "This PIN will be used for both register login and manager overrides."
                         : "Only enter a value if you wish to reset this staff member's security PIN."}
                     </p>

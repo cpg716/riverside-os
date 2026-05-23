@@ -72,6 +72,7 @@ interface TodayFloorStaffRow {
   full_name: string;
   role: string;
   avatar_key: string;
+  avatar_photo_url?: string | null;
   shift_label?: string | null;
 }
 
@@ -503,7 +504,7 @@ function WeatherDashboardWidget({
           </div>
         </div>
       </div>
-      
+
       {/* Background decoration */}
       <div className="absolute -right-10 -top-10 size-40 rounded-full bg-app-accent/5 blur-3xl" />
     </div>
@@ -792,10 +793,10 @@ export default function OperationalHome({
       const today = new Date();
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(today.getDate() - 30);
-      
+
       const from = thirtyDaysAgo.toISOString().split('T')[0];
       const to = today.toISOString().split('T')[0];
-      
+
       const res = await fetch(`${baseUrl}/api/insights/sales-pivot?group_by=date&basis=sale&from=${from}&to=${to}`, {
         headers: taskAuth(),
       });
@@ -1063,7 +1064,7 @@ export default function OperationalHome({
 
   useEffect(() => {
     void loadMorningBoard();
-    const interval = setInterval(loadMorningBoard, 60 * 1000); 
+    const interval = setInterval(loadMorningBoard, 60 * 1000);
     return () => clearInterval(interval);
   }, [loadMorningBoard, refreshSignal]);
 
@@ -2365,7 +2366,7 @@ export default function OperationalHome({
                     className="flex w-full items-center justify-between rounded-xl bg-app-bg/30 p-3 text-left transition-colors hover:bg-app-surface-3"
                   >
                     <div className="flex min-w-0 items-center gap-3">
-                      <img src={staffAvatarUrl(staff.avatar_key)} className="h-8 w-8 shrink-0 rounded-lg bg-app-accent/20" alt="" />
+                      <img src={staffAvatarUrl(staff.avatar_key, staff.avatar_photo_url)} className="h-8 w-8 shrink-0 rounded-lg bg-app-accent/20" alt="" />
                       <div className="min-w-0">
                         <p className="truncate text-xs font-bold text-app-text">{staff.full_name}</p>
                         <div className="flex min-w-0 items-center gap-1.5">

@@ -161,13 +161,13 @@ export default function BackofficeSignInGate({
 
   const saveServerUrl = () => {
     const url = normalizeApiBase(tempUrl);
-    
+
     if (url === DEFAULT_BASE_URL) {
       localStorage.removeItem("ros_api_base_override");
     } else {
       localStorage.setItem("ros_api_base_override", url);
     }
-    
+
     setServerUrl(url || DEFAULT_BASE_URL);
     setShowServerSetup(false);
     window.location.reload(); // Reload to re-trigger the roster fetch with new URL
@@ -270,6 +270,7 @@ export default function BackofficeSignInGate({
         permissions?: string[];
         full_name?: string;
         avatar_key?: string;
+        avatar_photo_url?: string | null;
         role?: string;
       };
 
@@ -286,13 +287,15 @@ export default function BackofficeSignInGate({
         typeof data.full_name === "string" ? data.full_name.trim() : "";
       const avatar =
         typeof data.avatar_key === "string" ? data.avatar_key.trim() : "";
+      const avatarPhoto =
+        typeof data.avatar_photo_url === "string" ? data.avatar_photo_url.trim() : null;
       const roleParsed: StaffRole | null =
         data.role === "admin" ||
         data.role === "salesperson" ||
         data.role === "sales_support"
           ? (data.role as StaffRole)
           : null;
-      adoptPermissionsFromServer(list, display, avatar || null, roleParsed, data.id || data.staff_id);
+      adoptPermissionsFromServer(list, display, avatar || null, avatarPhoto, roleParsed, data.id || data.staff_id);
 
       if (data.id) {
         handleStaffChange(data.id);
@@ -482,7 +485,7 @@ export default function BackofficeSignInGate({
                 Save & Connect
               </button>
             </div>
-            <button 
+            <button
               onClick={() => setTempUrl(DEFAULT_BASE_URL)}
               className="w-full text-[9px] font-black uppercase tracking-widest text-app-text-muted/60 hover:text-app-text transition-all"
             >
