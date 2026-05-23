@@ -5435,7 +5435,7 @@ dependencies = [
 
 [[package]]
 name = "riverside-deployment-manager"
-version = "0.70.6"
+version = "0.70.7"
 dependencies = [
  "log",
  "serde",
@@ -5448,7 +5448,7 @@ dependencies = [
 
 [[package]]
 name = "riverside-pos-tauri"
-version = "0.70.6"
+version = "0.70.7"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5468,7 +5468,7 @@ dependencies = [
 
 [[package]]
 name = "riverside-server"
-version = "0.70.6"
+version = "0.70.7"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -5557,7 +5557,7 @@ dependencies = [
 
 [[package]]
 name = "ros-dev-center"
-version = "0.70.6"
+version = "0.70.7"
 dependencies = [
  "keyring",
  "reqwest 0.12.28",

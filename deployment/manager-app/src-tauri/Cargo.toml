@@ -1,6 +1,6 @@
 [package]
 name = "riverside-deployment-manager"
-version = "0.70.6"
+version = "0.70.7"
 description = "A Tauri App"
 authors = ["you"]
 license = ""

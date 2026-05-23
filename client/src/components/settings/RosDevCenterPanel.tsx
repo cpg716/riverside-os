@@ -522,7 +522,7 @@ export default function RosDevCenterPanel() {
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Active Connections
               </p>
-              <p className="mt-2 text-2xl font-black text-app-text text-app-accent">
+              <p className="mt-2 text-2xl font-black text-app-accent">
                 {diagnostics?.database.active_connections ?? 0}
               </p>
             </div>

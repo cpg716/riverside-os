@@ -337,4 +337,4 @@ For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
 
 ---
 
-**Last reviewed:** 2026-05-22 for v0.70.6
+**Last reviewed:** 2026-05-22 for v0.70.7
