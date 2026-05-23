@@ -1,0 +1,90 @@
+name: macOS Deployment Manager Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (e.g., v0.70.5)"
+        required: true
+        default: "v0.70.5"
+      release_notes:
+        description: "Release notes"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: deployment/manager-app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "macos-manager"
+
+      - name: Install manager app dependencies
+        working-directory: deployment/manager-app
+        run: npm ci
+
+      - name: Check Riverside version parity
+        working-directory: ${{ github.workspace }}
+        run: node scripts/check-version-parity.mjs
+
+      - name: Build Deployment Manager (macOS universal)
+        working-directory: deployment/manager-app
+        run: npm run tauri build -- --target universal-apple-darwin
+        env:
+          CI: true
+
+      - name: Prepare release metadata
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ github.event.inputs.release_tag }}"
+            notes="${{ github.event.inputs.release_notes }}"
+          else
+            tag="${{ github.ref_name }}"
+            version="${tag#v}"
+            notes="Riverside OS Deployment Manager v$version — macOS Apple Silicon / Intel universal build."
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "${{ steps.meta.outputs.notes }}"
+          dmg=$(ls deployment/manager-app/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg 2>/dev/null | head -1)
+          app=$(ls deployment/manager-app/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
+          if [ -n "$dmg" ]; then
+            echo "Uploading DMG: $dmg"
+            gh release upload "$tag" "$dmg" --clobber
+          fi
+          if [ -n "$app" ]; then
+            echo "Uploading App: $app"
+            gh release upload "$tag" "$app" --clobber
+          fi

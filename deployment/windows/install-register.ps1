@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$ConfigPath = "",
+  [string]$StationMode = "",
   [switch]$SkipAppInstall,
   [switch]$NoLaunch
 )
@@ -84,6 +85,19 @@ function Normalize-ApiBase([string]$Value) {
 function Write-StationConfig($Config) {
   $apiBase = Normalize-ApiBase $Config.register.apiBase
   $stationLabel = "$($Config.register.stationLabel)".Trim()
+
+  # Apply StationMode override if provided
+  if ($StationMode -eq "backoffice") {
+    $stationLabel = "Back Office"
+    $Config.register.stationLabel = $stationLabel
+  } elseif ($StationMode -eq "register1") {
+    $stationLabel = "Register #1"
+    $Config.register.stationLabel = $stationLabel
+  } elseif ($stationLabel -eq "") {
+    $stationLabel = "Register #1"
+    $Config.register.stationLabel = $stationLabel
+  }
+
   if ($stationLabel -ne "Backoffice / Server" -and $apiBase -match "^https?://(127\.0\.0\.1|localhost)(:|/|$)") {
     throw "$stationLabel cannot use $apiBase. Enter the Backoffice / Server PC address, for example http://10.64.70.196:3000."
   }

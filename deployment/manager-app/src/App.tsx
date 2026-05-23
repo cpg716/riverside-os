@@ -23,7 +23,7 @@ interface PgStatus {
 export default function App() {
   const [activeTab, setActiveTab] = useState<'wizard' | 'maintenance'>('maintenance');
   const [step, setStep] = useState(1);
-  const [role, setRole] = useState<'server' | 'register'>('server');
+  const [role, setRole] = useState<'main-hub' | 'standalone-backoffice' | 'standalone-register'>('main-hub');
 
   const [isElevated, setIsElevated] = useState<boolean | null>(null);
 
@@ -106,7 +106,13 @@ export default function App() {
 
     await invoke('write_deployment_config', { config: JSON.stringify(newConfig) });
     setStep(3);
-    executeScript(role === 'server' ? 'install-server.ps1' : 'install-register.ps1');
+    if (role === 'main-hub') {
+      executeScript('install-server.ps1');
+    } else if (role === 'standalone-backoffice') {
+      executeScript('install-register.ps1', ['-StationMode', 'backoffice']);
+    } else {
+      executeScript('install-register.ps1', ['-StationMode', 'register1']);
+    }
   };
 
   const requireElevation = (actionLabel: string): boolean => {
@@ -309,22 +315,31 @@ export default function App() {
                 <h2 className="text-xl font-bold mb-6">What is the role of this PC?</h2>
                 <div className="space-y-4">
                   <button
-                    onClick={() => setRole('server')}
-                    className={`w-full text-left p-6 rounded-xl border-2 transition-all ${role === 'server' ? 'border-brand-500 bg-brand-50' : 'border-zinc-200 hover:border-zinc-300'}`}
+                    onClick={() => setRole('main-hub')}
+                    className={`w-full text-left p-6 rounded-xl border-2 transition-all ${role === 'main-hub' ? 'border-brand-500 bg-brand-50' : 'border-zinc-200 hover:border-zinc-300'}`}
                   >
                     <h3 className="font-semibold text-lg flex items-center gap-2">
-                      <Server className="w-5 h-5" /> Backoffice / Server
+                      <Server className="w-5 h-5" /> Main Hub (Backoffice / Server)
                     </h3>
-                    <p className="text-zinc-500 text-sm mt-1">Runs the core PostgreSQL database, API server, and ROSIE AI models. Only ONE computer per store should be the Server.</p>
+                    <p className="text-zinc-500 text-sm mt-1">The ONE server PC per store. Installs PostgreSQL, API server, ROSIE AI, and the Backoffice desktop app.</p>
                   </button>
                   <button
-                    onClick={() => setRole('register')}
-                    className={`w-full text-left p-6 rounded-xl border-2 transition-all ${role === 'register' ? 'border-brand-500 bg-brand-50' : 'border-zinc-200 hover:border-zinc-300'}`}
+                    onClick={() => setRole('standalone-backoffice')}
+                    className={`w-full text-left p-6 rounded-xl border-2 transition-all ${role === 'standalone-backoffice' ? 'border-brand-500 bg-brand-50' : 'border-zinc-200 hover:border-zinc-300'}`}
                   >
                     <h3 className="font-semibold text-lg flex items-center gap-2">
-                      <Settings className="w-5 h-5" /> Front Register
+                      <Monitor className="w-5 h-5" /> Standalone App — Back Office
                     </h3>
-                    <p className="text-zinc-500 text-sm mt-1">A lightweight POS terminal that connects to the Backoffice Server over the local network.</p>
+                    <p className="text-zinc-500 text-sm mt-1">Just the desktop Back Office app. Connects to the Main Hub server over the network. No server or database.</p>
+                  </button>
+                  <button
+                    onClick={() => setRole('standalone-register')}
+                    className={`w-full text-left p-6 rounded-xl border-2 transition-all ${role === 'standalone-register' ? 'border-brand-500 bg-brand-50' : 'border-zinc-200 hover:border-zinc-300'}`}
+                  >
+                    <h3 className="font-semibold text-lg flex items-center gap-2">
+                      <Settings className="w-5 h-5" /> Standalone App — Register #1
+                    </h3>
+                    <p className="text-zinc-500 text-sm mt-1">Just the desktop POS app. Connects to the Main Hub server over the network. No server or database.</p>
                   </button>
                 </div>
               </div>
@@ -343,7 +358,7 @@ export default function App() {
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
                     />
                   </div>
-                  {role === 'server' && (
+                  {role === 'main-hub' && (
                     <div>
                       <label className="block text-sm font-semibold text-zinc-700 mb-1">PostgreSQL Admin Password</label>
                       <input
@@ -733,21 +748,8 @@ export default function App() {
             </h2>
             <button
               onClick={() => {
-                if(confirm('UNINSTALL SERVER: This stops the Riverside OS Server task, removes the scheduled task, deletes server/client/release subdirectories under the install root, and removes the firewall rule. The PostgreSQL database, backups, and logs are NOT deleted. Proceed?')) {
-                  executeInline(
-                    `$ErrorActionPreference = 'SilentlyContinue';
-                     $config = if (Test-Path 'riverside-deployment.config.json') { Get-Content 'riverside-deployment.config.json' -Raw | ConvertFrom-Json } else { $null };
-                     $installRoot = if ($config -and $config.server -and $config.server.installRoot) { $config.server.installRoot } else { 'C:\\RiversideOS' };
-                     $fwName = if ($config -and $config.server -and $config.server.firewallRuleName) { $config.server.firewallRuleName } else { 'Riverside OS Server' };
-                     Stop-ScheduledTask -TaskName 'Riverside OS Server' -ErrorAction SilentlyContinue;
-                     Unregister-ScheduledTask -TaskName 'Riverside OS Server' -Confirm:$false -ErrorAction SilentlyContinue;
-                     Stop-Process -Name 'riverside-server' -Force -ErrorAction SilentlyContinue;
-                     Remove-NetFirewallRule -DisplayName $fwName -ErrorAction SilentlyContinue;
-                     foreach ($child in @('server','client','release')) { Remove-Item (Join-Path $installRoot $child) -Recurse -Force -ErrorAction SilentlyContinue };
-                     Remove-Item (Join-Path $installRoot 'deployment-summary.txt') -Force -ErrorAction SilentlyContinue;
-                     Write-Host 'Server uninstall complete. Database, backups, and logs were preserved.'`,
-                    'Uninstall Server'
-                  );
+                if(confirm('REMOVE MAIN HUB: This stops the Riverside OS Server, removes scheduled tasks, deletes server/client/release subdirectories, removes the firewall rule, and DROPS the PostgreSQL database. Proceed?')) {
+                  executeScript('remove-main-hub.ps1', ['-Force']);
                 }
               }}
               disabled={isExecuting}
