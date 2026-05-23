@@ -68,13 +68,13 @@ This is the current repo/deployment status to verify before a live install:
 
 | Item | Current status | Deployment impact |
 |------|----------------|-------------------|
-| Target release version | **`v0.70.5`** | Root, client/PWA bundle, server, and Tauri metadata must all match. Run `npm run check:version` before publishing artifacts. |
-| Latest published GitHub release | **`v0.70.5`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
+| Target release version | **`v0.70.6`** | Root, client/PWA bundle, server, and Tauri metadata must all match. Run `npm run check:version` before publishing artifacts. |
+| Latest published GitHub release | **`v0.70.6`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
 | Windows installer/updater assets | **Required for the same Riverside release** | The release must contain `latest.json`, one current Windows MSI, and the matching `.sig`; old Riverside MSI/signature assets must be removed before upload. |
-| Windows deployment package | **Published as GitHub release asset** | `RiversideOS-v0.70.5-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
+| Windows deployment package | **Published as GitHub release asset** | `RiversideOS-v0.70.6-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
 | macOS Deployment Manager | **Published as GitHub release asset** | Universal Apple Silicon / Intel DMG for macOS-based remote server management. |
-| Latest Playwright E2E on `main` | Must pass on the final `v0.70.5` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
-| Latest Lint Checks on `main` | Must pass on the final `v0.70.5` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
+| Latest Playwright E2E on `main` | Must pass on the final `v0.70.6` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
+| Latest Lint Checks on `main` | Must pass on the final `v0.70.6` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
 | Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |
 
 Before installing the two Windows PCs and PWA devices for production use, publish one complete Riverside release and record its release/run URL in the deployment log. The Windows app, server API, and PWA/web app files must all report the same Riverside version.
