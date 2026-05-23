@@ -144,16 +144,16 @@ Before announcing “all clear”:
 
 Validate each deployment surface against its real role:
 
-1. **HOST machine**
+1. **Main Hub**
    - Start **Shop Host**.
    - Confirm running state, bind address, frontend bundle, and local satellite URL.
    - Confirm a second same-network device reaches the sign-in gate from that local satellite URL.
-2. **MAIN REGISTER machine**
+2. **Register #1**
    - Launch the Windows Tauri app.
    - Confirm sign-in, register readiness, one sale path, and printer recovery path per the Windows checklist.
 3. **Local iPad / phone PWA**
-   - Confirm the device is on the same local network as the host.
-   - Confirm it uses the local host URL, not the Tailscale path.
+   - Confirm the device is on the same local network as the Main Hub.
+   - Confirm it uses the local Main Hub URL, not the Tailscale path.
    - Confirm sign-in and the expected shell/search/status flow for that device class.
 4. **Remote PWA over Tailscale**
    - Confirm the device is off-site or off the store LAN.
@@ -166,8 +166,8 @@ Validate each deployment surface against its real role:
 
 For role clarity during rollout:
 
-- the **HOST machine** and the **MAIN REGISTER** are different Windows Tauri machines
-- only the dedicated host machine should be used for **Shop Host**
+- the **Main Hub** and **Register #1** are different Windows Tauri machines
+- only the dedicated Main Hub should be used for **Shop Host**
 - updating a register station does not automatically make it the host
 
 Use the desktop updater release pipeline (`.github/workflows/tauri-register-updater-release.yml`) for recurring Windows updates:

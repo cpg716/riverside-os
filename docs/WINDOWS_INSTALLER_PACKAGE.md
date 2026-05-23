@@ -2,22 +2,24 @@
 
 This package is the guided deployment path for the in-store Windows machines:
 
-- **Backoffice / Server PC**: PostgreSQL database, Riverside server, web bundle, migrations, firewall rule, and startup task.
-- **Register #1**: Riverside desktop app, station API base, printer target, and cash drawer setting.
-- **Back Office Workstation**: Riverside desktop app, station API base, and optional printer targets without server/database setup.
+- **Main Hub (Backoffice / Server PC)**: PostgreSQL database, Riverside server, web bundle, migrations, firewall rule, startup task, and the Riverside desktop app.
+- **Standalone App — Register #1**: Riverside desktop app, station API base, printer target, and cash drawer setting. No server or database.
+- **Standalone App — Back Office**: Riverside desktop app, station API base, and optional printer targets. No server or database.
 
-The primary entry point is **`Start-RiversideDeployment.cmd`**. It opens the Riverside OS Deployment Manager so the installer can be run by choosing the station type, checking readiness, and clicking install. The package still keeps a readable JSON config next to the installers for support fallback.
+The primary entry point is **`Start-RiversideDeployment.cmd`**. It opens the Riverside OS Deployment Manager so the installer can be run by choosing the station role, checking readiness, and clicking install. The package still keeps a readable JSON config next to the installers for support fallback.
 
 ## Package layout
 
 Build output:
 
 ```text
-RiversideOS-v0.70.0-Windows-Deployment/
+RiversideOS-v0.70.5-Windows-Deployment/
   Start-RiversideDeployment.cmd
   Start-RiversideDeployment.ps1
   install-server.ps1
   install-register.ps1
+  remove-main-hub.ps1
+  remove-standalone-app.ps1
   Install-RosieAiStack.cmd
   Repair-RiversideCredentialsKey.cmd
   Set-CounterpointBridgeToken.cmd
@@ -35,10 +37,10 @@ RiversideOS-v0.70.0-Windows-Deployment/
 From a Windows release machine after building the server, client, and Tauri bundle:
 
 ```powershell
-.\deployment\windows\build-deployment-package.ps1 -Version "0.70.0"
+.\deployment\windows\build-deployment-package.ps1 -Version "0.70.5"
 ```
 
-If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`. For v0.70.0 and later, do not mix the `server/`, `client-dist/`, `register/`, or `updater/` folders from different release zips.
+If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`. For v0.70.5 and later, do not mix the `server/`, `client-dist/`, `register/`, or `updater/` folders from different release zips.
 
 ## Configure the package
 
@@ -48,20 +50,20 @@ Normal path:
 Double-click Start-RiversideDeployment.cmd.
 ```
 
-Then choose:
+Then choose one of the three roles:
 
-- **Backoffice / Server** for the server PC.
-- **Register #1** for the register lane.
-- **Back Office Workstation** for a non-server PC that runs Riverside against the server.
+- **Main Hub** for the server PC (PostgreSQL + Riverside Server + desktop app).
+- **Standalone App — Register #1** for the primary cashier lane.
+- **Standalone App — Back Office** for a non-server PC that runs Riverside against the Main Hub.
 
 Click **Check**, then choose the action:
 
 - **Install** for a new station.
 - **Update** to apply a newer package, copy new files, run migrations where needed, and reinstall/update the workstation app.
 - **Repair** to rewrite station/server settings and fix service/firewall/printer/API setup without a destructive reset.
-- **Uninstall** to remove Riverside from that station.
+- **Remove** to uninstall Riverside from that station using the appropriate removal script (`remove-main-hub.ps1` or `remove-standalone-app.ps1`).
 
-The Deployment Manager writes `riverside-deployment.config.json` for the selected station type and runs the correct installer.
+The Deployment Manager writes `riverside-deployment.config.json` for the selected station role and runs the correct installer or removal script.
 
 The manager also writes `deployment-manager.log` next to the installer so support can review exactly what was checked or installed.
 
@@ -96,14 +98,14 @@ Server, Windows app, and PWA/web files are one release. After any update, open *
 
 If Riverside Settings cannot open because the API is down, manage the server from Windows instead:
 
-1. On the Backoffice / Server PC, open the release package folder.
+1. On the Main Hub PC, open the release package folder.
 2. Run **`Start-RiversideDeployment.cmd`**.
-3. Select **Backoffice / Server**.
+3. Select **Main Hub**.
 4. Use **Refresh Server Status**.
 5. If the package version is newer than the installed server version, run **Update This Server PC**.
 6. If the server task is missing or the API is unreachable, run **Repair Server** or use **Start Server** / **Restart Server**.
 
-Hotfix/support actions included in v0.70.0 packages:
+Hotfix/support actions included in v0.70.5 packages:
 
 - **`Install-RosieAiStack.cmd`** installs the ROSIE AI models and Python voice tools, patches the server `.env` to make the local LLM reachable via `RIVERSIDE_LLAMA_UPSTREAM`, and restarts the server. Use this to restore ROSIE AI features on existing Server PCs without a full reinstall.
 - **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.
@@ -125,12 +127,12 @@ Fill in:
 
 Credentials may be included in this private in-store package. Do not commit the filled `riverside-deployment.config.json` to the repo.
 
-## Backoffice / Server PC install
+## Main Hub install
 
 Preferred path:
 
 ```text
-Double-click Start-RiversideDeployment.cmd and choose Backoffice / Server.
+Double-click Start-RiversideDeployment.cmd and choose Main Hub.
 ```
 
 Manual fallback:
@@ -163,15 +165,15 @@ PostgreSQL and `psql.exe` must be installed or referenced by `server.database.ps
 
 API host rule:
 
-- On the **Backoffice / Server PC**, the Riverside desktop API host should be `http://127.0.0.1:3000`.
-- On **Register #1**, **Back Office Workstation**, and iPad/PWA devices, the API host should be the server PC LAN address with port 3000, for example `http://10.64.70.196:3000`.
+- On the **Main Hub PC**, the Riverside desktop API host should be `http://127.0.0.1:3000`.
+- On **Register #1**, **Back Office Workstation**, and iPad/PWA devices, the API host should be the Main Hub PC LAN address with port 3000, for example `http://10.64.70.196:3000`.
 
-## Register #1 install
+## Standalone App — Register #1 install
 
 Preferred path:
 
 ```text
-Double-click Start-RiversideDeployment.cmd and choose Register #1.
+Double-click Start-RiversideDeployment.cmd and choose Standalone App — Register #1.
 ```
 
 Manual fallback:
@@ -198,15 +200,15 @@ If settings changed, the app reloads once so early API calls use the installed A
 
 The packaged Windows app icon should show the Riverside logo mark. A solid red square means the station is running an older placeholder-icon build and should be updated with the current register/workstation artifact.
 
-## Back Office Workstation install
+## Standalone App — Back Office install
 
 Preferred path:
 
 ```text
-Double-click Start-RiversideDeployment.cmd and choose Back Office Workstation.
+Double-click Start-RiversideDeployment.cmd and choose Standalone App — Back Office.
 ```
 
-This uses the workstation installer path, writes the server API base, disables cash drawer by default, and installs the Riverside desktop app without setting up PostgreSQL or the server task.
+This uses the workstation installer path, writes the Main Hub API base, disables cash drawer by default, and installs the Riverside desktop app without setting up PostgreSQL or the server task.
 
 ## Printer recommendation
 

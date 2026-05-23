@@ -2,31 +2,34 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-## Current Deployment Status (2026-05-17)
+## Current Deployment Status (2026-05-22)
 
-- [x] Target release version is **`v0.60.0`**.
-- [ ] Current release tag exists: **`v0.60.0`**.
+- [x] Target release version is **`v0.70.5`**.
+- [ ] Current release tag exists: **`v0.70.5`**.
 - [ ] Current release has Windows installer/updater assets published.
-  - Required action: tag/publish `v0.60.0`, then run the Windows updater release workflow and Windows deployment package workflow before installing Windows stations.
-  - Required artifacts: `latest.json`, `riverside-updater-build-manifest.json`, Windows MSI, matching `.sig`, and `RiversideOS-v0.60.0-<sha>-Windows-Deployment.zip`.
-- [ ] Latest Playwright E2E push on `main` passed for the final `v0.60.0` release commit.
-- [ ] Latest Lint Checks push on `main` passed for the final `v0.60.0` release commit.
+  - Required action: tag/publish `v0.70.5`, then run the Windows updater release workflow and Windows deployment package workflow before installing Windows stations.
+  - Required artifacts: `latest.json`, `riverside-updater-build-manifest.json`, Windows MSI, matching `.sig`, and `RiversideOS-v0.70.5-Windows-Deployment.zip`.
+- [ ] Current release has macOS Deployment Manager DMG published.
+  - Required artifact: `RiversideOS-Deployment-Manager_0.70.5_universal.dmg`.
+- [ ] Latest Playwright E2E push on `main` passed for the final `v0.70.5` release commit.
+- [ ] Latest Lint Checks push on `main` passed for the final `v0.70.5` release commit.
 - [ ] Production station deployment log is complete for:
-  - Backoffice / Server PC
+  - Main Hub (Backoffice / Server PC)
   - Register #1 Windows Tauri
   - Register #2 iPad PWA
-  - other Windows laptop PWA / optional Tauri clients
+  - Other Windows laptop PWA / optional Tauri clients
 
-## v0.60.0 Release Readiness Blockers
+## v0.70.5 Release Readiness Blockers
 
-- [ ] `v0.60.0` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
-- [ ] `v0.60.0` Windows deployment package exists and its manifest source SHA matches the release tag.
-- [ ] Physical station smoke is complete for Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
+- [ ] `v0.70.5` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
+- [ ] `v0.70.5` Windows deployment package exists and its manifest source SHA matches the release tag.
+- [ ] `v0.70.5` macOS Deployment Manager DMG exists.
+- [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] GitHub checks have rerun and passed on the final release commit.
 
 ## Code Gate
 
-- [ ] v0.60.0 automated certification evidence is recorded in [`docs/releases/v0.60.0-certification.md`](releases/v0.60.0-certification.md).
+- [ ] v0.70.5 automated certification evidence is recorded in [`docs/releases/v0.70.5-certification.md`](releases/v0.70.5-certification.md).
 - [x] No unresolved AI-actionable code-level P0/P1 findings remain in `docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`; human/environment verification gates below remain required.
 - [x] `cargo fmt --manifest-path server/Cargo.toml --check` — passed locally for v0.4.0 readiness on 2026-05-01.
 - [x] `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` — passed locally for v0.4.0 readiness on 2026-05-01 after the Meilisearch helper refactor.

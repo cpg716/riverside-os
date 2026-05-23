@@ -26,8 +26,10 @@ RiversideOS-v[Version]-Windows-Deployment/
   RiversideOS-Deployment-Manager.exe     <-- Compiled Tauri GUI App
   Audit-System.cmd                       <-- Diagnostic double-click utility
   audit-system.ps1                       <-- Core pre-flight checking script
-  install-server.ps1                     <-- Server installation logic
-  install-register.ps1                   <-- Register workstation installer
+  install-server.ps1                     <-- Server installation logic (Main Hub)
+  install-register.ps1                   <-- Register / workstation installer
+  remove-main-hub.ps1                    <-- Full server + app removal
+  remove-standalone-app.ps1              <-- App-only removal
   apply-riverside-migrations.ps1         <-- Schema updater
   reset-riverside-database.ps1           <-- Schema wiper and re-creator
   riverside-deployment.config.json       <-- Local configuration state
@@ -39,9 +41,30 @@ RiversideOS-v[Version]-Windows-Deployment/
   register/                              <-- Register MSI/EXE installers
 ```
 
+### macOS Deployment Manager
+
+A separate **macOS Deployment Manager** is built as a universal Apple Silicon / Intel DMG via `.github/workflows/macos-deployment-manager-release.yml`. It is published as a GitHub release asset for macOS-based server management and remote administration. Download the `.dmg` from the matching release tag and install like any standard macOS application.
+
 ---
 
-## 2. Elevated Launcher Flow
+## 2. Installation Roles
+
+The Deployment Manager supports **three distinct installation roles**. Choose exactly one per workstation:
+
+| Role | What it installs | Use on |
+|------|----------------|--------|
+| **Main Hub** | PostgreSQL, `riverside-server.exe`, web bundle, migrations, firewall rule, startup task, and the Riverside desktop app | The single Windows PC that is the store server and may also serve as a back-office workstation. |
+| **Standalone App — Back Office** | Riverside desktop app only, pointed at the Main Hub API | A non-server Windows PC used for back-office work (customers, orders, inventory, reports). |
+| **Standalone App — Register #1** | Riverside desktop app only, pointed at the Main Hub API, with receipt-printer and cash-drawer settings | The primary cashier Windows PC. Must be a different PC than the Main Hub in production. |
+
+**Rules:**
+- Only **one** Main Hub exists per store.
+- Register #1 should be a **separate physical PC** from the Main Hub for production reliability.
+- Back Office workstations are lightweight: no PostgreSQL, no server task, just the desktop app.
+
+---
+
+## 3. Elevated Launcher Flow
 
 To guarantee that local configuration writing, service registration, and network binding succeed, the Deployment Manager must run with administrator privileges.
 
@@ -134,11 +157,40 @@ graph TD
 
 To prevent blocking dialog boxes when triggered from the Tauri GUI log terminal, passing `-StartFresh` suppresses all WinForms MessageBox popups.
 
-To prevent blocking dialog boxes when triggered from the Tauri GUI log terminal, passing `-StartFresh` suppresses all WinForms MessageBox popups.
+---
+
+## 6. Removal Commands
+
+The Deployment Manager can cleanly remove Riverside OS from a workstation. The removal path depends on the original installation role.
+
+### Remove Main Hub (`remove-main-hub.ps1`)
+
+Removes the **full server installation** from a Main Hub workstation:
+
+- Stops and unregisters the `Riverside OS Server` and `Riverside OS LLM Host` scheduled tasks.
+- Stops running `riverside-server` and `llama-server` processes.
+- Uninstalls the Riverside desktop app via MSI/registry.
+- Removes firewall rules (`Riverside OS Server`, `Riverside OS API`, `Riverside OS LLM Host`).
+- Drops the `riverside_os` PostgreSQL database (unless `--KeepDatabase` is passed).
+- Removes station configurations and the install root (unless `--KeepInstallRoot` is passed).
+
+Requires Administrator elevation. Prompts for `REMOVE` confirmation unless `--Force` is passed.
+
+### Remove Standalone App (`remove-standalone-app.ps1`)
+
+Removes a **desktop-app-only installation** from a Back Office or Register workstation:
+
+- Stops running Riverside client processes.
+- Uninstalls the Riverside desktop app via MSI and registry uninstall strings.
+- Removes station configurations.
+
+Does **not** touch PostgreSQL, the server task, or firewall rules. Use this for Back Office workstations and Register #1 PCs when they are being retired or reimaged.
+
+Requires Administrator elevation. Prompts for `REMOVE` confirmation unless `--Force` is passed.
 
 ---
 
-## 6. Password & Security Management
+## 7. Password & Security Management
 
 The Deployment Manager includes automated self-healing scripts to recover from lost credentials or corrupted configuration files, improving ease of use for retail operators.
 
@@ -155,7 +207,7 @@ In case of complete lockout, this script forcefully resets the primary administr
 
 ---
 
-## 7. Integrations & AI Add-ons
+## 8. Integrations & AI Add-ons
 
 The manager exposes utilities to connect and enhance the Riverside OS environment after the core system is installed.
 
@@ -167,7 +219,7 @@ Generates or rotates the 48-character `COUNTERPOINT_SYNC_TOKEN` required to secu
 
 ---
 
-## 8. Development & Compilation Architecture
+## 9. Development & Compilation Architecture
 
 The Deployment Manager is a Tauri v2 application composed of a **Vite + React + TS** frontend (`deployment/manager-app/src`) and a **Rust** backend (`deployment/manager-app/src-tauri`).
 
@@ -187,11 +239,13 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
 Logs are emitted asynchronously from Rust back to the Vite console using the `deployment-log` event emitter, allowing operators to monitor script output in real time.
 
 ### GitHub Actions CI/CD Pipeline
-The deployment manager packaging is automated in `.github/workflows/windows-deployment-package.yml`. 
+The deployment manager packaging is automated in two workflows:
+- **Windows**: `.github/workflows/windows-deployment-package.yml` — builds the full Windows deployment ZIP (server binary, client bundle, register updater, and Deployment Manager executable).
+- **macOS**: `.github/workflows/macos-deployment-manager-release.yml` — builds a universal Apple Silicon / Intel DMG for macOS-based server management.
 
-To prevent compile bottlenecks (which previously took **35+ minutes**), the pipeline utilizes **`swatinem/rust-cache`** to cache build objects across runs. Workspaces are split into three targets:
+To prevent compile bottlenecks (which previously took **35+ minutes**), both pipelines utilize **`swatinem/rust-cache`** to cache build objects across runs. The Windows workspace is split into three targets:
 1.  `client/src-tauri` (Tauri Client Desktop application)
 2.  `server` (Axum Backend server executable)
 3.  `deployment/manager-app/src-tauri` (Deployment Manager executable)
 
-This cache reduction brings successive build times down to **8-10 minutes**. The runner automatically packages the compiled executable in the final zip file as `RiversideOS-Deployment-Manager.exe`.
+This cache reduction brings successive Windows build times down to **8-10 minutes** and macOS builds to approximately **15 minutes**. The Windows runner automatically packages the compiled executable in the final zip file as `RiversideOS-Deployment-Manager.exe`.
