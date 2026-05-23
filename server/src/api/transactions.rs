@@ -1585,8 +1585,8 @@ async fn patch_transaction(
 
                 sqlx::query(
                     r#"
-                    UPDATE transactions 
-                    SET is_forfeited = true, 
+                    UPDATE transactions
+                    SET is_forfeited = true,
                         forfeited_at = now(),
                         forfeiture_reason = $1
                     WHERE id = $2
@@ -1919,8 +1919,8 @@ async fn mark_transaction_pickup(
         let pickup_stock_movements: Vec<(Uuid, i32)> = sqlx::query_as(
             r#"
             WITH movement AS (
-                SELECT 
-                    oi.variant_id, 
+                SELECT
+                    oi.variant_id,
                     SUM(oi.quantity)::int AS qty,
                     SUM(CASE WHEN oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END)::int AS qty_reserved,
                     SUM(CASE WHEN oi.fulfillment::text = 'layaway' THEN oi.quantity ELSE 0 END)::int AS qty_layaway
@@ -5419,6 +5419,7 @@ async fn checkout(
                 status: "success".to_string(),
                 loyalty_points_earned: 0,
                 loyalty_points_balance: None,
+                warnings: Vec::new(),
             }))
         }
         CheckoutDone::Completed {
@@ -5430,6 +5431,7 @@ async fn checkout(
             alteration_order_ids,
             amount_paid,
             total_price,
+            warnings,
         } => {
             for detail in price_override_audit {
                 let _ = log_staff_access(
@@ -5507,6 +5509,7 @@ async fn checkout(
                 status: "success".to_string(),
                 loyalty_points_earned,
                 loyalty_points_balance,
+                warnings,
             }))
         }
     }

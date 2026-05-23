@@ -1,9 +1,9 @@
 import { useState, useCallback } from "react";
-import { 
-  type CartLineItem, 
-  type Customer, 
-  type WeddingMember, 
-  type AppliedPaymentLine, 
+import {
+  type CartLineItem,
+  type Customer,
+  type WeddingMember,
+  type AppliedPaymentLine,
   type CheckoutOperatorContext,
   type CheckoutPayload,
   type CheckoutPaymentSplitPayload,
@@ -33,7 +33,7 @@ interface UseCartCheckoutProps {
   orderPaymentLines: OrderPaymentCartLine[];
   pickupConfirmed: boolean;
   saleDateTimeLocal?: string | null;
-  totals: CartTotals; 
+  totals: CartTotals;
   toast: (msg: string, type?: "success" | "error" | "info") => void;
   clearCart: () => void;
   onSaleCompleted?: () => void;
@@ -119,9 +119,9 @@ export function useCartCheckout({
   const [lastCashChangeDueCents, setLastCashChangeDueCents] = useState(0);
 
   const executeCheckout = useCallback(async (
-    applied: AppliedPaymentLine[], 
-    op: CheckoutOperatorContext, 
-    ledgerSignals: { 
+    applied: AppliedPaymentLine[],
+    op: CheckoutOperatorContext,
+    ledgerSignals: {
       appliedDepositAmountCents: number;
       isTaxExempt: boolean;
       taxExemptReason?: string;
@@ -309,15 +309,15 @@ export function useCartCheckout({
             client_line_id: l.cart_row_id,
             line_type: l.line_type ?? "merchandise",
             alteration_intake_id: l.alteration_intake_id ?? null,
-            product_id: l.product_id, 
-            variant_id: l.variant_id, 
+            product_id: l.product_id,
+            variant_id: l.variant_id,
             fulfillment,
             quantity: l.quantity,
             unit_price: centsToFixed2(unitCents),
             original_unit_price: origCents !== unitCents ? centsToFixed2(origCents) : undefined,
             price_override_reason: l.price_override_reason,
             unit_cost: centsToFixed2(parseMoneyToCents(l.unit_cost)),
-            state_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.state_tax)), 
+            state_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.state_tax)),
             local_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.local_tax)),
             salesperson_id: l.salesperson_id?.trim() || null,
             custom_item_type: l.custom_item_type,
@@ -390,11 +390,16 @@ export function useCartCheckout({
         throw new Error(b.error || `Checkout failed (${res.status})`);
       }
 
-      const data = await res.json() as { transaction_id: string };
+      const data = await res.json() as { transaction_id: string; warnings?: string[] };
       setLastCashChangeDueCents(cashChangeDueCents(applied));
       setLastTransactionId(data.transaction_id);
       if (execution?.showSuccessToast !== false) {
         toast("Checkout complete", "success");
+      }
+      if (data.warnings && data.warnings.length > 0) {
+        for (const w of data.warnings) {
+          toast(w, "info");
+        }
       }
       if (execution?.clearAfterCheckout !== false) {
         clearCart();
@@ -411,7 +416,7 @@ export function useCartCheckout({
       setCheckoutBusy(false);
     }
   }, [
-    sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember, 
+    sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
     cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
     pickupConfirmed, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession
   ]);

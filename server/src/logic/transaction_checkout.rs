@@ -223,6 +223,8 @@ pub struct CheckoutResponse {
     pub status: String,
     pub loyalty_points_earned: i32,
     pub loyalty_points_balance: Option<i32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 fn parse_booked_at_local(raw: &str) -> Result<NaiveDateTime, CheckoutError> {
@@ -1171,6 +1173,7 @@ pub enum CheckoutDone {
         alteration_order_ids: Vec<Uuid>,
         amount_paid: Decimal,
         total_price: Decimal,
+        warnings: Vec<String>,
     },
 }
 
@@ -2802,6 +2805,7 @@ pub async fn execute_checkout(
     let _set_fulfilled_at = order_status == DbOrderStatus::Fulfilled;
 
     let mut price_override_audit: Vec<Value> = Vec::new();
+    let mut checkout_warnings: Vec<String> = Vec::new();
 
     let mut tx = pool.begin().await?;
 
@@ -3312,7 +3316,7 @@ pub async fn execute_checkout(
                 INSERT INTO transaction_lines (
                     transaction_id, fulfillment_order_id, line_display_id,
                     product_id, variant_id, fulfillment, quantity,
-                    unit_price, unit_cost, state_tax, local_tax, size_specs, 
+                    unit_price, unit_cost, state_tax, local_tax, size_specs,
                     is_fulfilled, fulfilled_at,
                     salesperson_id, calculated_commission,
                     custom_item_type, is_rush, need_by_date, needs_gift_wrap, is_internal
@@ -3676,26 +3680,25 @@ pub async fn execute_checkout(
         }
         // Allow stock_on_hand to go negative: shortage must not block retail checkout.
         // (Special / wedding lines never reach this map — they skip deduction until pickup/fulfill.)
-        let affected = sqlx::query(
+        let after_row: Option<(i32, String)> = sqlx::query_as(
             r#"
             UPDATE product_variants
             SET stock_on_hand = stock_on_hand - $1
             WHERE id = $2
+            RETURNING stock_on_hand, sku
             "#,
         )
         .bind(qty)
         .bind(variant_id)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+        .fetch_optional(&mut *tx)
+        .await?;
 
-        if affected == 0 {
-            tracing::warn!(
-                variant_id = %variant_id,
-                qty,
-                "checkout: takeaway stock decrement skipped (no product_variants row — sale still completes)"
-            );
-        } else {
+        if let Some((new_stock, sku)) = after_row {
+            if new_stock < 0 {
+                checkout_warnings.push(format!(
+                    "{sku} stock went negative after sale (now {new_stock})"
+                ));
+            }
             sqlx::query(
                 r#"
                 INSERT INTO inventory_transactions (
@@ -3712,6 +3715,12 @@ pub async fn execute_checkout(
             ))
             .execute(&mut *tx)
             .await?;
+        } else {
+            tracing::warn!(
+                variant_id = %variant_id,
+                qty,
+                "checkout: takeaway stock decrement skipped (no product_variants row — sale still completes)"
+            );
         }
     }
 
@@ -4415,6 +4424,7 @@ pub async fn execute_checkout(
         alteration_order_ids,
         amount_paid,
         total_price,
+        warnings: checkout_warnings,
     })
 }
 

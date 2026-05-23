@@ -1762,6 +1762,21 @@ pub async fn rosie_reporting_run(
                     .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
             })
         }
+        "negative_stock" => {
+            let (_params, normalized) = parse_rosie_params::<serde_json::Map<String, Value>>(
+                "negative_stock",
+                request.params,
+            )?;
+            let Json(data) = negative_stock_report(State(state.clone()), headers.clone()).await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "negative_stock".to_string(),
+                route: "/api/insights/negative-stock",
+                required_permission: INSIGHTS_VIEW,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
         "wedding_health" => {
             let (_params, normalized) = parse_rosie_params::<serde_json::Map<String, Value>>(
                 "wedding_health",
@@ -2297,6 +2312,72 @@ async fn customer_follow_up_report(
     )
     .bind(start)
     .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct NegativeStockRow {
+    pub sku: String,
+    pub product_name: String,
+    pub category_name: Option<String>,
+    pub vendor_name: Option<String>,
+    pub stock_on_hand: i32,
+    pub reserved_stock: i32,
+    pub available_stock: i32,
+    pub unit_cost: Decimal,
+    pub extended_value: Decimal,
+    pub reorder_point: i32,
+    pub last_sold_at: Option<DateTime<Utc>>,
+    pub last_received_at: Option<DateTime<Utc>>,
+}
+
+async fn negative_stock_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<NegativeStockRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let rows = sqlx::query_as::<_, NegativeStockRow>(
+        r#"
+        SELECT
+            pv.sku,
+            p.name AS product_name,
+            c.name AS category_name,
+            v.name AS vendor_name,
+            pv.stock_on_hand,
+            COALESCE(pv.reserved_stock, 0) AS reserved_stock,
+            (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0)) AS available_stock,
+            COALESCE(pv.cost_override, p.base_cost, 0) AS unit_cost,
+            (COALESCE(pv.cost_override, p.base_cost, 0) * pv.stock_on_hand)::numeric(14,2) AS extended_value,
+            COALESCE(pv.reorder_point, 0) AS reorder_point,
+            (
+                SELECT MAX(o.booked_at)
+                FROM transaction_lines oi
+                INNER JOIN transactions o ON o.id = oi.transaction_id
+                WHERE oi.variant_id = pv.id
+                  AND o.status::text NOT IN ('cancelled')
+                  AND oi.fulfillment = 'takeaway'
+            ) AS last_sold_at,
+            (
+                SELECT MAX(it.created_at)
+                FROM inventory_transactions it
+                WHERE it.variant_id = pv.id
+                  AND it.tx_type::text IN ('po_receipt', 'adjustment', 'physical_inventory')
+            ) AS last_received_at
+        FROM product_variants pv
+        INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+        WHERE pv.stock_on_hand < 0
+          AND COALESCE(p.is_active, TRUE)
+        ORDER BY
+            available_stock ASC,
+            p.name ASC,
+            pv.sku ASC
+        LIMIT 500
+        "#,
+    )
     .fetch_all(&state.db)
     .await?;
     Ok(Json(rows))
@@ -3550,6 +3631,7 @@ pub fn router() -> Router<AppState> {
             get(staff_schedule_coverage_sales_report),
         )
         .route("/customer-follow-up", get(customer_follow_up_report))
+        .route("/negative-stock", get(negative_stock_report))
         .route("/exception-risk", get(exception_risk_report))
         .route("/sales-by-day", get(sales_by_day_report))
         .route("/sales-trend-pace", get(sales_trend_pace_report))
