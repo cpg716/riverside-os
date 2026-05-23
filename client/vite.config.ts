@@ -122,6 +122,11 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      // Staff avatar photos uploaded to server/uploads/avatars
+      "/uploads": {
+        target: process.env.VITE_DEV_PROXY_TARGET || "http://127.0.0.1:3000",
+        changeOrigin: true,
+      },
     },
   },
   build: {

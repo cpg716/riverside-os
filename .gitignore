@@ -14,6 +14,9 @@ yarn-error.log*
 .pnpm-debug.log*
 client/dist/
 
+# --- Uploaded Assets ---
+server/uploads/
+
 # --- Rust ---
 # Main server target
 target/

@@ -375,7 +375,7 @@ export type RosieSpeechPlayback = {
 
 const ROSIE_SETTINGS_STORAGE_KEY = "ros.rosie.settings.v1";
 const ROSIE_KOKORO_VOICE_COUNT = 53;
-const ROSIE_OPTIONAL_INSIGHT_TIMEOUT_MS = 3500;
+const ROSIE_OPTIONAL_INSIGHT_TIMEOUT_MS = 20_000;
 
 export const DEFAULT_ROSIE_VOICE = "5";
 

@@ -18,7 +18,10 @@ export function staffAvatarUrl(
 ): string {
   if (photoUrl) {
     const baseUrl = getBaseUrl();
-    return `${baseUrl}${photoUrl}`;
+    // Cache-bust every 5 min so updated photos appear without hard-reloading.
+    const cb = Math.floor(Date.now() / 300_000);
+    const sep = photoUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${photoUrl}${sep}cb=${cb}`;
   }
   const k = (key ?? "").trim() || "ros_default";
   const safe = KEY_SET.has(k) ? k : "ros_default";
