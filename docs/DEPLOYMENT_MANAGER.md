@@ -243,9 +243,9 @@ The deployment manager packaging is automated in two workflows:
 - **Windows**: `.github/workflows/windows-deployment-package.yml` — builds the full Windows deployment ZIP (server binary, client bundle, register updater, and Deployment Manager executable).
 - **macOS**: `.github/workflows/macos-deployment-manager-release.yml` — builds a universal Apple Silicon / Intel DMG for macOS-based server management.
 
-To prevent compile bottlenecks (which previously took **35+ minutes**), both pipelines utilize **`swatinem/rust-cache`** to cache build objects across runs. The Windows workspace is split into three targets:
+Both pipelines utilize **`swatinem/rust-cache`** to cache downloaded Rust dependencies across runs. The Windows workspace builds three targets sequentially in one job:
 1.  `client/src-tauri` (Tauri Client Desktop application)
 2.  `server` (Axum Backend server executable)
 3.  `deployment/manager-app/src-tauri` (Deployment Manager executable)
 
-This cache reduction brings successive Windows build times down to **8-10 minutes** and macOS builds to approximately **15 minutes**. The Windows runner automatically packages the compiled executable in the final zip file as `RiversideOS-Deployment-Manager.exe`.
+Full Windows deployment package builds realistically take **20–30 minutes** (dependency caching saves time on crates that did not change between runs). macOS Deployment Manager builds are faster at approximately **15 minutes** since only one Tauri app is compiled. The Windows runner automatically packages the compiled executable in the final zip file as `RiversideOS-Deployment-Manager.exe`.
