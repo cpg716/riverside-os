@@ -25,6 +25,7 @@
 | 12 | **Hardware** (printers, terminals) | **Accept as-is** | Tauri / existing patterns; no additional integration mandate. |
 | 13 | **Meilisearch** (self-hosted search) | **Optional in-repo** | Sidecar in **`docker-compose.yml`**; ROS indexes variants, store catalog, customers, weddings, Back Office Orders, Transaction Records, alterations, and help from PostgreSQL with SQL hydration + **ILIKE** fallback. Configure URL and API key in **Settings → Integrations → Meilisearch**; admin reindex in **Settings → Integrations** or **`POST /api/settings/meilisearch/reindex`**. See [`SEARCH_AND_PAGINATION.md`](./SEARCH_AND_PAGINATION.md), [`STORE_DEPLOYMENT_GUIDE.md`](./STORE_DEPLOYMENT_GUIDE.md). |
 | 14 | **OpenTelemetry** (OTLP collector / APM) | **Optional** | First-party API emits **OTLP** traces when **`OTEL_*`** / **`RIVERSIDE_OTEL_ENABLED`** are set — vendor-agnostic (Jaeger, Grafana Tempo, Datadog agent, etc.). See [`OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](./OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md). |
+| 15 | **Fal.ai** | **In use** | Centralized visual orchestration for Staff Avatars, Product Master catalog images, and Online Store media generation. Configured via Settings -> Integrations -> Fal.ai. Downloads, resizes, and caches all generated images locally to preserve local-first and offline-first compliance. |
 
 ---
 
@@ -43,6 +44,7 @@
 | Counterpoint bridge | [`tools/counterpoint-bridge/README.md`](../tools/counterpoint-bridge/README.md) |
 | Visual Crossing weather | [`WEATHER_VISUAL_CROSSING.md`](./WEATHER_VISUAL_CROSSING.md) |
 | OpenTelemetry OTLP (optional traces) | [`OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](./OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md) |
+| Fal.ai Visual Sidecar | [`FAL_AI_VISUAL_SIDECAR.md`](./FAL_AI_VISUAL_SIDECAR.md) |
 
 ---
 
@@ -50,6 +52,7 @@
 
 | Date | Change |
 |------|--------|
+| 2026-05-23 | Added Fal.ai integrations details, webhook proxy management config, and local caching sidecar architecture docs. |
 | 2026-05-05 | Updated Helcim posture to reflect ROS-owned Payments Operations, settlement/reconciliation, actual deposit matching, and alerting boundaries. |
 | 2026-04-05 | Initial **final list** captured as standalone doc. |
 | 2026-04-06 | Added **Meilisearch** as optional self-hosted search (shipped in-repo). |

@@ -2582,6 +2582,8 @@ pub fn router() -> Router<AppState> {
             post(post_remote_access_disconnect),
         )
         .nest("/nuorder", build_nuorder_router())
+        .route("/fal/billing", get(get_fal_billing))
+        .route("/fal/usage", get(get_fal_usage))
 }
 
 async fn get_review_policy(
@@ -2681,6 +2683,56 @@ async fn post_remote_access_disconnect(
         .await
         .map_err(|e| SettingsError::InvalidPayload(e.to_string()))?;
     Ok(Json(json!({ "status": "ok" })))
+}
+
+async fn get_fal_billing(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let fal_key = std::env::var("FAL_KEY")
+        .map_err(|_| SettingsError::InvalidPayload("FAL_KEY is not configured in settings".to_string()))?;
+
+    let res = state.http_client
+        .get("https://api.fal.ai/v1/account/billing?expand=credits")
+        .header("Authorization", format!("Key {}", fal_key))
+        .send()
+        .await
+        .map_err(|e| SettingsError::InvalidPayload(format!("Failed to reach Fal.ai: {e}")))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        return Err(SettingsError::InvalidPayload(format!("Fal.ai error ({}): {}", status, text)));
+    }
+
+    let val: Value = res.json().await.map_err(|e| SettingsError::InvalidPayload(format!("Invalid JSON from Fal.ai: {e}")))?;
+    Ok(Json(val))
+}
+
+async fn get_fal_usage(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let fal_key = std::env::var("FAL_KEY")
+        .map_err(|_| SettingsError::InvalidPayload("FAL_KEY is not configured in settings".to_string()))?;
+
+    let res = state.http_client
+        .get("https://api.fal.ai/v1/models/usage")
+        .header("Authorization", format!("Key {}", fal_key))
+        .send()
+        .await
+        .map_err(|e| SettingsError::InvalidPayload(format!("Failed to reach Fal.ai: {e}")))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        return Err(SettingsError::InvalidPayload(format!("Fal.ai error ({}): {}", status, text)));
+    }
+
+    let val: Value = res.json().await.map_err(|e| SettingsError::InvalidPayload(format!("Invalid JSON from Fal.ai: {e}")))?;
+    Ok(Json(val))
 }
 
 #[cfg(test)]

@@ -39,12 +39,13 @@ Settings appears in these sidebar groups:
 3. **Shippo**
 4. **Helcim**
 5. **RMS Charge diagnostics**
-6. **QuickBooks**
-7. **Counterpoint**
-8. **NuORDER**
-9. **Weather**
-10. **Insights**
-11. **Meilisearch**
+6. **Fal.ai**
+7. **QuickBooks**
+8. **Counterpoint**
+9. **NuORDER**
+10. **Weather**
+11. **Insights**
+12. **Meilisearch**
 
 **System & Support**
 1. **Help Center**
@@ -118,6 +119,7 @@ Typical areas (labels may group differently by build):
 - **Podium (SMS + web chat):** operational SMS templates, whether to send pickup/alteration texts through Podium, **location UID**, optional **storefront widget** snippet, readiness checks, OAuth **Client ID / Client Secret / refresh token**, **API Host / OAuth Token URL**, and **webhook secret**. Routine credentials are saved in Settings through encrypted integration credentials. Start Podium authorization from this card only after Client ID and Client Secret show as saved. The refresh token is normally saved automatically after the Podium authorization flow. The webhook URL must be a public HTTPS Riverside URL, not `localhost`. **Staff manuals:** [podium-integration-staff-manual.md](podium-integration-staff-manual.md) (quick tasks), [Podium_Integration_Manual.md](Podium_Integration_Manual.md) (full reference). Engineers: [PLAN_PODIUM_SMS_INTEGRATION.md](../PLAN_PODIUM_SMS_INTEGRATION.md), [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md).
 - **RMS Charge:** current pilot operations use the manual RMS/R2S workflow. Do not treat Settings credentials or diagnostics as automatic RMS posting approval.
 - **Customers (CRM / hub):** **Operational SMS** (pickup / alterations) can be toggled separately from **marketing SMS** on the relationship hub and add-customer flows after migration **71** (see plan doc).
+- **Fal.ai:** API key and optional webhook base URL override configuration. Enables high-performance image generation pipelines for Staff Avatars, product listings, and storefront page builders. Displays account details, real-time credit balance, usage costs, and a local history table of completed/failed visual generation jobs.
 - **Never** paste API keys or integration secrets into chat, notes, customer records, or screenshots. Routine integration credentials belong in Backoffice Settings. The root encryption key (`RIVERSIDE_CREDENTIALS_KEY`, with `QBO_TOKEN_ENC_KEY` only as a transitional fallback) remains a deployment-level secret.
 
 ## Help Center Manager

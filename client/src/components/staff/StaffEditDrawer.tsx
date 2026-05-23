@@ -108,6 +108,7 @@ export default function StaffEditDrawer({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [avatarKey, setAvatarKey] = useState("ros_default");
+  const [avatarPhotoUrl, setAvatarPhotoUrl] = useState<string | null>(null);
 
   const [newPin, setNewPin] = useState("");
 
@@ -184,6 +185,7 @@ export default function StaffEditDrawer({
     setPhone(staff.phone ?? "");
     setEmail(staff.email ?? "");
     setAvatarKey(staff.avatar_key?.trim() || "ros_default");
+    setAvatarPhotoUrl(staff.avatar_photo_url ?? null);
     setBasePct(pctFromDecimal(staff.base_commission_rate));
     setMaxDiscountPct(String(staff.max_discount_percent ?? "30"));
     setCommissionEffectiveDate(todayYmd());
@@ -611,6 +613,12 @@ export default function StaffEditDrawer({
                   value={avatarKey}
                   onChange={setAvatarKey}
                   disabled={busy}
+                  staffId={staff.id}
+                  avatarPhotoUrl={avatarPhotoUrl}
+                  onAvatarPhotoGenerated={(url) => {
+                    setAvatarPhotoUrl(url);
+                    toast("AI Avatar generated successfully!", "success");
+                  }}
                 />
               </section>
             </div>

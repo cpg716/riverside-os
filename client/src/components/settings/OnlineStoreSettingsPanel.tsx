@@ -13,6 +13,7 @@ import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { GRAPESJS_STUDIO_LICENSE_KEY } from "../../lib/grapesjsStudioLicense";
 import type { StoreStudioApi } from "./StorePageStudioEditor";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import ProductImageGenerator from "../inventory/ProductImageGenerator";
 
 const StorePageStudioEditor = lazy(() => import("./StorePageStudioEditor"));
 
@@ -34,7 +35,7 @@ interface StoreCouponRow {
   max_uses: number | null;
 }
 
-type OnlineStoreSettingsPanelMode = "all" | "pages" | "coupons";
+type OnlineStoreSettingsPanelMode = "all" | "pages" | "coupons" | "media";
 
 interface OnlineStoreSettingsPanelProps {
   baseUrl: string;
@@ -61,8 +62,8 @@ export default function OnlineStoreSettingsPanel({
   const canManage =
     hasPermission("online_store.manage") || hasPermission("settings.admin");
 
-  const [sub, setSub] = useState<"pages" | "coupons">(
-    mode === "coupons" ? "coupons" : "pages",
+  const [sub, setSub] = useState<"pages" | "coupons" | "media">(
+    mode === "coupons" ? "coupons" : mode === "media" ? "media" : "pages",
   );
   const [pages, setPages] = useState<StorePageRow[]>([]);
   const [coupons, setCoupons] = useState<StoreCouponRow[]>([]);
@@ -102,6 +103,37 @@ export default function OnlineStoreSettingsPanel({
     const j = (await res.json()) as { coupons?: StoreCouponRow[] };
     setCoupons(Array.isArray(j.coupons) ? j.coupons : []);
   }, [baseUrl, headers, toast]);
+
+  const [mediaJobs, setMediaJobs] = useState<any[]>([]);
+  const [loadingMedia, setLoadingMedia] = useState(false);
+
+  const loadMediaJobs = useCallback(async () => {
+    setLoadingMedia(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/ai/visual/jobs`, {
+        headers: headers(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMediaJobs(data.filter((j: any) => j.job_type === "product_image" || j.job_type === "promo_image"));
+      }
+    } catch (e) {
+      console.error("Failed to load media jobs", e);
+    } finally {
+      setLoadingMedia(false);
+    }
+  }, [baseUrl, headers]);
+
+  useEffect(() => {
+    if (sub === "media" && canManage) {
+      void loadMediaJobs();
+    }
+  }, [sub, canManage, loadMediaJobs]);
+
+  const handleCopyUrl = (path: string) => {
+    navigator.clipboard.writeText(path);
+    toast("Image URL copied to clipboard!", "success");
+  };
 
   useEffect(() => {
     if (!canManage) return;
@@ -326,7 +358,7 @@ export default function OnlineStoreSettingsPanel({
 
       {mode === "all" ? (
         <div className="flex gap-2">
-          {(["pages", "coupons"] as const).map((id) => (
+          {(["pages", "coupons", "media"] as const).map((id) => (
             <button
               key={id}
               type="button"
@@ -343,7 +375,7 @@ export default function OnlineStoreSettingsPanel({
         </div>
       ) : null}
 
-      {activeSub === "pages" ? (
+      {activeSub === "pages" && (
         <div className="space-y-4">
           <div className="ui-card space-y-3 p-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -492,7 +524,9 @@ export default function OnlineStoreSettingsPanel({
             </div>
           ) : null}
         </div>
-      ) : (
+      )}
+
+      {activeSub === "coupons" && (
         <div className="space-y-4">
           <div className="ui-card flex flex-wrap items-end gap-3 p-4">
             <div>
@@ -560,6 +594,75 @@ export default function OnlineStoreSettingsPanel({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {activeSub === "media" && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <ProductImageGenerator
+            jobType="promo_image"
+            title="AI Online Store Banner & Promo Generator"
+            placeholder="A high-end modern aesthetic homepage banner, luxury dress salon interior with wedding dresses, soft warm light..."
+            onGenerated={(_url) => {
+              toast("AI Promo Image generated and added to assets!", "success");
+              void loadMediaJobs();
+            }}
+          />
+
+          <div className="rounded-3xl border border-app-border bg-app-surface p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-app-text">Generated Store Media</h3>
+                <p className="text-xs text-app-text-muted">Copy the URL path of your generated media to paste it directly into your GrapesJS Page Builder.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadMediaJobs()}
+                className="rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:border-app-accent hover:text-app-text transition-all"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {loadingMedia ? (
+              <p className="text-xs text-app-text-muted animate-pulse">Loading generated assets...</p>
+            ) : mediaJobs.length === 0 ? (
+              <p className="text-xs text-app-text-muted">No AI generated storefront imagery found. Use the generator above to create assets.</p>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {mediaJobs.map((job) => (
+                  <div key={job.id} className="relative rounded-2xl border border-app-border bg-app-surface-2 p-3 space-y-2 overflow-hidden flex flex-col justify-between">
+                    {job.status === "completed" && job.local_asset_path ? (
+                      <>
+                        <div className="aspect-video w-full rounded-lg overflow-hidden bg-black/5 relative group">
+                          <img
+                            src={`${baseUrl}${job.local_asset_path}`}
+                            alt="AI promo asset"
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="text-[9px] font-mono text-app-text-muted truncate select-all">{job.local_asset_path}</p>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyUrl(job.local_asset_path)}
+                            className="w-full rounded-xl bg-app-surface border border-app-border py-1.5 text-[9px] font-black uppercase tracking-widest hover:border-app-accent hover:text-app-text transition-all"
+                          >
+                            Copy URL Path
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center py-8 text-center">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-app-accent border-t-transparent mb-2" />
+                        <p className="text-[10px] font-medium text-app-text-muted">Generating asset...</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
       {studioFullscreenOpen && studioOverlayRoot && editSlug

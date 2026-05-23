@@ -19,6 +19,7 @@ pub mod customer_open_deposit;
 pub mod customer_transaction_history;
 pub mod customers;
 pub mod email;
+pub mod fal_sidecar;
 pub mod gift_card_ops;
 pub mod helcim;
 pub mod help_corpus;

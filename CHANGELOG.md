@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Production Hardening Suite**: Enterprise-grade production features for scalability, reliability, and observability
+- **Fal.ai Visual Sidecar Integration**: Centralized visual generation orchestration for staff avatars, catalog images, and promotional assets.
+  - **Local-First Download Worker**: Downloads, crops, and caches generated images locally to comply with the offline-first contract.
+  - **Secure Credentials Mapping**: Integrates API keys and webhook settings into the encrypted credentials database table.
+  - **Robust Settings Dashboard**: Real-time billing credits, estimated spend and usage statistics, and visual generation job registry.
+
   - **Health Check Endpoints**: `/api/health`, `/api/ready`, `/api/live` for orchestration and monitoring
   - **Connection Pool Monitoring**: Automatic alerts when pool utilization exceeds 80%
   - **WAL Archiving**: Point-in-time recovery capability with monitoring and failure alerting

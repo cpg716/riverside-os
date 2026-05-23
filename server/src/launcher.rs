@@ -377,6 +377,38 @@ async fn launch_server_inner(
     };
 
     // Workers
+    // Start background job worker if enabled
+    if matches!(
+        std::env::var("RIVERSIDE_JOB_QUEUE_ENABLED")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    ) {
+        if let Ok(queue) = crate::jobs::JobQueue::from_env() {
+            let mut registry = crate::jobs::create_registry();
+            crate::jobs::register_handler(
+                &mut registry,
+                std::sync::Arc::new(crate::jobs::fal_download::FalDownloadHandler::new(state.clone())),
+            );
+            
+            let worker_config = crate::jobs::WorkerConfig::default();
+            let worker = crate::jobs::JobWorker::new(queue, registry, worker_config);
+            tokio::spawn(async move {
+                tracing::info!("Initializing background JobWorker...");
+                if let Err(e) = worker.start().await {
+                    tracing::error!(error = %e, "Failed to start background JobWorker");
+                } else {
+                    tracing::info!("JobWorker started successfully");
+                }
+            });
+        } else {
+            tracing::error!("Failed to initialize JobQueue for background worker");
+        }
+    }
+
     let fallback_pool = state.db.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));

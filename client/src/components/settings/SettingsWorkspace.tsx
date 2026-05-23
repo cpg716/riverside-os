@@ -40,6 +40,7 @@ import {
   Tags,
   UserCircle,
   Wifi,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -65,6 +66,7 @@ import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
 import ShippoSettingsPanel from "./ShippoSettingsPanel";
 import HelcimSettingsPanel from "./HelcimSettingsPanel";
 import CoreCardSettingsPanel from "./CoreCardSettingsPanel";
+import FalSettingsPanel from "./FalSettingsPanel";
 import IntegrationBrandLogo, { type IntegrationBrand } from "../ui/IntegrationBrandLogo";
 import RemoteAccessPanel from "./RemoteAccessPanel";
 import RegisterSettings from "../pos/RegisterSettings";
@@ -184,6 +186,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   shippo: "Shipping account setup, carrier rates, and label configuration.",
   helcim: "Helcim payments, terminal readiness, and card processing setup.",
   corecard: "CoreCard host credentials for RMS Charge and CoreCredit posting.",
+  fal: "Fal.ai API key configuration, credit balance, and image queue logs.",
   quickbooks: "QuickBooks connection settings and accounting bridge controls.",
   counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
   nuorder: "NuORDER catalog and vendor sync configuration.",
@@ -244,6 +247,7 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   weather: Plug,
   insights: Plug,
   meilisearch: Plug,
+  fal: Sparkles,
   "help-center": BookOpen,
   rosie: Bot,
   "ros-support-center": ShieldAlert,
@@ -1233,6 +1237,13 @@ export default function SettingsWorkspace({
                       brand: "corecredit" as IntegrationBrand,
                       brandKind: "icon" as const,
                     },
+                    {
+                      id: "fal",
+                      label: "Fal.ai",
+                      desc: "Visual diffusion pipelines",
+                      color: "bg-white",
+                      icon: Sparkles,
+                    },
                   ] satisfies IntegrationCardItem[]).map((item) => (
                     <button
                       type="button"
@@ -1410,6 +1421,10 @@ export default function SettingsWorkspace({
 
             {activeTab === "corecard" && hasPermission("settings.admin") && (
               <CoreCardSettingsPanel baseUrl={baseUrl} />
+            )}
+
+            {activeTab === "fal" && hasPermission("settings.admin") && (
+              <FalSettingsPanel baseUrl={baseUrl} />
             )}
 
             {activeTab === "receipt-builder" && (

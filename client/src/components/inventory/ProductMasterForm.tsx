@@ -9,6 +9,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import ProductImageGenerator from "./ProductImageGenerator";
 import {
   Plus,
   Sparkles,
@@ -1015,6 +1016,23 @@ export default function ProductMasterForm({
                   <h3 className="text-base font-bold text-app-text">Web Listing Images</h3>
                   <p className="text-xs text-app-text-muted">Add specialized product photos for the storefront, manage sort order, and pick the hero image.</p>
                 </div>
+              </div>
+
+              <div className="mb-6">
+                <ProductImageGenerator
+                  onGenerated={(url) => {
+                    const isFirst = webImages.length === 0;
+                    const newImg: LocalWebImageInput = {
+                      url,
+                      alt_text: "AI Generated Product Image",
+                      sort_order: webImages.length,
+                      is_hero: isFirst,
+                    };
+                    setWebImages([...webImages, newImg]);
+                    toast("AI Product Image generated and added to gallery!", "success");
+                  }}
+                  disabled={busy}
+                />
               </div>
 
               {/* Add Web Image Form */}

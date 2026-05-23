@@ -140,6 +140,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "shippo", label: "Shippo" },
     { id: "helcim", label: "Helcim" },
     { id: "corecard", label: "CoreCard" },
+    { id: "fal", label: "Fal.ai" },
     { id: "quickbooks", label: "QuickBooks" },
     { id: "counterpoint", label: "Counterpoint" },
     { id: "nuorder", label: "NuORDER" },

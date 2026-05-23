@@ -109,6 +109,35 @@ export default function StorePageStudioEditor({
   const attachApi = useCallback(
     (ed: Editor) => {
       addRosSafeBlocks(ed);
+
+      if (studioAssetUpload) {
+        const { apiBaseUrl, headers } = studioAssetUpload;
+        fetch(`${apiBaseUrl.replace(/\/+$/, "")}/api/ai/visual/jobs`, {
+          headers: headers(),
+        })
+          .then((res) => {
+            if (res.ok) return res.json();
+            throw new Error("Failed to load assets");
+          })
+          .then((jobs: any[]) => {
+            const completedAssets = jobs
+              .filter((j) => j.status === "completed" && j.local_asset_path)
+              .map((j) => ({
+                src: `${apiBaseUrl.replace(/\/+$/, "")}${j.local_asset_path}`,
+                name: `AI generated - ${j.job_type} - ${j.id.slice(0, 8)}`,
+              }));
+            
+            // Inject into GrapesJS Assets
+            const am = ed.AssetManager;
+            if (am && typeof am.add === "function") {
+              am.add(completedAssets);
+            }
+          })
+          .catch((err) => {
+            console.error("GrapesJS visual sidecar asset injection skipped:", err);
+          });
+      }
+
       onEditorReady?.({
         exportHtml: async () => {
           try {
@@ -124,7 +153,7 @@ export default function StorePageStudioEditor({
         },
       });
     },
-    [onEditorReady],
+    [onEditorReady, studioAssetUpload],
   );
 
   return (

@@ -1194,6 +1194,142 @@ async fn post_corecard_webhook(
     }
 }
 
+#[derive(serde::Deserialize)]
+struct FalWebhookPayload {
+    request_id: String,
+    status: String,
+    payload: Option<serde_json::Value>,
+    error: Option<String>,
+}
+
+fn extract_image_url(payload: &serde_json::Value) -> Option<String> {
+    if let Some(images) = payload.get("images").and_then(|i| i.as_array()) {
+        if let Some(first_image) = images.first() {
+            if let Some(url) = first_image.get("url").and_then(|u| u.as_str()) {
+                return Some(url.to_string());
+            }
+        }
+    }
+    if let Some(image) = payload.get("image") {
+        if let Some(url) = image.get("url").and_then(|u| u.as_str()) {
+            return Some(url.to_string());
+        }
+    }
+    if let Some(url) = payload.get("url").and_then(|u| u.as_str()) {
+        return Some(url.to_string());
+    }
+    None
+}
+
+async fn post_fal_webhook(
+    State(state): State<AppState>,
+    Json(payload): Json<FalWebhookPayload>,
+) -> impl IntoResponse {
+    let request_id = &payload.request_id;
+    let status = &payload.status;
+
+    tracing::info!(
+        request_id = %request_id,
+        status = %status,
+        "Received Fal.ai webhook callback"
+    );
+
+    let job_row: Option<(Uuid, String, Uuid)> = match sqlx::query_as(
+        r#"
+        SELECT id, job_type, target_id
+        FROM fal_generation_jobs
+        WHERE pending_job_id = $1
+        "#
+    )
+    .bind(request_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::error!(request_id = %request_id, error = %e, "Failed to look up Fal generation job");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let (job_id, job_type, target_id) = match job_row {
+        Some(row) => row,
+        None => {
+            tracing::warn!(request_id = %request_id, "No matching Fal generation job found");
+            return StatusCode::NOT_FOUND.into_response();
+        }
+    };
+
+    if status == "COMPLETED" {
+        let image_url = if let Some(ref p) = payload.payload {
+            extract_image_url(p)
+        } else {
+            None
+        };
+
+        match image_url {
+            Some(url) => {
+                let download_payload = serde_json::json!({
+                    "job_id": job_id,
+                    "image_url": url,
+                    "job_type": job_type,
+                    "target_id": target_id
+                });
+                
+                if let Ok(queue) = crate::jobs::JobQueue::from_env() {
+                    let job = crate::jobs::Job::new(
+                        crate::jobs::JobType::DownloadFalAsset,
+                        download_payload,
+                    );
+                    if let Err(e) = queue.enqueue(job).await {
+                        tracing::error!(job_id = %job_id, error = %e, "Failed to enqueue Fal download job");
+                        let _ = sqlx::query(
+                            "UPDATE fal_generation_jobs SET status = 'failed', error_message = $1 WHERE id = $2"
+                        )
+                        .bind(&format!("Failed to enqueue download task: {e}"))
+                        .bind(job_id)
+                        .execute(&state.db)
+                        .await;
+                    }
+                } else {
+                    let err = "Failed to initialize JobQueue from env";
+                    tracing::error!(job_id = %job_id, error = %err);
+                    let _ = sqlx::query(
+                        "UPDATE fal_generation_jobs SET status = 'failed', error_message = $1 WHERE id = $2"
+                    )
+                    .bind(err)
+                    .bind(job_id)
+                    .execute(&state.db)
+                    .await;
+                }
+            }
+            None => {
+                let err_msg = "Fal.ai webhook completed but no image URL was found in the payload".to_string();
+                tracing::error!(job_id = %job_id, error = %err_msg);
+                let _ = sqlx::query(
+                    "UPDATE fal_generation_jobs SET status = 'failed', error_message = $1 WHERE id = $2"
+                )
+                .bind(&err_msg)
+                .bind(job_id)
+                .execute(&state.db)
+                .await;
+            }
+        }
+    } else {
+        let err_msg = payload.error.clone().unwrap_or_else(|| "Unknown Fal.ai generation failure".to_string());
+        tracing::error!(job_id = %job_id, error = %err_msg, "Fal.ai job execution failed");
+        let _ = sqlx::query(
+            "UPDATE fal_generation_jobs SET status = 'failed', error_message = $1 WHERE id = $2"
+        )
+        .bind(&err_msg)
+        .bind(job_id)
+        .execute(&state.db)
+        .await;
+    }
+
+    StatusCode::OK.into_response()
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/edge-probe", get(get_edge_probe))
@@ -1202,6 +1338,7 @@ pub fn router() -> Router<AppState> {
         .route("/helcim", post(post_helcim_webhook))
         .route("/shippo", post(post_shippo_webhook))
         .route("/corecard", post(post_corecard_webhook))
+        .route("/fal", post(post_fal_webhook))
 }
 
 pub fn integrations_router() -> Router<AppState> {

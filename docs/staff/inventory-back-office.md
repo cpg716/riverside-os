@@ -65,7 +65,7 @@ When "Publish to Web" is enabled, the catalog wizard inserts a dedicated **Web L
 - **Marketing Overrides**: Allows entering a custom **Web Storefront Title** and a rich **Web Description** specifically for online merchandising (falls back to POS name/description if blank).
 - **Web Tags**: Input keywords separated by commas to improve online catalog searches (e.g. `wool, suit, wedding`).
 - **Online Store Categories**: Assign the product to one or more active nodes using the hierarchical checkbox category tree.
-- **Web Image Gallery**: Add web-specific product photos via URL with custom Alt Text. Use up/down arrow buttons to set the sort order and select the **Hero Image** (used as the primary thumbnail).
+- **Web Image Gallery**: Add web-specific product photos via URL with custom Alt Text. You can also generate high-quality product images using the embedded **AI Image Generator** (powered by Fal.ai Flux Dev/Schnell models) directly inside the gallery card. Use up/down arrow buttons to set the sort order and select the **Hero Image** (used as the primary thumbnail).
 - **SEO Optimization**: Override the HTML Meta Title (max 70 characters) and Meta Description (max 160 characters) with real-time length counters.
 - **Live Preview Pane**: Displays a side-by-side mockup of the online storefront cart card and the Google Search snippet preview.
 

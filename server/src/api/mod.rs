@@ -7,6 +7,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+pub mod ai;
 pub mod alterations;
 pub mod bug_reports;
 pub mod categories;
@@ -113,6 +114,7 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
     let mut router = Router::new()
         .route("/api/version", get(api_version))
         .merge(metabase_proxy::router())
+        .nest("/api/ai", ai::router())
         .nest("/api/inventory", inventory::router())
         .nest("/api/inventory/physical", physical_inventory::router())
         .nest("/api/alterations", alterations::router())

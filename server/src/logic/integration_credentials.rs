@@ -285,6 +285,17 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         credential_key: "customer_jwt_secret",
         env_key: "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET",
     },
+    // Fal.ai settings mapping
+    IntegrationCredentialMapping {
+        integration_key: "fal",
+        credential_key: "api_key",
+        env_key: "FAL_KEY",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "fal",
+        credential_key: "webhook_base_url",
+        env_key: "RIVERSIDE_PUBLIC_BASE_URL",
+    },
 ];
 
 #[derive(Debug, Error)]

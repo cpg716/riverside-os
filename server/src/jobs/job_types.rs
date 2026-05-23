@@ -93,6 +93,9 @@ pub enum JobType {
     UpdateMetrics,
     ProcessAnalytics,
 
+    // Fal.ai visual jobs
+    DownloadFalAsset,
+
     // Custom jobs
     Custom(String),
 }
@@ -114,6 +117,7 @@ impl std::fmt::Display for JobType {
             JobType::SendSMS => write!(f, "send_sms"),
             JobType::UpdateMetrics => write!(f, "update_metrics"),
             JobType::ProcessAnalytics => write!(f, "process_analytics"),
+            JobType::DownloadFalAsset => write!(f, "download_fal_asset"),
             JobType::Custom(name) => write!(f, "{name}"),
         }
     }
@@ -136,6 +140,7 @@ impl From<String> for JobType {
             "send_sms" => JobType::SendSMS,
             "update_metrics" => JobType::UpdateMetrics,
             "process_analytics" => JobType::ProcessAnalytics,
+            "download_fal_asset" => JobType::DownloadFalAsset,
             _ => JobType::Custom(s),
         }
     }
@@ -215,4 +220,12 @@ pub enum NotificationChannel {
     Email,
     SMS,
     Push,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FalDownloadJobPayload {
+    pub job_id: Uuid,
+    pub image_url: String,
+    pub job_type: String,
+    pub target_id: Uuid,
 }
