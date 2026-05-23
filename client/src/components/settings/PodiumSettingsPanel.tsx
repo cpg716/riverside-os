@@ -5,10 +5,10 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import ReviewInvitesSettingsCard from "./ReviewInvitesSettingsCard";
-import { 
-  getPodiumOAuthRedirectUri, 
-  PODIUM_OAUTH_STATE_STORAGE_KEY, 
-  PODIUM_OAUTH_REDIRECT_STORAGE_KEY 
+import {
+  getPodiumOAuthRedirectUri,
+  PODIUM_OAUTH_STATE_STORAGE_KEY,
+  PODIUM_OAUTH_REDIRECT_STORAGE_KEY
 } from "../../lib/podiumOAuth";
 
 interface PodiumSmsConfig {
@@ -101,6 +101,8 @@ const PODIUM_OAUTH_SCOPE = [
   "write_messages",
   "read_reviews",
   "write_reviews",
+  "read_users",
+  "write_contacts",
 ].join(" ");
 
 const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) => {
@@ -328,7 +330,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Lifecycle SMS and inbound Podium messages</p>
               </div>
            </div>
-           
+
            <div className="flex items-center gap-6">
               {[
                 { key: 'sms_send_enabled', label: "SMS Active" },
@@ -337,11 +339,11 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                    <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${podiumSms[toggle.key as keyof PodiumSmsConfig] ? 'bg-app-accent border-app-accent text-white' : 'border-app-border group-hover:border-app-accent'}`}>
                       {podiumSms[toggle.key as keyof PodiumSmsConfig] && <CheckCircle2 size={10} />}
                    </div>
-                   <input 
-                     type="checkbox" 
-                     className="sr-only" 
-                     checked={!!podiumSms[toggle.key as keyof PodiumSmsConfig]} 
-                     onChange={e => setPodiumSms({...podiumSms, [toggle.key]: e.target.checked})} 
+                   <input
+                     type="checkbox"
+                     className="sr-only"
+                     checked={!!podiumSms[toggle.key as keyof PodiumSmsConfig]}
+                     onChange={e => setPodiumSms({...podiumSms, [toggle.key]: e.target.checked})}
                    />
                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text">{toggle.label}</span>
                 </label>
@@ -364,7 +366,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                            <span className="text-[10px] font-black uppercase tracking-widest text-app-accent">{block.label}</span>
                            <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">{block.description}</p>
                          </div>
-                         <button 
+                         <button
                            onClick={() => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [block.key]: PODIUM_TEMPLATE_DEFAULTS[block.key]}})}
                            className="shrink-0 text-[8px] font-black uppercase tracking-widest text-app-accent hover:text-app-text transition-colors"
                          >
@@ -385,7 +387,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                           ))}
                         </div>
                       ) : null}
-                      <textarea 
+                      <textarea
                         className="ui-input w-full min-h-[100px] p-4 text-xs font-medium leading-relaxed border-app-border/60"
                         value={podiumSms.templates[block.key]}
                         onChange={e => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [block.key]: e.target.value}})}
@@ -401,7 +403,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
               <p className="text-xs text-app-text-muted mb-4 leading-relaxed font-medium">
                 Embed code provisioned from your Podium Control Panel. When <code className="bg-app-surface-2 px-1">VITE_STOREFRONT_EMBEDS</code> is active, this snippet is safely injected into public-facing terminals.
               </p>
-              <textarea 
+              <textarea
                  placeholder="<script>... podium.widget ...</script>"
                  className="ui-input w-full min-h-[120px] p-4 font-mono text-[10px]"
                  value={podiumSms.widget_snippet_html}
@@ -411,7 +413,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
         </div>
 
         <div className="mt-12 pt-8 border-t border-app-border/40">
-           <button 
+           <button
              onClick={() => void savePodiumSmsSettings()}
              disabled={busy}
              className="w-full md:w-auto ui-btn-primary h-14 px-12 text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-violet-600/20 hover:scale-[1.02] transition-all"

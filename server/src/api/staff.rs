@@ -281,6 +281,7 @@ pub fn router() -> Router<AppState> {
         .route("/self/register-metrics", get(self_register_metrics))
         .route("/admin/access-log", get(admin_access_log))
         .route("/admin/roster", get(admin_roster))
+        .route("/admin/podium-users", get(admin_get_podium_users))
         .route(
             "/admin/category-commissions",
             get(admin_list_category_commissions),
@@ -2518,4 +2519,23 @@ async fn get_staff_avatar(Path(id): Path<String>, State(state): State<AppState>)
     }
 
     StatusCode::NOT_FOUND.into_response()
+}
+
+async fn admin_get_podium_users(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let _admin = require_staff_with_permission(&state, &headers, STAFF_EDIT)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    let users = crate::logic::podium::list_podium_users_combined(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+    )
+    .await
+    .map_err(|e| StaffApiError::Processing(e.to_string()))?;
+
+    Ok(Json(serde_json::Value::Array(users)))
 }

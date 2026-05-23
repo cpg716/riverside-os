@@ -1322,7 +1322,289 @@ async fn get_valid_access_token(
     Ok(tr.access_token)
 }
 
+pub async fn fetch_podium_users(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+) -> Result<Vec<Value>, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let cfg = load_store_podium_config(pool).await.map_err(|e| {
+        tracing::error!(error = %e, "podium load_store_podium_config failed (users fetch)");
+        PodiumError::NotConfigured
+    })?;
+    let token = get_valid_access_token(http, token_cache, &creds).await?;
+    let loc = cfg.location_uid.trim();
+
+    let mut req = add_podium_headers(
+        http.get(format!("{}/v4/users", creds.api_base_url.trim_end_matches('/'))),
+        Some(&token),
+    );
+    if !loc.is_empty() {
+        req = req.query(&[("locationUid", loc)]);
+    }
+    let res = req.send().await?;
+    let status = res.status();
+    if !status.is_success() {
+        tracing::warn!(status = status.as_u16(), "Podium GET /v4/users failed");
+        return Err(PodiumError::SendHttp(status.as_u16()));
+    }
+    let value = res.json::<Value>().await.unwrap_or_else(|_| json!({}));
+    Ok(values_from_collection(value))
+}
+
+pub async fn list_podium_users_combined(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+) -> Result<Vec<Value>, PodiumError> {
+    // 1. Try to fetch from API
+    let api_users = match fetch_podium_users(pool, http, token_cache).await {
+        Ok(users) => users,
+        Err(_) => Vec::new(),
+    };
+
+    // 2. Fetch already seen senders from database messages
+    let db_users: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT DISTINCT pm.podium_sender_uid, pm.podium_sender_name
+        FROM podium_message pm
+        WHERE pm.direction IN ('outbound', 'automated')
+          AND pm.podium_sender_uid IS NOT NULL
+        "#
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    // 3. Merge them uniquely by uid
+    let mut merged = Vec::new();
+    let mut seen_uids = std::collections::HashSet::new();
+
+    for user in api_users {
+        if let Some(uid) = user.get("uid").and_then(Value::as_str) {
+            seen_uids.insert(uid.to_string());
+            merged.push(user);
+        } else if let Some(uid) = user.get("id").and_then(Value::as_str) {
+            seen_uids.insert(uid.to_string());
+            merged.push(user);
+        }
+    }
+
+    for (uid_opt, name_opt) in db_users {
+        if let Some(uid) = uid_opt {
+            if !seen_uids.contains(&uid) {
+                seen_uids.insert(uid.clone());
+                let name = name_opt.clone().unwrap_or_default();
+                merged.push(json!({
+                    "uid": uid,
+                    "firstName": name,
+                    "lastName": "",
+                    "name": name,
+                }));
+            }
+        }
+    }
+
+    Ok(merged)
+}
+
+/// Push (create or update) a Riverside customer as a Podium contact.
+/// Uses phone or email as the identifier. Requires `write_contacts` scope.
+pub async fn upsert_podium_contact(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    customer_id: Uuid,
+) -> Result<Value, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let cfg = load_store_podium_config(pool).await.map_err(|e| {
+        tracing::error!(error = %e, "podium load_store_podium_config failed (contact upsert)");
+        PodiumError::NotConfigured
+    })?;
+    let token = get_valid_access_token(http, token_cache, &creds).await?;
+
+    // Fetch customer data
+    let row: Option<(String, String, Option<String>, Option<String>, Option<String>)> =
+        sqlx::query_as(
+            "SELECT first_name, last_name, phone, email, company_name FROM customers WHERE id = $1"
+        )
+        .bind(customer_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "failed to load customer for podium contact sync");
+            PodiumError::NotConfigured
+        })?;
+
+    let Some((first_name, last_name, phone, email, company_name)) = row else {
+        return Err(PodiumError::NotConfigured);
+    };
+
+    // Build identifier: prefer phone, fallback email
+    let identifier = phone
+        .as_deref()
+        .and_then(normalize_phone_e164)
+        .or_else(|| email.clone())
+        .ok_or(PodiumError::NotConfigured)?;
+
+    let base = creds.api_base_url.trim_end_matches('/');
+    let url = format!("{}/v4/contacts/{}", base, urlencoding::encode(&identifier));
+
+    let loc = cfg.location_uid.trim();
+    let mut body = json!({
+        "name": format!("{} {}", first_name, last_name).trim(),
+        "phone": phone.as_deref().and_then(normalize_phone_e164),
+        "email": email,
+    });
+    if !loc.is_empty() {
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("locationUid".to_string(), json!(loc));
+        }
+    }
+    if let Some(c) = company_name.as_deref().filter(|s| !s.is_empty()) {
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("companyName".to_string(), json!(c));
+        }
+    }
+
+    let res = add_podium_headers(http.patch(&url), Some(&token))
+        .json(&body)
+        .send()
+        .await?;
+    let status = res.status();
+    if status.as_u16() == 404 {
+        // Contact doesn't exist, create it
+        let create_url = format!("{}/v4/contacts", base);
+        let create_res = add_podium_headers(http.post(&create_url), Some(&token))
+            .json(&body)
+            .send()
+            .await?;
+        let create_status = create_res.status();
+        if !create_status.is_success() {
+            tracing::warn!(status = create_status.as_u16(), "Podium POST /v4/contacts failed");
+            return Err(PodiumError::SendHttp(create_status.as_u16()));
+        }
+        return Ok(create_res.json::<Value>().await.unwrap_or_else(|_| json!({})));
+    }
+    if !status.is_success() {
+        tracing::warn!(status = status.as_u16(), "Podium PATCH /v4/contacts failed");
+        return Err(PodiumError::SendHttp(status.as_u16()));
+    }
+    Ok(res.json::<Value>().await.unwrap_or_else(|_| json!({})))
+}
+
+/// Opt out a Podium contact from campaign messages.
+/// Requires `write_contacts` scope and Podium whitelisting.
+pub async fn opt_out_podium_contact(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    phone: Option<&str>,
+    email: Option<&str>,
+) -> Result<Value, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let token = get_valid_access_token(http, token_cache, &creds).await?;
+
+    let identifier = phone
+        .and_then(normalize_phone_e164)
+        .or_else(|| email.map(|s| s.to_string()))
+        .ok_or(PodiumError::NotConfigured)?;
+
+    let base = creds.api_base_url.trim_end_matches('/');
+    let url = format!(
+        "{}/v4/contacts/{}/campaigns/opt_out",
+        base,
+        urlencoding::encode(&identifier)
+    );
+
+    let res = add_podium_headers(http.post(&url), Some(&token))
+        .send()
+        .await?;
+    let status = res.status();
+    if !status.is_success() {
+        tracing::warn!(status = status.as_u16(), "Podium POST /v4/contacts/.../opt_out failed");
+        return Err(PodiumError::SendHttp(status.as_u16()));
+    }
+    Ok(res.json::<Value>().await.unwrap_or_else(|_| json!({})))
+}
+
+/// Get conversation assignees from Podium.
+pub async fn fetch_conversation_assignees(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    conversation_uid: &str,
+) -> Result<Vec<Value>, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let token = get_valid_access_token(http, token_cache, &creds).await?;
+
+    let base = creds.api_base_url.trim_end_matches('/');
+    let url = format!(
+        "{}/v4/conversations/{}/assignees",
+        base,
+        urlencoding::encode(conversation_uid)
+    );
+
+    let res = add_podium_headers(http.get(&url), Some(&token))
+        .send()
+        .await?;
+    let status = res.status();
+    if !status.is_success() {
+        tracing::warn!(status = status.as_u16(), "Podium GET /v4/conversations/.../assignees failed");
+        return Err(PodiumError::SendHttp(status.as_u16()));
+    }
+    let value = res.json::<Value>().await.unwrap_or_else(|_| json!({}));
+    Ok(values_from_collection(value))
+}
+
+/// Update conversation assignee in Podium.
+pub async fn update_conversation_assignee(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    conversation_uid: &str,
+    user_uid: Option<&str>,
+) -> Result<Value, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let token = get_valid_access_token(http, token_cache, &creds).await?;
+
+    let base = creds.api_base_url.trim_end_matches('/');
+    let url = format!(
+        "{}/v4/conversations/{}/assignees",
+        base,
+        urlencoding::encode(conversation_uid)
+    );
+
+    let body = if let Some(uid) = user_uid {
+        json!({ "userUid": uid })
+    } else {
+        json!({ "userUid": serde_json::Value::Null })
+    };
+
+    let res = add_podium_headers(http.patch(&url), Some(&token))
+        .json(&body)
+        .send()
+        .await?;
+    let status = res.status();
+    if !status.is_success() {
+        tracing::warn!(status = status.as_u16(), "Podium PATCH /v4/conversations/.../assignees failed");
+        return Err(PodiumError::SendHttp(status.as_u16()));
+    }
+    Ok(res.json::<Value>().await.unwrap_or_else(|_| json!({})))
+}
+
 #[cfg(test)]
+
 mod tests {
     #![allow(clippy::await_holding_lock)]
 

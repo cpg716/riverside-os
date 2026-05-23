@@ -161,6 +161,8 @@ export default function PodiumMessagingInboxSection({
   const [selectedRow, setSelectedRow] = useState<InboxRow | null>(null);
   const [threadMessages, setThreadMessages] = useState<PodiumMessageRow[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
+  const [assignees, setAssignees] = useState<{ name: string; uid: string }[]>([]);
+  const [assigneesLoading, setAssigneesLoading] = useState(false);
   const [replyDraft, setReplyDraft] = useState("");
   const [replySubject, setReplySubject] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
@@ -178,6 +180,7 @@ export default function PodiumMessagingInboxSection({
   const autoProviderPullKeyRef = useRef<string | null>(null);
   const refreshInFlightRef = useRef(false);
   const refreshSeqRef = useRef(0);
+  const threadScrollRef = useRef<HTMLDivElement>(null);
 
   const loadHealth = useCallback(async () => {
     try {
@@ -290,6 +293,51 @@ export default function PodiumMessagingInboxSection({
     }
     setSelectedRow(visibleRows[0] ?? null);
   }, [selectedRow, visibleRows]);
+
+  useEffect(() => {
+    const el = threadScrollRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
+  }, [threadMessages, threadLoading]);
+
+  useEffect(() => {
+    if (!selectedRow) {
+      setAssignees([]);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setAssigneesLoading(true);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(selectedRow.conversation_id)}/assignees`,
+          { headers: apiAuth(), cache: "no-store" },
+        );
+        if (!res.ok) {
+          if (!cancelled) setAssignees([]);
+          return;
+        }
+        const data = (await res.json()) as Array<{ name?: string; firstName?: string; lastName?: string; uid?: string }>;
+        if (!cancelled) {
+          setAssignees(
+            data.map((a) => ({
+              name: (a.name ?? `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim()) || "Unknown",
+              uid: a.uid ?? "",
+            })),
+          );
+        }
+      } catch {
+        if (!cancelled) setAssignees([]);
+      } finally {
+        if (!cancelled) setAssigneesLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth, selectedRow]);
 
   useEffect(() => {
     if (!selectedRow) {
@@ -814,6 +862,13 @@ export default function PodiumMessagingInboxSection({
                         <SelectedChannelIcon size={13} aria-hidden />
                         {selectedRow.channel === "email" ? "Email" : "Text message"} · Last activity {relativeTime(selectedRow.last_message_at)}
                       </p>
+                      {assigneesLoading ? (
+                        <p className="text-[10px] font-semibold text-app-text-muted">Loading assignees...</p>
+                      ) : assignees.length > 0 ? (
+                        <p className="text-[10px] font-semibold text-app-text-muted">
+                          Assigned: {assignees.map((a) => a.name).join(", ")}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <button
@@ -825,7 +880,7 @@ export default function PodiumMessagingInboxSection({
                     Open Customer
                   </button>
                 </div>
-                <div className="flex min-h-[360px] flex-1 flex-col gap-3 overflow-y-auto bg-app-bg/40 px-5 py-5">
+                <div ref={threadScrollRef} className="flex min-h-[360px] flex-1 flex-col gap-3 overflow-y-auto bg-app-bg/40 px-5 py-5">
                   {threadLoading ? (
                     <p className="text-sm font-semibold text-app-text-muted">
                       Loading conversation...
@@ -847,7 +902,7 @@ export default function PodiumMessagingInboxSection({
                           >
                             <p className="whitespace-pre-wrap leading-relaxed">{message.body}</p>
                             <p
-                              className={`mt-2 text-[10px] font-semibold ${
+                              className={`mt-2 flex items-center gap-1 text-[10px] font-semibold ${
                                 outbound ? "text-white/75" : "text-app-text-muted"
                               }`}
                             >
@@ -855,6 +910,11 @@ export default function PodiumMessagingInboxSection({
                                 ? message.staff_full_name ?? message.podium_sender_name ?? "Riverside"
                                 : customerName(selectedRow)}{" "}
                               · {fullDateTime(message.created_at)}
+                              {outbound ? (
+                                <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-white/60">
+                                  Sent
+                                </span>
+                              ) : null}
                             </p>
                           </div>
                         </div>

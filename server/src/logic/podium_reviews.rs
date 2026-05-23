@@ -79,6 +79,7 @@ type OrderReviewGateRow = (
     bool,
     bool,
     bool,
+    bool,
 );
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,6 +137,7 @@ pub async fn apply_post_sale_review_choice(
             t.status::text,
             c.phone,
             c.email,
+            COALESCE(c.review_requests_opt_out, false) AS review_requests_opt_out,
             EXISTS (
                 SELECT 1 FROM transaction_lines tl
                 WHERE tl.transaction_id = t.id
@@ -172,6 +174,7 @@ pub async fn apply_post_sale_review_choice(
         status,
         phone,
         email,
+        review_requests_opt_out,
         has_reviewable_lines,
         all_reviewable_lines_fulfilled,
         recent_customer_invite,
@@ -215,6 +218,26 @@ pub async fn apply_post_sale_review_choice(
         return Ok(ReviewInviteChoiceResult::new(
             "already_saved",
             "Review request choice was already saved for this sale.",
+        ));
+    }
+
+    if review_requests_opt_out {
+        sqlx::query(
+            r#"
+            UPDATE transactions
+            SET review_invite_suppressed_at = NOW(),
+                podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_skipped_customer_opt_out'),
+                podium_review_invite_status = 'skipped_customer_opt_out'
+            WHERE id = $1
+            "#,
+        )
+        .bind(transaction_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        return Ok(ReviewInviteChoiceResult::new(
+            "skipped_customer_opt_out",
+            "Review request skipped. This customer has opted out of review requests.",
         ));
     }
 

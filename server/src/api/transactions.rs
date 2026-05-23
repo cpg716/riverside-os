@@ -351,6 +351,8 @@ pub struct TransactionDetailResponse {
     pub review_invite_sent_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_invite_suppressed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub customer_review_requests_opt_out: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub void_record: Option<TransactionVoidDetail>,
 }
@@ -600,6 +602,7 @@ mod tests {
             store_send_review_invite_by_default: false,
             review_invite_sent_at: None,
             review_invite_suppressed_at: None,
+            customer_review_requests_opt_out: false,
             void_record: None,
         }
     }
@@ -819,6 +822,7 @@ struct OrderHeaderRow {
     primary_salesperson_name: Option<String>,
     review_invite_sent_at: Option<DateTime<Utc>>,
     review_invite_suppressed_at: Option<DateTime<Utc>>,
+    customer_review_requests_opt_out: bool,
     store_review_policy: sqlx::types::Json<serde_json::Value>,
     is_tax_exempt: bool,
     tax_exempt_reason: Option<String>,
@@ -4230,6 +4234,7 @@ pub(crate) async fn load_transaction_detail(
             ps.full_name AS primary_salesperson_name,
             o.review_invite_sent_at,
             o.review_invite_suppressed_at,
+            COALESCE(c.review_requests_opt_out, false) AS customer_review_requests_opt_out,
             ros_store.review_policy AS store_review_policy,
             COALESCE(o.is_tax_exempt, false) AS is_tax_exempt,
             o.tax_exempt_reason,
@@ -4599,6 +4604,7 @@ pub(crate) async fn load_transaction_detail(
         store_send_review_invite_by_default: review_pol.send_review_invite_by_default,
         review_invite_sent_at: h.review_invite_sent_at,
         review_invite_suppressed_at: h.review_invite_suppressed_at,
+        customer_review_requests_opt_out: h.customer_review_requests_opt_out,
         void_record,
     })
 }

@@ -1,6 +1,6 @@
 # Plan: Podium reviews (invites + Operations hub)
 
-**Status:** **Implemented for post-sale invites** — **`store_settings.review_policy`** (**100**), **`ReceiptSummaryModal`** opt-out / defaults, **`POST /api/transactions/{id}/review-invite`** using Podium **`POST /v4/reviews/invites`**, per-customer **180-day cooldown**, **Operations → Reviews** (**`reviews.view`**), provider status refresh, and admin **`review_invite_sent`** notification. Review-response workflows remain **roadmap**. **Tracker:** **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**. **Gift / subset receipts** (print, email, text) share **`ReceiptSummaryModal`** with review UX — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**.
+**Status:** **Fully implemented** — **`store_settings.review_policy`** (**100**), **`ReceiptSummaryModal`** opt-out / defaults, **`POST /api/transactions/{id}/review-invite`** using Podium **`POST /v4/reviews/invites`**, per-customer **180-day cooldown**, **customer-level opt-out** via `customers.review_requests_opt_out`, **Operations → Reviews** (**`reviews.view`**), provider status refresh, and admin **`review_invite_sent`** notification. **Tracker:** **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**. **Gift / subset receipts** (print, email, text) share **`ReceiptSummaryModal`** with review UX — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**.
 
 **Depends on:** Podium OAuth (**`RIVERSIDE_PODIUM_*`**), **`podium_sms_config`** (**`location_uid`**, outbound toggles) — **[`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md)**. Receipt completion UX — **[`RECEIPT_BUILDER_AND_DELIVERY.md`](./RECEIPT_BUILDER_AND_DELIVERY.md)**.
 
@@ -36,6 +36,7 @@
 - At least one non-internal line exists, and all non-internal lines are fulfilled.
 - The Transaction Record has not already saved a sent or skipped review choice.
 - The customer has not received a Riverside review invite in the last **180 days**.
+- The customer has **`review_requests_opt_out = false`** (or NULL / not opted out).
 - The customer has a valid phone number or email address.
 - Podium credentials, location, and review permissions are configured.
 
@@ -44,8 +45,9 @@
 ## Receipt UI (POS)
 
 - Toggle: **Send** / **Do not send**.
-- On modal **close** / **Begin new sale:** if not suppressed, call **`POST /api/transactions/{id}/review-invite`** once. The server returns a staff-readable outcome such as sent, skipped by staff, skipped because the customer was asked in the last 180 days, or skipped because contact information is missing.
-- Persist suppression in **`transactions`** (or side table) when cashier opts out **before** close.
+- On modal **close** / **Begin new sale:** if not suppressed, call **`POST /api/transactions/{id}/review-invite`** once. The server returns a staff-readable outcome such as sent, skipped by staff, skipped because the customer was asked in the last 180 days, skipped because the customer opted out of review requests, or skipped because contact information is missing.
+- Persist suppression in **`transactions`** when cashier opts out **before** close.
+- The frontend also checks **`customer_review_requests_opt_out`** on the transaction detail to hide the review invite UI when the customer has opted out.
 
 ---
 
@@ -61,19 +63,19 @@ Recommendation: **modal dismiss** + **idempotent** “invite already sent” gua
 
 ---
 
-## Server (proposal)
+## Server (implemented)
 
-- **`logic/podium_reviews.rs`** and **`logic/podium.rs`**: create invite, list invite rows, map **`PodiumError`** to domain errors.
-- **Routes:** e.g. **`POST /api/transactions/{id}/review-invite`** (staff/register-gated), **`GET /api/podium/reviews`** (Operations), webhooks extension if Podium emits review events (TBD).
-- **Migration:** columns on **`transactions`**: **`review_invite_suppressed_at`**, **`review_invite_sent_at`**, **`podium_review_invite_id`** (nullable); optional **`podium_review_id`** when review received and correlated.
+- **`logic/podium_reviews.rs`** and **`logic/podium.rs`**: create invite via **`POST /v4/reviews/invites`**, map **`PodiumError`** to domain errors.
+- **Routes:** **`POST /api/transactions/{id}/review-invite`** (staff/register-gated), review status surfaced in Operations.
+- **Migration:** columns on **`transactions`**: **`review_invite_suppressed_at`**, **`review_invite_sent_at`**, **`podium_review_invite_id`**, **`podium_review_invite_status`**, **`podium_review_url`**. Migration **`044_customer_review_opt_out.sql`** adds **`customers.review_requests_opt_out`**.
 
 ---
 
-## Client (proposal)
+## Client (implemented)
 
-- **`ReceiptSummaryModal`:** opt-out checkbox + pass flag on close or PATCH order once.
-- **Operations:** new subsection **Reviews** (lazy tab); table + filters; RBAC key e.g. **`reviews.view`** / **`reviews.manage`** (seed in **`staff_role_permission`**).
-- **Customer hub:** timeline row or badge “Review invite sent”; link to Operations or Podium.
+- **`ReceiptSummaryModal`:** opt-out checkbox + pass flag on close. Checks **`customer_review_requests_opt_out`** from transaction detail to hide UI when opted out.
+- **Operations:** subsection **Reviews** with table + filters; RBAC key **`reviews.view`**.
+- **Customer hub:** Communication preferences includes **Opt out of review requests** checkbox; saved via **`PATCH /api/customers/{id}`**.
 
 ---
 

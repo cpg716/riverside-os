@@ -592,6 +592,7 @@ export function CustomerRelationshipHubDrawer({
     marketing_sms_opt_in: false,
     transactional_sms_opt_in: false,
     transactional_email_opt_in: false,
+    review_requests_opt_out: false,
     profile_discount_percent: "0",
     tax_exempt: false,
     tax_exempt_id: "",
@@ -667,6 +668,7 @@ export function CustomerRelationshipHubDrawer({
   const [podiumThreadLoadError, setPodiumThreadLoadError] = useState<
     string | null
   >(null);
+  const [contactSyncBusy, setContactSyncBusy] = useState(false);
   const [communicationTimeline, setCommunicationTimeline] = useState<
     CommunicationTimelineRow[]
   >([]);
@@ -728,6 +730,7 @@ export function CustomerRelationshipHubDrawer({
       marketing_sms_opt_in: hub.marketing_sms_opt_in,
       transactional_sms_opt_in: hub.transactional_sms_opt_in ?? false,
       transactional_email_opt_in: hub.transactional_email_opt_in ?? false,
+      review_requests_opt_out: hub.review_requests_opt_out ?? false,
       profile_discount_percent: String(hub.profile_discount_percent ?? "0"),
       tax_exempt: hub.tax_exempt ?? false,
       tax_exempt_id: hub.tax_exempt_id ?? "",
@@ -783,6 +786,29 @@ export function CustomerRelationshipHubDrawer({
       setLoading(false);
     }
   }, [baseUrl, customer.id, apiAuth]);
+
+  const syncPodiumContact = useCallback(async () => {
+    setContactSyncBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/podium/contact-sync`,
+        {
+          method: "POST",
+          headers: apiAuth(),
+        },
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(err.error ?? "Could not sync customer to Podium.", "error");
+        return;
+      }
+      toast("Customer synced to Podium contacts.", "success");
+    } catch {
+      toast("Could not sync customer to Podium.", "error");
+    } finally {
+      setContactSyncBusy(false);
+    }
+  }, [baseUrl, customer.id, apiAuth, toast]);
 
   const loadTimeline = useCallback(async () => {
     setTimelineLoading(true);
@@ -1662,6 +1688,7 @@ export function CustomerRelationshipHubDrawer({
         marketing_sms_opt_in: profileDraft.marketing_sms_opt_in,
         transactional_sms_opt_in: profileDraft.transactional_sms_opt_in,
         transactional_email_opt_in: profileDraft.transactional_email_opt_in,
+        review_requests_opt_out: profileDraft.review_requests_opt_out,
         profile_discount_percent: profileDiscount.toFixed(2),
         tax_exempt: profileDraft.tax_exempt,
         tax_exempt_id: profileDraft.tax_exempt ? profileDraft.tax_exempt_id.trim() : null,
@@ -1701,6 +1728,7 @@ export function CustomerRelationshipHubDrawer({
         marketing_sms_opt_in: boolean;
         transactional_sms_opt_in: boolean | null;
         transactional_email_opt_in: boolean | null;
+        review_requests_opt_out: boolean;
         profile_discount_percent?: string | number | null;
         tax_exempt?: boolean | null;
         tax_exempt_id?: string | null;
@@ -1730,6 +1758,7 @@ export function CustomerRelationshipHubDrawer({
         marketing_sms_opt_in: row.marketing_sms_opt_in,
         transactional_sms_opt_in: row.transactional_sms_opt_in ?? false,
         transactional_email_opt_in: row.transactional_email_opt_in ?? false,
+        review_requests_opt_out: row.review_requests_opt_out ?? false,
         profile_discount_percent: String(row.profile_discount_percent ?? "0"),
         tax_exempt: row.tax_exempt ?? false,
         tax_exempt_id: row.tax_exempt_id ?? "",
@@ -4261,12 +4290,36 @@ export function CustomerRelationshipHubDrawer({
                         />
                         Operational email
                       </label>
+                      <label
+                        className={`flex items-center gap-2 font-semibold text-app-text ${canHubEdit ? "cursor-pointer" : "cursor-not-allowed opacity-70"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={!canHubEdit}
+                          checked={profileDraft.review_requests_opt_out}
+                          onChange={(e) =>
+                            setProfileDraft((d) => ({
+                              ...d,
+                              review_requests_opt_out: e.target.checked,
+                            }))
+                          }
+                        />
+                        Opt out of review requests
+                      </label>
                     </div>
                     {hub.stats.marketing_needs_attention ? (
                       <p className="mt-3 text-xs font-bold text-app-accent">
                         No marketing channels enabled yet.
                       </p>
                     ) : null}
+                    <button
+                      type="button"
+                      disabled={contactSyncBusy}
+                      onClick={() => void syncPodiumContact()}
+                      className="mt-3 inline-flex items-center gap-2 rounded-xl border border-app-accent/30 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-50"
+                    >
+                      {contactSyncBusy ? "Syncing..." : "Sync to Podium Contacts"}
+                    </button>
                   </section>
 
                   <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">

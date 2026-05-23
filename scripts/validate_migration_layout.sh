@@ -44,6 +44,11 @@ expected=(
   "037_backfill_missing_columns.sql"
   "038_web_listing_and_categories.sql"
   "039_wal_archiving_configuration.sql"
+  "040_ops_audit_probes.sql"
+  "041_staff_avatar_photo.sql"
+  "042_seed_admin_account.sql"
+  "043_fal_visual_sidecar.sql"
+  "044_customer_review_opt_out.sql"
 )
 
 active=()
@@ -97,4 +102,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-036."
+echo "Migration layout OK: active baseline 001-044."

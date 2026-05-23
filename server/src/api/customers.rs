@@ -912,6 +912,8 @@ pub struct UpdateCustomerRequest {
     pub transactional_email_opt_in: Option<bool>,
     #[serde(default)]
     pub podium_conversation_url: Option<String>,
+    #[serde(default)]
+    pub review_requests_opt_out: Option<bool>,
     pub is_vip: Option<bool>,
     pub profile_discount_percent: Option<Decimal>,
     pub tax_exempt: Option<bool>,
@@ -943,6 +945,7 @@ pub struct CustomerProfileRow {
     pub transactional_sms_opt_in: bool,
     pub transactional_email_opt_in: bool,
     pub podium_conversation_url: Option<String>,
+    pub review_requests_opt_out: bool,
     pub is_vip: bool,
     pub profile_discount_percent: Decimal,
     pub tax_exempt: bool,
@@ -971,7 +974,7 @@ async fn load_customer_profile_row(
             c.date_of_birth, c.anniversary_date,
             c.custom_field_1, c.custom_field_2, c.custom_field_3, c.custom_field_4,
             c.marketing_email_opt_in, c.marketing_sms_opt_in, c.transactional_sms_opt_in,
-            c.transactional_email_opt_in, c.podium_conversation_url,
+            c.transactional_email_opt_in, c.podium_conversation_url, c.review_requests_opt_out,
             c.is_vip, c.profile_discount_percent, c.tax_exempt, c.tax_exempt_id,
             c.loyalty_points, c.customer_created_source,
             c.couple_id, c.couple_primary_id, c.couple_linked_at,
@@ -979,7 +982,7 @@ async fn load_customer_profile_row(
             COALESCE(ob.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales
         FROM customers c
         LEFT JOIN LATERAL (
-            SELECT 
+            SELECT
                 SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
                 SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales
             FROM transactions
@@ -2957,6 +2960,10 @@ pub fn router() -> Router<AppState> {
             post(post_podium_conversation_read),
         )
         .route(
+            "/podium/conversations/{conversation_id}/assignees",
+            get(get_podium_conversation_assignees).patch(patch_podium_conversation_assignee),
+        )
+        .route(
             "/rms-charge/link-account",
             post(link_customer_rms_charge_account),
         )
@@ -3064,6 +3071,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{customer_id}/podium/messages",
             get(get_customer_podium_messages).post(post_customer_podium_reply),
+        )
+        .route(
+            "/{customer_id}/podium/contact-sync",
+            post(post_customer_podium_contact_sync),
         )
         .route("/{customer_id}/weddings", get(list_customer_weddings))
         .route(
@@ -4344,6 +4355,13 @@ async fn create_customer(
 
     let row = load_customer_profile_row(&state.db, id).await?;
     spawn_meilisearch_customer_hooks(&state, id);
+    // Background sync to Podium contacts (best-effort)
+    let pool = state.db.clone();
+    let http = state.http_client.clone();
+    let token_cache = state.podium_token_cache.clone();
+    tokio::spawn(async move {
+        let _ = podium::upsert_podium_contact(&pool, &http, &token_cache, id).await;
+    });
     Ok(Json(row))
 }
 
@@ -4575,6 +4593,11 @@ async fn update_customer(
             });
         n += 1;
     }
+    if let Some(v) = body.review_requests_opt_out {
+        sep.push("review_requests_opt_out = ")
+            .push_bind_unseparated(v);
+        n += 1;
+    }
     if let Some(v) = body.is_vip {
         sep.push("is_vip = ").push_bind_unseparated(v);
         n += 1;
@@ -4614,6 +4637,37 @@ async fn update_customer(
 
     let row = load_customer_profile_row(&state.db, customer_id).await?;
     spawn_meilisearch_customer_hooks(&state, customer_id);
+    // Background sync to Podium contacts (best-effort)
+    let pool = state.db.clone();
+    let http = state.http_client.clone();
+    let token_cache = state.podium_token_cache.clone();
+    tokio::spawn(async move {
+        let _ = podium::upsert_podium_contact(&pool, &http, &token_cache, customer_id).await;
+    });
+    // If review opt-out changed, also sync Podium contact campaign opt-out
+    if body.review_requests_opt_out == Some(true) {
+        let pool2 = state.db.clone();
+        let http2 = state.http_client.clone();
+        let token_cache2 = state.podium_token_cache.clone();
+        tokio::spawn(async move {
+            let phone_email: Option<(Option<String>, Option<String>)> =
+                sqlx::query_as("SELECT phone, email FROM customers WHERE id = $1")
+                    .bind(customer_id)
+                    .fetch_optional(&pool2)
+                    .await
+                    .unwrap_or(None);
+            if let Some((phone, email)) = phone_email {
+                let _ = podium::opt_out_podium_contact(
+                    &pool2,
+                    &http2,
+                    &token_cache2,
+                    phone.as_deref(),
+                    email.as_deref(),
+                )
+                .await;
+            }
+        });
+    }
     Ok(Json(row))
 }
 
@@ -5186,6 +5240,83 @@ async fn post_customer_podium_reply(
         }
     }
     Ok(Json(json!({ "ok": true })))
+}
+
+async fn post_customer_podium_contact_sync(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
+        .bind(customer_id)
+        .fetch_one(&state.db)
+        .await?;
+    if !exists {
+        return Err(CustomerError::NotFound);
+    }
+    let result = podium::upsert_podium_contact(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        customer_id,
+    )
+    .await
+    .map_err(|e| {
+        CustomerError::PodiumUnavailable(format!(
+            "Could not sync customer to Podium contacts ({e}). Check Integration credentials and scopes."
+        ))
+    })?;
+    Ok(Json(result))
+}
+
+async fn get_podium_conversation_assignees(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<String>,
+) -> Result<Json<Vec<serde_json::Value>>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let rows = podium::fetch_conversation_assignees(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        &conversation_id,
+    )
+    .await
+    .map_err(|e| {
+        CustomerError::PodiumUnavailable(format!(
+            "Could not fetch conversation assignees ({e})."
+        ))
+    })?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize)]
+struct PatchPodiumAssigneeBody {
+    user_uid: Option<String>,
+}
+
+async fn patch_podium_conversation_assignee(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<String>,
+    Json(body): Json<PatchPodiumAssigneeBody>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let result = podium::update_conversation_assignee(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        &conversation_id,
+        body.user_uid.as_deref(),
+    )
+    .await
+    .map_err(|e| {
+        CustomerError::PodiumUnavailable(format!(
+            "Could not update conversation assignee ({e})."
+        ))
+    })?;
+    Ok(Json(result))
 }
 
 async fn list_wedding_rows(

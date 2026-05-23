@@ -129,6 +129,8 @@ export default function StaffEditDrawer({
   const [detachEmployeeCustomer, setDetachEmployeeCustomer] = useState(false);
   const [podiumUserUid, setPodiumUserUid] = useState("");
   const [podiumDisplayName, setPodiumDisplayName] = useState("");
+  const [podiumUsers, setPodiumUsers] = useState<any[]>([]);
+  const [loadingPodiumUsers, setLoadingPodiumUsers] = useState(false);
 
   // Attendance State
   const [weeklyAvailability, setWeeklyAvailability] = useState<WeeklyAvailabilityEntry[]>([]);
@@ -174,6 +176,40 @@ export default function StaffEditDrawer({
       // nothing
     }
   }, [staff.id, backofficeHeaders, toast]);
+
+  const loadPodiumUsers = useCallback(async () => {
+    setLoadingPodiumUsers(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/staff/admin/podium-users`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPodiumUsers(data || []);
+      }
+    } catch (error) {
+      console.error("Failed to load Podium users", error);
+    } finally {
+      setLoadingPodiumUsers(false);
+    }
+  }, [backofficeHeaders]);
+
+  useEffect(() => {
+    if (open) {
+      void loadPodiumUsers();
+    }
+  }, [open, loadPodiumUsers]);
+
+  const selectOptions = useMemo(() => {
+    const list = [...podiumUsers];
+    if (podiumUserUid && !list.some((u) => u.uid === podiumUserUid)) {
+      list.push({
+        uid: podiumUserUid,
+        name: podiumDisplayName || "Currently Linked User",
+      });
+    }
+    return list;
+  }, [podiumUsers, podiumUserUid, podiumDisplayName]);
 
   // Initialize form
   useEffect(() => {
@@ -580,27 +616,47 @@ export default function StaffEditDrawer({
                       placeholder="Optional"
                     />
                   </label>
-                  <label className="block">
+                  <label className="block sm:col-span-2">
                     <span className="text-[9px] font-black uppercase text-app-text-muted mb-1 block">
-                      Podium User ID
+                      Linked Podium Staff Member
                     </span>
-                    <input
+                    <select
                       value={podiumUserUid}
-                      onChange={(e) => setPodiumUserUid(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setPodiumUserUid(val);
+                        const matched = selectOptions.find((u) => u.uid === val);
+                        if (matched) {
+                          const name =
+                            matched.name ||
+                            matched.displayName ||
+                            `${matched.firstName || ""} ${matched.lastName || ""}`.trim();
+                          setPodiumDisplayName(name);
+                        } else {
+                          setPodiumDisplayName("");
+                        }
+                      }}
                       className="ui-input w-full text-xs"
-                      placeholder="From Podium senderUid"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-[9px] font-black uppercase text-app-text-muted mb-1 block">
-                      Podium Name
-                    </span>
-                    <input
-                      value={podiumDisplayName}
-                      onChange={(e) => setPodiumDisplayName(e.target.value)}
-                      className="ui-input w-full text-xs"
-                      placeholder="Optional display match"
-                    />
+                      disabled={loadingPodiumUsers}
+                    >
+                      <option value="">-- Not Linked / Select User --</option>
+                      {selectOptions.map((u) => {
+                        const name =
+                          u.name ||
+                          u.displayName ||
+                          `${u.firstName || ""} ${u.lastName || ""}`.trim();
+                        return (
+                          <option key={u.uid} value={u.uid}>
+                            {name} ({u.uid})
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {podiumDisplayName && (
+                      <p className="mt-1 text-[10px] font-semibold text-app-success">
+                        Linked Display Name: {podiumDisplayName}
+                      </p>
+                    )}
                   </label>
                 </div>
               </section>

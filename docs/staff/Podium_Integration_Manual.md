@@ -20,6 +20,9 @@ When Podium is **configured on the server** and **enabled in Settings**, Riversi
 | **POS receipts** | After checkout, **text** a short receipt message. Store email receipts use the ROS IONOS mailbox path. |
 | **Customer CRM threads** | Show **SMS** history on the customer profile, **reply** from Riverside, and optionally store a **Podium conversation URL** for reference. |
 | **Direct staff texts** | From **Podium Inbox**, send a text to an existing customer or enter a new phone number; new numbers require first and last name and create a Podium-sourced customer contact. |
+| **Staff-to-Podium user matching** | Link each staff member to their Podium user identity so messages show the sender’s real name instead of a raw UUID. |
+| **Podium contacts sync** | Riverside customers are automatically pushed to Podium contacts on create and update; staff can also manually sync from the Customer Hub. |
+| **Conversation assignees** | See who is assigned to a Podium conversation in the Inbox thread header. |
 | **Inbound messages** | If Podium is allowed to call Riverside’s **webhook**, new customer texts can appear as threads and **notifications** (see section 7). |
 | **Web chat on your site** | Paste Podium’s widget snippet so the public storefront can load it (optional build flag). |
 | **Review invites** | Send post-sale Podium review requests from sale completion, track skipped/sent outcomes, and update invite status in Operations (see section 8). |
@@ -67,7 +70,7 @@ Podium needs **OAuth app** credentials and a **refresh token** saved securely on
 2. Register the **redirect URI** from the screen in Podium’s developer app. It must match **exactly** (including `http` vs `https`). Production should use the public Riverside host, for example `https://ros.riversidemens.com/callback` when the store tunnel is active. Local `localhost` redirects are only usable if Podium accepts them; otherwise use Cloudflare Tunnel or another HTTPS tunnel plus `VITE_PODIUM_OAUTH_REDIRECT_URI`.
 3. Click **Authorize via Podium Portal** / **Connect Podium (get refresh token)** (or connect again to refresh). Riverside asks the server to build the authorization URL with the saved Client ID, redirect URI, state, and required scopes, then Podium handles login/consent and Riverside exchanges the code for tokens server-side.
 
-Riverside requests these Podium OAuth scopes today: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, and `write_reviews`. If Podium shows an empty consent card or a generic authorization error, confirm the app has those products/scopes enabled in Podium and that the redirect URI belongs to the same Client ID.
+Riverside requests these Podium OAuth scopes today: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, and `write_contacts`. If Podium shows an empty consent card or a generic authorization error, confirm the app has those products/scopes enabled in Podium and that the redirect URI belongs to the same Client ID.
 
 If anything fails, use the **readiness** strip (credentials, webhook secret, API base, toggles) before calling Podium support.
 
@@ -112,11 +115,13 @@ Cashiers still control **per sale** on the receipt summary when invites are enab
 
 ## 4. Customer profile: messaging and opt-in
 
-### 4.1 SMS opt-in rules (automated operational SMS)
+### 4.1 Communication preferences (SMS, email, review requests)
 
 Automated operational texts respect the customer record: Riverside sends SMS when **`transactional_sms_opt_in`** **or** **`marketing_sms_opt_in`** is true (and phone is usable). Editors can set **operational SMS** when adding or editing customers where the UI exposes it.
 
-Staff **manual** replies from the hub still go through Podium when configured; follow your store’s policy and consent practices for manual outreach.
+**Review requests opt-out:** Customers can opt out of Podium review requests on their profile (Customer Hub → Communication preferences → **Opt out of review requests**). When enabled, Riverside will never send a review invite for that customer, and the opt-out is also synced to Podium campaign preferences where supported.
+
+Staff **manual** replies from the hub still go through Podium when configured; follow your store's policy and consent practices for manual outreach.
 
 ### 4.2 Operations → Podium Inbox
 
@@ -139,6 +144,8 @@ Unmatched provider threads are grouped under **Unknown Podium senders** so the m
 Viewing requires **`customers.hub_view`**. Sending and new-contact creation require **`customers.hub_edit`**.
 
 **Inbox freshness:** Riverside receives new Podium messages by webhook when the public webhook is configured. The Inbox screen refreshes every minute while open, and Riverside runs a background Podium pull every 30 hours by default to catch missed history. Use **Pull from Podium** when staff want an immediate missed-history check.
+
+**Thread UI:** The message thread auto-scrolls to the newest message and displays a **Sent** badge on outbound messages. The conversation header shows assigned Podium users when available.
 
 **Important:** A customer can appear in **Podium Inbox** before Riverside has the full message body history for that thread. The inbox row is backed by a matched **conversation**. The customer **Messages** tab is backed by stored **message** rows. If webhooks were disabled, rejected, or the Podium OAuth grant is missing **`read_messages`**, the profile may show a Podium sync error until IT fixes the webhook/scope issue and runs sync again.
 
@@ -218,7 +225,7 @@ Admins can check the current public callback origin, Podium webhook URL, signing
 
 **Receipt (POS):** On the receipt summary, cashiers can **skip** or allow a **review invite** according to store defaults set in **Settings → General**.
 
-**When Riverside sends:** Riverside sends through Podium for completed / picked-up sales when the Transaction Record has a customer, at least one non-internal fulfilled line, and a usable phone or email. Riverside only asks each customer once every **180 days**. If the cashier chooses **Do not send**, the customer was asked recently, or contact information is missing, Riverside records the skipped outcome instead of silently failing.
+**When Riverside sends:** Riverside sends through Podium for completed / picked-up sales when the Transaction Record has a customer, at least one non-internal fulfilled line, and a usable phone or email. Riverside only asks each customer once every **180 days**. If the cashier chooses **Do not send**, the customer was asked recently, contact information is missing, or the customer has opted out of review requests on their profile, Riverside records the skipped outcome instead of silently failing.
 
 **Operations → Reviews:** Staff with **`reviews.view`** see Transaction Records with invite **sent** or **skipped** timestamps, update status from Podium, and open the record in Back Office from the list.
 
@@ -232,7 +239,7 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 |---------|----------------|
 | **Connect Podium** fails | Redirect URI mismatch; HTTPS vs HTTP; client override `VITE_PODIUM_OAUTH_REDIRECT_URI`; Podium app Client ID / Client Secret. |
 | **Podium says Client ID and redirect URI do not match** | The redirect URI used by Riverside is not registered on the same Podium app as the saved Client ID. Register the exact callback URL shown by Riverside, then restart the authorization from Settings. |
-| **Podium consent page says something went wrong** | Missing/disabled Podium app scopes or product access; verify `read_locations`, `read_messages`, `write_messages`, `read_reviews`, and `write_reviews` on the Podium app. |
+| **Podium consent page says something went wrong** | Missing/disabled Podium app scopes or product access; verify `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, and `write_contacts` on the Podium app. |
 | **Podium page says "Client ID is required"** | The authorization URL did not include a Client ID. Return to Settings, confirm Client ID is saved, and start authorization again from the Podium card. |
 | **No SMS** | `sms_send_enabled`, location UID, credentials, customer phone, SMS opt-in, template not empty when required. |
 | **Send Text cannot send to a new number** | Enter phone, first name, last name, and message body; confirm the staff member has `customers.hub_edit`. |
@@ -240,6 +247,8 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 | **502 / Podium unavailable** in UI | Server logs; Podium status; token refresh; API base override. |
 | **Inbound never appears** | Public webhook URL reachable; Cloudflare/tunnel running if local; secret/signature; `RIVERSIDE_PODIUM_INBOUND_DISABLED` accidentally on; Podium event types include message activity. |
 | **Customer profile has no messages but Podium Inbox has the customer** | The customer likely has a matched Podium conversation shell but no stored `podium_message` rows. Re-enable/fix Podium webhooks, verify OAuth includes `read_messages`, then run Podium sync. |
+| **Staff name shows as a UUID in messages** | The staff member is not linked to a Podium user. A manager with `staff_edit` can open **Staff → Edit** and select the matching Podium user from the dropdown. |
+| **Review invite sent to a customer who opted out** | Check the customer's profile: if **Opt out of review requests** is checked, the invite should have been suppressed. If it still sent, verify the opt-out was saved and the transaction detail refreshed before sale completion. |
 | **Widget missing on site** | `VITE_STOREFRONT_EMBEDS`; snippet saved; CSP blocking scripts—see [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md). |
 
 ---

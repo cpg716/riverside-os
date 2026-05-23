@@ -39,6 +39,8 @@ export interface CustomerProfile {
   transactional_email_opt_in?: boolean;
   /** Staff-pasted Podium conversation URL; migration 72+. */
   podium_conversation_url?: string | null;
+  /** Opt out of Podium review requests; migration 44+. */
+  review_requests_opt_out?: boolean;
   /** Present on hub/profile payloads after migration 11. */
   is_vip?: boolean;
   /** `store` (POS/import) or `online_store` (first-party web signup); migration 77+. */

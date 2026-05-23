@@ -78,6 +78,7 @@ type OrderDetail = {
   store_send_review_invite_by_default?: boolean;
   review_invite_sent_at?: string | null;
   review_invite_suppressed_at?: string | null;
+  customer_review_requests_opt_out?: boolean;
 };
 
 type ReviewInviteChoiceResult = {
@@ -243,6 +244,7 @@ export default function ReceiptSummaryModal({
       transactionDetail.store_review_invites_enabled === true &&
       !transactionDetail.review_invite_sent_at &&
       !transactionDetail.review_invite_suppressed_at &&
+      transactionDetail.customer_review_requests_opt_out !== true &&
       transactionDetail.status === "fulfilled" &&
       (transactionDetail.items ?? []).length > 0 &&
       (transactionDetail.items ?? [])
@@ -262,6 +264,7 @@ export default function ReceiptSummaryModal({
       transactionDetail.store_review_invites_enabled === true &&
       !transactionDetail.review_invite_sent_at &&
       !transactionDetail.review_invite_suppressed_at &&
+      transactionDetail.customer_review_requests_opt_out !== true &&
       transactionDetail.status === "fulfilled" &&
       (transactionDetail.items ?? []).length > 0 &&
       (transactionDetail.items ?? [])
@@ -290,6 +293,8 @@ export default function ReceiptSummaryModal({
         toast("Review request skipped. This customer was asked in the last 180 days.", "info");
       } else if (result.status === "skipped_no_contact") {
         toast("Review request skipped. Add a phone or email to ask later.", "info");
+      } else if (result.status === "skipped_customer_opt_out") {
+        toast("Review request skipped. This customer has opted out of review requests.", "info");
       } else if (result.status === "not_ready") {
         toast("Review request will only send after completed or picked-up sales.", "info");
       }
@@ -636,6 +641,7 @@ export default function ReceiptSummaryModal({
     transactionDetail.store_review_invites_enabled === true &&
     !transactionDetail.review_invite_sent_at &&
     !transactionDetail.review_invite_suppressed_at &&
+    transactionDetail.customer_review_requests_opt_out !== true &&
     transactionDetail.status === "fulfilled" &&
     itemRows.length > 0 &&
     itemRows.filter((it) => !it.is_internal).every((it) => it.is_fulfilled === true);
@@ -716,7 +722,7 @@ export default function ReceiptSummaryModal({
   const printReceiptOnReportPrinter = async () => {
     try {
       let content = receiptPreviewHtml ?? (await fetchReceiptPreviewMarkup());
-      
+
       if (content.trim().startsWith("<svg")) {
         content = `
           <!DOCTYPE html>
@@ -724,20 +730,20 @@ export default function ReceiptSummaryModal({
             <head>
               <title>Receipt Preview</title>
               <style>
-                body { 
-                  margin: 0; 
+                body {
+                  margin: 0;
                   min-height: 100vh;
-                  display: flex; 
-                  justify-content: center; 
+                  display: flex;
+                  justify-content: center;
                   background: #f0f0f0;
                 }
-                .receipt-container { 
+                .receipt-container {
                   width: 360px;
                   padding: 24px 16px;
                 }
-                svg { 
-                  width: 100%; 
-                  height: auto; 
+                svg {
+                  width: 100%;
+                  height: auto;
                 }
                 @media print {
                   body { background: white; }
@@ -1301,7 +1307,7 @@ export default function ReceiptSummaryModal({
                   </div>
                 ) : receiptPreviewHtml?.trim().startsWith("<svg") ? (
                   <div className="min-h-full overflow-x-auto rounded-[2rem] bg-[#f0f0f0] p-4 shadow-inner sm:p-6">
-                    <div 
+                    <div
                       className="receiptline-preview mx-auto w-full max-w-[360px] [&_svg]:h-auto [&_svg]:w-full"
                       dangerouslySetInnerHTML={{ __html: receiptPreviewHtml }}
                     />
