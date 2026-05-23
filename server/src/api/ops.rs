@@ -430,6 +430,69 @@ async fn get_ops_audit_log(
     Ok(Json(rows))
 }
 
+async fn get_audit_probe_runs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ops_dev_center::AuditProbeRunRow>>, Response> {
+    let _ = require_view(&state, &headers).await?;
+    let rows = ops_dev_center::list_audit_probe_runs(&state.db, 50)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "ops list audit probe runs failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not load audit probe runs" })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(rows))
+}
+
+async fn post_run_audit_probes(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ops_dev_center::AuditProbeRunRow>, Response> {
+    let staff = require_view(&state, &headers).await?;
+    let row = ops_dev_center::execute_audit_probes(&state.db, Some(staff.id))
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "ops run audit probes failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "audit probe execution failed" })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(row))
+}
+
+async fn get_audit_probe_run_detail(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(run_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let _ = require_view(&state, &headers).await?;
+    let detail = ops_dev_center::get_audit_probe_run_detail(&state.db, run_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "ops get audit probe detail failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not load audit probe detail" })),
+            )
+                .into_response()
+        })?;
+
+    let value = match detail {
+        Some((run, results)) => json!({
+            "run": run,
+            "results": results,
+        }),
+        None => json!({ "error": "not found" }),
+    };
+    Ok(Json(value))
+}
+
 // --- GitHub DevOps Center proxy endpoints ---
 
 const GITHUB_API_BASE: &str = "https://api.github.com";
@@ -952,6 +1015,8 @@ pub fn router() -> Router<AppState> {
         .route("/alerts/ack", post(post_ops_alert_ack))
         .route("/actions/{action_key}", post(post_ops_action))
         .route("/audit-log", get(get_ops_audit_log))
+        .route("/audit-probes", get(get_audit_probe_runs).post(post_run_audit_probes))
+        .route("/audit-probes/{run_id}", get(get_audit_probe_run_detail))
         .route("/github/workflows", get(get_github_workflows))
         .route("/github/releases", get(get_github_releases))
         .route("/github/dispatch", post(post_github_dispatch))

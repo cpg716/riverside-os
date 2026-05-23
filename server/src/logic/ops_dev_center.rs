@@ -9,7 +9,7 @@ use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::{Column, PgPool, Row};
 use tokio::process::Command;
 use uuid::Uuid;
 
@@ -104,6 +104,32 @@ pub struct ActionAuditRow {
     pub result_ok: bool,
     pub result_message: String,
     pub result_json: Value,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct AuditProbeRunRow {
+    pub id: Uuid,
+    pub triggered_by_staff_id: Option<Uuid>,
+    pub probe_count: i32,
+    pub total_violation_rows: i32,
+    pub probes_with_violations: i32,
+    pub duration_ms: Option<i32>,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct AuditProbeResultRow {
+    pub id: Uuid,
+    pub run_id: Uuid,
+    pub probe_key: String,
+    pub probe_label: String,
+    pub severity: String,
+    pub violation_count: i32,
+    pub detail_rows: Value,
     pub created_at: DateTime<Utc>,
 }
 
@@ -2420,4 +2446,300 @@ pub fn allowed_action_keys() -> &'static [&'static str] {
 
 pub fn is_allowed_action_key(action_key: &str) -> bool {
     allowed_action_keys().contains(&action_key)
+}
+
+// ---------------------------------------------------------------------------
+// Audit probes (production hardening checks)
+// ---------------------------------------------------------------------------
+
+/// Runs all production audit probes, stores results, and creates/updates alerts.
+pub async fn execute_audit_probes(
+    pool: &PgPool,
+    triggered_by_staff_id: Option<Uuid>,
+) -> Result<AuditProbeRunRow, sqlx::Error> {
+    let start = Utc::now();
+
+    let run_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO ops_audit_probe_run (triggered_by_staff_id, status)
+        VALUES ($1, 'running')
+        RETURNING id
+        "#,
+    )
+    .bind(triggered_by_staff_id)
+    .fetch_one(pool)
+    .await?;
+
+    let probes: Vec<(&str, &str, &str, &str)> = vec![
+        ("duplicate_checkout_id", "Duplicate checkout client IDs", "critical", r#"
+            SELECT checkout_client_id AS key, COUNT(*) AS count
+            FROM transactions
+            WHERE checkout_client_id IS NOT NULL
+            GROUP BY checkout_client_id
+            HAVING COUNT(*) > 1
+        "#),
+        ("orphan_payment_alloc", "Payment allocations missing payment tx", "critical", r#"
+            SELECT pa.id AS key, pa.transaction_id::text AS detail
+            FROM payment_allocations pa
+            LEFT JOIN payment_transactions pt ON pt.id = pa.transaction_id
+            WHERE pt.id IS NULL
+        "#),
+        ("orphan_target_alloc", "Payment allocations missing target tx", "critical", r#"
+            SELECT pa.id AS key, pa.target_transaction_id::text AS detail
+            FROM payment_allocations pa
+            LEFT JOIN transactions t ON t.id = pa.target_transaction_id
+            WHERE t.id IS NULL
+        "#),
+        ("overallocated_payment", "Over-allocated payment transactions", "warning", r#"
+            SELECT pt.id AS key,
+                   (ABS(COALESCE(SUM(pa.amount_allocated), 0)) - ABS(pt.amount))::text AS detail
+            FROM payment_transactions pt
+            LEFT JOIN payment_allocations pa ON pa.transaction_id = pt.id
+            GROUP BY pt.id, pt.amount
+            HAVING ABS(COALESCE(SUM(pa.amount_allocated), 0)) > ABS(pt.amount) + 0.01
+        "#),
+        ("stale_reconciling", "Register sessions reconciling >2 hours", "warning", r#"
+            SELECT id::text AS key, register_lane::text AS detail
+            FROM register_sessions
+            WHERE is_open = true AND lifecycle_status = 'reconciling'
+              AND opened_at < now() - INTERVAL '2 hours'
+        "#),
+        ("parked_on_closed", "Parked sales on closed register sessions", "warning", r#"
+            SELECT p.id::text AS key, p.label AS detail
+            FROM pos_parked_sale p
+            JOIN register_sessions rs ON rs.id = p.register_session_id
+            WHERE p.status = 'parked' AND rs.is_open = false
+        "#),
+        ("negative_stock", "Negative available stock by variant", "warning", r#"
+            SELECT pv.sku AS key, (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::text AS detail
+            FROM product_variants pv
+            JOIN products p ON p.id = pv.product_id
+            WHERE (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway) < 0
+              AND COALESCE(p.pos_line_kind, '') = ''
+        "#),
+        ("order_stock_decrement", "Order lines that decremented stock at booking", "warning", r#"
+            SELECT it.id::text AS key, it.variant_id::text AS detail
+            FROM inventory_transactions it
+            JOIN transaction_lines tl ON tl.id = it.reference_id
+            WHERE tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
+              AND it.tx_type::text IN ('sale', 'fulfillment')
+              AND it.quantity_delta < 0
+              AND tl.fulfilled_at IS NULL
+              AND it.reference_table = 'transaction_lines'
+        "#),
+        ("tax_exempt_missing_reason", "Tax-exempt transactions missing reason", "warning", r#"
+            SELECT t.id::text AS key, t.short_id AS detail
+            FROM transactions t
+            WHERE COALESCE(t.is_tax_exempt, false) = true
+              AND NULLIF(TRIM(COALESCE(t.tax_exempt_reason, '')), '') IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM transaction_lines tl
+                  WHERE tl.transaction_id = t.id
+                    AND (COALESCE(tl.state_tax, 0) <> 0 OR COALESCE(tl.local_tax, 0) <> 0)
+              )
+        "#),
+        ("commission_without_fulfillment", "Finalized commission without fulfillment", "warning", r#"
+            SELECT id::text AS key, transaction_id::text AS detail
+            FROM transaction_lines
+            WHERE commission_payout_finalized_at IS NOT NULL
+              AND fulfilled_at IS NULL
+        "#),
+        ("unbalanced_qbo", "Unbalanced QBO staging rows", "warning", r#"
+            SELECT id::text AS key, sync_date::text AS detail
+            FROM qbo_sync_logs
+            WHERE status IN ('pending', 'approved')
+              AND COALESCE((payload #>> '{totals,balanced}')::boolean, false) = false
+        "#),
+        ("qbo_missing_timezone", "QBO staging missing business_timezone", "warning", r#"
+            SELECT id::text AS key, sync_date::text AS detail
+            FROM qbo_sync_logs
+            WHERE payload ? 'activity_date' AND NOT (payload ? 'business_timezone')
+        "#),
+        ("stale_backup", "Stale backup health (>30 hours)", "critical", r#"
+            SELECT id::text AS key, COALESCE(last_local_success_at::text, 'never') AS detail
+            FROM store_backup_health
+            WHERE last_local_success_at IS NULL
+               OR last_local_success_at < now() - INTERVAL '30 hours'
+               OR COALESCE(last_local_failure_at, '-infinity'::timestamptz)
+                  > COALESCE(last_local_success_at, '-infinity'::timestamptz)
+        "#),
+    ];
+
+    let mut total_violations = 0i32;
+    let mut probes_with_violations = 0i32;
+    let mut error_message: Option<String> = None;
+
+    for (key, label, severity, sql) in &probes {
+        let detail_rows: Vec<Value> = match sqlx::query(sql)
+            .fetch_all(pool)
+            .await
+        {
+            Ok(rows) => rows
+                .into_iter()
+                .map(|r| {
+                    let mut obj = serde_json::Map::new();
+                    for col in r.columns() {
+                        let _ = obj.insert(
+                            col.name().to_string(),
+                            json!(r.try_get::<String, _>(col.name()).unwrap_or_default()),
+                        );
+                    }
+                    Value::Object(obj)
+                })
+                .collect(),
+            Err(e) => {
+                tracing::error!(probe_key = %key, error = %e, "audit probe query failed");
+                error_message = Some(format!("Probe {key} failed: {e}"));
+                Vec::new()
+            }
+        };
+
+        let violation_count = detail_rows.len() as i32;
+        total_violations += violation_count;
+        if violation_count > 0 {
+            probes_with_violations += 1;
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO ops_audit_probe_result
+                (run_id, probe_key, probe_label, severity, violation_count, detail_rows)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(run_id)
+        .bind(key)
+        .bind(label)
+        .bind(severity)
+        .bind(violation_count)
+        .bind(json!(detail_rows))
+        .execute(pool)
+        .await?;
+    }
+
+    let duration_ms = (Utc::now() - start).num_milliseconds() as i32;
+    let status = if error_message.is_some() { "failed" } else { "completed" };
+
+    sqlx::query(
+        r#"
+        UPDATE ops_audit_probe_run
+        SET probe_count = $2,
+            total_violation_rows = $3,
+            probes_with_violations = $4,
+            duration_ms = $5,
+            status = $6,
+            error_message = $7,
+            completed_at = NOW()
+        WHERE id = $1
+        "#,
+    )
+    .bind(run_id)
+    .bind(probes.len() as i32)
+    .bind(total_violations)
+    .bind(probes_with_violations)
+    .bind(duration_ms)
+    .bind(status)
+    .bind(error_message.as_deref())
+    .execute(pool)
+    .await?;
+
+    // Emit or refresh alert if any violations exist
+    if total_violations > 0 {
+        let _ = upsert_open_alert(
+            pool,
+            "audit_probe_failure",
+            &format!("audit_probe:run:{run_id}"),
+            &format!("{probes_with_violations} production audit probe(s) found {total_violations} violation row(s)"),
+            &format!("Run {run_id} detected violations across {probes_with_violations} probes. Review the Audit Probes tab in Dev Center for details."),
+            json!({ "run_id": run_id, "total_violations": total_violations, "probes_with_violations": probes_with_violations }),
+        )
+        .await;
+    } else {
+        // Resolve any existing audit probe alert when clean
+        let _ = sqlx::query(
+            r#"
+            UPDATE ops_alert_event
+            SET status = 'resolved',
+                resolved_at = NOW(),
+                updated_at = NOW()
+            WHERE rule_key = 'audit_probe_failure'
+              AND status IN ('open', 'acked')
+            "#,
+        )
+        .execute(pool)
+        .await;
+    }
+
+    let row: AuditProbeRunRow = sqlx::query_as(
+        r#"
+        SELECT id, triggered_by_staff_id, probe_count, total_violation_rows,
+               probes_with_violations, duration_ms, status, error_message,
+               created_at, completed_at
+        FROM ops_audit_probe_run
+        WHERE id = $1
+        "#,
+    )
+    .bind(run_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(row)
+}
+
+/// List recent audit probe runs with pagination.
+pub async fn list_audit_probe_runs(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<AuditProbeRunRow>, sqlx::Error> {
+    let rows = sqlx::query_as::<_, AuditProbeRunRow>(
+        r#"
+        SELECT id, triggered_by_staff_id, probe_count, total_violation_rows,
+               probes_with_violations, duration_ms, status, error_message,
+               created_at, completed_at
+        FROM ops_audit_probe_run
+        ORDER BY created_at DESC
+        LIMIT $1
+        "#,
+    )
+    .bind(limit.clamp(1, 500))
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Fetch a single audit probe run with all its results.
+pub async fn get_audit_probe_run_detail(
+    pool: &PgPool,
+    run_id: Uuid,
+) -> Result<Option<(AuditProbeRunRow, Vec<AuditProbeResultRow>)>, sqlx::Error> {
+    let run: Option<AuditProbeRunRow> = sqlx::query_as::<_, AuditProbeRunRow>(
+        r#"
+        SELECT id, triggered_by_staff_id, probe_count, total_violation_rows,
+               probes_with_violations, duration_ms, status, error_message,
+               created_at, completed_at
+        FROM ops_audit_probe_run
+        WHERE id = $1
+        "#,
+    )
+    .bind(run_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(run) = run else {
+        return Ok(None);
+    };
+
+    let results = sqlx::query_as::<_, AuditProbeResultRow>(
+        r#"
+        SELECT id, run_id, probe_key, probe_label, severity, violation_count, detail_rows, created_at
+        FROM ops_audit_probe_result
+        WHERE run_id = $1
+        ORDER BY violation_count DESC, probe_key
+        "#,
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(Some((run, results)))
 }

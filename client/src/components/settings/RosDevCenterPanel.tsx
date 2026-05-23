@@ -8,6 +8,8 @@ import {
   Server,
   Sparkles,
   ShieldCheck,
+  AlertTriangle,
+  CheckCircle,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -98,6 +100,29 @@ type ActionAuditRow = {
   created_at: string;
 };
 
+type AuditProbeRun = {
+  id: string;
+  probe_count: number;
+  total_violation_rows: number;
+  probes_with_violations: number;
+  duration_ms: number | null;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
+type AuditProbeResult = {
+  id: string;
+  run_id: string;
+  probe_key: string;
+  probe_label: string;
+  severity: string;
+  violation_count: number;
+  detail_rows: unknown[];
+  created_at: string;
+};
+
 type GuardedActionKey =
   | "help.reindex_search"
   | "help.generate_manifest"
@@ -136,6 +161,12 @@ export default function RosDevCenterPanel() {
   const [e2eHealthLoading, setE2eHealthLoading] = useState(false);
   const [auditRows, setAuditRows] = useState<ActionAuditRow[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
+
+  const [probeRuns, setProbeRuns] = useState<AuditProbeRun[]>([]);
+  const [probeResults, setProbeResults] = useState<AuditProbeResult[]>([]);
+  const [selectedProbeRunId, setSelectedProbeRunId] = useState<string | null>(null);
+  const [probeLoading, setProbeLoading] = useState(false);
+  const [probeRunBusy, setProbeRunBusy] = useState(false);
 
   // ROSIE AI analysis states
   const [aiBusy, setAiBusy] = useState(false);
@@ -216,18 +247,92 @@ export default function RosDevCenterPanel() {
     }
   }, [backofficeHeaders, canView]);
 
+  const loadAuditProbes = useCallback(async () => {
+    if (!canView) return;
+    setProbeLoading(true);
+    try {
+      const headers = backofficeHeaders() as Record<string, string>;
+      const res = await fetch(`${baseUrl}/api/ops/audit-probes`, { headers });
+      if (!res.ok) {
+        setProbeRuns([]);
+        return;
+      }
+      setProbeRuns((await res.json()) as AuditProbeRun[]);
+    } catch {
+      setProbeRuns([]);
+    } finally {
+      setProbeLoading(false);
+    }
+  }, [backofficeHeaders, canView]);
+
+  const loadProbeDetail = useCallback(
+    async (runId: string) => {
+      if (!canView) return;
+      setSelectedProbeRunId(runId);
+      setProbeLoading(true);
+      try {
+        const headers = backofficeHeaders() as Record<string, string>;
+        const res = await fetch(`${baseUrl}/api/ops/audit-probes/${runId}`, { headers });
+        if (!res.ok) {
+          setProbeResults([]);
+          return;
+        }
+        const data = (await res.json()) as { run: AuditProbeRun; results: AuditProbeResult[] };
+        setProbeResults(data.results ?? []);
+      } catch {
+        setProbeResults([]);
+      } finally {
+        setProbeLoading(false);
+      }
+    },
+    [backofficeHeaders, canView],
+  );
+
+  const runAuditProbes = useCallback(async () => {
+    if (!canView) return;
+    setProbeRunBusy(true);
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        ...(backofficeHeaders() as Record<string, string>),
+      };
+      const res = await fetch(`${baseUrl}/api/ops/audit-probes`, {
+        method: "POST",
+        headers,
+      });
+      if (!res.ok) {
+        toast("Audit probe run failed", "error");
+        return;
+      }
+      const run = (await res.json()) as AuditProbeRun;
+      toast(
+        run.total_violation_rows > 0
+          ? `${run.probes_with_violations} probe(s) found ${run.total_violation_rows} violation(s)`
+          : "All probes clean — no violations",
+        run.total_violation_rows > 0 ? "info" : "success",
+      );
+      void loadAuditProbes();
+      void loadProbeDetail(run.id);
+    } catch {
+      toast("Network error running audit probes", "error");
+    } finally {
+      setProbeRunBusy(false);
+    }
+  }, [backofficeHeaders, canView, toast, loadAuditProbes, loadProbeDetail]);
+
   const loadAll = useCallback(() => {
     void loadDiagnostics();
     void loadE2eHealth();
     void loadAuditLogs();
-  }, [loadDiagnostics, loadE2eHealth, loadAuditLogs]);
+    void loadAuditProbes();
+  }, [loadDiagnostics, loadE2eHealth, loadAuditLogs, loadAuditProbes]);
 
   useEffect(() => {
     loadAll();
   }, [loadAll]);
 
-  const refreshBusy = loading || e2eHealthLoading || auditLoading;
-  
+  const refreshBusy = loading || e2eHealthLoading || auditLoading || probeLoading;
+
   const blockingLane = e2eHealth?.blocking ?? null;
   const nightlyLane = e2eHealth?.nightly ?? null;
 
@@ -743,6 +848,126 @@ export default function RosDevCenterPanel() {
                   Clean orphans
                 </label>
               </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Production Audit Probes */}
+      <section className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-app-accent" />
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+              Production Audit Probes
+            </h3>
+          </div>
+          <button
+            type="button"
+            disabled={probeRunBusy}
+            onClick={() => void runAuditProbes()}
+            className="ui-btn-primary px-4 py-2 text-xs font-black uppercase tracking-widest flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${probeRunBusy ? "animate-spin" : ""}`} />
+            {probeRunBusy ? "Running..." : "Run Probes Now"}
+          </button>
+        </div>
+        <p className="text-xs text-app-text-muted mb-4">
+          Read-only checks for duplicate checkouts, orphan payments, negative stock, QBO integrity,
+          commission timing, and backup health. Non-zero results create Dev Center alerts.
+        </p>
+
+        {probeLoading && !probeRunBusy && (
+          <p className="text-xs text-app-text-muted">Loading probe history...</p>
+        )}
+
+        {/* Run history */}
+        <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 mb-4">
+          {probeRuns.slice(0, 20).map((run) => (
+            <button
+              key={run.id}
+              type="button"
+              onClick={() => void loadProbeDetail(run.id)}
+              className={`w-full text-left ui-metric-cell ui-tint-neutral px-3 py-2 ${selectedProbeRunId === run.id ? "ring-1 ring-app-accent" : ""}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {run.total_violation_rows > 0 ? (
+                    <AlertTriangle className="h-4 w-4 text-app-warning" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4 text-app-success" />
+                  )}
+                  <span className="text-xs font-black text-app-text">
+                    {run.status === "failed" ? "Failed" : run.total_violation_rows > 0 ? `${run.probes_with_violations} probes flagged` : "All clear"}
+                  </span>
+                </div>
+                <span className="text-[10px] text-app-text-muted">{fmtTs(run.created_at)}</span>
+              </div>
+              <div className="mt-1 flex gap-3 text-[10px] text-app-text-muted">
+                <span>{run.probe_count} probes</span>
+                <span>{run.total_violation_rows} violations</span>
+                {run.duration_ms && <span>{run.duration_ms}ms</span>}
+              </div>
+            </button>
+          ))}
+          {!probeRuns.length && !probeLoading && (
+            <p className="text-xs text-app-text-muted">No probe runs yet. Click "Run Probes Now" to begin.</p>
+          )}
+        </div>
+
+        {/* Selected run detail */}
+        {selectedProbeRunId && probeResults.length > 0 && (
+          <div className="rounded-xl border border-app-border/60 bg-app-bg/30 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-2">
+              Probe Results
+            </p>
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+              {probeResults.map((result) => (
+                <div
+                  key={result.id}
+                  className={`rounded-lg border px-3 py-2 text-xs ${
+                    result.violation_count > 0
+                      ? result.severity === "critical"
+                        ? "border-app-danger/40 bg-app-danger/5"
+                        : "border-app-warning/40 bg-app-warning/5"
+                      : "border-app-success/20 bg-app-success/5"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-black text-app-text">{result.probe_label}</span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                        result.violation_count > 0
+                          ? result.severity === "critical"
+                            ? "bg-app-danger/12 text-app-danger border border-app-danger/20"
+                            : "bg-app-warning/12 text-app-warning border border-app-warning/20"
+                          : "bg-app-success/12 text-app-success border border-app-success/20"
+                      }`}
+                    >
+                      {result.violation_count} rows
+                    </span>
+                  </div>
+                  {result.violation_count > 0 && result.detail_rows.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-[10px] text-app-text-muted font-black uppercase tracking-wider">
+                        View {result.detail_rows.length} detail row(s)
+                      </summary>
+                      <div className="mt-2 space-y-1 font-mono text-[10px] text-app-text-muted overflow-x-auto">
+                        {result.detail_rows.slice(0, 10).map((row, idx) => (
+                          <pre key={idx} className="whitespace-pre-wrap break-all">
+                            {JSON.stringify(row, null, 2)}
+                          </pre>
+                        ))}
+                        {result.detail_rows.length > 10 && (
+                          <p className="text-[10px] text-app-text-muted italic">
+                            ...and {result.detail_rows.length - 10} more rows
+                          </p>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
