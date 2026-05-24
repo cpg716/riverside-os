@@ -1600,6 +1600,50 @@ fn mask_suffix(value: &str) -> String {
     format!("...{suffix}")
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct HelcimHealth {
+    pub configured: bool,
+    pub reachable: bool,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+pub async fn health_check(http: &reqwest::Client) -> HelcimHealth {
+    let start = std::time::Instant::now();
+    let config = HelcimConfig::from_env();
+    if !config.enabled() {
+        return HelcimHealth {
+            configured: false,
+            reachable: false,
+            latency_ms: 0,
+            message: "Helcim not configured (HELCIM_API_TOKEN unset and simulator disabled)"
+                .to_string(),
+        };
+    }
+    if config.simulator_enabled() {
+        return HelcimHealth {
+            configured: true,
+            reachable: true,
+            latency_ms: 0,
+            message: "Helcim simulator mode is active".to_string(),
+        };
+    }
+    match list_card_terminals(http, &config).await {
+        Ok(_) => HelcimHealth {
+            configured: true,
+            reachable: true,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: "Helcim API is reachable and authenticated".to_string(),
+        },
+        Err(e) => HelcimHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: e,
+        },
+    }
+}
+
 fn api_base_host(value: &str) -> String {
     value
         .trim()
@@ -1622,6 +1666,61 @@ fn value_to_string(value: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn health_check_returns_not_configured_when_token_and_simulator_missing() {
+        let previous_token = std::env::var("HELCIM_API_TOKEN").ok();
+        let previous_sim = std::env::var("HELCIM_SIMULATOR_ENABLED").ok();
+        std::env::remove_var("HELCIM_API_TOKEN");
+        std::env::remove_var("HELCIM_SIMULATOR_ENABLED");
+        let health = health_check(&reqwest::Client::new()).await;
+        assert!(!health.configured);
+        assert!(!health.reachable);
+        assert_eq!(health.latency_ms, 0);
+        assert!(
+            health.message.contains("not configured"),
+            "unexpected message: {}",
+            health.message
+        );
+        if let Some(v) = previous_token {
+            std::env::set_var("HELCIM_API_TOKEN", v);
+        }
+        if let Some(v) = previous_sim {
+            std::env::set_var("HELCIM_SIMULATOR_ENABLED", v);
+        }
+    }
+
+    #[tokio::test]
+    async fn health_check_returns_reachable_when_simulator_enabled() {
+        let previous_token = std::env::var("HELCIM_API_TOKEN").ok();
+        let previous_sim = std::env::var("HELCIM_SIMULATOR_ENABLED").ok();
+        let previous_strict = std::env::var("RIVERSIDE_STRICT_PRODUCTION").ok();
+        std::env::remove_var("HELCIM_API_TOKEN");
+        std::env::set_var("HELCIM_SIMULATOR_ENABLED", "true");
+        std::env::remove_var("RIVERSIDE_STRICT_PRODUCTION");
+        let health = health_check(&reqwest::Client::new()).await;
+        assert!(health.configured);
+        assert!(health.reachable);
+        assert_eq!(health.latency_ms, 0);
+        assert!(
+            health.message.contains("simulator"),
+            "unexpected message: {}",
+            health.message
+        );
+        if let Some(v) = previous_token {
+            std::env::set_var("HELCIM_API_TOKEN", v);
+        } else {
+            std::env::remove_var("HELCIM_API_TOKEN");
+        }
+        if let Some(v) = previous_sim {
+            std::env::set_var("HELCIM_SIMULATOR_ENABLED", v);
+        } else {
+            std::env::remove_var("HELCIM_SIMULATOR_ENABLED");
+        }
+        if let Some(v) = previous_strict {
+            std::env::set_var("RIVERSIDE_STRICT_PRODUCTION", v);
+        }
+    }
     use serde_json::json;
 
     #[test]

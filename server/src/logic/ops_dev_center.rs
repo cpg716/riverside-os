@@ -21,12 +21,14 @@ use crate::logic::bug_reports;
 use crate::logic::counterpoint_sync;
 use crate::logic::email;
 use crate::logic::fal_sidecar;
+use crate::logic::helcim;
 use crate::logic::help_corpus;
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::integration_credentials;
 use crate::logic::notifications::{staff_ids_with_permission, upsert_app_notification_by_dedupe};
 use crate::logic::nuorder::{nuorder_client_from_pool, NuorderClient, NuorderCredentials};
 use crate::logic::podium;
+use crate::logic::rosie_intelligence;
 use crate::logic::shippo::{self, load_effective_shippo_config};
 use crate::logic::weather::{self, load_store_weather_settings};
 use crate::observability::ServerLogRing;
@@ -2000,6 +2002,8 @@ pub async fn evaluate_alerts_from_health(
     let mut qbo_api_failed = false;
     let mut email_failed = false;
     let mut counterpoint_bridge_failed = false;
+    let mut helcim_failed = false;
+    let mut rosie_upstream_failed = false;
     let mut podium_failed = false;
     let mut shippo_failed = false;
     let mut fal_ai_failed = false;
@@ -2224,6 +2228,46 @@ pub async fn evaluate_alerts_from_health(
                 opened_signals.push(signal);
             }
         }
+
+        if i.key == "helcim" && i.status == "failed" {
+            helcim_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_helcim_failure",
+                "integration_helcim_failure",
+                "Helcim integration failure",
+                if i.detail.trim().is_empty() {
+                    "Helcim API is unreachable"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
+
+        if i.key == "rosie_upstream" && i.status == "failed" {
+            rosie_upstream_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_rosie_upstream_failure",
+                "integration_rosie_upstream_failure",
+                "ROSIE LLM upstream failure",
+                if i.detail.trim().is_empty() {
+                    "ROSIE upstream LLM is unreachable"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
     }
     if !qbo_failed {
         let _ = resolve_rule_alerts(pool, "integration_qbo_failure", &[]).await?;
@@ -2257,6 +2301,12 @@ pub async fn evaluate_alerts_from_health(
     }
     if !meilisearch_failed {
         let _ = resolve_rule_alerts(pool, "integration_meilisearch_failure", &[]).await?;
+    }
+    if !helcim_failed {
+        let _ = resolve_rule_alerts(pool, "integration_helcim_failure", &[]).await?;
+    }
+    if !rosie_upstream_failed {
+        let _ = resolve_rule_alerts(pool, "integration_rosie_upstream_failure", &[]).await?;
     }
 
     for s in stations.iter().filter(|s| !s.online && s.actionable) {
@@ -2584,6 +2634,99 @@ pub async fn health_snapshot(
         detail: cp_h.message,
         last_success_at: if cp_h.reachable { Some(now) } else { None },
         last_failure_at: if !cp_h.reachable && cp_h.configured {
+            Some(now)
+        } else {
+            None
+        },
+        updated_at: Some(now),
+    });
+
+    // Helcim (live API probe)
+    let helcim_h = helcim::health_check(http_client).await;
+    integrations.push(IntegrationHealthItem {
+        key: "helcim".to_string(),
+        title: "Helcim".to_string(),
+        status: if !helcim_h.configured {
+            "disabled".to_string()
+        } else if helcim_h.reachable {
+            "healthy".to_string()
+        } else {
+            "failed".to_string()
+        },
+        severity: if !helcim_h.configured {
+            "info".to_string()
+        } else if helcim_h.reachable {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: helcim_h.message,
+        last_success_at: if helcim_h.reachable { Some(now) } else { None },
+        last_failure_at: if !helcim_h.reachable && helcim_h.configured {
+            Some(now)
+        } else {
+            None
+        },
+        updated_at: Some(now),
+    });
+
+    // Payment provider active status (lightweight DB check)
+    let provider: Option<String> =
+        sqlx::query_scalar("SELECT active_card_provider FROM store_settings WHERE id = 1")
+            .fetch_optional(pool)
+            .await?;
+    let provider_configured = provider
+        .as_deref()
+        .map(|p| !p.trim().is_empty())
+        .unwrap_or(false);
+    integrations.push(IntegrationHealthItem {
+        key: "payment_provider".to_string(),
+        title: "Payment Provider".to_string(),
+        status: if provider_configured {
+            "healthy".to_string()
+        } else {
+            "disabled".to_string()
+        },
+        severity: if provider_configured {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: if provider_configured {
+            format!(
+                "Active provider: {}",
+                provider.as_deref().unwrap_or("unknown")
+            )
+        } else {
+            "No active payment provider configured".to_string()
+        },
+        last_success_at: if provider_configured { Some(now) } else { None },
+        last_failure_at: None,
+        updated_at: Some(now),
+    });
+
+    // ROSIE upstream LLM (live probe)
+    let rosie_h = rosie_intelligence::health_check(http_client).await;
+    integrations.push(IntegrationHealthItem {
+        key: "rosie_upstream".to_string(),
+        title: "ROSIE LLM".to_string(),
+        status: if !rosie_h.configured {
+            "disabled".to_string()
+        } else if rosie_h.reachable {
+            "healthy".to_string()
+        } else {
+            "failed".to_string()
+        },
+        severity: if !rosie_h.configured {
+            "info".to_string()
+        } else if rosie_h.reachable {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: rosie_h.message,
+        last_success_at: if rosie_h.reachable { Some(now) } else { None },
+        last_failure_at: if !rosie_h.reachable && rosie_h.configured {
             Some(now)
         } else {
             None

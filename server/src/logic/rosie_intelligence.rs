@@ -14,6 +14,66 @@ use serde::{Deserialize, Serialize};
 
 use crate::logic::help_manual_policy::HELP_MANUAL_FILES;
 
+#[derive(Debug, serde::Serialize)]
+pub struct RosieUpstreamHealth {
+    pub configured: bool,
+    pub reachable: bool,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+pub async fn health_check(http: &reqwest::Client) -> RosieUpstreamHealth {
+    let start = std::time::Instant::now();
+    let upstream = match std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+    {
+        Some(u) => u,
+        None => {
+            return RosieUpstreamHealth {
+                configured: false,
+                reachable: false,
+                latency_ms: 0,
+                message: "ROSIE upstream not configured (RIVERSIDE_LLAMA_UPSTREAM unset)"
+                    .to_string(),
+            };
+        }
+    };
+    let url = format!("{upstream}/health");
+    match http
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                RosieUpstreamHealth {
+                    configured: true,
+                    reachable: true,
+                    latency_ms: start.elapsed().as_millis() as u64,
+                    message: "ROSIE upstream LLM is reachable".to_string(),
+                }
+            } else {
+                RosieUpstreamHealth {
+                    configured: true,
+                    reachable: false,
+                    latency_ms: start.elapsed().as_millis() as u64,
+                    message: format!("ROSIE upstream returned HTTP {status}"),
+                }
+            }
+        }
+        Err(e) => RosieUpstreamHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!("ROSIE upstream network error: {e}"),
+        },
+    }
+}
+
 pub const ROSIE_POLICY_PACK_VERSION: &str = "rosie-policy-pack-2026-05-16-v1";
 pub const ROSIE_INTELLIGENCE_PACK_VERSION: &str = "rosie-intelligence-pack-2026-05-16-v1";
 pub const OPTIONAL_CURATED_TRACE_ROOT: &str = "docs/rosie/curated_examples";
@@ -224,6 +284,24 @@ fn system_time_to_utc(value: SystemTime) -> DateTime<Utc> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn health_check_returns_not_configured_when_upstream_unset() {
+        let previous = std::env::var("RIVERSIDE_LLAMA_UPSTREAM").ok();
+        std::env::remove_var("RIVERSIDE_LLAMA_UPSTREAM");
+        let health = health_check(&reqwest::Client::new()).await;
+        assert!(!health.configured);
+        assert!(!health.reachable);
+        assert_eq!(health.latency_ms, 0);
+        assert!(
+            health.message.contains("not configured"),
+            "unexpected message: {}",
+            health.message
+        );
+        if let Some(v) = previous {
+            std::env::set_var("RIVERSIDE_LLAMA_UPSTREAM", v);
+        }
+    }
 
     #[test]
     fn intelligence_pack_includes_expected_groups() {

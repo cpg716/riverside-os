@@ -1695,20 +1695,13 @@ async fn get_helcim_health(
     helcim::apply_persisted_helcim_config_to_env(&state.db)
         .await
         .map_err(map_credential_error)?;
-    let config = helcim::HelcimConfig::from_env();
-    let start = std::time::Instant::now();
-    match helcim::list_card_terminals(&state.http_client, &config).await {
-        Ok(_) => Ok(Json(json!({
-            "status": "connected",
-            "message": "Helcim API is reachable and authenticated.",
-            "latency_ms": start.elapsed().as_millis() as u64,
-        }))),
-        Err(e) => Ok(Json(json!({
-            "status": "unreachable",
-            "message": e,
-            "latency_ms": start.elapsed().as_millis() as u64,
-        }))),
-    }
+    let health = helcim::health_check(&state.http_client).await;
+    Ok(Json(json!({
+        "configured": health.configured,
+        "reachable": health.reachable,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    })))
 }
 
 async fn get_helcim_fee_status(
