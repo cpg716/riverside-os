@@ -2670,41 +2670,6 @@ pub async fn health_snapshot(
         updated_at: Some(now),
     });
 
-    // Payment provider active status (lightweight DB check)
-    let provider: Option<String> =
-        sqlx::query_scalar("SELECT active_card_provider FROM store_settings WHERE id = 1")
-            .fetch_optional(pool)
-            .await?;
-    let provider_configured = provider
-        .as_deref()
-        .map(|p| !p.trim().is_empty())
-        .unwrap_or(false);
-    integrations.push(IntegrationHealthItem {
-        key: "payment_provider".to_string(),
-        title: "Payment Provider".to_string(),
-        status: if provider_configured {
-            "healthy".to_string()
-        } else {
-            "disabled".to_string()
-        },
-        severity: if provider_configured {
-            "info".to_string()
-        } else {
-            "warning".to_string()
-        },
-        detail: if provider_configured {
-            format!(
-                "Active provider: {}",
-                provider.as_deref().unwrap_or("unknown")
-            )
-        } else {
-            "No active payment provider configured".to_string()
-        },
-        last_success_at: if provider_configured { Some(now) } else { None },
-        last_failure_at: None,
-        updated_at: Some(now),
-    });
-
     // ROSIE upstream LLM (live probe)
     let rosie_h = rosie_intelligence::health_check(http_client).await;
     integrations.push(IntegrationHealthItem {

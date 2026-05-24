@@ -477,6 +477,7 @@ async fn launch_server_inner(
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
         loop {
             ticker.tick().await;
+            crate::api::health::WorkerHealth::mark_heartbeat("notification").await;
             crate::logic::notifications_jobs::run_notification_maintenance(&notif_state.db).await;
             if let Err(e) =
                 crate::logic::notifications_jobs::run_notification_generators(&notif_state.db).await
@@ -491,6 +492,7 @@ async fn launch_server_inner(
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
         loop {
             ticker.tick().await;
+            crate::api::health::WorkerHealth::mark_heartbeat("weather").await;
             if let Err(e) = crate::logic::weather::maybe_finalize_daily_weather_snapshots(
                 &weather_state.http_client,
                 &weather_state.db,
@@ -517,6 +519,7 @@ async fn launch_server_inner(
         ));
         loop {
             ticker.tick().await;
+            crate::api::health::WorkerHealth::mark_heartbeat("email").await;
             match crate::logic::email::sync_inbox(&email_state.db).await {
                 Ok(summary) if summary.inserted > 0 => {
                     tracing::info!(
@@ -560,6 +563,7 @@ async fn launch_server_inner(
         ));
         loop {
             ticker.tick().await;
+            crate::api::health::WorkerHealth::mark_heartbeat("podium").await;
             match crate::logic::podium_messaging::sync_recent_from_podium(
                 &podium_sync_state.db,
                 &podium_sync_state.http_client,
@@ -806,6 +810,7 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
     let cleanup_job = Job::new_async("0 0 * * * *", move |_uuid, _l| {
         let st = cleanup_state.clone();
         Box::pin(async move {
+            crate::api::health::WorkerHealth::mark_heartbeat("backup").await;
             let manager = BackupManager::new(st.database_url.clone());
             let settings_raw: serde_json::Value =
                 sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
@@ -827,6 +832,7 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
     let ops_retention_job = Job::new_async("0 30 3 * * *", move |_uuid, _l| {
         let st = ops_retention_state.clone();
         Box::pin(async move {
+            crate::api::health::WorkerHealth::mark_heartbeat("backup").await;
             let config = ops_retention_config_from_env();
             match perform_retention_cleanup(&st.db, &config).await {
                 Ok(result) => tracing::info!(
@@ -849,6 +855,7 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
     let backup_checker = Job::new_async("0 * * * * *", move |_uuid, _l| {
         let st = backup_state.clone();
         Box::pin(async move {
+            crate::api::health::WorkerHealth::mark_heartbeat("backup").await;
             let settings_raw: serde_json::Value =
                 sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
                     .fetch_one(&st.db)

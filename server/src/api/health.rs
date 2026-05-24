@@ -50,31 +50,42 @@ pub struct WorkerHealth {
     pub backup_worker: Option<Instant>,
     pub notification_worker: Option<Instant>,
     pub email_worker: Option<Instant>,
-    pub pubdium_worker: Option<Instant>,
+    pub podium_worker: Option<Instant>,
     pub weather_worker: Option<Instant>,
 }
 
 impl WorkerHealth {
-    pub fn mark_heartbeat(&self, worker: &str) {
-        let _now = Instant::now();
+    pub async fn mark_heartbeat(worker: &str) {
+        let lock = WORKER_HEALTH
+            .get_or_init(|| async { RwLock::new(WorkerHealth::default()) })
+            .await;
+        let mut health = lock.write().await;
+        let now = Instant::now();
         match worker {
-            "backup" => {
-                // This would be called by the backup worker
-            }
-            "notification" => {
-                // This would be called by the notification worker
-            }
-            "email" => {
-                // This would be called by the email worker
-            }
-            "podium" => {
-                // This would be called by the podium worker
-            }
-            "weather" => {
-                // This would be called by the weather worker
-            }
+            "backup" => health.backup_worker = Some(now),
+            "notification" => health.notification_worker = Some(now),
+            "email" => health.email_worker = Some(now),
+            "podium" => health.podium_worker = Some(now),
+            "weather" => health.weather_worker = Some(now),
             _ => {}
         }
+    }
+
+    pub async fn is_healthy(worker: &str, threshold_secs: u64) -> bool {
+        let lock = WORKER_HEALTH
+            .get_or_init(|| async { RwLock::new(WorkerHealth::default()) })
+            .await;
+        let health = lock.read().await;
+        let threshold = std::time::Duration::from_secs(threshold_secs);
+        let last = match worker {
+            "backup" => health.backup_worker,
+            "notification" => health.notification_worker,
+            "email" => health.email_worker,
+            "podium" => health.podium_worker,
+            "weather" => health.weather_worker,
+            _ => None,
+        };
+        last.map(|t| t.elapsed() < threshold).unwrap_or(false)
     }
 }
 
@@ -98,13 +109,13 @@ pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyResponse>,
         Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
     };
 
-    // Check background workers (simplified - assume healthy if DB is healthy)
+    // Check background workers using actual heartbeats
     let worker_status = WorkerStatus {
-        backup_worker: true,
-        notification_worker: true,
-        email_worker: true,
-        podium_worker: true,
-        weather_worker: true,
+        backup_worker: WorkerHealth::is_healthy("backup", 7200).await,
+        notification_worker: WorkerHealth::is_healthy("notification", 7200).await,
+        email_worker: WorkerHealth::is_healthy("email", 7200).await,
+        podium_worker: WorkerHealth::is_healthy("podium", 86400).await,
+        weather_worker: WorkerHealth::is_healthy("weather", 7200).await,
     };
 
     let response = ReadyResponse {
