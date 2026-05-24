@@ -910,6 +910,22 @@ async fn cp_staff(
 // Staff-gated settings endpoints (/api/settings/counterpoint-sync/*)
 // ────────────────────────────────────────────────────────────────────────────
 
+async fn get_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let health = counterpoint_sync::health_check(&state.db).await;
+    Ok(Json(json!({
+        "configured": health.configured,
+        "reachable": health.reachable,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    })))
+}
+
 async fn settings_status(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1599,6 +1615,7 @@ pub fn router() -> Router<AppState> {
 /// Staff-gated settings routes under `/api/settings/counterpoint-sync`.
 pub fn settings_router() -> Router<AppState> {
     Router::new()
+        .route("/health", get(get_health))
         .route("/status", get(settings_status))
         .route(
             "/inventory-verification",

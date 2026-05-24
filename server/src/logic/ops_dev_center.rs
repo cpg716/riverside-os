@@ -14,9 +14,12 @@ use sqlx::{Column, PgPool, Row};
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::api::qbo;
 use crate::auth::permissions::OPS_DEV_CENTER_VIEW;
 use crate::logic::backups::{BackupManager, BackupSettings};
 use crate::logic::bug_reports;
+use crate::logic::counterpoint_sync;
+use crate::logic::email;
 use crate::logic::fal_sidecar;
 use crate::logic::help_corpus;
 use crate::logic::insights_config::StoreInsightsConfig;
@@ -1993,6 +1996,9 @@ pub async fn evaluate_alerts_from_health(
     let mut qbo_failed = false;
     let mut weather_failed = false;
     let mut counterpoint_failed = false;
+    let mut qbo_api_failed = false;
+    let mut email_failed = false;
+    let mut counterpoint_bridge_failed = false;
     let mut podium_failed = false;
     let mut shippo_failed = false;
     let mut fal_ai_failed = false;
@@ -2137,6 +2143,66 @@ pub async fn evaluate_alerts_from_health(
                 opened_signals.push(signal);
             }
         }
+
+        if i.key == "qbo" && i.status == "failed" {
+            qbo_api_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_qbo_api_failure",
+                "integration_qbo_api_failure",
+                "QBO API integration failure",
+                if i.detail.trim().is_empty() {
+                    "QBO API is unreachable"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
+
+        if i.key == "email" && i.status == "failed" {
+            email_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_email_failure",
+                "integration_email_failure",
+                "Email (SMTP) integration failure",
+                if i.detail.trim().is_empty() {
+                    "SMTP server is unreachable"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
+
+        if i.key == "counterpoint" && i.status == "failed" {
+            counterpoint_bridge_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_counterpoint_bridge_failure",
+                "integration_counterpoint_bridge_failure",
+                "Counterpoint bridge integration failure",
+                if i.detail.trim().is_empty() {
+                    "Counterpoint bridge is offline"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
     }
     if !qbo_failed {
         let _ = resolve_rule_alerts(pool, "integration_qbo_failure", &[]).await?;
@@ -2158,6 +2224,15 @@ pub async fn evaluate_alerts_from_health(
     }
     if !nuorder_failed {
         let _ = resolve_rule_alerts(pool, "integration_nuorder_failure", &[]).await?;
+    }
+    if !qbo_api_failed {
+        let _ = resolve_rule_alerts(pool, "integration_qbo_api_failure", &[]).await?;
+    }
+    if !email_failed {
+        let _ = resolve_rule_alerts(pool, "integration_email_failure", &[]).await?;
+    }
+    if !counterpoint_bridge_failed {
+        let _ = resolve_rule_alerts(pool, "integration_counterpoint_bridge_failure", &[]).await?;
     }
 
     for s in stations.iter().filter(|s| !s.online && s.actionable) {
@@ -2378,6 +2453,93 @@ pub async fn health_snapshot(
             });
         }
     }
+
+    // QBO (live API probe)
+    let qbo_h = qbo::health_check(pool, http_client).await;
+    integrations.push(IntegrationHealthItem {
+        key: "qbo".to_string(),
+        title: "QBO".to_string(),
+        status: if !qbo_h.configured {
+            "disabled".to_string()
+        } else if qbo_h.reachable {
+            "healthy".to_string()
+        } else {
+            "failed".to_string()
+        },
+        severity: if !qbo_h.configured {
+            "info".to_string()
+        } else if qbo_h.reachable {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: qbo_h.message,
+        last_success_at: if qbo_h.reachable { Some(now) } else { None },
+        last_failure_at: if !qbo_h.reachable && qbo_h.configured {
+            Some(now)
+        } else {
+            None
+        },
+        updated_at: Some(now),
+    });
+
+    // Email (live SMTP probe)
+    let email_h = email::health_check(pool).await;
+    integrations.push(IntegrationHealthItem {
+        key: "email".to_string(),
+        title: "Email (SMTP)".to_string(),
+        status: if !email_h.configured {
+            "disabled".to_string()
+        } else if email_h.reachable {
+            "healthy".to_string()
+        } else {
+            "failed".to_string()
+        },
+        severity: if !email_h.configured {
+            "info".to_string()
+        } else if email_h.reachable {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: email_h.message,
+        last_success_at: if email_h.reachable { Some(now) } else { None },
+        last_failure_at: if !email_h.reachable && email_h.configured {
+            Some(now)
+        } else {
+            None
+        },
+        updated_at: Some(now),
+    });
+
+    // Counterpoint (live bridge heartbeat probe)
+    let cp_h = counterpoint_sync::health_check(pool).await;
+    integrations.push(IntegrationHealthItem {
+        key: "counterpoint".to_string(),
+        title: "Counterpoint".to_string(),
+        status: if !cp_h.configured {
+            "disabled".to_string()
+        } else if cp_h.reachable {
+            "healthy".to_string()
+        } else {
+            "failed".to_string()
+        },
+        severity: if !cp_h.configured {
+            "info".to_string()
+        } else if cp_h.reachable {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: cp_h.message,
+        last_success_at: if cp_h.reachable { Some(now) } else { None },
+        last_failure_at: if !cp_h.reachable && cp_h.configured {
+            Some(now)
+        } else {
+            None
+        },
+        updated_at: Some(now),
+    });
 
     let stations = list_stations(pool).await?;
     evaluate_alerts_from_health(pool, &integrations, &stations, server_log_snapshot).await?;

@@ -3880,6 +3880,71 @@ pub async fn get_sync_status(
     })
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct CounterpointHealth {
+    pub configured: bool,
+    pub reachable: bool,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+pub async fn health_check(pool: &PgPool) -> CounterpointHealth {
+    let start = std::time::Instant::now();
+    let token_configured = std::env::var("COUNTERPOINT_SYNC_TOKEN")
+        .ok()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if !token_configured {
+        return CounterpointHealth {
+            configured: false,
+            reachable: false,
+            latency_ms: 0,
+            message: "Counterpoint not configured (COUNTERPOINT_SYNC_TOKEN unset)".to_string(),
+        };
+    }
+    let hb = sqlx::query_as::<_, (DateTime<Utc>, String, Option<String>, Option<String>, Option<String>)>(
+        "SELECT last_seen_at, bridge_phase, current_entity, bridge_version, bridge_hostname FROM counterpoint_bridge_heartbeat WHERE id = 1",
+    )
+    .fetch_optional(pool)
+    .await;
+    match hb {
+        Ok(Some((seen, phase, entity, version, hostname))) => {
+            let age = Utc::now().signed_duration_since(seen).num_seconds();
+            if age > HEARTBEAT_TTL_SECONDS {
+                CounterpointHealth {
+                    configured: true,
+                    reachable: false,
+                    latency_ms: start.elapsed().as_millis() as u64,
+                    message: format!(
+                        "Counterpoint bridge offline: last activity {age}s ago (TTL {HEARTBEAT_TTL_SECONDS}s) — phase={phase} entity={entity:?} version={version:?} host={hostname:?}"
+                    ),
+                }
+            } else {
+                CounterpointHealth {
+                    configured: true,
+                    reachable: true,
+                    latency_ms: start.elapsed().as_millis() as u64,
+                    message: format!(
+                        "Counterpoint bridge online — phase={phase} entity={entity:?} version={version:?} host={hostname:?}"
+                    ),
+                }
+            }
+        }
+        Ok(None) => CounterpointHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: "Counterpoint bridge has never sent a heartbeat".to_string(),
+        },
+        Err(e) => CounterpointHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!("Counterpoint heartbeat query failed: {e}"),
+        },
+    }
+}
+
 async fn counterpoint_landing_count(pool: &PgPool, query: &str) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar(query).fetch_one(pool).await
 }
@@ -9253,8 +9318,8 @@ pub async fn execute_counterpoint_open_doc_batch(
         let codes: Vec<String> = cust_codes.into_iter().collect();
         let rows: Vec<(String, Uuid)> = sqlx::query_as(
             r#"
-            SELECT customer_code, id FROM customers 
-            WHERE customer_code = ANY($1) 
+            SELECT customer_code, id FROM customers
+            WHERE customer_code = ANY($1)
                OR customer_code IN (SELECT 'C-' || c FROM unnest($1::text[]) c)
                OR customer_code IN (SELECT substring(c from 3) FROM unnest($1::text[]) c WHERE c LIKE 'C-%')
             "#

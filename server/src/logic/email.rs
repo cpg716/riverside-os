@@ -1193,6 +1193,93 @@ struct MailboxMessageDbRow {
     status: String,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct EmailHealth {
+    pub configured: bool,
+    pub reachable: bool,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+pub async fn health_check(pool: &PgPool) -> EmailHealth {
+    let start = std::time::Instant::now();
+    let cfg = match load_store_email_config(pool).await {
+        Ok(c) => c,
+        Err(e) => {
+            return EmailHealth {
+                configured: false,
+                reachable: false,
+                latency_ms: 0,
+                message: format!("Email settings load failed: {e}"),
+            };
+        }
+    };
+    let Some(creds) = load_email_credentials(pool).await else {
+        return EmailHealth {
+            configured: false,
+            reachable: false,
+            latency_ms: 0,
+            message: "Email not configured (missing credentials)".to_string(),
+        };
+    };
+    if !cfg.enabled {
+        return EmailHealth {
+            configured: false,
+            reachable: false,
+            latency_ms: 0,
+            message: "Email disabled in settings".to_string(),
+        };
+    }
+    let cfg_for_test = cfg.clone();
+    let creds_for_test = creds.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let builder = if cfg_for_test.smtp_tls == "starttls" {
+            SmtpTransport::starttls_relay(&cfg_for_test.smtp_host)
+        } else {
+            SmtpTransport::relay(&cfg_for_test.smtp_host)
+        };
+        let builder = match builder {
+            Ok(b) => b,
+            Err(e) => {
+                return Err(format!("SMTP relay builder failed: {e}"));
+            }
+        };
+        let mailer = builder
+            .port(cfg_for_test.smtp_port)
+            .credentials(Credentials::new(
+                creds_for_test.smtp_username,
+                creds_for_test.smtp_password,
+            ))
+            .build();
+        match mailer.test_connection() {
+            Ok(true) => Ok(()),
+            Ok(false) => Err("SMTP test_connection returned false".to_string()),
+            Err(e) => Err(format!("SMTP connection failed: {e}")),
+        }
+    })
+    .await;
+    match result {
+        Ok(Ok(())) => EmailHealth {
+            configured: true,
+            reachable: true,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: "SMTP server is reachable".to_string(),
+        },
+        Ok(Err(msg)) => EmailHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: msg,
+        },
+        Err(e) => EmailHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!("SMTP health check task panicked: {e}"),
+        },
+    }
+}
+
 impl MailboxMessageDbRow {
     fn into_public(self) -> MailboxMessageRow {
         MailboxMessageRow {

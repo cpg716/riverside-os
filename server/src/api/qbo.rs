@@ -226,6 +226,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/integration", get(get_integration_status))
         .route("/company-info", get(get_company_info))
+        .route("/health", get(get_health))
         .route("/token-health", get(get_token_health))
         .route("/credentials", get(get_credentials).put(put_credentials))
         .route("/tokens/refresh", post(refresh_tokens_stub))
@@ -2125,6 +2126,131 @@ async fn qbo_webhook(
     .ok();
 
     Ok(StatusCode::OK)
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct QboHealth {
+    pub configured: bool,
+    pub reachable: bool,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+pub async fn health_check(pool: &PgPool, http: &reqwest::Client) -> QboHealth {
+    let start = std::time::Instant::now();
+    let row = match integration_row(pool).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return QboHealth {
+                configured: false,
+                reachable: false,
+                latency_ms: 0,
+                message: "QBO not configured".to_string(),
+            };
+        }
+        Err(e) => {
+            return QboHealth {
+                configured: false,
+                reachable: false,
+                latency_ms: 0,
+                message: format!("QBO integration row error: {e}"),
+            };
+        }
+    };
+    let realm_id = match row
+        .realm_id
+        .as_ref()
+        .or(Some(&row.company_id))
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && *s != "pending")
+    {
+        Some(r) => r.to_string(),
+        None => {
+            return QboHealth {
+                configured: true,
+                reachable: false,
+                latency_ms: 0,
+                message: "QBO missing realm_id".to_string(),
+            };
+        }
+    };
+    let access_token = match row.access_token.as_deref().filter(|s| !s.trim().is_empty()) {
+        Some(token)
+            if row
+                .token_expires_at
+                .map(|t| t > Utc::now())
+                .unwrap_or(false) =>
+        {
+            token.to_string()
+        }
+        _ => match refresh_access_token(pool, &row).await {
+            Ok(token) => token,
+            Err(e) => {
+                return QboHealth {
+                    configured: true,
+                    reachable: false,
+                    latency_ms: start.elapsed().as_millis() as u64,
+                    message: format!("QBO token refresh failed: {e}"),
+                };
+            }
+        },
+    };
+    let url = format!(
+        "{}/v3/company/{}/companyinfo/{}?minorversion={}",
+        qbo_base_url(row.use_sandbox),
+        realm_id,
+        realm_id,
+        QBO_MINOR_VERSION
+    );
+    let resp = match http
+        .get(&url)
+        .bearer_auth(&access_token)
+        .header("Accept", "application/json")
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return QboHealth {
+                configured: true,
+                reachable: false,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: format!("QBO API network error: {e}"),
+            };
+        }
+    };
+    let status = resp.status();
+    if status.is_success() {
+        QboHealth {
+            configured: true,
+            reachable: true,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: "QBO CompanyInfo endpoint is reachable".to_string(),
+        }
+    } else {
+        QboHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!("QBO returned HTTP {}", status),
+        }
+    }
+}
+
+async fn get_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, QboError> {
+    require_staff_with_permission(&state, &headers, QBO_VIEW)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+    let health = health_check(&state.db, &state.http_client).await;
+    Ok(Json(json!({
+        "configured": health.configured,
+        "reachable": health.reachable,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    })))
 }
 
 #[cfg(test)]

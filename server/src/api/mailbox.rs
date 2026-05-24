@@ -13,7 +13,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::api::AppState;
-use crate::auth::permissions::{CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW};
+use crate::auth::permissions::{CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, SETTINGS_ADMIN};
 use crate::logic::email;
 use crate::middleware;
 
@@ -102,8 +102,25 @@ pub fn router() -> Router<AppState> {
         .route("/", get(list_messages).post(send_message))
         .route("/sync", post(sync_mailbox))
         .route("/signature", get(get_signature).patch(patch_signature))
+        .route("/health", get(get_health))
         .route("/customer/{customer_id}", get(list_customer_messages))
         .route("/{id}", patch(patch_message_state))
+}
+
+async fn get_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, MailboxError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm_err)?;
+    let health = email::health_check(&state.db).await;
+    Ok(Json(json!({
+        "configured": health.configured,
+        "reachable": health.reachable,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    })))
 }
 
 #[derive(Debug, Deserialize)]
