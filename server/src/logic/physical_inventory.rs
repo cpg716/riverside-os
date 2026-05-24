@@ -269,6 +269,7 @@ async fn snapshot_stock(
             FROM product_variants pv
             JOIN products p ON p.id = pv.product_id
             WHERE p.is_active = true
+              AND p.pos_line_kind IS NULL
               AND p.category_id = ANY($2)
             ON CONFLICT (session_id, variant_id) DO NOTHING
             "#
@@ -290,6 +291,7 @@ async fn snapshot_stock(
             FROM product_variants pv
             JOIN products p ON p.id = pv.product_id
             WHERE p.is_active = true
+              AND p.pos_line_kind IS NULL
             ON CONFLICT (session_id, variant_id) DO NOTHING
             "#
         );
@@ -978,6 +980,7 @@ async fn try_resolve(pool: &PgPool, code: &str, field: &str) -> Result<Option<Sc
         FROM product_variants pv
         JOIN products p ON p.id = pv.product_id
         WHERE p.is_active = true
+          AND p.pos_line_kind IS NULL
           AND {col} IS NOT NULL
           AND lower(btrim({col})) = lower(btrim($1))
         LIMIT 1
