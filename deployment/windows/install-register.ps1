@@ -34,6 +34,64 @@ function Set-SafeProperty($Object, $Name, $Value) {
   }
 }
 
+function Ensure-RegisterConfigDefaults($Config) {
+  if ($null -eq $Config) { return }
+  if ($null -eq $Config.register) {
+    $Config | Add-Member -NotePropertyName "register" -NotePropertyValue ([PSCustomObject]@{}) -Force
+  }
+  if ($null -eq $Config.register.apiBase) {
+    $Config.register | Add-Member -NotePropertyName "apiBase" -NotePropertyValue "http://127.0.0.1:3000" -Force
+  }
+  if ($null -eq $Config.register.stationLabel) {
+    $Config.register | Add-Member -NotePropertyName "stationLabel" -NotePropertyValue "" -Force
+  }
+  if ($null -eq $Config.register.cashDrawerEnabled) {
+    $Config.register | Add-Member -NotePropertyName "cashDrawerEnabled" -NotePropertyValue $false -Force
+  }
+  
+  if ($null -eq $Config.register.receiptPrinter) {
+    $Config.register | Add-Member -NotePropertyName "receiptPrinter" -NotePropertyValue ([PSCustomObject]@{}) -Force
+  }
+  if ($null -eq $Config.register.receiptPrinter.mode) {
+    $Config.register.receiptPrinter | Add-Member -NotePropertyName "mode" -NotePropertyValue "system" -Force
+  }
+  if ($null -eq $Config.register.receiptPrinter.ip) {
+    $Config.register.receiptPrinter | Add-Member -NotePropertyName "ip" -NotePropertyValue "" -Force
+  }
+  if ($null -eq $Config.register.receiptPrinter.port) {
+    $Config.register.receiptPrinter | Add-Member -NotePropertyName "port" -NotePropertyValue 9100 -Force
+  }
+  if ($null -eq $Config.register.receiptPrinter.systemName) {
+    $Config.register.receiptPrinter | Add-Member -NotePropertyName "systemName" -NotePropertyValue "" -Force
+  }
+
+  if ($null -eq $Config.register.tagPrinter) {
+    $Config.register | Add-Member -NotePropertyName "tagPrinter" -NotePropertyValue ([PSCustomObject]@{}) -Force
+  }
+  if ($null -eq $Config.register.tagPrinter.mode) {
+    $Config.register.tagPrinter | Add-Member -NotePropertyName "mode" -NotePropertyValue "system" -Force
+  }
+  if ($null -eq $Config.register.tagPrinter.ip) {
+    $Config.register.tagPrinter | Add-Member -NotePropertyName "ip" -NotePropertyValue "" -Force
+  }
+  if ($null -eq $Config.register.tagPrinter.systemName) {
+    $Config.register.tagPrinter | Add-Member -NotePropertyName "systemName" -NotePropertyValue "" -Force
+  }
+
+  if ($null -eq $Config.register.reportPrinter) {
+    $Config.register | Add-Member -NotePropertyName "reportPrinter" -NotePropertyValue ([PSCustomObject]@{}) -Force
+  }
+  if ($null -eq $Config.register.reportPrinter.mode) {
+    $Config.register.reportPrinter | Add-Member -NotePropertyName "mode" -NotePropertyValue "system" -Force
+  }
+  if ($null -eq $Config.register.reportPrinter.ip) {
+    $Config.register.reportPrinter | Add-Member -NotePropertyName "ip" -NotePropertyValue "" -Force
+  }
+  if ($null -eq $Config.register.reportPrinter.systemName) {
+    $Config.register.reportPrinter | Add-Member -NotePropertyName "systemName" -NotePropertyValue "" -Force
+  }
+}
+
 function Assert-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $isAdmin = $null -ne ($identity.Groups | Where-Object { $_.Value -eq 'S-1-5-32-544' })
@@ -227,6 +285,7 @@ if (-not (Test-Path $ConfigPath)) {
 }
 
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+Ensure-RegisterConfigDefaults $config
 
 if ($packageManifest -and $packageManifest.releaseVersion) {
   if ($config.releaseVersion -ne $packageManifest.releaseVersion) {
