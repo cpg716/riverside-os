@@ -5693,13 +5693,7 @@ mod tests {
             final_cash_due: None,
         };
 
-        let result = execute_checkout(
-            &pool,
-            &reqwest::Client::new(),
-            Decimal::ZERO,
-            payload,
-        )
-        .await;
+        let result = execute_checkout(&pool, &reqwest::Client::new(), Decimal::ZERO, payload).await;
 
         let transaction_id = match result {
             Ok(CheckoutDone::Completed { transaction_id, .. }) => transaction_id,
@@ -6020,34 +6014,30 @@ mod tests {
             final_cash_due: None,
         };
 
-        let order_transaction_id = match execute_checkout(
-            &pool,
-            &reqwest::Client::new(),
-            Decimal::ZERO,
-            order_payload,
-        )
-        .await
-        {
-            Ok(CheckoutDone::Completed { transaction_id, .. }) => transaction_id,
-            other => {
-                cleanup_wedding_group_pay_checkout_test(
-                    &pool,
-                    &[],
-                    session_id,
-                    staff_id,
-                    product_id,
-                    variant_id,
-                    category_id,
-                    party_id,
-                    member_id,
-                    beneficiary_customer_id,
-                    payer_customer_id,
-                )
+        let order_transaction_id =
+            match execute_checkout(&pool, &reqwest::Client::new(), Decimal::ZERO, order_payload)
                 .await
-                .expect("cleanup after order checkout failure");
-                panic!("wedding order checkout should complete: {other:?}");
-            }
-        };
+            {
+                Ok(CheckoutDone::Completed { transaction_id, .. }) => transaction_id,
+                other => {
+                    cleanup_wedding_group_pay_checkout_test(
+                        &pool,
+                        &[],
+                        session_id,
+                        staff_id,
+                        product_id,
+                        variant_id,
+                        category_id,
+                        party_id,
+                        member_id,
+                        beneficiary_customer_id,
+                        payer_customer_id,
+                    )
+                    .await
+                    .expect("cleanup after order checkout failure");
+                    panic!("wedding order checkout should complete: {other:?}");
+                }
+            };
 
         let group_pay_payload = CheckoutRequest {
             session_id,

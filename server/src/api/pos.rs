@@ -343,9 +343,18 @@ async fn reverse_rms_record_manual(
         metadata = json!({});
     }
     let obj = metadata.as_object_mut().expect("object just assigned");
-    obj.insert("source_mode".to_string(), Value::String("manual".to_string()));
-    obj.insert("rms_charge_source".to_string(), Value::String("manual".to_string()));
-    obj.insert("posting_status".to_string(), Value::String(status.to_string()));
+    obj.insert(
+        "source_mode".to_string(),
+        Value::String("manual".to_string()),
+    );
+    obj.insert(
+        "rms_charge_source".to_string(),
+        Value::String("manual".to_string()),
+    );
+    obj.insert(
+        "posting_status".to_string(),
+        Value::String(status.to_string()),
+    );
     obj.insert(
         "manual_tracking_status".to_string(),
         Value::String(format!("{status}_manually")),
@@ -373,13 +382,12 @@ async fn reverse_rms_record_manual(
         .await
         .map_err(PosMetaError::Database)?;
 
-    let host_reference: Option<String> = sqlx::query_scalar(
-        "SELECT host_reference FROM pos_rms_charge_record WHERE id = $1",
-    )
-    .bind(record_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(PosMetaError::Database)?;
+    let host_reference: Option<String> =
+        sqlx::query_scalar("SELECT host_reference FROM pos_rms_charge_record WHERE id = $1")
+            .bind(record_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(PosMetaError::Database)?;
 
     tx.commit().await.map_err(PosMetaError::Database)?;
 

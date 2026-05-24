@@ -294,8 +294,7 @@ pub async fn run_rms_account_list_stale_upload_reminder(pool: &PgPool) -> Result
     .flatten();
 
     let dedupe = "rms_account_list_weekly_upload";
-    let fresh_cutoff =
-        Utc::now() - ChronoDuration::days(RMS_ACCOUNT_LIST_FRESH_DAYS);
+    let fresh_cutoff = Utc::now() - ChronoDuration::days(RMS_ACCOUNT_LIST_FRESH_DAYS);
     if latest_uploaded_at
         .map(|uploaded_at| uploaded_at >= fresh_cutoff)
         .unwrap_or(false)

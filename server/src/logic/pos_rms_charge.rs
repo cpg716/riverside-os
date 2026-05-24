@@ -99,9 +99,7 @@ fn masked_gift_card_code(metadata: Option<&Value>) -> Option<String> {
 
 pub fn extract_selection_from_metadata(metadata: &Value) -> Option<RmsChargeSelectionMetadata> {
     let family = clean_text(metadata.get("tender_family")).or_else(|| {
-        if metadata.get("program_code").is_some()
-            || metadata.get("program_label").is_some()
-        {
+        if metadata.get("program_code").is_some() || metadata.get("program_label").is_some() {
             Some(RMS_TENDER_FAMILY.to_string())
         } else {
             None
