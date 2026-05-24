@@ -97,3 +97,8 @@ Admins with `settings.admin` permission can monitor platform logs directly insid
 * **Frontend Panels**:
   * [`client/src/components/settings/FalSettingsPanel.tsx`](../client/src/components/settings/FalSettingsPanel.tsx) — Main dashboard.
   * [`client/src/components/settings/SettingsWorkspace.tsx`](../client/src/components/settings/SettingsWorkspace.tsx) — Sidebar tab routing.
+
+## 6. Hardening (v0.70.x)
+
+- **Retry Logic**: Queue submission retries up to **2 times** with exponential backoff (500ms → 1000ms) on network timeouts, connection errors, and HTTP 5xx.
+- **Health Check**: `GET /api/ai/fal-health` performs a lightweight probe against `queue.fal.run` without triggering actual generation. Returns `configured`, `reachable`, `latency_ms`, `message`.

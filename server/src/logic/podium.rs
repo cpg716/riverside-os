@@ -8,9 +8,17 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration as StdDuration;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+const PODIUM_MAX_RETRIES: u32 = 3;
+const PODIUM_BASE_RETRY_DELAY_MS: u64 = 500;
+
+fn podium_retry_delay(attempt: u32) -> StdDuration {
+    StdDuration::from_millis(PODIUM_BASE_RETRY_DELAY_MS * 2_u64.pow(attempt))
+}
 
 use crate::logic::integration_credentials;
 use crate::logic::podium_messaging;
@@ -769,17 +777,37 @@ async fn send_v4_message(
         }
     }
 
-    let res = add_podium_headers(http.post(url), Some(&token))
-        .header("Content-Type", "application/json")
-        .json(&payload)
-        .send()
-        .await?;
-
-    let status = res.status();
-    if status.is_success() {
-        return Ok(());
+    for attempt in 0..=PODIUM_MAX_RETRIES {
+        if attempt > 0 {
+            tokio::time::sleep(podium_retry_delay(attempt - 1)).await;
+            tracing::info!(attempt, "Retrying Podium message send");
+        }
+        let res = match add_podium_headers(http.post(&url), Some(&token))
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                if e.is_timeout() || e.is_connect() {
+                    tracing::warn!("Podium send network error: {e}");
+                    continue;
+                }
+                return Err(PodiumError::Http(e));
+            }
+        };
+        let status = res.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        if status.is_server_error() && attempt < PODIUM_MAX_RETRIES {
+            tracing::warn!("Podium send HTTP {status}, retrying");
+            continue;
+        }
+        return Err(PodiumError::SendHttp(status.as_u16()));
     }
-    Err(PodiumError::SendHttp(status.as_u16()))
+    Err(PodiumError::SendHttp(0))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -839,21 +867,40 @@ pub async fn create_podium_review_invite(
     }
 
     let token = get_valid_access_token(http, token_cache, &creds).await?;
-    let res = add_podium_headers(
-        http.post(podium_review_invites_url(&creds.api_base_url)),
-        Some(&token),
-    )
-    .header("Content-Type", "application/json")
-    .json(&payload)
-    .send()
-    .await?;
-
-    let status = res.status();
-    if !status.is_success() {
-        return Err(PodiumError::ReviewInviteHttp(status.as_u16()));
-    }
-
-    let raw_response: Value = res.json().await.unwrap_or_else(|_| json!({}));
+    let url = podium_review_invites_url(&creds.api_base_url);
+    let raw_response: Value = 'retry: loop {
+        for attempt in 0..=PODIUM_MAX_RETRIES {
+            if attempt > 0 {
+                tokio::time::sleep(podium_retry_delay(attempt - 1)).await;
+                tracing::info!(attempt, "Retrying Podium review invite");
+            }
+            let res = match add_podium_headers(http.post(&url), Some(&token))
+                .header("Content-Type", "application/json")
+                .json(&payload)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_timeout() || e.is_connect() {
+                        tracing::warn!("Podium review invite network error: {e}");
+                        continue;
+                    }
+                    return Err(PodiumError::Http(e));
+                }
+            };
+            let status = res.status();
+            if status.is_success() {
+                break 'retry res.json().await.unwrap_or_else(|_| json!({}));
+            }
+            if status.is_server_error() && attempt < PODIUM_MAX_RETRIES {
+                tracing::warn!("Podium review invite HTTP {status}, retrying");
+                continue;
+            }
+            return Err(PodiumError::ReviewInviteHttp(status.as_u16()));
+        }
+        return Err(PodiumError::ReviewInviteHttp(0));
+    };
     let provider_id = first_string_at(
         &raw_response,
         &[
@@ -1296,30 +1343,50 @@ async fn get_valid_access_token(
         }
     }
 
-    let res = add_podium_headers(http.post(&creds.token_url), None)
-        .header("Content-Type", "application/json")
-        .json(&json!({
-            "client_id": creds.client_id,
-            "client_secret": creds.client_secret,
-            "grant_type": "refresh_token",
-            "refresh_token": creds.refresh_token,
-        }))
-        .send()
-        .await?;
+    for attempt in 0..=PODIUM_MAX_RETRIES {
+        if attempt > 0 {
+            tokio::time::sleep(podium_retry_delay(attempt - 1)).await;
+            tracing::info!(attempt, "Retrying Podium token refresh");
+        }
+        let res = match add_podium_headers(http.post(&creds.token_url), None)
+            .header("Content-Type", "application/json")
+            .json(&json!({
+                "client_id": &creds.client_id,
+                "client_secret": &creds.client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": &creds.refresh_token,
+            }))
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                if e.is_timeout() || e.is_connect() {
+                    tracing::warn!("Podium token refresh network error: {e}");
+                    continue;
+                }
+                return Err(PodiumError::Http(e));
+            }
+        };
 
-    if !res.status().is_success() {
-        return Err(PodiumError::TokenHttp(res.status().as_u16()));
+        let status = res.status();
+        if status.is_success() {
+            let tr: TokenResponse = res.json().await?;
+            if tr.access_token.is_empty() {
+                return Err(PodiumError::TokenMissing);
+            }
+            let exp = tr.expires_in.unwrap_or(3600);
+            guard.access_token = Some(tr.access_token.clone());
+            guard.expires_at = Some(now + Duration::seconds(exp.max(60)));
+            return Ok(tr.access_token);
+        }
+        if status.is_server_error() && attempt < PODIUM_MAX_RETRIES {
+            tracing::warn!("Podium token refresh HTTP {status}, retrying");
+            continue;
+        }
+        return Err(PodiumError::TokenHttp(status.as_u16()));
     }
-
-    let tr: TokenResponse = res.json().await?;
-    if tr.access_token.is_empty() {
-        return Err(PodiumError::TokenMissing);
-    }
-
-    let exp = tr.expires_in.unwrap_or(3600);
-    guard.access_token = Some(tr.access_token.clone());
-    guard.expires_at = Some(now + Duration::seconds(exp.max(60)));
-    Ok(tr.access_token)
+    Err(PodiumError::TokenHttp(0))
 }
 
 pub async fn fetch_podium_users(
@@ -1601,6 +1668,73 @@ pub async fn update_conversation_assignee(
         return Err(PodiumError::SendHttp(status.as_u16()));
     }
     Ok(res.json::<Value>().await.unwrap_or_else(|_| json!({})))
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct PodiumHealth {
+    pub configured: bool,
+    pub reachable: bool,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+pub async fn health_check(http: &reqwest::Client) -> PodiumHealth {
+    let start = std::time::Instant::now();
+    let env_creds = match std::env::var("RIVERSIDE_PODIUM_CLIENT_ID")
+        .ok()
+        .zip(std::env::var("RIVERSIDE_PODIUM_CLIENT_SECRET").ok())
+    {
+        Some((id, secret)) if !id.is_empty() && !secret.is_empty() => (id, secret),
+        _ => {
+            return PodiumHealth {
+                configured: false,
+                reachable: false,
+                latency_ms: 0,
+                message: "Podium not configured (RIVERSIDE_PODIUM_CLIENT_ID unset)".to_string(),
+            };
+        }
+    };
+    let token_url = std::env::var("RIVERSIDE_PODIUM_OAUTH_TOKEN_URL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "https://api.podium.com/oauth/token".to_string());
+    let res = match add_podium_headers(http.post(&token_url), None)
+        .header("Content-Type", "application/json")
+        .json(&json!({
+            "client_id": env_creds.0,
+            "client_secret": env_creds.1,
+            "grant_type": "refresh_token",
+            "refresh_token": "health-check-probe",
+        }))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return PodiumHealth {
+                configured: true,
+                reachable: false,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: format!("Podium health check network error: {e}"),
+            };
+        }
+    };
+    let status = res.status();
+    if status.as_u16() == 400 || status.is_success() {
+        PodiumHealth {
+            configured: true,
+            reachable: true,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: "Podium token endpoint is reachable".to_string(),
+        }
+    } else {
+        PodiumHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!("Podium returned HTTP {}", status),
+        }
+    }
 }
 
 #[cfg(test)]

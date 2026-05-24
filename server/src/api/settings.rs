@@ -2093,6 +2093,21 @@ struct PodiumOauthAuthorizeUrlResponse {
     authorize_url: String,
 }
 
+async fn get_podium_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+
+    let health = crate::logic::podium::health_check(&state.http_client).await;
+    Ok(Json(json!({
+        "configured": health.configured,
+        "reachable": health.reachable,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    })))
+}
+
 async fn get_podium_oauth_authorize_url(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -2580,6 +2595,7 @@ pub fn router() -> Router<AppState> {
             get(get_email_settings).patch(patch_email_settings),
         )
         .route("/podium-sms/readiness", get(get_podium_sms_readiness))
+        .route("/podium-health", get(get_podium_health))
         .route(
             "/podium-oauth/authorize-url",
             get(get_podium_oauth_authorize_url),

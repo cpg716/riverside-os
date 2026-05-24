@@ -6,6 +6,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::str::FromStr;
+use std::time::Duration as StdDuration;
+
+const SHIPPO_MAX_RETRIES: u32 = 3;
+const SHIPPO_BASE_RETRY_DELAY_MS: u64 = 500;
+
+fn shippo_retry_delay(attempt: u32) -> StdDuration {
+    StdDuration::from_millis(SHIPPO_BASE_RETRY_DELAY_MS * 2_u64.pow(attempt))
+}
 
 pub const RATE_QUOTE_TTL_MINUTES: i64 = 15;
 const SHIPPO_API_VERSION: &str = "2018-02-08";
@@ -373,26 +381,44 @@ async fn fetch_live_rates(
         }
     }
 
-    let resp = http
-        .post("https://api.goshippo.com/shipments/")
-        .header("Authorization", format!("ShippoToken {token}"))
-        .header("SHIPPO-API-VERSION", SHIPPO_API_VERSION)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| ShippoError::Api(e.to_string()))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        tracing::warn!(status = %status, "shippo shipment create failed");
-        return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
-    }
-
-    let v: serde_json::Value = resp
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| ShippoError::Api(e.to_string()))?;
+    let mut last_error = String::new();
+    let v: serde_json::Value = 'retry: loop {
+        for attempt in 0..=SHIPPO_MAX_RETRIES {
+            if attempt > 0 {
+                tokio::time::sleep(shippo_retry_delay(attempt - 1)).await;
+                tracing::info!(attempt, "Retrying Shippo fetch_live_rates");
+            }
+            let resp = match http
+                .post("https://api.goshippo.com/shipments/")
+                .header("Authorization", format!("ShippoToken {token}"))
+                .header("SHIPPO-API-VERSION", SHIPPO_API_VERSION)
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_timeout() || e.is_connect() {
+                        last_error = format!("Shippo network error: {e}");
+                        continue;
+                    }
+                    return Err(ShippoError::Api(e.to_string()));
+                }
+            };
+            let status = resp.status();
+            if status.is_success() {
+                break 'retry resp.json::<serde_json::Value>().await.map_err(|e| ShippoError::Api(e.to_string()))?;
+            }
+            let text = resp.text().await.unwrap_or_default();
+            if status.is_server_error() && attempt < SHIPPO_MAX_RETRIES {
+                last_error = format!("Shippo HTTP {status}: {text}");
+                continue;
+            }
+            tracing::warn!(status = %status, "shippo shipment create failed");
+            return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
+        }
+        return Err(ShippoError::Api(format!("Shippo fetch_live_rates failed after retries: {last_error}")));
+    };
 
     let rates = v
         .get("rates")
@@ -998,26 +1024,44 @@ pub async fn purchase_transaction_for_rate(
         "async": false,
     });
 
-    let resp = http
-        .post("https://api.goshippo.com/transactions/")
-        .header("Authorization", format!("ShippoToken {token}"))
-        .header("SHIPPO-API-VERSION", SHIPPO_API_VERSION)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| ShippoError::Api(e.to_string()))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        tracing::warn!(status = %status, "shippo transaction create failed");
-        return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
-    }
-
-    let v: serde_json::Value = resp
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| ShippoError::Api(e.to_string()))?;
+    let mut last_error = String::new();
+    let v: serde_json::Value = 'retry: loop {
+        for attempt in 0..=SHIPPO_MAX_RETRIES {
+            if attempt > 0 {
+                tokio::time::sleep(shippo_retry_delay(attempt - 1)).await;
+                tracing::info!(attempt, "Retrying Shippo purchase transaction");
+            }
+            let resp = match http
+                .post("https://api.goshippo.com/transactions/")
+                .header("Authorization", format!("ShippoToken {token}"))
+                .header("SHIPPO-API-VERSION", SHIPPO_API_VERSION)
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_timeout() || e.is_connect() {
+                        last_error = format!("Shippo network error: {e}");
+                        continue;
+                    }
+                    return Err(ShippoError::Api(e.to_string()));
+                }
+            };
+            let status = resp.status();
+            if status.is_success() {
+                break 'retry resp.json::<serde_json::Value>().await.map_err(|e| ShippoError::Api(e.to_string()))?;
+            }
+            let text = resp.text().await.unwrap_or_default();
+            if status.is_server_error() && attempt < SHIPPO_MAX_RETRIES {
+                last_error = format!("Shippo HTTP {status}: {text}");
+                continue;
+            }
+            tracing::warn!(status = %status, "shippo transaction create failed");
+            return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
+        }
+        return Err(ShippoError::Api(format!("Shippo purchase failed after retries: {last_error}")));
+    };
 
     let st = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
     if st == "ERROR" {
@@ -1070,4 +1114,57 @@ pub async fn purchase_transaction_for_rate(
         shipping_label_url,
         label_cost_usd,
     })
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ShippoHealth {
+    pub configured: bool,
+    pub reachable: bool,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+pub async fn health_check(http: &reqwest::Client) -> ShippoHealth {
+    let start = std::time::Instant::now();
+    let Some(token) = shippo_api_token_from_env() else {
+        return ShippoHealth {
+            configured: false,
+            reachable: false,
+            latency_ms: 0,
+            message: "Shippo not configured (SHIPPO_API_TOKEN unset)".to_string(),
+        };
+    };
+    let res = match http
+        .get("https://api.goshippo.com/shipments/")
+        .header("Authorization", format!("ShippoToken {token}"))
+        .header("SHIPPO-API-VERSION", SHIPPO_API_VERSION)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return ShippoHealth {
+                configured: true,
+                reachable: false,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: format!("Shippo health check network error: {e}"),
+            };
+        }
+    };
+    let status = res.status();
+    if status.as_u16() == 200 || status.as_u16() == 401 {
+        ShippoHealth {
+            configured: true,
+            reachable: true,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: "Shippo API is reachable".to_string(),
+        }
+    } else {
+        ShippoHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!("Shippo returned HTTP {}", status),
+        }
+    }
 }

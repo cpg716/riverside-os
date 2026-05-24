@@ -25,9 +25,16 @@ The Shipping subsystem in Riverside OS is a unified hub that integrates with **S
 - **`SHIPMENTS_VIEW`**: Required for reading tracking info.
 - **`SHIPMENTS_MANAGE`**: Required for purchasing labels or manual state changes.
 
-## 5. Findings & Recommendations
+## 5. Hardening (v0.70.x)
+
+- **Retry Logic**: Live rate fetching (`fetch_live_rates`) and label purchase (`purchase_shippo_transaction`) now retry up to **3 times** with exponential backoff (500ms → 1000ms → 2000ms) on network timeouts, connection errors, and HTTP 5xx.
+- **Health Check**: New `GET /api/shipments/health` endpoint performs a lightweight probe against `api.goshippo.com`. Returns `configured`, `reachable`, `latency_ms`, `message`.
+
+## 6. Findings & Recommendations
 1. **Redundancy**: The "Force Stub" query parameter allows for testing rate-quoting workflows in development without exhausting real API credits.
 2. **Error Recovery**: Shippo API errors are mapped to a specific `StatusCode::BAD_GATEWAY` to distinguish between internal Riverside failures and external provider outages.
 
-## 6. Conclusion
+## 7. Conclusion
 The Shipping & Labelling subsystem is a robust, production-ready logistics hub that successfully abstracts the complexity of multi-carrier shipping into a single interface.
+
+**Last reviewed:** 2026-05-23

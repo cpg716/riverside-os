@@ -242,6 +242,22 @@ async fn patch_shipment_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn get_shippo_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ShipmentsApiError> {
+    let _ = middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_VIEW)
+        .await
+        .map_err(map_perm)?;
+    let health = crate::logic::shippo::health_check(&state.http_client).await;
+    Ok(Json(json!({
+        "configured": health.configured,
+        "reachable": health.reachable,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    })))
+}
+
 #[derive(Debug)]
 enum ShipmentsApiError {
     Shipment(ShipmentError),
@@ -328,4 +344,5 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/refund-label", post(post_refund_label))
         .route("/{id}/return-shipment", post(post_return_shipment))
         .route("/{id}/notes", post(post_note))
+        .route("/health", get(get_shippo_health))
 }

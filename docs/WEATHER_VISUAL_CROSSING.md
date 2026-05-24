@@ -25,6 +25,12 @@ The Visual Crossing API key is Settings-managed. The only environment override l
 |--------|------|---------|
 | `GET` | `/api/weather/history?from=YYYY-MM-DD&to=YYYY-MM-DD` | Daily rows for chart ranges |
 | `GET` | `/api/weather/forecast` | JSON `{ days, current }` — today/tomorrow dailies plus optional **`currentConditions`** when VC is on (`include=days,current`) |
+| `GET` | `/api/weather/health` | **New** Live connectivity + latency check |
+
+## Hardening (v0.70.x)
+
+- **Retry Logic**: Visual Crossing Timeline requests retry up to **2 times** with exponential backoff (300ms → 600ms) on network timeouts, connection errors, and HTTP 5xx.
+- **Health Check**: `GET /api/weather/health` probes the API with a single-day request without consuming additional quota. Returns `configured`, `reachable`, `latency_ms`, `message`.
 
 These routes are intentionally **not** staff-gated so dashboards and feeds can load without Back Office headers.
 

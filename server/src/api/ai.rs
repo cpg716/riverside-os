@@ -154,9 +154,20 @@ async fn list_visual_jobs(
     Ok(Json(jobs))
 }
 
+async fn get_fal_health(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let health = crate::logic::fal_sidecar::health_check(&state.http_client).await;
+    Json(json!({
+        "configured": health.configured,
+        "reachable": health.reachable,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    }))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/visual/dispatch", post(dispatch_visual_job))
         .route("/visual/status/{job_id}", get(get_visual_job_status))
         .route("/visual/jobs", get(list_visual_jobs))
+        .route("/fal-health", get(get_fal_health))
 }

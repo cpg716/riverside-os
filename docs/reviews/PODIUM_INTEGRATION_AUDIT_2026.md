@@ -81,5 +81,12 @@ The Podium integration in Riverside OS is a comprehensive, multi-channel communi
 | `/v4/contacts/{identifier}` | PATCH | Update Podium contact |
 | `/v4/contacts/{identifier}/campaigns/opt_out` | POST | Campaign opt-out sync |
 
-## 7. Conclusion
+## 7. Hardening (v0.70.x)
+
+- **Retry Logic**: Token refresh, outbound message send (`POST /v4/messages`), and review invite dispatch now retry up to **3 times** with exponential backoff (500ms → 1000ms → 2000ms) on network timeouts, connection errors, and HTTP 5xx.
+- **Health Check**: New `GET /api/settings/podium-health` endpoint probes the Podium OAuth token endpoint with a lightweight invalid-refresh-token request. Returns `configured`, `reachable`, `latency_ms`, `message`.
+
+## 8. Conclusion
 The Podium integration is an industrial-grade, fully wired system that bridges the point-of-sale and customer mobile devices. All planned API endpoints are implemented, staff identity is correctly mapped, customer opt-out preferences are respected end-to-end, and the UI reflects a modern iOS/Android messaging experience. No implementation gaps remain.
+
+**Last reviewed:** 2026-05-23

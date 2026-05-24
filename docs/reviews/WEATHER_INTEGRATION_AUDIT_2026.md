@@ -32,10 +32,17 @@ The Weather Integration is a strategic ROI tool that correlates store performanc
 - **Env Overrides**: `RIVERSIDE_VISUAL_CROSSING_ENABLED` allows IT to toggle the integration globally without modifying database settings.
 - **Location Aware**: The system uses store-local timezones (`America/New_York`) to ensure the "Finalizer" job runs during the correct low-traffic window.
 
-## 5. Findings & Recommendations
+## 5. Hardening (v0.70.x)
+
+- **Retry Logic**: Visual Crossing Timeline requests now retry up to **2 times** with exponential backoff (300ms → 600ms) on network timeouts, connection errors, and HTTP 5xx.
+- **Health Check**: New `GET /api/weather/health` endpoint probes the Visual Crossing API with a single-day request. Returns `configured`, `reachable`, `latency_ms`, `message`.
+
+## 6. Findings & Recommendations
 1. **Precision Correlation**: The nightly finalization job is a high-quality feature that separates Riverside OS from generic POS systems.
 2. **Quota Handling**: The use of a database table to track API usage is a robust architectural choice for distributed staff terminals.
 3. **Observation**: The system defaults to "Buffalo, NY" for mock data. **Recommendation**: Set store-specific mock defaults if the operation expands to warmer climates.
 
-## 6. Conclusion
+## 7. Conclusion
 The Weather Correlation subsystem is **production-ready and operationally mature**. It provides significant business value by translating external environmental factors into actionable internal sales intelligence.
+
+**Last reviewed:** 2026-05-23

@@ -24,6 +24,13 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration as StdDuration, Instant};
 use tracing::{debug, info, warn};
 
+const WEATHER_MAX_RETRIES: u32 = 2;
+const WEATHER_BASE_RETRY_DELAY_MS: u64 = 300;
+
+fn weather_retry_delay(attempt: u32) -> StdDuration {
+    StdDuration::from_millis(WEATHER_BASE_RETRY_DELAY_MS * 2_u64.pow(attempt))
+}
+
 use crate::logic::integration_credentials;
 
 /// Persisted in `store_settings.weather_config` (JSONB).
@@ -676,31 +683,48 @@ async fn fetch_visual_crossing(
         "weather requesting Visual Crossing timeline"
     );
 
-    let resp = match http.get(&url).send().await {
-        Ok(r) => r,
-        Err(e) => {
+    let mut last_error = String::new();
+    let parsed: VcRoot = 'retry: loop {
+        for attempt in 0..=WEATHER_MAX_RETRIES {
+            if attempt > 0 {
+                tokio::time::sleep(weather_retry_delay(attempt - 1)).await;
+                tracing::info!(attempt, "Retrying Visual Crossing weather fetch");
+            }
+            let resp = match http.get(&url).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_timeout() || e.is_connect() {
+                        last_error = format!("Weather network error: {e}");
+                        continue;
+                    }
+                    vc_release_pull(pool).await;
+                    return Err(e.to_string());
+                }
+            };
+            let status = resp.status();
+            if status.is_success() {
+                match resp.json().await {
+                    Ok(p) => break 'retry p,
+                    Err(e) => {
+                        vc_release_pull(pool).await;
+                        return Err(e.to_string());
+                    }
+                }
+            }
+            let body = resp.text().await.unwrap_or_default();
+            if status.is_server_error() && attempt < WEATHER_MAX_RETRIES {
+                last_error = format!("Weather HTTP {status}: {body}");
+                continue;
+            }
             vc_release_pull(pool).await;
-            return Err(e.to_string());
+            return Err(format!(
+                "HTTP {} — {}",
+                status,
+                body.chars().take(200).collect::<String>()
+            ));
         }
-    };
-
-    let status = resp.status();
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
         vc_release_pull(pool).await;
-        return Err(format!(
-            "HTTP {} — {}",
-            status,
-            body.chars().take(200).collect::<String>()
-        ));
-    }
-
-    let parsed: VcRoot = match resp.json().await {
-        Ok(p) => p,
-        Err(e) => {
-            vc_release_pull(pool).await;
-            return Err(e.to_string());
-        }
+        return Err(format!("Weather fetch failed after retries: {last_error}"));
     };
 
     let metric = settings.unit_group.to_lowercase() == "metric";
@@ -860,5 +884,56 @@ fn generate_mock_weather(date: NaiveDate) -> DailyWeatherContext {
         temp_low,
         precipitation_inches: precip,
         condition,
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct WeatherHealth {
+    pub configured: bool,
+    pub reachable: bool,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+pub async fn health_check(http: &reqwest::Client) -> WeatherHealth {
+    let start = std::time::Instant::now();
+    let api_key = match std::env::var("RIVERSIDE_VISUAL_CROSSING_API_KEY")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+    {
+        Some(k) => k,
+        None => {
+            return WeatherHealth {
+                configured: false,
+                reachable: false,
+                latency_ms: 0,
+                message: "Visual Crossing not configured (RIVERSIDE_VISUAL_CROSSING_API_KEY unset)"
+                    .to_string(),
+            };
+        }
+    };
+    let url = format!(
+        "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/Buffalo,NY,US/today?unitGroup=us&contentType=json&include=current&key={}",
+        urlencoding::encode(&api_key)
+    );
+    match http.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => WeatherHealth {
+            configured: true,
+            reachable: true,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: "Visual Crossing API is reachable".to_string(),
+        },
+        Ok(resp) => WeatherHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!("Visual Crossing returned HTTP {}", resp.status()),
+        },
+        Err(e) => WeatherHealth {
+            configured: true,
+            reachable: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!("Visual Crossing health check failed: {e}"),
+        },
     }
 }

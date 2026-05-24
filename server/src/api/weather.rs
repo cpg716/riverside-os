@@ -12,6 +12,7 @@ use crate::api::AppState;
 use crate::logic::weather::{
     fetch_weather_forecast, fetch_weather_range, DailyWeatherContext, WeatherForecastResponse,
 };
+use serde_json::json;
 
 #[derive(Debug, Deserialize)]
 pub struct WeatherQuery {
@@ -36,8 +37,19 @@ async fn get_weather_forecast(State(state): State<AppState>) -> Json<WeatherFore
     Json(fetch_weather_forecast(&state.http_client, &state.db).await)
 }
 
+async fn get_weather_health(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let health = crate::logic::weather::health_check(&state.http_client).await;
+    Json(json!({
+        "configured": health.configured,
+        "reachable": health.reachable,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    }))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/history", axum::routing::get(get_weather_history))
         .route("/forecast", axum::routing::get(get_weather_forecast))
+        .route("/health", axum::routing::get(get_weather_health))
 }
