@@ -627,12 +627,18 @@ function Ensure-RiversideLlamaHost(
     return
   }
 
+  $taskName = "Riverside OS LLM Host"
+  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  Get-Process -Name "llama-server" -ErrorAction SilentlyContinue | ForEach-Object {
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+  }
+  Start-Sleep -Seconds 2
+
   $llamaDir = Join-Path $InstallRoot "rosie\bin"
   New-Item -ItemType Directory -Force -Path $llamaDir | Out-Null
   Copy-Item "$PackageRoot\rosie\bin\*" $llamaDir -Force
 
   $llamaExe = Join-Path $llamaDir "llama-server.exe"
-  $taskName = "Riverside OS LLM Host"
   $argument = "-m `"$ModelPath`" --host $LlamaHost --port $LlamaPort --reasoning off"
 
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
