@@ -146,7 +146,7 @@ export default function App() {
         setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
         await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
         setLogs(prev => [...prev, { level: 'info', text: 'Installing Backoffice desktop app...' }]);
-        await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: undefined });
+        await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-StationMode', 'backoffice'] });
       }
     } catch (e) {
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
@@ -174,7 +174,7 @@ export default function App() {
       setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
       await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
       setLogs(prev => [...prev, { level: 'info', text: 'Updating Backoffice desktop app...' }]);
-      await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: undefined });
+      await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-StationMode', 'backoffice'] });
       setLogs(prev => [...prev, { level: 'success', text: 'Server update complete.' }]);
     } catch (e) {
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);

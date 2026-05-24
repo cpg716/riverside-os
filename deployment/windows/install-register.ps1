@@ -156,7 +156,7 @@ function Write-StationConfig($Config) {
     $Config.register.stationLabel = $stationLabel
   }
 
-  if ($stationLabel -ne "Backoffice / Server" -and $apiBase -match "^https?://(127\.0\.0\.1|localhost)(:|/|$)") {
+  if ($stationLabel -ne "Backoffice / Server" -and $stationLabel -ne "Back Office" -and $apiBase -match "^https?://(127\.0\.0\.1|localhost)(:|/|$)") {
     throw "$stationLabel cannot use $apiBase. Enter the Backoffice / Server PC address, for example http://10.64.70.196:3000."
   }
   $Config.register.apiBase = $apiBase
