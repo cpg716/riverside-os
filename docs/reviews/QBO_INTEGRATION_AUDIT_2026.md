@@ -40,6 +40,13 @@ The QuickBooks Online (QBO) integration is a high-fidelity financial bridge. It 
 1. **Precision**: The "Effective Quantity" logic (line 120 of `qbo_journal.rs`) is an excellent guard against overstating revenue.
 2. **Loyalty Handling**: The split between "Expense" and "Liability" for gift cards is a advanced accounting feature not often seen in retail systems.
 3. **Resolved**: Staging now uses the store-local business date from `store_settings.receipt_config.timezone` via `reporting.effective_store_timezone()`, and the proposed payload includes the effective `business_timezone` for accounting review.
+4. **Resolved (2026-05-23)**: `SyncQBO` background job handler implemented and registered in the job worker. Supports `propose`, `sync_approved`, and `token_refresh` actions.
+5. **Resolved (2026-05-23)**: Token health monitoring via `GET /api/qbo/token-health` endpoint. Proactive refresh runs every 50 minutes when expiry is within 10 minutes.
+6. **Resolved (2026-05-23)**: QBO CompanyInfo validation endpoint added (`GET /api/qbo/company-info`) to verify connection health against live Intuit API.
+7. **Resolved (2026-05-23)**: Auto-propose background worker runs daily at 2 AM local time to create staging rows for the previous business date, reducing manual overhead.
+8. **Resolved (2026-05-23)**: QBO webhook receiver endpoint added (`POST /api/auth/qbo/webhook`) to log Intuit events and detect Account changes.
+9. **Resolved (2026-05-23)**: Approval audit trail hardened — `approved_by_staff_id` and `approved_at` now captured on `qbo_sync_logs`.
+10. **Open**: Invoice/Bill/Payment entity support is not yet implemented; JournalEntry-only posting is the current scope.
 
 ## 6. Conclusion
-The QBO Integration is a **professional-grade financial subsystem**. It provides the auditability and control required for a luxury bridal and menswear operation.
+The QBO Integration is a **professional-grade financial subsystem** with robust background automation, health monitoring, and audit trails. It provides the auditability and control required for a luxury bridal and menswear operation.

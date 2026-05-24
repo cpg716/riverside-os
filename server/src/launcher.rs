@@ -11,7 +11,7 @@ use crate::observability::ServerLogRing;
 use axum::extract::DefaultBodyLimit;
 use axum::http::{HeaderValue, Method};
 use axum::serve;
-use chrono::{NaiveDate, Utc};
+use chrono::{NaiveDate, Timelike, Utc};
 use rust_decimal_macros::dec;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::HashMap;
@@ -393,7 +393,11 @@ async fn launch_server_inner(
                 &mut registry,
                 std::sync::Arc::new(crate::jobs::fal_download::FalDownloadHandler::new(state.clone())),
             );
-            
+            crate::jobs::register_handler(
+                &mut registry,
+                std::sync::Arc::new(crate::jobs::qbo_sync::QboSyncHandler::new(state.db.clone())),
+            );
+
             let worker_config = crate::jobs::WorkerConfig::default();
             let worker = crate::jobs::JobWorker::new(queue, registry, worker_config);
             tokio::spawn(async move {
@@ -436,6 +440,27 @@ async fn launch_server_inner(
             ticker.tick().await;
             if let Err(e) = crate::api::qbo::refresh_due_tokens(&qbo_pool).await {
                 tracing::error!(error = %e, "QBO token refresh worker failed");
+            }
+        }
+    });
+
+    let qbo_propose_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+        let mut last_run_day: Option<chrono::NaiveDate> = None;
+        loop {
+            ticker.tick().await;
+            let now_local = chrono::Local::now();
+            let today = now_local.naive_local().date();
+            let hour = now_local.hour();
+            // Run once per day after 2 AM local time (after Z-close / end of day)
+            if last_run_day != Some(today) && hour >= 2 {
+                last_run_day = Some(today);
+                let yesterday = today.pred_opt().unwrap_or(today);
+                tracing::info!(activity_date = %yesterday, "QBO auto-propose worker: proposing daily journal");
+                if let Err(e) = crate::logic::qbo_journal::ensure_pending_daily_journal(&qbo_propose_state.db, yesterday).await {
+                    tracing::error!(error = %e, "QBO auto-propose worker failed");
+                }
             }
         }
     });

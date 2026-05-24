@@ -20,8 +20,10 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 2. Save the **Realm ID / company ID** and sandbox setting in the same Settings panel.
 3. **QBO bridge** → **Connection**.
 4. Verify **connected** state and **company** name match expectation.
-5. If **token expired**, use **reconnect** / refresh flow per UI (often requires **admin** login to Intuit).
-6. Never share **client secret** in chat. Routine QBO credential updates belong in Backoffice Settings, not environment files.
+5. Use **Company Info** to validate the live QBO connection and see the company name from Intuit.
+6. Use **Token Health** to check access/refresh token status and minutes remaining before expiry.
+7. If **token expired**, use **reconnect** / refresh flow per UI (often requires **admin** login to Intuit). The system also auto-refreshes tokens in the background when within 10 minutes of expiry.
+8. Never share **client secret** in chat. Routine QBO credential updates belong in Backoffice Settings, not environment files.
 
 ## Mappings
 
@@ -38,7 +40,7 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 1. **Staging** → sort by **date** or **status**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
-3. After **Z-Close**, ROS stages the daily journal for that business date. If the pending row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.
+3. After **Z-Close**, ROS stages the daily journal for that business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a pending row when accounting opens. If the pending row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.
 4. Open a row → **drilldown** to lines; fix **unmapped** SKUs, shipping income, liability, clearing, or fallback accounts **before** approve. Operational inventory moves can now appear in the same journal preview: Receiving, Return to Vendor, Damaged, Physical Count, and Adjustments.
 5. Before approving a day with disputed fulfillment, loyalty, commission, tax, or receipt totals, confirm `reporting.transaction_status_integrity` has no ROS register issues for that window. Do not approve around a status mismatch until pickup / shipment workflow or IT repair resolves it.
 6. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
@@ -68,6 +70,9 @@ Before pilot accounting relies on QBO posting, run these scenarios in the QBO sa
 | Warning-bearing journal | Accounting reviews warnings before approval; warnings are not ignored because the journal balances. | |
 | Failed sync and retry | Failed row remains visible, error is assigned, and retry does not create an unexplained duplicate. | |
 | Duplicate-post check | Re-sync/retry uses the existing staging row/request path and does not create a second QBO journal for the same approved row. | |
+| Auto-propose | Previous business date appears in staging automatically after overnight worker runs. | |
+| Approval audit trail | Approved rows show approver name and approval timestamp in History detail. | |
+| Token health check | Token Health endpoint shows valid/refreshable status and minutes remaining. | |
 | Z-close handoff | The Z-report row shows the QBO staging state for the closed business date. | |
 
 Pilot rule: only the accounting owner or store owner approves warning-bearing journals. Cashiers and floor managers may close the register, but they do not clear QBO staging for pilot accounting.

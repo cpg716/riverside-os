@@ -49,6 +49,7 @@ expected=(
   "042_seed_admin_account.sql"
   "043_fal_visual_sidecar.sql"
   "044_customer_review_opt_out.sql"
+  "045_qbo_webhook_events_and_hardening.sql"
 )
 
 active=()
@@ -102,4 +103,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-044."
+echo "Migration layout OK: active baseline 001-045."

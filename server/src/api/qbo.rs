@@ -43,7 +43,7 @@ const QBO_CREDENTIAL_KEYS: &[&str] = &[
     "access_token",
     "refresh_token",
 ];
-const QBO_MINOR_VERSION: &str = "75";
+pub const QBO_MINOR_VERSION: &str = "75";
 const QBO_ACCOUNT_QUERY_PAGE_SIZE: i32 = 1000;
 
 #[derive(Debug, Error)]
@@ -225,6 +225,8 @@ pub struct ProposeJournalRequest {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/integration", get(get_integration_status))
+        .route("/company-info", get(get_company_info))
+        .route("/token-health", get(get_token_health))
         .route("/credentials", get(get_credentials).put(put_credentials))
         .route("/tokens/refresh", post(refresh_tokens_stub))
         .route("/accounts-cache", get(list_accounts_cache))
@@ -248,7 +250,9 @@ pub fn router() -> Router<AppState> {
 }
 
 pub fn auth_router() -> Router<AppState> {
-    Router::new().route("/callback", get(oauth_callback))
+    Router::new()
+        .route("/callback", get(oauth_callback))
+        .route("/webhook", post(qbo_webhook))
 }
 
 pub async fn get_mapping(pool: &PgPool, key: &str) -> Result<String, sqlx::Error> {
@@ -403,7 +407,7 @@ fn mask_client_id(s: &str) -> String {
     }
 }
 
-async fn integration_row(pool: &PgPool) -> Result<Option<IntegrationSecretsRow>, QboError> {
+pub async fn integration_row(pool: &PgPool) -> Result<Option<IntegrationSecretsRow>, QboError> {
     let mut row = sqlx::query_as::<_, IntegrationSecretsRow>(
         r#"
         SELECT
@@ -472,18 +476,18 @@ async fn integration_row(pool: &PgPool) -> Result<Option<IntegrationSecretsRow>,
 }
 
 #[derive(Debug, FromRow)]
-struct IntegrationSecretsRow {
-    id: Uuid,
-    company_id: String,
-    client_id: Option<String>,
-    client_secret: Option<String>,
-    realm_id: Option<String>,
-    use_sandbox: bool,
+pub struct IntegrationSecretsRow {
+    pub id: Uuid,
+    pub company_id: String,
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub realm_id: Option<String>,
+    pub use_sandbox: bool,
     #[allow(dead_code)]
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-    token_expires_at: Option<DateTime<Utc>>,
-    is_active: bool,
+    pub access_token: Option<String>,
+    pub refresh_token: Option<String>,
+    pub token_expires_at: Option<DateTime<Utc>>,
+    pub is_active: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -581,7 +585,7 @@ fn decrypt_legacy_token(cipher: &str) -> Option<String> {
     String::from_utf8(raw).ok()
 }
 
-fn qbo_base_url(use_sandbox: bool) -> &'static str {
+pub fn qbo_base_url(use_sandbox: bool) -> &'static str {
     if use_sandbox {
         "https://sandbox-quickbooks.api.intuit.com"
     } else {
@@ -596,7 +600,7 @@ fn redirect_uri() -> String {
         .unwrap_or_else(|_| "http://127.0.0.1:3000/api/auth/qbo/callback".to_string())
 }
 
-async fn refresh_access_token(
+pub async fn refresh_access_token(
     pool: &PgPool,
     row: &IntegrationSecretsRow,
 ) -> Result<String, QboError> {
@@ -965,6 +969,121 @@ async fn refresh_tokens_stub(
     Ok(Json(json!({
         "status": "refreshed",
         "note": "Access token refreshed using Intuit OAuth refresh_token."
+    })))
+}
+
+async fn get_company_info(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, QboError> {
+    require_staff_with_permission(&state, &headers, QBO_VIEW)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+    let integ = integration_row(&state.db)
+        .await?
+        .ok_or_else(|| QboError::InvalidPayload("no active QBO integration".to_string()))?;
+    let realm_id = integ
+        .realm_id
+        .as_ref()
+        .or(Some(&integ.company_id))
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && *s != "pending")
+        .ok_or_else(|| QboError::InvalidPayload("missing realm_id".to_string()))?;
+
+    let access_token = match integ
+        .access_token
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        Some(token)
+            if integ
+                .token_expires_at
+                .map(|t| t > Utc::now())
+                .unwrap_or(false) =>
+        {
+            token.to_string()
+        }
+        _ => refresh_access_token(&state.db, &integ).await?,
+    };
+
+    let url = format!(
+        "{}/v3/company/{}/companyinfo/{}",
+        qbo_base_url(integ.use_sandbox),
+        realm_id,
+        realm_id
+    );
+    let resp = state
+        .http_client
+        .get(&url)
+        .bearer_auth(&access_token)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| QboError::Conflict(format!("QBO CompanyInfo request failed: {e}")))?;
+    let status = resp.status();
+
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(QboError::Conflict(format!(
+            "QBO CompanyInfo failed ({}): {text}",
+            status
+        )));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| QboError::Conflict(format!("invalid CompanyInfo response: {e}")))?;
+    Ok(Json(body))
+}
+
+async fn get_token_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, QboError> {
+    require_staff_with_permission(&state, &headers, QBO_VIEW)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+    let row = integration_row(&state.db).await?;
+    let Some(integ) = row else {
+        return Ok(Json(json!({
+            "status": "not_configured",
+            "message": "No active QBO integration configured."
+        })));
+    };
+
+    let now = Utc::now();
+    let expires_at = integ.token_expires_at;
+    let has_refresh = integ
+        .refresh_token
+        .as_ref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    let has_access = integ
+        .access_token
+        .as_ref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+
+    let status = if has_access && expires_at.map(|e| e > now).unwrap_or(false) {
+        "valid"
+    } else if has_refresh {
+        "refreshable"
+    } else {
+        "expired_or_missing"
+    };
+
+    let minutes_remaining = expires_at.map(|e| {
+        let dur = e.signed_duration_since(now);
+        dur.num_minutes()
+    });
+
+    Ok(Json(json!({
+        "status": status,
+        "has_access_token": has_access,
+        "has_refresh_token": has_refresh,
+        "expires_at": expires_at,
+        "minutes_remaining": minutes_remaining,
+        "realm_id_set": integ.realm_id.as_ref().map(|s| !s.is_empty()).unwrap_or(false),
     })))
 }
 
@@ -1505,11 +1624,16 @@ async fn approve_staging(
     let n = sqlx::query(
         r#"
         UPDATE qbo_sync_logs
-        SET status = 'approved', updated_at = CURRENT_TIMESTAMP
+        SET
+            status = 'approved',
+            approved_by_staff_id = $2,
+            approved_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = $1 AND status = 'pending'
         "#,
     )
     .bind(id)
+    .bind(admin.id)
     .execute(&state.db)
     .await?
     .rows_affected();
@@ -1951,6 +2075,56 @@ async fn sync_staging(
         "status": "synced",
         "journal_entry_id": je_id
     })))
+}
+
+async fn qbo_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<StatusCode, QboError> {
+    let signature = headers
+        .get("intuit-signature")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if signature.is_empty() {
+        tracing::warn!("QBO webhook received without intuit-signature header");
+    }
+
+    let event_types: Vec<String> = payload
+        .get("eventNotifications")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|n| {
+            n.get("dataChangeEvent")
+                .and_then(|e| e.get("entities"))
+                .and_then(|v| v.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|ent| ent.get("name").and_then(|v| v.as_str()).map(String::from))
+                .next()
+        })
+        .collect();
+
+    for event in &event_types {
+        tracing::info!(event = %event, "QBO webhook received");
+        if event == "Account" {
+            tracing::info!("QBO Account change detected; consider refreshing accounts cache");
+        }
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO qbo_webhook_events (payload, received_at)
+        VALUES ($1, CURRENT_TIMESTAMP)
+        "#,
+    )
+    .bind(&payload)
+    .execute(&state.db)
+    .await
+    .ok();
+
+    Ok(StatusCode::OK)
 }
 
 #[cfg(test)]
