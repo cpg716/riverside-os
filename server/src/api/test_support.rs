@@ -457,34 +457,101 @@ struct LinkedAccountSeed<'a> {
     program_group: Option<&'a str>,
 }
 
-#[cfg(false)]
+fn mask_account_identifier(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "Unavailable".to_string();
+    }
+    let last4: String = trimmed
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    if last4.is_empty() {
+        "Unavailable".to_string()
+    } else {
+        format!("••••{last4}")
+    }
+}
+
+fn normalized_status(status: &str) -> String {
+    let trimmed = status.trim();
+    if trimmed.is_empty() {
+        "active".to_string()
+    } else {
+        trimmed.to_ascii_lowercase()
+    }
+}
+
 async fn add_linked_account(
     state: &AppState,
     staff_id: Uuid,
     customer_id: Uuid,
     seed: LinkedAccountSeed<'_>,
 ) -> Result<(), TestSupportError> {
-    corecard::link_customer_account(
-        &state.db,
-        &LinkCustomerCoreCreditAccountRequest {
+    let mut tx = state.db.begin().await?;
+
+    if seed.is_primary {
+        sqlx::query(
+            "UPDATE customer_corecredit_accounts SET is_primary = FALSE, updated_at = now() WHERE customer_id = $1",
+        )
+        .bind(customer_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO customer_corecredit_accounts (
             customer_id,
-            corecredit_customer_id: seed.corecredit_customer_id.to_string(),
-            corecredit_account_id: seed.corecredit_account_id.to_string(),
-            corecredit_card_id: None,
-            status: Some(seed.status.to_string()),
-            is_primary: seed.is_primary,
-            program_group: seed.program_group.map(str::to_string),
-            verification_source: Some("e2e_fixture".to_string()),
-            notes: Some("E2E deterministic fixture".to_string()),
-        },
-        staff_id,
+            corecredit_customer_id,
+            corecredit_account_id,
+            corecredit_card_id,
+            status,
+            is_primary,
+            program_group,
+            last_verified_at,
+            verified_by_staff_id,
+            verification_source,
+            notes,
+            created_at,
+            updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, now())
+        ON CONFLICT (customer_id, corecredit_account_id) DO UPDATE
+        SET
+            corecredit_customer_id = EXCLUDED.corecredit_customer_id,
+            corecredit_card_id = EXCLUDED.corecredit_card_id,
+            status = EXCLUDED.status,
+            is_primary = EXCLUDED.is_primary,
+            program_group = EXCLUDED.program_group,
+            last_verified_at = now(),
+            verified_by_staff_id = EXCLUDED.verified_by_staff_id,
+            verification_source = EXCLUDED.verification_source,
+            notes = EXCLUDED.notes,
+            updated_at = now()
+        "#,
     )
-    .await
-    .map_err(|error| TestSupportError::BadRequest(error.to_string()))?;
+    .bind(customer_id)
+    .bind(seed.corecredit_customer_id)
+    .bind(seed.corecredit_account_id)
+    .bind(None::<String>)
+    .bind(seed.status)
+    .bind(seed.is_primary)
+    .bind(seed.program_group)
+    .bind(staff_id)
+    .bind("e2e_fixture")
+    .bind("E2E deterministic fixture")
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
     Ok(())
 }
 
-#[cfg(false)]
 async fn post_seed_fixture(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -587,9 +654,89 @@ async fn post_seed_fixture(
         }
     }
 
-    let linked_accounts = corecard::list_customer_account_views(&state.db, customer.id)
-        .await
-        .map_err(|error| TestSupportError::BadRequest(error.to_string()))?;
+    let rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            String,
+            String,
+            Option<String>,
+            String,
+            bool,
+            Option<String>,
+            DateTime<Utc>,
+            Uuid,
+            Option<String>,
+            Option<String>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        ),
+    >(
+        r#"
+        SELECT
+            id,
+            customer_id,
+            corecredit_customer_id,
+            corecredit_account_id,
+            corecredit_card_id,
+            status,
+            is_primary,
+            program_group,
+            last_verified_at,
+            verified_by_staff_id,
+            verification_source,
+            notes,
+            created_at,
+            updated_at
+        FROM customer_corecredit_accounts
+        WHERE customer_id = $1
+        ORDER BY is_primary DESC, updated_at DESC, created_at DESC
+        "#,
+    )
+    .bind(customer.id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let linked_accounts: Vec<Value> = rows
+        .into_iter()
+        .map(
+            |(
+                id,
+                customer_id,
+                corecredit_customer_id,
+                corecredit_account_id,
+                corecredit_card_id,
+                status,
+                is_primary,
+                program_group,
+                last_verified_at,
+                verified_by_staff_id,
+                verification_source,
+                notes,
+                created_at,
+                updated_at,
+            )| {
+                json!({
+                    "masked_account": mask_account_identifier(&corecredit_account_id),
+                    "id": id,
+                    "customer_id": customer_id,
+                    "corecredit_customer_id": corecredit_customer_id,
+                    "corecredit_account_id": corecredit_account_id,
+                    "corecredit_card_id": corecredit_card_id,
+                    "status": normalized_status(&status),
+                    "is_primary": is_primary,
+                    "program_group": program_group,
+                    "last_verified_at": last_verified_at,
+                    "verified_by_staff_id": verified_by_staff_id,
+                    "verification_source": verification_source,
+                    "notes": notes,
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                })
+            },
+        )
+        .collect();
 
     Ok(Json(SeedFixtureResponse {
         fixture: match body.fixture {
@@ -607,35 +754,64 @@ async fn post_seed_fixture(
     }))
 }
 
-#[cfg(false)]
 async fn post_prepare_record(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<PrepareRecordRequest>,
 ) -> Result<Json<PrepareRecordResponse>, TestSupportError> {
     let staff = require_admin_staff(&state, &headers).await?;
-    let record = corecard::get_rms_charge_record_detail(&state.db, body.record_id)
-        .await
-        .map_err(|error| TestSupportError::BadRequest(error.to_string()))?;
+    let record = sqlx::query_as::<
+        _,
+        (
+            String,
+            Option<String>,
+            Option<String>,
+            String,
+            Option<String>,
+            String,
+        ),
+    >(
+        r#"
+        SELECT
+            record_kind,
+            external_transaction_type,
+            linked_corecredit_account_id,
+            posting_status,
+            host_reference,
+            payment_method
+        FROM pos_rms_charge_record
+        WHERE id = $1
+        "#,
+    )
+    .bind(body.record_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let (
+        record_kind,
+        external_transaction_type,
+        linked_corecredit_account_id,
+        posting_status,
+        host_reference,
+        payment_method,
+    ) = record;
+
     tracing::info!(
         record_id = %body.record_id,
         mode = ?body.mode,
-        record_kind = %record.record_kind,
-        posting_status = %record.posting_status,
-        account_id = ?record.linked_corecredit_account_id,
+        record_kind = %record_kind,
+        posting_status = %posting_status,
+        account_id = ?linked_corecredit_account_id,
         "preparing RMS E2E record state"
     );
 
-    let exception_type = match (
-        record.record_kind.as_str(),
-        record.external_transaction_type.as_deref(),
-    ) {
+    let exception_type = match (record_kind.as_str(), external_transaction_type.as_deref()) {
         ("payment", _) | (_, Some("payment")) => "failed_payment_post",
         (_, Some("refund")) => "failed_refund",
         (_, Some("reversal")) => "failed_reversal",
         _ => "failed_purchase_post",
     };
-    let error_code = if record.record_kind == "payment" {
+    let error_code = if record_kind == "payment" {
         "host_timeout"
     } else {
         "host_unavailable"
@@ -670,23 +846,45 @@ async fn post_prepare_record(
             .execute(&state.db)
             .await?;
 
-            let exception_id = corecard::upsert_exception(
-                &state.db,
-                Some(body.record_id),
-                record.linked_corecredit_account_id.as_deref(),
-                exception_type,
-                "high",
-                Some("E2E seeded RMS exception"),
-                &json!({
-                    "seeded": true,
-                    "source": "e2e",
-                    "retryable": true,
-                    "record_kind": record.record_kind,
-                    "external_transaction_type": record.external_transaction_type,
-                }),
+            let exception_row = sqlx::query_as::<_, (Uuid,)>(
+                r#"
+                INSERT INTO corecredit_exception_queue (
+                    rms_record_id,
+                    account_id,
+                    exception_type,
+                    severity,
+                    status,
+                    notes,
+                    metadata_json
+                )
+                VALUES ($1, $2, $3, $4, 'open', $5, $6)
+                ON CONFLICT (
+                    COALESCE(rms_record_id::text, ''),
+                    COALESCE(account_id, ''),
+                    exception_type
+                )
+                WHERE status IN ('open', 'retry_pending', 'assigned')
+                DO UPDATE SET
+                    severity = EXCLUDED.severity,
+                    notes = COALESCE(EXCLUDED.notes, corecredit_exception_queue.notes),
+                    metadata_json = EXCLUDED.metadata_json
+                RETURNING id
+                "#,
             )
-            .await
-            .map_err(|error| TestSupportError::BadRequest(error.to_string()))?;
+            .bind(Some(body.record_id))
+            .bind(linked_corecredit_account_id.as_deref())
+            .bind(exception_type)
+            .bind("high")
+            .bind(Some("E2E seeded RMS exception"))
+            .bind(json!({
+                "seeded": true,
+                "source": "e2e",
+                "retryable": true,
+                "record_kind": record_kind,
+                "external_transaction_type": external_transaction_type,
+            }))
+            .fetch_one(&state.db)
+            .await?;
 
             Ok(Json(PrepareRecordResponse {
                 record_id: body.record_id,
@@ -695,7 +893,7 @@ async fn post_prepare_record(
                     _ => "failed_exception_ready",
                 }
                 .to_string(),
-                exception_id: Some(exception_id.id),
+                exception_id: Some(exception_row.0),
                 reconciliation_run_id: None,
             }))
         }
@@ -731,7 +929,7 @@ async fn post_prepare_record(
             }))
         }
         PrepareRecordMode::ReconciliationMismatch => {
-            if record.linked_corecredit_account_id.is_none() {
+            if linked_corecredit_account_id.is_none() {
                 tracing::warn!(record_id = %body.record_id, "reconciliation mismatch requested without linked account");
                 return Err(TestSupportError::Internal {
                     code: "missing_linked_account",
@@ -739,11 +937,11 @@ async fn post_prepare_record(
                         .to_string(),
                     details: json!({
                         "record_id": body.record_id,
-                        "record_kind": record.record_kind,
+                        "record_kind": record_kind,
                     }),
                 });
             }
-            let run_id: Uuid = sqlx::query_scalar(
+            let run_row = sqlx::query_as::<_, (Uuid,)>(
                 r#"
                 INSERT INTO corecredit_reconciliation_run (
                     run_scope, started_at, completed_at, status, requested_by_staff_id, date_from, date_to, summary_json
@@ -756,6 +954,8 @@ async fn post_prepare_record(
             .fetch_one(&state.db)
             .await?;
 
+            let run_id = run_row.0;
+
             sqlx::query(
                 r#"
                 INSERT INTO corecredit_reconciliation_item (
@@ -766,22 +966,22 @@ async fn post_prepare_record(
             )
             .bind(run_id)
             .bind(body.record_id)
-            .bind(record.linked_corecredit_account_id.clone())
+            .bind(linked_corecredit_account_id.clone())
             .bind(json!({
-                "posting_status": record.posting_status,
-                "host_reference": record.host_reference,
+                "posting_status": posting_status,
+                "host_reference": host_reference,
             }))
             .bind(json!({
                 "posting_status": "posted",
                 "host_reference": "E2E-HOST-MISMATCH",
             }))
             .bind(json!({
-                    "expected_clearing_account": if record.record_kind == "payment" {
+                    "expected_clearing_account": if record_kind == "payment" {
                         "RMS_R2S_PAYMENT_CLEARING"
                     } else {
                         "RMS_CHARGE_FINANCING_CLEARING"
                     },
-                    "payment_method": record.payment_method,
+                    "payment_method": payment_method,
                 }))
             .execute(&state.db)
             .await?;
@@ -796,7 +996,6 @@ async fn post_prepare_record(
     }
 }
 
-#[cfg(false)]
 async fn get_transaction_artifacts(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -925,21 +1124,80 @@ async fn get_transaction_artifacts(
     )
     .collect();
 
-    let record_ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM pos_rms_charge_record WHERE transaction_id = $1 ORDER BY created_at ASC",
+    let rms_records_rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Value,
+        ),
+    >(
+        r#"
+        SELECT
+            id,
+            record_kind,
+            payment_method,
+            program_code,
+            program_label,
+            masked_account,
+            linked_corecredit_account_id,
+            posting_status,
+            host_reference,
+            source_mode,
+            external_transaction_id,
+            metadata_json
+        FROM pos_rms_charge_record
+        WHERE transaction_id = $1
+        ORDER BY created_at ASC
+        "#,
     )
     .bind(transaction_id)
     .fetch_all(&state.db)
     .await?;
 
-    let mut rms_records = Vec::new();
-    for record_id in record_ids {
-        rms_records.push(
-            corecard::get_rms_charge_record_detail(&state.db, record_id)
-                .await
-                .map_err(|error| TestSupportError::BadRequest(error.to_string()))?,
-        );
-    }
+    let rms_records: Vec<Value> = rms_records_rows
+        .into_iter()
+        .map(
+            |(
+                id,
+                record_kind,
+                payment_method,
+                program_code,
+                program_label,
+                masked_account,
+                linked_corecredit_account_id,
+                posting_status,
+                host_reference,
+                source_mode,
+                external_transaction_id,
+                metadata_json,
+            )| {
+                json!({
+                    "id": id,
+                    "record_kind": record_kind,
+                    "payment_method": payment_method,
+                    "program_code": program_code,
+                    "program_label": program_label,
+                    "masked_account": masked_account,
+                    "linked_corecredit_account_id": linked_corecredit_account_id,
+                    "posting_status": posting_status,
+                    "host_reference": host_reference,
+                    "source_mode": source_mode,
+                    "external_transaction_id": external_transaction_id,
+                    "metadata_json": metadata_json,
+                })
+            },
+        )
+        .collect();
 
     Ok(Json(TestSupportTransactionArtifacts {
         transaction_id,
@@ -1756,6 +2014,12 @@ async fn get_parked_sale_status(
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/rms/seed-fixture", post(post_seed_fixture))
+        .route("/rms/prepare-record", post(post_prepare_record))
+        .route(
+            "/rms/transaction/{transaction_id}",
+            get(get_transaction_artifacts),
+        )
         .route(
             "/alterations/{alteration_id}/activity",
             get(get_alteration_activity),
