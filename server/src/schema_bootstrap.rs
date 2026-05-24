@@ -6,6 +6,7 @@
 
 use anyhow::{bail, Result};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
     let missing: Vec<String> = sqlx::query_scalar(
@@ -158,5 +159,114 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
         );
     }
 
+    Ok(())
+}
+
+/// Upsert the three required POS layout products (RMS Charge Payment, Gift Card Load,
+/// Alteration Service) so the register toolbar buttons never fail because a seed
+/// script was skipped.  This is data, not schema DDL.
+pub async fn ensure_core_pos_products(pool: &PgPool) -> Result<()> {
+    let category_id: Uuid = "b7c0a001-0001-4001-8001-000000000001".parse()?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO public.categories (id, name, is_clothing_footwear, parent_id, created_at, matrix_row_axis_key, matrix_col_axis_key, tax_rules, variation_axis_presets)
+        VALUES ($1, 'Internal / POS', false, NULL, NOW(), NULL, NULL, NULL, '{}')
+        ON CONFLICT (id) DO NOTHING
+        "#,
+    )
+    .bind(category_id)
+    .execute(pool)
+    .await?;
+
+    let products = vec![
+        (
+            "b7c0a002-0002-4002-8002-000000000002",
+            "ros-rms-charge-payment",
+            "RMS CHARGE PAYMENT",
+            "R2S payment collection — add via Register search PAYMENT; enter amount on keypad.",
+            "rms_charge_payment",
+            "b7c0a003-0003-4003-8003-000000000003",
+            "ROS-RMS-CHARGE-PAYMENT",
+        ),
+        (
+            "b7c0a004-0004-4004-8004-000000000004",
+            "ros-pos-gift-card-load",
+            "POS GIFT CARD LOAD",
+            "Register gift card value — add from Gift Card button; credit applies when the sale is fully paid.",
+            "pos_gift_card_load",
+            "b7c0a005-0005-4005-8005-000000000005",
+            "ROS-POS-GIFT-CARD-LOAD",
+        ),
+        (
+            "b7c0a006-0006-4006-8006-000000000006",
+            "ros-alteration-service",
+            "ALTERATION SERVICE",
+            "Register alteration work-order service line. The source garment is tracked separately and is not sold again.",
+            "alteration_service",
+            "b7c0a007-0007-4007-8007-000000000007",
+            "ROS-ALTERATION-SERVICE",
+        ),
+    ];
+
+    for (pid, handle, name, description, kind, vid, sku) in products {
+        let product_id: Uuid = pid.parse()?;
+        let variant_id: Uuid = vid.parse()?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO public.products (
+                id, category_id, catalog_handle, name, brand, description,
+                base_retail_price, base_cost, spiff_amount, variation_axes, images,
+                is_active, created_at, primary_vendor_id, excludes_from_loyalty,
+                is_bundle, track_low_stock, pos_line_kind, data_source, tax_category,
+                employee_markup_percent, employee_extra_amount
+            ) VALUES (
+                $1, $2, $3, $4, 'Riverside OS', $5,
+                0.00, 0.00, 0.00, '{}', '{}',
+                true, NOW(), NULL, true,
+                false, false, $6, NULL, 'clothing',
+                0.00, NULL
+            )
+            ON CONFLICT (id) DO NOTHING
+            "#,
+        )
+        .bind(product_id)
+        .bind(category_id)
+        .bind(handle)
+        .bind(name)
+        .bind(description)
+        .bind(kind)
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO public.product_variants (
+                id, product_id, sku, variation_values, variation_label,
+                stock_on_hand, reorder_point, images, retail_price_override,
+                cost_override, created_at, shelf_labeled_at, barcode,
+                reserved_stock, vendor_upc, counterpoint_item_key,
+                track_low_stock, web_published, web_price_override,
+                web_gallery_order, on_layaway, default_location_id
+            ) VALUES (
+                $1, $2, $3, '{}', NULL,
+                0, 0, '{}', NULL,
+                NULL, NOW(), NULL, NULL,
+                0, NULL, NULL,
+                false, false, NULL,
+                0, 0, NULL
+            )
+            ON CONFLICT (id) DO NOTHING
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(sku)
+        .execute(pool)
+        .await?;
+    }
+
+    tracing::info!("Unified Engine: Core POS layout products verified/inserted.");
     Ok(())
 }

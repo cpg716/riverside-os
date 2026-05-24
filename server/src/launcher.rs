@@ -279,6 +279,11 @@ async fn launch_server_inner(
     }
     tracing::info!("Unified Engine: Database schema contract OK.");
 
+    if let Err(e) = crate::schema_bootstrap::ensure_core_pos_products(&pool).await {
+        tracing::error!(error = %e, "Unified Engine: Core POS layout product seed failed");
+        return Err(e.into());
+    }
+
     if let Err(e) =
         crate::logic::integration_credentials::apply_all_integration_credentials_to_env(&pool).await
     {
