@@ -289,6 +289,7 @@ pub fn router() -> Router<AppState> {
             get(get_active_card_provider).patch(patch_active_card_provider),
         )
         .route("/providers/helcim/status", get(get_helcim_provider_status))
+        .route("/providers/helcim/health", get(get_helcim_health))
         .route("/providers/helcim/config", patch(patch_helcim_config))
         .route("/providers/helcim/fees/status", get(get_helcim_fee_status))
         .route("/providers/helcim/fees/sync", post(sync_helcim_fees))
@@ -1681,6 +1682,33 @@ async fn get_helcim_provider_status(
         .await
         .map_err(map_credential_error)?;
     Ok(Json(helcim::HelcimConfig::from_env().status()))
+}
+
+async fn get_helcim_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, PaymentError> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_pay_session)?;
+
+    helcim::apply_persisted_helcim_config_to_env(&state.db)
+        .await
+        .map_err(map_credential_error)?;
+    let config = helcim::HelcimConfig::from_env();
+    let start = std::time::Instant::now();
+    match helcim::list_card_terminals(&state.http_client, &config).await {
+        Ok(_) => Ok(Json(json!({
+            "status": "connected",
+            "message": "Helcim API is reachable and authenticated.",
+            "latency_ms": start.elapsed().as_millis() as u64,
+        }))),
+        Err(e) => Ok(Json(json!({
+            "status": "unreachable",
+            "message": e,
+            "latency_ms": start.elapsed().as_millis() as u64,
+        }))),
+    }
 }
 
 async fn get_helcim_fee_status(

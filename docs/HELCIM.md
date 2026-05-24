@@ -47,6 +47,7 @@ Configuration and provider state:
 - `GET /providers/active`
 - `PATCH /providers/active`
 - `GET /providers/helcim/status`
+- `GET /providers/helcim/health` (live API connectivity check with latency)
 - `PATCH /providers/helcim/config`
 - `GET /providers/helcim/fees/status`
 
@@ -100,6 +101,16 @@ Settlement, reconciliation, deposits, and health:
 Webhook intake:
 
 - `POST /api/webhooks/helcim`
+
+## Retry and hardening
+
+All outbound Helcim API calls use centralized retry logic with exponential backoff:
+
+- **Transient failures**: Network timeouts, connection errors, HTTP 429 (rate limit), and HTTP 5xx responses are retried up to 3 times with delays of 500ms, 1000ms, and 2000ms.
+- **Non-retryable errors**: HTTP 4xx client errors (except 429) fail immediately without retry.
+- **Idempotency keys**: Payment POSTs (`purchase`, `refund`, `reverse`, terminal refund, HelcimPay.js initialize) include deterministic idempotency keys so retries are safe against duplicate transactions.
+- **Rate-limit awareness**: Error messages include `retry-after`, `minute-limit-remaining`, and `hour-limit-remaining` headers when Helcim returns them.
+- **HTML response detection**: If the API returns an HTML page (e.g., WAF block or wrong base URL), the error message explicitly flags it so operators can check networking settings.
 
 ## Financial safety invariants
 
