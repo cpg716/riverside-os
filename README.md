@@ -36,7 +36,7 @@ Current runtime contract:
 - child-shell tab changes must not silently bounce the user back to Back Office
 - invalid shell state should fall back cleanly only when the owning shell is no longer valid
 
-## DevOps Center (v0.70.5+)
+## DevOps Center (v0.80.0+)
 
 Riverside OS includes a comprehensive DevOps management system for monitoring, diagnostics, and release management.
 
@@ -54,9 +54,9 @@ A dedicated macOS companion app in `ros-dev/` for managing ROS from anywhere:
 - **ROSIE AI analysis** — One-click diagnostic analysis via the local Gemma LLM
 - **Build**: `cd ros-dev && npm install && npm run tauri build`
 
-## Production Features (v0.70.5+)
+## Production Features (v0.80.0+)
 
-Riverside OS v0.70.5+ includes enterprise-grade production hardening features:
+Riverside OS v0.80.0+ includes enterprise-grade production hardening features:
 
 ### 🏥 **Health & Monitoring**
 - **Health Check Endpoints**: `/api/health`, `/api/ready`, `/api/live` for orchestration

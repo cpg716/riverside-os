@@ -56,7 +56,7 @@ Every guarded action writes an immutable row to `ops_action_audit`.
 
 ---
 
-## Security & Performance Hardening (v0.70.5+)
+## Security & Performance Hardening (v0.80.0+)
 
 To ensure maximum operational security and performance, the Dev Center includes three specific hardening components:
 
