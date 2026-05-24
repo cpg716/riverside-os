@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # Riverside OS - ROSIE AI Stack Installer
 # ============================================================
 # Run this on the Backoffice / Server PC to download the ROSIE
@@ -149,13 +149,20 @@ if ($SkipVoiceTools) {
   $uvCmd = if ($uvCmdObj) { $uvCmdObj.Source } else { $null }
   if (-not $uvCmd) {
     $uvLocal = Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe"
-    if (Test-Path $uvLocal) {
+    $uvUserProfile = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
+    if (Test-Path $uvUserProfile) {
+      $uvCmd = $uvUserProfile
+    } elseif (Test-Path $uvLocal) {
       $uvCmd = $uvLocal
     } else {
       Write-Host "      Installing uv (Python toolchain manager)..."
       try {
         Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-        $uvCmd = Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe"
+        if (Test-Path $uvUserProfile) {
+          $uvCmd = $uvUserProfile
+        } else {
+          $uvCmd = Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe"
+        }
         Write-Host "      uv installed."
       } catch {
         Write-Warning "      Could not install uv: $($_.Exception.Message)"

@@ -772,15 +772,22 @@ function Install-RosieStack($PackageRoot) {
   # ---- 2. Sherpa-ONNX (SenseVoice STT + Kokoro TTS) via uv -----
   $uvCmd = Get-Command uv.exe -ErrorAction SilentlyContinue
   if (-not $uvCmd) {
-    # Try the standard uv install location
+    # Try the standard uv install location and the user profile local bin
     $uvLocal = Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe"
-    if (Test-Path $uvLocal) {
+    $uvUserProfile = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
+    if (Test-Path $uvUserProfile) {
+      $uvCmd = $uvUserProfile
+    } elseif (Test-Path $uvLocal) {
       $uvCmd = $uvLocal
     } else {
       Write-Host "ROSIE: Installing uv (Python toolchain manager)..."
       try {
         Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-        $uvCmd = Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe"
+        if (Test-Path $uvUserProfile) {
+          $uvCmd = $uvUserProfile
+        } else {
+          $uvCmd = Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe"
+        }
       } catch {
         Write-Warning "ROSIE: Could not install uv. SenseVoice STT and Kokoro TTS will be unavailable. Install uv manually from https://astral.sh/uv."
         return $modelDest
