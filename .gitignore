@@ -82,3 +82,4 @@ counterpoint-bridge/bridge-execution.log
 
 # Scratch scripts
 scratch/
+*.zip
