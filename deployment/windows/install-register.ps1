@@ -241,14 +241,35 @@ Write-Host "Station setup written to $stationConfigPath"
 
 if (-not $SkipAppInstall) {
   $installer = Find-RegisterInstaller
+  try {
+    Write-Host "Unblocking installer file: $installer"
+    Unblock-File -Path $installer -ErrorAction SilentlyContinue
+  } catch {}
   Uninstall-ExistingRiversideApp
   Clear-RiversideClientCaches
   Write-Host "Installing Riverside desktop app from $installer"
   Install-RegisterApp $installer
 }
 
+$app = Find-InstalledApp
+if ($app) {
+  try {
+    $wshShell = New-Object -ComObject WScript.Shell
+    $desktopPath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath("CommonDesktopDirectory"), "Riverside POS.lnk")
+    if (-not $desktopPath -or -not (Test-Path (Split-Path $desktopPath))) {
+      $desktopPath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath("Desktop"), "Riverside POS.lnk")
+    }
+    Write-Host "Creating desktop shortcut at $desktopPath"
+    $shortcut = $wshShell.CreateShortcut($desktopPath)
+    $shortcut.TargetPath = $app
+    $shortcut.WorkingDirectory = Split-Path $app
+    $shortcut.Save()
+  } catch {
+    Write-Warning "Could not create desktop shortcut: $($_.Exception.Message)"
+  }
+}
+
 if (-not $NoLaunch) {
-  $app = Find-InstalledApp
   if ($app) {
     Start-Process $app
   } else {
